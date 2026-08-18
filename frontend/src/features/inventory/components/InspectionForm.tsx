@@ -1,6 +1,32 @@
 import { useState } from 'react'
 import { clsx } from 'clsx'
-import { FormField, FormSection, FormActions, ProgressiveDisclosure } from '@/components/forms'
+import { FormField, FormSection, FormActions } from '../../../components/forms'
+
+function CollapsibleSection({ label, optional, children }: { label: string; optional?: boolean; children: React.ReactNode }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <div className="border border-border dark:border-border-dark rounded-lg overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-3 flex items-center justify-between bg-surface dark:bg-surface-dark hover:bg-surface-elevated dark:hover:bg-surface-elevated transition-colors"
+      >
+        <span className="font-medium text-text dark:text-text-dark">
+          {label}
+          {optional && <span className="text-text-secondary dark:text-text-dim text-sm mr-2">(اختياري)</span>}
+        </span>
+        <span className="text-text-secondary dark:text-text-dim">
+          {isOpen ? '▼' : '▶'}
+        </span>
+      </button>
+      {isOpen && (
+        <div className="p-4">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface InspectionData {
   productId: string
@@ -22,11 +48,12 @@ interface InspectionFormProps {
   onCancel?: () => void
   initialData?: Partial<InspectionData>
   className?: string
+  productId?: string
 }
 
-export function InspectionForm({ onSubmit, onCancel, initialData, className }: InspectionFormProps) {
+export function InspectionForm({ onSubmit, onCancel, initialData, className, productId }: InspectionFormProps) {
   const [formData, setFormData] = useState<InspectionData>({
-    productId: initialData?.productId || '',
+    productId: productId || initialData?.productId || '',
     inspector: initialData?.inspector || '',
     date: initialData?.date || new Date().toISOString().split('T')[0],
     powerTest: initialData?.powerTest || 'skipped',
@@ -105,23 +132,23 @@ export function InspectionForm({ onSubmit, onCancel, initialData, className }: I
         </div>
       </FormSection>
 
-      <ProgressiveDisclosure label="الفحص البصري" optional>
+      <CollapsibleSection label="الفحص البصري" optional>
         <TestRow
           label="الفحص البصري"
           value={formData.visualInspection}
           onChange={(value) => setFormData({ ...formData, visualInspection: value as any })}
           options={testOptions}
         />
-      </ProgressiveDisclosure>
+      </CollapsibleSection>
 
-      <ProgressiveDisclosure label="التحقق من الرقم التسلسلي" optional>
+      <CollapsibleSection label="التحقق من الرقم التسلسلي" optional>
         <TestRow
           label="التحقق من الرقم التسلسلي"
           value={formData.serialVerification}
           onChange={(value) => setFormData({ ...formData, serialVerification: value as any })}
           options={testOptions}
         />
-      </ProgressiveDisclosure>
+      </CollapsibleSection>
 
       <FormSection title="النتيجة النهائية">
         <div className="flex gap-4">

@@ -125,3 +125,5 @@ export function UsedItemsPage() {
     </div>
   )
 }
+
+export default UsedItemsPage

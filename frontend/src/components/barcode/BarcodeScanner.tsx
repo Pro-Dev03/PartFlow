@@ -1,21 +1,22 @@
 import { useState, useEffect } from 'react'
+import { clsx } from 'clsx'
 import { CameraScanner } from './CameraScanner'
 
 interface BarcodeScannerProps {
   onScan: (barcode: string) => void
   onClose?: () => void
-  mode?: 'camera' | 'manual' | 'auto'
+  mode?: 'camera' | 'manual'
   className?: string
 }
 
-export function BarcodeScanner({ onScan, onClose, mode = 'auto', className }: BarcodeScannerProps) {
-  const [scannerMode, setScannerMode] = useState<'camera' | 'manual'>(mode === 'manual' ? 'manual' : 'camera')
+export function BarcodeScanner({ onScan, onClose, mode = 'camera', className }: BarcodeScannerProps) {
+  const [scannerMode, setScannerMode] = useState<'camera' | 'manual'>(mode)
   const [manualBarcode, setManualBarcode] = useState('')
 
   useEffect(() => {
     // Listen for external barcode scanner input (keyboard emulation)
     const handleKeyPress = (e: KeyboardEvent) => {
-      if (scannerMode === 'auto' || scannerMode === 'manual') {
+      if (scannerMode === 'manual') {
         // Barcode scanners typically send ENTER after the barcode
         if (e.key === 'Enter' && manualBarcode.length > 0) {
           onScan(manualBarcode)

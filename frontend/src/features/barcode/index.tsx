@@ -8,3 +8,5 @@ export function Barcode() {
     </div>
   )
 }
+
+export default Barcode

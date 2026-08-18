@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import path from 'path'
 
 export default defineConfig({
   plugins: [
@@ -15,7 +16,6 @@ export default defineConfig({
         theme_color: '#3b82f6',
         background_color: '#ffffff',
         display: 'standalone',
-        orientation: 'portrait-primary',
         dir: 'rtl',
         lang: 'ar',
         icons: [
@@ -30,68 +30,19 @@ export default defineConfig({
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any'
-          },
-          {
-            src: '/icons/icon-maskable-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'maskable'
-          },
-          {
-            src: '/icons/icon-maskable-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable'
           }
         ],
-        categories: ['business', 'productivity', 'finance'],
-        shortcuts: [
-          {
-            name: 'بيع جديد',
-            short_name: 'بيع',
-            description: 'بدء عملية بيع جديدة',
-            url: '/sales/new',
-            icons: [{ src: '/icons/sale-shortcut.png', sizes: '96x96' }]
-          },
-          {
-            name: 'مسح barcode',
-            short_name: 'مسح',
-            description: 'مسح barcode منتج',
-            url: '/barcode',
-            icons: [{ src: '/icons/scan-shortcut.png', sizes: '96x96' }]
-          },
-          {
-            name: 'المخزون',
-            short_name: 'مخزون',
-            description: 'عرض المخزون الحالي',
-            url: '/inventory',
-            icons: [{ src: '/icons/inventory-shortcut.png', sizes: '96x96' }]
-          }
-        ]
+        categories: ['business', 'productivity']
       },
       workbox: {
         runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/api\./i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24 // 24 hours
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
-          },
           {
             urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'image-cache',
               expiration: {
-                maxEntries: 200,
+                maxEntries: 100,
                 maxAgeSeconds: 60 * 60 * 24 * 30 // 30 days
               }
             }
@@ -121,13 +72,30 @@ export default defineConfig({
           ui: ['lucide-react', 'clsx', 'tailwind-merge'],
           forms: ['react-hook-form', '@hookform/resolvers', 'zod'],
           charts: ['recharts'],
-          utils: ['date-fns', 'axios']
+          utils: ['axios']
         }
       }
     }
   },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      '@components': path.resolve(__dirname, './src/components'),
+      '@features': path.resolve(__dirname, './src/features'),
+      '@hooks': path.resolve(__dirname, './src/hooks'),
+      '@services': path.resolve(__dirname, './src/services'),
+      '@stores': path.resolve(__dirname, './src/stores'),
+      '@shared': path.resolve(__dirname, './src/shared'),
+      '@types': path.resolve(__dirname, './src/types'),
+      '@utils': path.resolve(__dirname, './src/utils'),
+      '@i18n': path.resolve(__dirname, './src/i18n'),
+      '@assets': path.resolve(__dirname, './src/assets'),
+      '@styles': path.resolve(__dirname, './src/styles'),
+    }
+  },
   server: {
     port: 3000,
-    host: true
+    host: '0.0.0.0',
+    strictPort: false,
   }
 })

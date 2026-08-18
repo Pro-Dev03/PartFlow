@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useRef } from 'react'
-import { Skeleton } from '../components/ui/Skeleton'
+import { Skeleton } from '@components/ui/skeleton'
 
 // Generic lazy loading wrapper with loading state
 export function withLazyLoad<T extends React.ComponentType<any>>(

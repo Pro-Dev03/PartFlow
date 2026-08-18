@@ -243,3 +243,5 @@ function SummaryCard({ label, value, icon, color = 'primary' }: { label: string;
     </div>
   )
 }
+
+export default ExpensesPage

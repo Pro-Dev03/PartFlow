@@ -1,5 +1,5 @@
-import { useRef, useEffect } from 'react'
-import { Print } from 'lucide-react'
+import { useRef } from 'react'
+import { Printer } from 'lucide-react'
 
 export interface InvoiceItem {
   name: string
@@ -63,7 +63,7 @@ export function InvoiceTemplate({ data, onPrint, showPrintButton = true }: Invoi
           onClick={handlePrint}
           className="mb-4 flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-90 transition-colors"
         >
-          <Print className="w-4 h-4" />
+          <Printer className="w-4 h-4" />
           طباعة الفاتورة
         </button>
       )}

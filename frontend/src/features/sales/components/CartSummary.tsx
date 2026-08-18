@@ -1,5 +1,5 @@
-import { Card, CardHeader, CardContent } from '../../../components/ui/Card'
-import { Button } from '../../../components/ui/Button'
+import { Card, CardHeader, CardContent } from '@components/ui/card'
+import { Button } from '@components/ui/button'
 import { useTranslation } from 'react-i18next'
 import { CartItem } from '../types/sales.types'
 

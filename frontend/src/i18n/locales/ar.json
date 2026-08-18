@@ -5,6 +5,7 @@
   },
   "nav": {
     "dashboard": "الرئيسية",
+    "products": "المنتجات",
     "sales": "المبيعات",
     "inventory": "المخزون",
     "customers": "العملاء",

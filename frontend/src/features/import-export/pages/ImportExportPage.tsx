@@ -58,3 +58,5 @@ export function ImportExportPage() {
     </div>
   )
 }
+
+export default ImportExportPage

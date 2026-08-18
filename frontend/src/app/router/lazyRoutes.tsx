@@ -4,52 +4,52 @@ import { lazy } from 'react'
 // This is a template - adjust paths based on actual feature structure
 export const LazyRoutes = {
   // Dashboard
-  Dashboard: lazy(() => import('../../features/dashboard')),
+  Dashboard: lazy(() => import('../../features/dashboard').then(m => ({ default: m.Dashboard }))),
 
   // Products & Inventory
-  Inventory: lazy(() => import('../../features/inventory/pages/InventoryPage')),
-  ProductDetail: lazy(() => import('../../features/inventory/pages/ProductPage')),
-  UsedItems: lazy(() => import('../../features/inventory/pages/UsedItemsPage')),
+  Inventory: lazy(() => import('../../features/inventory/pages/InventoryPage').then(m => ({ default: m.InventoryPage }))),
+  ProductDetail: lazy(() => import('../../features/inventory/pages/ProductPage').then(m => ({ default: m.ProductPage }))),
+  UsedItems: lazy(() => import('../../features/inventory/pages/UsedItemsPage').then(m => ({ default: m.UsedItemsPage }))),
 
   // Sales
-  Sales: lazy(() => import('../../features/sales')),
+  Sales: lazy(() => import('../../features/sales').then(m => ({ default: m.Sales }))),
 
   // Customers
-  Customers: lazy(() => import('../../features/customers/pages/CustomerPage')),
+  Customers: lazy(() => import('../../features/customers/pages/CustomerPage').then(m => ({ default: m.CustomerPage }))),
 
   // Debts
-  Debts: lazy(() => import('../../features/debts/pages/DebtsPage')),
+  Debts: lazy(() => import('../../features/debts/pages/DebtsPage').then(m => ({ default: m.DebtsPage }))),
 
   // Expenses
-  Expenses: lazy(() => import('../../features/expenses/pages/ExpensesPage')),
+  Expenses: lazy(() => import('../../features/expenses/pages/ExpensesPage').then(m => ({ default: m.ExpensesPage }))),
 
   // Reports
-  Reports: lazy(() => import('../../features/reports/pages/ReportsPage')),
+  Reports: lazy(() => import('../../features/reports/pages/ReportsPage').then(m => ({ default: m.ReportsPage }))),
 
   // Import/Export
-  ImportExport: lazy(() => import('../../features/import-export/pages/ImportExportPage')),
+  ImportExport: lazy(() => import('../../features/import-export/pages/ImportExportPage').then(m => ({ default: m.ImportExportPage }))),
 
   // Audit
-  Audit: lazy(() => import('../../features/audit/pages/AuditPage')),
+  Audit: lazy(() => import('../../features/audit/pages/AuditPage').then(m => ({ default: m.AuditPage }))),
 
   // Barcode
-  Barcode: lazy(() => import('../../features/barcode')),
+  Barcode: lazy(() => import('../../features/barcode').then(m => ({ default: m.Barcode }))),
 }
 
 // Preload critical routes
 export function preloadCriticalRoutes() {
   // Preload dashboard immediately
-  LazyRoutes.Dashboard()
+  // LazyRoutes.Dashboard()
 
   // Preload other routes after a delay
   setTimeout(() => {
-    LazyRoutes.Inventory()
-    LazyRoutes.Sales()
-    LazyRoutes.Customers()
+    // LazyRoutes.Inventory()
+    // LazyRoutes.Sales()
+    // LazyRoutes.Customers()
   }, 2000)
 }
 
 // Preload route on hover
 export function preloadRoute(routeName: keyof typeof LazyRoutes) {
-  LazyRoutes[routeName]()
+  // LazyRoutes[routeName]()
 }

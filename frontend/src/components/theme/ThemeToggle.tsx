@@ -1,13 +1,14 @@
 import { useTheme } from './ThemeProvider'
 import { clsx } from 'clsx'
+import { Sun, Moon, Monitor } from 'lucide-react'
 
 export function ThemeToggle() {
-  const { theme, setTheme, actualTheme } = useTheme()
+  const { theme, setTheme } = useTheme()
 
-  const themes: { value: 'light' | 'dark' | 'system'; label: string; icon: string }[] = [
-    { value: 'light', label: 'فاتح', icon: '☀️' },
-    { value: 'dark', label: 'داكن', icon: '🌙' },
-    { value: 'system', label: 'تلقائي', icon: '💻' },
+  const themes: { value: 'light' | 'dark' | 'system'; label: string; icon: React.ReactNode }[] = [
+    { value: 'light', label: 'فاتح', icon: <Sun className="w-5 h-5" /> },
+    { value: 'dark', label: 'داكن', icon: <Moon className="w-5 h-5" /> },
+    { value: 'system', label: 'تلقائي', icon: <Monitor className="w-5 h-5" /> },
   ]
 
   return (
@@ -17,11 +18,11 @@ export function ThemeToggle() {
           key={t.value}
           onClick={() => setTheme(t.value)}
           className={clsx(
-            'w-10 h-10 rounded-lg flex items-center justify-center text-xl transition-all',
-            'hover:bg-muted-10',
+            'w-10 h-10 rounded-lg flex items-center justify-center transition-all',
+            'hover:bg-surface-elevated dark:hover:bg-white/10',
             theme === t.value
-              ? 'bg-primary-10 text-primary ring-2 ring-primary-30'
-              : 'text-muted'
+              ? 'bg-seal-soft text-seal dark:bg-seal/20 dark:text-seal-dark ring-2 ring-seal dark:ring-seal-dark'
+              : 'text-text-secondary dark:text-text-dim'
           )}
           title={t.label}
         >

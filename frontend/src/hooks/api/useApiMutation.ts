@@ -1,4 +1,4 @@
-import { useMutation, UseMutationOptions, UseMutationResult } from 'react-query'
+import { useMutation, UseMutationOptions, UseMutationResult } from '@tanstack/react-query'
 import { apiClient, handleApiError, ApiResponse } from '../../services/api/apiClient'
 
 // Generic hook for POST requests

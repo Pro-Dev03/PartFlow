@@ -1,43 +1,54 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-interface CartItem {
+// ==================== TYPES ====================
+
+export type ProductCondition = 'new' | 'used'
+
+export interface CartItem {
   id: string
   productId: string
-  name: string
-  price: number
-  quantity: number
-  barcode?: string
+  productName: string
+  barcode: string
   serialNumber?: string
-  condition?: 'new' | 'used'
+  condition: ProductCondition
+  price: number
+  cost: number
+  quantity: number
+  availableStock: number
   discount?: number
 }
+
+// ==================== CART STATE ====================
 
 interface CartState {
   items: CartItem[]
   customerId?: string
   customerName?: string
   notes?: string
-  
+
   // Actions
   addItem: (item: Omit<CartItem, 'id'>) => void
   updateItem: (id: string, updates: Partial<CartItem>) => void
   removeItem: (id: string) => void
   clearCart: () => void
-  
+
   // Customer
   setCustomer: (customerId: string, customerName: string) => void
   clearCustomer: () => void
-  
+
   // Notes
   setNotes: (notes: string) => void
-  
+
   // Computed
   getSubtotal: () => number
   getTotalDiscount: () => number
   getTotal: () => number
   getItemCount: () => number
+  getTotalProfit: () => number
 }
+
+// ==================== STORE ====================
 
 export const useCartStore = create<CartState>()(
   persist(
@@ -109,6 +120,13 @@ export const useCartStore = create<CartState>()(
 
       getItemCount: () => {
         return get().items.reduce((count, item) => count + item.quantity, 0)
+      },
+
+      getTotalProfit: () => {
+        return get().items.reduce(
+          (total, item) => total + (item.price - item.cost) * item.quantity,
+          0
+        )
       },
     }),
     {

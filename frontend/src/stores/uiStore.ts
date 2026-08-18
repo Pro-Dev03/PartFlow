@@ -1,15 +1,28 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-// UI State Store
-interface UIState {
-  // Theme
-  theme: 'light' | 'dark' | 'system'
-  setTheme: (theme: 'light' | 'dark' | 'system') => void
+// ==================== TYPES ====================
 
-  // Language
-  language: 'ar' | 'he' | 'en'
-  setLanguage: (language: 'ar' | 'he' | 'en') => void
+export type Theme = 'light' | 'dark' | 'system'
+export type Language = 'ar' | 'he' | 'en'
+export type NotificationType = 'success' | 'error' | 'warning' | 'info'
+
+export interface Notification {
+  id: string
+  type: NotificationType
+  title: string
+  message: string
+  duration?: number
+}
+
+// ==================== UI STATE ====================
+
+interface UIState {
+  // Theme & Language
+  theme: Theme
+  language: Language
+  setTheme: (theme: Theme) => void
+  setLanguage: (language: Language) => void
 
   // Sidebar
   sidebarCollapsed: boolean
@@ -18,7 +31,8 @@ interface UIState {
 
   // Modals
   activeModal: string | null
-  openModal: (modalId: string) => void
+  modalData: any
+  openModal: (modalId: string, data?: any) => void
   closeModal: () => void
 
   // Notifications
@@ -27,13 +41,15 @@ interface UIState {
   removeNotification: (id: string) => void
   clearNotifications: () => void
 
-  // Loading states
+  // Loading
   isLoading: boolean
-  setLoading: (loading: boolean) => void
+  loadingMessage?: string
+  setLoading: (loading: boolean, message?: string) => void
 
   // Filters
   activeFilters: Record<string, any>
   setFilter: (key: string, value: any) => void
+  setFilters: (filters: Record<string, any>) => void
   clearFilters: () => void
 
   // Selection
@@ -43,23 +59,15 @@ interface UIState {
   clearSelection: () => void
 }
 
-interface Notification {
-  id: string
-  type: 'success' | 'error' | 'warning' | 'info'
-  title: string
-  message: string
-  duration?: number
-}
+// ==================== STORE ====================
 
 export const useUIStore = create<UIState>()(
   persist(
     (set, get) => ({
-      // Theme
+      // Theme & Language
       theme: 'system',
-      setTheme: (theme) => set({ theme }),
-
-      // Language
       language: 'ar',
+      setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
 
       // Sidebar
@@ -69,8 +77,9 @@ export const useUIStore = create<UIState>()(
 
       // Modals
       activeModal: null,
-      openModal: (modalId) => set({ activeModal: modalId }),
-      closeModal: () => set({ activeModal: null }),
+      modalData: null,
+      openModal: (modalId, data) => set({ activeModal: modalId, modalData: data }),
+      closeModal: () => set({ activeModal: null, modalData: null }),
 
       // Notifications
       notifications: [],
@@ -96,7 +105,8 @@ export const useUIStore = create<UIState>()(
 
       // Loading
       isLoading: false,
-      setLoading: (loading) => set({ isLoading: loading }),
+      loadingMessage: undefined,
+      setLoading: (loading, message) => set({ isLoading: loading, loadingMessage: message }),
 
       // Filters
       activeFilters: {},
@@ -104,6 +114,7 @@ export const useUIStore = create<UIState>()(
         set((state) => ({
           activeFilters: { ...state.activeFilters, [key]: value },
         })),
+      setFilters: (filters) => set({ activeFilters: filters }),
       clearFilters: () => set({ activeFilters: {} }),
 
       // Selection

@@ -209,6 +209,8 @@ export function AuditPage() {
   )
 }
 
+export default AuditPage
+
 function SummaryCard({ label, value, icon, color = 'primary' }: { label: string; value: string; icon: string; color?: 'success' | 'danger' | 'warning' | 'primary' }) {
   const colorClasses = {
     success: 'text-success',

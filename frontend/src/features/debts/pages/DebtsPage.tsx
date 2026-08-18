@@ -258,3 +258,5 @@ function StatusBadge({ status }: { status: Debt['status'] }) {
     </span>
   )
 }
+
+export default DebtsPage

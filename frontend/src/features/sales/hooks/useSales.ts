@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { salesService } from '../services/sales.service'
 import { Sale, CartItem, Customer, PaymentMethod } from '../types/sales.types'
 

@@ -1,5 +1,4 @@
 export { FormField, FormSection, FormActions } from './Form'
-export { ProgressiveDisclosure } from './ProgressiveDisclosure'
 export { FormInput } from './FormInput'
 export { FormSelect } from './FormSelect'
 export { FormTextArea } from './FormTextArea'

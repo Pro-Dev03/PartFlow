@@ -58,3 +58,5 @@ export function CustomerPage() {
     </div>
   )
 }
+
+export default CustomerPage
