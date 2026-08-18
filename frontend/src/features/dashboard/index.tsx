@@ -1,172 +1,238 @@
-import { Button } from '@components/ui/button'
-import { Card, CardHeader } from '@components/ui/card'
+import * as React from "react"
+import { KPICard } from "../../components/dashboard/KPICard"
+import { PartCard } from "../../components/inventory/PartCard"
+import { Sidebar } from "../../components/navigation/Sidebar"
+import { TopBar } from "../../components/navigation/TopBar"
+import { useNavigate } from 'react-router-dom'
+import { Plus, Scan } from 'lucide-react'
+import { useUIStore } from '@stores'
 
 export function Dashboard() {
-  // Mock data matching partflow_demo.html with Arabic
-  const stats = [
-    { label: "مبيعات اليوم", value: '₪12,450', trend: '↑ 12.5% مقارنة بالأمس', color: 'text-success' },
-    { label: 'الطلبات', value: '84', trend: '↑ 8.2% هذا الأسبوع', color: 'text-success' },
-    { label: "ربح اليوم", value: '₪3,240', trend: '↑ 14.2% هذا الشهر', color: 'text-success' },
-    { label: 'المستحقات', value: '₪5,820', trend: '⚠ 3 عملاء متأخرين', color: 'text-warning' },
-  ]
+  const navigate = useNavigate()
+  const { addNotification } = useUIStore()
 
-  const recentSales = [
-    { id: '1', product: 'RTX 4070', customer: 'أحمد محمد', amount: '₪2,790', time: 'منذ 5 دقائق' },
-    { id: '2', product: 'RAM 32GB ×2', customer: 'سارة علي', amount: '₪1,100', time: 'منذ 15 دقيقة' },
-    { id: '3', product: 'SSD 1TB', customer: 'خالد عبدالله', amount: '₪450', time: 'منذ 30 دقيقة' },
-  ]
+  const handleScanBarcode = () => {
+    navigate('/barcode')
+    addNotification({
+      type: 'info',
+      message: 'فتح ماسح الباركود',
+      duration: 2000
+    })
+  }
 
-  const inventoryAlerts = [
-    { id: '1', product: 'RTX 3060', stock: 1, minStock: 3, status: 'critical' },
-    { id: '2', product: 'RAM 8GB DDR4', stock: 0, minStock: 5, status: 'out' },
-    { id: '3', product: 'PSU 650W', stock: 2, minStock: 4, status: 'low' },
-  ]
+  const handleNewSale = () => {
+    navigate('/sales')
+    addNotification({
+      type: 'info',
+      message: 'فتح عملية بيع جديدة',
+      duration: 2000
+    })
+  }
 
-  const quickActions = [
-    { id: '1', icon: '📷', label: 'مسح', action: 'scan' },
-    { id: '2', icon: '💰', label: 'بيع', action: 'sale' },
-    { id: '3', icon: '📦', label: 'منتج', action: 'product' },
-    { id: '4', icon: '👤', label: 'عميل', action: 'customer' },
-  ]
+  const handlePartSell = (partName: string) => {
+    addNotification({
+      type: 'success',
+      message: `تمت إضافة ${partName} إلى سلة البيع`,
+      duration: 3000
+    })
+  }
 
   return (
-    <div className="p-8 max-w-[1500px] mx-auto direction-rtl animate-fade-in">
-      {/* Header */}
-      <div className="flex justify-between items-start mb-8 gap-5">
-        <div className="flex-1">
-          <div className="text-sm text-muted mb-2">
-            {new Date().toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+    <div className="grid grid-cols-[1fr_84px] min-h-screen" style={{ direction: 'rtl' }}>
+      {/* Main Content */}
+      <main className="p-7 pb-24 max-w-[1400px]">
+        <TopBar />
+
+        {/* KPI Grid */}
+        <div className="grid grid-cols-4 gap-3.5 mb-6.5">
+          <KPICard 
+            label="مبيعات اليوم" 
+            value="184.500" 
+            currency="د.أ" 
+            sub="23 عملية بيع" 
+            trend="▲ 12%" 
+          />
+          <KPICard 
+            label="القطع المباعة اليوم" 
+            value="31" 
+            sub="15 جديدة · 16 مستعملة" 
+          />
+          <KPICard 
+            label="إجمالي الديون المستحقة" 
+            value="1,240.000" 
+            sub="7 زبائن عليهم دين نشط" 
+            variant="warn" 
+          />
+          <KPICard 
+            label="قطع بحاجة لإعادة تخزين" 
+            value="5" 
+            sub="راجع شاشة المخزون" 
+            variant="danger" 
+          />
+        </div>
+
+        {/* Content Grid */}
+        <div className="grid grid-cols-[1.6fr_1fr] gap-3.5 mb-7.5">
+          {/* Chart Panel */}
+          <div className="bg-surface border border-border rounded-[8px] p-5">
+            <div className="flex justify-between items-center mb-4.5">
+              <h3 className="text-[14.5px] font-semibold text-text">حركة البيع — آخر 7 أيام</h3>
+              <span className="text-[11px] text-text-faint">بالدينار الأردني</span>
+            </div>
+            <div className="flex items-end gap-2.5 h-[140px]">
+              {[
+                { day: 'سبت', height: '55%' },
+                { day: 'أحد', height: '70%' },
+                { day: 'اثنين', height: '40%' },
+                { day: 'ثلاثاء', height: '85%' },
+                { day: 'أربعاء', height: '62%' },
+                { day: 'خميس', height: '95%' },
+                { day: 'اليوم', height: '100%', highlight: true },
+              ].map((item, index) => (
+                <div key={index} className="flex-1 flex flex-col items-center gap-2">
+                  <div 
+                    className={`w-full rounded-t-[4px] opacity-85 transition-all duration-200 hover:opacity-100 ${
+                      item.highlight 
+                        ? 'bg-gradient-to-b from-accent to-[#00a37e]' 
+                        : 'bg-gradient-to-b from-accent to-accent-dim'
+                    }`}
+                    style={{ height: item.height }}
+                  />
+                  <div className={`text-[10.5px] font-mono ${
+                    item.highlight ? 'text-accent' : 'text-text-faint'
+                  }`}>
+                    {item.day}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-          <h1 className="text-4xl font-extrabold mb-2 text-text leading-tight">
-            صباح الخير، أحمد 👋
-          </h1>
-          <p className="text-muted text-base">
-            إليك ما يحدث في متجرك اليوم.
-          </p>
-        </div>
-        <div className="flex gap-3 flex-shrink-0">
-          <Button variant="outline">
-            مسح باركود
-          </Button>
-          <Button variant="primary">
-            + بيع جديد
-          </Button>
-        </div>
-      </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
-        {stats.map((stat, index) => (
-          <Card
-            key={index}
-            className="hover:shadow-md transition-shadow cursor-pointer"
-          >
-            <div className="p-6">
-              <div className="text-sm text-muted font-medium mb-2">{stat.label}</div>
-              <div className="text-3xl font-extrabold mb-2 text-text leading-none">{stat.value}</div>
-              <div className={`text-sm font-medium ${stat.color}`}>{stat.trend}</div>
+          {/* Activity Panel */}
+          <div className="bg-surface border border-border rounded-[8px] p-5">
+            <div className="flex justify-between items-center mb-4.5">
+              <h3 className="text-[14.5px] font-semibold text-text">آخر العمليات</h3>
             </div>
-          </Card>
-        ))}
-      </div>
-
-      {/* Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Sales Overview */}
-          <Card>
-            <CardHeader title="نظرة عامة على المبيعات" />
-            <div className="p-6">
-              <div className="h-60 flex items-center justify-center bg-muted-10 rounded-lg border-2 border-dashed border-border">
-                <div className="text-center">
-                  <div className="text-4xl mb-3">📈</div>
-                  <div className="text-muted text-base">سيظهر رسم بياني للمبيعات هنا</div>
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          {/* Recent Sales */}
-          <Card>
-            <CardHeader title="المبيعات الأخيرة" />
-            <div className="p-6">
-              {recentSales.map((sale) => (
-                <div
-                  key={sale.id}
-                  className="py-4 border-b border-border flex justify-between items-center hover:bg-muted-5 transition-colors last:border-0"
-                >
-                  <div className="flex-1">
-                    <div className="font-semibold text-text text-base mb-1">{sale.product}</div>
-                    <div className="text-sm text-muted">{sale.customer}</div>
+            <div className="flex flex-col gap-0.5">
+              {[
+                { name: 'رامة كورسير 8GB مستعملة', time: 'قبل 12 دقيقة', amount: '+25.000' },
+                { name: 'معالج Core i5-10400', time: 'قبل 40 دقيقة', amount: '+95.000' },
+                { name: 'دفعة دين — محمد أبو عيسى', time: 'قبل ساعة', amount: '-50.000', warn: true },
+                { name: 'شاحن لابتوب 65W', time: 'قبل ساعتين', amount: '+12.000' },
+              ].map((item, index) => (
+                <div key={index} className="flex justify-between items-center py-2.5 px-1 border-b border-border last:border-b-0 text-[12.5px]">
+                  <div>
+                    <div className="text-text font-medium">{item.name}</div>
+                    <div className="text-text-faint text-[11px] mt-0.5">{item.time}</div>
                   </div>
-                  <div className="text-left mr-4">
-                    <div className="font-bold text-primary text-lg mb-1">{sale.amount}</div>
-                    <div className="text-xs text-muted">{sale.time}</div>
+                  <div className={`font-mono font-semibold ${item.warn ? 'text-warn' : 'text-accent'}`}>
+                    {item.amount}
                   </div>
                 </div>
               ))}
             </div>
-          </Card>
+          </div>
         </div>
 
-        {/* Right Column */}
-        <div className="space-y-6">
-          {/* Inventory Alerts */}
-          <Card>
-            <CardHeader title="تنبيهات المخزون" />
-            <div className="p-6 space-y-4">
-              {inventoryAlerts.map((alert) => (
-                <div
-                  key={alert.id}
-                  className={`p-4 rounded-lg border ${
-                    alert.status === 'critical'
-                      ? 'bg-danger-10 border-danger-30'
-                      : alert.status === 'out'
-                      ? 'bg-danger-10 border-danger-30'
-                      : 'bg-warning-10 border-warning-30'
-                  }`}
-                >
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="font-semibold text-text text-base">{alert.product}</span>
-                    <span
-                      className={`text-xs px-3 py-1 rounded-full font-semibold ${
-                        alert.status === 'critical'
-                          ? 'bg-danger text-white'
-                          : alert.status === 'out'
-                          ? 'bg-danger text-white'
-                          : 'bg-warning text-white'
-                      }`}
-                    >
-                      {alert.status === 'critical' ? '🔴 حرج' : alert.status === 'out' ? '❌ نفذ' : '🟡 منخفض'}
-                    </span>
-                  </div>
-                  <div className="text-sm text-muted">
-                    المخزون: {alert.stock} / الحد الأدنى: {alert.minStock}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* Quick Actions */}
-          <Card>
-            <CardHeader title="عمليات سريعة" />
-            <div className="p-6">
-              <div className="grid grid-cols-2 gap-3">
-                {quickActions.map((action) => (
-                  <button
-                    key={action.id}
-                    className="p-5 border border-border rounded-lg bg-surface hover:bg-muted-10 hover:border-primary transition-all cursor-pointer flex flex-col items-center gap-3"
-                  >
-                    <span className="text-3xl">{action.icon}</span>
-                    <span className="text-sm font-semibold text-text">{action.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </Card>
+        {/* Inventory Section */}
+        <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
+          <h2 className="text-[16px] font-semibold text-text">المخزون</h2>
+          <div className="flex gap-2 flex-wrap">
+            {['الكل', 'جديد', 'مستعمل', 'نفدت الكمية', 'رامات', 'معالجات'].map((filter, index) => (
+              <button
+                key={index}
+                className={`px-3.5 py-1.5 rounded-full text-[12px] border border-border text-text-dim cursor-pointer transition-all duration-150 whitespace-nowrap ${
+                  index === 0 
+                    ? 'bg-accent-dim border-accent text-accent' 
+                    : 'hover:border-text-faint hover:text-text'
+                }`}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
         </div>
+
+        {/* Parts Grid */}
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3.5">
+          <PartCard
+            name="رامة كورسير Vengeance 8GB DDR4"
+            badges={[
+              { type: 'used', label: '⚡ مستعملة' },
+              { type: 'stock-ok', label: '🟢 متوفر (4)' }
+            ]}
+            barcode="PF-USED-000452"
+            price={25}
+            icon="ram"
+            onSell={() => handlePartSell('رامة كورسير Vengeance 8GB DDR4')}
+          />
+          <PartCard
+            name="معالج Intel Core i5-10400F"
+            badges={[
+              { type: 'new', label: '🔵 جديد' },
+              { type: 'stock-ok', label: '🟢 متوفر (7)' }
+            ]}
+            barcode="8801643-556231"
+            price={95}
+            icon="cpu"
+            onSell={() => handlePartSell('معالج Intel Core i5-10400F')}
+          />
+          <PartCard
+            name="كرت شاشة GTX 1660 Super مستعمل"
+            badges={[
+              { type: 'used', label: '⚡ مستعملة' },
+              { type: 'stock-low', label: '🔴 آخر قطعة' }
+            ]}
+            barcode="PF-USED-000398"
+            price={210}
+            lowStock
+            icon="gpu"
+            onSell={() => handlePartSell('كرت شاشة GTX 1660 Super مستعمل')}
+          />
+          <PartCard
+            name="شاحن لابتوب أصلي 65W Type-C"
+            badges={[
+              { type: 'new', label: '🔵 جديد' },
+              { type: 'stock-ok', label: '🟢 متوفر (14)' }
+            ]}
+            barcode="6934567-118820"
+            price={12}
+            icon="charger"
+            onSell={() => handlePartSell('شاحن لابتوب أصلي 65W Type-C')}
+          />
+          <PartCard
+            name="قرص SSD كنكستون 240GB مستعمل"
+            badges={[
+              { type: 'used', label: '⚡ مستعملة' },
+              { type: 'stock-ok', label: '🟢 متوفر (2)' }
+            ]}
+            barcode="PF-USED-000471"
+            price={18}
+            icon="ssd"
+            onSell={() => handlePartSell('قرص SSD كنكستون 240GB مستعمل')}
+          />
+        </div>
+      </main>
+
+      {/* Sidebar */}
+      <Sidebar />
+
+      {/* FAB Buttons */}
+      <div className="fixed bottom-6 left-6 flex flex-col gap-2.5 items-start z-50">
+        <button 
+          onClick={handleScanBarcode}
+          className="flex items-center gap-2.5 bg-surface-elevated border border-border text-text px-4.5 py-3 rounded-full text-[13px] font-semibold cursor-pointer shadow-[0_6px_20px_rgba(0,0,0,0.4)] transition-all duration-150 hover:-translate-y-0.5"
+        >
+          <Scan className="w-[17px] h-[17px]" />
+          مسح باركود
+        </button>
+        <button 
+          onClick={handleNewSale}
+          className="flex items-center gap-2.5 bg-accent text-[#04140F] border border-accent px-4.5 py-3 rounded-full text-[13px] font-semibold cursor-pointer shadow-[0_6px_20px_rgba(0,0,0,0.4)] transition-all duration-150 hover:-translate-y-0.5"
+        >
+          <Plus className="w-[17px] h-[17px]" />
+          بيع جديد
+        </button>
       </div>
     </div>
   )
