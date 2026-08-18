@@ -1,0 +1,48 @@
+{
+  "app": {
+    "name": "Smart Store",
+    "description": "Smart Computer Store Management System"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "sales": "Sales",
+    "inventory": "Inventory",
+    "customers": "Customers",
+    "debts": "Debts",
+    "purchases": "Purchases",
+    "suppliers": "Suppliers",
+    "expenses": "Expenses",
+    "reports": "Reports",
+    "settings": "Settings"
+  },
+  "common": {
+    "search": "Search",
+    "add": "Add",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "success": "Success",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "dashboard": {
+    "welcome": "Welcome",
+    "today": "Today",
+    "sales": "Sales",
+    "profit": "Profit",
+    "inventory": "Inventory",
+    "debts": "Debts",
+    "needsAttention": "Needs your attention",
+    "quickActions": "Quick Actions",
+    "newSale": "New Sale",
+    "scan": "Scan",
+    "addItem": "Add Item",
+    "addCustomer": "Add Customer",
+    "recordPayment": "Record Payment"
+  }
+}

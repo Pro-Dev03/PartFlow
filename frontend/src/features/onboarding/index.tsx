@@ -1,0 +1,6 @@
+export { OnboardingPage } from './pages/OnboardingPage'
+export { OrganizationStep } from './components/OrganizationStep'
+export { UserStep } from './components/UserStep'
+export { PreferencesStep } from './components/PreferencesStep'
+export { CompletionStep } from './components/CompletionStep'
+export type { OnboardingData, OnboardingStep } from './types/onboarding'

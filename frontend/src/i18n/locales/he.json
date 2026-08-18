@@ -1,0 +1,48 @@
+{
+  "app": {
+    "name": "Smart Store",
+    "description": "מערכת ניהול חנויות מחשבים חכמה"
+  },
+  "nav": {
+    "dashboard": "ראשי",
+    "sales": "מכירות",
+    "inventory": "מלאי",
+    "customers": "לקוחות",
+    "debts": "חובות",
+    "purchases": "רכישות",
+    "suppliers": "ספקים",
+    "expenses": "הוצאות",
+    "reports": "דוחות",
+    "settings": "הגדרות"
+  },
+  "common": {
+    "search": "חיפוש",
+    "add": "הוספה",
+    "edit": "עריכה",
+    "delete": "מחיקה",
+    "save": "שמירה",
+    "cancel": "ביטול",
+    "confirm": "אישור",
+    "close": "סגירה",
+    "loading": "טוען...",
+    "error": "אירעה שגיאה",
+    "success": "הצלחה",
+    "yes": "כן",
+    "no": "לא"
+  },
+  "dashboard": {
+    "welcome": "שלום",
+    "today": "היום",
+    "sales": "מכירות",
+    "profit": "רווח",
+    "inventory": "מלאי",
+    "debts": "חובות",
+    "needsAttention": "דורש את תשומת לבך",
+    "quickActions": "פעולות מהירות",
+    "newSale": "מכירה חדשה",
+    "scan": "סריקה",
+    "addItem": "הוספת פריט",
+    "addCustomer": "הוספת לקוח",
+    "recordPayment": "רישום תשלום"
+  }
+}
