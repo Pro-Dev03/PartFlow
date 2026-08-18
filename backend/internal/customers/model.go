@@ -45,3 +45,29 @@ func NewCustomer(organizationID uuid.UUID, code, name string) *Customer {
 		UpdatedAt:      time.Now(),
 	}
 }
+
+
+// DebtEntry represents a debt entry with detailed information
+type DebtEntry struct {
+	ID            uuid.UUID `json:"id" db:"id"`
+	CustomerID    uuid.UUID `json:"customer_id" db:"customer_id"`
+	Amount        float64   `json:"amount" db:"amount"`
+	ReferenceID   uuid.UUID `json:"reference_id" db:"reference_id"`
+	ReferenceType string    `json:"reference_type" db:"reference_type"` // "sale", "invoice", etc.
+	DueDate       time.Time `json:"due_date" db:"due_date"`
+	IsPaid        bool      `json:"is_paid" db:"is_paid"`
+	PaidAmount    float64   `json:"paid_amount" db:"paid_amount"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+}
+
+// DebtCollection represents a debt collection action
+type DebtCollection struct {
+	ID             uuid.UUID  `json:"id" db:"id"`
+	CustomerID     uuid.UUID  `json:"customer_id" db:"customer_id"`
+	Type           string     `json:"type" db:"type"` // "reminder", "warning", "legal_action"
+	Status         string     `json:"status" db:"status"` // "pending", "sent", "resolved"
+	Notes          *string    `json:"notes,omitempty" db:"notes"`
+	ScheduledDate  time.Time  `json:"scheduled_date" db:"scheduled_date"`
+	CompletedDate  *time.Time `json:"completed_date,omitempty" db:"completed_date"`
+	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
+}

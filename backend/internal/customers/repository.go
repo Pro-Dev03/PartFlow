@@ -3,6 +3,7 @@ package customers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -254,4 +255,121 @@ func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) e
 	}
 
 	return nil
+}
+
+// AddLedgerEntry adds a ledger entry
+func (r *Repository) AddLedgerEntry(ctx context.Context, customerID uuid.UUID, entryType string, amount float64, description string, referenceID uuid.UUID) error {
+	ledgerQuery := `
+		INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at)
+		SELECT $1, $2, $3, $4, 
+			(SELECT COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0) FROM customer_ledger WHERE customer_id = $2) + 
+			CASE WHEN $3 = 'debit' THEN $4 ELSE -$4 END,
+			$5, $6, $7
+	`
+	_, err := r.db.ExecContext(ctx, ledgerQuery,
+		uuid.New(), customerID, entryType, amount, description, referenceID, time.Now(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to add ledger entry: %w", err)
+	}
+
+	return nil
+}
+
+// CreateDebtEntry creates a new debt entry
+func (r *Repository) CreateDebtEntry(ctx context.Context, debt *DebtEntry) error {
+	query := `
+		INSERT INTO customer_debts (id, customer_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`
+	_, err := r.db.ExecContext(ctx, query,
+		debt.ID, debt.CustomerID, debt.Amount, debt.ReferenceID, debt.ReferenceType,
+		debt.DueDate, debt.IsPaid, debt.PaidAmount, debt.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create debt entry: %w", err)
+	}
+	return nil
+}
+
+// GetDebtEntries retrieves debt entries for a customer
+func (r *Repository) GetDebtEntries(ctx context.Context, customerID uuid.UUID) ([]DebtEntry, error) {
+	query := `
+		SELECT id, customer_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at
+		FROM customer_debts
+		WHERE customer_id = $1
+		ORDER BY due_date ASC
+	`
+	var debts []DebtEntry
+	err := r.db.SelectContext(ctx, &debts, query, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get debt entries: %w", err)
+	}
+	return debts, nil
+}
+
+// UpdateDebtPayment updates payment for a debt entry
+func (r *Repository) UpdateDebtPayment(ctx context.Context, debtID uuid.UUID, paymentAmount float64) error {
+	query := `
+		UPDATE customer_debts
+		SET paid_amount = paid_amount + $1,
+			is_paid = (paid_amount + $1) >= amount
+		WHERE id = $2
+	`
+	_, err := r.db.ExecContext(ctx, query, paymentAmount, debtID)
+	if err != nil {
+		return fmt.Errorf("failed to update debt payment: %w", err)
+	}
+	return nil
+}
+
+// CreateDebtCollection creates a new debt collection action
+func (r *Repository) CreateDebtCollection(ctx context.Context, collection *DebtCollection) error {
+	query := `
+		INSERT INTO debt_collections (id, customer_id, type, status, notes, scheduled_date, completed_date, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`
+	_, err := r.db.ExecContext(ctx, query,
+		collection.ID, collection.CustomerID, collection.Type, collection.Status,
+		collection.Notes, collection.ScheduledDate, collection.CompletedDate, collection.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create debt collection: %w", err)
+	}
+	return nil
+}
+
+// GetDebtCollections retrieves debt collection actions for a customer
+func (r *Repository) GetDebtCollections(ctx context.Context, customerID uuid.UUID) ([]DebtCollection, error) {
+	query := `
+		SELECT id, customer_id, type, status, notes, scheduled_date, completed_date, created_at
+		FROM debt_collections
+		WHERE customer_id = $1
+		ORDER BY scheduled_date DESC
+	`
+	var collections []DebtCollection
+	err := r.db.SelectContext(ctx, &collections, query, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get debt collections: %w", err)
+	}
+	return collections, nil
+}
+
+// GetPendingDebtCollections retrieves pending debt collection actions
+func (r *Repository) GetPendingDebtCollections(ctx context.Context, organizationID uuid.UUID) ([]DebtCollection, error) {
+	query := `
+		SELECT dc.id, dc.customer_id, dc.type, dc.status, dc.notes, dc.scheduled_date, dc.completed_date, dc.created_at
+		FROM debt_collections dc
+		JOIN customers c ON dc.customer_id = c.id
+		WHERE c.organization_id = $1
+		AND dc.status = 'pending'
+		AND dc.scheduled_date <= NOW()
+		ORDER BY dc.scheduled_date ASC
+	`
+	var collections []DebtCollection
+	err := r.db.SelectContext(ctx, &collections, query, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pending debt collections: %w", err)
+	}
+	return collections, nil
 }

@@ -239,3 +239,8 @@ func (s *Service) SendExpenseApprovalNotification(ctx context.Context, organizat
 	_, err := s.CreateNotification(ctx, organizationID, req)
 	return err
 }
+
+// GetUnreadCount retrieves the count of unread notifications for a user
+func (s *Service) GetUnreadCount(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID) (int, error) {
+	return s.repo.GetUnreadCount(ctx, userID, organizationID)
+}

@@ -362,3 +362,17 @@ func (r *Repository) UpdateNotificationPreferences(ctx context.Context, preferen
 	}
 	return nil
 }
+
+// GetUnreadCount retrieves the count of unread notifications for a user
+func (r *Repository) GetUnreadCount(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID) (int, error) {
+	var count int
+	err := r.db.GetContext(ctx, &count, 
+		`SELECT COUNT(*) FROM notifications 
+		 WHERE user_id = $1 AND organization_id = $2 AND status = 'unread'
+		 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
+		userID, organizationID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get unread count: %w", err)
+	}
+	return count, nil
+}

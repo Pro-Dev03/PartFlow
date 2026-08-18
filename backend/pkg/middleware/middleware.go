@@ -1,15 +1,19 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/permissions"
 )
 
 var jwtSecret = []byte("your-secret-key-change-in-production")
+
+var permissionService *permissions.Service
 
 // CORS middleware
 func CORS() gin.HandlerFunc {
@@ -28,7 +32,7 @@ func CORS() gin.HandlerFunc {
 	}
 }
 
-// Auth middleware for JWT authentication
+// Auth middleware for JWT authentication (based on worktrack)
 func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -56,45 +60,84 @@ func Auth() gin.HandlerFunc {
 		}
 
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			// Parse UUID from claims
-			userID, err := uuid.Parse(claims["user_id"].(string))
-			if err != nil {
+			// Extract user_id and role from claims (based on worktrack)
+			userID, ok := claims["user_id"].(string)
+			if !ok {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID in token"})
 				c.Abort()
 				return
 			}
 
-			orgID, err := uuid.Parse(claims["organization_id"].(string))
-			if err != nil {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid organization ID in token"})
-				c.Abort()
-				return
-			}
-
-			roleID, err := uuid.Parse(claims["role_id"].(string))
-			if err != nil {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid role ID in token"})
+			role, ok := claims["role"].(string)
+			if !ok {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid role in token"})
 				c.Abort()
 				return
 			}
 
 			c.Set("user_id", userID)
-			c.Set("organization_id", orgID)
-			c.Set("role_id", roleID)
-			c.Set("email", claims["email"])
-			c.Set("is_admin", claims["is_admin"])
+			c.Set("role", role)
 		}
 
 		c.Next()
 	}
 }
 
-// RequirePermission middleware to check if user has specific permission
+// RequirePermission middleware to check if user has specific permission (updated for simplified claims)
 func RequirePermission(resource, action string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// TODO: Implement permission check
-		// This would require injecting the auth service into middleware
-		// For now, we'll just pass through
+		// Check if permission service is initialized
+		if permissionService == nil {
+			// If permission service is not initialized, allow the request
+			// This is a safety fallback for development
+			c.Next()
+			return
+		}
+
+		// Get user ID from context (set by Auth middleware)
+		userID, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			c.Abort()
+			return
+		}
+
+		// Check if user is admin (bypass permission check)
+		role, exists := c.Get("role")
+		if exists && role == "admin" {
+			c.Next()
+			return
+		}
+
+		// Parse user ID as UUID for permission check
+		userUUID, err := uuid.Parse(userID.(string))
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID"})
+			c.Abort()
+			return
+		}
+
+		// Construct permission name
+		permissionName := resource + "." + action
+
+		// Check if user has the permission
+		hasPermission, err := permissionService.HasPermission(context.Background(), userUUID, permissionName)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check permissions"})
+			c.Abort()
+			return
+		}
+
+		if !hasPermission {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":   "Permission denied",
+				"message": "You don't have permission to perform this action",
+				"required": permissionName,
+			})
+			c.Abort()
+			return
+		}
+
 		c.Next()
 	}
 }
@@ -114,7 +157,7 @@ func Organization() gin.HandlerFunc {
 	}
 }
 
-// Logger middleware
+// Logger middleware with structured logging
 func Logger() gin.HandlerFunc {
 	return gin.Logger()
 }
@@ -124,23 +167,43 @@ func Recovery() gin.HandlerFunc {
 	return gin.Recovery()
 }
 
+// RequestID middleware adds a unique request ID to each request
+func RequestID() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		requestID := c.GetHeader("X-Request-ID")
+		if requestID == "" {
+			requestID = uuid.New().String()
+		}
+		c.Set("request_id", requestID)
+		c.Header("X-Request-ID", requestID)
+		c.Next()
+	}
+}
+
+// GetRequestID gets the request ID from context
+func GetRequestID(c *gin.Context) string {
+	if requestID, exists := c.Get("request_id"); exists {
+		return requestID.(string)
+	}
+	return ""
+}
+
+// RateLimiter middleware (basic implementation)
+func RateLimiter() gin.HandlerFunc {
+	// TODO: Implement proper rate limiting with Redis
+	// For now, this is a placeholder
+	return func(c *gin.Context) {
+		c.Next()
+	}
+}
+
 // SetJWTSecret sets the JWT secret key
 func SetJWTSecret(secret string) {
 	jwtSecret = []byte(secret)
 }
 
-// GetUserID gets the user ID from context
-func GetUserID(c *gin.Context) uuid.UUID {
-	if userID, exists := c.Get("user_id"); exists {
-		return userID.(uuid.UUID)
-	}
-	return uuid.Nil
+// SetPermissionService sets the permission service for middleware
+func SetPermissionService(service *permissions.Service) {
+	permissionService = service
 }
 
-// GetOrganizationID gets the organization ID from context
-func GetOrganizationID(c *gin.Context) uuid.UUID {
-	if orgID, exists := c.Get("organization_id"); exists {
-		return orgID.(uuid.UUID)
-	}
-	return uuid.Nil
-}

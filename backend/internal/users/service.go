@@ -155,3 +155,60 @@ func (s *Service) UpdateLastLogin(ctx context.Context, userID uuid.UUID) error {
 	now := time.Now()
 	return s.repo.UpdateLastLogin(ctx, userID, now)
 }
+
+// AssignRole assigns a role to a user
+func (s *Service) AssignRole(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID, roleID uuid.UUID) error {
+	user, err := s.repo.GetByID(ctx, userID, organizationID)
+	if err != nil {
+		return err
+	}
+
+	user.RoleID = &roleID
+	user.UpdatedAt = time.Now()
+
+	if err := s.repo.Update(ctx, user); err != nil {
+		return fmt.Errorf("failed to assign role: %w", err)
+	}
+
+	return nil
+}
+
+// RemoveRole removes a role from a user
+func (s *Service) RemoveRole(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID, roleID uuid.UUID) error {
+	user, err := s.repo.GetByID(ctx, userID, organizationID)
+	if err != nil {
+		return err
+	}
+
+	if user.RoleID == nil || *user.RoleID != roleID {
+		return fmt.Errorf("user does not have this role")
+	}
+
+	user.RoleID = nil
+	user.UpdatedAt = time.Now()
+
+	if err := s.repo.Update(ctx, user); err != nil {
+		return fmt.Errorf("failed to remove role: %w", err)
+	}
+
+	return nil
+}
+
+// GetUserRoles gets the roles assigned to a user
+func (s *Service) GetUserRoles(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID) ([]interface{}, error) {
+	user, err := s.repo.GetByID(ctx, userID, organizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.RoleID == nil {
+		return []interface{}{}, nil
+	}
+
+	// Return role information
+	return []interface{}{
+		map[string]interface{}{
+			"role_id": user.RoleID,
+		},
+	}, nil
+}

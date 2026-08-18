@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/pkg/errors"
 	"github.com/partflow/smart-store/pkg/middleware"
 	"github.com/partflow/smart-store/pkg/response"
 )
@@ -23,7 +24,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) CreateCustomer(c *gin.Context) {
 	var req CustomerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid request body", err.Error())
+		errors.HandleError(c, errors.ValidateRequest(err))
 		return
 	}
 
@@ -32,10 +33,10 @@ func (h *Handler) CreateCustomer(c *gin.Context) {
 	customer, err := h.service.CreateCustomer(c.Request.Context(), organizationID, &req)
 	if err != nil {
 		if err == ErrCustomerCodeExists {
-			response.Error(c, http.StatusConflict, http.StatusConflict, "Customer code already exists", err.Error())
+			errors.HandleError(c, errors.NewConflictError("Customer code already exists", err))
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to create customer", err.Error())
+		errors.HandleError(c, errors.WrapError(err, "Failed to create customer"))
 		return
 	}
 
@@ -46,7 +47,7 @@ func (h *Handler) CreateCustomer(c *gin.Context) {
 func (h *Handler) GetCustomer(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid customer ID", err.Error())
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
 		return
 	}
 
@@ -55,10 +56,10 @@ func (h *Handler) GetCustomer(c *gin.Context) {
 	customer, err := h.service.GetCustomer(c.Request.Context(), id, organizationID)
 	if err != nil {
 		if err == ErrCustomerNotFound {
-			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Customer not found", err.Error())
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve customer", err.Error())
+		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve customer"))
 		return
 	}
 
@@ -88,13 +89,13 @@ func (h *Handler) ListCustomers(c *gin.Context) {
 func (h *Handler) UpdateCustomer(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid customer ID", err.Error())
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
 		return
 	}
 
 	var req CustomerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid request body", err.Error())
+		errors.HandleError(c, errors.ValidateRequest(err))
 		return
 	}
 
@@ -103,14 +104,14 @@ func (h *Handler) UpdateCustomer(c *gin.Context) {
 	customer, err := h.service.UpdateCustomer(c.Request.Context(), id, organizationID, &req)
 	if err != nil {
 		if err == ErrCustomerNotFound {
-			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Customer not found", err.Error())
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
 			return
 		}
 		if err == ErrCustomerCodeExists {
-			response.Error(c, http.StatusConflict, http.StatusConflict, "Customer code already exists", err.Error())
+			errors.HandleError(c, errors.NewConflictError("Customer code already exists", err))
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to update customer", err.Error())
+		errors.HandleError(c, errors.WrapError(err, "Failed to update customer"))
 		return
 	}
 
@@ -121,7 +122,7 @@ func (h *Handler) UpdateCustomer(c *gin.Context) {
 func (h *Handler) DeleteCustomer(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid customer ID", err.Error())
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
 		return
 	}
 
@@ -130,10 +131,10 @@ func (h *Handler) DeleteCustomer(c *gin.Context) {
 	err = h.service.DeleteCustomer(c.Request.Context(), id, organizationID)
 	if err != nil {
 		if err == ErrCustomerNotFound {
-			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Customer not found", err.Error())
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to delete customer", err.Error())
+		errors.HandleError(c, errors.WrapError(err, "Failed to delete customer"))
 		return
 	}
 
@@ -144,7 +145,7 @@ func (h *Handler) DeleteCustomer(c *gin.Context) {
 func (h *Handler) GetCustomerLedger(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid customer ID", err.Error())
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
 		return
 	}
 
@@ -153,10 +154,10 @@ func (h *Handler) GetCustomerLedger(c *gin.Context) {
 	ledger, err := h.service.GetCustomerLedger(c.Request.Context(), id, organizationID)
 	if err != nil {
 		if err == ErrCustomerNotFound {
-			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Customer not found", err.Error())
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve customer ledger", err.Error())
+		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve customer ledger"))
 		return
 	}
 
@@ -167,13 +168,13 @@ func (h *Handler) GetCustomerLedger(c *gin.Context) {
 func (h *Handler) AddPayment(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid customer ID", err.Error())
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
 		return
 	}
 
 	var req PaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid request body", err.Error())
+		errors.HandleError(c, errors.ValidateRequest(err))
 		return
 	}
 
@@ -182,20 +183,239 @@ func (h *Handler) AddPayment(c *gin.Context) {
 	payment, err := h.service.AddPayment(c.Request.Context(), id, organizationID, &req)
 	if err != nil {
 		if err == ErrCustomerNotFound {
-			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Customer not found", err.Error())
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
 			return
 		}
 		if err == ErrPaymentAmountInvalid {
-			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid payment amount", err.Error())
+			errors.HandleError(c, errors.NewValidationError("Invalid payment amount", err))
 			return
 		}
 		if err == ErrPaymentExceedsBalance {
-			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Payment amount exceeds customer balance", err.Error())
+			errors.HandleError(c, errors.NewBusinessError("Payment amount exceeds customer balance", err))
 			return
 		}
-		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to add payment", err.Error())
+		errors.HandleError(c, errors.WrapError(err, "Failed to add payment"))
 		return
 	}
 
 	response.Success(c, http.StatusCreated, payment, "Payment added successfully")
+}
+
+// GetCustomerDebtSummary handles customer debt summary retrieval
+func (h *Handler) GetCustomerDebtSummary(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+
+	summary, err := h.service.GetCustomerDebtSummary(c.Request.Context(), id, organizationID)
+	if err != nil {
+		if err == ErrCustomerNotFound {
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
+			return
+		}
+		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve debt summary"))
+		return
+	}
+
+	response.Success(c, http.StatusOK, summary, "Debt summary retrieved successfully")
+}
+
+// UpdateCreditLimit handles credit limit update
+func (h *Handler) UpdateCreditLimit(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
+		return
+	}
+
+	var req UpdateCreditLimitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errors.HandleError(c, errors.ValidateRequest(err))
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+
+	err = h.service.UpdateCreditLimit(c.Request.Context(), id, organizationID, req.NewLimit)
+	if err != nil {
+		if err == ErrCustomerNotFound {
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
+			return
+		}
+		if err == ErrCreditLimitBelowBalance {
+			errors.HandleError(c, errors.NewBusinessError("Credit limit cannot be set below current balance", err))
+			return
+		}
+		errors.HandleError(c, errors.WrapError(err, "Failed to update credit limit"))
+		return
+	}
+
+	response.Success(c, http.StatusOK, nil, "Credit limit updated successfully")
+}
+
+// GetOverdueCustomers handles overdue customers retrieval
+func (h *Handler) GetOverdueCustomers(c *gin.Context) {
+	organizationID := middleware.GetOrganizationID(c)
+
+	overdueCustomers, err := h.service.GetOverdueCustomers(c.Request.Context(), organizationID)
+	if err != nil {
+		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve overdue customers"))
+		return
+	}
+
+	response.Success(c, http.StatusOK, overdueCustomers, "Overdue customers retrieved successfully")
+}
+
+// CreateDebtEntry handles debt entry creation
+func (h *Handler) CreateDebtEntry(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
+		return
+	}
+
+	var req CreateDebtEntryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errors.HandleError(c, errors.ValidateRequest(err))
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+
+	err = h.service.CreateDebtEntry(c.Request.Context(), id, organizationID, req.Amount, req.ReferenceID, req.ReferenceType, req.DueDate)
+	if err != nil {
+		if err == ErrCustomerNotFound {
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
+			return
+		}
+		if err == ErrCreditLimitExceeded {
+			errors.HandleError(c, errors.NewBusinessError("Credit limit exceeded", err))
+			return
+		}
+		errors.HandleError(c, errors.WrapError(err, "Failed to create debt entry"))
+		return
+	}
+
+	response.Success(c, http.StatusCreated, nil, "Debt entry created successfully")
+}
+
+// GetDebtEntries handles debt entries retrieval
+func (h *Handler) GetDebtEntries(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+
+	debts, err := h.service.GetDebtEntries(c.Request.Context(), id, organizationID)
+	if err != nil {
+		if err == ErrCustomerNotFound {
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
+			return
+		}
+		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve debt entries"))
+		return
+	}
+
+	response.Success(c, http.StatusOK, debts, "Debt entries retrieved successfully")
+}
+
+// CreateDebtCollection handles debt collection creation
+func (h *Handler) CreateDebtCollection(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
+		return
+	}
+
+	var req CreateDebtCollectionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errors.HandleError(c, errors.ValidateRequest(err))
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+
+	err = h.service.CreateDebtCollection(c.Request.Context(), id, organizationID, req.Type, req.ScheduledDate, req.Notes)
+	if err != nil {
+		if err == ErrCustomerNotFound {
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
+			return
+		}
+		errors.HandleError(c, errors.WrapError(err, "Failed to create debt collection"))
+		return
+	}
+
+	response.Success(c, http.StatusCreated, nil, "Debt collection created successfully")
+}
+
+// GetDebtCollections handles debt collections retrieval
+func (h *Handler) GetDebtCollections(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+
+	collections, err := h.service.GetDebtCollections(c.Request.Context(), id, organizationID)
+	if err != nil {
+		if err == ErrCustomerNotFound {
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
+			return
+		}
+		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve debt collections"))
+		return
+	}
+
+	response.Success(c, http.StatusOK, collections, "Debt collections retrieved successfully")
+}
+
+// GetPendingDebtCollections handles pending debt collections retrieval
+func (h *Handler) GetPendingDebtCollections(c *gin.Context) {
+	organizationID := middleware.GetOrganizationID(c)
+
+	collections, err := h.service.GetPendingDebtCollections(c.Request.Context(), organizationID)
+	if err != nil {
+		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve pending debt collections"))
+		return
+	}
+
+	response.Success(c, http.StatusOK, collections, "Pending debt collections retrieved successfully")
+}
+
+// ProcessDebtPayment handles debt payment processing
+func (h *Handler) ProcessDebtPayment(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
+		return
+	}
+
+	var req ProcessDebtPaymentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errors.HandleError(c, errors.ValidateRequest(err))
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+
+	err = h.service.ProcessDebtPayment(c.Request.Context(), id, organizationID, req.Amount, req.Method)
+	if err != nil {
+		if err == ErrCustomerNotFound {
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
+			return
+		}
+		errors.HandleError(c, errors.WrapError(err, "Failed to process debt payment"))
+		return
+	}
+
+	response.Success(c, http.StatusOK, nil, "Debt payment processed successfully")
 }

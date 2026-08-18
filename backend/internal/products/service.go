@@ -245,3 +245,96 @@ func (s *Service) UpdateProduct(ctx context.Context, id uuid.UUID, organizationI
 func (s *Service) DeleteProduct(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
 	return s.repo.DeleteProduct(ctx, id, organizationID)
 }
+
+// ArchiveProduct archives a product (soft delete)
+func (s *Service) ArchiveProduct(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
+	product, err := s.repo.GetProductByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if product.OrganizationID != organizationID {
+		return ErrProductNotFound
+	}
+
+	return s.repo.ArchiveProduct(ctx, id, organizationID)
+}
+
+// GenerateBarcode generates a new barcode for a product
+func (s *Service) GenerateBarcode(ctx context.Context, productID uuid.UUID, organizationID uuid.UUID) (string, error) {
+	product, err := s.repo.GetProductByID(ctx, productID)
+	if err != nil {
+		return "", err
+	}
+
+	if product.OrganizationID != organizationID {
+		return "", ErrProductNotFound
+	}
+
+	// Generate internal barcode if not exists
+	if product.Barcode == "" {
+		barcode := generateInternalBarcode(product.ID, product.SKU)
+		product.Barcode = barcode
+		
+		if err := s.repo.UpdateProduct(ctx, product); err != nil {
+			return "", err
+		}
+		
+		return barcode, nil
+	}
+
+	return product.Barcode, nil
+}
+
+// GetProductStock retrieves detailed stock information for a product
+func (s *Service) GetProductStock(ctx context.Context, productID uuid.UUID, organizationID uuid.UUID) (*ProductStockInfo, error) {
+	product, err := s.repo.GetProductByID(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+
+	if product.OrganizationID != organizationID {
+		return nil, ErrProductNotFound
+	}
+
+	stockCount, err := s.repo.GetProductStockCount(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get available items count
+	availableCount, err := s.repo.GetAvailableItemCount(ctx, productID)
+	if err != nil {
+		availableCount = 0
+	}
+
+	// Get reserved items count
+	reservedCount, err := s.repo.GetReservedItemCount(ctx, productID)
+	if err != nil {
+		reservedCount = 0
+	}
+
+	return &ProductStockInfo{
+		ProductID:      productID,
+		TotalStock:     stockCount,
+		Available:      availableCount,
+		Reserved:       reservedCount,
+		TrackIndividual: product.TrackIndividual,
+		MinStockLevel:  product.MinStockLevel,
+		IsLowStock:     stockCount < product.MinStockLevel,
+	}, nil
+}
+
+// SearchProducts searches products by name, SKU, or barcode
+func (s *Service) SearchProducts(ctx context.Context, organizationID uuid.UUID, query string, limit int) ([]Product, error) {
+	return s.repo.SearchProducts(ctx, organizationID, query, limit)
+}
+
+// Helper functions
+
+func generateInternalBarcode(productID uuid.UUID, sku string) string {
+	if sku != "" {
+		return "PF-" + sku
+	}
+	return "PF-" + productID.String()[:8]
+}

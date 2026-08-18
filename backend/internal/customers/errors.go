@@ -20,4 +20,10 @@ var (
 
 	// ErrInvalidPaymentMethod is returned when payment method is invalid
 	ErrInvalidPaymentMethod = errors.New("invalid payment method")
+
+	// ErrCreditLimitExceeded is returned when credit limit is exceeded
+	ErrCreditLimitExceeded = errors.New("credit limit exceeded")
+
+	// ErrCreditLimitBelowBalance is returned when credit limit is set below current balance
+	ErrCreditLimitBelowBalance = errors.New("credit limit cannot be set below current balance")
 )

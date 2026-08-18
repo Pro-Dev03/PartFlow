@@ -59,6 +59,12 @@ func (s *Service) GenerateReport(ctx context.Context, organizationID uuid.UUID, 
 		data, err = s.repo.GetProfitsData(ctx, organizationID, start, end)
 	case "debts":
 		data, err = s.repo.GetDebtsData(ctx, organizationID)
+	case "purchases":
+		data, err = s.repo.GetPurchasesData(ctx, organizationID, start, end)
+	case "returns":
+		data, err = s.repo.GetReturnsData(ctx, organizationID, start, end)
+	case "warranties":
+		data, err = s.repo.GetWarrantyData(ctx, organizationID)
 	default:
 		err = ErrInvalidReportType
 	}
@@ -265,4 +271,76 @@ func (s *Service) GenerateDebtsReport(ctx context.Context, organizationID uuid.U
 	}
 
 	return debtsReport, nil
+}
+
+// GeneratePurchasesReport generates a purchases report
+func (s *Service) GeneratePurchasesReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, startDate, endDate time.Time) (*PurchasesReport, error) {
+	req := &ReportRequest{
+		Type:        "purchases",
+		Title:       "Purchases Report",
+		Description: fmt.Sprintf("Purchases report from %s to %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")),
+		Parameters: map[string]interface{}{
+			"start_date": startDate.Format(time.RFC3339),
+			"end_date":   endDate.Format(time.RFC3339),
+		},
+	}
+
+	report, err := s.GenerateReport(ctx, organizationID, userID, req)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := report.ParseData()
+	if err != nil {
+		return nil, err
+	}
+
+	purchasesReport, ok := data.(*PurchasesReport)
+	if !ok {
+		return nil, ErrReportGenerationFailed
+	}
+
+	return purchasesReport, nil
+}
+
+// GenerateReturnsReport generates a returns report
+func (s *Service) GenerateReturnsReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, startDate, endDate time.Time) (*ReturnsReport, error) {
+	req := &ReportRequest{
+		Type:        "returns",
+		Title:       "Returns Report",
+		Description: fmt.Sprintf("Returns report from %s to %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")),
+		Parameters: map[string]interface{}{
+			"start_date": startDate.Format(time.RFC3339),
+			"end_date":   endDate.Format(time.RFC3339),
+		},
+	}
+
+	report, err := s.GenerateReport(ctx, organizationID, userID, req)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := report.ParseData()
+	if err != nil {
+		return nil, err
+	}
+
+	returnsReport, ok := data.(*ReturnsReport)
+	if !ok {
+		return nil, ErrReportGenerationFailed
+	}
+
+	return returnsReport, nil
+}
+
+// GenerateWarrantyReport generates a warranty report
+func (s *Service) GenerateWarrantyReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID) (*WarrantyReport, error) {
+	// Generate report directly without using the general report generation
+	// since warranty reports don't require date ranges
+	report, err := s.repo.GetWarrantyData(ctx, organizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	return report, nil
 }

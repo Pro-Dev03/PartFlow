@@ -25,15 +25,14 @@ func (r *Repository) CreateAuditLog(ctx context.Context, auditLog *AuditLog) err
 		INSERT INTO audit_logs (id, organization_id, user_id, action, entity_type, entity_id, 
 			ip_address, user_agent, request_id, changes, description, status, error_message, metadata, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-		RETURNING id, created_at
 	`
 	
-	err := r.db.QueryRowContext(ctx, query,
+	_, err := r.db.ExecContext(ctx, query,
 		auditLog.ID, auditLog.OrganizationID, auditLog.UserID, auditLog.Action, auditLog.EntityType,
 		auditLog.EntityID, auditLog.IPAddress, auditLog.UserAgent, auditLog.RequestID, auditLog.Changes,
 		auditLog.Description, auditLog.Status, auditLog.ErrorMessage, auditLog.Metadata,
 		auditLog.CreatedAt,
-	).Scan(&auditLog.ID, &auditLog.CreatedAt)
+	)
 	
 	if err != nil {
 		return fmt.Errorf("failed to create audit log: %w", err)

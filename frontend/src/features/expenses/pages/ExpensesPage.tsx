@@ -1,247 +1,265 @@
-import { useState } from 'react'
-import { clsx } from 'clsx'
-import { EmptyState } from '@/components/feedback'
-import type { Expense, ExpenseSummary } from '../types/expense'
-
-type CategoryFilter = 'all' | string
-type SortOption = 'date' | 'amount' | 'category'
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from '../../../hooks/useTranslation';
+import { expensesApi } from '../../../services/api/endpoints';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Button } from '../../../components/ui/button';
+import { Input } from '../../../components/ui/input';
+import { Select } from '../../../components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { Badge } from '../../../components/ui/badge';
+import { 
+  DollarSign, 
+  Search, 
+  Plus, 
+  Filter,
+  Edit,
+  Trash2,
+  Calendar,
+  TrendingUp
+} from 'lucide-react';
 
 export function ExpensesPage() {
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
-  const [sortBy, setSortBy] = useState<SortOption>('date')
-  const [searchQuery, setSearchQuery] = useState('')
+  const { t } = useTranslation();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
 
-  // TODO: Fetch expenses from API
-  const expenses: Expense[] = []
-  const summary: ExpenseSummary = {
-    totalExpenses: 0,
-    thisMonth: 0,
-    byCategory: [],
-    monthlyTrend: [],
-  }
+  const { data: expensesData, isLoading } = useQuery({
+    queryKey: ['expenses'],
+    queryFn: () => expensesApi.list(),
+  });
+
+  const expenses = (expensesData?.data as any[]) || [];
+
+  const filteredExpenses = expenses.filter((expense: any) => {
+    const matchesSearch = 
+      expense.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      expense.category.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = !categoryFilter || expense.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
+  const thisMonthExpenses = expenses.filter((e: any) => {
+    const expenseDate = new Date(e.date);
+    const now = new Date();
+    return expenseDate.getMonth() === now.getMonth() && 
+           expenseDate.getFullYear() === now.getFullYear();
+  });
+
+  const thisMonthTotal = thisMonthExpenses.reduce((sum: number, e: any) => sum + e.amount, 0);
+
+  const categoryTotals = expenses.reduce((acc: Record<string, number>, expense: any) => {
+    acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
+    return acc;
+  }, {});
 
   const categories = [
-    { id: 'rent', name: 'إيجار', color: '#3b82f6' },
-    { id: 'utilities', name: 'مرافق', color: '#10b981' },
-    { id: 'salaries', name: 'رواتب', color: '#f59e0b' },
-    { id: 'shipping', name: 'شحن', color: '#ef4444' },
-    { id: 'maintenance', name: 'صيانة', color: '#8b5cf6' },
-    { id: 'supplies', name: 'مستلزمات', color: '#06b6d4' },
-    { id: 'other', name: 'أخرى', color: '#64748b' },
-  ]
+    { value: '', label: 'كل الفئات' },
+    { value: 'rent', label: 'الإيجار' },
+    { value: 'salaries', label: 'الرواتب' },
+    { value: 'utilities', label: 'المرافق' },
+    { value: 'supplies', label: 'المستلزمات' },
+    { value: 'maintenance', label: 'الصيانة' },
+    { value: 'marketing', label: 'التسويق' },
+    { value: 'shipping', label: 'الشحن' },
+    { value: 'other', label: 'أخرى' },
+  ];
 
-  const filteredExpenses = expenses.filter(expense => {
-    if (categoryFilter !== 'all' && expense.categoryId !== categoryFilter) return false
-    if (searchQuery && !expense.description.toLowerCase().includes(searchQuery.toLowerCase())) return false
-    return true
-  }).sort((a, b) => {
-    switch (sortBy) {
-      case 'date':
-        return new Date(b.date).getTime() - new Date(a.date).getTime()
-      case 'amount':
-        return b.amount - a.amount
-      case 'category':
-        return a.categoryName.localeCompare(b.categoryName)
-      default:
-        return 0
-    }
-  })
+  const getCategoryLabel = (category: string) => {
+    const cat = categories.find(c => c.value === category);
+    return cat?.label || category;
+  };
 
   return (
-    <div className="container mx-auto p-6">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-text mb-2">المصروفات</h1>
-        <p className="text-muted">إدارة وتتبع المصروفات</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {t('expenses.title')}
+          </h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">
+            إدارة المصروفات والميزانية
+          </p>
+        </div>
+        <Button className="gap-2">
+          <Plus className="w-4 h-4" />
+          {t('expenses.addExpense')}
+        </Button>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <SummaryCard
-          label="إجمالي المصروفات"
-          value={summary.totalExpenses.toFixed(2)}
-          icon="💸"
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <StatCard 
+          title={t('expenses.thisMonth')} 
+          value={`₪${thisMonthTotal.toLocaleString()}`} 
+          icon={Calendar} 
         />
-        <SummaryCard
-          label="هذا الشهر"
-          value={summary.thisMonth.toFixed(2)}
-          icon="📅"
+        <StatCard 
+          title="الإيجار" 
+          value={`₪${(categoryTotals.rent || 0).toLocaleString()}`} 
+          icon={DollarSign} 
         />
-        <SummaryCard
-          label="عدد الفئات"
-          value={categories.length.toString()}
-          icon="📁"
+        <StatCard 
+          title="الرواتب" 
+          value={`₪${(categoryTotals.salaries || 0).toLocaleString()}`} 
+          icon={DollarSign} 
         />
-        <SummaryCard
-          label="متوسط شهري"
-          value={(summary.totalExpenses / 12).toFixed(2)}
-          icon="📊"
+        <StatCard 
+          title="المرافق" 
+          value={`₪${(categoryTotals.utilities || 0).toLocaleString()}`} 
+          icon={DollarSign} 
         />
       </div>
 
       {/* Category Breakdown */}
-      {summary.byCategory.length > 0 && (
-        <div className="bg-surface rounded-lg p-6 mb-6 border border-border">
-          <h3 className="font-semibold text-text mb-4">توزيع المصروفات حسب الفئة</h3>
-          <div className="space-y-3">
-            {summary.byCategory.map((category) => (
-              <div key={category.categoryId} className="flex items-center gap-4">
-                <div className="flex-1">
-                  <div className="flex justify-between mb-1">
-                    <span className="text-sm font-medium text-text">{category.categoryName}</span>
-                    <span className="text-sm text-muted">{category.percentage.toFixed(0)}%</span>
-                  </div>
-                  <div className="w-full bg-muted-20 rounded-full h-2">
-                    <div
-                      className="h-2 rounded-full transition-all"
-                      style={{
-                        width: `${category.percentage}%`,
-                        backgroundColor: categories.find(c => c.id === category.categoryId)?.color || '#64748b',
-                      }}
-                    />
-                  </div>
-                </div>
-                <span className="text-sm font-medium text-text w-24 text-left">
-                  {category.amount.toFixed(2)}
-                </span>
+      <Card>
+        <CardHeader>
+          <CardTitle>توزيع المصروفات حسب الفئة</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {Object.entries(categoryTotals).map(([category, total]) => (
+              <div key={category} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {getCategoryLabel(category)}
+                </p>
+                <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+                  ₪{(total as number).toLocaleString()}
+                </p>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        </CardContent>
+      </Card>
 
-      {/* Filters */}
-      <div className="bg-surface rounded-lg p-4 mb-6 space-y-4">
-        {/* Search */}
-        <div>
-          <input
-            type="text"
-            placeholder="بحث عن مصروف..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-          />
-        </div>
+      {/* Search and Filters */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1 relative">
+              <Search className="absolute inset-y-0 right-3 w-4 h-4 text-gray-400" />
+              <Input
+                placeholder={t('common.search')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pr-10"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                options={categories}
+              />
+              <Button variant="outline" className="gap-2">
+                <Filter className="w-4 h-4" />
+                {t('common.filter')}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Category Filter */}
-        <div className="flex flex-wrap gap-2">
-          <span className="text-sm text-muted self-center">الفئة:</span>
-          <button
-            onClick={() => setCategoryFilter('all')}
-            className={clsx(
-              'px-3 py-1 rounded-lg text-sm font-medium transition-colors',
-              categoryFilter === 'all'
-                ? 'bg-primary text-white'
-                : 'bg-muted text-muted hover:bg-muted-80'
-            )}
-          >
-            الكل
-          </button>
-          {categories.map((category) => (
-            <button
-              key={category.id}
-              onClick={() => setCategoryFilter(category.id)}
-              className={clsx(
-                'px-3 py-1 rounded-lg text-sm font-medium transition-colors',
-                categoryFilter === category.id
-                  ? 'bg-primary text-white'
-                  : 'bg-muted text-muted hover:bg-muted-80'
-              )}
-            >
-              {category.name}
-            </button>
-          ))}
-        </div>
-
-        {/* Sort */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted">ترتيب حسب:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortOption)}
-            className="px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-          >
-            <option value="date">التاريخ</option>
-            <option value="amount">المبلغ</option>
-            <option value="category">الفئة</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Expenses List */}
-      {filteredExpenses.length > 0 ? (
-        <div className="bg-surface rounded-lg overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-muted-10 border-b border-border">
-              <tr>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">التاريخ</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">الفئة</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">الوصف</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">المبلغ</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">إجراءات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredExpenses.map((expense) => (
-                <tr key={expense.id} className="border-b border-border hover:bg-muted-5">
-                  <td className="px-4 py-3 text-muted">{expense.date}</td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-1 rounded text-xs font-medium" style={{
-                      backgroundColor: `${categories.find(c => c.id === expense.categoryId)?.color}20`,
-                      color: categories.find(c => c.id === expense.categoryId)?.color,
-                    }}>
-                      {expense.categoryName}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div>
-                      <p className="font-medium text-text">{expense.description}</p>
-                      {expense.notes && (
-                        <p className="text-sm text-muted">{expense.notes}</p>
+      {/* Expenses Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>سجل المصروفات</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>التاريخ</TableHead>
+                  <TableHead>الفئة</TableHead>
+                  <TableHead>الوصف</TableHead>
+                  <TableHead>المبلغ</TableHead>
+                  <TableHead>متكرر</TableHead>
+                  <TableHead>الإيصال</TableHead>
+                  <TableHead className="text-left">الإجراءات</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredExpenses.map((expense: any) => (
+                  <TableRow key={expense.id}>
+                    <TableCell>
+                      {new Date(expense.date).toLocaleDateString('ar-SA')}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">
+                        {getCategoryLabel(expense.category)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{expense.description}</TableCell>
+                    <TableCell className="font-bold">
+                      ₪{expense.amount.toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      {expense.recurring ? (
+                        <Badge variant="secondary">
+                          {expense.recurringPeriod === 'monthly' ? 'شهري' :
+                           expense.recurringPeriod === 'weekly' ? 'أسبوعي' :
+                           expense.recurringPeriod === 'yearly' ? 'سنوي' : 'نعم'}
+                        </Badge>
+                      ) : (
+                        <span className="text-gray-400">-</span>
                       )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 font-medium text-text">{expense.amount.toFixed(2)}</td>
-                  <td className="px-4 py-3">
-                    <button className="text-primary hover:text-primary-600 text-sm">
-                      عرض
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <EmptyState
-          icon="💸"
-          title="لا توجد مصروفات"
-          description="لا توجد مصروفات مطابقة للفلاتر الحالية"
-          actionLabel="إضافة مصروف"
-          onAction={() => {/* TODO: Open add expense modal */}}
-        />
-      )}
+                    </TableCell>
+                    <TableCell>
+                      {expense.receipt ? (
+                        <Button variant="ghost" size="sm">
+                          عرض
+                        </Button>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-left">
+                      <div className="flex gap-2">
+                        <Button variant="ghost" size="sm">
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm">
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
-  )
+  );
 }
 
-function SummaryCard({ label, value, icon, color = 'primary' }: { label: string; value: string; icon: string; color?: 'success' | 'danger' | 'warning' | 'primary' }) {
-  const colorClasses = {
-    success: 'text-success',
-    danger: 'text-danger',
-    warning: 'text-warning',
-    primary: 'text-primary',
-  }
+interface StatCardProps {
+  title: string;
+  value: string;
+  icon: any;
+}
 
+function StatCard({ title, value, icon: Icon }: StatCardProps) {
   return (
-    <div className="bg-surface rounded-lg p-4 border border-border">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-2xl">{icon}</span>
-        <span className="text-sm text-muted">{label}</span>
-      </div>
-      <p className={clsx('text-xl font-bold', colorClasses[color])}>{value}</p>
-    </div>
-  )
+    <Card>
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+              {value}
+            </p>
+          </div>
+          <Icon className="w-5 h-5 text-gray-400" />
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
-
-export default ExpensesPage

@@ -1,250 +1,198 @@
-import { useState } from 'react'
-import { clsx } from 'clsx'
-import { PurchaseDetail } from '../components/PurchaseDetail'
-import { EmptyState } from '@/components/feedback'
-import type { Purchase, PurchaseSummary } from '../types/purchase'
-
-type StatusFilter = 'all' | 'paid' | 'partial' | 'pending'
-type SortOption = 'date' | 'amount' | 'supplier'
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from '../../../hooks/useTranslation';
+import { purchasesApi } from '../../../services/api/endpoints';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Button } from '../../../components/ui/button';
+import { Input } from '../../../components/ui/input';
+import { Select } from '../../../components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { Badge } from '../../../components/ui/badge';
+import { 
+  ShoppingCart, 
+  Search, 
+  Plus, 
+  Filter,
+  Eye,
+  Truck,
+  Package,
+  Calendar
+} from 'lucide-react';
 
 export function PurchasesPage() {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [sortBy, setSortBy] = useState<SortOption>('date')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedPurchase, setSelectedPurchase] = useState<Purchase | null>(null)
+  const { t } = useTranslation();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
-  // TODO: Fetch purchases from API
-  const purchases: Purchase[] = []
-  const summary: PurchaseSummary = {
-    totalPurchases: 0,
-    totalAmount: 0,
-    totalPaid: 0,
-    totalRemaining: 0,
-    pendingAmount: 0,
-    thisMonth: 0,
-  }
+  const { data: purchasesData, isLoading } = useQuery({
+    queryKey: ['purchases'],
+    queryFn: () => purchasesApi.list(),
+  });
 
-  const filteredPurchases = purchases.filter(purchase => {
-    if (statusFilter !== 'all' && purchase.paymentStatus !== statusFilter) return false
-    if (searchQuery && !purchase.supplierName.toLowerCase().includes(searchQuery.toLowerCase())) return false
-    return true
-  }).sort((a, b) => {
-    switch (sortBy) {
-      case 'date':
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      case 'amount':
-        return b.totalCost - a.totalCost
-      case 'supplier':
-        return a.supplierName.localeCompare(b.supplierName)
-      default:
-        return 0
-    }
-  })
+  const purchases = (purchasesData?.data as any[]) || [];
 
-  const handleViewPurchase = (purchase: Purchase) => {
-    setSelectedPurchase(purchase)
-  }
+  const filteredPurchases = purchases.filter((purchase: any) => {
+    const matchesSearch = 
+      purchase.supplier?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      purchase.id.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = !statusFilter || purchase.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
-  const handleAddPayment = () => {
-    // TODO: Open payment modal
-    console.log('Add payment')
-  }
-
-  if (selectedPurchase) {
-    return (
-      <div className="container mx-auto p-6">
-        <button
-          onClick={() => setSelectedPurchase(null)}
-          className="text-muted hover:text-text mb-4 inline-flex items-center gap-2"
-        >
-          ← العودة للمشتريات
-        </button>
-        <PurchaseDetail
-          purchase={selectedPurchase}
-          onAddPayment={handleAddPayment}
-          onEdit={() => {/* TODO: Open edit modal */}}
-          onDelete={() => {/* TODO: Show delete confirmation */}}
-          onPrint={() => {/* TODO: Print purchase */}}
-        />
-      </div>
-    )
-  }
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+      pending: { label: 'قيد الانتظار', variant: 'secondary' },
+      ordered: { label: 'تم الطلب', variant: 'outline' },
+      received: { label: 'تم الاستلام', variant: 'default' },
+      cancelled: { label: 'ملغي', variant: 'destructive' },
+    };
+    return variants[status] || { label: status, variant: 'default' };
+  };
 
   return (
-    <div className="container mx-auto p-6">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-text mb-2">المشتريات</h1>
-        <p className="text-muted">إدارة المشتريات من الموردين</p>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <SummaryCard
-          label="إجمالي المشتريات"
-          value={summary.totalPurchases.toString()}
-          icon="🛒"
-        />
-        <SummaryCard
-          label="إجمالي المبالغ"
-          value={summary.totalAmount.toFixed(2)}
-          icon="💰"
-        />
-        <SummaryCard
-          label="المتبقي"
-          value={summary.totalRemaining.toFixed(2)}
-          icon="⚠️"
-          color={summary.totalRemaining > 0 ? 'warning' : 'success'}
-        />
-        <SummaryCard
-          label="هذا الشهر"
-          value={summary.thisMonth.toFixed(2)}
-          icon="📅"
-        />
-      </div>
-
-      {/* Filters */}
-      <div className="bg-surface rounded-lg p-4 mb-6 space-y-4">
-        {/* Search */}
+      <div className="flex items-center justify-between">
         <div>
-          <input
-            type="text"
-            placeholder="بحث عن مورد..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-          />
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {t('purchases.title')}
+          </h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">
+            إدارة المشتريات والطلبات
+          </p>
         </div>
-
-        {/* Status Filter */}
-        <div className="flex flex-wrap gap-2">
-          <span className="text-sm text-muted self-center">الحالة:</span>
-          {(['all', 'paid', 'partial', 'pending'] as StatusFilter[]).map((status) => (
-            <button
-              key={status}
-              onClick={() => setStatusFilter(status)}
-              className={clsx(
-                'px-3 py-1 rounded-lg text-sm font-medium transition-colors',
-                statusFilter === status
-                  ? 'bg-primary text-white'
-                  : 'bg-muted text-muted hover:bg-muted-80'
-              )}
-            >
-              {status === 'all' && 'الكل'}
-              {status === 'paid' && 'مدفوع'}
-              {status === 'partial' && 'جزئي'}
-              {status === 'pending' && 'معلق'}
-            </button>
-          ))}
-        </div>
-
-        {/* Sort */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted">ترتيب حسب:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortOption)}
-            className="px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-          >
-            <option value="date">التاريخ</option>
-            <option value="amount">المبلغ</option>
-            <option value="supplier">المورد</option>
-          </select>
-        </div>
+        <Button className="gap-2">
+          <Plus className="w-4 h-4" />
+          {t('purchases.newPurchase')}
+        </Button>
       </div>
 
-      {/* Purchases List */}
-      {filteredPurchases.length > 0 ? (
-        <div className="bg-surface rounded-lg overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-muted-10 border-b border-border">
-              <tr>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">المورد</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">التكلفة</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">المدفوع</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">المتبقي</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">التاريخ</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">الحالة</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">إجراءات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPurchases.map((purchase) => (
-                <tr key={purchase.id} className="border-b border-border hover:bg-muted-5">
-                  <td className="px-4 py-3">
-                    <div>
-                      <p className="font-medium text-text">{purchase.supplierName}</p>
-                      <p className="text-sm text-muted">#{purchase.id.slice(-6)}</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 font-medium text-text">{purchase.totalCost.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-success">{purchase.paidAmount.toFixed(2)}</td>
-                  <td className="px-4 py-3 font-medium text-warning">{purchase.remainingAmount.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-muted">{purchase.createdAt}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={purchase.paymentStatus} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleViewPurchase(purchase)}
-                      className="text-primary hover:text-primary-600 text-sm"
-                    >
-                      عرض التفاصيل
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <EmptyState
-          icon="🛒"
-          title="لا توجد مشتريات"
-          description="لا توجد مشتريات مطابقة للفلاتر الحالية"
-          actionLabel="إنشاء مشتراة جديدة"
-          onAction={() => {/* TODO: Open create purchase modal */}}
-        />
-      )}
-    </div>
-  )
-}
-
-function SummaryCard({ label, value, icon, color = 'primary' }: { label: string; value: string; icon: string; color?: 'success' | 'danger' | 'warning' | 'primary' }) {
-  const colorClasses = {
-    success: 'text-success',
-    danger: 'text-danger',
-    warning: 'text-warning',
-    primary: 'text-primary',
-  }
-
-  return (
-    <div className="bg-surface rounded-lg p-4 border border-border">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-2xl">{icon}</span>
-        <span className="text-sm text-muted">{label}</span>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <StatCard title="إجمالي المشتريات" value={purchases.length} icon={ShoppingCart} />
+        <StatCard title="قيد الانتظار" value={purchases.filter((p: any) => p.status === 'pending').length} icon={Calendar} />
+        <StatCard title="تم الاستلام" value={purchases.filter((p: any) => p.status === 'received').length} icon={Package} />
+        <StatCard title="إجمالي التكلفة" value={`₪${(purchases as any[]).reduce((sum: number, p: any) => sum + p.totalCost, 0).toLocaleString()}`} icon={Truck} />
       </div>
-      <p className={clsx('text-xl font-bold', colorClasses[color])}>{value}</p>
+
+      {/* Search and Filters */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1 relative">
+              <Search className="absolute inset-y-0 right-3 w-4 h-4 text-gray-400" />
+              <Input
+                placeholder={t('common.search')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pr-10"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                options={[
+                  { value: '', label: 'كل الحالات' },
+                  { value: 'pending', label: 'قيد الانتظار' },
+                  { value: 'ordered', label: 'تم الطلب' },
+                  { value: 'received', label: 'تم الاستلام' },
+                  { value: 'cancelled', label: 'ملغي' },
+                ]}
+              />
+              <Button variant="outline" className="gap-2">
+                <Filter className="w-4 h-4" />
+                {t('common.filter')}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Purchases Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>قائمة المشتريات</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>رقم الطلب</TableHead>
+                  <TableHead>المورد</TableHead>
+                  <TableHead>القطع</TableHead>
+                  <TableHead>إجمالي التكلفة</TableHead>
+                  <TableHead>المدفوع</TableHead>
+                  <TableHead>المتبقي</TableHead>
+                  <TableHead>التاريخ المتوقع</TableHead>
+                  <TableHead>الحالة</TableHead>
+                  <TableHead className="text-left">الإجراءات</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredPurchases.map((purchase: any) => {
+                  const statusBadge = getStatusBadge(purchase.status);
+                  return (
+                    <TableRow key={purchase.id}>
+                      <TableCell className="font-medium">{purchase.id}</TableCell>
+                      <TableCell>{purchase.supplier?.name}</TableCell>
+                      <TableCell>{purchase.items?.length || 0} قطع</TableCell>
+                      <TableCell>₪{purchase.totalCost?.toLocaleString()}</TableCell>
+                      <TableCell className="text-green-600">₪{purchase.paidAmount?.toLocaleString()}</TableCell>
+                      <TableCell>₪{purchase.remainingAmount?.toLocaleString()}</TableCell>
+                      <TableCell>
+                        {purchase.expectedDate 
+                          ? new Date(purchase.expectedDate).toLocaleDateString('ar-SA')
+                          : '-'
+                        }
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={statusBadge.variant}>
+                          {statusBadge.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-left">
+                        <Button variant="ghost" size="sm">
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
-  )
+  );
 }
 
-function StatusBadge({ status }: { status: Purchase['paymentStatus'] }) {
-  const statusColors = {
-    paid: 'bg-success-10 text-success',
-    partial: 'bg-primary-10 text-primary',
-    pending: 'bg-warning-10 text-warning',
-  }
+interface StatCardProps {
+  title: string;
+  value: number | string;
+  icon: any;
+}
 
-  const statusLabels = {
-    paid: 'مدفوع',
-    partial: 'جزئي',
-    pending: 'معلق',
-  }
-
+function StatCard({ title, value, icon: Icon }: StatCardProps) {
   return (
-    <span className={clsx('px-2 py-1 rounded-full text-xs font-medium', statusColors[status])}>
-      {statusLabels[status]}
-    </span>
-  )
+    <Card>
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+              {value}
+            </p>
+          </div>
+          <Icon className="w-5 h-5 text-gray-400" />
+        </div>
+      </CardContent>
+    </Card>
+  );
 }

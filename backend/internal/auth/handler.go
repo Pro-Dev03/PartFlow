@@ -1,210 +1,184 @@
 package auth
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/partflow/smart-store/pkg/response"
+	"github.com/jmoiron/sqlx"
 )
 
-// Handler handles auth HTTP requests
 type Handler struct {
 	service *Service
+	db       *sqlx.DB
 }
 
-// NewHandler creates a new auth handler
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service *Service, db *sqlx.DB) *Handler {
+	return &Handler{service: service, db: db}
 }
 
-// Login handles user login
-// @Summary Login
-// @Description Authenticate a user
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Param request body LoginRequest true "Login credentials"
-// @Success 200 {object} response.Response{data=AuthResponse}
-// @Failure 400 {object} response.Response
-// @Failure 401 {object} response.Response
-// @Router /api/v1/auth/login [post]
-func (h *Handler) Login(c *gin.Context) {
-	var req LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
-		return
+// RegisterRoutes registers auth routes
+func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
+	auth := router.Group("/auth")
+	{
+		auth.POST("/register", h.Register)
+		auth.POST("/login", h.Login)
+		auth.POST("/refresh", h.RefreshToken)
+		auth.POST("/logout", h.Logout)
+		auth.POST("/change-password", h.ChangePassword)
+		auth.POST("/password-reset", h.RequestPasswordReset)
+		auth.POST("/password-reset/confirm", h.ResetPassword)
 	}
 
-	resp, err := h.service.Login(c.Request.Context(), &req)
-	if err != nil {
-		response.Unauthorized(c, err.Error())
-		return
+	users := router.Group("/users")
+	{
+		users.GET("/me", h.GetCurrentUser)
 	}
-
-	response.OK(c, resp, "Login successful")
 }
 
 // Register handles user registration
-// @Summary Register
-// @Description Register a new user
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Param request body RegisterRequest true "Registration data"
-// @Success 201 {object} response.Response{data=AuthResponse}
-// @Failure 400 {object} response.Response
-// @Failure 409 {object} response.Response
-// @Router /api/v1/auth/register [post]
 func (h *Handler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	resp, err := h.service.Register(c.Request.Context(), &req)
 	if err != nil {
-		if err == ErrUserExists {
-			response.Conflict(c, err.Error())
-			return
-		}
-		response.BadRequest(c, err.Error())
+		handleAuthError(c, err)
 		return
 	}
 
-	response.Created(c, resp, "Registration successful")
+	c.JSON(http.StatusCreated, resp)
+}
+
+// Login handles admin login (based on worktrack)
+func (h *Handler) Login(c *gin.Context) {
+	var req LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := h.service.Login(c.Request.Context(), &req)
+	if err != nil {
+		handleAuthError(c, err)
+		return
+	}
+
+	// Get role name for response
+	var roleName string
+	err = h.service.db.QueryRowContext(c.Request.Context(), "SELECT name FROM roles WHERE id = $1", resp.User.RoleID).Scan(&roleName)
+	if err != nil {
+		roleName = "admin" // default
+	}
+
+	// Response format based on worktrack
+	response := gin.H{
+		"access_token":  resp.AccessToken,
+		"refresh_token": resp.RefreshToken,
+		"expires_in":    resp.ExpiresIn,
+		"user": gin.H{
+			"id":                    resp.User.ID.String(),
+			"email":                 resp.User.Email,
+			"first_name":            resp.User.FirstName,
+			"last_name":             resp.User.LastName,
+			"phone":                 resp.User.Phone,
+			"role_id":               resp.User.RoleID,
+			"role":                  roleName,
+			"is_active":             resp.User.IsActive,
+			"subscription_status":   resp.User.SubscriptionStatus,
+			"subscription_expires_at": resp.User.SubscriptionExpiresAt,
+		},
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // RefreshToken handles token refresh
-// @Summary Refresh Token
-// @Description Refresh access token using refresh token
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Param request body RefreshTokenRequest true "Refresh token"
-// @Success 200 {object} response.Response{data=AuthResponse}
-// @Failure 400 {object} response.Response
-// @Failure 401 {object} response.Response
-// @Router /api/v1/auth/refresh [post]
 func (h *Handler) RefreshToken(c *gin.Context) {
 	var req RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	resp, err := h.service.RefreshToken(c.Request.Context(), &req)
+	resp, err := h.service.RefreshToken(c.Request.Context(), req.RefreshToken)
 	if err != nil {
-		response.Unauthorized(c, err.Error())
+		handleAuthError(c, err)
 		return
 	}
 
-	response.OK(c, resp, "Token refreshed successfully")
+	c.JSON(http.StatusOK, resp)
 }
 
 // Logout handles user logout
-// @Summary Logout
-// @Description Logout a user
-// @Tags auth
-// @Security Bearer
-// @Success 200 {object} response.Response
-// @Failure 401 {object} response.Response
-// @Router /api/v1/auth/logout [post]
 func (h *Handler) Logout(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		response.Unauthorized(c, "unauthorized")
+	userID := getUserIDFromContext(c)
+
+	if err := h.service.Logout(c.Request.Context(), userID); err != nil {
+		handleAuthError(c, err)
 		return
 	}
 
-	if err := h.service.Logout(c.Request.Context(), userID.(uuid.UUID)); err != nil {
-		response.InternalError(c, err.Error())
-		return
-	}
-
-	response.OK(c, gin.H{"message": "logged out successfully"}, "Logout successful")
+	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})
 }
 
 // ChangePassword handles password change
-// @Summary Change Password
-// @Description Change user password
-// @Tags auth
-// @Accept json
-// @Produce json
-// @Security Bearer
-// @Param request body ChangePasswordRequest true "Password change data"
-// @Success 200 {object} response.Response
-// @Failure 400 {object} response.Response
-// @Failure 401 {object} response.Response
-// @Router /api/v1/auth/change-password [post]
 func (h *Handler) ChangePassword(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		response.Unauthorized(c, "unauthorized")
-		return
-	}
+	userID := getUserIDFromContext(c)
 
 	var req ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := h.service.ChangePassword(c.Request.Context(), userID.(uuid.UUID), &req); err != nil {
-		if err == ErrInvalidPassword {
-			response.BadRequest(c, err.Error())
-			return
-		}
-		response.InternalError(c, err.Error())
+	if err := h.service.ChangePassword(c.Request.Context(), userID, &req); err != nil {
+		handleAuthError(c, err)
 		return
 	}
 
-	response.OK(c, gin.H{"message": "password changed successfully"}, "Password changed successfully")
+	c.JSON(http.StatusOK, gin.H{"message": "password changed successfully"})
 }
 
-// GetMe returns the current user
-// @Summary Get Current User
-// @Description Get the current authenticated user
-// @Tags auth
-// @Security Bearer
-// @Success 200 {object} response.Response{data=User}
-// @Failure 401 {object} response.Response
-// @Router /api/v1/auth/me [get]
-func (h *Handler) GetMe(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		response.Unauthorized(c, "unauthorized")
-		return
-	}
+// GetCurrentUser returns the current authenticated user
+func (h *Handler) GetCurrentUser(c *gin.Context) {
+	userID := getUserIDFromContext(c)
 
-	user, err := h.service.repo.GetUserByID(c.Request.Context(), userID.(uuid.UUID))
+	user, err := h.service.GetUserByID(c.Request.Context(), userID)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		handleAuthError(c, err)
 		return
 	}
 
-	response.OK(c, user, "User retrieved successfully")
+	c.JSON(http.StatusOK, user)
 }
 
-// GetPermissions returns user permissions
-// @Summary Get User Permissions
-// @Description Get all permissions for the current user
-// @Tags auth
-// @Security Bearer
-// @Success 200 {object} response.Response{data=[]Permission}
-// @Failure 401 {object} response.Response
-// @Router /api/v1/auth/permissions [get]
-func (h *Handler) GetPermissions(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		response.Unauthorized(c, "unauthorized")
-		return
+// Helper functions
+
+func getUserIDFromContext(c *gin.Context) uuid.UUID {
+	// This would extract user ID from JWT token in middleware
+	// For now, return a placeholder
+	return uuid.MustParse(c.GetHeader("X-User-ID"))
+}
+
+func handleAuthError(c *gin.Context, err error) {
+	status := http.StatusInternalServerError
+	message := "internal server error"
+
+	switch err {
+	case ErrUserNotFound:
+		status = http.StatusNotFound
+		message = err.Error()
+	case ErrInvalidCredentials, ErrInvalidPassword:
+		status = http.StatusUnauthorized
+		message = err.Error()
+	case ErrUserExists:
+		status = http.StatusConflict
+		message = err.Error()
 	}
 
-	permissions, err := h.service.GetUserPermissions(c.Request.Context(), userID.(uuid.UUID))
-	if err != nil {
-		response.InternalError(c, err.Error())
-		return
-	}
-
-	response.OK(c, permissions, "Permissions retrieved successfully")
+	c.JSON(status, gin.H{"error": message})
 }

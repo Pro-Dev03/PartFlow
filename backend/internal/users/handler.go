@@ -196,3 +196,84 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 
 	response.Success(c, http.StatusOK, nil, "Password changed successfully")
 }
+
+// AssignRole handles role assignment to user
+func (h *Handler) AssignRole(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid user ID", err.Error())
+		return
+	}
+
+	var req AssignRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+
+	err = h.service.AssignRole(c.Request.Context(), id, organizationID, req.RoleID)
+	if err != nil {
+		if err == ErrUserNotFound {
+			response.Error(c, http.StatusNotFound, http.StatusNotFound, "User not found", err.Error())
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to assign role", err.Error())
+		return
+	}
+
+	response.Success(c, http.StatusOK, nil, "Role assigned successfully")
+}
+
+// RemoveRole handles role removal from user
+func (h *Handler) RemoveRole(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid user ID", err.Error())
+		return
+	}
+
+	var req AssignRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid request body", err.Error())
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+
+	err = h.service.RemoveRole(c.Request.Context(), id, organizationID, req.RoleID)
+	if err != nil {
+		if err == ErrUserNotFound {
+			response.Error(c, http.StatusNotFound, http.StatusNotFound, "User not found", err.Error())
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to remove role", err.Error())
+		return
+	}
+
+	response.Success(c, http.StatusOK, nil, "Role removed successfully")
+}
+
+// GetUserRoles handles getting user roles
+func (h *Handler) GetUserRoles(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid user ID", err.Error())
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+
+	roles, err := h.service.GetUserRoles(c.Request.Context(), id, organizationID)
+	if err != nil {
+		if err == ErrUserNotFound {
+			response.Error(c, http.StatusNotFound, http.StatusNotFound, "User not found", err.Error())
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to get user roles", err.Error())
+		return
+	}
+
+	response.Success(c, http.StatusOK, roles, "User roles retrieved successfully")
+}

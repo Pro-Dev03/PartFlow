@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -16,6 +17,11 @@ func Initialize() error {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		return fmt.Errorf("DATABASE_URL environment variable is not set")
+	}
+
+	// Add SSL mode to connection string for Supabase
+	if !strings.Contains(databaseURL, "sslmode") {
+		databaseURL += "?sslmode=require"
 	}
 
 	var err error

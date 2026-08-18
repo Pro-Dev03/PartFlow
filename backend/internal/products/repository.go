@@ -475,3 +475,64 @@ func (r *Repository) GetProductStockCount(ctx context.Context, productID uuid.UU
 	err := r.db.GetContext(ctx, &count, query, productID)
 	return count, err
 }
+
+// ArchiveProduct archives a product (soft delete)
+func (r *Repository) ArchiveProduct(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
+	query := `UPDATE products SET is_active = false, updated_at = NOW() WHERE id = $1 AND organization_id = $2`
+	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rows == 0 {
+		return ErrProductNotFound
+	}
+
+	return nil
+}
+
+// GetAvailableItemCount returns the count of available items for a product
+func (r *Repository) GetAvailableItemCount(ctx context.Context, productID uuid.UUID) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM inventory_items
+		WHERE product_id = $1 AND status = 'AVAILABLE'
+	`
+	var count int
+	err := r.db.GetContext(ctx, &count, query, productID)
+	return count, err
+}
+
+// GetReservedItemCount returns the count of reserved items for a product
+func (r *Repository) GetReservedItemCount(ctx context.Context, productID uuid.UUID) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM inventory_items
+		WHERE product_id = $1 AND status = 'RESERVED'
+	`
+	var count int
+	err := r.db.GetContext(ctx, &count, query, productID)
+	return count, err
+}
+
+// SearchProducts searches products by name, SKU, or barcode
+func (r *Repository) SearchProducts(ctx context.Context, organizationID uuid.UUID, query string, limit int) ([]Product, error) {
+	searchQuery := `
+		SELECT id, organization_id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, created_at, updated_at
+		FROM products
+		WHERE organization_id = $1
+		AND (name ILIKE $2 OR model ILIKE $2 OR sku ILIKE $2 OR barcode ILIKE $2)
+		AND is_active = true
+		ORDER BY name
+		LIMIT $3
+	`
+
+	var products []Product
+	err := r.db.SelectContext(ctx, &products, searchQuery, organizationID, "%"+query+"%", limit)
+	return products, err
+}

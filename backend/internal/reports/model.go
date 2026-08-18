@@ -182,6 +182,94 @@ type PaymentRecord struct {
 	Amount      float64   `json:"amount"`
 }
 
+// PurchasesReport represents purchases report data
+type PurchasesReport struct {
+	Period          string              `json:"period"`
+	StartDate       time.Time           `json:"start_date"`
+	EndDate         time.Time           `json:"end_date"`
+	TotalPurchases  int                 `json:"total_purchases"`
+	TotalCost       float64             `json:"total_cost"`
+	BySupplier      []SupplierPurchases `json:"by_supplier"`
+	ByCategory      map[string]int      `json:"by_category"`
+	ByMonth         []MonthlyPurchases  `json:"by_month"`
+}
+
+// SupplierPurchases represents supplier purchases data
+type SupplierPurchases struct {
+	SupplierID   uuid.UUID `json:"supplier_id"`
+	SupplierName string    `json:"supplier_name"`
+	TotalCost    float64   `json:"total_cost"`
+	ItemCount    int       `json:"item_count"`
+}
+
+// MonthlyPurchases represents monthly purchases data
+type MonthlyPurchases struct {
+	Month  time.Time `json:"month"`
+	Cost   float64   `json:"cost"`
+	Count  int       `json:"count"`
+}
+
+// ReturnsReport represents returns report data
+type ReturnsReport struct {
+	Period         string          `json:"period"`
+	StartDate      time.Time       `json:"start_date"`
+	EndDate        time.Time       `json:"end_date"`
+	TotalReturns   int             `json:"total_returns"`
+	TotalRefunded  float64         `json:"total_refunded"`
+	ByReason       map[string]int  `json:"by_reason"`
+	ByProduct      []ProductReturns `json:"by_product"`
+	ByMonth        []MonthlyReturns `json:"by_month"`
+}
+
+// ProductReturns represents product returns data
+type ProductReturns struct {
+	ProductID   uuid.UUID `json:"product_id"`
+	ProductName string    `json:"product_name"`
+	ReturnCount int       `json:"return_count"`
+	RefundAmount float64  `json:"refund_amount"`
+}
+
+// MonthlyReturns represents monthly returns data
+type MonthlyReturns struct {
+	Month  time.Time `json:"month"`
+	Count  int       `json:"count"`
+	Amount float64   `json:"amount"`
+}
+
+// WarrantyReport represents warranty report data
+type WarrantyReport struct {
+	ActiveWarranties      int                    `json:"active_warranties"`
+	ExpiringSoon          int                    `json:"expiring_soon"`
+	ExpiredWarranties     int                    `json:"expired_warranties"`
+	TotalClaims           int                    `json:"total_claims"`
+	ApprovedClaims        int                    `json:"approved_claims"`
+	RejectedClaims        int                    `json:"rejected_claims"`
+	CompletedClaims       int                    `json:"completed_claims"`
+	ByProduct             []ProductWarranty      `json:"by_product"`
+	ByStatus             map[string]int         `json:"by_status"`
+	PendingClaims         []PendingClaim         `json:"pending_claims"`
+}
+
+// ProductWarranty represents product warranty data
+type ProductWarranty struct {
+	ProductID     uuid.UUID `json:"product_id"`
+	ProductName   string    `json:"product_name"`
+	ActiveCount   int       `json:"active_count"`
+	ClaimsCount   int       `json:"claims_count"`
+	ClaimRate     float64   `json:"claim_rate"`
+}
+
+// PendingClaim represents pending warranty claim
+type PendingClaim struct {
+	ClaimID      uuid.UUID `json:"claim_id"`
+	CustomerID   uuid.UUID `json:"customer_id"`
+	CustomerName string    `json:"customer_name"`
+	ProductID    uuid.UUID `json:"product_id"`
+	ProductName  string    `json:"product_name"`
+	ClaimDate    time.Time `json:"claim_date"`
+	Status       string    `json:"status"`
+}
+
 // ReportRequest represents report generation request
 type ReportRequest struct {
 	Type        string                 `json:"type" binding:"required,oneof=sales inventory expenses profits debts purchases returns warranties"`

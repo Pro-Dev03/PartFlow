@@ -86,10 +86,61 @@ type LedgerEntry struct {
 
 // CustomerLedgerResponse represents customer ledger response
 type CustomerLedgerResponse struct {
-	CustomerID    uuid.UUID      `json:"customer_id"`
-	CustomerName  string         `json:"customer_name"`
-	TotalPurchases float64      `json:"total_purchases"`
-	TotalPayments  float64      `json:"total_payments"`
-	CurrentBalance float64      `json:"current_balance"`
-	Entries       []LedgerEntry `json:"entries"`
+	CustomerID     uuid.UUID      `json:"customer_id"`
+	CustomerName   string         `json:"customer_name"`
+	TotalPurchases float64       `json:"total_purchases"`
+	TotalPayments  float64       `json:"total_payments"`
+	CurrentBalance float64       `json:"current_balance"`
+	Entries        []LedgerEntry `json:"entries"`
+}
+
+// DebtSummary represents customer debt summary
+type DebtSummary struct {
+	CustomerID        uuid.UUID `json:"customer_id"`
+	CustomerName      string    `json:"customer_name"`
+	CurrentBalance    float64   `json:"current_balance"`
+	CreditLimit       float64   `json:"credit_limit"`
+	AvailableCredit   float64   `json:"available_credit"`
+	CreditUtilization float64   `json:"credit_utilization"`
+	OverdueAmount     float64   `json:"overdue_amount"`
+	IsOverdue         bool      `json:"is_overdue"`
+	DaysUntilOverdue  int       `json:"days_until_overdue"`
+}
+
+// OverdueCustomer represents an overdue customer
+type OverdueCustomer struct {
+	ID            uuid.UUID `json:"id"`
+	Name          string    `json:"name"`
+	Code          string    `json:"code"`
+	CurrentBalance float64  `json:"current_balance"`
+	CreditLimit   float64   `json:"credit_limit"`
+	OverdueAmount float64   `json:"overdue_amount"`
+	Email         *string   `json:"email,omitempty"`
+	Phone         *string   `json:"phone,omitempty"`
+}
+
+// UpdateCreditLimitRequest represents request to update credit limit
+type UpdateCreditLimitRequest struct {
+	NewLimit float64 `json:"new_limit" binding:"required,gt=0"`
+}
+
+// CreateDebtEntryRequest represents request to create a debt entry
+type CreateDebtEntryRequest struct {
+	Amount        float64   `json:"amount" binding:"required,gt=0"`
+	ReferenceID   uuid.UUID `json:"reference_id" binding:"required"`
+	ReferenceType string    `json:"reference_type" binding:"required"` // "sale", "invoice", etc.
+	DueDate       time.Time `json:"due_date" binding:"required"`
+}
+
+// CreateDebtCollectionRequest represents request to create a debt collection
+type CreateDebtCollectionRequest struct {
+	Type          string     `json:"type" binding:"required"` // "reminder", "warning", "legal_action"
+	ScheduledDate time.Time  `json:"scheduled_date" binding:"required"`
+	Notes         *string    `json:"notes,omitempty"`
+}
+
+// ProcessDebtPaymentRequest represents request to process debt payment
+type ProcessDebtPaymentRequest struct {
+	Amount float64 `json:"amount" binding:"required,gt=0"`
+	Method string  `json:"method" binding:"required"`
 }

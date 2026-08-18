@@ -1,264 +1,208 @@
-import { useState } from 'react'
-import { clsx } from 'clsx'
-import { ReturnDetail } from '../components/ReturnDetail'
-import { EmptyState } from '@/components/feedback'
-import type { Return, ReturnSummary } from '../types/return'
-
-type StatusFilter = 'all' | 'pending' | 'approved' | 'rejected' | 'completed'
-type SortOption = 'date' | 'amount' | 'customer'
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from '../../../hooks/useTranslation';
+import { returnsApi } from '../../../services/api/endpoints';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Button } from '../../../components/ui/button';
+import { Input } from '../../../components/ui/input';
+import { Select } from '../../../components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { Badge } from '../../../components/ui/badge';
+import { 
+  RotateCcw, 
+  Search, 
+  Plus, 
+  Filter,
+  Eye,
+  ShoppingCart,
+  AlertTriangle,
+  CheckCircle,
+  XCircle
+} from 'lucide-react';
 
 export function ReturnsPage() {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [sortBy, setSortBy] = useState<SortOption>('date')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedReturn, setSelectedReturn] = useState<Return | null>(null)
+  const { t } = useTranslation();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
-  // TODO: Fetch returns from API
-  const returns: Return[] = []
-  const summary: ReturnSummary = {
-    totalReturns: 0,
-    pendingReturns: 0,
-    approvedReturns: 0,
-    rejectedReturns: 0,
-    totalRefundAmount: 0,
-    thisMonth: 0,
-  }
+  const { data: returnsData, isLoading } = useQuery({
+    queryKey: ['returns'],
+    queryFn: () => returnsApi.list(),
+  });
 
-  const filteredReturns = returns.filter(returnItem => {
-    if (statusFilter !== 'all' && returnItem.status !== statusFilter) return false
-    if (searchQuery && !returnItem.customerName.toLowerCase().includes(searchQuery.toLowerCase())) return false
-    return true
-  }).sort((a, b) => {
-    switch (sortBy) {
-      case 'date':
-        return new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()
-      case 'amount':
-        return b.refundAmount - a.refundAmount
-      case 'customer':
-        return a.customerName.localeCompare(b.customerName)
-      default:
-        return 0
-    }
-  })
+  const returns = (returnsData?.data as any[]) || [];
 
-  const handleViewReturn = (returnItem: Return) => {
-    setSelectedReturn(returnItem)
-  }
+  const filteredReturns = returns.filter((returnItem: any) => {
+    const matchesSearch = 
+      returnItem.sale?.invoiceNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      returnItem.customer?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = !statusFilter || returnItem.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
-  const handleApprove = () => {
-    // TODO: Approve return
-    console.log('Approve return')
-  }
-
-  const handleReject = () => {
-    // TODO: Reject return
-    console.log('Reject return')
-  }
-
-  const handleComplete = () => {
-    // TODO: Complete return
-    console.log('Complete return')
-  }
-
-  if (selectedReturn) {
-    return (
-      <div className="container mx-auto p-6">
-        <button
-          onClick={() => setSelectedReturn(null)}
-          className="text-muted hover:text-text mb-4 inline-flex items-center gap-2"
-        >
-          ← العودة للمرتجعات
-        </button>
-        <ReturnDetail
-          returnRequest={selectedReturn}
-          onApprove={handleApprove}
-          onReject={handleReject}
-          onComplete={handleComplete}
-          onEdit={() => {/* TODO: Open edit modal */}}
-          onDelete={() => {/* TODO: Show delete confirmation */}}
-        />
-      </div>
-    )
-  }
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: any }> = {
+      pending: { label: 'قيد الانتظار', variant: 'secondary', icon: AlertTriangle },
+      approved: { label: 'موافق عليه', variant: 'default', icon: CheckCircle },
+      rejected: { label: 'مرفوض', variant: 'destructive', icon: XCircle },
+      completed: { label: 'مكتمل', variant: 'outline', icon: CheckCircle },
+    };
+    return variants[status] || { label: status, variant: 'default', icon: AlertTriangle };
+  };
 
   return (
-    <div className="container mx-auto p-6">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-text mb-2">المرتجعات</h1>
-        <p className="text-muted">إدارة طلبات المرتجعات</p>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <SummaryCard
-          label="إجمالي المرتجعات"
-          value={summary.totalReturns.toString()}
-          icon="🔄"
-        />
-        <SummaryCard
-          label="معلق"
-          value={summary.pendingReturns.toString()}
-          icon="⏳"
-          color={summary.pendingReturns > 0 ? 'warning' : 'success'}
-        />
-        <SummaryCard
-          label="إجمالي الاسترداد"
-          value={summary.totalRefundAmount.toFixed(2)}
-          icon="💰"
-        />
-        <SummaryCard
-          label="هذا الشهر"
-          value={summary.thisMonth.toFixed(2)}
-          icon="📅"
-        />
-      </div>
-
-      {/* Filters */}
-      <div className="bg-surface rounded-lg p-4 mb-6 space-y-4">
-        {/* Search */}
+      <div className="flex items-center justify-between">
         <div>
-          <input
-            type="text"
-            placeholder="بحث عن عميل..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-          />
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {t('returns.title')}
+          </h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">
+            إدارة المرتجعات والاسترجاع
+          </p>
         </div>
-
-        {/* Status Filter */}
-        <div className="flex flex-wrap gap-2">
-          <span className="text-sm text-muted self-center">الحالة:</span>
-          {(['all', 'pending', 'approved', 'rejected', 'completed'] as StatusFilter[]).map((status) => (
-            <button
-              key={status}
-              onClick={() => setStatusFilter(status)}
-              className={clsx(
-                'px-3 py-1 rounded-lg text-sm font-medium transition-colors',
-                statusFilter === status
-                  ? 'bg-primary text-white'
-                  : 'bg-muted text-muted hover:bg-muted-80'
-              )}
-            >
-              {status === 'all' && 'الكل'}
-              {status === 'pending' && 'معلق'}
-              {status === 'approved' && 'موافق'}
-              {status === 'rejected' && 'مرفوض'}
-              {status === 'completed' && 'مكتمل'}
-            </button>
-          ))}
-        </div>
-
-        {/* Sort */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted">ترتيب حسب:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortOption)}
-            className="px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-          >
-            <option value="date">التاريخ</option>
-            <option value="amount">المبلغ</option>
-            <option value="customer">العميل</option>
-          </select>
-        </div>
+        <Button className="gap-2">
+          <Plus className="w-4 h-4" />
+          {t('returns.newReturn')}
+        </Button>
       </div>
 
-      {/* Returns List */}
-      {filteredReturns.length > 0 ? (
-        <div className="bg-surface rounded-lg overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-muted-10 border-b border-border">
-              <tr>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">العميل</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">البيع</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">مبلغ الاسترداد</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">السبب</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">التاريخ</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">الحالة</th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted">إجراءات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredReturns.map((returnItem) => (
-                <tr key={returnItem.id} className="border-b border-border hover:bg-muted-5">
-                  <td className="px-4 py-3">
-                    <div>
-                      <p className="font-medium text-text">{returnItem.customerName}</p>
-                      <p className="text-sm text-muted">{returnItem.items.length} بنود</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-muted">#{returnItem.saleId.slice(-6)}</td>
-                  <td className="px-4 py-3 font-medium text-primary">{returnItem.refundAmount.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-muted truncate max-w-xs">{returnItem.reason}</td>
-                  <td className="px-4 py-3 text-muted">{returnItem.requestedAt}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={returnItem.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => handleViewReturn(returnItem)}
-                      className="text-primary hover:text-primary-600 text-sm"
-                    >
-                      عرض التفاصيل
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <EmptyState
-          icon="🔄"
-          title="لا توجد مرتجعات"
-          description="لا توجد طلبات مرتجعات مطابقة للفلاتر الحالية"
-          actionLabel="إنشاء طلب مرتج"
-          onAction={() => {/* TODO: Open create return modal */}}
-        />
-      )}
-    </div>
-  )
-}
-
-function SummaryCard({ label, value, icon, color = 'primary' }: { label: string; value: string; icon: string; color?: 'success' | 'danger' | 'warning' | 'primary' }) {
-  const colorClasses = {
-    success: 'text-success',
-    danger: 'text-danger',
-    warning: 'text-warning',
-    primary: 'text-primary',
-  }
-
-  return (
-    <div className="bg-surface rounded-lg p-4 border border-border">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-2xl">{icon}</span>
-        <span className="text-sm text-muted">{label}</span>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <StatCard title="إجمالي المرتجعات" value={returns.length} icon={RotateCcw} />
+        <StatCard title="قيد الانتظار" value={returns.filter((r: any) => r.status === 'pending').length} icon={AlertTriangle} />
+        <StatCard title="موافق عليه" value={returns.filter((r: any) => r.status === 'approved').length} icon={CheckCircle} />
+        <StatCard title="مكتمل" value={returns.filter((r: any) => r.status === 'completed').length} icon={CheckCircle} />
       </div>
-      <p className={clsx('text-xl font-bold', colorClasses[color])}>{value}</p>
+
+      {/* Search and Filters */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1 relative">
+              <Search className="absolute inset-y-0 right-3 w-4 h-4 text-gray-400" />
+              <Input
+                placeholder="بحث برقم الفاتورة أو العميل..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pr-10"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                options={[
+                  { value: '', label: 'كل الحالات' },
+                  { value: 'pending', label: 'قيد الانتظار' },
+                  { value: 'approved', label: 'موافق عليه' },
+                  { value: 'rejected', label: 'مرفوض' },
+                  { value: 'completed', label: 'مكتمل' },
+                ]}
+              />
+              <Button variant="outline" className="gap-2">
+                <Filter className="w-4 h-4" />
+                {t('common.filter')}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Returns Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>سجل المرتجعات</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>رقم الفاتورة</TableHead>
+                  <TableHead>العميل</TableHead>
+                  <TableHead>القطعة</TableHead>
+                  <TableHead>السبب</TableHead>
+                  <TableHead>مبلغ الاسترجاع</TableHead>
+                  <TableHead>يتطلب فحص</TableHead>
+                  <TableHead>الحالة</TableHead>
+                  <TableHead>التاريخ</TableHead>
+                  <TableHead className="text-left">الإجراءات</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredReturns.map((returnItem: any) => {
+                  const statusBadge = getStatusBadge(returnItem.status);
+                  const StatusIcon = statusBadge.icon;
+                  return (
+                    <TableRow key={returnItem.id}>
+                      <TableCell className="font-medium">
+                        {returnItem.sale?.invoiceNumber}
+                      </TableCell>
+                      <TableCell>{returnItem.customer?.name}</TableCell>
+                      <TableCell>{returnItem.item?.product?.name}</TableCell>
+                      <TableCell>{returnItem.reason}</TableCell>
+                      <TableCell className="font-bold">
+                        ₪{returnItem.refundAmount?.toLocaleString()}
+                      </TableCell>
+                      <TableCell>
+                        {returnItem.inspectionRequired ? (
+                          <Badge variant="destructive">نعم</Badge>
+                        ) : (
+                          <Badge variant="default">لا</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={statusBadge.variant} className="gap-1">
+                          <StatusIcon className="w-3 h-3" />
+                          {statusBadge.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {new Date(returnItem.createdAt).toLocaleDateString('ar-SA')}
+                      </TableCell>
+                      <TableCell className="text-left">
+                        <Button variant="ghost" size="sm">
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
-  )
+  );
 }
 
-function StatusBadge({ status }: { status: Return['status'] }) {
-  const statusColors = {
-    pending: 'bg-warning-10 text-warning',
-    approved: 'bg-primary-10 text-primary',
-    rejected: 'bg-danger-10 text-danger',
-    completed: 'bg-success-10 text-success',
-  }
+interface StatCardProps {
+  title: string;
+  value: number;
+  icon: any;
+}
 
-  const statusLabels = {
-    pending: 'معلق',
-    approved: 'موافق',
-    rejected: 'مرفوض',
-    completed: 'مكتمل',
-  }
-
+function StatCard({ title, value, icon: Icon }: StatCardProps) {
   return (
-    <span className={clsx('px-2 py-1 rounded-full text-xs font-medium', statusColors[status])}>
-      {statusLabels[status]}
-    </span>
-  )
+    <Card>
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+              {value}
+            </p>
+          </div>
+          <Icon className="w-5 h-5 text-gray-400" />
+        </div>
+      </CardContent>
+    </Card>
+  );
 }

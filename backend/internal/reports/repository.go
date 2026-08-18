@@ -540,6 +540,162 @@ func (r *Repository) GetDebtsData(ctx context.Context, organizationID uuid.UUID)
 		
 		report.ByCustomer = append(report.ByCustomer, customer)
 	}
-	
+
+	return &report, nil
+}
+
+// GetPurchasesData retrieves purchases data for report
+func (r *Repository) GetPurchasesData(ctx context.Context, organizationID uuid.UUID, startDate, endDate time.Time) (*PurchasesReport, error) {
+	var report PurchasesReport
+	report.StartDate = startDate
+	report.EndDate = endDate
+
+	// Get total purchases and cost
+	err := r.db.GetContext(ctx, &report.TotalPurchases,
+		`SELECT COUNT(*) FROM purchases WHERE organization_id = $1 AND purchase_date BETWEEN $2 AND $3`,
+		organizationID, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get total purchases: %w", err)
+	}
+
+	err = r.db.GetContext(ctx, &report.TotalCost,
+		`SELECT COALESCE(SUM(total_cost), 0) FROM purchases WHERE organization_id = $1 AND purchase_date BETWEEN $2 AND $3`,
+		organizationID, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get total cost: %w", err)
+	}
+
+	// Get purchases by supplier
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT s.id, s.name, COALESCE(SUM(p.total_cost), 0) as total_cost, COUNT(p.id) as item_count
+		 FROM purchases p
+		 JOIN suppliers s ON p.supplier_id = s.id
+		 WHERE p.organization_id = $1 AND p.purchase_date BETWEEN $2 AND $3
+		 GROUP BY s.id, s.name
+		 ORDER BY total_cost DESC`,
+		organizationID, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get purchases by supplier: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var supplier SupplierPurchases
+		if err := rows.Scan(&supplier.SupplierID, &supplier.SupplierName, &supplier.TotalCost, &supplier.ItemCount); err != nil {
+			continue
+		}
+		report.BySupplier = append(report.BySupplier, supplier)
+	}
+
+	return &report, nil
+}
+
+// GetReturnsData retrieves returns data for report
+func (r *Repository) GetReturnsData(ctx context.Context, organizationID uuid.UUID, startDate, endDate time.Time) (*ReturnsReport, error) {
+	var report ReturnsReport
+	report.StartDate = startDate
+	report.EndDate = endDate
+
+	// Get total returns and refunds
+	err := r.db.GetContext(ctx, &report.TotalReturns,
+		`SELECT COUNT(*) FROM returns WHERE organization_id = $1 AND return_date BETWEEN $2 AND $3`,
+		organizationID, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get total returns: %w", err)
+	}
+
+	err = r.db.GetContext(ctx, &report.TotalRefunded,
+		`SELECT COALESCE(SUM(refund_amount), 0) FROM returns WHERE organization_id = $1 AND return_date BETWEEN $2 AND $3`,
+		organizationID, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get total refunded: %w", err)
+	}
+
+	// Get returns by reason
+	report.ByReason = make(map[string]int)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT reason, COUNT(*) FROM returns WHERE organization_id = $1 AND return_date BETWEEN $2 AND $3 GROUP BY reason`,
+		organizationID, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get returns by reason: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var reason string
+		var count int
+		if err := rows.Scan(&reason, &count); err != nil {
+			continue
+		}
+		report.ByReason[reason] = count
+	}
+
+	return &report, nil
+}
+
+// GetWarrantyData retrieves warranty data for report
+func (r *Repository) GetWarrantyData(ctx context.Context, organizationID uuid.UUID) (*WarrantyReport, error) {
+	var report WarrantyReport
+
+	// Get active warranties
+	err := r.db.GetContext(ctx, &report.ActiveWarranties,
+		`SELECT COUNT(*) FROM warranties WHERE organization_id = $1 AND status = 'active' AND end_date > CURRENT_DATE`,
+		organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active warranties: %w", err)
+	}
+
+	// Get expiring soon (within 30 days)
+	err = r.db.GetContext(ctx, &report.ExpiringSoon,
+		`SELECT COUNT(*) FROM warranties WHERE organization_id = $1 AND status = 'active' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`,
+		organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get expiring warranties: %w", err)
+	}
+
+	// Get expired warranties
+	err = r.db.GetContext(ctx, &report.ExpiredWarranties,
+		`SELECT COUNT(*) FROM warranties WHERE organization_id = $1 AND end_date < CURRENT_DATE`,
+		organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get expired warranties: %w", err)
+	}
+
+	// Get total claims
+	err = r.db.GetContext(ctx, &report.TotalClaims,
+		`SELECT COUNT(*) FROM warranty_claims WHERE organization_id = $1`,
+		organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get total claims: %w", err)
+	}
+
+	// Get claims by status
+	report.ByStatus = make(map[string]int)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT status, COUNT(*) FROM warranty_claims WHERE organization_id = $1 GROUP BY status`,
+		organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get claims by status: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			continue
+		}
+		report.ByStatus[status] = count
+
+		switch status {
+		case "approved":
+			report.ApprovedClaims = count
+		case "rejected":
+			report.RejectedClaims = count
+		case "completed":
+			report.CompletedClaims = count
+		}
+	}
+
 	return &report, nil
 }

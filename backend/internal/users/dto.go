@@ -52,3 +52,8 @@ type ChangePasswordRequest struct {
 	CurrentPassword string `json:"current_password" binding:"required"`
 	NewPassword     string `json:"new_password" binding:"required,min=8"`
 }
+
+// AssignRoleRequest represents role assignment request
+type AssignRoleRequest struct {
+	RoleID uuid.UUID `json:"role_id" binding:"required"`
+}

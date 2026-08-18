@@ -96,3 +96,14 @@ type ProductListRequest struct {
 	SortBy       string     `form:"sort_by"`
 	SortOrder    string     `form:"sort_order"`
 }
+
+// ProductStockInfo represents detailed stock information for a product
+type ProductStockInfo struct {
+	ProductID       uuid.UUID `json:"product_id"`
+	TotalStock      int       `json:"total_stock"`
+	Available       int       `json:"available"`
+	Reserved        int       `json:"reserved"`
+	TrackIndividual bool      `json:"track_individual"`
+	MinStockLevel   int       `json:"min_stock_level"`
+	IsLowStock      bool      `json:"is_low_stock"`
+}

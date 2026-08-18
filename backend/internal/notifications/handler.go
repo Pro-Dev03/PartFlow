@@ -311,3 +311,27 @@ func (h *Handler) UpdateNotificationPreferences(c *gin.Context) {
 
 	c.JSON(http.StatusOK, updatedPreferences)
 }
+
+// GetUnreadCount handles getting unread notification count
+// @Summary Get unread notification count
+// @Description Get count of unread notifications for the current user
+// @Tags notifications
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]int
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/notifications/unread-count [get]
+func (h *Handler) GetUnreadCount(c *gin.Context) {
+	organizationID := middleware.GetOrganizationID(c)
+	userID := middleware.GetUserID(c)
+
+	count, err := h.service.GetUnreadCount(c.Request.Context(), userID, organizationID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"unread_count": count})
+}

@@ -6,20 +6,33 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 )
 
 // Service handles purchase business logic
 type Service struct {
 	repo *Repository
+	db   *sqlx.DB
 }
 
 // NewService creates a new purchase service
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *Repository, db *sqlx.DB) *Service {
+	return &Service{repo: repo, db: db}
 }
 
-// CreatePurchase creates a new purchase with items
+// CreatePurchase creates a new purchase with items and full automation
 func (s *Service) CreatePurchase(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, req *PurchaseRequest) (*PurchaseResponse, error) {
+	// Start transaction for atomic operation
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
 	// Validate request
 	if err := ValidatePurchaseRequest(req); err != nil {
 		return nil, err
@@ -65,6 +78,53 @@ func (s *Service) CreatePurchase(ctx context.Context, organizationID uuid.UUID, 
 			return nil, fmt.Errorf("failed to create purchase item: %w", err)
 		}
 		items = append(items, *item)
+	}
+
+	// Update supplier ledger
+	// Get current balance
+	var currentBalance float64
+	balanceQuery := `
+		SELECT COALESCE(SUM(amount), 0) 
+		FROM supplier_ledger 
+		WHERE supplier_id = $1 AND organization_id = $2
+	`
+	err = tx.GetContext(ctx, &currentBalance, balanceQuery, req.SupplierID, organizationID)
+	if err != nil {
+		currentBalance = 0
+	}
+
+	// Calculate new balance (purchase increases debt)
+	newBalance := currentBalance + totalAmount
+
+	ledgerQuery := `
+		INSERT INTO supplier_ledger (id, organization_id, supplier_id, transaction_type, 
+			amount, balance, reference_type, reference_id, description, created_by, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`
+	_, err = tx.ExecContext(ctx, ledgerQuery,
+		uuid.New(), organizationID, req.SupplierID, "PURCHASE",
+		totalAmount, newBalance, "purchase", purchase.ID, "Purchase: "+req.InvoiceNumber, userID, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("failed to update supplier ledger: %w", err)
+	}
+
+	// Create audit log
+	auditQuery := `
+		INSERT INTO audit_logs (id, organization_id, user_id, action, entity_type, 
+			entity_id, new_values, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`
+	changes := fmt.Sprintf("Created purchase %s with %d items, total: %.2f", req.InvoiceNumber, len(items), totalAmount)
+	_, err = tx.ExecContext(ctx, auditQuery,
+		uuid.New(), organizationID, userID, "CREATE_PURCHASE", "purchase", purchase.ID,
+		changes, time.Now())
+	if err != nil {
+		fmt.Printf("Warning: failed to create audit log: %v\n", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	// Get supplier info
@@ -231,13 +291,27 @@ func (s *Service) CancelPurchase(ctx context.Context, id uuid.UUID, organization
 	return s.GetPurchase(ctx, id, organizationID)
 }
 
-// AddPayment adds a payment to a purchase
-func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, amount float64) (*PurchaseResponse, error) {
+// AddPayment adds a payment to a purchase with full automation
+func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, userID uuid.UUID, amount float64, paymentMethod string) (*PurchaseResponse, error) {
+	// Start transaction for atomic operation
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
 	if amount <= 0 {
 		return nil, ErrInvalidCost
 	}
 
-	purchase, err := s.repo.GetByID(ctx, id, organizationID)
+	// Get purchase with row lock
+	var purchase Purchase
+	purchaseQuery := `SELECT * FROM purchases WHERE id = $1 AND organization_id = $2 FOR UPDATE`
+	err = tx.GetContext(ctx, &purchase, purchaseQuery, id, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -251,8 +325,72 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, organizationID u
 		return nil, ErrInvalidCost
 	}
 
-	if err := s.repo.UpdatePaidAmount(ctx, id, amount); err != nil {
-		return nil, err
+	// Update paid amount
+	newPaidAmount := purchase.PaidAmount + amount
+	updatePaidQuery := `UPDATE purchases SET paid_amount = $1, updated_at = NOW() WHERE id = $2`
+	_, err = tx.ExecContext(ctx, updatePaidQuery, newPaidAmount, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update paid amount: %w", err)
+	}
+
+	// Create payment record
+	paymentQuery := `
+		INSERT INTO payments (id, organization_id, purchase_id, supplier_id, amount, 
+			payment_method, payment_status, created_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`
+	_, err = tx.ExecContext(ctx, paymentQuery,
+		uuid.New(), organizationID, purchase.ID, purchase.SupplierID, amount,
+		paymentMethod, "completed", userID, time.Now(), time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create payment: %w", err)
+	}
+
+	// Update supplier ledger
+	// Get current balance
+	var currentBalance float64
+	balanceQuery := `
+		SELECT COALESCE(SUM(amount), 0) 
+		FROM supplier_ledger 
+		WHERE supplier_id = $1 AND organization_id = $2
+	`
+	err = tx.GetContext(ctx, &currentBalance, balanceQuery, purchase.SupplierID, organizationID)
+	if err != nil {
+		currentBalance = 0
+	}
+
+	// Calculate new balance (payment reduces debt)
+	newBalance := currentBalance - amount
+
+	ledgerQuery := `
+		INSERT INTO supplier_ledger (id, organization_id, supplier_id, transaction_type, 
+			amount, balance, reference_type, reference_id, description, created_by, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`
+	_, err = tx.ExecContext(ctx, ledgerQuery,
+		uuid.New(), organizationID, purchase.SupplierID, "PAYMENT",
+		-amount, newBalance, "payment", purchase.ID, "Payment for purchase "+purchase.InvoiceNumber, userID, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("failed to update supplier ledger: %w", err)
+	}
+
+	// Create audit log
+	auditQuery := `
+		INSERT INTO audit_logs (id, organization_id, user_id, action, entity_type, 
+			entity_id, new_values, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`
+	changes := fmt.Sprintf("Payment of %.2f for purchase %s", amount, purchase.InvoiceNumber)
+	_, err = tx.ExecContext(ctx, auditQuery,
+		uuid.New(), organizationID, userID, "ADD_PAYMENT", "purchase", purchase.ID,
+		changes, time.Now())
+	if err != nil {
+		fmt.Printf("Warning: failed to create audit log: %v\n", err)
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return s.GetPurchase(ctx, id, organizationID)

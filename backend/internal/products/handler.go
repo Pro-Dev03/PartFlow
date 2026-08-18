@@ -1,10 +1,12 @@
 package products
 
 import (
+	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/pkg/errors"
 	"github.com/partflow/smart-store/pkg/response"
 )
 
@@ -35,19 +37,19 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) CreateCategory(c *gin.Context) {
 	organizationID, exists := c.Get("organization_id")
 	if !exists {
-		response.BadRequest(c, "organization_id required")
+		errors.HandleError(c, errors.NewValidationError("organization_id required", nil))
 		return
 	}
 
 	var req CategoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		errors.HandleError(c, errors.ValidateRequest(err))
 		return
 	}
 
 	category, err := h.service.CreateCategory(c.Request.Context(), organizationID.(uuid.UUID), &req)
 	if err != nil {
-		response.InternalError(c, err.Error())
+		errors.HandleError(c, errors.WrapError(err, "Failed to create category"))
 		return
 	}
 
@@ -67,13 +69,13 @@ func (h *Handler) CreateCategory(c *gin.Context) {
 func (h *Handler) GetCategory(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		response.BadRequest(c, "invalid category id")
+		errors.HandleError(c, errors.NewValidationError("invalid category id", err))
 		return
 	}
 
 	category, err := h.service.GetCategory(c.Request.Context(), id)
 	if err != nil {
-		response.NotFound(c, err.Error())
+		errors.HandleError(c, errors.WrapErrorWithType(err, errors.ErrorTypeNotFound, "Category not found", http.StatusNotFound))
 		return
 	}
 
@@ -351,19 +353,19 @@ func (h *Handler) DeleteBrand(c *gin.Context) {
 func (h *Handler) CreateProduct(c *gin.Context) {
 	organizationID, exists := c.Get("organization_id")
 	if !exists {
-		response.BadRequest(c, "organization_id required")
+		errors.HandleError(c, errors.NewValidationError("organization_id required", nil))
 		return
 	}
 
 	var req ProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		errors.HandleError(c, errors.ValidateRequest(err))
 		return
 	}
 
 	product, err := h.service.CreateProduct(c.Request.Context(), organizationID.(uuid.UUID), &req)
 	if err != nil {
-		response.BadRequest(c, err.Error())
+		errors.HandleError(c, errors.WrapError(err, "Failed to create product"))
 		return
 	}
 
@@ -572,4 +574,156 @@ func (h *Handler) DeleteProduct(c *gin.Context) {
 	}
 
 	response.OK(c, gin.H{"message": "product deleted successfully"}, "Operation successful")
+}
+
+// ArchiveProduct archives a product (soft delete)
+// @Summary Archive Product
+// @Description Archive a product (soft delete)
+// @Tags products
+// @Security Bearer
+// @Param id path string true "Product ID"
+// @Success 200 {object} response.Response
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Router /api/v1/products/{id}/archive [post]
+func (h *Handler) ArchiveProduct(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid product id")
+		return
+	}
+
+	organizationID, exists := c.Get("organization_id")
+	if !exists {
+		response.BadRequest(c, "organization_id required")
+		return
+	}
+
+	if err := h.service.ArchiveProduct(c.Request.Context(), id, organizationID.(uuid.UUID)); err != nil {
+		if err == ErrProductNotFound {
+			response.NotFound(c, "product not found")
+			return
+		}
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, gin.H{"message": "product archived successfully"}, "Operation successful")
+}
+
+// GenerateBarcode generates a new barcode for a product
+// @Summary Generate Barcode
+// @Description Generate a new barcode for a product
+// @Tags products
+// @Produce json
+// @Security Bearer
+// @Param id path string true "Product ID"
+// @Success 200 {object} response.Response{data=gin.H}
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Router /api/v1/products/{id}/barcode [post]
+func (h *Handler) GenerateBarcode(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid product id")
+		return
+	}
+
+	organizationID, exists := c.Get("organization_id")
+	if !exists {
+		response.BadRequest(c, "organization_id required")
+		return
+	}
+
+	barcode, err := h.service.GenerateBarcode(c.Request.Context(), id, organizationID.(uuid.UUID))
+	if err != nil {
+		if err == ErrProductNotFound {
+			response.NotFound(c, "product not found")
+			return
+		}
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, gin.H{"barcode": barcode}, "Barcode generated successfully")
+}
+
+// GetProductStock retrieves detailed stock information for a product
+// @Summary Get Product Stock
+// @Description Get detailed stock information for a product
+// @Tags products
+// @Produce json
+// @Security Bearer
+// @Param id path string true "Product ID"
+// @Success 200 {object} response.Response{data=ProductStockInfo}
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Router /api/v1/products/{id}/stock [get]
+func (h *Handler) GetProductStock(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid product id")
+		return
+	}
+
+	organizationID, exists := c.Get("organization_id")
+	if !exists {
+		response.BadRequest(c, "organization_id required")
+		return
+	}
+
+	stockInfo, err := h.service.GetProductStock(c.Request.Context(), id, organizationID.(uuid.UUID))
+	if err != nil {
+		if err == ErrProductNotFound {
+			response.NotFound(c, "product not found")
+			return
+		}
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, stockInfo, "Stock information retrieved successfully")
+}
+
+// SearchProducts searches products by name, SKU, or barcode
+// @Summary Search Products
+// @Description Search products by name, SKU, or barcode
+// @Tags products
+// @Produce json
+// @Security Bearer
+// @Param q query string true "Search query"
+// @Param limit query int false "Result limit" default(20)
+// @Success 200 {object} response.Response{data=gin.H}
+// @Failure 400 {object} response.Response
+// @Router /api/v1/products/search [get]
+func (h *Handler) SearchProducts(c *gin.Context) {
+	organizationID, exists := c.Get("organization_id")
+	if !exists {
+		response.BadRequest(c, "organization_id required")
+		return
+	}
+
+	query := c.Query("q")
+	if query == "" {
+		response.BadRequest(c, "query parameter 'q' is required")
+		return
+	}
+
+	limit := 20
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+			limit = l
+		}
+	}
+
+	products, err := h.service.SearchProducts(c.Request.Context(), organizationID.(uuid.UUID), query, limit)
+	if err != nil {
+		response.InternalError(c, err.Error())
+		return
+	}
+
+	response.OK(c, gin.H{
+		"products": products,
+		"count":    len(products),
+	}, "Search completed successfully")
 }

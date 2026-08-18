@@ -1,20 +1,18 @@
-# Smart Computer Store Management System
+على الرحب والسعة. بناءً على `report.md` الذي أرسلته، سأعتبره **المرجع الوظيفي الأعلى**، وأحوّل متطلباته إلى تقرير Backend تنفيذي شامل، بحيث يستطيع مطور Go أو AI Coding Agent استخدامه كخطة بناء فعلية.
 
-## Technical Architecture & Product Engineering Specification
+# PartFlow
 
-### نظام ذكي لإدارة محلات قطع الحاسوب الجديدة والمستعملة
+## Backend Architecture & Implementation Specification
+
+### نظام الإدارة الذكي لمحل قطع الحاسوب
 
 ---
 
-# 1. الرؤية التقنية
+# 1. مقدمة
 
-المشروع ليس POS تقليديًا، وليس Inventory CRUD، وليس مجرد نظام لإدارة الديون.
+PartFlow ليس نظام POS تقليديًا، وليس مجرد نظام لإدارة المخزون.
 
-المشروع عبارة عن:
-
-> **نظام تشغيل رقمي للمحل Store Operating System**
-
-يقوم بربط دورة العمل كاملة:
+الهدف من الـBackend هو بناء **المحرك التشغيلي للمحل** الذي يربط جميع العمليات ببعضها:
 
 ```text
 Products
@@ -33,1598 +31,489 @@ Payments
     ↓
 Customer Debt
     ↓
-Warranty / Returns
+Returns
+    ↓
+Warranty
+    ↓
+Expenses
     ↓
 Profit
     ↓
 Reports
     ↓
-Business Insights
+Insights
+    ↓
+Automation
 ```
 
-لكن المستخدم لا يرى هذه التعقيدات كلها.
+المبدأ الأساسي:
 
-الهدف هو أن يرى المستخدم:
-
-```text
-ماذا لدي؟
-ماذا بعت؟
-من عليه مال؟
-كم ربحت؟
-ماذا يجب أن أفعل الآن؟
-```
-
-ويترك النظام بقية التفاصيل في الخلفية.
+> **المستخدم يدخل المعلومة مرة واحدة، والـBackend يتولى بقية العمليات المرتبطة بها تلقائيًا.**
 
 ---
 
-# 2. المبدأ الأول: النظام يعمل من أجل صاحبه
+# 2. الهدف من الـBackend
 
-هذا هو المبدأ الذي يجب أن يحكم كل قرار تقني وUX في المشروع.
+يجب أن يحقق الـBackend خمسة أهداف رئيسية:
 
-## النظام التقليدي
+### 1. إدارة البيانات
 
-```text
-المستخدم
-   ↓
-يدخل البيانات
-   ↓
-يفتح التقارير
-   ↓
-يحسب
-   ↓
-يبحث
-   ↓
-يحدث المخزون
-   ↓
-يراجع الديون
-```
+حفظ جميع بيانات المحل بشكل منظم وآمن.
 
-## النظام المقترح
+### 2. تنفيذ Business Logic
 
-```text
-المستخدم
-   ↓
-يقوم بالعملية الطبيعية
-   ↓
-النظام يفهم العملية
-   ↓
-النظام يحدث البيانات المرتبطة
-   ↓
-النظام يحسب
-   ↓
-النظام ينبه
-   ↓
-النظام يعرض النتيجة
-```
+تطبيق قواعد العمل الفعلية للمحل.
 
-مثال:
+### 3. الأتمتة
 
-الموظف يمسح Barcode فقط.
+تنفيذ العمليات المترابطة تلقائيًا.
 
-النظام يتولى:
+### 4. الحماية
 
-```text
-Identify Product
-+
-Identify Item
-+
-Check Stock
-+
-Load Price
-+
-Add To Cart
-+
-Update Inventory
-+
-Calculate Profit
-+
-Update Customer Balance
-+
-Create Audit Event
-```
+ضمان أن كل مستخدم يصل فقط إلى البيانات والعمليات المسموح بها.
 
-لا ينبغي أن يضطر المستخدم إلى القيام بهذه الخطوات يدويًا.
+### 5. الذكاء
+
+تجهيز البيانات لإنتاج:
+
+* تقارير.
+* تنبيهات.
+* Insights.
+* توصيات.
+* AI Assistant مستقبلًا.
 
 ---
 
-# 3. أهداف النظام
-
-النظام يجب أن يكون:
-
-* سريعًا.
-* بسيطًا.
-* واضحًا.
-* آمنًا.
-* قابلًا للتوسع.
-* متعدد المؤسسات.
-* مناسبًا للهاتف.
-* مناسبًا لـWindows.
-* مناسبًا للـTablet.
-* يعمل عبر المتصفح.
-* قابلًا للتغليف كتطبيق.
-* Dockerized.
-* Cloud Ready.
-* Offline-aware.
-* Automation Ready.
-* AI Ready.
-
----
-
-# 4. المنصات المستهدفة
-
-يجب ألا يتم بناء ثلاثة أنظمة مستقلة.
+# 3. المعمارية العامة
 
 المعمارية المقترحة:
 
 ```text
-                    Core Platform
-                         │
-              React + TypeScript
-                         │
-                  Responsive UI
-                         │
-        ┌────────────────┼────────────────┐
-        │                │                │
-     Windows           Mobile           Tablet
-      Browser          Browser          Browser
-        │                │                │
-        └────────────────┼────────────────┘
-                         │
-                        PWA
-```
-
-ثم يمكن لاحقًا تغليف نفس الواجهة كتطبيق Desktop/Mobile عند الحاجة.
-
----
-
-# 5. استراتيجية التغليف Packaging Strategy
-
-## الطبقة الأولى — Web
-
-التطبيق يعمل مباشرة من:
-
-```text
-Chrome
-Edge
-Firefox
-Safari
-```
-
-بدون تثبيت.
-
----
-
-# 6. الطبقة الثانية — PWA
-
-الواجهة ستكون:
-
-```text
-Progressive Web App
-```
-
-وبالتالي يستطيع المستخدم:
-
-### Windows
-
-اختيار:
-
-```text
-Install App
-```
-
-ليظهر التطبيق كتطبيق مستقل.
-
-### Android
-
-```text
-Add to Home Screen
-```
-
-### iPhone
-
-```text
-Add to Home Screen
-```
-
-وهكذا يحصل المستخدم على تجربة قريبة جدًا من التطبيق الأصلي دون بناء واجهة منفصلة لكل نظام.
-
----
-
-# 7. لماذا PWA؟
-
-لأن طبيعة النظام تعتمد على:
-
-* البحث.
-* Barcode.
-* المبيعات.
-* العملاء.
-* المخزون.
-* التقارير.
-
-ولا تحتاج في البداية إلى تطبيق Native كامل لكل منصة.
-
-وبالتالي:
-
-```text
-One UI
-+
-One Codebase
-+
-Multiple Platforms
-```
-
-بدل:
-
-```text
-React Web
-+
-Android App
-+
-iOS App
-+
-Windows App
+                   React / PWA
+                       │
+                       │ HTTPS
+                       ▼
+                ┌──────────────┐
+                │   Go API     │
+                └──────┬───────┘
+                       │
+        ┌──────────────┼──────────────┐
+        │              │              │
+        ▼              ▼              ▼
+   Business        Security       Background
+    Modules          Layer           Worker
+        │              │              │
+        └──────────────┼──────────────┘
+                       │
+                       ▼
+                PostgreSQL
+                 / Supabase
+                       │
+              ┌────────┴────────┐
+              │                 │
+              ▼                 ▼
+         Database           Storage
 ```
 
 ---
 
-# 8. Desktop Packaging
+# 4. التقنية
 
-إذا أصبح هناك احتياج فعلي إلى تطبيق Windows مستقل، يمكن تغليف الواجهة نفسها باستخدام:
+## Backend
 
 ```text
-Tauri
+Go
 ```
 
-بحيث تصبح:
+## Database
 
 ```text
-SmartStore.exe
+PostgreSQL
 ```
 
-بدون إعادة بناء النظام من الصفر.
-
-المهم:
-
-> Desktop Wrapper ليس Backend جديدًا.
-
-بل:
+ويفضل استخدام:
 
 ```text
-Tauri
-   ↓
-React App
-   ↓
-Go API
+Supabase PostgreSQL
 ```
 
----
-
-# 9. Mobile Packaging
-
-المرحلة الأولى:
+## Authentication
 
 ```text
-React
-+
-PWA
+Supabase Auth
 ```
 
-المرحلة المستقبلية إذا احتجت تطبيقًا حقيقيًا:
+مع قيام Go Backend بتطبيق Authorization وBusiness Rules.
+
+## Storage
 
 ```text
-React
-   ↓
-Mobile Shell
-   ↓
-Android / iOS
+Supabase Storage
 ```
 
-لكن الـBackend يبقى نفسه.
+للصور والمرفقات.
 
----
-
-# 10. القرار المعماري الأساسي
-
-الـBackend:
-
-# Go
-
-الواجهة:
-
-# React + TypeScript
-
-قاعدة البيانات:
-
-# PostgreSQL via Supabase
-
-Storage:
-
-# Supabase Storage
-
-Authentication:
-
-# Supabase Auth أو Authentication Layer مرتبطة بالـBackend
-
-Deployment:
-
-# Docker + Render
-
-Frontend:
-
-# PWA
-
----
-
-# 11. Architecture Overview
+## Worker
 
 ```text
-                         USERS
-                           │
-          ┌────────────────┼────────────────┐
-          │                │                │
-       Windows          Android            iOS
-       Browser           PWA               PWA
-          │                │                │
-          └────────────────┼────────────────┘
-                           │
-                           ▼
-                  React + TypeScript
-                           │
-                           │ HTTPS
-                           ▼
-                     Go Backend
-                           │
-         ┌─────────────────┼─────────────────┐
-         │                 │                 │
-         ▼                 ▼                 ▼
-     Business           Security          Automation
-      Logic              Layer              Layer
-         │
-         ▼
-      PostgreSQL
-      Supabase
-         │
-     ┌───┼──────────────┐
-     │   │              │
-     ▼   ▼              ▼
- Storage Auth           RLS
+Go Worker
+```
+
+للمهام الخلفية.
+
+## Deployment
+
+```text
+Docker
+Render
 ```
 
 ---
 
-# 12. Backend Architecture
+# 5. لماذا Modular Monolith؟
 
-Go يجب أن يكون:
+لا يوصى باستخدام Microservices في النسخة الأولى.
 
-```text
-API
-+
-Business Logic
-+
-Security
-+
-Transactions
-+
-Validation
-+
-Domain Services
-```
-
-وليس مجرد طبقة CRUD.
-
----
-
-# 13. Modular Monolith
-
-البنية المناسبة للنسخة الأولى:
-
-# Modular Monolith
-
-وليس Microservices.
-
-أي تطبيق Go واحد، لكن داخله Modules مستقلة:
+البنية المناسبة:
 
 ```text
-Auth
-Organizations
-Products
-Inventory
-Sales
-Customers
-Debts
-Payments
-Purchases
-Suppliers
-Expenses
-Returns
-Warranty
-Reports
-Notifications
-Audit
-Automation
-```
-
----
-
-# 14. لماذا Modular Monolith؟
-
-لأن Microservices في البداية ستضيف تعقيدًا غير ضروري:
-
-```text
-Networking
-Service Discovery
-Distributed Transactions
-Multiple Deployments
-Distributed Logging
-Message Brokers
-```
-
-بينما المشروع يحتاج أولًا إلى:
-
-```text
-Correctness
-Speed
-Security
-Simplicity
-Maintainability
-```
-
-وعندما يكبر المشروع يمكن فصل Modules معينة إلى Services مستقلة.
-
----
-
-# 15. Go Project Structure
-
-```text
-smart-store/
+PartFlow Backend
 │
-├── backend/
-│   │
-│   ├── cmd/
-│   │   └── api/
-│   │       └── main.go
-│   │
-│   ├── internal/
-│   │   │
-│   │   ├── auth/
-│   │   ├── organizations/
-│   │   ├── users/
-│   │   ├── roles/
-│   │   │
-│   │   ├── products/
-│   │   ├── categories/
-│   │   ├── brands/
-│   │   │
-│   │   ├── inventory/
-│   │   ├── barcode/
-│   │   ├── locations/
-│   │   │
-│   │   ├── sales/
-│   │   ├── payments/
-│   │   ├── customers/
-│   │   ├── debts/
-│   │   │
-│   │   ├── purchases/
-│   │   ├── suppliers/
-│   │   │
-│   │   ├── expenses/
-│   │   ├── returns/
-│   │   ├── warranties/
-│   │   ├── inspections/
-│   │   │
-│   │   ├── reports/
-│   │   ├── notifications/
-│   │   ├── automation/
-│   │   └── audit/
-│   │
-│   ├── pkg/
-│   │   ├── logger/
-│   │   ├── validator/
-│   │   ├── response/
-│   │   ├── middleware/
-│   │   └── errors/
-│   │
-│   ├── migrations/
-│   ├── tests/
-│   ├── Dockerfile
-│   └── go.mod
-│
-├── frontend/
-│
-├── worker/
-│
-├── docker/
-│
-├── docs/
-│
-├── scripts/
-│
-├── docker-compose.yml
-├── .env.example
-└── README.md
-```
-
----
-
-# 16. Domain Architecture
-
-كل Domain يكون مسؤولًا عن نفسه.
-
-مثال:
-
-```text
-inventory/
-├── model.go
-├── repository.go
-├── service.go
-├── handler.go
-├── dto.go
-├── validator.go
-└── errors.go
-```
-
-و:
-
-```text
-sales/
-├── model.go
-├── repository.go
-├── service.go
-├── handler.go
-├── dto.go
-└── errors.go
-```
-
----
-
-# 17. Frontend Architecture
-
-```text
-frontend/
-│
-├── src/
-│   ├── app/
-│   ├── routes/
-│   ├── components/
-│   ├── layouts/
-│   │
-│   ├── features/
-│   │   ├── auth/
-│   │   ├── dashboard/
-│   │   ├── products/
-│   │   ├── inventory/
-│   │   ├── sales/
-│   │   ├── customers/
-│   │   ├── debts/
-│   │   ├── suppliers/
-│   │   ├── purchases/
-│   │   ├── expenses/
-│   │   ├── reports/
-│   │   └── settings/
-│   │
-│   ├── services/
-│   ├── hooks/
-│   ├── types/
-│   ├── lib/
-│   └── styles/
-│
-├── public/
-├── package.json
-├── vite.config.ts
-└── tsconfig.json
-```
-
----
-
-# 18. UX Architecture
-
-أكبر خطر في المشروع ليس الأداء.
-
-أكبر خطر هو:
-
-# التعقيد.
-
-إذا أصبح النظام يحتاج إلى شرح طويل، فقد فشل المشروع UX حتى لو كانت الـArchitecture ممتازة.
-
----
-
-# 19. قاعدة UX الرئيسية
-
-كل عملية يجب أن تسأل:
-
-> ما أقل عدد خطوات يحتاجها المستخدم لإنجازها؟
-
-مثال بيع قطعة:
-
-```text
-Scan
-↓
-Confirm
-↓
-Payment
-↓
-Done
-```
-
-وليس:
-
-```text
-Products
-↓
-Inventory
-↓
-Select Product
-↓
-Select Variant
-↓
-Select Item
-↓
-Customer
-↓
-Payment
-↓
-Confirm
-↓
-Save
-```
-
-النظام يجب أن يختصر هذه الخطوات.
-
----
-
-# 20. الواجهة الرئيسية
-
-بدل Dashboard مليء بالمخططات:
-
-```text
-Revenue
-Graph
-Pie Chart
-Graph
-Table
-Graph
-```
-
-يجب أن يكون:
-
-```text
-صباح الخير 👋
-
-اليوم
-
-المبيعات       ₪ 7,450
-الربح          ₪ 1,850
-المخزون        ₪ 185,400
-الديون         ₪ 24,800
-
-يحتاج انتباهك
-
-4 منتجات منخفضة
-3 ديون متأخرة
-1 ضمان ينتهي قريبًا
-```
-
----
-
-# 21. Navigation
-
-القائمة الأساسية يجب أن تكون صغيرة.
-
-```text
-الرئيسية
-
-المبيعات
-
-المخزون
-
-العملاء
-
-الديون
-
-المشتريات
-
-الموردون
-
-المصروفات
-
-التقارير
-
-الإعدادات
-```
-
-لا تظهر عشرات القوائم في المستوى الأول.
-
----
-
-# 22. Smart Actions
-
-في Dashboard:
-
-```text
-+ بيع
-+ إضافة قطعة
-+ إضافة عميل
-+ تسجيل دفعة
-+ إضافة مصروف
-```
-
-هذه هي العمليات الأكثر استخدامًا.
-
----
-
-# 23. Global Search
-
-زر بحث واحد يستطيع البحث في:
-
-```text
-Product
-Barcode
-Serial
-Customer
-Phone
-Invoice
-Sale
-Supplier
-```
-
-مثال:
-
-```text
-RTX3060
-```
-
-يظهر:
-
-```text
-RTX 3060 ASUS
-3 Items
-
-2 Used
-1 New
-```
-
----
-
-# 24. Global Barcode Action
-
-زر دائم:
-
-```text
-SCAN
-```
-
-عند الضغط:
-
-```text
-Camera
-```
-
-أو انتظار Scanner خارجي.
-
-بعد المسح:
-
-```text
-Product Found
-```
-
-ويقرر النظام تلقائيًا ماذا يفعل.
-
-إذا كان في شاشة البيع:
-
-```text
-Add to Cart
-```
-
-إذا كان في المخزون:
-
-```text
-Open Item
-```
-
-إذا كان Barcode غير معروف:
-
-```text
-Create Product
-```
-
-هذه هي الـContext Awareness.
-
----
-
-# 25. Context-Aware System
-
-النظام يجب أن يعرف أين المستخدم.
-
-مثلاً:
-
-إذا كان المستخدم في:
-
-```text
-Sales
-```
-
-فمسح Barcode يعني:
-
-```text
-Add Item
-```
-
-أما إذا كان في:
-
-```text
-Inventory
-```
-
-فمسح Barcode يعني:
-
-```text
-View Item
-```
-
-وبالتالي لا يحتاج المستخدم إلى اختيار ما يريده كل مرة.
-
----
-
-# 26. Product Model
-
-يجب الفصل بين:
-
-# Product
-
-و:
-
-# Inventory Item
-
-مثال:
-
-```text
-Product:
-RTX 3060 ASUS
-
-Inventory:
-ITEM-001
-ITEM-002
-ITEM-003
-```
-
----
-
-# 27. Product
-
-```text
-products
----------
-id
-organization_id
-name
-brand_id
-category_id
-model
-sku
-description
-track_serial
-track_individual
-created_at
-updated_at
-```
-
----
-
-# 28. Inventory Item
-
-```text
-inventory_items
----------------
-id
-organization_id
-product_id
-barcode
-serial_number
-condition
-grade
-purchase_cost
-selling_price
-status
-location_id
-supplier_id
-created_at
-updated_at
-```
-
----
-
-# 29. Product Conditions
-
-```text
-NEW
-USED
-REFURBISHED
-DAMAGED
-FOR_PARTS
-```
-
----
-
-# 30. Used Product Grade
-
-```text
-A
-B
-C
-D
-```
-
-مع:
-
-```text
-condition_notes
-inspection_status
-inspection_date
-inspected_by
-```
-
----
-
-# 31. Item Lifecycle
-
-كل قطعة لها دورة حياة:
-
-```text
-PURCHASED
-   ↓
-RECEIVED
-   ↓
-INSPECTION
-   ↓
-AVAILABLE
-   ↓
-RESERVED
-   ↓
-SOLD
-   ↓
-WARRANTY
-   ↓
-RETURNED
-```
-
-ليس كل Item يمر بكل الحالات.
-
----
-
-# 32. Barcode System
-
-النظام يدعم:
-
-```text
-External Barcode
-Internal Barcode
-Serial Number
-SKU
-```
-
-إذا لم يوجد Barcode:
-
-```text
-System
-↓
-Generate Internal Barcode
-↓
-Print
-↓
-Attach To Item
-```
-
----
-
-# 33. Individual Item Tracking
-
-القطع الفردية مثل:
-
-* GPU.
-* CPU.
-* Motherboard.
-* SSD.
-* HDD.
-* PSU.
-* Laptop.
-
-يمكن تتبعها كقطعة مستقلة.
-
-مثال:
-
-```text
-ITEM-000541
-
-RTX 3070
-Used
-Grade B
-
-Purchase:
-900 ₪
-
-Repair:
-50 ₪
-
-Total Cost:
-950 ₪
-
-Selling:
-1,250 ₪
-
-Profit:
-300 ₪
-```
-
----
-
-# 34. Inventory Ledger
-
-لا يتم تعديل المخزون بدون سبب.
-
-كل حركة:
-
-```text
-PURCHASE
-SALE
-RETURN
-ADJUSTMENT
-DAMAGE
-TRANSFER
-RESERVATION
-RELEASE
-```
-
-تخزن في:
-
-```text
-inventory_movements
-```
-
----
-
-# 35. Sales Engine
-
-عملية البيع:
-
-```text
-Create Cart
-↓
-Scan Items
-↓
-Customer Optional
-↓
-Discount Optional
-↓
-Payment
-↓
-Confirm
-```
-
-النظام يقوم تلقائيًا بـ:
-
-```text
-Create Sale
-Create Sale Items
-Update Inventory
-Create Payment
-Update Customer Balance
-Calculate COGS
-Calculate Profit
-Create Audit Event
-```
-
----
-
-# 36. Payment Engine
-
-يجب فصل:
-
-```text
-Sale
-```
-
-عن:
-
-```text
-Payment
-```
-
-لأن:
-
-```text
-Sale = 2,000 ₪
-```
-
-يمكن أن تصبح:
-
-```text
-Payment 1 = 500
-Payment 2 = 500
-Payment 3 = 1,000
-```
-
----
-
-# 37. Customer Debt
-
-الرصيد يجب أن يكون Ledger.
-
-```text
-Sale       +2,000
-Payment     -500
-Payment     -500
-----------------
-Balance     1,000
-```
-
-وليس مجرد حقل:
-
-```text
-debt = 1000
-```
-
----
-
-# 38. Debt Automation
-
-إذا أصبح الدين متأخرًا:
-
-```text
-Debt
-↓
-Due Date
-↓
-Overdue
-↓
-Notification
-```
-
-في Dashboard:
-
-```text
-3 customers need attention
-```
-
-بدل أن يبحث صاحب المحل بنفسه.
-
----
-
-# 39. Customer Profile
-
-صفحة العميل:
-
-```text
-Ahmed
-
-Phone
-Email
-
-Total Purchases
-Total Paid
-Outstanding
-
-Recent Sales
-Payments
-Returns
-Notes
-```
-
-ويجب أن يرى صاحب المحل الصورة المالية فورًا.
-
----
-
-# 40. Supplier Management
-
-المورد:
-
-```text
-Supplier
-↓
-Purchases
-↓
-Payments
-↓
-Outstanding
-```
-
-مع Ledger خاص به.
-
----
-
-# 41. Purchase Management
-
-عند وصول بضاعة:
-
-```text
-Purchase
-↓
-Supplier
-↓
-Scan / Add Items
-↓
-Purchase Cost
-↓
-Receive
-```
-
-ويقوم النظام بتحديث:
-
-```text
-Inventory
-Supplier Balance
-Cost
-Reports
-Audit
-```
-
----
-
-# 42. Expenses
-
-النظام يدعم:
-
-```text
-Rent
-Electricity
-Internet
-Salary
-Shipping
-Repair
-Equipment
-Other
-```
-
-والنظام يستخدمها في حساب صافي الربح.
-
----
-
-# 43. Profit Engine
-
-```text
-Revenue
--
-Cost Of Goods Sold
-=
-Gross Profit
-
-Gross Profit
--
-Operating Expenses
-=
-Net Profit
-```
-
-يجب فصل الحسابات وعدم خلطها.
-
----
-
-# 44. Used Item Cost
-
-القطعة المستعملة قد تحتوي على:
-
-```text
-Purchase Cost
-+
-Repair Cost
-+
-Testing Cost
-+
-Other Cost
-```
-
-وبالتالي:
-
-```text
-Total Item Cost
-```
-
-هو الرقم الذي يستخدم لحساب الربح الحقيقي.
-
----
-
-# 45. Inspection
-
-عند شراء قطعة مستعملة:
-
-```text
-Power
-Temperature
-Performance
-Ports
-Storage
-Visual
-Accessories
-Serial
-```
-
-ثم:
-
-```text
-PASS
-FAIL
-PARTIAL
-```
-
-لكن هذه العملية يجب أن تكون اختيارية وسريعة.
-
-لا تجعل الموظف يملأ 30 حقلًا لكل قطعة.
-
----
-
-# 46. Smart Defaults
-
-النظام يجب أن يتذكر:
-
-```text
-Last Supplier
-Last Price
-Default Category
-Default Warranty
-Default Location
-```
-
-ويملأها تلقائيًا عند الحاجة.
-
-المستخدم يستطيع تعديلها.
-
----
-
-# 47. Smart Forms
-
-لا تعرض كل الحقول.
-
-مثلاً عند إضافة Keyboard جديد:
-
-اعرض:
-
-```text
-Name
-Price
-Quantity
-Barcode
-```
-
-أما:
-
-```text
-Serial
-Inspection
-Repair
-Warranty Claim
-```
-
-فلا تظهر إلا إذا كانت مطلوبة.
-
----
-
-# 48. Progressive Disclosure
-
-المعلومات المتقدمة تظهر عند الحاجة.
-
-مثال:
-
-```text
-Product
-────────────
-Name
-Price
-Stock
-
-[More Details]
-```
-
-عند الضغط:
-
-```text
-Serial
-Warranty
-Supplier
-Cost
-Location
-Notes
-```
-
-وهكذا يبقى النظام بسيطًا.
-
----
-
-# 49. Responsive Design
-
-## Desktop
-
-Sidebar:
-
-```text
-Dashboard
-Sales
-Inventory
-Customers
-...
-```
-
-## Mobile
-
-Bottom Navigation:
-
-```text
-Home
-Sales
-Scan
-Inventory
-More
-```
-
----
-
-# 50. Mobile Priority
-
-على الهاتف يجب أن تكون العمليات الأساسية:
-
-```text
-Scan
-Search
-Sell
-Customer
-Payment
-```
-
-متاحة بسرعة.
-
----
-
-# 51. Windows Priority
-
-على Windows:
-
-* Keyboard shortcuts.
-* Barcode Scanner.
-* Large tables.
-* Multi-column views.
-* Fast search.
-* Bulk actions.
-* Printing.
-
----
-
-# 52. Keyboard Shortcuts
-
-مثلاً:
-
-```text
-F1  Search
-F2  New Sale
-F3  Scan
-F4  Customer
-F5  Refresh
-ESC Close
-```
-
-يمكن تغييرها لاحقًا.
-
----
-
-# 53. Printing
-
-يجب دعم:
-
-* Invoice.
-* Barcode Label.
-* Product Label.
-* Customer Receipt.
-
-وعلى Windows يمكن دعم الطباعة التقليدية.
-
----
-
-# 54. PWA Service Worker
-
-يجب استخدام Service Worker من أجل:
-
-```text
-Cache Static Assets
-Offline UI
-Fast Startup
-Installability
-```
-
-لكن:
-
-> لا يعني PWA أن كل العمليات المالية تعمل Offline تلقائيًا.
-
----
-
-# 55. Offline Mode
-
-يجب تقسيم العمليات:
-
-## Safe Offline
-
-مثل:
-
-```text
-View Cached Products
-View Cached Customers
-Open Recent Sales
-```
-
-## Sensitive Offline
-
-مثل:
-
-```text
-Sale
-Payment
-Debt
-Inventory Adjustment
-```
-
-هذه تحتاج استراتيجية Sync قوية.
-
----
-
-# 56. Offline Queue
-
-في المرحلة المتقدمة:
-
-```text
-User
- ↓
-Offline Sale
- ↓
-Local Queue
- ↓
-Connection Restored
- ↓
-Sync
- ↓
-Server Validation
- ↓
-Commit
-```
-
-إذا حدث Conflict:
-
-```text
-Conflict Detected
-```
-
-ولا يتم إخفاؤه عن النظام.
-
----
-
-# 57. Multi-Tenant Architecture
-
-النظام SaaS منذ البداية.
-
-```text
-Organization
-│
+├── Auth
+├── Organizations
 ├── Users
 ├── Products
 ├── Inventory
 ├── Customers
-├── Suppliers
 ├── Sales
+├── Payments
+├── Debts
+├── Suppliers
 ├── Purchases
-└── Reports
+├── Expenses
+├── Returns
+├── Warranty
+├── Inspections
+├── Reports
+├── Notifications
+├── Audit
+└── Insights
 ```
 
-كل سجل Business Data مرتبط بـ:
+كل Module مستقل منطقيًا، لكن جميعها تعمل داخل تطبيق Go واحد.
+
+هذا يوفر:
+
+* سرعة التطوير.
+* سهولة الاختبار.
+* Transactions أبسط.
+* Deployment أسهل.
+* تكلفة أقل.
+* إمكانية فصل Modules لاحقًا إذا احتاج المشروع.
+
+---
+
+# 6. هيكل المشروع
+
+البنية المقترحة:
+
+```text
+backend/
+│
+├── cmd/
+│   ├── api/
+│   │   └── main.go
+│   │
+│   └── worker/
+│       └── main.go
+│
+├── internal/
+│   │
+│   ├── auth/
+│   ├── organizations/
+│   ├── users/
+│   ├── roles/
+│   ├── permissions/
+│   │
+│   ├── products/
+│   ├── categories/
+│   ├── brands/
+│   ├── barcodes/
+│   │
+│   ├── inventory/
+│   ├── locations/
+│   ├── inspections/
+│   │
+│   ├── customers/
+│   ├── customer_ledger/
+│   ├── payments/
+│   ├── debts/
+│   │
+│   ├── suppliers/
+│   ├── supplier_ledger/
+│   ├── purchases/
+│   │
+│   ├── sales/
+│   ├── returns/
+│   ├── warranties/
+│   ├── expenses/
+│   │
+│   ├── dashboard/
+│   ├── reports/
+│   ├── notifications/
+│   ├── audit/
+│   ├── search/
+│   └── insights/
+│
+├── pkg/
+│   ├── database/
+│   ├── http/
+│   ├── middleware/
+│   ├── validation/
+│   ├── errors/
+│   ├── logger/
+│   ├── pagination/
+│   ├── money/
+│   └── response/
+│
+├── migrations/
+│
+├── tests/
+│
+├── Dockerfile
+├── docker-compose.yml
+└── go.mod
+```
+
+---
+
+# 7. طبقات النظام
+
+يجب فصل المسؤوليات.
+
+```text
+HTTP Handler
+      ↓
+Validation
+      ↓
+Authorization
+      ↓
+Service
+      ↓
+Repository
+      ↓
+Database
+```
+
+## Handler
+
+مسؤول عن HTTP فقط.
+
+## Service
+
+يحتوي Business Logic.
+
+## Repository
+
+يتعامل مع قاعدة البيانات.
+
+## Database
+
+تفرض:
+
+* Foreign Keys.
+* Unique Constraints.
+* Check Constraints.
+* Transactions.
+* Indexes.
+
+---
+
+# 8. Multi-Tenant Architecture
+
+يجب بناء النظام منذ البداية ليكون SaaS-ready.
+
+المفهوم الأساسي:
+
+```text
+Organization
+```
+
+كل محل يمثل Organization.
+
+مثال:
+
+```text
+Organization A
+├── Users
+├── Products
+├── Inventory
+├── Customers
+└── Sales
+```
+
+و:
+
+```text
+Organization B
+├── Users
+├── Products
+├── Inventory
+├── Customers
+└── Sales
+```
+
+لا يمكن لأي Organization الوصول إلى بيانات Organization أخرى.
+
+---
+
+# 9. organization_id
+
+كل جدول Business مهم يجب أن يحتوي على:
 
 ```text
 organization_id
 ```
 
----
-
-# 58. Database
+مثل:
 
 ```text
-Supabase
-    ↓
-PostgreSQL
+products
+inventory_items
+customers
+sales
+suppliers
+purchases
+expenses
 ```
+
+ويجب أن يكون هذا جزءًا من جميع Queries.
+
+---
+
+# 10. Row Level Security
+
+إذا تم استخدام Supabase، يجب تفعيل RLS.
+
+لكن لا يجب الاعتماد على RLS وحده.
+
+الحماية تكون:
+
+```text
+Authentication
+      ↓
+Organization
+      ↓
+Role
+      ↓
+Permission
+      ↓
+Business Rule
+      ↓
+RLS
+      ↓
+Database
+```
+
+---
+
+# 11. Authentication
+
+النظام يحتاج:
+
+```text
+Login
+Logout
+Session
+Password Reset
+Current User
+```
+
+Backend يجب أن يعرف:
+
+```text
+User ID
+Organization ID
+Role
+Permissions
+```
+
+---
+
+# 12. Authorization
+
+لا يكفي:
+
+```text
+role = admin
+```
+
+يجب وجود Permissions.
+
+مثال:
+
+```text
+products.read
+products.create
+products.update
+products.archive
+
+inventory.read
+inventory.adjust
+inventory.transfer
+
+sales.read
+sales.create
+sales.cancel
+sales.refund
+
+customers.read
+customers.create
+customers.update
+
+debts.read
+debts.payment
+
+purchases.read
+purchases.create
+purchases.receive
+
+reports.read
+reports.export
+
+expenses.read
+expenses.create
+
+users.manage
+settings.manage
+audit.read
+```
+
+---
+
+# 13. Roles
+
+## Owner
+
+صلاحيات كاملة.
+
+## Manager
+
+إدارة العمليات الأساسية والتقارير.
+
+## Employee
+
+البيع والبحث والمخزون المسموح.
+
+## Accountant
+
+الدفعات والمصروفات والتقارير المالية.
+
+ويجب أن تكون الصلاحيات قابلة للتخصيص لاحقًا.
+
+---
+
+# 14. نموذج البيانات الأساسي
 
 الجداول الأساسية:
 
@@ -1634,15 +523,17 @@ organizations
 users
 roles
 permissions
+user_roles
+role_permissions
 
 products
 categories
 brands
-product_barcodes
+barcodes
 
 inventory_items
 inventory_movements
-inventory_locations
+locations
 
 customers
 customer_ledger
@@ -1662,11 +553,11 @@ purchase_items
 expenses
 expense_categories
 
-returns
-return_items
-
 inspections
 inspection_items
+
+returns
+return_items
 
 warranties
 warranty_claims
@@ -1675,1477 +566,341 @@ reservations
 
 notifications
 audit_logs
+
 attachments
 ```
 
 ---
 
-# 59. RLS
+# 15. Product وInventory Item
 
-يجب تفعيل:
-
-```text
-Row Level Security
-```
-
-لحماية البيانات حسب المؤسسة والمستخدم والصلاحيات.
-
-Supabase توصي بتفعيل RLS على الجداول الموجودة في الـexposed schema، ويمكن استخدامه لعزل بيانات المستخدمين والمؤسسات على مستوى الصفوف.
-
-مثال منطقي:
+يجب الفصل بين:
 
 ```text
-organization_id
-=
-current user's organization
-```
-
-وبذلك حتى لو حدث خطأ في التطبيق، توجد طبقة حماية إضافية على مستوى PostgreSQL.
-
----
-
-# 60. Supabase Security
-
-البنية المقترحة:
-
-```text
-React
-   ↓
-Go API
-   ↓
-Supabase
-```
-
-المفاتيح السرية لا تدخل إلى React.
-
-أي Secret Server Key:
-
-```text
-Backend Only
-```
-
-أما مفاتيح العميل العامة فتستخدم وفق نموذج Supabase مع RLS وسياسات صحيحة. توضح وثائق Supabase أن المفاتيح السرية المخصصة للخادم يجب ألا تكشف للواجهة، وأن RLS هو طبقة الحماية الأساسية عند تعريض البيانات للعميل.
-
----
-
-# 61. Storage
-
-الصور:
-
-```text
-Product Images
-Item Images
-Inspection Photos
-Invoices
-Documents
-```
-
-تخزن في:
-
-```text
-Supabase Storage
-```
-
-مع سياسات وصول حسب:
-
-```text
-organization_id
-```
-
----
-
-# 62. Authentication
-
-النظام يدعم:
-
-```text
-Login
-Logout
-Password Reset
-Session
-User Profile
-```
-
-ثم:
-
-```text
-User
-↓
-Organization
-↓
-Role
-↓
-Permissions
-```
-
----
-
-# 63. Authorization
-
-لا تعتمد على Role فقط.
-
-استخدم Permissions.
-
-مثال:
-
-```text
-products.read
-products.create
-products.update
-
-inventory.read
-inventory.adjust
-
-sales.create
-sales.refund
-
-customers.read
-customers.update
-
-debts.read
-debts.payment
-
-reports.read
-
-expenses.create
-```
-
----
-
-# 64. Audit Log
-
-كل عملية حساسة تسجل:
-
-```text
-Who
-What
-When
-Target
-Before
-After
-Result
-```
-
-مثال:
-
-```text
-Employee
-changed selling price
-
-RTX 3060
-
-Old:
-1,200 ₪
-
-New:
-1,150 ₪
-```
-
----
-
-# 65. Financial Immutability
-
-لا نحذف المعاملات المالية.
-
-إذا حدث خطأ:
-
-```text
-Reverse
-```
-
-بدل:
-
-```text
-Delete
-```
-
-مثلاً:
-
-```text
-Payment +500
-```
-
-تم إدخالها خطأ:
-
-```text
-Payment Reversal -500
-```
-
-وهذا يحافظ على تاريخ مالي قابل للتدقيق.
-
----
-
-# 66. Transaction Safety
-
-عملية البيع يجب أن تكون Atomic.
-
-```text
-BEGIN
-
-Validate Items
-
-Validate Stock
-
-Create Sale
-
-Create Sale Items
-
-Update Inventory
-
-Create Payment
-
-Update Customer Ledger
-
-Create Audit Event
-
-COMMIT
-```
-
-إذا فشل شيء:
-
-```text
-ROLLBACK
-```
-
----
-
-# 67. Concurrency
-
-إذا حاول موظفان بيع نفس القطعة:
-
-```text
-Employee A
-   ↓
-ITEM-001
+Product
 ```
 
 و:
 
 ```text
-Employee B
-   ↓
-ITEM-001
+Inventory Item
 ```
 
-النتيجة:
+## Product
+
+يمثل النوع أو الموديل.
+
+مثال:
 
 ```text
-A → SUCCESS
-B → ITEM ALREADY SOLD
+RTX 3060 ASUS
 ```
 
-وليس:
+## Inventory Item
+
+يمثل القطعة الفعلية.
+
+مثال:
 
 ```text
-A → SUCCESS
-B → SUCCESS
+ITEM-000421
 ```
+
+وهذه نقطة أساسية في PartFlow.
 
 ---
 
-# 68. Idempotency
+# 16. Product
 
-الـAPI يجب أن يمنع تكرار العمليات الناتج عن:
-
-* Double Click.
-* Network Retry.
-* Mobile Connection.
-* Browser Retry.
-
-خصوصًا:
+يمكن أن يحتوي:
 
 ```text
-POST /sales
-POST /payments
-POST /returns
-```
-
----
-
-# 69. API
-
-```text
-/api/v1/auth
-
-/api/v1/products
-/api/v1/categories
-/api/v1/brands
-
-/api/v1/inventory
-/api/v1/inventory/items
-/api/v1/inventory/movements
-
-/api/v1/sales
-/api/v1/payments
-
-/api/v1/customers
-/api/v1/customers/{id}/ledger
-
-/api/v1/debts
-
-/api/v1/purchases
-/api/v1/suppliers
-
-/api/v1/expenses
-
-/api/v1/returns
-/api/v1/warranties
-/api/v1/inspections
-
-/api/v1/reports
-/api/v1/dashboard
-
-/api/v1/notifications
-```
-
----
-
-# 70. API Versioning
-
-من البداية:
-
-```text
-/api/v1
-```
-
-حتى يمكن تطوير:
-
-```text
-/api/v2
-```
-
-مستقبلاً دون كسر العملاء الحاليين.
-
----
-
-# 71. API Response
-
-صيغة موحدة:
-
-```json
-{
-  "success": true,
-  "data": {},
-  "meta": {},
-  "error": null
-}
-```
-
-الأخطاء:
-
-```json
-{
-  "success": false,
-  "data": null,
-  "error": {
-    "code": "ITEM_ALREADY_SOLD",
-    "message": "This item is no longer available."
-  }
-}
-```
-
----
-
-# 72. Error Codes
-
-أمثلة:
-
-```text
-ITEM_NOT_FOUND
-PRODUCT_NOT_FOUND
-INSUFFICIENT_STOCK
-ITEM_ALREADY_SOLD
-DUPLICATE_SERIAL
-INVALID_PAYMENT
-CUSTOMER_NOT_FOUND
-PERMISSION_DENIED
-DEBT_NOT_FOUND
-INVALID_OPERATION
-```
-
----
-
-# 73. Search
-
-البحث يجب أن يكون سريعًا.
-
-يبحث في:
-
-```text
-Name
-SKU
-Barcode
-Serial
-Model
-Brand
-Customer
-Phone
-Invoice
-```
-
-في البداية يمكن الاعتماد على PostgreSQL مع Indexing جيد.
-
-لا تضف Elasticsearch إلى المشروع لمجرد أنه يبدو احترافيًا.
-
----
-
-# 74. Database Indexing
-
-Index على:
-
-```text
+id
 organization_id
+name
+brand_id
+category_id
+model
+sku
+description
+product_type
+default_cost
+default_price
+minimum_stock
+warranty_policy
+created_at
+updated_at
+```
+
+---
+
+# 17. Product Types
+
+## Quantity
+
+مثل:
+
+```text
+Cable
+Mouse
+Keyboard
+USB
+Thermal Paste
+```
+
+يتم التعامل معها بالكمية.
+
+## Individual
+
+مثل:
+
+```text
+GPU
+CPU
+RAM
+SSD
+HDD
+Laptop
+Motherboard
+PSU
+```
+
+كل قطعة يمكن أن تكون Inventory Item مستقلة.
+
+---
+
+# 18. Inventory Item
+
+يمكن أن يحتوي:
+
+```text
+id
+organization_id
+product_id
+item_code
 barcode
 serial_number
-sku
-phone
-product_id
-customer_id
-supplier_id
-created_at
+condition
+grade
+purchase_cost
+selling_price
 status
+location_id
+supplier_id
+purchase_date
+sold_at
+created_at
+updated_at
 ```
-
-والـComposite Indexes حسب الاستعلامات الفعلية.
 
 ---
 
-# 75. Pagination
+# 19. Condition
 
-لا ترسل آلاف السجلات للهاتف.
-
-استخدم:
+القيم المقترحة:
 
 ```text
-limit
-cursor
+NEW
+USED
+REFURBISHED
+DAMAGED
+FOR_PARTS
 ```
 
-أو Pagination مناسبة.
+والـGrade:
+
+```text
+EXCELLENT
+VERY_GOOD
+GOOD
+FAIR
+POOR
+```
 
 ---
 
-# 76. Dashboard API
+# 20. Item Lifecycle
 
-بدل 15 Request عند فتح Dashboard:
-
-```text
-GET /api/v1/dashboard
-```
-
-يعيد:
+كل قطعة يجب أن تمتلك Lifecycle واضحًا:
 
 ```text
-sales
-profit
-inventory
-debts
-low_stock
-alerts
-top_products
+PURCHASED
+    ↓
+RECEIVED
+    ↓
+INSPECTION
+    ↓
+AVAILABLE
+    ↓
+RESERVED
+    ↓
+SOLD
 ```
 
-وهذا يقلل زمن التحميل.
+ويمكن أن تنتقل إلى:
+
+```text
+DAMAGED
+IN_REPAIR
+RETURNED
+WARRANTY
+FOR_PARTS
+ARCHIVED
+```
 
 ---
 
-# 77. Background Worker
+# 21. Barcode System
 
-بعض الأعمال لا يجب أن تتم داخل HTTP Request.
+يدعم النظام:
+
+```text
+External Barcode
+Internal Barcode
+SKU
+Serial Number
+Item Code
+```
+
+إذا لم يوجد Barcode:
+
+```text
+Generate Internal Barcode
+```
+
+مثال:
+
+```text
+PF-GPU-000001
+PF-CPU-000002
+PF-RAM-000003
+```
+
+---
+
+# 22. Barcode Lookup
+
+Endpoint أساسي:
+
+```http
+GET /api/v1/barcodes/{code}
+```
+
+يجب أن يعيد:
+
+```text
+Product
+Item
+Condition
+Price
+Status
+Location
+Warranty
+```
+
+ويجب أن يكون سريعًا جدًا لأنه يمثل واحدة من أهم عمليات النظام.
+
+---
+
+# 23. Context-Aware Barcode
+
+الـBackend يجب أن يفهم Context العملية.
 
 مثلاً:
 
 ```text
-Generate Large Report
-Send Notification
-Process Image
-Daily Analysis
-Warranty Scan
-Debt Scan
+context=sale
 ```
 
-تذهب إلى:
+يعني:
 
 ```text
-Worker
+Scan
+→ Add to Cart
 ```
+
+أما:
+
+```text
+context=inventory
+```
+
+فيعني:
+
+```text
+Scan
+→ Open Item
+```
+
+وهذا يسمح للـFrontend ببناء تجربة Scan موحدة.
 
 ---
 
-# 78. Automation Engine
+# 24. Inventory Engine
 
-النظام يعمل تلقائيًا:
-
-```text
-Daily
-↓
-Check Low Stock
-
-Check Overdue Debts
-
-Check Warranty
-
-Generate Insights
-```
-
----
-
-# 79. Notifications
-
-أنواع:
+لا يجب الاعتماد فقط على:
 
 ```text
-LOW_STOCK
-OVERDUE_DEBT
-WARRANTY_EXPIRING
-ITEM_RESERVED
-PAYMENT_RECEIVED
-PURCHASE_RECEIVED
+stock_quantity
 ```
 
-لكن لا تجعل الإشعارات مزعجة.
-
-النظام يجب أن يرسل:
-
-> ما يحتاج انتباه المستخدم فقط.
-
----
-
-# 80. Smart Insights
-
-بدل أن يطلب المستخدم التقرير:
-
-```text
-النظام:
-لديك 4 منتجات منخفضة المخزون.
-```
-
-```text
-النظام:
-هناك 3 ديون متأخرة.
-```
-
-```text
-النظام:
-هذا المنتج لم يتحرك منذ 90 يومًا.
-```
-
-```text
-النظام:
-مبيعات القطع المستعملة ارتفعت هذا الشهر.
-```
-
----
-
-# 81. AI Future Layer
-
-AI ليس جزءًا من Core Transaction Engine.
-
-AI يجلس فوق النظام:
-
-```text
-Database
-   ↓
-Analytics Layer
-   ↓
-AI Assistant
-```
+بل يجب تسجيل Inventory Movements.
 
 مثال:
-
-```text
-"كم ربحت من GPU المستعملة هذا الشهر؟"
-```
-
-AI لا يخترع الإجابة.
-
-بل:
-
-```text
-Question
-↓
-Intent
-↓
-Permission
-↓
-Safe Query
-↓
-Database
-↓
-Result
-↓
-Natural Language
-```
-
----
-
-# 82. Docker Architecture
-
-المشروع يجب أن يكون:
-
-```text
-Dockerized
-```
-
-الخدمات:
-
-```text
-frontend
-api
-worker
-```
-
-وإذا احتجت:
-
-```text
-redis
-```
-
-لاحقًا.
-
-أما Supabase في الإنتاج فيمكن استخدام Managed Supabase بدل تشغيل كامل Stack داخلي.
-
----
-
-# 83. Development Docker
-
-```text
-docker-compose.yml
-
-frontend
-backend
-worker
-```
-
-والـSupabase المحلي اختياري.
-
-Supabase توفر أيضًا طريقة رسمية لتشغيل نسخة Self-Hosted باستخدام Docker Compose، لكن ذلك يضيف خدمات وموارد وصيانة ومسؤوليات تشغيلية أكبر؛ لذلك ليس من الضروري تشغيل كامل Supabase داخل Docker في Production إذا كان Managed Supabase مناسبًا لك.
-
----
-
-# 84. Production Docker
-
-```text
-GitHub
-   ↓
-CI
-   ↓
-Docker Build
-   ↓
-Container Registry
-   ↓
-Render
-```
-
----
-
-# 85. Go Dockerfile
-
-يستخدم:
-
-```text
-Multi-stage Build
-```
-
-النتيجة:
-
-```text
-Go Source
-↓
-Builder
-↓
-Compiled Binary
-↓
-Minimal Runtime Image
-```
-
-لا يجب وضع أدوات التطوير داخل Production Image.
-
----
-
-# 86. Frontend Docker
-
-```text
-Node
-↓
-Install
-↓
-Build
-↓
-Static Assets
-↓
-Nginx
-```
-
-أو يمكن نشر الـFrontend كـStatic Service منفصل.
-
----
-
-# 87. Container Security
-
-كل Container:
-
-* Non-root.
-* Minimal.
-* لا يحتوي Secrets.
-* لا يفتح Ports غير ضرورية.
-* Healthcheck.
-* Read-only حيثما أمكن.
-* Image Scan.
-
----
-
-# 88. Render
-
-Render مناسب كطبقة Deployment للـBackend والـFrontend/Services.
-
-الهدف:
-
-```text
-Developer
-↓
-git push
-↓
-CI/CD
-↓
-Production
-```
-
-بدون إدارة Server يدويًا في كل مرة.
-
----
-
-# 89. Environment Variables
-
-Development:
-
-```text
-.env.local
-```
-
-Production:
-
-```text
-Render Environment
-```
-
-أمثلة:
-
-```text
-DATABASE_URL
-SUPABASE_URL
-SUPABASE_SECRET_KEY
-JWT_SECRET
-APP_ENV
-APP_URL
-```
-
-ولا يتم Commit لهذه القيم.
-
----
-
-# 90. CI/CD
-
-كل Pull Request:
-
-```text
-Lint
-↓
-Unit Tests
-↓
-Integration Tests
-↓
-Build
-↓
-Docker Build
-↓
-Security Scan
-```
-
-عند نجاح Production Branch:
-
-```text
-Deploy
-```
-
----
-
-# 91. Testing
-
-يجب اختبار:
-
-## Inventory
-
-```text
-Purchase
-Sale
-Return
-Adjustment
-Transfer
-```
-
-## Finance
-
-```text
-Sale
-Payment
-Debt
-Refund
-Profit
-```
-
-## Security
-
-```text
-Organization Isolation
-Permissions
-Unauthorized Access
-```
-
----
-
-# 92. أهم Integration Tests
-
-اختبار كامل:
-
-```text
-Create Product
-↓
-Receive Item
-↓
-Scan Item
-↓
-Sell Item
-↓
-Partial Payment
-↓
-Customer Debt
-↓
-Payment Later
-↓
-Profit Updated
-↓
-Inventory Updated
-```
-
-إذا نجح هذا الاختبار، فجزء كبير من Core Business يعمل بشكل صحيح.
-
----
-
-# 93. Security Testing
-
-اختبار:
-
-```text
-User A
-```
-
-يحاول الوصول إلى:
-
-```text
-Organization B
-```
-
-النتيجة:
-
-```text
-403 / No Data
-```
-
-ويجب أن تكون الحماية في:
-
-```text
-Backend
-+
-Database RLS
-```
-
-وليس Frontend فقط.
-
----
-
-# 94. Performance
-
-الأهداف الأولية:
-
-```text
-Barcode Lookup
-< 300ms target
-
-Normal API
-< 500ms target
-
-Dashboard
-< 2s target
-```
-
-هذه أهداف تصميمية أولية وليست ضمانات.
-
----
-
-# 95. Mobile Performance
-
-يجب:
-
-* تقليل JavaScript.
-* Lazy Loading.
-* Code Splitting.
-* Image Optimization.
-* Pagination.
-* Cache.
-* Avoid huge tables.
-* Avoid unnecessary API calls.
-
----
-
-# 96. Responsive Tables
-
-الجداول الكبيرة على الهاتف لا يجب أن تصبح:
-
-```text
-← → ← → ← →
-```
-
-بدل ذلك:
-
-Desktop:
-
-```text
-Product | SKU | Cost | Price | Stock | Status
-```
-
-Mobile:
-
-```text
-RTX 3060
-1,150 ₪
-Stock: 3
-Used
-```
-
-ثم:
-
-```text
-View Details
-```
-
----
-
-# 97. Empty States
-
-لا تعرض:
-
-```text
-No Data
-```
-
-فقط.
-
-بل:
-
-```text
-لا توجد قطع حتى الآن.
-
-[إضافة قطعة]
-```
-
----
-
-# 98. Error States
-
-بدل:
-
-```text
-500 Internal Server Error
-```
-
-المستخدم يرى:
-
-```text
-حدث خطأ أثناء تحميل البيانات.
-
-[إعادة المحاولة]
-```
-
-والتفاصيل التقنية تذهب إلى Logs.
-
----
-
-# 99. Loading States
-
-يجب استخدام:
-
-```text
-Skeleton
-```
-
-بدل تجميد الشاشة.
-
----
-
-# 100. Confirmation UX
-
-لا تسأل المستخدم:
-
-```text
-Are you sure?
-```
-
-في كل شيء.
-
-العمليات الخطرة فقط:
-
-```text
-Delete
-Refund
-Inventory Adjustment
-Cancel Sale
-```
-
----
-
-# 101. Smart Defaults
-
-مثلاً عند إنشاء Sale:
-
-```text
-Payment Method:
-Cash
-```
-
-إذا كان هذا هو الأكثر استخدامًا.
-
-وعند إضافة Product:
-
-```text
-Currency:
-ILS
-```
-
-حسب إعداد المؤسسة.
-
----
-
-# 102. Localization
-
-يجب أن يدعم النظام من البداية:
-
-```text
-Hebrew
-Arabic
-English
-```
-
-مع:
-
-```text
-RTL
-LTR
-```
-
-خصوصًا لأن النظام مستهدف لسوق يمكن أن يحتاج واجهة عبرية وعربية وإنجليزية.
-
----
-
-# 103. Currency
-
-يجب تصميم الـFinance Engine ليكون قادرًا على التعامل مع:
-
-```text
-ILS
-```
-
-والعملات الأخرى مستقبلًا.
-
-لا تستخدم Floating Point للحسابات المالية.
-
-استخدم:
-
-```text
-Decimal
-```
-
-أو Minor Units بحسب تصميم قاعدة البيانات.
-
----
-
-# 104. Timezone
-
-التواريخ تخزن بشكل موحد، ثم تعرض حسب Timezone المؤسسة.
-
-مثال:
-
-```text
-Asia/Jerusalem
-```
-
----
-
-# 105. Auditability
-
-كل عملية حساسة يجب أن تكون قابلة للإجابة:
-
-```text
-من فعلها؟
-متى؟
-على ماذا؟
-ما القيمة قبل؟
-ما القيمة بعد؟
-لماذا؟
-```
-
----
-
-# 106. Backup
-
-يجب أن يكون هناك:
-
-```text
-Automated Backups
-Retention
-Restore Procedure
-Recovery Test
-```
-
-لا يكفي وجود Backup دون اختبار الاستعادة.
-
----
-
-# 107. Disaster Recovery
-
-يجب تحديد:
-
-```text
-RPO
-RTO
-```
-
-من البداية.
-
-مثال أولي:
-
-```text
-RPO: 24h
-RTO: 4h
-```
-
-ثم تحسينها مع نمو المنتج.
-
----
-
-# 108. Business Data Model
-
-أهم قاعدة:
-
-> لا تخزن النتائج فقط؛ خزّن الأحداث التي أدت إلى النتيجة.
-
-مثال سيئ:
-
-```text
-stock = 7
-```
-
-مثال صحيح:
 
 ```text
 Purchase +10
 Sale -2
-Sale -1
 Return +1
-Adjustment -1
+Damage -1
 ```
 
-ثم:
+والرصيد النهائي:
 
 ```text
-Current Stock = 7
+Current Stock = 8
 ```
 
 ---
 
-# 109. Financial Data Model
+# 25. Inventory Movement
 
-لا تخزن:
+كل حركة يجب أن تحتوي:
 
 ```text
-customer.debt = 500
+id
+organization_id
+item_id / product_id
+movement_type
+quantity
+before_quantity
+after_quantity
+reference_type
+reference_id
+reason
+created_by
+created_at
 ```
 
-فقط.
-
-بل:
+الأنواع:
 
 ```text
-Sale +2000
-Payment -500
-Payment -1000
-```
-
-والرصيد:
-
-```text
-500
-```
-
----
-
-# 110. النظام القابل للتفسير
-
-كل رقم يظهر للمستخدم يجب أن يستطيع النظام تفسيره.
-
-مثلاً:
-
-```text
-Inventory Value:
-₪185,400
-```
-
-يجب أن يستطيع المستخدم الضغط عليه ومعرفة:
-
-```text
-Products
-Items
-Cost
-Quantities
-```
-
-وبالنسبة للربح:
-
-```text
-Profit:
-₪18,500
-```
-
-يمكن فتح:
-
-```text
-Revenue
-COGS
-Expenses
-Net Profit
+PURCHASE
+SALE
+RETURN
+ADJUSTMENT
+TRANSFER
+RESERVATION
+RELEASE
+DAMAGE
+REPAIR
 ```
 
 ---
 
-# 111. Dashboard ليس تقريرًا
+# 26. Locations
 
-Dashboard:
-
-> ماذا يحدث الآن؟
-
-Reports:
-
-> ماذا حدث؟
-
-Analytics:
-
-> لماذا حدث؟
-
-Automation:
-
-> ماذا يجب أن يحدث؟
-
-AI:
-
-> ماذا يعني ذلك؟
-
-هذه طبقات مختلفة.
-
----
-
-# 112. Smart Store Assistant
-
-يمكن أن يكون هناك قسم:
-
-# يحتاج انتباهك
-
-مثال:
-
-```text
-4 منتجات منخفضة المخزون
-
-3 عملاء لديهم ديون متأخرة
-
-2 قطع مستعملة لم يتم فحصها
-
-1 ضمان ينتهي خلال 7 أيام
-```
-
-هذا القسم أهم من عشرات الرسوم البيانية.
-
----
-
-# 113. Principle: Zero Unnecessary Input
-
-إذا كان النظام يستطيع استنتاج معلومة صحيحة من عملية أخرى، لا تطلب من المستخدم إدخالها مرة ثانية.
-
-مثال:
-
-عند بيع Item:
-
-لا تطلب:
-
-```text
-Product
-Price
-Cost
-Stock
-Customer
-```
-
-النظام يعرف معظمها.
-
-المستخدم يؤكد فقط ما يحتاج تأكيدًا.
-
----
-
-# 114. Principle: One Action, Many Updates
-
-مثال:
-
-```text
-Sell RTX 3060
-```
-
-تؤدي تلقائيًا إلى:
-
-```text
-Inventory -
-Revenue +
-COGS +
-Profit +
-Customer Balance +
-Payment +
-Audit +
-Analytics
-```
-
-هذه هي روح النظام.
-
----
-
-# 115. Principle: Complexity Behind the Curtain
-
-المستخدم يرى:
-
-```text
-بيع
-```
-
-لكن Backend ينفذ:
-
-```text
-Transaction
-Inventory Lock
-Sale Creation
-Payment
-Ledger
-Profit
-Audit
-Events
-Notifications
-```
-
-كل هذه التفاصيل يجب أن تختفي خلف زر واحد.
-
----
-
-# 116. Offline/Online Awareness
-
-المستخدم يجب أن يعرف حالة الاتصال:
-
-```text
-● Connected
-```
-
-أو:
-
-```text
-● Offline
-```
-
-ولكن لا تظهر رسائل تقنية مخيفة.
-
-مثلاً:
-
-```text
-الاتصال بالإنترنت ضعيف.
-سيتم حفظ العمليات المسموح بها ومزامنتها لاحقًا.
-```
-
----
-
-# 117. Hardware Integration
-
-النظام يجب أن يدعم:
-
-```text
-USB Barcode Scanner
-Camera
-Printer
-Receipt Printer
-Label Printer
-Keyboard
-Mouse
-Touch Screen
-```
-
-خصوصًا على Windows.
-
----
-
-# 118. Receipt Flow
-
-```text
-Sale
-↓
-Payment
-↓
-Receipt
-↓
-Print / PDF / Share
-```
-
-على الهاتف:
-
-```text
-Share
-```
-
-وعلى Windows:
-
-```text
-Print
-```
-
----
-
-# 119. Barcode Label Flow
-
-```text
-Create Item
-↓
-Generate Barcode
-↓
-Preview Label
-↓
-Print
-```
-
-والـLabel يمكن أن يحتوي:
-
-```text
-Product Name
-Price
-Barcode
-Item ID
-```
-
----
-
-# 120. Location Management
-
-يمكن دعم:
+دعم:
 
 ```text
 Warehouse
@@ -3158,85 +913,679 @@ Display
 
 ```text
 Warehouse A
- └── Shelf B
-      └── Box 04
+└── Shelf B
+    └── Box 04
 ```
 
-وعند Scan:
-
-```text
-Location:
-Shelf B / Box 04
-```
+ويجب أن يستطيع الموظف معرفة مكان القطعة من خلال Scan.
 
 ---
 
-# 121. Reservation System
+# 27. Reservations
 
-يمكن حجز Item:
-
-```text
-Available
-↓
-Reserved
-↓
-Sold
-```
-
-مع:
+يمكن حجز قطعة:
 
 ```text
-Customer
-Expiration
+AVAILABLE
+   ↓
+RESERVED
+   ↓
+SOLD
 ```
 
-والنظام يحرر الحجز تلقائيًا عند انتهاء المدة.
+إذا انتهى وقت الحجز:
+
+```text
+RESERVED
+   ↓
+AVAILABLE
+```
+
+والـWorker مسؤول عن انتهاء الحجوزات.
 
 ---
 
-# 122. Return Flow
+# 28. Used Items
+
+المنتجات المستعملة ليست مجرد:
 
 ```text
-Customer
-↓
-Sale
-↓
-Return Request
-↓
+condition = USED
+```
+
+بل يمكن أن تحتوي على:
+
+```text
 Inspection
-↓
-Approved
-↓
-Refund / Exchange
-↓
-Inventory Update
-```
-
-ولا يتم حذف Sale الأصلية.
-
----
-
-# 123. Warranty Flow
-
-```text
-Sale
-↓
+Grade
+Purchase Cost
+Repair Cost
+Testing
+Notes
+Photos
 Warranty
-↓
-Claim
-↓
-Inspection
-↓
-Repair / Replace / Reject
 ```
-
-وهذا مهم جدًا للقطع المستعملة.
 
 ---
 
-# 124. Reporting
+# 29. Inspection
 
-التقارير الأساسية:
+يمكن إنشاء:
+
+```text
+inspection
+```
+
+يحتوي:
+
+```text
+item_id
+inspected_by
+status
+notes
+inspected_at
+```
+
+و:
+
+```text
+inspection_items
+```
+
+مثل:
+
+```text
+Power
+Temperature
+Performance
+Ports
+Visual
+Serial Verification
+```
+
+---
+
+# 30. Inspection Status
+
+```text
+PENDING
+IN_PROGRESS
+PASSED
+PARTIAL
+FAILED
+```
+
+ويجب حفظ تاريخ كل فحص ومن قام به.
+
+---
+
+# 31. تكلفة القطعة المستعملة
+
+التكلفة الحقيقية يمكن أن تكون:
+
+```text
+Purchase Cost
++
+Repair Cost
++
+Testing Cost
++
+Other Costs
+```
+
+مثال:
+
+```text
+Purchase = 900
+Repair = 50
+Testing = 20
+
+True Cost = 970
+```
+
+إذا بيعت بـ:
+
+```text
+1,150
+```
+
+فالربح:
+
+```text
+180
+```
+
+وليس:
+
+```text
+250
+```
+
+---
+
+# 32. Customers
+
+Customer:
+
+```text
+id
+organization_id
+name
+phone
+email
+notes
+created_at
+updated_at
+```
+
+ويرتبط بـ:
+
+```text
+Sales
+Payments
+Debt
+Returns
+Warranty
+Ledger
+```
+
+---
+
+# 33. Customer Ledger
+
+يجب عدم تخزين الدين كرقم فقط.
+
+بل يجب أن يكون هناك Ledger.
+
+مثال:
+
+```text
+Sale +2500
+Payment -1000
+Payment -500
+```
+
+الرصيد:
+
+```text
+1000
+```
+
+وبذلك يمكن معرفة سبب كل رقم.
+
+---
+
+# 34. Debt Management
+
+يجب دعم:
+
+```text
+Outstanding
+Due Date
+Overdue
+Payment History
+```
+
+مثال:
+
+```text
+Customer:
+Ahmed
+
+Total:
+5000 ₪
+
+Paid:
+2500 ₪
+
+Outstanding:
+2500 ₪
+```
+
+---
+
+# 35. Debt Aging
+
+تصنيف:
+
+```text
+CURRENT
+DUE
+OVERDUE
+```
+
+ويظهر:
+
+```text
+Customer
+Amount
+Due Date
+Days Overdue
+Last Payment
+```
+
+---
+
+# 36. Payments
+
+طرق الدفع:
+
+```text
+CASH
+CARD
+BANK_TRANSFER
+DEBT
+OTHER
+```
+
+ويجب دعم Split Payment.
+
+مثال:
+
+```text
+Sale = 2000
+
+Cash = 500
+Card = 1000
+Debt = 500
+```
+
+---
+
+# 37. Financial Immutability
+
+لا يجب حذف:
+
+```text
+Sale
+Payment
+Refund
+Debt
+Return
+```
+
+إذا كانت هناك عملية خاطئة:
+
+```text
+Reverse
+```
+
+بدل:
+
+```text
+Delete
+```
+
+---
+
+# 38. Sales Engine
+
+عملية البيع يجب أن تكون Atomic Transaction.
+
+```text
+BEGIN
+ ↓
+Validate Customer
+ ↓
+Validate Items
+ ↓
+Lock Inventory
+ ↓
+Calculate Totals
+ ↓
+Create Sale
+ ↓
+Create Sale Items
+ ↓
+Create Payments
+ ↓
+Update Inventory
+ ↓
+Update Customer Ledger
+ ↓
+Create Audit
+ ↓
+COMMIT
+```
+
+إذا فشل شيء:
+
+```text
+ROLLBACK
+```
+
+---
+
+# 39. Concurrency
+
+يجب منع بيع نفس القطعة مرتين.
+
+سيناريو:
+
+```text
+Employee A → Scan GPU
+Employee B → Scan GPU
+```
+
+في نفس الوقت.
+
+يجب استخدام:
+
+```text
+Transaction
++
+Row Lock
++
+Status Validation
+```
+
+---
+
+# 40. Idempotency
+
+إذا أرسل Frontend نفس طلب البيع مرتين بسبب:
+
+* Double Click.
+* Slow Network.
+* Retry.
+
+لا يجب إنشاء عمليتي بيع.
+
+العمليات الحساسة يجب أن تدعم:
+
+```text
+Idempotency-Key
+```
+
+---
+
+# 41. Sale Model
+
+```text
+sales
+
+id
+organization_id
+customer_id
+subtotal
+discount
+tax
+total
+paid_amount
+debt_amount
+status
+created_by
+created_at
+```
+
+---
+
+# 42. Sale Items
+
+```text
+sale_items
+
+sale_id
+product_id
+inventory_item_id
+quantity
+unit_price
+unit_cost
+discount
+total
+```
+
+يجب حفظ `unit_cost` لحظة البيع حتى لا تتغير الأرباح التاريخية إذا تغيرت تكلفة المنتج لاحقًا.
+
+---
+
+# 43. Profit Engine
+
+يجب فصل:
+
+```text
+Revenue
+COGS
+Gross Profit
+Expenses
+Net Profit
+```
+
+المعادلة:
+
+```text
+Revenue - COGS = Gross Profit
+
+Gross Profit - Expenses = Net Profit
+```
+
+---
+
+# 44. Purchases
+
+Workflow:
+
+```text
+Create Purchase
+ ↓
+Select Supplier
+ ↓
+Add Items
+ ↓
+Enter Cost
+ ↓
+Receive
+ ↓
+Inventory Increase
+ ↓
+Supplier Ledger
+ ↓
+Audit
+```
+
+عملية الاستلام يجب أن تكون Transaction.
+
+---
+
+# 45. Suppliers
+
+Supplier:
+
+```text
+id
+organization_id
+name
+phone
+email
+notes
+```
+
+ويرتبط بـ:
+
+```text
+Purchases
+Payments
+Ledger
+Products
+```
+
+---
+
+# 46. Supplier Ledger
+
+مثال:
+
+```text
+Purchase +5000
+Payment -2000
+Payment -1000
+```
+
+الرصيد:
+
+```text
+2000
+```
+
+وهذا يتيح معرفة ما يجب دفعه لكل مورد.
+
+---
+
+# 47. Expenses
+
+دعم:
+
+```text
+Rent
+Electricity
+Internet
+Salary
+Shipping
+Maintenance
+Equipment
+Other
+```
+
+كل Expense يحتوي:
+
+```text
+organization_id
+category_id
+amount
+description
+date
+created_by
+```
+
+---
+
+# 48. Returns
+
+Return ليست حذفًا للبيع.
+
+Workflow:
+
+```text
+Sale
+ ↓
+Return Request
+ ↓
+Inspection
+ ↓
+Approve / Reject
+ ↓
+Refund / Exchange
+ ↓
+Inventory Update
+ ↓
+Financial Adjustment
+ ↓
+Audit
+```
+
+---
+
+# 49. Refund
+
+يدعم:
+
+```text
+FULL
+PARTIAL
+```
+
+ويجب ألا يسمح النظام برد مبلغ أكبر من المبلغ القابل للاسترجاع.
+
+---
+
+# 50. Warranty
+
+كل Sale يمكن أن تنتج Warranty.
+
+مثال:
+
+```text
+Warranty Start
+Warranty End
+Duration
+Type
+Status
+```
+
+---
+
+# 51. Warranty Claim
+
+```text
+Customer
+ ↓
+Warranty Claim
+ ↓
+Inspection
+ ↓
+Repair / Replace / Reject
+ ↓
+Resolution
+```
+
+ويجب حفظ تاريخ كامل للعملية.
+
+---
+
+# 52. Dashboard Backend
+
+لا يجب أن يضطر Frontend إلى إرسال 15 Request للحصول على Dashboard.
+
+يفضل:
+
+```http
+GET /api/v1/dashboard
+```
+
+ويرجع:
+
+```json
+{
+  "sales": {},
+  "profit": {},
+  "inventory": {},
+  "debts": {},
+  "low_stock": [],
+  "alerts": [],
+  "top_products": [],
+  "insights": []
+}
+```
+
+---
+
+# 53. Dashboard Philosophy
+
+Dashboard لا يجب أن يكون مجرد Charts.
+
+السؤال الأساسي:
+
+> ماذا يحتاج صاحب المحل أن يعرف الآن؟
+
+لذلك يجب أن يعرض:
+
+```text
+Today's Sales
+Today's Profit
+Inventory Value
+Outstanding Debts
+Low Stock
+Overdue Debts
+Warranty Alerts
+Slow Moving Items
+Important Insights
+```
+
+---
+
+# 54. Reports
+
+الـBackend يجب أن يدعم:
 
 ```text
 Sales
@@ -3254,7 +1603,7 @@ Used Products
 
 ---
 
-# 125. Business Questions
+# 55. Business Questions
 
 التقارير يجب أن تجيب:
 
@@ -3265,284 +1614,1103 @@ Used Products
 ما أكثر منتج ربحًا؟
 من عليه أكبر دين؟
 ما قيمة المخزون؟
-ما القطع الراكدة؟
-ما القطع التي تحتاج إعادة طلب؟
-كم صرفت؟
+ما المنتجات الراكدة؟
 كم دفعت للموردين؟
+كم صرفت؟
+كم ربحت من المستعمل؟
 ```
 
 ---
 
-# 126. Export
+# 56. Global Search
 
-التقارير يمكن تصديرها إلى:
+Endpoint:
 
-```text
-PDF
-CSV
-Excel
+```http
+GET /api/v1/search?q=3060
 ```
 
-لكن لا تجعل التصدير هو طريقة العمل الأساسية.
-
-Dashboard أولًا.
-
-Export عند الحاجة.
-
----
-
-# 127. SaaS Readiness
-
-المشروع يجب أن يكون قابلًا مستقبلًا:
-
-```text
-One Store
-↓
-Multiple Stores
-↓
-Multiple Branches
-↓
-Multiple Warehouses
-```
-
-بدون إعادة بناء قاعدة البيانات بالكامل.
-
----
-
-# 128. Branch Architecture
-
-مستقبلاً:
-
-```text
-Organization
-│
-├── Branch A
-│   └── Inventory
-│
-├── Branch B
-│   └── Inventory
-│
-└── Branch C
-    └── Inventory
-```
-
-مع إمكانية:
-
-```text
-Transfer Item
-```
-
-بين الفروع.
-
----
-
-# 129. Future E-Commerce
-
-يمكن لاحقًا ربط:
-
-```text
-Online Store
-```
-
-بنفس:
+يبحث في:
 
 ```text
 Products
-Inventory
-Prices
-Orders
+Items
+Barcode
+Serial
+SKU
 Customers
+Phone
+Sales
+Suppliers
 ```
 
-وبالتالي لا يصبح هناك مخزونان منفصلان.
+ويجب استخدام PostgreSQL Indexes قبل إدخال Search Engine خارجي.
 
 ---
 
-# 130. Future Accounting Integration
+# 57. Notifications
 
-يمكن لاحقًا إضافة تكامل مع أنظمة محاسبية خارجية.
+أنواع التنبيهات:
 
-لكن Core System يبقى مستقلًا.
+```text
+LOW_STOCK
+OVERDUE_DEBT
+WARRANTY_EXPIRING
+INSPECTION_REQUIRED
+RESERVATION_EXPIRING
+PAYMENT_RECEIVED
+PURCHASE_RECEIVED
+```
+
+لكن النظام يجب ألا يغرق المستخدم بالتنبيهات.
+
+الهدف:
+
+> عرض الأشياء التي تحتاج إلى انتباه.
 
 ---
 
-# 131. Future Messaging
+# 58. Smart Insights
 
-يمكن إضافة:
-
-```text
-WhatsApp
-Email
-SMS
-Push Notifications
-```
-
-لكن لا تجعل هذه الخدمات جزءًا من Core Transaction.
-
----
-
-# 132. Future AI
-
-AI يمكن أن يقدم:
+الـBackend يجب أن يستطيع استخراج مؤشرات مثل:
 
 ```text
-Business Questions
-Inventory Forecast
-Purchase Suggestions
-Slow Stock Detection
-Customer Insights
-Profit Analysis
-```
-
-لكن لا يسمح له بتجاوز:
-
-```text
-Authorization
-Business Rules
-Audit
-```
-
----
-
-# 133. Future Predictive Inventory
-
-النظام يستطيع لاحقًا تحليل:
-
-```text
-Historical Sales
-Seasonality
-Current Stock
-Supplier Lead Time
-```
-
-ثم:
-
-```text
-Recommended Purchase
+Low Stock
+Slow Moving Products
+Top Sellers
+Top Profit Products
+Overdue Customers
+Used Product Performance
+Sales Trends
+Inventory Trends
 ```
 
 مثال:
 
 ```text
-RTX 3060
-
-Current:
-2
-
-Average Monthly Sales:
-8
-
-Recommended Purchase:
-6
+"8 منتجات لم تتحرك منذ 90 يومًا."
 ```
 
 ---
 
-# 134. AI Safety
+# 59. Automation Worker
 
-AI لا يعدل:
+خدمة Worker منفصلة:
 
 ```text
-Sales
-Payments
-Debts
-Inventory
+backend
+worker
 ```
 
-مباشرة.
-
-أي عملية تعديل تمر عبر:
+المهام:
 
 ```text
-Command
-↓
+Reservation Expiration
+Debt Scan
+Warranty Scan
+Low Stock Scan
+Daily Insights
+Notifications
+Large Reports
+Image Processing
+```
+
+---
+
+# 60. AI Ready
+
+AI لا يجب أن يكون مسؤولًا عن العمليات المالية الأساسية.
+
+البنية:
+
+```text
+Database
+ ↓
+Analytics / Business Services
+ ↓
+AI Layer
+```
+
+مثال:
+
+```text
+User:
+كم ربحت من القطع المستعملة هذا الشهر؟
+```
+
+AI لا يخمن الرقم.
+
+بل:
+
+```text
+Question
+ ↓
+Intent
+ ↓
 Permission
-↓
-Validation
-↓
-Business Rule
-↓
-Transaction
-↓
+ ↓
+Safe Business Query
+ ↓
+Database
+ ↓
+Verified Result
+ ↓
+AI Explanation
+```
+
+---
+
+# 61. AI لا يملك صلاحية SQL حرة
+
+يجب عدم السماح لـAI بإنشاء وتنفيذ SQL غير مقيد على قاعدة البيانات.
+
+بدل ذلك:
+
+```text
+AI
+ ↓
+Approved Tool
+ ↓
+Business Service
+ ↓
+Database
+```
+
+وهذا يحافظ على:
+
+* الأمان.
+* الصلاحيات.
+* صحة البيانات.
+
+---
+
+# 62. Audit Log
+
+كل عملية حساسة تسجل:
+
+```text
+Who
+What
+When
+Target
+Before
+After
+Result
+```
+
+أمثلة:
+
+```text
+CREATE_PRODUCT
+UPDATE_PRODUCT
+CHANGE_PRICE
+
+CREATE_SALE
+CANCEL_SALE
+
+CREATE_PAYMENT
+REVERSE_PAYMENT
+
+CREATE_PURCHASE
+RECEIVE_PURCHASE
+
+CREATE_RETURN
+APPROVE_RETURN
+
+CREATE_EXPENSE
+
+ADJUST_INVENTORY
+
+CHANGE_PERMISSION
+```
+
+---
+
+# 63. Soft Delete
+
+يمكن استخدام:
+
+```text
+deleted_at
+```
+
+لـ:
+
+```text
+Products
+Customers
+Suppliers
+```
+
+لكن لا يتم حذف السجلات المالية الأساسية.
+
+---
+
+# 64. Database Integrity
+
+قاعدة البيانات نفسها يجب أن تمنع البيانات الخاطئة.
+
+استخدام:
+
+```text
+Foreign Keys
+Unique Constraints
+Check Constraints
+NOT NULL
+Indexes
+Transactions
+```
+
+---
+
+# 65. Money
+
+لا تستخدم:
+
+```text
+float64
+```
+
+للأموال.
+
+استخدم:
+
+```text
+Decimal
+```
+
+أو Integer Minor Units.
+
+العملة الأساسية:
+
+```text
+ILS
+```
+
+مع إمكانية دعم عملات أخرى مستقبلًا.
+
+---
+
+# 66. Timezone
+
+يجب تخزين التواريخ بطريقة موحدة.
+
+ويتم عرضها حسب Timezone المؤسسة.
+
+بالنسبة للسوق الإسرائيلي:
+
+```text
+Asia/Jerusalem
+```
+
+لكن لا يجب Hardcode الـTimezone داخل Business Logic.
+
+---
+
+# 67. Pagination
+
+لا يتم إرسال آلاف السجلات.
+
+القوائم تستخدم:
+
+```text
+limit
+cursor
+has_more
+next_cursor
+```
+
+---
+
+# 68. API Versioning
+
+كل API:
+
+```text
+/api/v1/
+```
+
+مثال:
+
+```text
+/api/v1/products
+/api/v1/inventory
+/api/v1/sales
+/api/v1/customers
+/api/v1/purchases
+/api/v1/reports
+```
+
+---
+
+# 69. API — Products
+
+```http
+GET    /api/v1/products
+POST   /api/v1/products
+GET    /api/v1/products/{id}
+PATCH  /api/v1/products/{id}
+POST   /api/v1/products/{id}/archive
+```
+
+---
+
+# 70. API — Inventory
+
+```http
+GET   /api/v1/inventory
+GET   /api/v1/inventory/{id}
+POST  /api/v1/inventory
+PATCH /api/v1/inventory/{id}
+
+POST /api/v1/inventory/{id}/adjust
+POST /api/v1/inventory/{id}/transfer
+
+GET /api/v1/inventory/{id}/history
+```
+
+---
+
+# 71. API — Barcode
+
+```http
+GET  /api/v1/barcodes/{code}
+POST /api/v1/barcodes/generate
+POST /api/v1/barcodes/labels
+```
+
+---
+
+# 72. API — Sales
+
+```http
+GET  /api/v1/sales
+POST /api/v1/sales
+GET  /api/v1/sales/{id}
+
+POST /api/v1/sales/{id}/cancel
+POST /api/v1/sales/{id}/refund
+GET  /api/v1/sales/{id}/receipt
+```
+
+---
+
+# 73. API — Customers
+
+```http
+GET   /api/v1/customers
+POST  /api/v1/customers
+GET   /api/v1/customers/{id}
+PATCH /api/v1/customers/{id}
+
+GET /api/v1/customers/{id}/ledger
+GET /api/v1/customers/{id}/sales
+```
+
+---
+
+# 74. API — Payments
+
+```http
+GET  /api/v1/payments
+POST /api/v1/payments
+
+POST /api/v1/payments/{id}/reverse
+```
+
+---
+
+# 75. API — Suppliers
+
+```http
+GET   /api/v1/suppliers
+POST  /api/v1/suppliers
+GET   /api/v1/suppliers/{id}
+PATCH /api/v1/suppliers/{id}
+
+GET /api/v1/suppliers/{id}/ledger
+```
+
+---
+
+# 76. API — Purchases
+
+```http
+GET  /api/v1/purchases
+POST /api/v1/purchases
+GET  /api/v1/purchases/{id}
+
+POST /api/v1/purchases/{id}/receive
+```
+
+---
+
+# 77. API — Returns
+
+```http
+GET  /api/v1/returns
+POST /api/v1/returns
+GET  /api/v1/returns/{id}
+
+POST /api/v1/returns/{id}/approve
+POST /api/v1/returns/{id}/reject
+```
+
+---
+
+# 78. API — Warranty
+
+```http
+GET  /api/v1/warranties
+POST /api/v1/warranties
+GET  /api/v1/warranties/{id}
+
+POST /api/v1/warranties/{id}/claims
+```
+
+---
+
+# 79. API — Inspection
+
+```http
+POST  /api/v1/inspections
+GET   /api/v1/inspections/{id}
+PATCH /api/v1/inspections/{id}
+```
+
+---
+
+# 80. API — Dashboard
+
+```http
+GET /api/v1/dashboard
+```
+
+---
+
+# 81. API — Reports
+
+```http
+GET /api/v1/reports/sales
+GET /api/v1/reports/profit
+GET /api/v1/reports/inventory
+GET /api/v1/reports/debts
+GET /api/v1/reports/purchases
+GET /api/v1/reports/expenses
+GET /api/v1/reports/returns
+GET /api/v1/reports/warranty
+```
+
+مع Filters:
+
+```text
+from
+to
+category
+brand
+supplier
+customer
+condition
+status
+```
+
+---
+
+# 82. API — Notifications
+
+```http
+GET  /api/v1/notifications
+POST /api/v1/notifications/{id}/read
+POST /api/v1/notifications/read-all
+```
+
+---
+
+# 83. API — Search
+
+```http
+GET /api/v1/search?q=
+```
+
+---
+
+# 84. Error Handling
+
+كل API يستخدم Error Structure موحدة:
+
+```json
+{
+  "error": {
+    "code": "INSUFFICIENT_STOCK",
+    "message": "The requested item is not available.",
+    "request_id": "..."
+  }
+}
+```
+
+لا يجب إرسال Stack Traces للمستخدم.
+
+---
+
+# 85. Request ID
+
+كل Request يحصل على:
+
+```text
+request_id
+```
+
+ويستخدم في:
+
+```text
+Logs
+Errors
+Audit
+Debugging
+```
+
+---
+
+# 86. Logging
+
+يجب استخدام Structured Logging.
+
+مثال:
+
+```json
+{
+  "level": "error",
+  "request_id": "...",
+  "organization_id": "...",
+  "user_id": "...",
+  "operation": "create_sale",
+  "error": "insufficient_stock"
+}
+```
+
+ولا يتم تسجيل:
+
+```text
+Passwords
+Tokens
+Secrets
+Sensitive payment data
+```
+
+---
+
+# 87. Rate Limiting
+
+يجب حماية:
+
+```text
+Login
+Password Reset
+Search
+Barcode
+Public APIs
+File Upload
+```
+
+خصوصًا العمليات التي يمكن إساءة استخدامها.
+
+---
+
+# 88. File Storage
+
+يمكن استخدام Supabase Storage لـ:
+
+```text
+Product Images
+Item Images
+Inspection Photos
+Invoices
+Documents
+```
+
+ويجب ربط الملفات بـOrganization.
+
+---
+
+# 89. File Upload Security
+
+يجب التحقق من:
+
+```text
+MIME Type
+File Size
+Extension
+Organization
+```
+
+ويفضل استخدام UUID بدل اسم الملف الأصلي.
+
+---
+
+# 90. Caching
+
+لا يجب إدخال Redis بلا حاجة.
+
+يمكن استخدام Cache مستقبلًا لـ:
+
+```text
+Categories
+Brands
+Settings
+Dashboard Aggregates
+Frequently Used Data
+```
+
+لكن العمليات المالية يجب ألا تعتمد على Cache قديم.
+
+---
+
+# 91. Offline/PWA Readiness
+
+إذا كان الـFrontend يعمل كـPWA، يجب أن يكون الـBackend مصممًا مستقبلًا لدعم:
+
+```text
+Offline Queue
+Sync
+Retry
+Idempotency
+Conflict Resolution
+```
+
+لكن لا ينبغي اعتبار Offline الكامل متطلبًا للنسخة الأولى إذا لم تكن هناك حاجة تشغيلية له.
+
+الأهم هو أن API تكون:
+
+* Idempotent.
+* قابلة لإعادة المحاولة.
+* واضحة في حالات Conflict.
+
+---
+
+# 92. Smart Defaults
+
+Backend يمكن أن يوفر:
+
+```text
+Default Category
+Default Location
+Default Supplier
+Default Warranty
+Last Used Price
+Last Supplier
+```
+
+حتى يقل إدخال البيانات.
+
+---
+
+# 93. Onboarding
+
+عند إنشاء Organization:
+
+```text
+Create Organization
+ ↓
+Store Name
+ ↓
+Currency
+ ↓
+Timezone
+ ↓
+Categories
+ ↓
+First Product
+ ↓
+First User
+ ↓
+Ready
+```
+
+لا ينبغي إجبار صاحب المحل على إعداد نظام ضخم قبل أول عملية بيع.
+
+---
+
+# 94. First Sale Principle
+
+المسار المثالي:
+
+```text
+Login
+ ↓
+Scan
+ ↓
+Sell
+```
+
+يجب أن يكون الـBackend مصممًا لدعم هذا السيناريو بأقل عدد ممكن من الخطوات والطلبات.
+
+---
+
+# 95. أهم Business Workflows
+
+## إضافة قطعة
+
+```text
+Scan
+ ↓
+Identify
+ ↓
+Condition
+ ↓
+Cost
+ ↓
+Price
+ ↓
+Location
+ ↓
+Inspection
+ ↓
+Available
+```
+
+---
+
+## بيع قطعة
+
+```text
+Scan
+ ↓
+Product
+ ↓
+Customer
+ ↓
+Payment
+ ↓
+Confirm
+ ↓
+Inventory
+ ↓
+Ledger
+ ↓
+Profit
+ ↓
+Receipt
+ ↓
 Audit
 ```
 
 ---
 
-# 135. Performance Architecture
-
-المشروع يجب أن يكون سريعًا حتى على:
+## بيع بالدين
 
 ```text
-Old Windows PC
-Mid-range Android
-Weak Internet
-```
-
-لذلك:
-
-```text
-Small Bundles
-Lazy Loading
-Pagination
-Caching
-Optimized Queries
-Compressed Images
-Efficient API
+Sale
+ ↓
+Partial Payment
+ ↓
+Customer Ledger
+ ↓
+Outstanding Debt
 ```
 
 ---
 
-# 136. Scalability
-
-البنية تبدأ:
+## دفع الدين
 
 ```text
-1 API
-1 Worker
-1 Database
+Customer
+ ↓
+Outstanding Balance
+ ↓
+Payment
+ ↓
+Ledger
+ ↓
+New Balance
+ ↓
+Audit
+```
+
+---
+
+## شراء
+
+```text
+Supplier
+ ↓
+Purchase
+ ↓
+Receive
+ ↓
+Inventory
+ ↓
+Supplier Ledger
+```
+
+---
+
+## Return
+
+```text
+Sale
+ ↓
+Return
+ ↓
+Inspection
+ ↓
+Approve
+ ↓
+Refund
+ ↓
+Inventory
+ ↓
+Ledger
+```
+
+---
+
+## Warranty
+
+```text
+Sale
+ ↓
+Warranty
+ ↓
+Claim
+ ↓
+Inspection
+ ↓
+Repair / Replace / Reject
+```
+
+---
+
+# 96. مثال متكامل
+
+تم شراء:
+
+```text
+RTX 3070 Used
+```
+
+بتكلفة:
+
+```text
+1200 ₪
 ```
 
 ثم:
 
 ```text
-Load Balancer
-↓
-API 1
-API 2
-API 3
-↓
-Database
+Repair = 50
+Testing = 20
 ```
 
-والـWorker مستقل.
+إذن:
+
+```text
+True Cost = 1270 ₪
+```
+
+تم وضع سعر البيع:
+
+```text
+1550 ₪
+```
+
+ثم تم البيع:
+
+```text
+1550 ₪
+```
+
+الـBackend يحدث تلقائيًا:
+
+```text
+Inventory -1
+
+Revenue +1550
+
+COGS +1270
+
+Gross Profit +280
+
+Sale Created
+
+Payment Created
+
+Customer Ledger Updated
+
+Warranty Created
+
+Audit Event Created
+```
+
+إذا دفع العميل:
+
+```text
+1000 ₪
+```
+
+فإن:
+
+```text
+Paid = 1000
+Outstanding = 550
+```
+
+ولا يحتاج الموظف إلى إدخال هذه المعلومات في عدة أماكن.
 
 ---
 
-# 137. Monitoring
+# 97. Database Transactions
 
-يجب مراقبة:
+العمليات التالية يجب أن تكون Transactions:
 
 ```text
-API Errors
-Latency
-Database Errors
-Failed Jobs
-Login Failures
-Inventory Conflicts
-Payment Failures
+Sale
+Purchase Receive
+Payment
+Refund
+Return
+Inventory Adjustment
+Inventory Transfer
+Reservation
+```
+
+الهدف:
+
+> إما أن تنجح العملية كاملة، أو لا يحدث أي تغيير جزئي.
+
+---
+
+# 98. Business Rules
+
+يجب أن تكون جميع القواعد الحساسة داخل Backend.
+
+أمثلة:
+
+```text
+لا يمكن بيع Item غير Available.
+
+لا يمكن بيع نفس Individual Item مرتين.
+
+لا يمكن Refund مبلغ أكبر من المبلغ القابل للاسترجاع.
+
+لا يمكن تعديل عملية مالية مغلقة مباشرة.
+
+لا يمكن حذف Payment.
+
+لا يمكن لموظف تعديل COGS.
+
+لا يمكن تعديل Inventory بدون تسجيل Movement.
+
+لا يمكن الوصول إلى Organization أخرى.
+
+لا يمكن إنشاء Sale بدون وجود Inventory فعلي للمنتج الفردي.
+
+لا يمكن اعتماد Inspection من مستخدم غير مصرح.
+
 ```
 
 ---
 
-# 138. Health Endpoints
+# 99. Testing
+
+يجب بناء:
+
+## Unit Tests
+
+لـ:
 
 ```text
-/health
-/ready
+Pricing
+Profit
+Debt
+Validation
+Permissions
+Inventory Rules
 ```
 
-مثلاً:
+## Integration Tests
+
+لـ:
+
+```text
+Sales
+Payments
+Inventory
+Purchases
+Returns
+Database Transactions
+```
+
+## API Tests
+
+لـ:
+
+```text
+Authentication
+Authorization
+Validation
+Responses
+Errors
+```
+
+---
+
+# 100. أهم اختبارات النظام
+
+يجب اختبار:
+
+```text
+Two employees sell same item simultaneously.
+
+Payment submitted twice.
+
+Return submitted twice.
+
+Unauthorized user attempts to access another organization.
+
+Employee attempts to modify protected financial data.
+
+Purchase receives same item twice.
+
+Inventory adjustment with invalid quantity.
+
+Refund greater than sale amount.
+
+Expired reservation.
+
+Expired warranty.
+```
+
+---
+
+# 101. Performance Targets
+
+أهداف التصميم:
+
+```text
+Barcode Lookup:
+< 300ms
+
+Normal API:
+< 500ms
+
+Dashboard:
+< 2 seconds
+```
+
+هذه أهداف هندسية وليست ضمانات مطلقة.
+
+---
+
+# 102. Health Checks
+
+يجب توفير:
+
+```http
+GET /health
+GET /ready
+```
+
+مثال:
 
 ```json
 {
@@ -3554,341 +2722,298 @@ Payment Failures
 
 ---
 
-# 139. Logging
+# 103. Docker
 
-Structured Logging:
+يجب استخدام Multi-stage Build.
 
 ```text
-timestamp
-level
-request_id
-user_id
-organization_id
-action
-duration
-status
+Go Source
+   ↓
+Builder
+   ↓
+Compiled Binary
+   ↓
+Minimal Runtime
 ```
 
-لا تسجل:
+ويجب أن يكون Production Container:
+
+* Minimal.
+* Non-root.
+* بدون Secrets داخل Image.
+* بدون Development Tools.
+
+---
+
+# 104. Environment Variables
+
+مثل:
 
 ```text
-Passwords
-Secrets
-Tokens
-Sensitive Payment Data
+DATABASE_URL
+SUPABASE_URL
+SUPABASE_SECRET_KEY
+JWT_SECRET
+APP_ENV
+APP_URL
+```
+
+لا يتم Commit للقيم السرية.
+
+---
+
+# 105. CI/CD
+
+كل Pull Request:
+
+```text
+Lint
+ ↓
+Unit Tests
+ ↓
+Integration Tests
+ ↓
+Build
+ ↓
+Docker Build
+ ↓
+Security Scan
+```
+
+ثم Production:
+
+```text
+Build
+ ↓
+Deploy
+ ↓
+Health Check
 ```
 
 ---
 
-# 140. Request Tracing
+# 106. Backup
 
-كل Request له:
+يجب وجود:
 
 ```text
-request_id
+Automated Backups
+Retention Policy
+Restore Procedure
+Restore Testing
 ```
 
-ليسهل تتبع:
+ولا يكفي وجود Backup إذا لم يتم اختبار استعادته.
+
+---
+
+# 107. Auditability
+
+كل رقم مهم يجب أن يكون قابلًا للتفسير.
+
+إذا ظهر:
 
 ```text
-Frontend
-↓
-Go API
-↓
-Database
-↓
-Worker
+Inventory Value:
+185,400 ₪
+```
+
+يجب أن يستطيع النظام معرفة:
+
+```text
+Products
+Items
+Quantities
+Costs
+```
+
+وإذا ظهر:
+
+```text
+Profit:
+18,500 ₪
+```
+
+يمكن الوصول إلى:
+
+```text
+Revenue
+COGS
+Expenses
+Net Profit
 ```
 
 ---
 
-# 141. Security Layers
+# 108. Localization
 
-```text
-HTTPS
- ↓
-Rate Limiting
- ↓
-Authentication
- ↓
-Authorization
- ↓
-Organization Isolation
- ↓
-Business Rules
- ↓
-Database Constraints
- ↓
-RLS
- ↓
-Audit
-```
-
-لا تعتمد على طبقة واحدة.
-
----
-
-# 142. Database Integrity
-
-استخدم:
-
-```text
-Foreign Keys
-Unique Constraints
-Check Constraints
-Not Null
-Indexes
-Transactions
-```
-
-ولا تعتمد فقط على Go لمنع الأخطاء.
-
----
-
-# 143. Soft Delete
-
-البيانات المرجعية يمكن أن تستخدم:
-
-```text
-deleted_at
-```
-
-لكن العمليات المالية لا تحذف.
+الـBackend يخزن Codes وليس نصوص الواجهة.
 
 مثلاً:
 
 ```text
-Customer
-Product
-Supplier
+LOW_STOCK
+OVERDUE_DEBT
+SALE_COMPLETED
 ```
 
-يمكن أرشفتها.
-
-لكن:
+والـFrontend يستطيع عرضها:
 
 ```text
-Sale
-Payment
-Return
-Debt
+العربية
+עברית
+English
 ```
 
-تظل في التاريخ.
+وهذا يسمح بدعم RTL/LTR.
 
 ---
 
-# 144. Archive
+# 109. التوسع المستقبلي
 
-بدل:
-
-```text
-Delete Product
-```
-
-استخدم:
+يجب أن تسمح البنية مستقبلًا بـ:
 
 ```text
-Archive Product
+Multiple Branches
+Multiple Warehouses
+Multiple POS Devices
+Online Store
+Mobile App
+Customer Portal
+Shipping Integration
+Accounting Integration
+WhatsApp Notifications
+AI Assistant
+Advanced Analytics
 ```
 
-حتى لا يختفي التاريخ.
+بدون إعادة بناء Core Architecture.
 
 ---
 
-# 145. User Experience Rule
+# 110. مراحل التنفيذ
 
-إذا احتاجت الميزة إلى:
-
-> "اضغط هنا ثم اذهب إلى Settings ثم اختر Advanced ثم..."
-
-فهذا مؤشر أن UX يحتاج إعادة تصميم.
-
----
-
-# 146. User Onboarding
-
-عند إنشاء محل:
+## Phase 1 — Foundation
 
 ```text
-Welcome
-↓
-Store Name
-↓
-Currency
-↓
+Go Project
+Database
+Migrations
+HTTP
+Config
+Logging
+Errors
+Docker
+Health
+```
+
+## Phase 2 — Identity
+
+```text
+Authentication
+Organizations
+Users
+Roles
+Permissions
+RLS
+```
+
+## Phase 3 — Product Core
+
+```text
 Categories
-↓
-First Product
-↓
-First User
-↓
-Ready
+Brands
+Products
+Barcodes
+Inventory Items
+Locations
 ```
 
-لا تطلب 50 إعدادًا.
-
----
-
-# 147. Smart Setup
-
-يمكن للنظام إنشاء افتراضيًا:
+## Phase 4 — Inventory
 
 ```text
-PC Components
-GPU
-CPU
-RAM
-SSD
-HDD
-Motherboards
-PSU
-Cases
-Cooling
-Accessories
-Cables
-Peripherals
+Movements
+Stock
+Transfers
+Adjustments
+Reservations
+Barcode Lookup
 ```
 
-ويستطيع صاحب المحل تعديلها.
-
----
-
-# 148. First Sale
-
-يجب أن يستطيع المستخدم الوصول إلى أول عملية بيع بسرعة.
+## Phase 5 — Customers & Finance
 
 ```text
-Login
-↓
+Customers
+Ledger
+Payments
+Debts
+Expenses
+```
+
+## Phase 6 — Sales
+
+```text
+Sales
+Sale Items
+Checkout
+Payments
+Inventory
+Profit
+Receipt
+Audit
+```
+
+## Phase 7 — Suppliers
+
+```text
+Suppliers
+Purchases
+Receiving
+Supplier Ledger
+```
+
+## Phase 8 — Used Products
+
+```text
+Inspection
+Grades
+Repair Costs
+Warranty
+```
+
+## Phase 9 — Returns
+
+```text
+Returns
+Refunds
+Exchanges
+Warranty Claims
+```
+
+## Phase 10 — Intelligence
+
+```text
 Dashboard
-↓
-Scan
-↓
-Sell
-```
-
-بدون إعدادات معقدة.
-
----
-
-# 149. Progressive Complexity
-
-المستخدم الجديد يرى:
-
-```text
-Basic
-```
-
-المستخدم المتقدم يستطيع فتح:
-
-```text
-Advanced
-```
-
-وهكذا النظام لا يفرض تعقيدًا على الجميع.
-
----
-
-# 150. Design Philosophy
-
-التصميم:
-
-```text
-Professional
-Clean
-Minimal
-Fast
-Dense where useful
-Spacious where needed
-```
-
-وليس:
-
-```text
-Huge Icons
-Huge Buttons
-Color Everywhere
-Too Many Cards
-Too Many Charts
-```
-
----
-
-# 151. Mobile UI Philosophy
-
-الهاتف ليس نسخة مصغرة من Desktop.
-
-بل:
-
-```text
-Mobile Workflow
-```
-
-يجب تصميمه حول:
-
-```text
-Scan
-Search
-Sell
-Pay
-Check
-```
-
----
-
-# 152. Desktop UI Philosophy
-
-Windows يعطي مساحة أكبر:
-
-```text
-Tables
-Filters
-Keyboard Shortcuts
-Multi-column
-Bulk Operations
 Reports
+Notifications
+Insights
+Automation
 ```
 
----
-
-# 153. Shared Design System
-
-نفس:
+## Phase 11 — AI
 
 ```text
-Colors
-Typography
-Components
-Icons
-Spacing
-Notifications
-Forms
+Business Assistant
+Natural Language Queries
+Recommendations
+Forecasting
 ```
 
-على كل المنصات.
-
 ---
 
-# 154. Accessibility
+# 111. الأولويات
 
-يجب دعم:
-
-* Keyboard navigation.
-* Focus states.
-* Readable contrast.
-* Screen-reader friendly labels.
-* Touch target مناسب.
-* RTL.
-* Font scaling حيث أمكن.
-
----
-
-# 155. MVP الحقيقي
-
-لا تبدأ بكل شيء.
-
-النسخة الأولى يجب أن تركز على:
+## P0 — يجب أن يعمل
 
 ```text
 Authentication
@@ -3900,15 +3025,10 @@ Customers
 Sales
 Payments
 Debts
-Dashboard
 Audit
 ```
 
-إذا كانت هذه ممتازة، لديك Core Product حقيقي.
-
----
-
-# 156. المرحلة الثانية
+## P1 — العمليات المتقدمة
 
 ```text
 Purchases
@@ -3917,313 +3037,392 @@ Expenses
 Returns
 Warranty
 Inspection
-Locations
-Reservations
+Reports
+Dashboard
+```
+
+## P2 — الذكاء
+
+```text
 Notifications
-```
-
----
-
-# 157. المرحلة الثالثة
-
-```text
 Automation
-Advanced Reports
-Analytics
-Smart Alerts
-Background Worker
+Insights
+Advanced Search
+```
+
+## P3 — المستقبل
+
+```text
+AI
 Forecasting
+Multi-Branch
+External Integrations
+Advanced BI
 ```
 
 ---
 
-# 158. المرحلة الرابعة
+# 112. Definition of Done
+
+لا يعتبر Module مكتملًا بمجرد كتابة Endpoint.
+
+يجب أن يحتوي:
 
 ```text
+Database Schema
+Migration
+Model
+Repository
+Service
+Handler
+Routes
+Validation
+Authorization
+Business Rules
+Transactions
+Tests
+Audit
+Logging
+Error Handling
+```
+
+---
+
+# 113. معايير نجاح Backend
+
+يجب أن ينجح السيناريو التالي بالكامل:
+
+```text
+Create Product
+ ↓
+Create Item
+ ↓
+Generate Barcode
+ ↓
+Assign Location
+ ↓
+Inspect
+ ↓
+Make Available
+ ↓
+Scan
+ ↓
+Sell
+ ↓
+Receive Payment
+ ↓
+Update Inventory
+ ↓
+Update Ledger
+ ↓
+Calculate Profit
+ ↓
+Generate Receipt
+ ↓
+Create Audit
+ ↓
+Update Dashboard
+```
+
+بدون إدخال نفس المعلومة أكثر من مرة.
+
+---
+
+# 114. المبدأ الذي يجب أن يحكم كل API
+
+كل Endpoint يجب أن يسأل:
+
+> ما الذي يجب أن يحدث تلقائيًا نتيجة هذه العملية؟
+
+مثال:
+
+```text
+POST /sales
+```
+
+ليس مجرد:
+
+```text
+INSERT sale
+```
+
+بل:
+
+```text
+Validate
+→ Lock
+→ Calculate
+→ Create Sale
+→ Create Items
+→ Create Payment
+→ Update Inventory
+→ Update Ledger
+→ Update Financial Data
+→ Create Warranty
+→ Audit
+→ Commit
+```
+
+وهذا هو الفرق بين Backend حقيقي لنظام PartFlow وبين CRUD Backend.
+
+---
+
+# 115. ما يجب تجنبه
+
+لا يجب:
+
+```text
+وضع Business Logic في React.
+
+حساب الأرباح في Frontend.
+
+تعديل المخزون مباشرة بدون Movement.
+
+حذف العمليات المالية.
+
+استخدام float للأموال.
+
+السماح ببيع Item مرتين.
+
+الاعتماد على Role فقط.
+
+الاعتماد على Frontend Security.
+
+السماح لـAI بتنفيذ SQL حر.
+
+إضافة Microservices مبكرًا.
+
+إضافة Elasticsearch دون حاجة.
+
+إرسال آلاف السجلات للواجهة.
+
+جعل Dashboard يعتمد على عشرات Requests.
+
+إجبار المستخدم على إدخال نفس البيانات عدة مرات.
+```
+
+---
+
+# 116. النتيجة المعمارية النهائية
+
+```text
+                         USER
+                          │
+                          ▼
+                   React / PWA
+                          │
+                         HTTPS
+                          │
+                          ▼
+                  ┌───────────────┐
+                  │    Go API     │
+                  └───────┬───────┘
+                          │
+       ┌──────────────────┼──────────────────┐
+       │                  │                  │
+       ▼                  ▼                  ▼
+   Products           Inventory           Sales
+   Customers          Purchases           Payments
+   Suppliers          Inspection          Debts
+   Warranty           Returns             Expenses
+       │                  │                  │
+       └──────────────────┼──────────────────┘
+                          │
+                          ▼
+                  Business Services
+                          │
+              ┌───────────┼───────────┐
+              │           │           │
+              ▼           ▼           ▼
+         PostgreSQL    Storage      Worker
+              │                       │
+              ▼                       ▼
+          RLS/Audit             Automation
+              │                       │
+              └───────────┬───────────┘
+                          ▼
+                    Insights / AI
+```
+
+---
+
+# 117. التعريف النهائي للـBackend
+
+PartFlow Backend يجب ألا يُبنى على أساس:
+
+> "ما هي الصفحات الموجودة في Frontend؟"
+
+بل على أساس:
+
+> **"ما هي العمليات التي تحدث داخل المحل، وما الذي يجب أن يفعله النظام تلقائيًا عندما تحدث؟"**
+
+ولهذا تكون النواة:
+
+```text
+Identity
++
+Products
++
+Individual Items
++
+Inventory
++
+Barcode
++
+Purchasing
++
+Inspection
++
+Sales
++
+Payments
++
+Customer Ledger
++
+Supplier Ledger
++
+Expenses
++
+Returns
++
+Warranty
++
+Profit
++
+Audit
++
+Reports
++
+Notifications
++
+Automation
+```
+
+ثم فوقها:
+
+```text
+Insights
+        ↓
 AI Assistant
-Desktop Wrapper
-Advanced Mobile
-Multi Branch
-E-Commerce
-Accounting Integrations
 ```
 
 ---
 
-# 159. Definition of Done
+# 118. الرؤية النهائية
 
-أي Feature لا تعتبر مكتملة إلا إذا:
+عندما يفتح صاحب المحل PartFlow، لا ينبغي أن يشعر أنه فتح قاعدة بيانات.
+
+بل يرى:
 
 ```text
-✓ Backend
-✓ Frontend
-✓ Database
-✓ Validation
-✓ Authorization
-✓ Error Handling
-✓ Loading State
-✓ Empty State
-✓ Mobile UX
-✓ Desktop UX
-✓ Tests
-✓ Audit
-✓ Documentation
+Today's Sales       ₪ 7,450
+Today's Profit      ₪ 1,850
+
+Inventory Value     ₪ 185,400
+
+Outstanding Debt    ₪ 24,800
+
+Low Stock           4
+
+Overdue Customers   3
+
+Warranty Alerts     1
 ```
+
+ثم يخبره النظام:
+
+```text
+⚠ 4 منتجات تحتاج إعادة طلب.
+
+⚠ 3 عملاء لديهم ديون متأخرة.
+
+📦 7 قطع لم تتحرك منذ 90 يومًا.
+
+📈 RTX 3060 هو الأكثر مبيعًا هذا الشهر.
+
+💰 متوسط هامش ربح القطع المستعملة ارتفع.
+```
+
+وهنا يتحقق جوهر المشروع:
+
+# PartFlow لا يسجل ما يحدث في المحل فقط.
+
+# PartFlow يفهم ما يحدث في المحل.
+
+والمرحلة النهائية من المشروع هي:
+
+> **من نظام إدارة إلى مساعد تشغيلي ذكي.**
 
 ---
 
-# 160. أهم معيار للنجاح
+# 119. الخلاصة التنفيذية
 
-لا تقيس نجاح المشروع بعدد:
-
-```text
-Tables
-Endpoints
-Components
-Lines of Code
-Docker Containers
-```
-
-قسه بـ:
-
-```text
-كم ثانية يحتاج الموظف لإتمام البيع؟
-كم ثانية يحتاج للعثور على قطعة؟
-كم مرة يضطر لإدخال نفس المعلومة؟
-كم خطأ تم منعه؟
-كم وقت وفر النظام؟
-```
-
----
-
-# 161. المقياس الحقيقي
-
-قبل النظام:
-
-```text
-البحث عن قطعة:
-5 دقائق
-
-حساب الدين:
-يدوي
-
-حساب الربح:
-يدوي
-
-تحديث المخزون:
-يدوي
-
-معرفة القطع الراكدة:
-صعب
-```
-
-بعد النظام:
-
-```text
-البحث:
-ثوانٍ
-
-الدين:
-تلقائي
-
-الربح:
-تلقائي
-
-المخزون:
-تلقائي
-
-القطع الراكدة:
-تنبيه
-```
-
----
-
-# 162. Final Architecture
-
-```text
-                         SMART STORE
-                              │
-                     React + TypeScript
-                              │
-                         PWA / Web
-                              │
-              ┌───────────────┼───────────────┐
-              │               │               │
-           Windows          Android          iOS
-              │               │               │
-              └───────────────┼───────────────┘
-                              │
-                             HTTPS
-                              │
-                              ▼
-                         Go Backend
-                              │
-       ┌──────────────────────┼──────────────────────┐
-       │                      │                      │
-       ▼                      ▼                      ▼
-   Business                Security              Worker
-    Modules                  Layer                Jobs
-       │                      │                      │
-       └──────────────────────┼──────────────────────┘
-                              │
-                              ▼
-                       Supabase PostgreSQL
-                              │
-               ┌──────────────┼──────────────┐
-               │              │              │
-               ▼              ▼              ▼
-              RLS            Auth          Storage
-```
-
----
-
-# 163. المبدأ النهائي للمشروع
-
-التقنية الموجودة خلف النظام يمكن أن تكون معقدة:
+الـBackend النهائي يجب أن يكون:
 
 ```text
 Go
-PostgreSQL
-Supabase
++
+PostgreSQL/Supabase
++
+Modular Monolith
++
+Multi-Tenant
++
 RLS
-Docker
-Workers
++
+RBAC
++
 Transactions
-Queues
++
+Inventory Ledger
++
+Customer/Supplier Ledgers
++
 Audit
-PWA
-CI/CD
++
+Worker
++
+Automation
++
+Reports
++
+Insights
++
+AI-ready
 ```
 
-لكن المستخدم لا يجب أن يشعر بهذا التعقيد.
-
-بالنسبة له:
+ويجب أن تكون كل عملية Business مهمة:
 
 ```text
-Scan
-↓
-Sell
-↓
-Done
+Atomic
+Auditable
+Secure
+Idempotent
+Tenant-safe
+Traceable
 ```
 
-أو:
+والهدف النهائي ليس بناء أكبر Backend ممكن.
 
-```text
-Customer
-↓
-Balance
-↓
-Payment
-↓
-Done
-```
-
-أو:
-
-```text
-Scan Item
-↓
-Know Everything
-```
+الهدف هو بناء **Backend يجعل تجربة المستخدم بسيطة جدًا لأن كل التعقيد موجود في المكان الصحيح: داخل النظام نفسه.**
 
 ---
 
-# 164. تعريف المنتج النهائي
+# 120. المبدأ الأخير
 
-هذا المشروع ليس:
+يجب أن يبقى هذا المبدأ حاضرًا طوال عملية التطوير:
 
-> برنامج مخزون.
+> **لا تجعل صاحب المحل يعمل من أجل النظام؛ اجعل النظام يعمل من أجل صاحب المحل.**
 
-وليس:
+إذا احتاج المستخدم إلى إدخال نفس المعلومة مرتين، فهناك مشكلة في التصميم.
 
-> برنامج مبيعات.
+إذا احتاج إلى فتح خمس صفحات لإتمام عملية بسيطة، فهناك مشكلة في الـWorkflow.
 
-وليس:
+إذا احتاج إلى حساب شيء يدويًا يستطيع النظام حسابه، فهناك فرصة للأتمتة.
 
-> برنامج ديون.
+إذا كان النظام يعرف معلومة مهمة ولا يخبر المستخدم بها، فهناك فرصة للـInsights.
 
-بل:
+وإذا كان المستخدم يستطيع أن يسأل النظام سؤالًا عن أعماله ويحتاج إلى البحث يدويًا، فهناك فرصة مستقبلية للـAI Assistant.
 
-# Smart Operating System for Computer Stores
-
-نظام يجعل صاحب المحل يرى عمله بالكامل من مكان واحد، بينما يقوم النظام في الخلفية بربط العمليات وحساب النتائج واكتشاف المشاكل وتنبيه المستخدم.
-
----
-
-# 165. العبارة التي يجب أن تحكم التطوير
-
-> **لا تجعل المستخدم يعمل من أجل النظام.**
-
-بل:
-
-> **اجعل النظام يفهم طريقة عمل المستخدم ويقوم بالأعمال المتكررة نيابةً عنه.**
-
-كل Feature جديدة يجب أن تمر بهذا الاختبار:
-
-```text
-هل توفر وقتًا؟
-هل تقلل إدخال البيانات؟
-هل تمنع خطأ؟
-هل تجعل القرار أسهل؟
-هل تخفي التعقيد؟
-```
-
-إذا كانت الإجابة لا:
-
-> لا تضفها لمجرد أنها تقنية.
-
----
-
-# 166. النتيجة
-
-إذا تم تنفيذ هذه المعمارية بشكل جيد، ستكون النتيجة منصة:
-
-```text
-✓ Web
-✓ Windows Friendly
-✓ Mobile Friendly
-✓ PWA
-✓ Barcode Ready
-✓ Camera Ready
-✓ Dockerized
-✓ Go Backend
-✓ React + TypeScript
-✓ Supabase/PostgreSQL
-✓ Multi-Tenant
-✓ Secure
-✓ Auditable
-✓ Transaction Safe
-✓ Offline-Aware
-✓ Automation Ready
-✓ AI Ready
-✓ SaaS Ready
-```
-
-لكن الأهم:
-
-```text
-                    SIMPLE FOR USER
-                           ▲
-                           │
-                           │
-                    COMPLEX UNDER HOOD
-                           │
-                           ▼
-                  Go + PostgreSQL
-                  Supabase + Docker
-                  Security + Automation
-```
-
-وهذا هو التصميم الذي يجب أن تستهدفه:
-
-# **واجهة بسيطة جدًا للمستخدم، وبنية قوية جدًا خلفها.**
-
-لأن صاحب المحل لا يهتم بأن النظام يستخدم Go أو React أو Supabase.
-
-هو يهتم بأن يدخل إلى المحل صباحًا، يفتح النظام، ويعرف خلال ثوانٍ:
-
-> **ماذا لدي؟ ماذا بعت؟ كم ربحت؟ من عليه دين؟ وما الذي يحتاج انتباهي الآن؟**
-
-إذا استطاع النظام الإجابة عن هذه الأسئلة تلقائيًا، فقد نجحت في بناء المنتج الذي تريده.
+**هذه هي فلسفة PartFlow التي يجب أن يترجمها الـBackend إلى نظام حقيقي، وليس مجرد مجموعة APIs.**
 

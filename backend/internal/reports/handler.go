@@ -357,3 +357,109 @@ func (h *Handler) GenerateDebtsReport(c *gin.Context) {
 
 	c.JSON(http.StatusOK, report)
 }
+
+// GeneratePurchasesReport handles generating a purchases report
+// @Summary Generate purchases report
+// @Description Generate a purchases report for specified date range
+// @Tags reports
+// @Accept json
+// @Produce json
+// @Param start_date query string true "Start date"
+// @Param end_date query string true "End date"
+// @Success 200 {object} PurchasesReport
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/reports/purchases [get]
+func (h *Handler) GeneratePurchasesReport(c *gin.Context) {
+	startDateStr := c.Query("start_date")
+	endDateStr := c.Query("end_date")
+
+	startDate, err := time.Parse(time.RFC3339, startDateStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start date format"})
+		return
+	}
+
+	endDate, err := time.Parse(time.RFC3339, endDateStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end date format"})
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+	userID := middleware.GetUserID(c)
+
+	report, err := h.service.GeneratePurchasesReport(c.Request.Context(), organizationID, userID, startDate, endDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, report)
+}
+
+// GenerateReturnsReport handles generating a returns report
+// @Summary Generate returns report
+// @Description Generate a returns report for specified date range
+// @Tags reports
+// @Accept json
+// @Produce json
+// @Param start_date query string true "Start date"
+// @Param end_date query string true "End date"
+// @Success 200 {object} ReturnsReport
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/reports/returns [get]
+func (h *Handler) GenerateReturnsReport(c *gin.Context) {
+	startDateStr := c.Query("start_date")
+	endDateStr := c.Query("end_date")
+
+	startDate, err := time.Parse(time.RFC3339, startDateStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start date format"})
+		return
+	}
+
+	endDate, err := time.Parse(time.RFC3339, endDateStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end date format"})
+		return
+	}
+
+	organizationID := middleware.GetOrganizationID(c)
+	userID := middleware.GetUserID(c)
+
+	report, err := h.service.GenerateReturnsReport(c.Request.Context(), organizationID, userID, startDate, endDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, report)
+}
+
+// GenerateWarrantyReport handles generating a warranty report
+// @Summary Generate warranty report
+// @Description Generate a warranty report
+// @Tags reports
+// @Accept json
+// @Produce json
+// @Success 200 {object} WarrantyReport
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/reports/warranty [get]
+func (h *Handler) GenerateWarrantyReport(c *gin.Context) {
+	organizationID := middleware.GetOrganizationID(c)
+	userID := middleware.GetUserID(c)
+
+	report, err := h.service.GenerateWarrantyReport(c.Request.Context(), organizationID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, report)
+}
