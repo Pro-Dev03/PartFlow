@@ -5,20 +5,46 @@ import { cn } from '../../lib/utils';
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   noPadding?: boolean;
   hoverable?: boolean;
+  variant?: 'default' | 'interactive' | 'featured' | 'warning' | 'ai' | 'danger' | 'success' | 'info';
+  fullWidth?: boolean;
 }
 
 const Card = forwardRef<HTMLDivElement, CardProps>(
-  ({ className, noPadding = false, hoverable = false, children, ...props }, ref) => {
+  ({ 
+    className, 
+    noPadding = false, 
+    hoverable = false, 
+    variant = 'default', 
+    fullWidth = false,
+    children, 
+    ...props 
+  }, ref) => {
+    const variants = {
+      default: 'border border-border bg-card-gradient shadow-card',
+      interactive: 'border border-border bg-card-gradient shadow-card hover:border-border/22 hover:-translate-y-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
+      featured: 'border border-cyan/30 bg-card-gradient shadow-glow hover:border-cyan/50 hover:shadow-glow-strong backdrop-blur-xl',
+      warning: 'border border-yellow/30 bg-yellow/5 hover:border-yellow/50',
+      ai: 'border border-cyan/18 bg-card-ai-gradient hover:border-cyan/30',
+      danger: 'border border-red/30 bg-red/5 hover:border-red/50',
+      success: 'border border-green/30 bg-green/5 hover:border-green/50',
+      info: 'border border-cyan/30 bg-cyan/5 hover:border-cyan/50',
+    };
+    
+    const responsive = fullWidth ? 'w-full' : '';
+    
     return (
       <div
         ref={ref}
         className={cn(
-          'rounded-lg border border-gray-200 bg-white shadow-sm',
-          'dark:border-gray-700 dark:bg-gray-800',
-          !noPadding && 'p-6',
-          hoverable && 'transition-shadow hover:shadow-md cursor-pointer',
+          'rounded-md transition-all duration-slow',
+          variants[variant],
+          !noPadding && 'p-lg',
+          responsive,
+          hoverable && variant === 'default' && 'hover:border-border/22 hover:-translate-y-2 cursor-pointer',
           className
         )}
+        tabIndex={hoverable || variant === 'interactive' ? 0 : undefined}
+        role={hoverable || variant === 'interactive' ? 'button' : undefined}
         {...props}
       >
         {children}
@@ -33,7 +59,7 @@ const CardHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('flex flex-col space-y-1.5 mb-4', className)}
+      className={cn('flex justify-between items-center mb-5', className)}
       {...props}
     />
   )
@@ -45,7 +71,7 @@ const CardTitle = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLHeadingEle
   ({ className, ...props }, ref) => (
     <h3
       ref={ref}
-      className={cn('text-lg font-semibold leading-none tracking-tight', className)}
+      className={cn('text-card-title font-semibold leading-none text-text', className)}
       {...props}
     />
   )
@@ -57,7 +83,7 @@ const CardDescription = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLPara
   ({ className, ...props }, ref) => (
     <p
       ref={ref}
-      className={cn('text-sm text-gray-500 dark:text-gray-400', className)}
+      className={cn('text-small text-text-muted', className)}
       {...props}
     />
   )
@@ -77,7 +103,7 @@ const CardFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('flex items-center pt-4 mt-4 border-t border-gray-200 dark:border-gray-700', className)}
+      className={cn('flex items-center pt-4 mt-4 border-t border-border', className)}
       {...props}
     />
   )

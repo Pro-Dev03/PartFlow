@@ -5,38 +5,54 @@ import { cn } from '../../lib/utils';
 export interface BadgeProps extends HTMLAttributes<HTMLDivElement> {
   variant?: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'destructive' | 'secondary' | 'outline';
   size?: 'sm' | 'md' | 'lg';
+  dot?: boolean;
 }
 
 const Badge = forwardRef<HTMLDivElement, BadgeProps>(
-  ({ className, variant = 'default', size = 'md', children, ...props }, ref) => {
+  ({ className, variant = 'default', size = 'md', dot = false, children, ...props }, ref) => {
     const variants = {
-      default: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
-      success: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
-      warning: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
-      danger: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
-      info: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
-      destructive: 'bg-red-500 text-white',
-      secondary: 'bg-gray-200 text-gray-900 dark:bg-gray-700 dark:text-gray-100',
-      outline: 'border border-gray-300 text-gray-700 dark:border-gray-600 dark:text-gray-300',
+      default: 'bg-surface border border-border text-text',
+      success: 'bg-green/8 text-green border border-green/20',
+      warning: 'bg-yellow/8 text-yellow border border-yellow/20',
+      danger: 'bg-red/8 text-red border border-red/20',
+      info: 'bg-cyan/8 text-cyan border border-cyan/20',
+      destructive: 'bg-red text-white border border-red',
+      secondary: 'bg-surface-2 text-text border border-border',
+      outline: 'border border-border text-text bg-transparent',
     };
     
     const sizes = {
-      sm: 'px-2 py-0.5 text-xs',
-      md: 'px-2.5 py-0.5 text-sm',
-      lg: 'px-3 py-1 text-base',
+      sm: 'px-2 py-0.5 text-tiny',
+      md: 'px-2 py-1 text-tiny',
+      lg: 'px-3 py-1 text-small',
     };
     
     return (
       <div
         ref={ref}
         className={cn(
-          'inline-flex items-center rounded-full font-medium',
+          'inline-flex items-center gap-1.5 rounded-lg font-medium tracking-wide transition-colors duration-normal',
           variants[variant],
           sizes[size],
           className
         )}
+        role="status"
+        aria-label={typeof children === 'string' ? children : undefined}
         {...props}
       >
+        {dot && (
+          <span 
+            className={cn(
+              'w-1.5 h-1.5 rounded-full',
+              variant === 'success' && 'bg-green',
+              variant === 'warning' && 'bg-yellow',
+              variant === 'danger' && 'bg-red',
+              variant === 'info' && 'bg-cyan',
+              variant === 'default' && 'bg-text-muted'
+            )}
+            aria-hidden="true"
+          />
+        )}
         {children}
       </div>
     );

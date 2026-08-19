@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"smart-store/internal/ledgers"
+	"github.com/partflow/smart-store/internal/ledgers"
 )
 
 type Service struct {

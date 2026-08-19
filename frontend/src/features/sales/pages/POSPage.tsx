@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Select } from '../../../components/ui/select';
 import { Badge } from '../../../components/ui/badge';
+import { PageHeader } from '../../../components/ui/page-header';
 import { productsApi, salesApi, customersApi, barcodeApi } from '../../../services/api/endpoints';
 import { BarcodeContext, playScanSound } from '../../../hooks/useBarcodeContext';
 import { 
@@ -24,7 +25,10 @@ import {
   X,
   Zap,
   Clock,
-  User
+  User,
+  Sparkles,
+  Rocket,
+  Package
 } from 'lucide-react';
 
 interface CartItem {
@@ -259,27 +263,46 @@ export function POSPage() {
 
   return (
     <div className="h-[calc(100vh-8rem)]">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+      {/* Page Header - Futuristic + Extremely Fast */}
+      <PageHeader
+        eyebrow="Express POS"
+        title={t('sales.pos')}
+        description="نقطة البيع فائقة السرعة مع مسح الباركود الفوري"
+        actions={
+          <div className="flex items-center gap-sm">
+            <Button variant="secondary" className="gap-2">
+              <Rocket className="w-4 h-4" />
+              وضع سريع
+            </Button>
+            <Button variant="secondary" className="gap-2">
+              <Zap className="w-4 h-4" />
+              إعدادات
+            </Button>
+          </div>
+        }
+      />
+      
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-md h-full">
         {/* Left Side - Product Selection */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Barcode Scanner */}
-          <Card>
-            <CardContent className="p-4">
-              <form onSubmit={handleBarcodeScan} className="flex gap-2">
+        <div className="lg:col-span-2 space-y-md">
+          {/* Barcode Scanner - Futuristic + Extremely Fast */}
+          <Card variant="featured">
+            <CardContent className="p-lg">
+              <form onSubmit={handleBarcodeScan} className="flex gap-md">
                 <div className="flex-1 relative">
-                  <Scan className="absolute inset-y-0 end-3 w-4 h-4 text-gray-400" />
+                  <Scan className="absolute inset-y-0 end-3 w-4 h-4 text-cyan" />
                   <Input
                     ref={barcodeInputRef}
                     placeholder={t('scanner.scanBarcode')}
                     value={barcodeInput}
                     onChange={(e) => setBarcodeInput(e.target.value)}
-                    className="pe-10"
+                    className="pe-10 border-cyan/30 focus:border-cyan"
                   />
                 </div>
                 <Button 
                   type="submit" 
                   className="gap-2"
-                  variant={soundEnabled ? 'primary' : 'outline'}
+                  variant={soundEnabled ? 'primary' : 'secondary'}
                   onClick={() => setSoundEnabled(!soundEnabled)}
                 >
                   {soundEnabled ? (
@@ -296,29 +319,29 @@ export function POSPage() {
                 </Button>
               </form>
               
-              {/* Keyboard shortcuts hint */}
-              <div className="flex gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {/* Keyboard shortcuts hint - Futuristic + Extremely Fast */}
+              <div className="flex gap-md mt-2 text-tiny text-text-muted">
                 <span className="flex items-center gap-1">
-                  <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded">F2</kbd>
+                  <kbd className="px-1.5 py-0.5 bg-cyan/10 text-cyan rounded-sm border border-cyan/20">F2</kbd>
                   <span>تركيز</span>
                 </span>
                 <span className="flex items-center gap-1">
-                  <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded">F9</kbd>
+                  <kbd className="px-1.5 py-0.5 bg-cyan/10 text-cyan rounded-sm border border-cyan/20">F9</kbd>
                   <span>إتمام</span>
                 </span>
                 <span className="flex items-center gap-1">
-                  <kbd className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded">ESC</kbd>
+                  <kbd className="px-1.5 py-0.5 bg-cyan/10 text-cyan rounded-sm border border-cyan/20">ESC</kbd>
                   <span>مسح</span>
                 </span>
               </div>
             </CardContent>
           </Card>
 
-          {/* Product Search */}
+          {/* Product Search - Futuristic + Extremely Fast */}
           <Card>
-            <CardContent className="p-4">
-              <div className="relative mb-4">
-                <Search className="absolute inset-y-0 end-3 w-4 h-4 text-gray-400" />
+            <CardContent className="p-lg">
+              <div className="relative mb-md">
+                <Search className="absolute inset-y-0 end-3 w-4 h-4 text-cyan" />
                 <Input
                   placeholder={t('common.search')}
                   value={searchQuery}
@@ -328,11 +351,11 @@ export function POSPage() {
               </div>
 
               {/* Product Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-96 overflow-y-auto">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-sm max-h-96 overflow-y-auto">
                 {filteredProducts.slice(0, 12).map((product: any) => (
                   <Card
                     key={product.id}
-                    className="cursor-pointer hover:shadow-md transition-shadow"
+                    className="cursor-pointer hover:border-cyan/30 hover:-translate-y-1 transition-all duration-normal"
                     onClick={() => addToCart({ 
                       id: product.id, 
                       name: product.name, 
@@ -340,16 +363,16 @@ export function POSPage() {
                       price: product.sellingPrice 
                     })}
                   >
-                    <CardContent className="p-4">
-                      <div className="aspect-square bg-gray-100 dark:bg-gray-700 rounded-lg mb-3 flex items-center justify-center">
-                        <Package className="w-8 h-8 text-gray-400" />
+                    <CardContent className="p-md">
+                      <div className="aspect-square bg-surface-2 rounded-sm mb-sm flex items-center justify-center">
+                        <Package className="w-8 h-8 text-cyan" />
                       </div>
-                      <h3 className="font-medium text-sm text-gray-900 dark:text-gray-100 line-clamp-2">
+                      <h3 className="text-small font-medium text-text line-clamp-2">
                         {product.name}
                       </h3>
-                      <div className="flex items-center justify-between mt-2">
-                        <span className="font-bold text-primary-600">₪{product.sellingPrice?.toLocaleString()}</span>
-                        <Badge variant={product.stock > 0 ? 'default' : 'destructive'}>
+                      <div className="flex items-center justify-between mt-sm">
+                        <span className="text-small font-bold text-cyan">₪{product.sellingPrice?.toLocaleString()}</span>
+                        <Badge variant={product.stock > 0 ? 'success' : 'danger'} size="sm">
                           {product.stock}
                         </Badge>
                       </div>
@@ -357,7 +380,7 @@ export function POSPage() {
                   </Card>
                 ))}
                 {filteredProducts.length === 0 && (
-                  <div className="col-span-full text-center py-8 text-gray-500 dark:text-gray-400">
+                  <div className="col-span-full text-center py-8 text-text-muted">
                     لا توجد منتجات
                   </div>
                 )}
@@ -367,35 +390,35 @@ export function POSPage() {
         </div>
 
         {/* Right Side - Cart */}
-        <div className="space-y-4">
+        <div className="space-y-md">
           <Card className="h-full flex flex-col">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <ShoppingCart className="w-5 h-5" />
+                <ShoppingCart className="w-5 h-5 text-cyan" />
                 {t('sales.cart')}
                 <Badge variant="secondary">{cart.length}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="flex-1 flex flex-col">
-              {/* Cart Items */}
-              <div className="flex-1 overflow-y-auto space-y-3 mb-4">
+              {/* Cart Items - Futuristic + Extremely Fast */}
+              <div className="flex-1 overflow-y-auto space-y-sm mb-md">
                 {cart.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                    <ShoppingCart className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <p>السلة فارغة</p>
+                  <div className="text-center py-8 text-text-muted">
+                    <ShoppingCart className="w-12 h-12 mx-auto mb-md opacity-50 text-cyan" />
+                    <p className="text-small">السلة فارغة</p>
                   </div>
                 ) : (
                   cart.map((item) => (
-                    <div key={item.barcode} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <div key={item.barcode} className="flex items-center gap-md p-md bg-surface-2 rounded-sm hover:bg-surface transition-colors duration-normal">
                       <div className="flex-1">
-                        <p className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                        <p className="text-small font-medium text-text">
                           {item.name}
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-tiny text-text-muted">
                           {item.barcode}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-sm">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -403,7 +426,7 @@ export function POSPage() {
                         >
                           <Minus className="w-4 h-4" />
                         </Button>
-                        <span className="w-8 text-center font-medium">{item.quantity}</span>
+                        <span className="w-8 text-center text-small font-medium text-text">{item.quantity}</span>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -413,7 +436,7 @@ export function POSPage() {
                         </Button>
                       </div>
                       <div className="text-end">
-                        <p className="font-bold text-gray-900 dark:text-gray-100">
+                        <p className="text-small font-bold text-text">
                           ₪{item.total.toLocaleString()}
                         </p>
                       </div>
@@ -422,7 +445,7 @@ export function POSPage() {
                         size="sm"
                         onClick={() => removeFromCart(item.barcode)}
                       >
-                        <Trash2 className="w-4 h-4 text-red-500" />
+                        <Trash2 className="w-4 h-4 text-red" />
                       </Button>
                     </div>
                   ))
@@ -430,7 +453,7 @@ export function POSPage() {
               </div>
 
               {/* Customer Selection */}
-              <div className="space-y-3 mb-4">
+              <div className="space-y-sm mb-md">
                 <Select
                   label="العميل"
                   value={selectedCustomer}
@@ -442,23 +465,23 @@ export function POSPage() {
                 />
               </div>
 
-              {/* Payment Method */}
-              <div className="space-y-3 mb-4">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {/* Payment Method - Futuristic + Extremely Fast */}
+              <div className="space-y-sm mb-md">
+                <label className="text-small font-medium text-text">
                   طريقة الدفع
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-sm">
                   {paymentMethods.map((method) => {
                     const Icon = method.icon;
                     return (
                       <Button
                         key={method.value}
-                        variant={paymentMethod === method.value ? 'primary' : 'outline'}
+                        variant={paymentMethod === method.value ? 'primary' : 'secondary'}
                         onClick={() => setPaymentMethod(method.value as any)}
-                        className="flex flex-col items-center gap-1 h-auto py-3"
+                        className="flex flex-col items-center gap-1 h-auto py-md"
                       >
                         <Icon className="w-4 h-4" />
-                        <span className="text-xs">{method.label}</span>
+                        <span className="text-tiny">{method.label}</span>
                       </Button>
                     );
                   })}
@@ -467,7 +490,7 @@ export function POSPage() {
 
               {/* Payment Amount */}
               {paymentMethod === 'credit' && (
-                <div className="space-y-3 mb-4">
+                <div className="space-y-sm mb-md">
                   <Input
                     label="المبلغ المدفوع"
                     type="number"
@@ -478,37 +501,38 @@ export function POSPage() {
                 </div>
               )}
 
-              {/* Totals */}
-              <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">المجموع الفرعي</span>
-                  <span className="font-medium">₪{subtotal.toLocaleString()}</span>
+              {/* Totals - Futuristic + Extremely Fast */}
+              <div className="border-t border-border pt-md space-y-sm">
+                <div className="flex justify-between text-small">
+                  <span className="text-text-muted">المجموع الفرعي</span>
+                  <span className="text-small font-medium text-text">₪{subtotal.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600 dark:text-gray-400">الضريبة (15%)</span>
-                  <span className="font-medium">₪{tax.toLocaleString()}</span>
+                <div className="flex justify-between text-small">
+                  <span className="text-text-muted">الضريبة (15%)</span>
+                  <span className="text-small font-medium text-text">₪{tax.toLocaleString()}</span>
                 </div>
                 {paymentMethod === 'credit' && (
                   <>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">المدفوع</span>
-                      <span className="font-medium text-green-600">₪{paid.toLocaleString()}</span>
+                    <div className="flex justify-between text-small">
+                      <span className="text-text-muted">المدفوع</span>
+                      <span className="text-small font-medium text-green">₪{paid.toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">المتبقي</span>
-                      <span className="font-medium text-orange-600">₪{remaining.toLocaleString()}</span>
+                    <div className="flex justify-between text-small">
+                      <span className="text-text-muted">المتبقي</span>
+                      <span className="text-small font-medium text-yellow">₪{remaining.toLocaleString()}</span>
                     </div>
                   </>
                 )}
-                <div className="flex justify-between text-lg font-bold pt-2 border-t border-gray-200 dark:border-gray-700">
-                  <span>المجموع</span>
-                  <span className="text-primary-600">₪{total.toLocaleString()}</span>
+                <div className="flex justify-between text-h3 font-bold pt-md border-t border-border">
+                  <span className="text-text">المجموع</span>
+                  <span className="text-cyan">₪{total.toLocaleString()}</span>
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="space-y-2 mt-4">
+              {/* Action Buttons - Futuristic + Extremely Fast */}
+              <div className="space-y-sm mt-md">
                 <Button
+                  variant="primary"
                   className="w-full"
                   size="lg"
                   disabled={cart.length === 0 || isProcessing}
@@ -520,15 +544,18 @@ export function POSPage() {
                       جاري المعالجة...
                     </>
                   ) : (
-                    t('sales.checkout')
+                    <>
+                      <Rocket className="w-4 h-4 mr-2" />
+                      {t('sales.checkout')}
+                    </>
                   )}
                 </Button>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" className="gap-2">
+                <div className="grid grid-cols-2 gap-sm">
+                  <Button variant="secondary" className="gap-2">
                     <Printer className="w-4 h-4" />
                     طباعة
                   </Button>
-                  <Button variant="outline" className="gap-2">
+                  <Button variant="secondary" className="gap-2">
                     <Send className="w-4 h-4" />
                     إرسال
                   </Button>
@@ -539,23 +566,5 @@ export function POSPage() {
         </div>
       </div>
     </div>
-  );
-}
-
-function Package({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-      />
-    </svg>
   );
 }

@@ -1,1 +1,12 @@
+/* ============================================================================
+   PartFlow Styles
+   ============================================================================ */
+
+/* Import Design Tokens first (base layer) */
+@import './styles/tokens.css';
+
+/* Import Themes (theme layer) */
+@import './styles/themes.css';
+
+/* Import Global Styles (components layer) */
 @import './styles/globals.css';

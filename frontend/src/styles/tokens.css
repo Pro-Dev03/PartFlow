@@ -1,0 +1,249 @@
+/**
+ * PartFlow Design Tokens
+ * 
+ * نظام متكامل للقيم البصرية الأساسية
+ * مستوحى من demo.html - Futuristic Professional Design System
+ * يتم استخدام هذه القيم في جميع أنحاء التطبيق
+ */
+
+/* ============================================================================
+   COLORS - نظام الألوان (من demo.html)
+   ============================================================================ */
+
+:root {
+  /* Backgrounds - الخلفيات */
+  --bg-background: #070a12;
+  --bg-surface: #0c111c;
+  --bg-surface-elevated: #111827;
+  --bg-surface-3: #151e2d;
+  
+  /* Borders - الحدود */
+  --bg-border: rgba(148, 163, 184, 0.13);
+  
+  /* Primary/Accent Colors - الألوان الأساسية */
+  --primary: #22d3ee; /* Cyan - اللون الأساسي */
+  --primary-hover: #06b6d4;
+  --primary-active: #0891b2;
+  
+  /* Status Colors - ألوان الحالات */
+  --success: #34d399;
+  --success-hover: #10b981;
+  --warning: #fbbf24;
+  --warning-hover: #f59e0b;
+  --danger: #fb7185;
+  --danger-hover: #f43f5e;
+  --info: #38bdf8;
+  --info-hover: #0ea5e9;
+  
+  /* Text Colors - ألوان النصوص */
+  --text-primary: #f1f7ff;
+  --text-secondary: #8290a7;
+  --text-tertiary: #56647a;
+  --text-disabled: #4b5563;
+  
+  /* Light Theme - الوضع النهاري (للاستخدام المستقبلي) */
+  --light-bg-background: #F7F9FC;
+  --light-bg-surface: #FFFFFF;
+  --light-bg-surface-elevated: #FFFFFF;
+  --light-bg-border: #E2E8F0;
+  
+  --light-primary: #2563EB;
+  --light-primary-hover: #1D4ED8;
+  --light-primary-active: #1E40AF;
+  
+  --light-success: #16A34A;
+  --light-success-hover: #15803D;
+  --light-warning: #D97706;
+  --light-warning-hover: #B45309;
+  --light-danger: #DC2626;
+  --light-danger-hover: #B91C1C;
+  --light-info: #0891B2;
+  --light-info-hover: #0E7490;
+  
+  --light-text-primary: #111827;
+  --light-text-secondary: #6B7280;
+  --light-text-tertiary: #9CA3AF;
+  --light-text-disabled: #D1D5DB;
+}
+
+/* ============================================================================
+   TYPOGRAPHY - نظام الخطوط
+   ============================================================================ */
+
+:root {
+  /* Font Families - عائلات الخطوط */
+  --font-family-arabic: 'Cairo', 'Tajawal', system-ui, -apple-system, sans-serif;
+  --font-family-latin: 'Inter', system-ui, -apple-system, sans-serif;
+  
+  /* Font Sizes - أحجام الخطوط */
+  --font-size-page-title: 32px;
+  --font-size-section-title: 28px;
+  --font-size-card-title: 24px;
+  --font-size-body: 16px;
+  --font-size-secondary: 14px;
+  --font-size-caption: 12px;
+  
+  /* Font Weights - وزن الخطوط */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  
+  /* Line Heights - ارتفاع السطر */
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+  
+  /* Letter Spacing - المسافة بين الحروف */
+  --letter-spacing-tight: -0.025em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.025em;
+}
+
+/* ============================================================================
+   SPACING - نظام المسافات
+   ============================================================================ */
+
+:root {
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+}
+
+/* ============================================================================
+   BORDER RADIUS - نظام زوايا الحدود
+   ============================================================================ */
+
+:root {
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+}
+
+/* ============================================================================
+   SHADOWS - نظام الظلال
+   ============================================================================ */
+
+:root {
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* ============================================================================
+   BORDERS - نظام الحدود
+   ============================================================================ */
+
+:root {
+  --border-width-thin: 1px;
+  --border-width-medium: 2px;
+  --border-width-thick: 3px;
+  
+  --border-style-solid: solid;
+  --border-style-dashed: dashed;
+  --border-style-dotted: dotted;
+}
+
+/* ============================================================================
+   TRANSITIONS - نظام الانتقالات
+   ============================================================================ */
+
+:root {
+  --transition-fast: 150ms;
+  --transition-normal: 200ms;
+  --transition-slow: 300ms;
+  
+  --transition-timing-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-timing-in: cubic-bezier(0.4, 0, 1, 1);
+  --transition-timing-out: cubic-bezier(0, 0, 0.2, 1);
+  
+  --transition-color: color var(--transition-normal) var(--transition-timing-default);
+  --transition-background: background-color var(--transition-normal) var(--transition-timing-default);
+  --transition-border: border-color var(--transition-normal) var(--transition-timing-default);
+  --transition-shadow: box-shadow var(--transition-normal) var(--transition-timing-default);
+  --transition-transform: transform var(--transition-normal) var(--transition-timing-default);
+}
+
+/* ============================================================================
+   Z-INDEX - نظام الطبقات
+   ============================================================================ */
+
+:root {
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal-backdrop: 1040;
+  --z-modal: 1050;
+  --z-popover: 1060;
+  --z-tooltip: 1070;
+}
+
+/* ============================================================================
+   BREAKPOINTS - نقاط التوقف
+   ============================================================================ */
+
+:root {
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+}
+
+/* ============================================================================
+   RTL/LTR - دعم الاتجاهات
+   ============================================================================ */
+
+[dir="rtl"] {
+  --font-family-base: var(--font-family-arabic);
+  --direction-start: right;
+  --direction-end: left;
+}
+
+[dir="ltr"] {
+  --font-family-base: var(--font-family-latin);
+  --direction-start: left;
+  --direction-end: right;
+}
+
+/* ============================================================================
+   COMPONENT-SPECIFIC TOKENS
+   ============================================================================ */
+
+:root {
+  /* Button Heights */
+  --button-height-sm: 32px;
+  --button-height-md: 40px;
+  --button-height-lg: 48px;
+  
+  /* Input Heights */
+  --input-height-sm: 32px;
+  --input-height-md: 40px;
+  --input-height-lg: 48px;
+  
+  /* Card Padding */
+  --card-padding-sm: var(--spacing-4);
+  --card-padding-md: var(--spacing-6);
+  --card-padding-lg: var(--spacing-8);
+  
+  /* Table */
+  --table-row-height: 48px;
+  --table-cell-padding: var(--spacing-4);
+  
+  /* Sidebar */
+  --sidebar-width-expanded: 260px;
+  --sidebar-width-collapsed: 64px;
+  
+  /* Topbar */
+  --topbar-height: 64px;
+}

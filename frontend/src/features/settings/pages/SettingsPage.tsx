@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Select } from '../../../components/ui/select';
+import { PageHeader } from '../../../components/ui/page-header';
 import { 
   Settings as SettingsIcon, 
   Building2, 
@@ -15,7 +16,10 @@ import {
   Bell,
   Lock,
   FileText,
-  Save
+  Save,
+  Sparkles,
+  Sliders,
+  Zap
 } from 'lucide-react';
 
 export function SettingsPage() {
@@ -35,37 +39,46 @@ export function SettingsPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-          {t('settings.title')}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">
-          إدارة إعدادات النظام والمؤسسة
-        </p>
-      </div>
+    <div className="space-y-md">
+      {/* Page Header - Futuristic + Minimal */}
+      <PageHeader
+        eyebrow="System Control"
+        title={t('settings.title')}
+        description="إدارة إعدادات النظام والمؤسسة"
+        actions={
+          <div className="flex items-center gap-sm">
+            <Button variant="secondary" className="gap-2">
+              <Zap className="w-4 h-4" />
+              تحديث
+            </Button>
+            <Button variant="primary" className="gap-2">
+              <Save className="w-4 h-4" />
+              حفظ
+            </Button>
+          </div>
+        }
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Sidebar Tabs */}
-        <div className="space-y-2">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-md">
+        {/* Sidebar Tabs - Futuristic + Minimal */}
+        <div className="space-y-sm">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
               <Button
                 key={tab.id}
                 variant={activeTab === tab.id ? 'primary' : 'ghost'}
-                className="w-full justify-start gap-3"
+                className="w-full justify-start gap-sm"
                 onClick={() => setActiveTab(tab.id)}
               >
                 <Icon className="w-4 h-4" />
-                {tab.label}
+                <span className="text-tiny">{tab.label}</span>
               </Button>
             );
           })}
         </div>
 
-        {/* Content Area */}
+        {/* Content Area - Futuristic + Minimal */}
         <div className="lg:col-span-3">
           {activeTab === 'organization' && <OrganizationSettings />}
           {activeTab === 'users' && <UsersSettings />}
@@ -95,9 +108,12 @@ function OrganizationSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>إعدادات المؤسسة</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Building2 className="w-5 h-5 text-cyan" />
+          إعدادات المؤسسة
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-md">
         <Input
           label={t('settings.storeName')}
           value={formData.name}
@@ -124,7 +140,7 @@ function OrganizationSettings() {
           value={formData.taxNumber}
           onChange={(e) => setFormData({ ...formData, taxNumber: e.target.value })}
         />
-        <Button className="gap-2">
+        <Button variant="primary" className="gap-2">
           <Save className="w-4 h-4" />
           حفظ التغييرات
         </Button>
@@ -137,12 +153,15 @@ function UsersSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>إدارة المستخدمين</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Users className="w-5 h-5 text-cyan" />
+          إدارة المستخدمين
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-          <Users className="w-12 h-12 mx-auto mb-2 opacity-50" />
-          <p>قائمة المستخدمين</p>
+        <div className="text-center py-8 text-text-muted">
+          <Users className="w-12 h-12 mx-auto mb-md opacity-50 text-cyan" />
+          <p className="text-small">قائمة المستخدمين</p>
         </div>
       </CardContent>
     </Card>
@@ -153,12 +172,15 @@ function PermissionsSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>إدارة الصلاحيات</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Shield className="w-5 h-5 text-cyan" />
+          إدارة الصلاحيات
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-          <Shield className="w-12 h-12 mx-auto mb-2 opacity-50" />
-          <p>إعدادات الصلاحيات</p>
+        <div className="text-center py-8 text-text-muted">
+          <Shield className="w-12 h-12 mx-auto mb-md opacity-50 text-cyan" />
+          <p className="text-small">إعدادات الصلاحيات</p>
         </div>
       </CardContent>
     </Card>
@@ -169,12 +191,15 @@ function StoreSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>إعدادات المتجر</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Store className="w-5 h-5 text-cyan" />
+          إعدادات المتجر
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-          <Store className="w-12 h-12 mx-auto mb-2 opacity-50" />
-          <p>إعدادات المتجر</p>
+        <div className="text-center py-8 text-text-muted">
+          <Store className="w-12 h-12 mx-auto mb-md opacity-50 text-cyan" />
+          <p className="text-small">إعدادات المتجر</p>
         </div>
       </CardContent>
     </Card>
@@ -187,11 +212,14 @@ function LocalizationSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>اللغة والتوطين</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Globe className="w-5 h-5 text-cyan" />
+          اللغة والتوطين
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-md">
         <div>
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+          <label className="text-small font-medium text-text mb-sm block">
             {t('settings.language')}
           </label>
           <Select
@@ -204,7 +232,7 @@ function LocalizationSettings() {
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+          <label className="text-small font-medium text-text mb-sm block">
             {t('settings.timezone')}
           </label>
           <Select
@@ -218,7 +246,7 @@ function LocalizationSettings() {
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+          <label className="text-small font-medium text-text mb-sm block">
             {t('settings.currency')}
           </label>
           <Select
@@ -243,28 +271,31 @@ function AppearanceSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>المظهر</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Palette className="w-5 h-5 text-cyan" />
+          المظهر
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-md">
         <div>
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+          <label className="text-small font-medium text-text mb-sm block">
             {t('settings.theme')}
           </label>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-sm">
             <Button
-              variant={theme === 'light' ? 'primary' : 'outline'}
+              variant={theme === 'light' ? 'primary' : 'secondary'}
               onClick={() => setTheme('light')}
             >
               {t('settings.lightMode')}
             </Button>
             <Button
-              variant={theme === 'dark' ? 'primary' : 'outline'}
+              variant={theme === 'dark' ? 'primary' : 'secondary'}
               onClick={() => setTheme('dark')}
             >
               {t('settings.darkMode')}
             </Button>
             <Button
-              variant={theme === 'system' ? 'primary' : 'outline'}
+              variant={theme === 'system' ? 'primary' : 'secondary'}
               onClick={() => setTheme('system')}
             >
               {t('settings.systemMode')}
@@ -280,12 +311,15 @@ function NotificationSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>إعدادات الإشعارات</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Bell className="w-5 h-5 text-cyan" />
+          إعدادات الإشعارات
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-          <Bell className="w-12 h-12 mx-auto mb-2 opacity-50" />
-          <p>إعدادات الإشعارات</p>
+        <div className="text-center py-8 text-text-muted">
+          <Bell className="w-12 h-12 mx-auto mb-md opacity-50 text-cyan" />
+          <p className="text-small">إعدادات الإشعارات</p>
         </div>
       </CardContent>
     </Card>
@@ -296,12 +330,15 @@ function SecuritySettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>الأمان</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <Lock className="w-5 h-5 text-cyan" />
+          الأمان
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-          <Lock className="w-12 h-12 mx-auto mb-2 opacity-50" />
-          <p>إعدادات الأمان</p>
+        <div className="text-center py-8 text-text-muted">
+          <Lock className="w-12 h-12 mx-auto mb-md opacity-50 text-cyan" />
+          <p className="text-small">إعدادات الأمان</p>
         </div>
       </CardContent>
     </Card>
@@ -312,12 +349,15 @@ function AuditSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>سجل التدقيق</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <FileText className="w-5 h-5 text-cyan" />
+          سجل التدقيق
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-          <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
-          <p>سجل التدقيق</p>
+        <div className="text-center py-8 text-text-muted">
+          <FileText className="w-12 h-12 mx-auto mb-md opacity-50 text-cyan" />
+          <p className="text-small">سجل التدقيق</p>
         </div>
       </CardContent>
     </Card>

@@ -6,8 +6,8 @@ interface TableProps {
 }
 
 const Table = ({ className, children }: TableProps) => (
-  <div className="w-full overflow-auto">
-    <table className={cn('w-full caption-bottom text-sm', className)}>{children}</table>
+  <div className="w-full overflow-auto" role="region" aria-label="جدول البيانات">
+    <table className={cn('w-full caption-bottom text-small', className)}>{children}</table>
   </div>
 );
 
@@ -20,23 +20,27 @@ const TableBody = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectio
 );
 
 const TableFooter = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
-  <tfoot className={cn('border-t bg-gray-50 dark:bg-gray-800 font-medium [&_tr]:last:border-b-0', className)} {...props} />
+  <tfoot className={cn('border-t bg-surface-2 font-medium [&_tr]:last:border-b-0', className)} {...props} />
 );
 
 const TableRow = ({ className, ...props }: React.HTMLAttributes<HTMLTableRowElement>) => (
-  <tr className={cn('border-b border-gray-200 dark:border-gray-700 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800', className)} {...props} />
+  <tr className={cn('border-b border-border transition-colors hover:bg-surface-2', className)} {...props} />
 );
 
 const TableHead = ({ className, ...props }: React.HTMLAttributes<HTMLTableCellElement>) => (
-  <th className={cn('h-12 px-4 text-right align-middle font-medium text-gray-900 dark:text-gray-100 [&:has([role=checkbox])]:pr-0', className)} {...props} />
+  <th 
+    className={cn('h-12 px-4 text-start align-middle font-medium text-text [&:has([role=checkbox])]:pr-0', className)} 
+    scope="col"
+    {...props} 
+  />
 );
 
-const TableCell = ({ className, ...props }: React.HTMLAttributes<HTMLTableCellElement>) => (
-  <td className={cn('p-4 align-middle [&:has([role=checkbox])]:pr-0', className)} {...props} />
+const TableCell = ({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) => (
+  <td className={cn('p-4 align-middle text-text-muted [&:has([role=checkbox])]:pr-0', className)} {...props} />
 );
 
 const TableCaption = ({ className, ...props }: React.HTMLAttributes<HTMLTableCaptionElement>) => (
-  <caption className={cn('mt-4 text-sm text-gray-500 dark:text-gray-400', className)} {...props} />
+  <caption className={cn('mt-4 text-small text-text-muted', className)} {...props} />
 );
 
 export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption };

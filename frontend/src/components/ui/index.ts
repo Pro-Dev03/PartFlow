@@ -7,3 +7,5 @@ export { Skeleton } from './skeleton';
 export { EmptyState } from './empty-state';
 export { Label } from './label';
 export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption } from './table';
+export { PageHeader } from './page-header';
+export { StatusBadge } from './status-badge';

@@ -3,59 +3,49 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+  /* Base styles will be handled by Design Tokens and Themes */
+  
+  /* RTL/LTR Support using logical properties */
+  [dir="rtl"] {
+    direction: rtl;
+    text-align: right;
   }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+  
+  [dir="ltr"] {
+    direction: ltr;
+    text-align: left;
+  }
+  
+  /* Logical properties for RTL/LTR support */
+  .ml-auto {
+    margin-inline-start: auto;
+  }
+  
+  .mr-auto {
+    margin-inline-end: auto;
+  }
+  
+  .text-left {
+    text-align: start;
+  }
+  
+  .text-right {
+    text-align: end;
+  }
+  
+  /* Flip icons and directional elements in RTL */
+  [dir="rtl"] .flip-rtl {
+    transform: scaleX(-1);
   }
 }
 
 @layer components {
   .container {
     width: 100%;
-    margin-right: auto;
-    margin-left: auto;
-    padding-right: 1rem;
-    padding-left: 1rem;
+    margin-inline-start: auto;
+    margin-inline-end: auto;
+    padding-inline-start: var(--spacing-4);
+    padding-inline-end: var(--spacing-4);
   }
 
   @media (min-width: 640px) {
@@ -91,61 +81,14 @@
 
 @layer base {
   * {
-    border-color: hsl(var(--border));
+    border-color: var(--bg-border);
   }
   
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    background-color: var(--bg-background);
+    color: var(--text-primary);
+    font-family: var(--font-family-base);
     font-feature-settings: "rlig" 1, "calt" 1;
-  }
-
-  /* RTL/LTR Support using logical properties */
-  [dir="rtl"] {
-    direction: rtl;
-    text-align: right;
-  }
-  
-  [dir="ltr"] {
-    direction: ltr;
-    text-align: left;
-  }
-
-  /* Arabic font for RTL */
-  [dir="rtl"] body {
-    font-family: 'Cairo', 'Tajawal', system-ui, -apple-system, sans-serif;
-  }
-
-  /* Hebrew font for RTL */
-  [lang="he"] body {
-    font-family: 'Heebo', system-ui, -apple-system, sans-serif;
-  }
-
-  /* English font for LTR */
-  [dir="ltr"] body {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  }
-
-  /* Logical properties for RTL/LTR support */
-  .ml-auto {
-    margin-inline-start: auto;
-  }
-  
-  .mr-auto {
-    margin-inline-end: auto;
-  }
-  
-  .text-left {
-    text-align: start;
-  }
-  
-  .text-right {
-    text-align: end;
-  }
-  
-  /* Flip icons and directional elements in RTL */
-  [dir="rtl"] .flip-rtl {
-    transform: scaleX(-1);
   }
 }
 
@@ -165,6 +108,105 @@
   }
 }
 
+/* Fade animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Slide animations */
+@keyframes slideInUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInDown {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Scale animations */
+@keyframes scaleIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleOut {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+}
+
+/* Combined fade and scale */
+@keyframes fadeInScale {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 .skeleton {
   background: linear-gradient(to right, #f0f0f0 8%, #e0e0e0 18%, #f0f0f0 33%);
   background-size: 1000px 100%;
@@ -177,6 +219,43 @@
   animation: shimmer 2s infinite linear;
 }
 
+/* Animation utility classes */
+.animate-fadeIn {
+  animation: fadeIn 300ms ease-out;
+}
+
+.animate-fadeOut {
+  animation: fadeOut 200ms ease-in;
+}
+
+.animate-slideInUp {
+  animation: slideInUp 300ms ease-out;
+}
+
+.animate-slideInDown {
+  animation: slideInDown 300ms ease-out;
+}
+
+.animate-slideInLeft {
+  animation: slideInLeft 300ms ease-out;
+}
+
+.animate-slideInRight {
+  animation: slideInRight 300ms ease-out;
+}
+
+.animate-scaleIn {
+  animation: scaleIn 200ms ease-out;
+}
+
+.animate-scaleOut {
+  animation: scaleOut 200ms ease-in;
+}
+
+.animate-fadeInScale {
+  animation: fadeInScale 300ms ease-out;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
@@ -184,33 +263,21 @@
 }
 
 ::-webkit-scrollbar-track {
-  background-color: #f3f4f6;
-}
-
-.dark ::-webkit-scrollbar-track {
-  background-color: #1f2937;
+  background-color: var(--bg-surface);
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #d1d5db;
+  background-color: var(--text-tertiary);
   border-radius: 9999px;
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background-color: #4b5563;
-}
-
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #9ca3af;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background-color: #6b7280;
+  background-color: var(--text-secondary);
 }
 
 /* Focus styles for accessibility */
 :focus-visible {
-  outline: 2px solid hsl(221.2 83.2% 53.3%);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
@@ -223,4 +290,102 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Enhanced animation keyframes */
+@keyframes bounceIn {
+  0% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes flipIn {
+  from {
+    transform: perspective(400px) rotateY(90deg);
+    opacity: 0;
+  }
+  to {
+    transform: perspective(400px) rotateY(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes rotateIn {
+  from {
+    transform: rotate(-200deg);
+    opacity: 0;
+  }
+  to {
+    transform: rotate(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes zoomIn {
+  from {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInFromLeftWithFade {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInFromRightWithFade {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Enhanced animation utility classes */
+.animate-bounceIn {
+  animation: bounceIn 600ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.animate-flipIn {
+  animation: flipIn 600ms ease-in-out;
+}
+
+.animate-rotateIn {
+  animation: rotateIn 600ms ease-out;
+}
+
+.animate-zoomIn {
+  animation: zoomIn 300ms ease-out;
+}
+
+.animate-slideInFromLeftWithFade {
+  animation: slideInFromLeftWithFade 400ms ease-out;
+}
+
+.animate-slideInFromRightWithFade {
+  animation: slideInFromRightWithFade 400ms ease-out;
 }

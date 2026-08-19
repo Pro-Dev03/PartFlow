@@ -1,0 +1,211 @@
+/**
+ * PartFlow Themes
+ * 
+ * دعم الوضع الليلي والنهاري
+ */
+
+/* ============================================================================
+   DARK THEME - الوضع الليلي (الافتراضي)
+   ============================================================================ */
+
+:root {
+  /* Background Colors */
+  --bg-background: var(--color-background);
+  --bg-surface: var(--color-surface);
+  --bg-surface-elevated: var(--color-surface-elevated);
+  --bg-border: var(--color-border);
+  
+  /* Text Colors */
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-tertiary: var(--color-text-tertiary);
+  --text-disabled: var(--color-text-disabled);
+  
+  /* Primary Colors */
+  --primary: var(--color-primary);
+  --primary-hover: var(--color-primary-hover);
+  --primary-active: var(--color-primary-active);
+  
+  /* Status Colors */
+  --success: var(--color-success);
+  --success-hover: var(--color-success-hover);
+  --warning: var(--color-warning);
+  --warning-hover: var(--color-warning-hover);
+  --danger: var(--color-danger);
+  --danger-hover: var(--color-danger-hover);
+  --info: var(--color-info);
+  --info-hover: var(--color-info-hover);
+  
+  /* Component-specific Dark Theme */
+  --card-bg: var(--bg-surface);
+  --card-border: var(--bg-border);
+  --card-shadow: var(--shadow-md);
+  
+  --input-bg: var(--bg-surface);
+  --input-border: var(--bg-border);
+  --input-placeholder: var(--text-tertiary);
+  
+  --button-primary-bg: var(--primary);
+  --button-primary-text: #FFFFFF;
+  --button-primary-hover: var(--primary-hover);
+  
+  --button-secondary-bg: var(--bg-surface-elevated);
+  --button-secondary-text: var(--text-primary);
+  --button-secondary-border: var(--bg-border);
+  
+  --table-header-bg: var(--bg-surface-elevated);
+  --table-row-bg: var(--bg-surface);
+  --table-row-hover: var(--bg-surface-elevated);
+  --table-border: var(--bg-border);
+  
+  --sidebar-bg: var(--bg-surface);
+  --sidebar-border: var(--bg-border);
+  --sidebar-item-hover: var(--bg-surface-elevated);
+  --sidebar-item-active: rgba(59, 130, 246, 0.1);
+  
+  --topbar-bg: var(--bg-surface);
+  --topbar-border: var(--bg-border);
+}
+
+/* ============================================================================
+   LIGHT THEME - الوضع النهاري
+   ============================================================================ */
+
+.light {
+  /* Background Colors */
+  --bg-background: var(--light-color-background);
+  --bg-surface: var(--light-color-surface);
+  --bg-surface-elevated: var(--light-color-surface-elevated);
+  --bg-border: var(--light-color-border);
+  
+  /* Text Colors */
+  --text-primary: var(--light-color-text-primary);
+  --text-secondary: var(--light-color-text-secondary);
+  --text-tertiary: var(--light-color-text-tertiary);
+  --text-disabled: var(--light-color-text-disabled);
+  
+  /* Primary Colors */
+  --primary: var(--light-color-primary);
+  --primary-hover: var(--light-color-primary-hover);
+  --primary-active: var(--light-color-primary-active);
+  
+  /* Status Colors */
+  --success: var(--light-color-success);
+  --success-hover: var(--light-color-success-hover);
+  --warning: var(--light-color-warning);
+  --warning-hover: var(--light-color-warning-hover);
+  --danger: var(--light-color-danger);
+  --danger-hover: var(--light-color-danger-hover);
+  --info: var(--light-color-info);
+  --info-hover: var(--light-color-info-hover);
+  
+  /* Component-specific Light Theme */
+  --card-bg: var(--bg-surface);
+  --card-border: var(--bg-border);
+  --card-shadow: var(--shadow-md);
+  
+  --input-bg: var(--bg-surface);
+  --input-border: var(--bg-border);
+  --input-placeholder: var(--text-tertiary);
+  
+  --button-primary-bg: var(--primary);
+  --button-primary-text: #FFFFFF;
+  --button-primary-hover: var(--primary-hover);
+  
+  --button-secondary-bg: var(--bg-surface);
+  --button-secondary-text: var(--text-primary);
+  --button-secondary-border: var(--bg-border);
+  
+  --table-header-bg: var(--bg-surface-elevated);
+  --table-row-bg: var(--bg-surface);
+  --table-row-hover: #F3F4F6;
+  --table-border: var(--bg-border);
+  
+  --sidebar-bg: var(--bg-surface);
+  --sidebar-border: var(--bg-border);
+  --sidebar-item-hover: #F3F4F6;
+  --sidebar-item-active: rgba(37, 99, 235, 0.1);
+  
+  --topbar-bg: var(--bg-surface);
+  --topbar-border: var(--bg-border);
+}
+
+/* ============================================================================
+   THEME UTILITIES
+   ============================================================================ */
+
+/* Application of theme variables to common elements */
+body {
+  background-color: var(--bg-background);
+  color: var(--text-primary);
+  font-family: var(--font-family-base);
+  transition: background-color var(--transition-normal), color var(--transition-normal);
+}
+
+/* Card component theme application */
+.card {
+  background-color: var(--card-bg);
+  border-color: var(--card-border);
+  box-shadow: var(--card-shadow);
+}
+
+/* Input component theme application */
+.input {
+  background-color: var(--input-bg);
+  border-color: var(--input-border);
+  color: var(--text-primary);
+}
+
+.input::placeholder {
+  color: var(--input-placeholder);
+}
+
+/* Button component theme application */
+.button-primary {
+  background-color: var(--button-primary-bg);
+  color: var(--button-primary-text);
+}
+
+.button-primary:hover {
+  background-color: var(--button-primary-hover);
+}
+
+.button-secondary {
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  border-color: var(--button-secondary-border);
+}
+
+/* Table component theme application */
+.table {
+  background-color: var(--table-row-bg);
+  border-color: var(--table-border);
+}
+
+.table-header {
+  background-color: var(--table-header-bg);
+}
+
+.table-row:hover {
+  background-color: var(--table-row-hover);
+}
+
+/* Sidebar component theme application */
+.sidebar {
+  background-color: var(--sidebar-bg);
+  border-color: var(--sidebar-border);
+}
+
+.sidebar-item:hover {
+  background-color: var(--sidebar-item-hover);
+}
+
+.sidebar-item.active {
+  background-color: var(--sidebar-item-active);
+}
+
+/* Topbar component theme application */
+.topbar {
+  background-color: var(--topbar-bg);
+  border-color: var(--topbar-border);
+}

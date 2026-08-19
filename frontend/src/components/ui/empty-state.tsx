@@ -1,41 +1,55 @@
-import type { ReactNode } from 'react';
-import { Button } from './button';
+import type { HTMLAttributes, ReactNode } from 'react';
+import { forwardRef } from 'react';
+import { cn } from '../../lib/utils';
 
-export interface EmptyStateProps {
+export interface EmptyStateProps extends HTMLAttributes<HTMLDivElement> {
   icon?: ReactNode;
   title: string;
   description?: string;
-  action?: {
-    label: string;
-    onClick: () => void;
-    variant?: 'primary' | 'secondary' | 'outline';
-  };
+  action?: ReactNode;
 }
 
-export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
-  return (
-    <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-      {icon && (
-        <div className="text-gray-400 dark:text-gray-600 mb-4">
-          {icon}
-        </div>
-      )}
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
-        {title}
-      </h3>
-      {description && (
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-md">
-          {description}
-        </p>
-      )}
-      {action && (
-        <Button
-          onClick={action.onClick}
-          variant={action.variant || 'primary'}
-        >
-          {action.label}
-        </Button>
-      )}
-    </div>
-  );
-}
+const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
+  ({ className, icon, title, description, action, children, ...props }, ref) => {
+    return (
+      <div
+        ref={ref}
+        className={cn(
+          'flex flex-col items-center justify-center py-12 px-4 text-center',
+          className
+        )}
+        role="status"
+        aria-live="polite"
+        {...props}
+      >
+        {icon && (
+          <div className="w-16 h-16 rounded-full bg-surface/50 flex items-center justify-center mb-4 text-text-muted" aria-hidden="true">
+            {icon}
+          </div>
+        )}
+        <h3 className="text-h3 font-semibold text-text mb-2">
+          {title}
+        </h3>
+        {description && (
+          <p className="text-small text-text-muted max-w-sm mb-6">
+            {description}
+          </p>
+        )}
+        {action && (
+          <div className="mt-4">
+            {action}
+          </div>
+        )}
+        {children && (
+          <div className="mt-6">
+            {children}
+          </div>
+        )}
+      </div>
+    );
+  }
+);
+
+EmptyState.displayName = 'EmptyState';
+
+export { EmptyState };

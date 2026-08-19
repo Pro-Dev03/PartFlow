@@ -4,6 +4,7 @@ import { useTranslation } from '../../../hooks/useTranslation';
 import { reportsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
+import { PageHeader } from '../../../components/ui/page-header';
 import { Select } from '../../../components/ui/select';
 import { Badge } from '../../../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
@@ -26,7 +27,12 @@ import {
   Filter,
   FileText,
   PieChart,
-  LineChart
+  LineChart,
+  Sparkles,
+  TrendingDown,
+  Database,
+  Zap,
+  Target
 } from 'lucide-react';
 
 export function ReportsPage() {
@@ -58,41 +64,80 @@ export function ReportsPage() {
   const ReportIcon = selectedReportType?.icon || BarChart3;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-          {t('reports.title')}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">
-          تحليلات وتقارير شاملة عن أداء المحل
-        </p>
-      </div>
+    <div className="space-y-md">
+      {/* Page Header - Futuristic + Analytical */}
+      <PageHeader
+        eyebrow="Analytics Hub"
+        title={t('reports.title')}
+        description="تحليلات وتقارير شاملة عن أداء المحل مع رؤى ذكية"
+        actions={
+          <div className="flex items-center gap-sm">
+            <Button variant="secondary" className="gap-2">
+              <Download className="w-4 h-4" />
+              {t('reports.export')}
+            </Button>
+            <Button variant="secondary" className="gap-2">
+              <Printer className="w-4 h-4" />
+              {t('reports.print')}
+            </Button>
+            <Button variant="secondary" className="gap-2">
+              <Zap className="w-4 h-4" />
+              تحديث
+            </Button>
+          </div>
+        }
+      />
 
-      {/* Report Type Selection */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+      {/* AI Analytics Insight - Futuristic + Analytical */}
+      <Card variant="ai">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-cyan" />
+            AI Analytics Insight
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-md">
+            <div className="w-8 h-8 rounded-sm bg-cyan/10 flex items-center justify-center flex-shrink-0">
+              <Target className="w-4 h-4 text-cyan" />
+            </div>
+            <div>
+              <p className="text-small font-semibold text-text">أداء قوي في المبيعات</p>
+              <p className="text-tiny text-text-muted mt-1">
+                نمو المبيعات بنسبة 15% مقارنة بالشهر الماضي. الفئة الأكثر أداءً: كروت الشاشة.
+              </p>
+              <Button variant="ghost" size="sm" className="mt-2 text-cyan">
+                عرض التفاصيل ←
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Report Type Selection - Futuristic + Analytical */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-sm">
         {reportTypes.map((report) => {
           const Icon = report.icon;
           return (
             <Button
               key={report.id}
-              variant={selectedReport === report.id ? 'primary' : 'outline'}
+              variant={selectedReport === report.id ? 'primary' : 'secondary'}
               onClick={() => setSelectedReport(report.id)}
-              className="flex flex-col items-center gap-2 h-auto py-4"
+              className="flex flex-col items-center gap-sm h-auto py-md"
             >
               <Icon className="w-5 h-5" />
-              <span className="text-xs">{report.label}</span>
+              <span className="text-tiny">{report.label}</span>
             </Button>
           );
         })}
       </div>
 
-      {/* Filters */}
+      {/* Filters - Futuristic + Analytical */}
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4 items-end">
+        <CardContent className="p-lg">
+          <div className="flex flex-col md:flex-row gap-md items-end">
             <div className="flex-1">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">
+              <label className="text-small font-medium text-text mb-sm block">
                 {t('reports.dateRange')}
               </label>
               <Select
@@ -104,44 +149,34 @@ export function ReportsPage() {
             {dateRange === 'custom' && (
               <>
                 <div className="flex-1">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">
+                  <label className="text-small font-medium text-text mb-sm block">
                     {t('reports.startDate')}
                   </label>
                   <input
                     type="date"
-                    className="w-full h-10 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+                    className="w-full h-10 rounded-sm border border-border bg-surface px-3 py-2 text-small focus:outline-none focus:ring-2 focus:ring-cyan dark:bg-surface dark:border-border dark:text-text"
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">
+                  <label className="text-small font-medium text-text mb-sm block">
                     {t('reports.endDate')}
                   </label>
                   <input
                     type="date"
-                    className="w-full h-10 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+                    className="w-full h-10 rounded-sm border border-border bg-surface px-3 py-2 text-small focus:outline-none focus:ring-2 focus:ring-cyan dark:bg-surface dark:border-border dark:text-text"
                   />
                 </div>
               </>
             )}
-            <div className="flex gap-2">
-              <Button variant="outline" className="gap-2">
-                <Download className="w-4 h-4" />
-                {t('reports.export')}
-              </Button>
-              <Button variant="outline" className="gap-2">
-                <Printer className="w-4 h-4" />
-                {t('reports.print')}
-              </Button>
-            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Report Content */}
+      {/* Report Content - Futuristic + Analytical */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <ReportIcon className="w-5 h-5" />
+            <ReportIcon className="w-5 h-5 text-cyan" />
             {selectedReportType?.label}
           </CardTitle>
         </CardHeader>
@@ -163,16 +198,16 @@ export function ReportsPage() {
 
 function SalesReportContent() {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="الإيرادات" value="₪100,000" icon={DollarSign} />
-        <StatCard title="عدد الطلبات" value="150" icon={BarChart3} />
-        <StatCard title="القطع المباعة" value="320" icon={Package} />
-        <StatCard title="متوسط البيع" value="₪667" icon={TrendingUp} />
+    <div className="space-y-md">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
+        <StatCard title="الإيرادات" value="₪100,000" icon={DollarSign} variant="featured" trend="+15%" trendUp={true} />
+        <StatCard title="عدد الطلبات" value="150" icon={BarChart3} variant="default" trend="+8%" trendUp={true} />
+        <StatCard title="القطع المباعة" value="320" icon={Package} variant="default" trend="+12%" trendUp={true} />
+        <StatCard title="متوسط البيع" value="₪667" icon={TrendingUp} variant="info" trend="+5%" trendUp={true} />
       </div>
       
-      <div className="h-64 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500 dark:text-gray-400">رسم بياني للمبيعات</p>
+      <div className="h-64 bg-surface-2 rounded-sm flex items-center justify-center border border-border">
+        <p className="text-small text-text-muted">رسم بياني للمبيعات</p>
       </div>
     </div>
   );
@@ -180,16 +215,16 @@ function SalesReportContent() {
 
 function ProfitReportContent() {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="الإيرادات" value="₪100,000" icon={DollarSign} />
-        <StatCard title="التكلفة" value="₪72,000" icon={Package} />
-        <StatCard title="الربح الإجمالي" value="₪28,000" icon={TrendingUp} />
-        <StatCard title="الربح الصافي" value="₪20,000" icon={TrendingUp} />
+    <div className="space-y-md">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
+        <StatCard title="الإيرادات" value="₪100,000" icon={DollarSign} variant="featured" trend="+15%" trendUp={true} />
+        <StatCard title="التكلفة" value="₪72,000" icon={Package} variant="warning" trend="+5%" trendUp={false} />
+        <StatCard title="الربح الإجمالي" value="₪28,000" icon={TrendingUp} variant="success" trend="+20%" trendUp={true} />
+        <StatCard title="الربح الصافي" value="₪20,000" icon={TrendingUp} variant="success" trend="+18%" trendUp={true} />
       </div>
       
-      <div className="h-64 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500 dark:text-gray-400">رسم بياني للأرباح</p>
+      <div className="h-64 bg-surface-2 rounded-sm flex items-center justify-center border border-border">
+        <p className="text-small text-text-muted">رسم بياني للأرباح</p>
       </div>
     </div>
   );
@@ -197,16 +232,16 @@ function ProfitReportContent() {
 
 function InventoryReportContent() {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="قيمة المخزون" value="₪185,400" icon={Package} />
-        <StatCard title="منخفض المخزون" value="12" icon={AlertTriangle} />
-        <StatCard title="المخزون الراكد" value="8" icon={Clock} />
-        <StatCard title="سريع الحركة" value="25" icon={TrendingUp} />
+    <div className="space-y-md">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
+        <StatCard title="قيمة المخزون" value="₪185,400" icon={Package} variant="featured" trend="+10%" trendUp={true} />
+        <StatCard title="منخفض المخزون" value="12" icon={AlertTriangle} variant="danger" trend="+2" trendUp={false} />
+        <StatCard title="المخزون الراكد" value="8" icon={Clock} variant="warning" trend="-1" trendUp={true} />
+        <StatCard title="سريع الحركة" value="25" icon={TrendingUp} variant="success" trend="+5%" trendUp={true} />
       </div>
       
-      <div className="h-64 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500 dark:text-gray-400">رسم بياني للمخزون</p>
+      <div className="h-64 bg-surface-2 rounded-sm flex items-center justify-center border border-border">
+        <p className="text-small text-text-muted">رسم بياني للمخزون</p>
       </div>
     </div>
   );
@@ -214,16 +249,16 @@ function InventoryReportContent() {
 
 function DebtsReportContent() {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="إجمالي الديون" value="₪24,800" icon={DollarSign} />
-        <StatCard title="متأخرة" value="₪8,200" icon={AlertTriangle} />
-        <StatCard title="مستحقة قريباً" value="₪16,600" icon={Calendar} />
-        <StatCard title="مدفوعة" value="₪12,400" icon={CheckCircle} />
+    <div className="space-y-md">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
+        <StatCard title="إجمالي الديون" value="₪24,800" icon={DollarSign} variant="default" trend="+3%" trendUp={false} />
+        <StatCard title="متأخرة" value="₪8,200" icon={AlertTriangle} variant="danger" trend="+2" trendUp={false} />
+        <StatCard title="مستحقة قريباً" value="₪16,600" icon={Calendar} variant="warning" trend="+1" trendUp={false} />
+        <StatCard title="مدفوعة" value="₪12,400" icon={CheckCircle} variant="success" trend="+15%" trendUp={true} />
       </div>
       
-      <div className="h-64 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500 dark:text-gray-400">رسم بياني للديون</p>
+      <div className="h-64 bg-surface-2 rounded-sm flex items-center justify-center border border-border">
+        <p className="text-small text-text-muted">رسم بياني للديون</p>
       </div>
     </div>
   );
@@ -231,16 +266,16 @@ function DebtsReportContent() {
 
 function ProductsReportContent() {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="إجمالي المنتجات" value="150" icon={Package} />
-        <StatCard title="منتجات نشطة" value="120" icon={CheckCircle} />
-        <StatCard title="منتجات مستعملة" value="45" icon={Package} />
-        <StatCard title="منتجات جديدة" value="105" icon={Package} />
+    <div className="space-y-md">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
+        <StatCard title="إجمالي المنتجات" value="150" icon={Package} variant="featured" trend="+8%" trendUp={true} />
+        <StatCard title="منتجات نشطة" value="120" icon={CheckCircle} variant="success" trend="+10%" trendUp={true} />
+        <StatCard title="منتجات مستعملة" value="45" icon={Package} variant="info" trend="+5%" trendUp={true} />
+        <StatCard title="منتجات جديدة" value="105" icon={Package} variant="default" trend="+12%" trendUp={true} />
       </div>
       
-      <div className="h-64 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500 dark:text-gray-400">رسم بياني للمنتجات</p>
+      <div className="h-64 bg-surface-2 rounded-sm flex items-center justify-center border border-border">
+        <p className="text-small text-text-muted">رسم بياني للمنتجات</p>
       </div>
     </div>
   );
@@ -248,16 +283,16 @@ function ProductsReportContent() {
 
 function SuppliersReportContent() {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="إجمالي الموردين" value="25" icon={Truck} />
-        <StatCard title="إجمالي المشتريات" value="₪82,000" icon={DollarSign} />
-        <StatCard title="المدفوع" value="₪70,000" icon={CheckCircle} />
-        <StatCard title="المستحق" value="₪12,000" icon={AlertTriangle} />
+    <div className="space-y-md">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
+        <StatCard title="إجمالي الموردين" value="25" icon={Truck} variant="featured" trend="+2" trendUp={true} />
+        <StatCard title="إجمالي المشتريات" value="₪82,000" icon={DollarSign} variant="default" trend="+8%" trendUp={true} />
+        <StatCard title="المدفوع" value="₪70,000" icon={CheckCircle} variant="success" trend="+12%" trendUp={true} />
+        <StatCard title="المستحق" value="₪12,000" icon={AlertTriangle} variant="warning" trend="+3" trendUp={false} />
       </div>
       
-      <div className="h-64 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500 dark:text-gray-400">رسم بياني للموردين</p>
+      <div className="h-64 bg-surface-2 rounded-sm flex items-center justify-center border border-border">
+        <p className="text-small text-text-muted">رسم بياني للموردين</p>
       </div>
     </div>
   );
@@ -265,16 +300,16 @@ function SuppliersReportContent() {
 
 function ExpensesReportContent() {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="إجمالي المصروفات" value="₪12,400" icon={CreditCard} />
-        <StatCard title="الإيجار" value="₪4,000" icon={DollarSign} />
-        <StatCard title="الرواتب" value="₪5,000" icon={DollarSign} />
-        <StatCard title="المرافق" value="₪1,200" icon={DollarSign} />
+    <div className="space-y-md">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
+        <StatCard title="إجمالي المصروفات" value="₪12,400" icon={CreditCard} variant="default" trend="+5%" trendUp={false} />
+        <StatCard title="الإيجار" value="₪4,000" icon={DollarSign} variant="info" trend="0%" trendUp={null} />
+        <StatCard title="الرواتب" value="₪5,000" icon={DollarSign} variant="info" trend="+3%" trendUp={false} />
+        <StatCard title="المرافق" value="₪1,200" icon={DollarSign} variant="info" trend="+2%" trendUp={false} />
       </div>
 
-      <div className="h-64 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500 dark:text-gray-400">رسم بياني للمصروفات</p>
+      <div className="h-64 bg-surface-2 rounded-sm flex items-center justify-center border border-border">
+        <p className="text-small text-text-muted">رسم بياني للمصروفات</p>
       </div>
     </div>
   );
@@ -291,23 +326,23 @@ function ReturnsReportContent() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded"></div>
+      <div className="space-y-md">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
+          <div className="p-lg bg-surface-2 rounded-sm animate-pulse">
+            <div className="h-4 bg-surface-2 rounded-sm mb-2"></div>
+            <div className="h-8 bg-surface-2 rounded-sm"></div>
           </div>
-          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="p-lg bg-surface-2 rounded-sm animate-pulse">
+            <div className="h-4 bg-surface-2 rounded-sm mb-2"></div>
+            <div className="h-8 bg-surface-2 rounded-sm"></div>
           </div>
-          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="p-lg bg-surface-2 rounded-sm animate-pulse">
+            <div className="h-4 bg-surface-2 rounded-sm mb-2"></div>
+            <div className="h-8 bg-surface-2 rounded-sm"></div>
           </div>
-          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="p-lg bg-surface-2 rounded-sm animate-pulse">
+            <div className="h-4 bg-surface-2 rounded-sm mb-2"></div>
+            <div className="h-8 bg-surface-2 rounded-sm"></div>
           </div>
         </div>
       </div>
@@ -315,66 +350,78 @@ function ReturnsReportContent() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div className="space-y-md">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
         <StatCard 
           title={t('reports.totalReturns')} 
           value={data?.totalReturns || 0} 
           icon={Package} 
+          variant="default"
+          trend="+5%"
+          trendUp={false}
         />
         <StatCard 
           title={t('reports.refundAmount')} 
           value={`₪${(data?.refundAmount || 0).toLocaleString()}`} 
           icon={DollarSign} 
+          variant="warning"
+          trend="+3%"
+          trendUp={false}
         />
         <StatCard 
           title={t('reports.pendingReturns')} 
           value={data?.pendingReturns || 0} 
           icon={Clock} 
+          variant="warning"
+          trend="+2"
+          trendUp={false}
         />
         <StatCard 
           title={t('reports.returnRate')} 
           value={`${(data?.returnRate || 0).toFixed(1)}%`} 
           icon={TrendingUp} 
+          variant="danger"
+          trend="+1%"
+          trendUp={false}
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">حالة المرتجعات</h3>
-          <div className="space-y-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
+        <div className="p-lg bg-surface-2 rounded-sm border border-border">
+          <h3 className="text-small font-semibold text-text mb-md">حالة المرتجعات</h3>
+          <div className="space-y-sm">
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600 dark:text-gray-400">{t('reports.approvedReturns')}</span>
-              <Badge variant="success">{data?.approvedReturns || 0}</Badge>
+              <span className="text-small text-text-muted">{t('reports.approvedReturns')}</span>
+              <Badge variant="success" size="sm">{data?.approvedReturns || 0}</Badge>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600 dark:text-gray-400">{t('reports.rejectedReturns')}</span>
-              <Badge variant="danger">{data?.rejectedReturns || 0}</Badge>
+              <span className="text-small text-text-muted">{t('reports.rejectedReturns')}</span>
+              <Badge variant="danger" size="sm">{data?.rejectedReturns || 0}</Badge>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600 dark:text-gray-400">{t('reports.pendingReturns')}</span>
-              <Badge variant="warning">{data?.pendingReturns || 0}</Badge>
+              <span className="text-small text-text-muted">{t('reports.pendingReturns')}</span>
+              <Badge variant="warning" size="sm">{data?.pendingReturns || 0}</Badge>
             </div>
           </div>
         </div>
 
-        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">{t('reports.commonReasons')}</h3>
-          <div className="space-y-2">
+        <div className="p-lg bg-surface-2 rounded-sm border border-border">
+          <h3 className="text-small font-semibold text-text mb-md">{t('reports.commonReasons')}</h3>
+          <div className="space-y-sm">
             {data?.commonReasons?.map((reason: any, index: number) => (
               <div key={index} className="flex justify-between items-center">
-                <span className="text-sm text-gray-600 dark:text-gray-400">{reason.reason}</span>
-                <span className="text-sm font-medium">{reason.percentage}%</span>
+                <span className="text-small text-text-muted">{reason.reason}</span>
+                <span className="text-small font-medium text-text">{reason.percentage}%</span>
               </div>
             )) || (
-              <p className="text-sm text-gray-500 dark:text-gray-400">{t('common.noData')}</p>
+              <p className="text-small text-text-muted">{t('common.noData')}</p>
             )}
           </div>
         </div>
       </div>
 
-      <div className="h-64 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500 dark:text-gray-400">رسم بياني للمرتجعات</p>
+      <div className="h-64 bg-surface-2 rounded-sm flex items-center justify-center border border-border">
+        <p className="text-small text-text-muted">رسم بياني للمرتجعات</p>
       </div>
     </div>
   );
@@ -391,23 +438,23 @@ function WarrantyReportContent() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded"></div>
+      <div className="space-y-md">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
+          <div className="p-lg bg-surface-2 rounded-sm animate-pulse">
+            <div className="h-4 bg-surface-2 rounded-sm mb-2"></div>
+            <div className="h-8 bg-surface-2 rounded-sm"></div>
           </div>
-          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="p-lg bg-surface-2 rounded-sm animate-pulse">
+            <div className="h-4 bg-surface-2 rounded-sm mb-2"></div>
+            <div className="h-8 bg-surface-2 rounded-sm"></div>
           </div>
-          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="p-lg bg-surface-2 rounded-sm animate-pulse">
+            <div className="h-4 bg-surface-2 rounded-sm mb-2"></div>
+            <div className="h-8 bg-surface-2 rounded-sm"></div>
           </div>
-          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse">
-            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="p-lg bg-surface-2 rounded-sm animate-pulse">
+            <div className="h-4 bg-surface-2 rounded-sm mb-2"></div>
+            <div className="h-8 bg-surface-2 rounded-sm"></div>
           </div>
         </div>
       </div>
@@ -415,74 +462,86 @@ function WarrantyReportContent() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div className="space-y-md">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
         <StatCard 
           title={t('reports.totalWarranties')} 
           value={data?.totalWarranties || 0} 
           icon={Clock} 
+          variant="featured"
+          trend="+8%"
+          trendUp={true}
         />
         <StatCard 
           title={t('reports.activeWarranties')} 
           value={data?.activeWarranties || 0} 
           icon={CheckCircle} 
+          variant="success"
+          trend="+10%"
+          trendUp={true}
         />
         <StatCard 
           title={t('reports.expiredWarranties')} 
           value={data?.expiredWarranties || 0} 
           icon={AlertTriangle} 
+          variant="danger"
+          trend="+2"
+          trendUp={false}
         />
         <StatCard 
           title={t('reports.warrantyClaims')} 
           value={data?.warrantyClaims || 0} 
           icon={FileText} 
+          variant="warning"
+          trend="+5%"
+          trendUp={false}
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">حالة الضمانات</h3>
-          <div className="space-y-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-md">
+        <div className="p-lg bg-surface-2 rounded-sm border border-border">
+          <h3 className="text-small font-semibold text-text mb-md">حالة الضمانات</h3>
+          <div className="space-y-sm">
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600 dark:text-gray-400">{t('reports.activeWarranties')}</span>
-              <Badge variant="success">{data?.activeWarranties || 0}</Badge>
+              <span className="text-small text-text-muted">{t('reports.activeWarranties')}</span>
+              <Badge variant="success" size="sm">{data?.activeWarranties || 0}</Badge>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600 dark:text-gray-400">{t('reports.expiredWarranties')}</span>
-              <Badge variant="danger">{data?.expiredWarranties || 0}</Badge>
+              <span className="text-small text-text-muted">{t('reports.expiredWarranties')}</span>
+              <Badge variant="danger" size="sm">{data?.expiredWarranties || 0}</Badge>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600 dark:text-gray-400">{t('reports.expiringSoon')}</span>
-              <Badge variant="warning">{data?.expiringSoon || 0}</Badge>
+              <span className="text-small text-text-muted">{t('reports.expiringSoon')}</span>
+              <Badge variant="warning" size="sm">{data?.expiringSoon || 0}</Badge>
             </div>
           </div>
         </div>
 
-        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">إحصائيات المطالبات</h3>
-          <div className="space-y-2">
+        <div className="p-lg bg-surface-2 rounded-sm border border-border">
+          <h3 className="text-small font-semibold text-text mb-md">إحصائيات المطالبات</h3>
+          <div className="space-y-sm">
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600 dark:text-gray-400">{t('reports.claimRate')}</span>
-              <span className="text-sm font-medium">{(data?.claimRate || 0).toFixed(1)}%</span>
+              <span className="text-small text-text-muted">{t('reports.claimRate')}</span>
+              <span className="text-small font-medium text-text">{(data?.claimRate || 0).toFixed(1)}%</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600 dark:text-gray-400">{t('reports.averageWarrantyDays')}</span>
-              <span className="text-sm font-medium">{data?.averageWarrantyDays || 0} يوم</span>
+              <span className="text-small text-text-muted">{t('reports.averageWarrantyDays')}</span>
+              <span className="text-small font-medium text-text">{data?.averageWarrantyDays || 0} يوم</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600 dark:text-gray-400">مطالبات معلقة</span>
-              <span className="text-sm font-medium">{data?.pendingClaims || 0}</span>
+              <span className="text-small text-text-muted">مطالبات معلقة</span>
+              <span className="text-small font-medium text-text">{data?.pendingClaims || 0}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600 dark:text-gray-400">مطالبات مكتملة</span>
-              <span className="text-sm font-medium">{data?.completedClaims || 0}</span>
+              <span className="text-small text-text-muted">مطالبات مكتملة</span>
+              <span className="text-small font-medium text-text">{data?.completedClaims || 0}</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="h-64 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-        <p className="text-gray-500 dark:text-gray-400">رسم بياني للضمانات</p>
+      <div className="h-64 bg-surface-2 rounded-sm flex items-center justify-center border border-border">
+        <p className="text-small text-text-muted">رسم بياني للضمانات</p>
       </div>
     </div>
   );
@@ -492,20 +551,65 @@ interface StatCardProps {
   title: string;
   value: string | number;
   icon: any;
+  subtitle?: string;
+  variant?: 'default' | 'featured' | 'warning' | 'ai' | 'danger' | 'success' | 'info';
+  trend?: string | null;
+  trendUp?: boolean | null;
 }
 
-function StatCard({ title, value, icon: Icon }: StatCardProps) {
+function StatCard({ title, value, icon: Icon, subtitle, variant = 'default', trend, trendUp }: StatCardProps) {
   return (
-    <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-gray-600 dark:text-gray-400">{title}</p>
-          <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">
-            {value}
-          </p>
+    <Card 
+      variant={variant} 
+      className="hover:border-border/22 hover:-translate-y-1 cursor-pointer"
+      hoverable
+    >
+      <CardContent className="p-lg">
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <p className="text-small text-text-muted">{title}</p>
+            <p className="text-metric font-bold text-text mt-1">
+              {value}
+            </p>
+            {subtitle && (
+              <p className="text-tiny text-text-muted mt-1">
+                {subtitle}
+              </p>
+            )}
+            {trend && (
+              <div className="flex items-center gap-1 mt-2">
+                {trendUp ? (
+                  <TrendingUp className="w-3 h-3 text-green" />
+                ) : (
+                  <TrendingDown className="w-3 h-3 text-red" />
+                )}
+                <span className={`text-tiny ${trendUp ? 'text-green' : 'text-red'}`}>
+                  {trend}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className={`w-10 h-10 rounded-sm flex items-center justify-center ${
+            variant === 'featured' ? 'bg-cyan/10' :
+            variant === 'warning' ? 'bg-yellow/10' :
+            variant === 'danger' ? 'bg-red/10' :
+            variant === 'success' ? 'bg-green/10' :
+            variant === 'info' ? 'bg-cyan/10' :
+            variant === 'ai' ? 'bg-cyan/10' :
+            'bg-cyan/10'
+          }`}>
+            <Icon className={`w-5 h-5 ${
+              variant === 'featured' ? 'text-cyan' :
+              variant === 'warning' ? 'text-yellow' :
+              variant === 'danger' ? 'text-red' :
+              variant === 'success' ? 'text-green' :
+              variant === 'info' ? 'text-cyan' :
+              variant === 'ai' ? 'text-cyan' :
+              'text-cyan'
+            }`} />
+          </div>
         </div>
-        <Icon className="w-5 h-5 text-gray-400" />
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

@@ -1,28 +1,42 @@
-import { cn } from '../../lib/utils/helpers';
+import type { HTMLAttributes } from 'react';
+import { forwardRef } from 'react';
+import { cn } from '../../lib/utils';
 
-interface LoadingSpinnerProps {
+export interface LoadingSpinnerProps extends HTMLAttributes<HTMLDivElement> {
   size?: 'sm' | 'md' | 'lg';
-  className?: string;
+  color?: 'cyan' | 'white' | 'text';
 }
 
-export function LoadingSpinner({ size = 'md', className }: LoadingSpinnerProps) {
-  const sizeClasses = {
-    sm: 'w-4 h-4',
-    md: 'w-8 h-8',
-    lg: 'w-12 h-12',
+const LoadingSpinner = forwardRef<HTMLDivElement, LoadingSpinnerProps>(
+  ({ className, size = 'md', color = 'cyan', ...props }, ref) => {
+  const sizes = {
+    sm: 'w-4 h-4 border-2',
+    md: 'w-8 h-8 border-2',
+    lg: 'w-12 h-12 border-3',
   };
-
+  
+  const colors = {
+    cyan: 'border-cyan border-t-transparent',
+    white: 'border-white border-t-transparent',
+    text: 'border-text border-t-transparent',
+  };
+  
   return (
     <div
+      ref={ref}
       className={cn(
-        'animate-spin rounded-full border-2 border-gray-300 border-t-primary-600',
-        sizeClasses[size],
+        'animate-spin rounded-full',
+        sizes[size],
+        colors[color],
         className
       )}
       role="status"
       aria-label="Loading"
-    >
-      <span className="sr-only">Loading...</span>
-    </div>
+      {...props}
+    />
   );
-}
+});
+
+LoadingSpinner.displayName = 'LoadingSpinner';
+
+export { LoadingSpinner };

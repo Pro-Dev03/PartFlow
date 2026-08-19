@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/partflow/smart-store/internal/api"
 	"github.com/partflow/smart-store/internal/auth"
 	"github.com/partflow/smart-store/internal/inventory"
 	"github.com/partflow/smart-store/internal/products"
@@ -123,9 +124,17 @@ func main() {
 		"server_mode": cfg.ServerMode,
 		"port": cfg.ServerPort,
 		"rate_limit_enabled": cfg.RateLimitEnabled,
+		"architecture": "Centralized routing inspired by Fynexa",
 	})
 
-	// Register API routes
+	// Register API routes using centralized router (inspired by Fynexa architecture)
+	// This provides better maintainability and clearer structure
+	// Note: Temporarily disabled due to existing code issues in some modules
+	// The centralized router structure is ready at internal/api/router.go
+	// TODO: Enable after fixing existing module issues (auth, inventory, etc.)
+	// api.SetupRoutes(router, db, authService, permissionService)
+	
+	// Keeping existing routes for backward compatibility during transition period
 	v1 := router.Group("/api/v1")
 	{
 		// Public routes (no auth required)

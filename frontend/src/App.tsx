@@ -20,6 +20,7 @@ const ReturnsPage = lazy(() => import('./features/returns/pages/ReturnsPage').th
 const WarrantiesPage = lazy(() => import('./features/warranties/pages/WarrantiesPage').then(m => ({ default: m.WarrantiesPage })));
 const ReportsPage = lazy(() => import('./features/reports/pages/ReportsPage').then(m => ({ default: m.ReportsPage })));
 const SettingsPage = lazy(() => import('./features/settings/pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const DesignSystemShowcase = lazy(() => import('./features/design-system/DesignSystemShowcase').then(m => ({ default: m.DesignSystemShowcase })));
 
 
 
@@ -105,6 +106,7 @@ function App() {
                       <Route path="/warranties" element={<Suspense fallback={<PageLoader />}><WarrantiesPage /></Suspense>} />
                       <Route path="/reports" element={<Suspense fallback={<PageLoader />}><ReportsPage /></Suspense>} />
                       <Route path="/settings" element={<Suspense fallback={<PageLoader />}><SettingsPage /></Suspense>} />
+                      <Route path="/design-system" element={<Suspense fallback={<PageLoader />}><DesignSystemShowcase /></Suspense>} />
                       <Route path="*" element={<Navigate to="/app" replace />} />
                     </Routes>
                   </AppLayout>
