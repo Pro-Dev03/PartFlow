@@ -1,48 +1,45 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { purchasesApi, suppliersApi, productsApi } from '../../../services/api/endpoints';
+import { productsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { PageHeader } from '../../../components/ui/page-header';
-import { StatCard } from '../../../components/ui/stat-card';
 import { Select } from '../../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { getButtonSize } from '../../../config/button-sizes';
-import { ItemInputMethod, type ItemInputMethodType } from '../../../components/ui/item-input-method';
-import { CameraScanner } from '../../../components/ui/camera-scanner';
 import {
-  ShoppingCart,
   Search,
   Plus,
-  Filter,
   Eye,
-  Truck,
-  Package,
-  Calendar,
   Download,
   Printer,
   Scan,
-  X,
   Check,
-  AlertCircle,
-  Camera
 } from 'lucide-react';
+
+// Custom hooks
+import { usePurchases } from '../hooks/usePurchases';
+
+// Components
+import { PurchaseStats } from '../components/PurchaseStats';
+import { PurchaseFilters } from '../components/PurchaseFilters';
+
+// Types
+import { Purchase, PurchaseItem } from '../types/purchases.types';
 
 export function PurchasesPage() {
   const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isManualAdd, setIsManualAdd] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [selectedSupplier, setSelectedSupplier] = useState('');
-  const [purchaseItems, setPurchaseItems] = useState<any[]>([]);
+  const [purchaseItems, setPurchaseItems] = useState<PurchaseItem[]>([]);
   const [productSearchQuery, setProductSearchQuery] = useState('');
 
   const { data: productsData } = useQuery({
@@ -53,21 +50,21 @@ export function PurchasesPage() {
 
   const searchedProducts = (productsData?.data as any[]) || [];
 
-  const { data: purchasesData, isLoading } = useQuery({
-    queryKey: ['purchases'],
-    queryFn: () => purchasesApi.list({ page: 1, per_page: 100 }),
-  });
-
-  const { data: suppliersData, isLoading: suppliersLoading } = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: () => suppliersApi.list({ page: 1, per_page: 100 }),
-  });
-
-  const suppliers = (suppliersData?.data as any[]) || [];
-  const purchases = (purchasesData?.data as any[]) || [];
-
-  // Calculate totals
-  const totalCost = purchaseItems.reduce((sum, item) => sum + (item.quantity * item.unitCost), 0);
+  // Custom hook
+  const {
+    purchases,
+    filteredPurchases,
+    suppliers,
+    stats,
+    isLoading,
+    suppliersLoading,
+    searchQuery,
+    setSearchQuery,
+    statusFilter,
+    setStatusFilter,
+    createPurchaseMutation,
+    receivePurchaseMutation,
+  } = usePurchases();
 
   // Handle barcode scan
   const handleBarcodeScan = async (e: React.FormEvent) => {
@@ -78,7 +75,6 @@ export function PurchasesPage() {
       const response = await productsApi.get(`/barcode/${barcodeInput.trim()}`);
       const product = response.data;
 
-      // Check if product already in items
       const existingItem = purchaseItems.find((item) => item.product_id === product.id);
       if (existingItem) {
         setPurchaseItems(purchaseItems.map((item) =>
@@ -147,22 +143,6 @@ export function PurchasesPage() {
     );
   };
 
-  // Create purchase mutation
-  const createPurchaseMutation = useMutation({
-    mutationFn: (data: any) => purchasesApi.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['purchases'] });
-      setIsCreateModalOpen(false);
-      setPurchaseItems([]);
-      setSelectedSupplier('');
-      alert('تم إنشاء الشراء بنجاح');
-    },
-    onError: (error) => {
-      console.error('Error creating purchase:', error);
-      alert('فشل إنشاء الشراء');
-    },
-  });
-
   // Handle create purchase
   const handleCreatePurchase = () => {
     if (!selectedSupplier) {
@@ -185,20 +165,10 @@ export function PurchasesPage() {
         condition: item.condition,
       })),
     });
+    setIsCreateModalOpen(false);
+    setPurchaseItems([]);
+    setSelectedSupplier('');
   };
-
-  // Receive purchase mutation
-  const receivePurchaseMutation = useMutation({
-    mutationFn: (purchaseId: string) => purchasesApi.receive(purchaseId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['purchases'] });
-      alert('تم استلام البضاعة بنجاح');
-    },
-    onError: (error) => {
-      console.error('Error receiving purchase:', error);
-      alert('فشل استلام البضاعة');
-    },
-  });
 
   // Handle receive purchase
   const handleReceivePurchase = (purchaseId: string) => {
@@ -206,14 +176,6 @@ export function PurchasesPage() {
       receivePurchaseMutation.mutate(purchaseId);
     }
   };
-
-  const filteredPurchases = purchases.filter((purchase: any) => {
-    const matchesSearch = 
-      purchase.supplier?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      purchase.id.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = !statusFilter || purchase.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
@@ -226,21 +188,21 @@ export function PurchasesPage() {
   };
 
   const handleExport = () => {
-    const dataToExport = purchases.map((purchase: any) => ({
-      'التاريخ': purchase.date,
-      'المورد': purchase.supplier,
+    const dataToExport = purchases.map((purchase: Purchase) => ({
+      'التاريخ': purchase.purchase_date,
+      'المورد': purchase.supplier?.name,
       'الحالة': getStatusBadge(purchase.status).label,
-      'التكلفة': purchase.totalCost
+      'التكلفة': purchase.total_cost
     }));
     exportToCSV(dataToExport, `purchases-${new Date().toISOString().split('T')[0]}`);
   };
 
   const handlePrint = () => {
-    const dataToPrint = purchases.map((purchase: any) => ({
-      'التاريخ': purchase.date,
-      'المورد': purchase.supplier,
+    const dataToPrint = purchases.map((purchase: Purchase) => ({
+      'التاريخ': purchase.purchase_date,
+      'المورد': purchase.supplier?.name,
       'الحالة': getStatusBadge(purchase.status).label,
-      'التكلفة': purchase.totalCost
+      'التكلفة': purchase.total_cost
     }));
     printTable(dataToPrint, ['التاريخ', 'المورد', 'الحالة', 'التكلفة'], 'تقرير المشتريات');
   };
@@ -270,48 +232,16 @@ export function PurchasesPage() {
         }
       />
 
-      {/* Stats Cards - Futuristic + Clean */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
-        <StatCard title="إجمالي المشتريات" value={purchases.length} icon={ShoppingCart} variant="featured" />
-        <StatCard title="قيد الانتظار" value={purchases.filter((p: any) => p.status === 'pending').length} icon={Calendar} variant="warning" />
-        <StatCard title="تم الاستلام" value={purchases.filter((p: any) => p.status === 'received').length} icon={Package} variant="success" />
-        <StatCard title="إجمالي التكلفة" value={`₪${(purchases as any[]).reduce((sum: number, p: any) => sum + p.totalCost, 0).toLocaleString()}`} icon={Truck} variant="default" />
-      </div>
+      {/* Stats Cards */}
+      <PurchaseStats stats={stats} />
 
       {/* Search and Filters */}
-      <Card>
-        <CardContent className="p-lg">
-          <div className="flex flex-col md:flex-row gap-md">
-            <div className="flex-1 relative">
-              <Search className="absolute inset-y-0 end-3 w-4 h-4 text-cyan" />
-              <Input
-                placeholder={t('common.search')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pe-10"
-              />
-            </div>
-            <div className="flex gap-sm">
-              <Select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                options={[
-                  { value: '', label: 'كل الحالات' },
-                  { value: 'pending', label: 'قيد الانتظار' },
-                  { value: 'ordered', label: 'تم الطلب' },
-                  { value: 'received', label: 'تم الاستلام' },
-                  { value: 'cancelled', label: 'ملغي' },
-                ]}
-                emptyMessage="لا توجد حالات"
-              />
-              <Button variant="secondary" className="gap-2">
-                <Filter className="w-4 h-4" />
-                {t('common.filter')}
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <PurchaseFilters
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+      />
 
       {/* Purchases Table */}
       <Card>

@@ -1,77 +1,41 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { reportsApi, inventoryApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
-import { StatCard } from '../../../components/ui/stat-card';
-import { Select } from '../../../components/ui/select';
 import { Badge } from '../../../components/ui/badge';
-import { SimpleBarChart, SimpleLineChart, SimplePieChart } from '../../../components/ui/charts';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { getButtonSize } from '../../../config/button-sizes';
 import {
   BarChart3,
-  TrendingUp,
-  DollarSign,
-  Package,
-  Users,
-  Truck,
-  CreditCard,
   Download,
   Printer,
-  Calendar,
-  AlertTriangle,
-  Clock,
-  CheckCircle,
-  ArrowUpRight,
-  ArrowDownRight,
-  Filter,
-  FileText,
-  PieChart,
-  LineChart,
   Sparkles,
-  TrendingDown,
-  Database,
-  Zap,
   Target,
-  RefreshCw
+  Zap,
+  FileText,
+  Calendar
 } from 'lucide-react';
+
+// Custom hooks
+import { useReports } from '../hooks/useReports';
+
+// Components
+import { ReportTypeSelector } from '../components/ReportTypeSelector';
+import { DateRangeSelector } from '../components/DateRangeSelector';
+import { ReportStats } from '../components/ReportStats';
+import { ReportCharts } from '../components/ReportCharts';
+
+// Types
+import { ReportType, DateRange } from '../types/reports.types';
 
 export function ReportsPage() {
   const { t } = useTranslation();
   const [selectedReport, setSelectedReport] = useState('sales');
   const [dateRange, setDateRange] = useState('thisMonth');
 
-  // Fetch report data based on selected report type
-  const { data: reportData, isLoading: reportLoading, refetch } = useQuery({
-    queryKey: ['reports', selectedReport, dateRange],
-    queryFn: () => {
-      switch (selectedReport) {
-        case 'sales':
-          return reportsApi.sales();
-        case 'profit':
-          return reportsApi.profit();
-        case 'inventory':
-          return reportsApi.inventory();
-        case 'debts':
-          return reportsApi.debts();
-        case 'products':
-          return reportsApi.products();
-        case 'suppliers':
-          return reportsApi.suppliers();
-        case 'expenses':
-          return reportsApi.expenses();
-        case 'returns':
-          return reportsApi.returns();
-        case 'used-items':
-          return inventoryApi.list({ condition: 'USED' });
-        default:
-          return reportsApi.sales();
-      }
-    },
-  });
+  // Custom hook
+  const { reportData, reportLoading, refetch } = useReports(selectedReport, dateRange);
 
   const handleExport = () => {
     if (!reportData?.data) return;
@@ -99,19 +63,19 @@ export function ReportsPage() {
     printTable(dataToPrint, ['التاريخ', 'القيمة', 'الوصف', 'الحالة'], selectedReportType?.label || 'تقرير');
   };
 
-  const reportTypes = [
+  const reportTypes: ReportType[] = [
     { id: 'sales', label: t('reports.salesReport'), icon: BarChart3 },
-    { id: 'profit', label: t('reports.profitReport'), icon: TrendingUp },
-    { id: 'inventory', label: t('reports.inventoryReport'), icon: Package },
-    { id: 'used-items', label: 'تقرير القطع المستعملة', icon: RefreshCw },
-    { id: 'debts', label: t('reports.debtsReport'), icon: DollarSign },
-    { id: 'products', label: t('reports.productsReport'), icon: Package },
-    { id: 'suppliers', label: t('reports.suppliersReport'), icon: Truck },
-    { id: 'expenses', label: t('reports.expensesReport'), icon: CreditCard },
-    { id: 'returns', label: t('reports.returnReport'), icon: Package },
+    { id: 'profit', label: t('reports.profitReport'), icon: Target },
+    { id: 'inventory', label: t('reports.inventoryReport'), icon: BarChart3 },
+    { id: 'used-items', label: 'تقرير القطع المستعملة', icon: Zap },
+    { id: 'debts', label: t('reports.debtsReport'), icon: Target },
+    { id: 'products', label: t('reports.productsReport'), icon: BarChart3 },
+    { id: 'suppliers', label: t('reports.suppliersReport'), icon: BarChart3 },
+    { id: 'expenses', label: t('reports.expensesReport'), icon: BarChart3 },
+    { id: 'returns', label: t('reports.returnReport'), icon: BarChart3 },
   ];
 
-  const dateRanges = [
+  const dateRanges: DateRange[] = [
     { value: 'today', label: t('reports.today') },
     { value: 'thisWeek', label: t('reports.thisWeek') },
     { value: 'thisMonth', label: t('reports.thisMonth') },
@@ -183,169 +147,24 @@ export function ReportsPage() {
       </Card>
 
       {/* Report Type Selection */}
-      <Card>
-        <CardHeader>
-          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FileText className="w-5 h-5 text-cyan-400" />
-            نوع التقرير
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '14px' }}
-               className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-            {reportTypes.map((report) => {
-              const Icon = report.icon;
-              return (
-                <button
-                  key={report.id}
-                  onClick={() => setSelectedReport(report.id)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '14px',
-                    borderRadius: '10px',
-                    border: selectedReport === report.id 
-                      ? '1px solid rgba(34, 211, 238, 0.35)' 
-                      : '1px solid rgba(148, 163, 184, 0.13)',
-                    background: selectedReport === report.id
-                      ? 'linear-gradient(135deg, rgba(34, 211, 238, 0.17), rgba(59, 130, 246, 0.12))'
-                      : 'rgba(17, 24, 39, 0.75)',
-                    cursor: 'pointer',
-                    transition: '180ms ease',
-                    color: selectedReport === report.id ? '#eaffff' : '#94a3b8'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (selectedReport !== report.id) {
-                      e.currentTarget.style.borderColor = 'rgba(34, 211, 238, 0.3)';
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (selectedReport !== report.id) {
-                      e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.13)';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                    }
-                  }}
-                >
-                  <div style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: selectedReport === report.id
-                      ? 'rgba(34, 211, 238, 0.2)'
-                      : 'rgba(34, 211, 238, 0.1)'
-                  }}>
-                    <Icon className="w-4.5 h-4.5 text-cyan-400" />
-                  </div>
-                  <span style={{ fontSize: '13px', fontWeight: '500' }}>{report.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+      <ReportTypeSelector 
+        reportTypes={reportTypes}
+        selectedReport={selectedReport}
+        onSelectReport={setSelectedReport}
+      />
 
       {/* Date Range Selection */}
-      <Card>
-        <CardHeader>
-          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Calendar className="w-5 h-5 text-cyan-400" />
-            نطاق التاريخ
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            {dateRanges.map((range) => (
-              <Button
-                key={range.value}
-                variant={dateRange === range.value ? 'primary' : 'secondary'}
-                onClick={() => setDateRange(range.value)}
-              >
-                {range.label}
-              </Button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <DateRangeSelector 
+        dateRanges={dateRanges}
+        selectedRange={dateRange}
+        onSelectRange={setDateRange}
+      />
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px' }}
-           className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard 
-          title="إجمالي المبيعات" 
-          value="₪45,230" 
-          icon={DollarSign}
-          subtitle="للفترة المحددة"
-          variant="featured"
-          trend="+15.3%"
-          trendUp={true}
-        />
-        <StatCard 
-          title="إجمالي الأرباح" 
-          value="₪12,450" 
-          icon={TrendingUp}
-          subtitle="هامش الربح"
-          variant="success"
-          trend="+8.7%"
-          trendUp={true}
-        />
-        <StatCard 
-          title="عدد المعاملات" 
-          value="234" 
-          icon={Database}
-          subtitle="عمليات بيع"
-          variant="default"
-          trend="+12.1%"
-          trendUp={true}
-        />
-        <StatCard 
-          title="متوسط الطلب" 
-          value="₪193" 
-          icon={Target}
-          subtitle="لكل معاملة"
-          variant="info"
-          trend="+5.4%"
-          trendUp={true}
-        />
-      </div>
+      <ReportStats />
 
       {/* Charts Section */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '14px' }}
-           className="grid-cols-1 lg:grid-cols-2">
-        <SimpleBarChart
-          title="توزيع المبيعات حسب الفئة"
-          data={[
-            { label: 'إلكترونيات', value: 15230 },
-            { label: 'اكسسوارات', value: 8900 },
-            { label: 'شاشات', value: 12500 },
-            { label: 'بطاريات', value: 8600 },
-          ]}
-          color="#22d3ee"
-        />
-        <SimpleLineChart
-          title="اتجاه المبيعات الشهرية"
-          data={[
-            { label: 'يناير', value: 32000 },
-            { label: 'فبراير', value: 38000 },
-            { label: 'مارس', value: 35000 },
-            { label: 'أبريل', value: 42000 },
-            { label: 'مايو', value: 45230 },
-          ]}
-          color="#34d399"
-        />
-        <SimplePieChart
-          title="توزيع مصادر الدخل"
-          data={[
-            { label: 'نقداً', value: 23450, color: '#22d3ee' },
-            { label: 'بطاقات', value: 12800, color: '#34d399' },
-            { label: 'ديون', value: 8980, color: '#fbbf24' },
-          ]}
-        />
-      </div>
+      <ReportCharts />
 
       {/* Report Content */}
       <Card>

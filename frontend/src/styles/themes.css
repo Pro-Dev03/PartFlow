@@ -649,7 +649,6 @@ body {
 /* Improved card spacing in light theme */
 .light .card {
   border-radius: 12px;
-  backdrop-filter: blur(10px);
 }
 
 /* Improved button states in light theme */
@@ -698,14 +697,12 @@ body {
 
 /* Improved topbar in light theme */
 .light .topbar {
-  backdrop-filter: blur(10px);
   background-color: rgba(255, 255, 255, 0.95);
 }
 
 /* Improved modal backdrop in light theme */
 .light .modal-backdrop {
   background-color: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
 }
 
 /* Improved dropdown menus in light theme */
@@ -1016,8 +1013,6 @@ body {
 
 /* Modern Sidebar Glass Effect */
 .sidebar-glass {
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
   background: var(--bg-sidebar-gradient);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: var(--shadow-glow);
@@ -1052,7 +1047,6 @@ body {
 .topbar {
   background-color: var(--topbar-bg);
   border-color: var(--topbar-border);
-  backdrop-filter: blur(10px);
   transition: all var(--transition-normal) var(--ease-out);
 }
 

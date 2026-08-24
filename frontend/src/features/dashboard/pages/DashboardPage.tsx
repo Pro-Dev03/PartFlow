@@ -60,22 +60,22 @@ export function DashboardPage() {
   const { data: dashboardData, isLoading, error } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => dashboardApi.getStats(),
-    refetchInterval: 30000,
-    staleTime: 10000,
+    refetchInterval: 120000, // Reduced from 30s to 2min
+    staleTime: 60000, // Increased from 10s to 1min
   });
 
   const { data: notificationsData } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => notificationsApi.list({ page: 1, per_page: 20 }),
-    refetchInterval: 60000,
-    staleTime: 30000,
+    refetchInterval: 180000, // Reduced from 60s to 3min
+    staleTime: 120000, // Increased from 30s to 2min
   });
 
   const { data: unreadCountData } = useQuery({
     queryKey: ['notifications-unread'],
     queryFn: () => notificationsApi.getUnreadCount(),
-    refetchInterval: 30000,
-    staleTime: 15000,
+    refetchInterval: 120000, // Reduced from 30s to 2min
+    staleTime: 60000, // Increased from 15s to 1min
   });
 
   if (isLoading) {

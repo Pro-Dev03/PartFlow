@@ -4,6 +4,7 @@ import { Badge } from '../../../components/ui/badge';
 import { EmptyState } from '../../../components/ui/empty-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { TableCard, TableCardItem, TableCardActions, ResponsiveTable } from '../../../components/ui/table-card';
+import { VirtualList } from '../../../components/ui/virtual-list';
 import { getButtonSize } from '../../../config/button-sizes';
 import { Package, PackageOpen, Eye, Edit, Trash2, Inbox } from 'lucide-react';
 import { Product, InventoryItem, ViewMode } from '../types/inventory.types';
@@ -73,7 +74,7 @@ export function InventoryList({
             ) : (
               <>
                 {/* Desktop Table */}
-                <div className="hidden md:block">
+                <div className="hidden md-block">
                   <Table>
                     <TableHeader>
                       <TableRow>

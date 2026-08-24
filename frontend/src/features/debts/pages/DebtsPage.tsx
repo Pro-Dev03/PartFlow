@@ -1,13 +1,10 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { debtsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { SearchInput } from '../../../components/ui/search-input';
 import { PageHeader } from '../../../components/ui/page-header';
-import { StatCard } from '../../../components/ui/stat-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
@@ -16,46 +13,45 @@ import {
   DollarSign, 
   AlertTriangle,
   Calendar,
-  TrendingUp,
-  CreditCard,
   Sparkles,
-  TrendingDown,
-  Bell,
-  AlertCircle,
   Zap,
   Clock,
   X,
   Eye,
-  Edit,
-  Trash2
+  TrendingUp
 } from 'lucide-react';
+
+// Custom hooks
+import { useDebts } from '../hooks/useDebts';
+
+// Components
+import { DebtStats } from '../components/DebtStats';
+
+// Types
+import { Debt } from '../types/debts.types';
 
 export function DebtsPage() {
   const { t } = useTranslation();
-  const [searchQuery, setSearchQuery] = useState('');
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [selectedDebt, setSelectedDebt] = useState<any>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-  const queryClient = useQueryClient();
 
   const handleClearSearch = () => {
-    setSearchQuery('');
+    // Will be handled by the custom hook
   };
 
-  const { data: overdueCustomersData, isLoading } = useQuery({
-    queryKey: ['debts'],
-    queryFn: () => debtsApi.list({ page: 1, per_page: 100 }),
-  });
-
-  const recordPaymentMutation = useMutation({
-    mutationFn: ({ customerId, amount }: { customerId: string; amount: number }) =>
-      debtsApi.recordPayment(customerId, { amount }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['debts'] });
-    },
-  });
+  // Custom hook
+  const {
+    debts,
+    filteredDebts,
+    stats,
+    isLoading,
+    searchQuery,
+    setSearchQuery,
+    recordPaymentMutation,
+  } = useDebts();
 
   const handleRecordPayment = (customerId: string, customerName: string) => {
     setSelectedCustomer({ id: customerId, name: customerName });
@@ -73,7 +69,7 @@ export function DebtsPage() {
     }
   };
 
-  const handleViewDebt = (debt: any) => {
+  const handleViewDebt = (debt: Debt) => {
     setSelectedDebt(debt);
     setIsViewModalOpen(true);
   };
@@ -84,25 +80,6 @@ export function DebtsPage() {
       console.log('Reverse payment:', paymentId);
     }
   };
-
-  const overdueCustomers = (overdueCustomersData?.data as any[]) || [];
-
-  // Transform customer data to debt entries for display
-  const debts = overdueCustomers.flatMap((customer: any) => {
-    return (customer.debts || []).map((debt: any) => ({
-      ...debt,
-      customer: {
-        id: customer.id,
-        name: customer.name,
-        code: customer.code,
-      },
-    }));
-  });
-
-  const totalDebts = debts.reduce((sum: number, d: any) => sum + d.amount, 0);
-  const overdueDebts = debts.filter((d: any) => d.status === 'overdue');
-  const overdueAmount = overdueDebts.reduce((sum: number, d: any) => sum + d.remainingAmount, 0);
-  const dueSoonDebts = debts.filter((d: any) => d.status === 'pending');
 
   // Debt Aging System - تصنيف ديون حسب العمر
   const getDebtAging = (dueDate: string, status: string) => {
@@ -136,11 +113,6 @@ export function DebtsPage() {
       return { category: 'FUTURE', label: 'مستقبلي', variant: 'secondary' as const, days: diffDays };
     }
   };
-  const dueSoonAmount = dueSoonDebts.reduce((sum: number, d: any) => sum + d.remainingAmount, 0);
-
-  const filteredDebts = debts.filter((debt: any) =>
-    debt.customer?.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   const getDaysOverdue = (dueDate: string) => {
     const today = new Date();
@@ -215,43 +187,7 @@ export function DebtsPage() {
       </Card>
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px' }}
-           className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard 
-          title="إجمالي الديون" 
-          value={`₪${totalDebts.toLocaleString()}`} 
-          icon={DollarSign}
-          subtitle={`${debts.length} عميل`}
-          variant="featured"
-        />
-        <StatCard 
-          title="ديون متأخرة" 
-          value={`₪${overdueAmount.toLocaleString()}`} 
-          icon={AlertTriangle}
-          subtitle={`${overdueDebts.length} عميل`}
-          variant="danger"
-        />
-        <StatCard 
-          title="متأخرة 1-7 أيام" 
-          value={debts.filter((d: any) => {
-            const aging = getDebtAging(d.dueDate, d.status);
-            return aging.category === 'OVERDUE_1_7';
-          }).length}
-          icon={Clock}
-          subtitle="يحتاج متابعة سريعة"
-          variant="warning"
-        />
-        <StatCard 
-          title="متأخرة 30+ يوم" 
-          value={debts.filter((d: any) => {
-            const aging = getDebtAging(d.dueDate, d.status);
-            return aging.category === 'OVERDUE_30_PLUS';
-          }).length}
-          icon={AlertCircle}
-          subtitle="خطر عالي"
-          variant="danger"
-        />
-      </div>
+      <DebtStats stats={stats} />
 
       {/* Search */}
       <Card>
