@@ -1,421 +1,287 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { inventoryApi, productsApi } from '../../../services/api/endpoints';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
+import { cn } from '../../../utils';
 import { PageHeader } from '../../../components/ui/page-header';
-import { Badge } from '../../../components/ui/badge';
-import { EmptyState } from '../../../components/ui/empty-state';
-import { ErrorState } from '../../../components/ui/error-state';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
-import { 
-  Package, 
-  Search, 
-  Plus, 
-  Filter,
-  ArrowUpDown,
-  Eye,
-  Edit,
-  Trash2,
-  PackageOpen,
-  Inbox,
-  AlertCircle,
-  Sparkles,
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  Layers,
-  Zap
-} from 'lucide-react';
+import { Button } from '../../../components/ui/button';
+import { getButtonSize } from '../../../config/button-sizes';
+import { exportToCSV, printTable } from '../../../lib/export-utils';
+import { handleSort, type SortConfig } from '../../../lib/table-utils';
+import { Plus, Download, Printer, Package, PackageOpen } from 'lucide-react';
+
+// Custom hooks
+import { useInventory } from '../hooks/useInventory';
+
+// Components
+import { InventoryStats } from '../components/InventoryStats';
+import { InventoryFilters } from '../components/InventoryFilters';
+import { InventoryScanner } from '../components/InventoryScanner';
+import { InventoryList } from '../components/InventoryList';
+import { InventoryModals } from '../components/InventoryModals';
+
+// Types
+import { ViewMode, ItemInputMethodType, Product } from '../types/inventory.types';
 
 export function InventoryPage() {
   const { t } = useTranslation();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'products' | 'items'>('products');
+  const [isMobile, setIsMobile] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('products');
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [inputMethod, setInputMethod] = useState<ItemInputMethodType>('barcode');
+  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
+  const [barcodeInput, setBarcodeInput] = useState('');
 
-  const { data: productsData, isLoading: productsLoading } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => productsApi.list(),
-  });
+  // Custom hook
+  const {
+    products,
+    inventoryItems,
+    filteredProducts,
+    filteredInventoryItems,
+    productsLoading,
+    inventoryLoading,
+    searchQuery,
+    setSearchQuery,
+    sortConfig,
+    setSortConfig,
+    filters,
+    setFilters,
+    deleteProductMutation,
+    createProductMutation,
+    updateProductMutation,
+    lookupProduct,
+  } = useInventory();
 
-  const { data: inventoryData, isLoading: inventoryLoading } = useQuery({
-    queryKey: ['inventory'],
-    queryFn: () => inventoryApi.list(),
-  });
-
-  const products = (productsData?.data as any[]) || [];
-  const inventoryItems = (inventoryData?.data as any[]) || [];
-
-  const filteredProducts = products.filter((product: any) =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.sku.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const getConditionBadge = (condition: string) => {
-    const variants: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'secondary' | 'outline' }> = {
-      new: { label: t('products.new'), variant: 'success' },
-      used: { label: t('products.used'), variant: 'secondary' },
-      refurbished: { label: t('products.refurbished'), variant: 'info' },
-      parts_only: { label: t('products.partsOnly'), variant: 'danger' },
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
     };
-    return variants[condition] || { label: condition, variant: 'default' };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  const handleClearSearch = () => {
+    setSearchQuery('');
+  };
+
+  const handleExport = () => {
+    const dataToExport = filteredProducts.map((product: Product) => ({
+      'الاسم': product.name,
+      'SKU': product.sku,
+      'السعر': product.sellingPrice,
+      'المخزون': product.stock,
+      'الحالة': product.condition
+    }));
+    exportToCSV(dataToExport, `inventory-${new Date().toISOString().split('T')[0]}`);
+  };
+
+  const handlePrint = () => {
+    const dataToPrint = filteredProducts.map((product: Product) => ({
+      'الاسم': product.name,
+      'SKU': product.sku,
+      'السعر': product.sellingPrice,
+      'المخزون': product.stock,
+      'الحالة': product.condition
+    }));
+    printTable(dataToPrint, ['الاسم', 'SKU', 'السعر', 'المخزون', 'الحالة'], 'تقرير المخزون');
+  };
+
+  const handleViewProduct = (product: Product) => {
+    setSelectedProduct(product);
+    setIsViewModalOpen(true);
+  };
+
+  const handleEditProduct = (product: Product) => {
+    setSelectedProduct(product);
+    setIsEditModalOpen(true);
+  };
+
+  const handleDeleteProduct = (productId: string) => {
+    if (window.confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
+      deleteProductMutation.mutate(productId);
+    }
+  };
+
+  const handleSaveProduct = (productData: Product) => {
+    if (selectedProduct && selectedProduct.id) {
+      // Update existing product
+      updateProductMutation.mutate({ id: selectedProduct.id, data: productData });
+      setIsEditModalOpen(false);
+      setSelectedProduct(null);
+    } else {
+      // Add new product
+      createProductMutation.mutate(productData);
+      setIsEditModalOpen(false);
+      setSelectedProduct(null);
+    }
+  };
+
+  const handleBarcodeScan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (barcodeInput.trim()) {
+      const product = await lookupProduct(barcodeInput.trim());
+      
+      if (product) {
+        setSelectedProduct(product);
+        setIsEditModalOpen(true);
+        setBarcodeInput('');
+      } else {
+        // Product not found, open modal for new product
+        setSelectedProduct(null);
+        setIsEditModalOpen(true);
+        setBarcodeInput('');
+      }
+    }
+  };
+
+  const handleCameraScan = (barcode: string) => {
+    setBarcodeInput(barcode);
+    handleBarcodeScan(new Event('submit') as any);
+  };
+
+  const handleManualAdd = () => {
+    setSelectedProduct(null);
+    setIsEditModalOpen(true);
+  };
+
+  const handleRecommendationClick = (action: string) => {
+    if (action === 'search_intel') {
+      setSearchQuery('Intel');
+    } else if (action === 'filter_used') {
+      if (filters.some(f => f.key === 'condition' && f.value === 'USED')) {
+        setFilters(filters.filter(f => !(f.key === 'condition' && f.value === 'USED')));
+      } else {
+        setFilters([...filters, { key: 'condition', value: 'USED' }]);
+      }
+    }
+  };
+
+  const handleRefresh = () => {
+    setSortConfig({ key: '', direction: null });
+    setFilters([]);
   };
 
   return (
-    <div className="space-y-md">
-      {/* Page Header - Futuristic + Data Dense */}
+    <div>
+      {/* Page Header */}
       <PageHeader
         eyebrow="Inventory Intelligence"
         title={t('inventory.title')}
         description="إدارة المخزون والقطع مع تحليلات فورية"
         actions={
-          <div className="flex items-center gap-sm">
-            <Button variant="primary" className="gap-2">
-              <Plus className="w-4 h-4" />
+          <div className={cn(
+            "flex gap-2",
+            isMobile ? "flex-col w-full" : ""
+          )}>
+            <Button 
+              variant="secondary" 
+              size={getButtonSize('inventory', 'headerActions')}
+              className={cn(isMobile ? "w-full" : "")}
+              onClick={handleManualAdd}
+            >
+              <Plus className="w-3.5 h-3.5 me-1.5" />
               {t('inventory.addItem')}
             </Button>
-            <Button variant="secondary" className="gap-2">
-              <Zap className="w-4 h-4" />
+            <Button 
+              variant="secondary" 
+              size={getButtonSize('inventory', 'headerActions')} 
+              onClick={handleExport}
+              className={cn(isMobile ? "w-full" : "")}
+            >
+              <Download className="w-3.5 h-3.5 me-1.5" />
               تصدير
+            </Button>
+            <Button 
+              variant="secondary" 
+              size={getButtonSize('inventory', 'headerActions')} 
+              onClick={handlePrint}
+              className={cn(isMobile ? "w-full" : "")}
+            >
+              <Printer className="w-3.5 h-3.5 me-1.5" />
+              طباعة
             </Button>
           </div>
         }
       />
 
-      {/* AI Inventory Insight - Futuristic + Data Dense */}
-      <Card variant="ai">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-cyan" />
-            AI Inventory Insight
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-md">
-            <div className="w-8 h-8 rounded-sm bg-cyan/10 flex items-center justify-center flex-shrink-0">
-              <TrendingUp className="w-4 h-4 text-cyan" />
-            </div>
-            <div>
-              <p className="text-small font-semibold text-text">فرصة شراء معالجات Intel</p>
-              <p className="text-tiny text-text-muted mt-1">
-                الأسعار الحالية أقل من المتوسط بنسبة 15%. هناك طلب متزايد من 3 عملاء رئيسيين.
-              </p>
-              <Button variant="ghost" size="sm" className="mt-2 text-cyan">
-                عرض التوصية ←
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Inventory Stats */}
+      <InventoryStats 
+        inventoryItems={inventoryItems}
+        onRecommendationClick={handleRecommendationClick}
+        isMobile={isMobile}
+      />
 
-      {/* Stats Cards - Futuristic + Data Dense */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
-        <StatCard 
-          title={t('inventory.totalItems')} 
-          value={inventoryItems.length} 
-          icon={Package}
-          subtitle="إجمالي العناصر"
-          variant="featured"
-          trend="+8.3%"
-          trendUp={true}
-        />
-        <StatCard 
-          title={t('inventory.totalValue')} 
-          value="₪185,400" 
-          icon={Package}
-          subtitle="قيمة المخزون"
-          variant="default"
-          trend="+12.1%"
-          trendUp={true}
-        />
-        <StatCard 
-          title={t('inventory.lowStock')} 
-          value="12" 
-          icon={AlertTriangle}
-          subtitle="يحتاج طلب"
-          variant="warning"
-          trend="-2"
-          trendUp={false}
-        />
-        <StatCard 
-          title="مستعمل" 
-          value="84" 
-          icon={Layers}
-          subtitle="حالة البضاعة"
-          variant="info"
-          trend="+5"
-          trendUp={true}
-        />
-      </div>
+      {/* Inventory Scanner */}
+      <InventoryScanner
+        inputMethod={inputMethod}
+        setInputMethod={setInputMethod}
+        barcodeInput={barcodeInput}
+        setBarcodeInput={setBarcodeInput}
+        onBarcodeScan={handleBarcodeScan}
+        onCameraScan={handleCameraScan}
+        onManualAdd={handleManualAdd}
+        isCameraScannerOpen={isCameraScannerOpen}
+        onCameraOpen={() => setIsCameraScannerOpen(true)}
+        onCameraClose={() => setIsCameraScannerOpen(false)}
+      />
 
-      {/* Search and Filters - Futuristic + Data Dense */}
-      <Card>
-        <CardContent className="p-lg">
-          <div className="flex flex-col md:flex-row gap-md">
-            <div className="flex-1 relative">
-              <Search className="absolute inset-y-0 end-3 w-4 h-4 text-text-muted" />
-              <Input
-                placeholder={t('common.search')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pe-10"
-                leftIcon={<Search className="w-4 h-4" />}
-              />
-            </div>
-            <div className="flex gap-sm">
-              <Button variant="secondary" className="gap-2">
-                <Filter className="w-4 h-4" />
-                {t('common.filter')}
-              </Button>
-              <Button variant="secondary" className="gap-2">
-                <ArrowUpDown className="w-4 h-4" />
-                ترتيب
-              </Button>
-              <Button variant="secondary" className="gap-2">
-                <Zap className="w-4 h-4" />
-                تحديث
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Inventory Filters */}
+      <InventoryFilters
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        onClearSearch={handleClearSearch}
+        filters={filters}
+        setFilters={setFilters}
+        sortConfig={sortConfig}
+        setSortConfig={setSortConfig}
+        onRefresh={handleRefresh}
+        isMobile={isMobile}
+      />
 
-      {/* View Toggle - Futuristic + Data Dense */}
-      <div className="flex gap-sm">
+      {/* View Toggle */}
+      <div className="flex gap-2">
         <Button
           variant={viewMode === 'products' ? 'primary' : 'secondary'}
           onClick={() => setViewMode('products')}
-          className="gap-2"
         >
-          <Package className="w-4 h-4" />
+          <Package className="w-3 h-3 me-1.5" />
           {t('products.title')}
         </Button>
         <Button
           variant={viewMode === 'items' ? 'primary' : 'secondary'}
           onClick={() => setViewMode('items')}
-          className="gap-2"
         >
-          <PackageOpen className="w-4 h-4" />
+          <PackageOpen className="w-3 h-3 me-1.5" />
           {t('inventory.items')}
         </Button>
       </div>
 
-      {/* Products Table - Futuristic + Data Dense */}
-      {viewMode === 'products' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Package className="w-5 h-5 text-cyan" />
-              المنتجات
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {productsLoading ? (
-              <div className="flex items-center justify-center h-64" role="status" aria-label="Loading">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan" />
-              </div>
-            ) : filteredProducts.length === 0 ? (
-              <EmptyState
-                icon={<Inbox className="w-8 h-8" />}
-                title="لا توجد منتجات"
-                description="لم يتم العثور على منتجات تطابق بحثك"
-                action={
-                  <Button variant="primary" onClick={() => setSearchQuery('')}>
-                    مسح البحث
-                  </Button>
-                }
-              />
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>الاسم</TableHead>
-                    <TableHead>SKU</TableHead>
-                    <TableHead>الفئة</TableHead>
-                    <TableHead>الحالة</TableHead>
-                    <TableHead>المخزون</TableHead>
-                    <TableHead>السعر</TableHead>
-                    <TableHead>الحالة</TableHead>
-                    <TableHead className="text-end">الإجراءات</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProducts.map((product: any) => (
-                    <TableRow key={product.id}>
-                      <TableCell className="font-medium">{product.name}</TableCell>
-                      <TableCell>{product.sku}</TableCell>
-                      <TableCell>{product.category}</TableCell>
-                      <TableCell>
-                        <Badge variant={getConditionBadge(product.condition).variant}>
-                          {getConditionBadge(product.condition).label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{product.stock}</TableCell>
-                      <TableCell>₪{product.sellingPrice?.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <Badge variant={product.status === 'active' ? 'success' : 'secondary'}>
-                          {product.status === 'active' ? 'نشط' : 'غير نشط'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-end">
-                        <div className="flex gap-sm justify-end">
-                          <Button variant="ghost" size="sm" aria-label="View product">
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" aria-label="Edit product">
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" aria-label="Delete product">
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {/* Inventory List */}
+      <InventoryList
+        viewMode={viewMode}
+        filteredProducts={filteredProducts}
+        filteredInventoryItems={filteredInventoryItems}
+        productsLoading={productsLoading}
+        inventoryLoading={inventoryLoading}
+        searchQuery={searchQuery}
+        onViewProduct={handleViewProduct}
+        onEditProduct={handleEditProduct}
+        onDeleteProduct={handleDeleteProduct}
+        onClearSearch={handleClearSearch}
+      />
 
-      {/* Items Table - Futuristic + Data Dense */}
-      {viewMode === 'items' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <PackageOpen className="w-5 h-5 text-cyan" />
-              القطع
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {inventoryLoading ? (
-              <div className="flex items-center justify-center h-64" role="status" aria-label="Loading">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan" />
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>الباركود</TableHead>
-                    <TableHead>المنتج</TableHead>
-                    <TableHead>الرقم التسلسلي</TableHead>
-                    <TableHead>الحالة</TableHead>
-                    <TableHead>الموقع</TableHead>
-                    <TableHead>سعر الشراء</TableHead>
-                    <TableHead>سعر البيع</TableHead>
-                    <TableHead>الحالة</TableHead>
-                    <TableHead className="text-end">الإجراءات</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(inventoryItems as any[]).map((item: any) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.barcode}</TableCell>
-                      <TableCell>{item.product?.name}</TableCell>
-                      <TableCell>{item.serial || '-'}</TableCell>
-                      <TableCell>
-                        <Badge variant={getConditionBadge(item.condition).variant}>
-                          {getConditionBadge(item.condition).label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {item.location?.warehouse}/{item.location?.shelf}/{item.location?.box}
-                      </TableCell>
-                      <TableCell>₪{item.purchaseCost?.toLocaleString()}</TableCell>
-                      <TableCell>₪{item.sellingPrice?.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <Badge variant={item.status === 'available' ? 'success' : 'secondary'}>
-                          {item.status === 'available' ? 'متاح' : item.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-end">
-                        <div className="flex gap-sm justify-end">
-                          <Button variant="ghost" size="sm" aria-label="View item">
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" aria-label="Edit item">
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {/* Inventory Modals */}
+      <InventoryModals
+        isViewModalOpen={isViewModalOpen}
+        setIsViewModalOpen={setIsViewModalOpen}
+        isEditModalOpen={isEditModalOpen}
+        setIsEditModalOpen={setIsEditModalOpen}
+        selectedProduct={selectedProduct}
+        setSelectedProduct={setSelectedProduct}
+        onSaveProduct={handleSaveProduct}
+      />
     </div>
-  );
-}
-
-interface StatCardProps {
-  title: string;
-  value: number | string;
-  icon: any;
-  subtitle?: string;
-  variant?: 'default' | 'featured' | 'warning' | 'ai' | 'danger' | 'success' | 'info';
-  trend?: string | null;
-  trendUp?: boolean | null;
-}
-
-function StatCard({ title, value, icon: Icon, subtitle, variant = 'default', trend, trendUp }: StatCardProps) {
-  return (
-    <Card 
-      variant={variant} 
-      className="hover:border-border/22 hover:-translate-y-1 cursor-pointer"
-      hoverable
-    >
-      <CardContent className="p-lg">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <p className="text-small text-text-muted">{title}</p>
-            <p className="text-metric font-bold text-text mt-1">
-              {value}
-            </p>
-            {subtitle && (
-              <p className="text-tiny text-text-muted mt-1">
-                {subtitle}
-              </p>
-            )}
-            {trend && (
-              <div className="flex items-center gap-1 mt-2">
-                {trendUp ? (
-                  <TrendingUp className="w-3 h-3 text-green" />
-                ) : (
-                  <TrendingDown className="w-3 h-3 text-red" />
-                )}
-                <span className={`text-tiny ${trendUp ? 'text-green' : 'text-red'}`}>
-                  {trend}
-                </span>
-              </div>
-            )}
-          </div>
-          <div className={`w-10 h-10 rounded-sm flex items-center justify-center ${
-            variant === 'featured' ? 'bg-cyan/10' :
-            variant === 'warning' ? 'bg-yellow/10' :
-            variant === 'danger' ? 'bg-red/10' :
-            variant === 'success' ? 'bg-green/10' :
-            variant === 'info' ? 'bg-cyan/10' :
-            variant === 'ai' ? 'bg-cyan/10' :
-            'bg-cyan/10'
-          }`}>
-            <Icon className={`w-5 h-5 ${
-              variant === 'featured' ? 'text-cyan' :
-              variant === 'warning' ? 'text-yellow' :
-              variant === 'danger' ? 'text-red' :
-              variant === 'success' ? 'text-green' :
-              variant === 'info' ? 'text-cyan' :
-              variant === 'ai' ? 'text-cyan' :
-              'text-cyan'
-            }`} />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
   );
 }

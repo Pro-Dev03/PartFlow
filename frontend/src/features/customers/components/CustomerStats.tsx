@@ -1,0 +1,93 @@
+import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { StatCard } from '../../../components/ui/stat-card';
+import { Button } from '../../../components/ui/button';
+import { getButtonSize } from '../../../config/button-sizes';
+import { Users, UserPlus, DollarSign, Shield, Sparkles, Heart } from 'lucide-react';
+import { CustomerStats } from '../types/customers.types';
+
+interface CustomerStatsProps {
+  stats: CustomerStats;
+  onRecommendationClick: () => void;
+}
+
+export function CustomerStats({ stats, onRecommendationClick }: CustomerStatsProps) {
+  return (
+    <>
+      {/* AI Customer Insight */}
+      <Card variant="ai">
+        <CardHeader>
+          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Sparkles style={{ width: '20px', height: '20px', color: 'var(--primary)' }} />
+            AI Customer Insight
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div style={{ display: 'flex', gap: '14px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(34, 211, 238, 0.1)',
+              flexShrink: 0
+            }}>
+              <Heart style={{ width: '16px', height: '16px', color: 'var(--primary)' }} />
+            </div>
+            <div>
+              <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>فرصة استعادة العملاء</p>
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                5 عملاء نشطين لم يقوموا بشراء منذ 30 يوم. أرسل لهم عروض خاصة لزيادة المبيعات.
+              </p>
+              <Button variant="secondary" size={getButtonSize('customers', 'recommendation')} onClick={onRecommendationClick}>
+                عرض التوصية ←
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Stats Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px' }}
+           className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard 
+          title="إجمالي العملاء" 
+          value={stats.totalCustomers} 
+          icon={Users}
+          subtitle="العملاء المسجلين"
+          variant="featured"
+          trend="+12.5%"
+          trendUp={true}
+        />
+        <StatCard 
+          title="العملاء النشطين" 
+          value={stats.activeCustomers} 
+          icon={UserPlus}
+          subtitle="قاموا بشراء"
+          variant="default"
+          trend="+8.2%"
+          trendUp={true}
+        />
+        <StatCard 
+          title="عملاء بديون" 
+          value={stats.customersWithDebt} 
+          icon={DollarSign}
+          subtitle="ديون مستحقة"
+          variant="warning"
+          trend="+3"
+          trendUp={false}
+        />
+        <StatCard 
+          title="إجمالي الديون" 
+          value={`₪${stats.totalOutstanding.toLocaleString()}`} 
+          icon={Shield}
+          subtitle="المبالغ المستحقة"
+          variant="danger"
+          trend="+15.3%"
+          trendUp={false}
+        />
+      </div>
+    </>
+  );
+}
