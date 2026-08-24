@@ -22,7 +22,6 @@ func NewRepository(db *sqlx.DB) *Repository {
 // CreateReturn creates a new return
 func (r *Repository) CreateReturn(ctx context.Context, returnRecord *Return) error {
 	query := `
-		INSERT INTO returns (id, organization_id, sale_id, customer_id, return_number, 
 			return_date, reason, condition, status, refund_amount, refund_method, refund_date, 
 			notes, processed_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
@@ -30,7 +29,6 @@ func (r *Repository) CreateReturn(ctx context.Context, returnRecord *Return) err
 	`
 	
 	err := r.db.QueryRowContext(ctx, query,
-		returnRecord.ID, returnRecord.OrganizationID, returnRecord.SaleID, returnRecord.CustomerID,
 		returnRecord.ReturnNumber, returnRecord.ReturnDate, returnRecord.Reason, returnRecord.Condition,
 		returnRecord.Status, returnRecord.RefundAmount, returnRecord.RefundMethod, returnRecord.RefundDate,
 		returnRecord.Notes, returnRecord.ProcessedBy, returnRecord.CreatedAt, returnRecord.UpdatedAt,
@@ -43,17 +41,15 @@ func (r *Repository) CreateReturn(ctx context.Context, returnRecord *Return) err
 }
 
 // GetReturnByID retrieves a return by ID
-func (r *Repository) GetReturnByID(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*Return, error) {
+func (r *Repository) GetReturnByID(ctx context.Context, id uuid.UUID) (*Return, error) {
 	var returnRecord Return
 	query := `
-		SELECT id, organization_id, sale_id, customer_id, return_number, return_date, 
-			reason, condition, status, refund_amount, refund_method, refund_date, 
-			notes, processed_by, created_at, updated_at
+		SELECT id, return_number, sale_id, customer_id, return_date, reason, condition, status, refund_amount, refund_method, refund_date, notes, processed_by, created_at, updated_at
 		FROM returns
-		WHERE id = $1 AND organization_id = $2
+		WHERE id = $1
 	`
-	
-	err := r.db.GetContext(ctx, &returnRecord, query, id, organizationID)
+
+	err := r.db.GetContext(ctx, &returnRecord, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrReturnNotFound
@@ -64,22 +60,23 @@ func (r *Repository) GetReturnByID(ctx context.Context, id uuid.UUID, organizati
 }
 
 // ListReturns retrieves returns with pagination and filters
-func (r *Repository) ListReturns(ctx context.Context, organizationID uuid.UUID, req ReturnListRequest) ([]Return, int, error) {
+func (r *Repository) ListReturns(ctx context.Context, req ReturnListRequest) ([]Return, int, error) {
 	var returns []Return
 	var count int
-	
+
 	// Build base query
 	baseQuery := `
-		SELECT id, organization_id, sale_id, customer_id, return_number, return_date, 
-			reason, condition, status, refund_amount, refund_method, refund_date, 
-			notes, processed_by, created_at, updated_at
+		SELECT id, return_number, sale_id, customer_id, return_date, reason, condition, status, refund_amount, refund_method, refund_date, notes, processed_by, created_at, updated_at
 		FROM returns
-		WHERE organization_id = $1
+		WHERE 1=1
 	`
-	countQuery := `SELECT COUNT(*) FROM returns WHERE organization_id = $1`
-	
-	args := []interface{}{organizationID}
-	argCount := 1
+
+	countQuery := `
+		SELECT COUNT(*) FROM returns WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argCount := 0
 	
 	// Add filters
 	if req.CustomerID != nil {
@@ -162,14 +159,12 @@ func (r *Repository) UpdateReturn(ctx context.Context, returnRecord *Return) err
 		UPDATE returns
 		SET return_date = $2, reason = $3, condition = $4, status = $5, 
 			refund_amount = $6, refund_method = $7, refund_date = $8, notes = $9, updated_at = $10
-		WHERE id = $1 AND organization_id = $11
 		RETURNING updated_at
 	`
 	
 	err := r.db.QueryRowContext(ctx, query,
 		returnRecord.ID, returnRecord.ReturnDate, returnRecord.Reason, returnRecord.Condition,
 		returnRecord.Status, returnRecord.RefundAmount, returnRecord.RefundMethod, returnRecord.RefundDate,
-		returnRecord.Notes, returnRecord.UpdatedAt, returnRecord.OrganizationID,
 	).Scan(&returnRecord.UpdatedAt)
 	
 	if err != nil {
@@ -182,19 +177,19 @@ func (r *Repository) UpdateReturn(ctx context.Context, returnRecord *Return) err
 }
 
 // DeleteReturn deletes a return
-func (r *Repository) DeleteReturn(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	query := `DELETE FROM returns WHERE id = $1 AND organization_id = $2`
-	
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+func (r *Repository) DeleteReturn(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM returns WHERE id = $1`
+
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete return: %w", err)
 	}
-	
+
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		return ErrReturnNotFound
 	}
-	
+
 	return nil
 }
 
@@ -335,17 +330,15 @@ func (r *Repository) GetSaleItemInfo(ctx context.Context, saleItemID uuid.UUID) 
 }
 
 // GetReturnByReturnNumber retrieves a return by return number
-func (r *Repository) GetReturnByReturnNumber(ctx context.Context, returnNumber string, organizationID uuid.UUID) (*Return, error) {
+func (r *Repository) GetReturnByReturnNumber(ctx context.Context, returnNumber string) (*Return, error) {
 	var returnRecord Return
 	query := `
-		SELECT id, organization_id, sale_id, customer_id, return_number, return_date, 
-			reason, condition, status, refund_amount, refund_method, refund_date, 
-			notes, processed_by, created_at, updated_at
+		SELECT id, return_number, sale_id, customer_id, return_date, reason, condition, status, refund_amount, refund_method, refund_date, notes, processed_by, created_at, updated_at
 		FROM returns
-		WHERE return_number = $1 AND organization_id = $2
+		WHERE return_number = $1
 	`
-	
-	err := r.db.GetContext(ctx, &returnRecord, query, returnNumber, organizationID)
+
+	err := r.db.GetContext(ctx, &returnRecord, query, returnNumber)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrReturnNotFound

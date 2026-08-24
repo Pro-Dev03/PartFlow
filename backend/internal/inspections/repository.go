@@ -33,16 +33,14 @@ func (r *Repository) CreateInspection(ctx context.Context, inspection *Inspectio
 	}
 
 	query := `
-		INSERT INTO inspections (id, organization_id, product_id, serial_number, inspection_date, 
-			inspected_by, status, condition, grade, notes, photos, test_results, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		INSERT INTO inspections (product_id, inspection_date, inspected_by, status, condition, grade, notes, photos, test_results, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at, updated_at
 	`
-	
+
 	err = r.db.QueryRowContext(ctx, query,
-		inspection.ID, inspection.OrganizationID, inspection.ProductID, inspection.SerialNumber,
-		inspection.InspectionDate, inspection.InspectedBy, inspection.Status, inspection.Condition,
-		inspection.Grade, inspection.Notes, photosJSON, testResultsJSON,
+		inspection.ProductID, inspection.InspectionDate, inspection.InspectedBy, inspection.Status,
+		inspection.Condition, inspection.Grade, inspection.Notes, photosJSON, testResultsJSON,
 		inspection.CreatedAt, inspection.UpdatedAt,
 	).Scan(&inspection.ID, &inspection.CreatedAt, &inspection.UpdatedAt)
 	
@@ -53,18 +51,17 @@ func (r *Repository) CreateInspection(ctx context.Context, inspection *Inspectio
 }
 
 // GetInspectionByID retrieves an inspection by ID
-func (r *Repository) GetInspectionByID(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*Inspection, error) {
+func (r *Repository) GetInspectionByID(ctx context.Context, id uuid.UUID) (*Inspection, error) {
 	var inspection Inspection
 	var testResultsJSON, photosJSON []byte
-	
+
 	query := `
-		SELECT id, organization_id, product_id, serial_number, inspection_date, 
-			inspected_by, status, condition, grade, notes, photos, test_results, created_at, updated_at
+		SELECT id, product_id, inspection_date, inspected_by, status, condition, grade, notes, photos, test_results, created_at, updated_at
 		FROM inspections
-		WHERE id = $1 AND organization_id = $2
+		WHERE id = $1
 	`
-	
-	err := r.db.GetContext(ctx, &inspection, query, id, organizationID)
+
+	err := r.db.GetContext(ctx, &inspection, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrInspectionNotFound
@@ -89,21 +86,23 @@ func (r *Repository) GetInspectionByID(ctx context.Context, id uuid.UUID, organi
 }
 
 // ListInspections retrieves inspections with pagination and filters
-func (r *Repository) ListInspections(ctx context.Context, organizationID uuid.UUID, req InspectionListRequest) ([]Inspection, int, error) {
+func (r *Repository) ListInspections(ctx context.Context, req InspectionListRequest) ([]Inspection, int, error) {
 	var inspections []Inspection
 	var count int
-	
+
 	// Build base query
 	baseQuery := `
-		SELECT id, organization_id, product_id, serial_number, inspection_date, 
-			inspected_by, status, condition, grade, notes, photos, test_results, created_at, updated_at
+		SELECT id, product_id, inspection_date, inspected_by, status, condition, grade, notes, photos, test_results, created_at, updated_at
 		FROM inspections
-		WHERE organization_id = $1
+		WHERE 1=1
 	`
-	countQuery := `SELECT COUNT(*) FROM inspections WHERE organization_id = $1`
-	
-	args := []interface{}{organizationID}
-	argCount := 1
+
+	countQuery := `
+		SELECT COUNT(*) FROM inspections WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argCount := 0
 	
 	// Add filters
 	if req.ProductID != nil {
@@ -197,7 +196,6 @@ func (r *Repository) ListInspections(ctx context.Context, organizationID uuid.UU
 		var testResultsJSON, photosJSON []byte
 		
 		err := rows.Scan(
-			&inspection.ID, &inspection.OrganizationID, &inspection.ProductID, &inspection.SerialNumber,
 			&inspection.InspectionDate, &inspection.InspectedBy, &inspection.Status, &inspection.Condition,
 			&inspection.Grade, &inspection.Notes, &photosJSON, &testResultsJSON,
 			&inspection.CreatedAt, &inspection.UpdatedAt,
@@ -236,14 +234,13 @@ func (r *Repository) UpdateInspection(ctx context.Context, inspection *Inspectio
 		UPDATE inspections
 		SET inspection_date = $2, status = $3, condition = $4, grade = $5, notes = $6,
 			photos = $7, test_results = $8, updated_at = $9
-		WHERE id = $1 AND organization_id = $10
+		WHERE id = $1
 		RETURNING updated_at
 	`
 	
 	err = r.db.QueryRowContext(ctx, query,
 		inspection.ID, inspection.InspectionDate, inspection.Status, inspection.Condition,
 		inspection.Grade, inspection.Notes, photosJSON, testResultsJSON,
-		inspection.UpdatedAt, inspection.OrganizationID,
 	).Scan(&inspection.UpdatedAt)
 	
 	if err != nil {
@@ -256,10 +253,10 @@ func (r *Repository) UpdateInspection(ctx context.Context, inspection *Inspectio
 }
 
 // DeleteInspection deletes an inspection
-func (r *Repository) DeleteInspection(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	query := `DELETE FROM inspections WHERE id = $1 AND organization_id = $2`
-	
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+func (r *Repository) DeleteInspection(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM inspections WHERE id = $1`
+
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete inspection: %w", err)
 	}
@@ -303,71 +300,62 @@ func (r *Repository) GetUserInfo(ctx context.Context, userID uuid.UUID) (*UserIn
 }
 
 // GetInspectionSummary retrieves inspection summary statistics
-func (r *Repository) GetInspectionSummary(ctx context.Context, organizationID uuid.UUID) (*InspectionSummary, error) {
+func (r *Repository) GetInspectionSummary(ctx context.Context) (*InspectionSummary, error) {
 	var summary InspectionSummary
-	
+
 	// Total inspections
-	err := r.db.GetContext(ctx, &summary.TotalInspections, 
-		`SELECT COUNT(*) FROM inspections WHERE organization_id = $1`, 
-		organizationID)
+	err := r.db.GetContext(ctx, &summary.TotalInspections,
+		`SELECT COUNT(*) FROM inspections`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total inspections: %w", err)
 	}
-	
+
 	// Passed inspections
-	err = r.db.GetContext(ctx, &summary.PassedInspections, 
-		`SELECT COUNT(*) FROM inspections WHERE organization_id = $1 AND status = 'passed'`, 
-		organizationID)
+	err = r.db.GetContext(ctx, &summary.PassedInspections,
+		`SELECT COUNT(*) FROM inspections WHERE status = 'passed'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get passed inspections: %w", err)
 	}
-	
+
 	// Failed inspections
-	err = r.db.GetContext(ctx, &summary.FailedInspections, 
-		`SELECT COUNT(*) FROM inspections WHERE organization_id = $1 AND status = 'failed'`, 
-		organizationID)
+	err = r.db.GetContext(ctx, &summary.FailedInspections,
+		`SELECT COUNT(*) FROM inspections WHERE status = 'failed'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get failed inspections: %w", err)
 	}
-	
+
 	// Pending inspections
-	err = r.db.GetContext(ctx, &summary.PendingInspections, 
-		`SELECT COUNT(*) FROM inspections WHERE organization_id = $1 AND status = 'pending'`, 
-		organizationID)
+	err = r.db.GetContext(ctx, &summary.PendingInspections,
+		`SELECT COUNT(*) FROM inspections WHERE status = 'pending'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pending inspections: %w", err)
 	}
-	
+
 	// This week inspections
-	err = r.db.GetContext(ctx, &summary.ThisWeek, 
-		`SELECT COUNT(*) FROM inspections 
-		 WHERE organization_id = $1 
-		 AND inspection_date >= DATE_TRUNC('week', CURRENT_DATE)`, 
-		organizationID)
+	err = r.db.GetContext(ctx, &summary.ThisWeek,
+		`SELECT COUNT(*) FROM inspections
+		 WHERE inspection_date >= DATE_TRUNC('week', CURRENT_DATE)`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this week inspections: %w", err)
 	}
 	
 	// This month inspections
-	err = r.db.GetContext(ctx, &summary.ThisMonth, 
-		`SELECT COUNT(*) FROM inspections 
-		 WHERE organization_id = $1 
-		 AND DATE_TRUNC('month', inspection_date) = DATE_TRUNC('month', CURRENT_DATE)`, 
-		organizationID)
+	err = r.db.GetContext(ctx, &summary.ThisMonth,
+		`SELECT COUNT(*) FROM inspections
+		 WHERE DATE_TRUNC('month', inspection_date) = DATE_TRUNC('month', CURRENT_DATE)`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this month inspections: %w", err)
 	}
-	
+
 	// By condition
 	summary.ByCondition = make(map[string]int)
-	rows, err := r.db.QueryContext(ctx, 
-		`SELECT condition, COUNT(*) FROM inspections WHERE organization_id = $1 GROUP BY condition`, 
-		organizationID)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT condition, COUNT(*) FROM inspections GROUP BY condition`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get inspections by condition: %w", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var condition string
 		var count int
@@ -376,17 +364,16 @@ func (r *Repository) GetInspectionSummary(ctx context.Context, organizationID uu
 		}
 		summary.ByCondition[condition] = count
 	}
-	
+
 	// By grade
 	summary.ByGrade = make(map[string]int)
-	rows, err = r.db.QueryContext(ctx, 
-		`SELECT grade, COUNT(*) FROM inspections WHERE organization_id = $1 GROUP BY grade`, 
-		organizationID)
+	rows, err = r.db.QueryContext(ctx,
+		`SELECT grade, COUNT(*) FROM inspections GROUP BY grade`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get inspections by grade: %w", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var grade string
 		var count int

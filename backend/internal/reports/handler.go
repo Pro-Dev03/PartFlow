@@ -39,10 +39,9 @@ func (h *Handler) GenerateReport(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	report, err := h.service.GenerateReport(c.Request.Context(), organizationID, userID, &req)
+	report, err := h.service.GenerateReport(c.Request.Context(), userID, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -71,9 +70,8 @@ func (h *Handler) GetReport(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	report, err := h.service.GetReport(c.Request.Context(), id, organizationID)
+	report, err := h.service.GetReport(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -138,9 +136,8 @@ func (h *Handler) ListReports(c *gin.Context) {
 		}
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	reports, total, err := h.service.ListReports(c.Request.Context(), organizationID, req)
+	reports, total, err := h.service.ListReports(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -177,9 +174,8 @@ func (h *Handler) DeleteReport(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	if err := h.service.DeleteReport(c.Request.Context(), id, organizationID); err != nil {
+	if err := h.service.DeleteReport(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -216,10 +212,9 @@ func (h *Handler) GenerateSalesReport(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	report, err := h.service.GenerateSalesReport(c.Request.Context(), organizationID, userID, startDate, endDate)
+	report, err := h.service.GenerateSalesReport(c.Request.Context(), userID, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -240,10 +235,9 @@ func (h *Handler) GenerateSalesReport(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/reports/inventory [get]
 func (h *Handler) GenerateInventoryReport(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	report, err := h.service.GenerateInventoryReport(c.Request.Context(), organizationID, userID)
+	report, err := h.service.GenerateInventoryReport(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -281,10 +275,9 @@ func (h *Handler) GenerateExpensesReport(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	report, err := h.service.GenerateExpensesReport(c.Request.Context(), organizationID, userID, startDate, endDate)
+	report, err := h.service.GenerateExpensesReport(c.Request.Context(), userID, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -322,10 +315,9 @@ func (h *Handler) GenerateProfitsReport(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	report, err := h.service.GenerateProfitsReport(c.Request.Context(), organizationID, userID, startDate, endDate)
+	report, err := h.service.GenerateProfitsReport(c.Request.Context(), userID, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -346,10 +338,9 @@ func (h *Handler) GenerateProfitsReport(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/reports/debts [get]
 func (h *Handler) GenerateDebtsReport(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	report, err := h.service.GenerateDebtsReport(c.Request.Context(), organizationID, userID)
+	report, err := h.service.GenerateDebtsReport(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -387,10 +378,9 @@ func (h *Handler) GeneratePurchasesReport(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	report, err := h.service.GeneratePurchasesReport(c.Request.Context(), organizationID, userID, startDate, endDate)
+	report, err := h.service.GeneratePurchasesReport(c.Request.Context(), userID, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -428,34 +418,9 @@ func (h *Handler) GenerateReturnsReport(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	report, err := h.service.GenerateReturnsReport(c.Request.Context(), organizationID, userID, startDate, endDate)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, report)
-}
-
-// GenerateWarrantyReport handles generating a warranty report
-// @Summary Generate warranty report
-// @Description Generate a warranty report
-// @Tags reports
-// @Accept json
-// @Produce json
-// @Success 200 {object} WarrantyReport
-// @Failure 400 {object} middleware.ErrorResponse
-// @Failure 401 {object} middleware.ErrorResponse
-// @Failure 500 {object} middleware.ErrorResponse
-// @Router /api/v1/reports/warranty [get]
-func (h *Handler) GenerateWarrantyReport(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
-	userID := middleware.GetUserID(c)
-
-	report, err := h.service.GenerateWarrantyReport(c.Request.Context(), organizationID, userID)
+	report, err := h.service.GenerateReturnsReport(c.Request.Context(), userID, startDate, endDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

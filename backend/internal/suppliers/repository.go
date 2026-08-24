@@ -22,12 +22,12 @@ func NewRepository(db *sqlx.DB) *Repository {
 // Create creates a new supplier
 func (r *Repository) Create(ctx context.Context, supplier *Supplier) error {
 	query := `
-		INSERT INTO suppliers (id, organization_id, code, name, email, phone, address, city, country, tax_id, payment_terms, credit_limit, current_balance, notes, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		INSERT INTO suppliers (id, code, name, email, phone, address, city, country, tax_id,
+			payment_terms, credit_limit, current_balance, notes, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		supplier.ID, supplier.OrganizationID, supplier.Code, supplier.Name,
-		supplier.Email, supplier.Phone, supplier.Address, supplier.City,
+		supplier.ID, supplier.Code, supplier.Name, supplier.Email, supplier.Phone, supplier.Address, supplier.City,
 		supplier.Country, supplier.TaxID, supplier.PaymentTerms, supplier.CreditLimit,
 		supplier.CurrentBalance, supplier.Notes, supplier.IsActive, supplier.CreatedAt, supplier.UpdatedAt,
 	)
@@ -38,14 +38,15 @@ func (r *Repository) Create(ctx context.Context, supplier *Supplier) error {
 }
 
 // GetByID retrieves a supplier by ID
-func (r *Repository) GetByID(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*Supplier, error) {
+func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Supplier, error) {
 	query := `
-		SELECT id, organization_id, code, name, email, phone, address, city, country, tax_id, payment_terms, credit_limit, current_balance, notes, is_active, created_at, updated_at
+		SELECT id, code, name, email, phone, address, city, country, tax_id,
+			payment_terms, credit_limit, current_balance, notes, is_active, created_at, updated_at
 		FROM suppliers
-		WHERE id = $1 AND organization_id = $2
+		WHERE id = $1
 	`
 	var supplier Supplier
-	err := r.db.GetContext(ctx, &supplier, query, id, organizationID)
+	err := r.db.GetContext(ctx, &supplier, query, id)
 	if err != nil {
 		return nil, ErrSupplierNotFound
 	}
@@ -53,14 +54,15 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID, organizationID u
 }
 
 // GetByCode retrieves a supplier by code
-func (r *Repository) GetByCode(ctx context.Context, code string, organizationID uuid.UUID) (*Supplier, error) {
+func (r *Repository) GetByCode(ctx context.Context, code string) (*Supplier, error) {
 	query := `
-		SELECT id, organization_id, code, name, email, phone, address, city, country, tax_id, payment_terms, credit_limit, current_balance, notes, is_active, created_at, updated_at
+		SELECT id, code, name, email, phone, address, city, country, tax_id,
+			payment_terms, credit_limit, current_balance, notes, is_active, created_at, updated_at
 		FROM suppliers
-		WHERE code = $1 AND organization_id = $2
+		WHERE code = $1
 	`
 	var supplier Supplier
-	err := r.db.GetContext(ctx, &supplier, query, code, organizationID)
+	err := r.db.GetContext(ctx, &supplier, query, code)
 	if err != nil {
 		return nil, ErrSupplierNotFound
 	}
@@ -68,20 +70,25 @@ func (r *Repository) GetByCode(ctx context.Context, code string, organizationID 
 }
 
 // List retrieves suppliers with pagination and filters
-func (r *Repository) List(ctx context.Context, organizationID uuid.UUID, page, perPage int, search string, isActive *bool) ([]Supplier, int, error) {
+func (r *Repository) List(ctx context.Context, page, perPage int, search string, isActive *bool) ([]Supplier, int, error) {
 	offset := (page - 1) * perPage
 
 	query := `
-		SELECT id, organization_id, code, name, email, phone, address, city, country, tax_id, payment_terms, credit_limit, current_balance, notes, is_active, created_at, updated_at
+		SELECT id, code, name, email, phone, address, city, country, tax_id,
+			payment_terms, credit_limit, current_balance, notes, is_active, created_at, updated_at
 		FROM suppliers
-		WHERE organization_id = $1
+		WHERE 1=1
 	`
-	args := []interface{}{organizationID}
-	argCount := 1
+	countQuery := `
+		SELECT COUNT(*) FROM suppliers WHERE 1=1
+	`
+	args := []interface{}{}
+	argCount := 0
 
 	if search != "" {
 		argCount++
 		query += fmt.Sprintf(" AND (name ILIKE $%d OR code ILIKE $%d OR email ILIKE $%d OR phone ILIKE $%d)", argCount, argCount, argCount, argCount)
+		countQuery += fmt.Sprintf(" AND (name ILIKE $%d OR code ILIKE $%d OR email ILIKE $%d OR phone ILIKE $%d)", argCount, argCount, argCount, argCount)
 		searchPattern := "%" + search + "%"
 		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
 		argCount += 3
@@ -90,13 +97,13 @@ func (r *Repository) List(ctx context.Context, organizationID uuid.UUID, page, p
 	if isActive != nil {
 		argCount++
 		query += fmt.Sprintf(" AND is_active = $%d", argCount)
+		countQuery += fmt.Sprintf(" AND is_active = $%d", argCount)
 		args = append(args, *isActive)
 	}
 
 	// Get total count
-	countQuery := "SELECT COUNT(*) FROM suppliers WHERE organization_id = $1"
-	countArgs := []interface{}{organizationID}
-	countArgCount := 1
+	countArgs := []interface{}{}
+	countArgCount := 0
 
 	if search != "" {
 		countArgCount++
@@ -136,13 +143,12 @@ func (r *Repository) Update(ctx context.Context, supplier *Supplier) error {
 	query := `
 		UPDATE suppliers
 		SET code = $2, name = $3, email = $4, phone = $5, address = $6, city = $7, country = $8, tax_id = $9, payment_terms = $10, credit_limit = $11, notes = $12, is_active = $13, updated_at = $14
-		WHERE id = $1 AND organization_id = $15
+		WHERE id = $1
 	`
 	result, err := r.db.ExecContext(ctx, query,
 		supplier.ID, supplier.Code, supplier.Name, supplier.Email, supplier.Phone,
 		supplier.Address, supplier.City, supplier.Country, supplier.TaxID, supplier.PaymentTerms,
 		supplier.CreditLimit, supplier.Notes, supplier.IsActive, supplier.UpdatedAt,
-		supplier.OrganizationID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update supplier: %w", err)
@@ -157,9 +163,9 @@ func (r *Repository) Update(ctx context.Context, supplier *Supplier) error {
 }
 
 // Delete deletes a supplier
-func (r *Repository) Delete(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	query := `DELETE FROM suppliers WHERE id = $1 AND organization_id = $2`
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM suppliers WHERE id = $1`
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete supplier: %w", err)
 	}
@@ -173,13 +179,13 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID, organizationID uu
 }
 
 // UpdateBalance updates supplier balance
-func (r *Repository) UpdateBalance(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID, amount float64) error {
+func (r *Repository) UpdateBalance(ctx context.Context, supplierID uuid.UUID, amount float64) error {
 	query := `
 		UPDATE suppliers
 		SET current_balance = current_balance + $1, updated_at = NOW()
-		WHERE id = $2 AND organization_id = $3
+		WHERE id = $2
 	`
-	result, err := r.db.ExecContext(ctx, query, amount, supplierID, organizationID)
+	result, err := r.db.ExecContext(ctx, query, amount, supplierID)
 	if err != nil {
 		return fmt.Errorf("failed to update supplier balance: %w", err)
 	}
@@ -193,7 +199,7 @@ func (r *Repository) UpdateBalance(ctx context.Context, supplierID uuid.UUID, or
 }
 
 // GetSupplierLedger retrieves supplier ledger entries
-func (r *Repository) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID) ([]LedgerEntry, float64, float64, float64, error) {
+func (r *Repository) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID) ([]LedgerEntry, float64, float64, float64, error) {
 	// Get ledger entries
 	query := `
 		SELECT id, supplier_id, type, amount, balance, description, reference_id, created_at
@@ -356,18 +362,17 @@ func (r *Repository) GetDebtCollections(ctx context.Context, supplierID uuid.UUI
 }
 
 // GetPendingDebtCollections retrieves pending debt collection actions
-func (r *Repository) GetPendingDebtCollections(ctx context.Context, organizationID uuid.UUID) ([]DebtCollection, error) {
+func (r *Repository) GetPendingDebtCollections(ctx context.Context) ([]DebtCollection, error) {
 	query := `
 		SELECT dc.id, dc.supplier_id, dc.type, dc.status, dc.notes, dc.scheduled_date, dc.completed_date, dc.created_at
 		FROM supplier_debt_collections dc
 		JOIN suppliers s ON dc.supplier_id = s.id
-		WHERE s.organization_id = $1
-		AND dc.status = 'pending'
+		WHERE dc.status = 'pending'
 		AND dc.scheduled_date <= NOW()
 		ORDER BY dc.scheduled_date ASC
 	`
 	var collections []DebtCollection
-	err := r.db.SelectContext(ctx, &collections, query, organizationID)
+	err := r.db.SelectContext(ctx, &collections, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pending debt collections: %w", err)
 	}

@@ -76,7 +76,7 @@ func main() {
 
 	// Expected tables from migrations
 	expectedTables := []string{
-		"organizations", "roles", "users", "categories", "brands", "products",
+		"roles", "users", "categories", "brands", "products",
 		"inventory_items", "locations", "reservations", "customers", "sales",
 		"sale_items", "suppliers", "purchases", "purchase_items", "expenses",
 		"returns", "return_items", "warranties", "warranty_claims", "inspections",
@@ -109,22 +109,18 @@ func main() {
 
 	// Check table structures
 	fmt.Println("\n🔍 Checking table structures...")
-	
-	// Check organizations table
-	fmt.Println("   organizations table:")
-	checkTableStructure(db, "organizations", []string{"id", "name", "slug", "email", "created_at"})
-	
+
 	// Check users table
 	fmt.Println("   users table:")
-	checkTableStructure(db, "users", []string{"id", "email", "password_hash", "organization_id", "created_at"})
-	
+	checkTableStructure(db, "users", []string{"id", "email", "password_hash", "created_at"})
+
 	// Check products table
 	fmt.Println("   products table:")
-	checkTableStructure(db, "products", []string{"id", "name", "sku", "barcode", "organization_id", "created_at"})
-	
+	checkTableStructure(db, "products", []string{"id", "name", "sku", "barcode", "created_at"})
+
 	// Check inventory_items table
 	fmt.Println("   inventory_items table:")
-	checkTableStructure(db, "inventory_items", []string{"id", "product_id", "barcode", "status", "organization_id", "created_at"})
+	checkTableStructure(db, "inventory_items", []string{"id", "product_id", "barcode", "status", "created_at"})
 }
 
 func checkTableStructure(db *sql.DB, tableName string, expectedColumns []string) {

@@ -26,4 +26,13 @@ var (
 
 	// ErrCreditLimitBelowBalance is returned when credit limit is set below current balance
 	ErrCreditLimitBelowBalance = errors.New("credit limit cannot be set below current balance")
+
+	// ErrCustomerHasOutstandingDebt is returned when trying to delete a customer with debt
+	ErrCustomerHasOutstandingDebt = errors.New("cannot delete customer with outstanding debt")
+
+	// ErrCustomerHasActiveTransactions is returned when trying to delete a customer with active transactions
+	ErrCustomerHasActiveTransactions = errors.New("cannot delete customer with active transactions")
+
+	// ErrCustomerHasActiveWarranties is returned when trying to delete a customer with active warranties
+	ErrCustomerHasActiveWarranties = errors.New("cannot delete customer with active warranties")
 )

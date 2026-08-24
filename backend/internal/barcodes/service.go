@@ -8,6 +8,19 @@ import (
 	"github.com/google/uuid"
 )
 
+// ProductInfo represents product information from barcode lookup
+type ProductInfo struct {
+	ID           uuid.UUID `json:"id"`
+	Name         string    `json:"name"`
+	SKU          string    `json:"sku"`
+	Barcode      string    `json:"barcode"`
+	SellingPrice float64   `json:"sellingPrice"`
+	CostPrice    float64   `json:"costPrice"`
+	Stock        int       `json:"stock"`
+	Condition    string    `json:"condition"`
+	Category     string    `json:"category"`
+}
+
 type Service struct {
 	repo *Repository
 }
@@ -17,8 +30,8 @@ func NewService(repo *Repository) *Service {
 }
 
 // LookupBarcode looks up a barcode and returns associated information
-func (s *Service) LookupBarcode(ctx context.Context, code string, organizationID uuid.UUID) (*Barcode, error) {
-	barcode, err := s.repo.GetBarcodeByCode(ctx, code, organizationID)
+func (s *Service) LookupBarcode(ctx context.Context, code string) (*Barcode, error) {
+	barcode, err := s.repo.GetBarcodeByCode(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("barcode not found: %w", err)
 	}
@@ -26,15 +39,34 @@ func (s *Service) LookupBarcode(ctx context.Context, code string, organizationID
 	return barcode, nil
 }
 
+// LookupProductByBarcode looks up product information by barcode code
+func (s *Service) LookupProductByBarcode(ctx context.Context, code string) (*ProductInfo, error) {
+	product, err := s.repo.GetProductByBarcode(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("product not found: %w", err)
+	}
+
+	return product, nil
+}
+
+// LookupProductBySKU looks up product information by SKU
+func (s *Service) LookupProductBySKU(ctx context.Context, sku string) (*ProductInfo, error) {
+	product, err := s.repo.GetProductBySKU(ctx, sku)
+	if err != nil {
+		return nil, fmt.Errorf("product not found: %w", err)
+	}
+
+	return product, nil
+}
+
 // GenerateBarcode generates a new barcode
-func (s *Service) GenerateBarcode(ctx context.Context, req *BarcodeGenerationRequest, organizationID uuid.UUID) (*Barcode, error) {
+func (s *Service) GenerateBarcode(ctx context.Context, req *BarcodeGenerationRequest) (*Barcode, error) {
 	// Generate barcode code based on type
 	code := generateBarcodeCode(req.Type, req.ProductID, req.InventoryItemID)
 
 	now := time.Now()
 	barcode := &Barcode{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		Code:           code,
 		Type:           req.Type,
 		ProductID:      req.ProductID,
@@ -51,30 +83,29 @@ func (s *Service) GenerateBarcode(ctx context.Context, req *BarcodeGenerationReq
 	return barcode, nil
 }
 
-// ListBarcodes lists all barcodes for an organization
-func (s *Service) ListBarcodes(ctx context.Context, organizationID uuid.UUID, page, perPage int) ([]*Barcode, int64, error) {
+// ListBarcodes lists all barcodes
+func (s *Service) ListBarcodes(ctx context.Context, page, perPage int) ([]*Barcode, int64, error) {
 	offset := (page - 1) * perPage
-	return s.repo.ListBarcodes(ctx, organizationID, perPage, offset)
+	return s.repo.ListBarcodes(ctx, perPage, offset)
 }
 
 // DeleteBarcode deletes a barcode
-func (s *Service) DeleteBarcode(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	return s.repo.DeleteBarcode(ctx, id, organizationID)
+func (s *Service) DeleteBarcode(ctx context.Context, id uuid.UUID) error {
+	return s.repo.DeleteBarcode(ctx, id)
 }
 
 // GenerateLabels generates printable labels for barcodes
-func (s *Service) GenerateLabels(ctx context.Context, req *LabelGenerationRequest, organizationID uuid.UUID) ([]*Label, error) {
+func (s *Service) GenerateLabels(ctx context.Context, req *LabelGenerationRequest) ([]*Label, error) {
 	var labels []*Label
 
 	for _, barcodeID := range req.BarcodeIDs {
-		barcode, err := s.repo.GetBarcodeByID(ctx, barcodeID, organizationID)
+		barcode, err := s.repo.GetBarcodeByID(ctx, barcodeID)
 		if err != nil {
 			continue // Skip invalid barcodes
 		}
 
 		label := &Label{
 			ID:             uuid.New(),
-			OrganizationID: organizationID,
 			BarcodeID:      barcodeID,
 			BarcodeCode:    barcode.Code,
 			ProductName:    req.ProductName,

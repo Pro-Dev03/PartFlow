@@ -8,26 +8,54 @@ export default {
   theme: {
     extend: {
       colors: {
-        // PartFlow Design System Colors (from demo.html)
-        bg: {
-          DEFAULT: '#070a12',
-          surface: '#0c111c',
-          surface2: '#111827',
-          surface3: '#151e2d',
+        // PartFlow Design System Colors - Use CSS variables for theme support
+        background: {
+          DEFAULT: 'var(--bg-background)',
+          surface: 'var(--bg-surface)',
+          'surface-elevated': 'var(--bg-surface-elevated)',
+          'surface-3': 'var(--bg-surface-3)',
         },
         surface: {
-          DEFAULT: '#0c111c',
-          2: '#111827',
-          3: '#151e2d',
+          DEFAULT: 'var(--bg-surface)',
+          elevated: 'var(--bg-surface-elevated)',
+          '3': 'var(--bg-surface-3)',
         },
         border: {
-          DEFAULT: 'rgba(148, 163, 184, 0.13)',
+          DEFAULT: 'var(--border-default)',
+          primary: 'var(--border-primary)',
         },
         text: {
-          DEFAULT: '#f1f7ff',
-          muted: '#8290a7',
+          DEFAULT: 'var(--text-primary)',
+          secondary: 'var(--text-secondary)',
+          tertiary: 'var(--text-tertiary)',
+          muted: 'var(--text-muted)',
+          disabled: 'var(--text-disabled)',
+          'on-primary': 'var(--text-on-primary)',
         },
-        // Accent Colors
+        // Primary/Accent colors - use CSS variables
+        primary: {
+          DEFAULT: 'var(--primary)',
+          hover: 'var(--primary-hover)',
+          active: 'var(--primary-active)',
+        },
+        // Status colors - use CSS variables
+        success: {
+          DEFAULT: 'var(--success)',
+          hover: 'var(--success-hover)',
+        },
+        warning: {
+          DEFAULT: 'var(--warning)',
+          hover: 'var(--warning-hover)',
+        },
+        danger: {
+          DEFAULT: 'var(--danger)',
+          hover: 'var(--danger-hover)',
+        },
+        info: {
+          DEFAULT: 'var(--info)',
+          hover: 'var(--info-hover)',
+        },
+        // Accent Colors (static - don't change between themes)
         cyan: {
           DEFAULT: '#22d3ee',
           50: '#cffafe',
@@ -93,28 +121,6 @@ export default {
           800: '#9f1239',
           900: '#881337',
         },
-        // Legacy color names for compatibility
-        primary: {
-          DEFAULT: '#22d3ee',
-          hover: '#06b6d4',
-          active: '#0891b2',
-        },
-        success: {
-          DEFAULT: '#34d399',
-          hover: '#10b981',
-        },
-        warning: {
-          DEFAULT: '#fbbf24',
-          hover: '#f59e0b',
-        },
-        danger: {
-          DEFAULT: '#fb7185',
-          hover: '#f43f5e',
-        },
-        info: {
-          DEFAULT: '#38bdf8',
-          hover: '#0ea5e9',
-        },
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
@@ -131,13 +137,9 @@ export default {
         'metric': ['27px', { lineHeight: '1.2', fontWeight: '750' }],
         'eyebrow': ['10px', { lineHeight: '1.4', letterSpacing: '2px', textTransform: 'uppercase' }],
         'section-title': ['10px', { lineHeight: '1.4', letterSpacing: '1.7px', textTransform: 'uppercase' }],
-        // Legacy for compatibility
-        'page-title': ['30px', { lineHeight: '1.2', letterSpacing: '-1px', fontWeight: '800' }],
-        'card-title': ['14px', { lineHeight: '1.4', fontWeight: '650' }],
-        'caption': ['11px', { lineHeight: '1.5' }],
       },
       spacing: {
-        // PartFlow Design System Spacing
+        // PartFlow Design System Spacing - تطابق tokens.css
         'xs': '4px',
         'sm': '9px',
         'md': '14px',
@@ -146,7 +148,7 @@ export default {
         '2xl': '28px',
         '3xl': '32px',
         '4xl': '50px',
-        // Legacy for compatibility
+        // Spacing Numeric - لدعم الـcomponents القديمة
         '1': '4px',
         '2': '8px',
         '3': '12px',
@@ -158,6 +160,39 @@ export default {
         '12': '48px',
         '16': '64px',
       },
+      padding: {
+        // PartFlow Design System Padding - تطابق tokens.css
+        'xs': '4px',
+        'sm': '9px',
+        'md': '14px',
+        'lg': '18px',
+        'xl': '22px',
+        '2xl': '28px',
+        '3xl': '32px',
+        '4xl': '50px',
+      },
+      gap: {
+        // Tailwind gap utilities - تطابق tokens.css
+        'xs': '4px',
+        'sm': '9px',
+        'md': '14px',
+        'lg': '18px',
+        'xl': '22px',
+        '2xl': '28px',
+        '3xl': '32px',
+        '4xl': '50px',
+      },
+      space: {
+        // Tailwind space utilities - تطابق tokens.css
+        'xs': '4px',
+        'sm': '9px',
+        'md': '14px',
+        'lg': '18px',
+        'xl': '22px',
+        '2xl': '28px',
+        '3xl': '32px',
+        '4xl': '50px',
+      },
       borderRadius: {
         // PartFlow Design System Radius
         'sm': '10px',
@@ -166,31 +201,29 @@ export default {
         'full': '999px',
       },
       boxShadow: {
-        // PartFlow Design System Shadows
+        // PartFlow Design System Shadows - تطابق tokens.css
+        'sm': '0 1px 2px rgba(0, 0, 0, 0.05)',
+        'md': '0 4px 6px rgba(0, 0, 0, 0.1)',
+        'lg': '0 10px 15px rgba(0, 0, 0, 0.1)',
+        'xl': '0 20px 25px rgba(0, 0, 0, 0.15)',
         'card': '0 15px 50px rgba(0, 0, 0, 0.20)',
         'glow': '0 0 25px rgba(34, 211, 238, 0.07)',
         'glow-strong': '0 0 30px rgba(34, 211, 238, 0.10)',
         'glow-soft': '0 0 20px rgba(34, 211, 238, 0.08)',
         'nav-active': 'inset 2px 0 0 #22d3ee, 0 0 20px rgba(34, 211, 238, 0.04)',
-        // Legacy for compatibility
-        'sm': '0 1px 2px rgba(0, 0, 0, 0.05)',
-        'md': '0 4px 6px rgba(0, 0, 0, 0.1)',
-        'lg': '0 10px 15px rgba(0, 0, 0, 0.1)',
-        'xl': '0 20px 25px rgba(0, 0, 0, 0.1)',
       },
       transitionDuration: {
-        // PartFlow Design System Transitions
+        // PartFlow Design System Transitions - تطابق tokens.css
         'fast': '150ms',
-        'normal': '180ms',
-        'slow': '200ms',
+        'normal': '200ms',
+        'slow': '300ms',
         'slower': '250ms',
-        // Legacy for compatibility
-        'DEFAULT': '180ms',
       },
       transitionTimingFunction: {
-        'default': 'ease',
-        'in': 'ease-in',
-        'out': 'ease-out',
+        // PartFlow Design System Easing - تطابق tokens.css
+        'default': 'cubic-bezier(0.4, 0, 0.2, 1)',
+        'in': 'cubic-bezier(0.4, 0, 1, 1)',
+        'out': 'cubic-bezier(0, 0, 0.2, 1)',
       },
       zIndex: {
         // PartFlow Design System Z-Index
@@ -199,14 +232,10 @@ export default {
         'sticky': '20',
         'modal': '100',
         'tooltip': '200',
-        // Legacy for compatibility
-        'fixed': '50',
-        'modal-backdrop': '90',
-        'popover': '150',
       },
       backgroundImage: {
         // PartFlow Design System Gradients
-        'bg-gradient': 'radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.10), transparent 30%), radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.08), transparent 30%), #070a12',
+        'background-gradient': 'radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.10), transparent 30%), radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.08), transparent 30%), #070a12',
         'sidebar-gradient': 'linear-gradient(180deg, rgba(12, 17, 28, 0.92), rgba(7, 10, 18, 0.86))',
         'card-gradient': 'linear-gradient(145deg, rgba(17, 24, 39, 0.92), rgba(9, 14, 24, 0.92))',
         'card-ai-gradient': 'linear-gradient(145deg, rgba(34, 211, 238, 0.07), rgba(17, 24, 39, 0.92))',
@@ -216,27 +245,79 @@ export default {
         'chart-bar-gradient': 'linear-gradient(180deg, rgba(34, 211, 238, 0.90), rgba(59, 130, 246, 0.12))',
       },
       animation: {
-        // PartFlow Design System Animations
-        'slide-in-from-top': 'slideInFromTop 0.3s ease-out',
+        // PartFlow Design System Animations (kebab-case only)
         'fade-in': 'fadeIn 0.2s ease-out',
+        'fade-out': 'fadeOut 0.2s ease-in',
+        'fade-in-up': 'fadeInUp 0.3s ease-out',
+        'fade-in-scale': 'fadeInScale 0.3s ease-out',
         'scale-in': 'scaleIn 0.2s ease-out',
+        'scale-out': 'scaleOut 0.2s ease-in',
+        'slide-in-up': 'slideInUp 0.3s ease-out',
+        'slide-in-down': 'slideInDown 0.3s ease-out',
+        'slide-in-left': 'slideInLeft 0.3s ease-out',
+        'slide-in-right': 'slideInRight 0.3s ease-out',
+        'slide-in-from-top': 'slideInFromTop 0.3s ease-out',
+        'slide-in-from-left-with-fade': 'slideInFromLeftWithFade 0.4s ease-out',
+        'slide-in-from-right-with-fade': 'slideInFromRightWithFade 0.4s ease-out',
         'glow-pulse': 'glowPulse 2s ease-in-out infinite',
         'float': 'float 3s ease-in-out infinite',
-        'slide-in-right': 'slideInRight 0.3s ease-out',
-        'slide-in-left': 'slideInLeft 0.3s ease-out',
+        'bounce-in': 'bounceIn 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55)',
+        'flip-in': 'flipIn 0.6s ease-in-out',
+        'rotate-in': 'rotateIn 0.6s ease-out',
+        'zoom-in': 'zoomIn 0.3s ease-out',
       },
       keyframes: {
-        slideInFromTop: {
-          '0%': { transform: 'translateY(-10px)', opacity: '0' },
-          '100%': { transform: 'translateY(0)', opacity: '1' },
-        },
         fadeIn: {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
         },
+        fadeOut: {
+          '0%': { opacity: '1' },
+          '100%': { opacity: '0' },
+        },
+        fadeInUp: {
+          '0%': { transform: 'translateY(20px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+        fadeInScale: {
+          '0%': { transform: 'scale(0.95)', opacity: '0' },
+          '100%': { transform: 'scale(1)', opacity: '1' },
+        },
         scaleIn: {
           '0%': { transform: 'scale(0.95)', opacity: '0' },
           '100%': { transform: 'scale(1)', opacity: '1' },
+        },
+        scaleOut: {
+          '0%': { transform: 'scale(1)', opacity: '1' },
+          '100%': { transform: 'scale(0.95)', opacity: '0' },
+        },
+        slideInUp: {
+          '0%': { transform: 'translateY(20px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+        slideInDown: {
+          '0%': { transform: 'translateY(-20px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+        slideInLeft: {
+          '0%': { transform: 'translateX(-20px)', opacity: '0' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
+        },
+        slideInRight: {
+          '0%': { transform: 'translateX(20px)', opacity: '0' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
+        },
+        slideInFromTop: {
+          '0%': { transform: 'translateY(-10px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+        slideInFromLeftWithFade: {
+          '0%': { transform: 'translateX(-100%)', opacity: '0' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
+        },
+        slideInFromRightWithFade: {
+          '0%': { transform: 'translateX(100%)', opacity: '0' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
         },
         glowPulse: {
           '0%, 100%': { boxShadow: '0 0 25px rgba(34, 211, 238, 0.07)' },
@@ -246,13 +327,23 @@ export default {
           '0%, 100%': { transform: 'translateY(0)' },
           '50%': { transform: 'translateY(-5px)' },
         },
-        slideInRight: {
-          '0%': { transform: 'translateX(10px)', opacity: '0' },
-          '100%': { transform: 'translateX(0)', opacity: '1' },
+        bounceIn: {
+          '0%': { transform: 'scale(0.3)', opacity: '0' },
+          '50%': { transform: 'scale(1.05)', opacity: '1' },
+          '70%': { transform: 'scale(0.9)' },
+          '100%': { transform: 'scale(1)' },
         },
-        slideInLeft: {
-          '0%': { transform: 'translateX(-10px)', opacity: '0' },
-          '100%': { transform: 'translateX(0)', opacity: '1' },
+        flipIn: {
+          '0%': { transform: 'perspective(400px) rotateY(90deg)', opacity: '0' },
+          '100%': { transform: 'perspective(400px) rotateY(0deg)', opacity: '1' },
+        },
+        rotateIn: {
+          '0%': { transform: 'rotate(-200deg)', opacity: '0' },
+          '100%': { transform: 'rotate(0deg)', opacity: '1' },
+        },
+        zoomIn: {
+          '0%': { transform: 'scale(0.5)', opacity: '0' },
+          '100%': { transform: 'scale(1)', opacity: '1' },
         },
       },
     },

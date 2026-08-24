@@ -1,10 +1,7 @@
 package search
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/partflow/smart-store/pkg/response"
 )
 
@@ -26,13 +23,7 @@ func (h *Handler) Search(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	results, err := h.service.Search(c.Request.Context(), organizationID.(uuid.UUID), &req)
+	results, err := h.service.Search(c.Request.Context(), &req)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -43,13 +34,7 @@ func (h *Handler) Search(c *gin.Context) {
 
 // GetSearchStats handles search statistics retrieval
 func (h *Handler) GetSearchStats(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	stats, err := h.service.GetSearchStats(c.Request.Context(), organizationID.(uuid.UUID))
+	stats, err := h.service.GetSearchStats(c.Request.Context())
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

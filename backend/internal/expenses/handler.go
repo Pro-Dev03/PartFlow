@@ -39,10 +39,9 @@ func (h *Handler) CreateExpense(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	response, err := h.service.CreateExpense(c.Request.Context(), organizationID, userID, &req)
+	response, err := h.service.CreateExpense(c.Request.Context(), userID, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -71,9 +70,8 @@ func (h *Handler) GetExpense(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.GetExpense(c.Request.Context(), id, organizationID)
+	response, err := h.service.GetExpense(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -145,9 +143,8 @@ func (h *Handler) ListExpenses(c *gin.Context) {
 		}
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	expenses, total, err := h.service.ListExpenses(c.Request.Context(), organizationID, req)
+	expenses, total, err := h.service.ListExpenses(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -191,9 +188,8 @@ func (h *Handler) UpdateExpense(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.UpdateExpense(c.Request.Context(), id, organizationID, &req)
+	response, err := h.service.UpdateExpense(c.Request.Context(), id, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -222,9 +218,8 @@ func (h *Handler) DeleteExpense(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	if err := h.service.DeleteExpense(c.Request.Context(), id, organizationID); err != nil {
+	if err := h.service.DeleteExpense(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -252,10 +247,9 @@ func (h *Handler) ApproveExpense(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	response, err := h.service.ApproveExpense(c.Request.Context(), id, organizationID, userID)
+	response, err := h.service.ApproveExpense(c.Request.Context(), id, userID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -284,9 +278,8 @@ func (h *Handler) RejectExpense(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.RejectExpense(c.Request.Context(), id, organizationID)
+	response, err := h.service.RejectExpense(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -314,9 +307,8 @@ func (h *Handler) CreateExpenseCategory(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	category, err := h.service.CreateExpenseCategory(c.Request.Context(), organizationID, &req)
+	category, err := h.service.CreateExpenseCategory(c.Request.Context(), &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -345,9 +337,8 @@ func (h *Handler) GetExpenseCategory(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	category, err := h.service.GetExpenseCategory(c.Request.Context(), id, organizationID)
+	category, err := h.service.GetExpenseCategory(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -394,9 +385,8 @@ func (h *Handler) ListExpenseCategories(c *gin.Context) {
 	req.SortBy = c.DefaultQuery("sort_by", "name")
 	req.SortOrder = c.DefaultQuery("sort_order", "ASC")
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	categories, total, err := h.service.ListExpenseCategories(c.Request.Context(), organizationID, req)
+	categories, total, err := h.service.ListExpenseCategories(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -440,9 +430,8 @@ func (h *Handler) UpdateExpenseCategory(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	category, err := h.service.UpdateExpenseCategory(c.Request.Context(), id, organizationID, &req)
+	category, err := h.service.UpdateExpenseCategory(c.Request.Context(), id, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -471,9 +460,8 @@ func (h *Handler) DeleteExpenseCategory(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	if err := h.service.DeleteExpenseCategory(c.Request.Context(), id, organizationID); err != nil {
+	if err := h.service.DeleteExpenseCategory(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -493,9 +481,8 @@ func (h *Handler) DeleteExpenseCategory(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/expenses/summary [get]
 func (h *Handler) GetExpenseSummary(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 
-	summary, err := h.service.GetExpenseSummary(c.Request.Context(), organizationID)
+	summary, err := h.service.GetExpenseSummary(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

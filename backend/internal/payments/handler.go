@@ -26,19 +26,13 @@ func (h *Handler) CreatePayment(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
 	userID, exists := c.Get("user_id")
 	if !exists {
-		response.BadRequest(c, "user_id required")
+		response.Unauthorized(c, "user not authenticated")
 		return
 	}
 
-	payment, err := h.service.CreatePayment(c.Request.Context(), organizationID.(uuid.UUID), userID.(uuid.UUID), &req)
+	payment, err := h.service.CreatePayment(c.Request.Context(), userID.(uuid.UUID), &req)
 	if err != nil {
 		switch err {
 		case ErrInvalidPaymentType, ErrInvalidAmount:
@@ -60,13 +54,7 @@ func (h *Handler) GetPayment(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	payment, err := h.service.GetPayment(c.Request.Context(), id, organizationID.(uuid.UUID))
+	payment, err := h.service.GetPayment(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrPaymentNotFound {
 			response.NotFound(c, "payment not found")
@@ -81,11 +69,6 @@ func (h *Handler) GetPayment(c *gin.Context) {
 
 // ListPayments handles payment listing
 func (h *Handler) ListPayments(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
 
 	page := 1
 	perPage := 20
@@ -116,7 +99,7 @@ func (h *Handler) ListPayments(c *gin.Context) {
 		filters["method"] = method
 	}
 
-	payments, total, err := h.service.ListPayments(c.Request.Context(), organizationID.(uuid.UUID), page, perPage, filters)
+	payments, total, err := h.service.ListPayments(c.Request.Context(), page, perPage, filters)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -144,13 +127,7 @@ func (h *Handler) UpdatePayment(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	payment, err := h.service.UpdatePayment(c.Request.Context(), id, organizationID.(uuid.UUID), &req)
+	payment, err := h.service.UpdatePayment(c.Request.Context(), id, &req)
 	if err != nil {
 		switch err {
 		case ErrPaymentNotFound:
@@ -174,13 +151,7 @@ func (h *Handler) DeletePayment(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	if err := h.service.DeletePayment(c.Request.Context(), id, organizationID.(uuid.UUID)); err != nil {
+	if err := h.service.DeletePayment(c.Request.Context(), id); err != nil {
 		switch err {
 		case ErrPaymentNotFound:
 			response.NotFound(c, "payment not found")
@@ -203,13 +174,7 @@ func (h *Handler) CompletePayment(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	payment, err := h.service.CompletePayment(c.Request.Context(), id, organizationID.(uuid.UUID))
+	payment, err := h.service.CompletePayment(c.Request.Context(), id)
 	if err != nil {
 		switch err {
 		case ErrPaymentNotFound:
@@ -233,13 +198,7 @@ func (h *Handler) CancelPayment(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	payment, err := h.service.CancelPayment(c.Request.Context(), id, organizationID.(uuid.UUID))
+	payment, err := h.service.CancelPayment(c.Request.Context(), id)
 	if err != nil {
 		switch err {
 		case ErrPaymentNotFound:
@@ -257,13 +216,7 @@ func (h *Handler) CancelPayment(c *gin.Context) {
 
 // GetPaymentSummary handles payment summary retrieval
 func (h *Handler) GetPaymentSummary(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	summary, err := h.service.GetPaymentSummary(c.Request.Context(), organizationID.(uuid.UUID))
+	summary, err := h.service.GetPaymentSummary(c.Request.Context())
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

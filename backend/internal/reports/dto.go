@@ -22,12 +22,11 @@ func (r *Report) ToReportListItem(generatorName string) map[string]interface{} {
 }
 
 // CreateReport creates a Report from request
-func CreateReport(organizationID uuid.UUID, userID uuid.UUID, req *ReportRequest) *Report {
+func CreateReport(userID uuid.UUID, req *ReportRequest) *Report {
 	parametersJSON, _ := json.Marshal(req.Parameters)
-	
+
 	return &Report{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		Type:           req.Type,
 		Title:          req.Title,
 		Description:    req.Description,

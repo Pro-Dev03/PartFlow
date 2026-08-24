@@ -24,7 +24,7 @@ func (n *Notification) ToNotificationListItem() map[string]interface{} {
 }
 
 // CreateNotification creates a Notification from request
-func CreateNotification(organizationID uuid.UUID, req *NotificationRequest) *Notification {
+func CreateNotification(req *NotificationRequest) *Notification {
 	var expiresAt *time.Time
 	if req.ExpiresIn > 0 {
 		exp := time.Now().Add(time.Duration(req.ExpiresIn) * time.Hour)
@@ -33,7 +33,6 @@ func CreateNotification(organizationID uuid.UUID, req *NotificationRequest) *Not
 
 	return &Notification{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		UserID:         req.UserID,
 		Type:           req.Type,
 		Title:          req.Title,
@@ -124,16 +123,14 @@ func (n *Notification) ParseData() (map[string]interface{}, error) {
 }
 
 // CreateDefaultPreferences creates default notification preferences for a user
-func CreateDefaultPreferences(organizationID uuid.UUID, userID uuid.UUID) *NotificationPreferences {
+func CreateDefaultPreferences(userID uuid.UUID) *NotificationPreferences {
 	return &NotificationPreferences{
 		ID:               uuid.New(),
 		UserID:           userID,
-		OrganizationID:   organizationID,
 		EmailEnabled:     true,
 		PushEnabled:      true,
 		LowStock:         true,
 		DebtOverdue:      true,
-		WarrantyExpiring: true,
 		ReturnRequests:   true,
 		ExpenseApproval:  true,
 		SalesUpdates:     false,

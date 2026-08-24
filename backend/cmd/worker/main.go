@@ -12,9 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
-	"smart-store/pkg/config"
-	"smart-store/pkg/database"
-	"smart-store/pkg/logger"
+	"github.com/partflow/smart-store/pkg/config"
+	"github.com/partflow/smart-store/pkg/database"
+	"github.com/partflow/smart-store/pkg/logger"
 )
 
 func main() {
@@ -25,12 +25,11 @@ func main() {
 	}
 
 	// Initialize logger
-	logger.Init()
-	logger.Info().Msg("Starting PartFlow Worker Service...")
+	logger.Info("Starting PartFlow Worker Service...", nil)
 
 	// Initialize database
 	if err := database.Initialize(); err != nil {
-		logger.Fatal().Err(err).Msg("Failed to initialize database")
+		logger.Fatal("Failed to initialize database", err, nil)
 	}
 	defer database.Close()
 
@@ -39,20 +38,19 @@ func main() {
 	defer cancel()
 
 	// Start background workers
-	go startReservationExpirationWorker(ctx, database.GetDB().(*sqlx.DB))
-	go startDebtScanWorker(ctx, database.GetDB().(*sqlx.DB))
-	go startWarrantyExpirationWorker(ctx, database.GetDB().(*sqlx.DB))
-	go startLowStockScanWorker(ctx, database.GetDB().(*sqlx.DB))
-	go startDailyInsightsWorker(ctx, database.GetDB().(*sqlx.DB))
+	go startReservationExpirationWorker(ctx, database.GetDB())
+	go startDebtScanWorker(ctx, database.GetDB())
+	go startLowStockScanWorker(ctx, database.GetDB())
+	go startDailyInsightsWorker(ctx, database.GetDB())
 
-	logger.Info().Msg("Worker service started successfully")
+	logger.Info("Worker service started successfully", nil)
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	logger.Info().Msg("Shutting down worker service...")
+	logger.Info("Shutting down worker service...", nil)
 
 	// Cancel context to stop all workers
 	cancel()
@@ -60,7 +58,7 @@ func main() {
 	// Give workers time to clean up
 	time.Sleep(5 * time.Second)
 
-	logger.Info().Msg("Worker service exited")
+	logger.Info("Worker service exited", nil)
 }
 
 // startReservationExpirationWorker checks for expired reservations
@@ -71,10 +69,10 @@ func startReservationExpirationWorker(ctx context.Context, db *sqlx.DB) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info().Msg("Reservation expiration worker stopped")
+			logger.Info("Reservation expiration worker stopped", nil)
 			return
 		case <-ticker.C:
-			logger.Info().Msg("Checking for expired reservations...")
+			logger.Info("Checking for expired reservations...", nil)
 			processExpiredReservations(ctx, db)
 		}
 	}
@@ -83,20 +81,19 @@ func startReservationExpirationWorker(ctx context.Context, db *sqlx.DB) {
 func processExpiredReservations(ctx context.Context, db *sqlx.DB) {
 	// Find expired active reservations
 	query := `
-		SELECT id, item_id, organization_id 
+		SELECT id, item_id 
 		FROM reservations 
 		WHERE status = 'active' AND expires_at < NOW()
 	`
 	
 	var expiredReservations []struct {
-		ID             uuid.UUID `db:"id"`
-		ItemID         uuid.UUID `db:"item_id"`
-		OrganizationID uuid.UUID `db:"organization_id"`
+		ID     uuid.UUID `db:"id"`
+		ItemID uuid.UUID `db:"item_id"`
 	}
 	
 	err := db.SelectContext(ctx, &expiredReservations, query)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to fetch expired reservations")
+		logger.Error("Failed to fetch expired reservations", err, nil)
 		return
 	}
 	
@@ -104,7 +101,7 @@ func processExpiredReservations(ctx context.Context, db *sqlx.DB) {
 	for _, reservation := range expiredReservations {
 		tx, err := db.BeginTxx(ctx, nil)
 		if err != nil {
-			logger.Error().Err(err).Msg("Failed to begin transaction")
+			logger.Error("Failed to begin transaction", err, nil)
 			continue
 		}
 		
@@ -113,7 +110,7 @@ func processExpiredReservations(ctx context.Context, db *sqlx.DB) {
 		_, err = tx.ExecContext(ctx, updateQuery, reservation.ID)
 		if err != nil {
 			tx.Rollback()
-			logger.Error().Err(err).Msg("Failed to update reservation status")
+			logger.Error("Failed to update reservation status", err, nil)
 			continue
 		}
 		
@@ -122,35 +119,35 @@ func processExpiredReservations(ctx context.Context, db *sqlx.DB) {
 		_, err = tx.ExecContext(ctx, updateItemQuery, reservation.ItemID)
 		if err != nil {
 			tx.Rollback()
-			logger.Error().Err(err).Msg("Failed to update item status")
+			logger.Error("Failed to update item status", err, nil)
 			continue
 		}
 		
 		// Create movement record
 		movementQuery := `
-			INSERT INTO inventory_movements (id, organization_id, item_id, movement_type, 
+			INSERT INTO inventory_movements (id, item_id, movement_type, 
 				quantity, before_quantity, after_quantity, reference_type, reference_id, 
 				reason, created_by, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		`
 		_, err = tx.ExecContext(ctx, movementQuery,
-			uuid.New(), reservation.OrganizationID, reservation.ItemID, "RELEASE",
+			uuid.New(), reservation.ItemID, "RELEASE",
 			1, 0, 1, "reservation", reservation.ID, "Reservation expired", uuid.Nil, time.Now())
 		if err != nil {
 			tx.Rollback()
-			logger.Error().Err(err).Msg("Failed to create movement record")
+			logger.Error("Failed to create movement record", err, nil)
 			continue
 		}
-		
+
 		if err := tx.Commit(); err != nil {
-			logger.Error().Err(err).Msg("Failed to commit transaction")
+			logger.Error("Failed to commit transaction", err, nil)
 			continue
 		}
-		
-		logger.Info().Msgf("Processed expired reservation %s", reservation.ID)
+
+		logger.Info(fmt.Sprintf("Processed expired reservation %s", reservation.ID), nil)
 	}
 	
-	logger.Info().Msgf("Processed %d expired reservations", len(expiredReservations))
+	logger.Info(fmt.Sprintf("Processed %d expired reservations", len(expiredReservations)), nil)
 }
 
 // startDebtScanWorker scans for overdue debts
@@ -161,10 +158,10 @@ func startDebtScanWorker(ctx context.Context, db *sqlx.DB) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info().Msg("Debt scan worker stopped")
+			logger.Info("Debt scan worker stopped", nil)
 			return
 		case <-ticker.C:
-			logger.Info().Msg("Scanning for overdue debts...")
+			logger.Info("Scanning for overdue debts...", nil)
 			processOverdueDebts(ctx, db)
 		}
 	}
@@ -173,7 +170,7 @@ func startDebtScanWorker(ctx context.Context, db *sqlx.DB) {
 func processOverdueDebts(ctx context.Context, db *sqlx.DB) {
 	// Find overdue debts
 	query := `
-		SELECT id, customer_id, organization_id, remaining_amount, due_date 
+		SELECT id, customer_id, remaining_amount, due_date 
 		FROM debts 
 		WHERE status = 'pending' AND due_date < NOW()
 	`
@@ -181,7 +178,6 @@ func processOverdueDebts(ctx context.Context, db *sqlx.DB) {
 	var overdueDebts []struct {
 		ID             uuid.UUID `db:"id"`
 		CustomerID     uuid.UUID `db:"customer_id"`
-		OrganizationID uuid.UUID `db:"organization_id"`
 		RemainingAmount float64  `db:"remaining_amount"`
 		DueDate        time.Time `db:"due_date"`
 	}
@@ -204,19 +200,19 @@ func processOverdueDebts(ctx context.Context, db *sqlx.DB) {
 		
 		// Create notification for customer
 		notificationQuery := `
-			INSERT INTO notifications (id, organization_id, user_id, type, title, message, 
+			INSERT INTO notifications (id, user_id, type, title, message, 
 				data, is_read, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 		`
 		
-		// Get organization users to notify
+		// Get all active users to notify
 		var users []uuid.UUID
-		userQuery := `SELECT id FROM users WHERE organization_id = $1 AND is_active = true`
-		db.SelectContext(ctx, &users, userQuery, debt.OrganizationID)
+		userQuery := `SELECT id FROM users WHERE is_active = true`
+		db.SelectContext(ctx, &users)
 		
 		for _, userID := range users {
 			_, err = db.ExecContext(ctx, notificationQuery,
-				uuid.New(), debt.OrganizationID, userID, "debt_overdue",
+				uuid.New(), userID, "debt_overdue",
 				"Overdue Payment Alert",
 				fmt.Sprintf("Customer has overdue payment of %.2f due on %s", debt.RemainingAmount, debt.DueDate.Format("2006-01-02")),
 				fmt.Sprintf(`{"debt_id": "%s", "customer_id": "%s", "amount": %.2f}`, debt.ID, debt.CustomerID, debt.RemainingAmount),
@@ -232,77 +228,7 @@ func processOverdueDebts(ctx context.Context, db *sqlx.DB) {
 	logger.Info().Msgf("Processed %d overdue debts", len(overdueDebts))
 }
 
-// startWarrantyExpirationWorker checks for expiring warranties
-func startWarrantyExpirationWorker(ctx context.Context, db *sqlx.DB) {
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info().Msg("Warranty expiration worker stopped")
-			return
-		case <-ticker.C:
-			logger.Info().Msg("Checking for expiring warranties...")
-		 processExpiringWarranties(ctx, db)
-		}
-	}
-}
-
-func processExpiringWarranties(ctx context.Context, db *sqlx.DB) {
-	// Find warranties expiring in the next 30 days
-	query := `
-		SELECT id, organization_id, sale_id, product_id, expires_at 
-		FROM warranties 
-		WHERE is_active = true AND expires_at BETWEEN NOW() AND NOW() + INTERVAL '30 days'
-	`
-	
-	var expiringWarranties []struct {
-		ID             uuid.UUID `db:"id"`
-		OrganizationID uuid.UUID `db:"organization_id"`
-		SaleID         uuid.UUID `db:"sale_id"`
-		ProductID      uuid.UUID `db:"product_id"`
-		ExpiresAt      time.Time `db:"expires_at"`
-	}
-	
-	err := db.SelectContext(ctx, &expiringWarranties, query)
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to fetch expiring warranties")
-		return
-	}
-	
-	// Process each expiring warranty
-	for _, warranty := range expiringWarranties {
-		// Get organization users to notify
-		var users []uuid.UUID
-		userQuery := `SELECT id FROM users WHERE organization_id = $1 AND is_active = true`
-		db.SelectContext(ctx, &users, userQuery, warranty.OrganizationID)
-		
-		// Create notification for each user
-		notificationQuery := `
-			INSERT INTO notifications (id, organization_id, user_id, type, title, message, 
-				data, is_read, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-		`
-		
-		for _, userID := range users {
-			_, err = db.ExecContext(ctx, notificationQuery,
-				uuid.New(), warranty.OrganizationID, userID, "warranty_expiring",
-				"Warranty Expiring Soon",
-				fmt.Sprintf("Warranty expires on %s for product", warranty.ExpiresAt.Format("2006-01-02")),
-				fmt.Sprintf(`{"warranty_id": "%s", "sale_id": "%s", "product_id": "%s", "expires_at": "%s"}`, 
-					warranty.ID, warranty.SaleID, warranty.ProductID, warranty.ExpiresAt.Format(time.RFC3339)),
-				false)
-			if err != nil {
-				logger.Error().Err(err).Msg("Failed to create notification")
-			}
-		}
-		
-		logger.Info().Msgf("Processed expiring warranty %s", warranty.ID)
-	}
-	
-	logger.Info().Msgf("Processed %d expiring warranties", len(expiringWarranties))
-}
 
 // startLowStockScanWorker scans for low stock items
 func startLowStockScanWorker(ctx context.Context, db *sqlx.DB) {
@@ -324,21 +250,20 @@ func startLowStockScanWorker(ctx context.Context, db *sqlx.DB) {
 func processLowStockItems(ctx context.Context, db *sqlx.DB) {
 	// Find products with low stock
 	query := `
-		SELECT p.id, p.name, p.organization_id, p.min_stock_level, 
+		SELECT p.id, p.name, p.min_stock_level, 
 		       COALESCE(SUM(ii.quantity), 0) as current_stock
 		FROM products p
 		LEFT JOIN inventory_items ii ON p.id = ii.product_id AND ii.status = 'AVAILABLE'
 		WHERE p.is_active = true
-		GROUP BY p.id, p.name, p.organization_id, p.min_stock_level
+		GROUP BY p.id, p.name, p.min_stock_level
 		HAVING COALESCE(SUM(ii.quantity), 0) <= p.min_stock_level
 	`
 	
 	var lowStockItems []struct {
-		ID             uuid.UUID `db:"id"`
-		Name           string    `db:"name"`
-		OrganizationID uuid.UUID `db:"organization_id"`
-		MinStockLevel  int       `db:"min_stock_level"`
-		CurrentStock   int       `db:"current_stock"`
+		ID            uuid.UUID `db:"id"`
+		Name          string    `db:"name"`
+		MinStockLevel int       `db:"min_stock_level"`
+		CurrentStock  int       `db:"current_stock"`
 	}
 	
 	err := db.SelectContext(ctx, &lowStockItems, query)
@@ -349,21 +274,21 @@ func processLowStockItems(ctx context.Context, db *sqlx.DB) {
 	
 	// Process each low stock item
 	for _, item := range lowStockItems {
-		// Get organization users to notify
+		// Get all active users to notify
 		var users []uuid.UUID
-		userQuery := `SELECT id FROM users WHERE organization_id = $1 AND is_active = true`
-		db.SelectContext(ctx, &users, userQuery, item.OrganizationID)
+		userQuery := `SELECT id FROM users WHERE is_active = true`
+		db.SelectContext(ctx, &users)
 		
 		// Create notification for each user
 		notificationQuery := `
-			INSERT INTO notifications (id, organization_id, user_id, type, title, message, 
+			INSERT INTO notifications (id, user_id, type, title, message, 
 				data, is_read, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 		`
 		
 		for _, userID := range users {
 			_, err = db.ExecContext(ctx, notificationQuery,
-				uuid.New(), item.OrganizationID, userID, "low_stock",
+				uuid.New(), userID, "low_stock",
 				"Low Stock Alert",
 				fmt.Sprintf("Product '%s' is running low on stock (current: %d, minimum: %d)", 
 					item.Name, item.CurrentStock, item.MinStockLevel),
@@ -399,99 +324,84 @@ func startDailyInsightsWorker(ctx context.Context, db *sqlx.DB) {
 }
 
 func generateDailyInsights(ctx context.Context, db *sqlx.DB) {
-	// Get all active organizations
-	query := `SELECT id FROM organizations WHERE subscription_status = 'active'`
+	// Get today's sales summary
+	today := time.Now().Format("2006-01-02")
+	salesQuery := `
+		SELECT 
+			COUNT(*) as total_sales,
+			COALESCE(SUM(total_amount), 0) as total_revenue,
+			COALESCE(SUM(gross_profit), 0) as total_profit
+		FROM sales 
+		WHERE sale_date = $2 AND status = 'completed'
+	`
 	
-	var organizations []uuid.UUID
-	err := db.SelectContext(ctx, &organizations, query)
+	var salesSummary struct {
+		TotalSales   int     `db:"total_sales"`
+		TotalRevenue float64 `db:"total_revenue"`
+		TotalProfit  float64 `db:"total_profit"`
+	}
+	
+	err := db.GetContext(ctx, &salesSummary, salesQuery, today)
 	if err != nil {
-		logger.Error().Err(err).Msg("Failed to fetch organizations")
+		logger.Error().Err(err).Msg("Failed to fetch sales summary")
 		return
 	}
 	
-	// Generate insights for each organization
-	for _, orgID := range organizations {
-		// Get today's sales summary
-		today := time.Now().Format("2006-01-02")
-		salesQuery := `
-			SELECT 
-				COUNT(*) as total_sales,
-				COALESCE(SUM(total_amount), 0) as total_revenue,
-				COALESCE(SUM(gross_profit), 0) as total_profit
-			FROM sales 
-			WHERE organization_id = $1 AND sale_date = $2 AND status = 'completed'
-		`
-		
-		var salesSummary struct {
-			TotalSales   int     `db:"total_sales"`
-			TotalRevenue float64 `db:"total_revenue"`
-			TotalProfit  float64 `db:"total_profit"`
-		}
-		
-		err = db.GetContext(ctx, &salesSummary, salesQuery, orgID, today)
+	// Get low stock count
+	lowStockQuery := `
+		SELECT COUNT(DISTINCT p.id)
+		FROM products p
+		LEFT JOIN inventory_items ii ON p.id = ii.product_id AND ii.status = 'AVAILABLE'
+		WHERE p.is_active = true
+		GROUP BY p.id, p.min_stock_level
+		HAVING COALESCE(SUM(ii.quantity), 0) <= p.min_stock_level
+	`
+	
+	var lowStockCount int
+	db.GetContext(ctx, &lowStockCount, lowStockQuery)
+	
+	// Get overdue debts count
+	overdueQuery := `
+		SELECT COUNT(*) FROM debts 
+		WHERE status = 'overdue'
+	`
+	
+	var overdueCount int
+	db.GetContext(ctx, &overdueCount, overdueQuery)
+	
+	// Create notification with daily insights
+	notificationQuery := `
+		INSERT INTO notifications (id, user_id, type, title, message, 
+			data, is_read, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+	`
+	
+	// Get all active users to notify
+	var users []uuid.UUID
+	userQuery := `SELECT id FROM users WHERE is_active = true`
+	db.SelectContext(ctx, &users)
+	
+	insightData := fmt.Sprintf(`{
+		"date": "%s",
+		"total_sales": %d,
+		"total_revenue": %.2f,
+		"total_profit": %.2f,
+		"low_stock_count": %d,
+		"overdue_debts_count": %d
+	}`, today, salesSummary.TotalSales, salesSummary.TotalRevenue, salesSummary.TotalProfit, lowStockCount, overdueCount)
+	
+	for _, userID := range users {
+		_, err = db.ExecContext(ctx, notificationQuery,
+			uuid.New(), userID, "daily_insights",
+			"Daily Business Insights",
+			fmt.Sprintf("Today's summary: %d sales, %.2f revenue, %d low stock items, %d overdue debts", 
+				salesSummary.TotalSales, salesSummary.TotalRevenue, lowStockCount, overdueCount),
+			insightData,
+			false)
 		if err != nil {
-			logger.Error().Err(err).Msg("Failed to fetch sales summary")
-			continue
+			logger.Error().Err(err).Msg("Failed to create notification")
 		}
-		
-		// Get low stock count
-		lowStockQuery := `
-			SELECT COUNT(DISTINCT p.id)
-			FROM products p
-			LEFT JOIN inventory_items ii ON p.id = ii.product_id AND ii.status = 'AVAILABLE'
-			WHERE p.organization_id = $1 AND p.is_active = true
-			GROUP BY p.id, p.min_stock_level
-			HAVING COALESCE(SUM(ii.quantity), 0) <= p.min_stock_level
-		`
-		
-		var lowStockCount int
-		db.GetContext(ctx, &lowStockCount, lowStockQuery, orgID)
-		
-		// Get overdue debts count
-		overdueQuery := `
-			SELECT COUNT(*) FROM debts 
-			WHERE organization_id = $1 AND status = 'overdue'
-		`
-		
-		var overdueCount int
-		db.GetContext(ctx, &overdueCount, overdueQuery, orgID)
-		
-		// Create notification with daily insights
-		notificationQuery := `
-			INSERT INTO notifications (id, organization_id, user_id, type, title, message, 
-				data, is_read, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-		`
-		
-		// Get organization users to notify
-		var users []uuid.UUID
-		userQuery := `SELECT id FROM users WHERE organization_id = $1 AND is_active = true`
-		db.SelectContext(ctx, &users, userQuery, orgID)
-		
-		insightData := fmt.Sprintf(`{
-			"date": "%s",
-			"total_sales": %d,
-			"total_revenue": %.2f,
-			"total_profit": %.2f,
-			"low_stock_count": %d,
-			"overdue_debts_count": %d
-		}`, today, salesSummary.TotalSales, salesSummary.TotalRevenue, salesSummary.TotalProfit, lowStockCount, overdueCount)
-		
-		for _, userID := range users {
-			_, err = db.ExecContext(ctx, notificationQuery,
-				uuid.New(), orgID, userID, "daily_insights",
-				"Daily Business Insights",
-				fmt.Sprintf("Today's summary: %d sales, %.2f revenue, %d low stock items, %d overdue debts", 
-					salesSummary.TotalSales, salesSummary.TotalRevenue, lowStockCount, overdueCount),
-				insightData,
-				false)
-			if err != nil {
-				logger.Error().Err(err).Msg("Failed to create notification")
-			}
-		}
-		
-		logger.Info().Msgf("Generated daily insights for organization %s", orgID)
 	}
 	
-	logger.Info().Msgf("Generated daily insights for %d organizations", len(organizations))
+	logger.Info().Msgf("Generated daily insights for system")
 }

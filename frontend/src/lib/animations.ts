@@ -54,18 +54,18 @@ export const transitionPresets = {
 // Animation classes for Tailwind
 export const animationClasses = {
   // Fade in
-  fadeIn: 'animate-fadeIn',
-  fadeOut: 'animate-fadeOut',
+  fadeIn: 'animate-fade-in',
+  fadeOut: 'animate-fade-out',
   
   // Slide
-  slideInUp: 'animate-slideInUp',
-  slideInDown: 'animate-slideInDown',
-  slideInLeft: 'animate-slideInLeft',
-  slideInRight: 'animate-slideInRight',
+  slideInUp: 'animate-slide-in-up',
+  slideInDown: 'animate-slide-in-down',
+  slideInLeft: 'animate-slide-in-left',
+  slideInRight: 'animate-slide-in-right',
   
   // Scale
-  scaleIn: 'animate-scaleIn',
-  scaleOut: 'animate-scaleOut',
+  scaleIn: 'animate-scale-in',
+  scaleOut: 'animate-scale-out',
   
   // Spin
   spin: 'animate-spin',
@@ -76,12 +76,12 @@ export const animationClasses = {
   shimmer: 'animate-shimmer',
   
   // Enhanced animations
-  bounceIn: 'animate-bounceIn',
-  flipIn: 'animate-flipIn',
-  rotateIn: 'animate-rotateIn',
-  zoomIn: 'animate-zoomIn',
-  slideInFromLeftWithFade: 'animate-slideInFromLeftWithFade',
-  slideInFromRightWithFade: 'animate-slideInFromRightWithFade',
+  bounceIn: 'animate-bounce-in',
+  flipIn: 'animate-flip-in',
+  rotateIn: 'animate-rotate-in',
+  zoomIn: 'animate-zoom-in',
+  slideInFromLeftWithFade: 'animate-slide-in-from-left-with-fade',
+  slideInFromRightWithFade: 'animate-slide-in-from-right-with-fade',
 } as const;
 
 // Helper function to create transition string
@@ -141,16 +141,16 @@ export const loadingStates = {
 // Page transition animations
 export const pageTransitions = {
   // Fade in from bottom
-  fadeInUp: 'animate-fadeInUp',
+  fadeInUp: 'animate-fade-in-up',
   
   // Fade in with scale
-  fadeInScale: 'animate-fadeInScale',
+  fadeInScale: 'animate-fade-in-scale',
   
   // Slide from right
-  slideInRight: 'animate-slideInRight',
+  slideInRight: 'animate-slide-in-right',
   
   // Fade out
-  fadeOut: 'animate-fadeOut',
+  fadeOut: 'animate-fade-out',
 } as const;
 
 // Utility function to stagger animations

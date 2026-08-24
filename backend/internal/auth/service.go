@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -20,7 +19,7 @@ type Service struct {
 }
 
 // checkSubscriptionStatus checks if user's subscription is valid (from worktrack)
-func (s *Service) checkSubscriptionStatus(subscriptionStatus string, expiresAt sql.NullTime) error {
+func (s *Service) checkSubscriptionStatus(subscriptionStatus string, expiresAt *time.Time) error {
 	if subscriptionStatus == "canceled" {
 		return errors.New("subscription canceled")
 	}
@@ -29,7 +28,7 @@ func (s *Service) checkSubscriptionStatus(subscriptionStatus string, expiresAt s
 		return errors.New("subscription expired")
 	}
 
-	if expiresAt.Valid && time.Now().After(expiresAt.Time) {
+	if expiresAt != nil && time.Now().After(*expiresAt) {
 		return errors.New("subscription expired")
 	}
 
@@ -79,7 +78,7 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResp
 	var existingUser User
 	err := s.db.GetContext(ctx, &existingUser, "SELECT id FROM users WHERE email = $1", req.Email)
 	if err == nil {
-		return nil, fmt.Errorf("user already exists: %w", err)
+		return nil, fmt.Errorf("user already exists")
 	}
 
 	// Hash password
@@ -88,10 +87,9 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResp
 		return nil, fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Create admin user with default subscription
+	// Create owner user with default subscription
 	user := &User{
 		ID:                 uuid.New(),
-		OrganizationID:     req.OrganizationID,
 		Email:              req.Email,
 		PasswordHash:       string(hashedPassword),
 		FirstName:          req.FirstName,
@@ -107,17 +105,16 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResp
 	expiresAt := time.Now().AddDate(1, 0, 0)
 	user.SubscriptionExpiresAt = &expiresAt
 
-	// Insert user
+	// Insert user with fallback for schema differences
 	query := `
-		INSERT INTO users (id, organization_id, email, password_hash, first_name, last_name, phone, is_active,
+		INSERT INTO users (email, password_hash, first_name, last_name, phone, is_active,
 		                  subscription_status, subscription_expires_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at, updated_at
 	`
 
 	err = s.db.QueryRowContext(ctx, query,
-		user.ID, user.OrganizationID, user.Email, user.PasswordHash,
-		user.FirstName, user.LastName, user.Phone, user.IsActive,
+		user.Email, user.PasswordHash, user.FirstName, user.LastName, user.Phone, user.IsActive,
 		user.SubscriptionStatus, user.SubscriptionExpiresAt,
 		user.CreatedAt, user.UpdatedAt,
 	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
@@ -126,20 +123,13 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResp
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
-	// Get role name for token
-	var roleName string
-	err = s.db.GetContext(ctx, &roleName, "SELECT name FROM roles WHERE id = $1", user.RoleID)
-	if err != nil {
-		roleName = "admin" // default
-	}
-
-	// Generate tokens with user_id and role
-	accessToken, err := s.jwtService.GenerateAccessToken(user.ID.String(), roleName)
+	// Generate tokens with user_id only
+	accessToken, err := s.jwtService.GenerateAccessToken(user.ID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
-	refreshToken, err := s.jwtService.GenerateRefreshToken(user.ID.String(), roleName)
+	refreshToken, err := s.jwtService.GenerateRefreshToken(user.ID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
@@ -156,10 +146,9 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResp
 func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, error) {
 	// Get user by email with subscription info
 	var user User
-	var subscriptionExpiresAt sql.NullTime
 	query := `
-		SELECT id, organization_id, email, password_hash, first_name, last_name,
-		       phone, role_id, is_active, last_login_at, created_at, updated_at,
+		SELECT id, email, password_hash, first_name, last_name,
+		       phone, is_active, last_login_at, created_at, updated_at,
 		       subscription_status, subscription_expires_at
 		FROM users WHERE email = $1 AND is_active = TRUE
 	`
@@ -180,15 +169,7 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 	}
 
 	// Check subscription status (from worktrack)
-	if err := s.checkSubscriptionStatus(user.SubscriptionStatus, sql.NullTime{
-		Time:  func() time.Time {
-			if user.SubscriptionExpiresAt != nil {
-				return *user.SubscriptionExpiresAt
-			}
-			return time.Time{}
-		}(),
-		Valid: user.SubscriptionExpiresAt != nil,
-	}); err != nil {
+	if err := s.checkSubscriptionStatus(user.SubscriptionStatus, user.SubscriptionExpiresAt); err != nil {
 		return nil, fmt.Errorf("subscription error: %w", err)
 	}
 
@@ -200,20 +181,13 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 		log.Printf("failed to update last login: %v", err)
 	}
 
-	// Get role name for token
-	var roleName string
-	err = s.db.GetContext(ctx, &roleName, "SELECT name FROM roles WHERE id = $1", user.RoleID)
-	if err != nil {
-		roleName = "admin" // default
-	}
-
-	// Generate tokens with user_id and role (from worktrack)
-	accessToken, err := s.jwtService.GenerateAccessToken(user.ID.String(), roleName)
+	// Generate tokens with user_id only
+	accessToken, err := s.jwtService.GenerateAccessToken(user.ID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
-	refreshToken, err := s.jwtService.GenerateRefreshToken(user.ID.String(), roleName)
+	refreshToken, err := s.jwtService.GenerateRefreshToken(user.ID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
@@ -237,8 +211,8 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 	// Get user
 	var user User
 	query := `
-		SELECT id, organization_id, email, password_hash, first_name, last_name,
-		       phone, role_id, is_active, last_login_at, created_at, updated_at,
+		SELECT id, email, password_hash, first_name, last_name,
+		       phone, is_active, last_login_at, created_at, updated_at,
 		       subscription_status, subscription_expires_at
 		FROM users WHERE id = $1
 	`
@@ -271,8 +245,8 @@ func (s *Service) ValidateToken(ctx context.Context, token string) (*Claims, err
 func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (*User, error) {
 	var user User
 	query := `
-		SELECT id, organization_id, email, password_hash, first_name, last_name,
-		       phone, role_id, is_active, last_login_at, created_at, updated_at,
+		SELECT id, email, password_hash, first_name, last_name,
+		       phone, is_active, last_login_at, created_at, updated_at,
 		       subscription_status, subscription_expires_at
 		FROM users WHERE id = $1
 	`
@@ -360,15 +334,14 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) error {
 	// Validate reset token
 	var userID uuid.UUID
-	var expiresAt time.Time
 	
 	query := `
-		SELECT user_id, expires_at 
+		SELECT user_id 
 		FROM password_reset_tokens 
 		WHERE token = $1 AND used = FALSE AND expires_at > NOW()
 	`
 	
-	err := s.db.GetContext(ctx, &userID, &expiresAt, query, token)
+	err := s.db.GetContext(ctx, &userID, query, token)
 	if err != nil {
 		return fmt.Errorf("invalid or expired reset token")
 	}

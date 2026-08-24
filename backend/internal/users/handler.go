@@ -28,7 +28,6 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
 	// Hash password
 	if req.Password == "" {
@@ -42,7 +41,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.CreateUser(c.Request.Context(), organizationID, req.Email, string(hashedPassword), req.FirstName, req.LastName, req.Phone, req.AvatarURL, req.RoleID, req.IsActive)
+	user, err := h.service.CreateUser(c.Request.Context(), req.Email, string(hashedPassword), req.FirstName, req.LastName, req.Phone, req.AvatarURL, req.IsActive)
 	if err != nil {
 		if err == ErrUserEmailExists {
 			response.Error(c, http.StatusConflict, http.StatusConflict, "User email already exists", err.Error())
@@ -63,9 +62,8 @@ func (h *Handler) GetUser(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	user, err := h.service.GetUser(c.Request.Context(), id, organizationID)
+	user, err := h.service.GetUser(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrUserNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "User not found", err.Error())
@@ -86,9 +84,8 @@ func (h *Handler) ListUsers(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	users, total, err := h.service.ListUsers(c.Request.Context(), organizationID, req.Page, req.PerPage, req.Search, req.IsActive, req.RoleID)
+	users, total, err := h.service.ListUsers(c.Request.Context(), req.Page, req.PerPage, req.Search, req.IsActive)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve users", err.Error())
 		return
@@ -117,7 +114,6 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
 	// Hash password if provided
 	var hashedPassword string
@@ -130,7 +126,7 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		hashedPassword = string(hashedPasswordBytes)
 	}
 
-	user, err := h.service.UpdateUser(c.Request.Context(), id, organizationID, req.Email, hashedPassword, req.FirstName, req.LastName, req.Phone, req.AvatarURL, req.RoleID, req.IsActive)
+	user, err := h.service.UpdateUser(c.Request.Context(), id, req.Email, hashedPassword, req.FirstName, req.LastName, req.Phone, req.AvatarURL, req.IsActive)
 	if err != nil {
 		if err == ErrUserNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "User not found", err.Error())
@@ -155,9 +151,8 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	err = h.service.DeleteUser(c.Request.Context(), id, organizationID)
+	err = h.service.DeleteUser(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrUserNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "User not found", err.Error())
@@ -195,85 +190,4 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusOK, nil, "Password changed successfully")
-}
-
-// AssignRole handles role assignment to user
-func (h *Handler) AssignRole(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid user ID", err.Error())
-		return
-	}
-
-	var req AssignRoleRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
-
-	organizationID := middleware.GetOrganizationID(c)
-
-	err = h.service.AssignRole(c.Request.Context(), id, organizationID, req.RoleID)
-	if err != nil {
-		if err == ErrUserNotFound {
-			response.Error(c, http.StatusNotFound, http.StatusNotFound, "User not found", err.Error())
-			return
-		}
-		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to assign role", err.Error())
-		return
-	}
-
-	response.Success(c, http.StatusOK, nil, "Role assigned successfully")
-}
-
-// RemoveRole handles role removal from user
-func (h *Handler) RemoveRole(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid user ID", err.Error())
-		return
-	}
-
-	var req AssignRoleRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid request body", err.Error())
-		return
-	}
-
-	organizationID := middleware.GetOrganizationID(c)
-
-	err = h.service.RemoveRole(c.Request.Context(), id, organizationID, req.RoleID)
-	if err != nil {
-		if err == ErrUserNotFound {
-			response.Error(c, http.StatusNotFound, http.StatusNotFound, "User not found", err.Error())
-			return
-		}
-		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to remove role", err.Error())
-		return
-	}
-
-	response.Success(c, http.StatusOK, nil, "Role removed successfully")
-}
-
-// GetUserRoles handles getting user roles
-func (h *Handler) GetUserRoles(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid user ID", err.Error())
-		return
-	}
-
-	organizationID := middleware.GetOrganizationID(c)
-
-	roles, err := h.service.GetUserRoles(c.Request.Context(), id, organizationID)
-	if err != nil {
-		if err == ErrUserNotFound {
-			response.Error(c, http.StatusNotFound, http.StatusNotFound, "User not found", err.Error())
-			return
-		}
-		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to get user roles", err.Error())
-		return
-	}
-
-	response.Success(c, http.StatusOK, roles, "User roles retrieved successfully")
 }

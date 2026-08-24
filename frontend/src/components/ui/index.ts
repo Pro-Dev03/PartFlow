@@ -1,6 +1,7 @@
 export { Button } from './button';
 export { Input } from './input';
 export { Select } from './select';
+export { Checkbox } from './checkbox';
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './card';
 export { Badge } from './badge';
 export { Skeleton } from './skeleton';
@@ -9,3 +10,10 @@ export { Label } from './label';
 export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption } from './table';
 export { PageHeader } from './page-header';
 export { StatusBadge } from './status-badge';
+export { Dialog } from './dialog';
+export { Modal } from './modal';
+export { Toast } from './toast';
+export { LoadingSpinner } from './loading-spinner';
+export { ErrorState } from './error-state';
+export { ErrorBoundary } from './error-boundary';
+export { Progress } from './progress';

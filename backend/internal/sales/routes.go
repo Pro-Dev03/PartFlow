@@ -8,7 +8,7 @@ import (
 // RegisterRoutes registers sales routes
 func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 	repo := NewRepository(db)
-	service := NewService(repo)
+	service := NewService(repo, db)
 	handler := NewHandler(service)
 
 	// Sale routes

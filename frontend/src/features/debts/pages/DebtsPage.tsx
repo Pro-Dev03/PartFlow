@@ -5,12 +5,15 @@ import { debtsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
+import { SearchInput } from '../../../components/ui/search-input';
 import { PageHeader } from '../../../components/ui/page-header';
+import { StatCard } from '../../../components/ui/stat-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Badge } from '../../../components/ui/badge';
+import { Modal } from '../../../components/ui/modal';
+import { getButtonSize } from '../../../config/button-sizes';
 import { 
   DollarSign, 
-  Search, 
   AlertTriangle,
   Calendar,
   TrendingUp,
@@ -20,17 +23,30 @@ import {
   Bell,
   AlertCircle,
   Zap,
-  Clock
+  Clock,
+  X,
+  Eye,
+  Edit,
+  Trash2
 } from 'lucide-react';
 
 export function DebtsPage() {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [selectedDebt, setSelectedDebt] = useState<any>(null);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const queryClient = useQueryClient();
+
+  const handleClearSearch = () => {
+    setSearchQuery('');
+  };
 
   const { data: overdueCustomersData, isLoading } = useQuery({
     queryKey: ['debts'],
-    queryFn: () => debtsApi.list(),
+    queryFn: () => debtsApi.list({ page: 1, per_page: 100 }),
   });
 
   const recordPaymentMutation = useMutation({
@@ -41,13 +57,31 @@ export function DebtsPage() {
     },
   });
 
-  const handleRecordPayment = (customerId: string) => {
-    const amount = prompt('أدخل مبلغ الدفعة:');
-    if (amount && !isNaN(parseFloat(amount))) {
+  const handleRecordPayment = (customerId: string, customerName: string) => {
+    setSelectedCustomer({ id: customerId, name: customerName });
+    setPaymentAmount('');
+    setPaymentModalOpen(true);
+  };
+
+  const handlePaymentSubmit = () => {
+    if (paymentAmount && !isNaN(parseFloat(paymentAmount))) {
       recordPaymentMutation.mutate({
-        customerId,
-        amount: parseFloat(amount),
+        customerId: selectedCustomer.id,
+        amount: parseFloat(paymentAmount),
       });
+      setPaymentModalOpen(false);
+    }
+  };
+
+  const handleViewDebt = (debt: any) => {
+    setSelectedDebt(debt);
+    setIsViewModalOpen(true);
+  };
+
+  const handleReversePayment = (paymentId: string) => {
+    if (window.confirm('هل أنت متأكد من عكس هذه الدفعة؟\n\nسيتم إنشاء سجل عكس الدفعة ولن يتم حذف الدفعة الأصلية.')) {
+      // Implement reverse logic here
+      console.log('Reverse payment:', paymentId);
     }
   };
 
@@ -69,6 +103,39 @@ export function DebtsPage() {
   const overdueDebts = debts.filter((d: any) => d.status === 'overdue');
   const overdueAmount = overdueDebts.reduce((sum: number, d: any) => sum + d.remainingAmount, 0);
   const dueSoonDebts = debts.filter((d: any) => d.status === 'pending');
+
+  // Debt Aging System - تصنيف ديون حسب العمر
+  const getDebtAging = (dueDate: string, status: string) => {
+    const today = new Date();
+    const due = new Date(dueDate);
+    const diffTime = due.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (status === 'paid') {
+      return { category: 'PAID', label: 'مدفوع', variant: 'success' as const, days: 0 };
+    }
+
+    if (diffDays < 0) {
+      const overdueDays = Math.abs(diffDays);
+      if (overdueDays <= 7) {
+        return { category: 'OVERDUE_1_7', label: 'متأخر 1-7 أيام', variant: 'warning' as const, days: overdueDays };
+      } else if (overdueDays <= 14) {
+        return { category: 'OVERDUE_8_14', label: 'متأخر 8-14 يوم', variant: 'danger' as const, days: overdueDays };
+      } else if (overdueDays <= 30) {
+        return { category: 'OVERDUE_15_30', label: 'متأخر 15-30 يوم', variant: 'danger' as const, days: overdueDays };
+      } else {
+        return { category: 'OVERDUE_30_PLUS', label: 'متأخر أكثر من 30 يوم', variant: 'danger' as const, days: overdueDays };
+      }
+    }
+
+    if (diffDays <= 7) {
+      return { category: 'DUE_SOON', label: 'يستحق قريباً', variant: 'warning' as const, days: diffDays };
+    } else if (diffDays <= 30) {
+      return { category: 'CURRENT', label: 'مستحق', variant: 'success' as const, days: diffDays };
+    } else {
+      return { category: 'FUTURE', label: 'مستقبلي', variant: 'secondary' as const, days: diffDays };
+    }
+  };
   const dueSoonAmount = dueSoonDebts.reduce((sum: number, d: any) => sum + d.remainingAmount, 0);
 
   const filteredDebts = debts.filter((debt: any) =>
@@ -92,217 +159,199 @@ export function DebtsPage() {
   };
 
   return (
-    <div className="space-y-md">
-      {/* Page Header - Futuristic + Attention-focused */}
+    <div>
+      {/* Page Header */}
       <PageHeader
         eyebrow="Debt Intelligence"
         title={t('debts.title')}
-        description="إدارة ديون العملاء والمتابعة مع تنبيهات ذكية"
+        description="تتبع الديون وتحليل التقادم مع تنبيهات ذكية"
         actions={
-          <div className="flex items-center gap-sm">
-            <Button variant="secondary" className="gap-2">
-              <Bell className="w-4 h-4" />
-              إشعارات
-            </Button>
-            <Button variant="secondary" className="gap-2">
-              <Zap className="w-4 h-4" />
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <Button variant="secondary" size={getButtonSize('debts', 'headerActions')}>
+              <Zap style={{ width: '16px', height: '16px', marginRight: '8px' }} />
               تحديث
+            </Button>
+            <Button variant="secondary" size={getButtonSize('debts', 'headerActions')}>
+              <Bell style={{ width: '16px', height: '16px', marginRight: '8px' }} />
+              تنبيهات
             </Button>
           </div>
         }
       />
 
-      {/* AI Debt Insight - Futuristic + Attention-focused */}
+      {/* AI Debt Insight */}
       <Card variant="ai">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-cyan" />
+          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Sparkles style={{ width: '20px', height: '20px', color: '#22d3ee' }} />
             AI Debt Insight
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-md">
-            <div className="w-8 h-8 rounded-sm bg-red/10 flex items-center justify-center flex-shrink-0">
-              <AlertCircle className="w-4 h-4 text-red" />
+          <div style={{ display: 'flex', gap: '14px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(34, 211, 238, 0.1)',
+              flexShrink: 0
+            }}>
+              <AlertCircle style={{ width: '16px', height: '16px', color: '#22d3ee' }} />
             </div>
             <div>
-              <p className="text-small font-semibold text-text">ديون حرجة تحتاج انتباه فوري</p>
-              <p className="text-tiny text-text-muted mt-1">
-                لديك 3 ديون متأخرة أكثر من 60 يوم. الإجمالي: ₪{overdueAmount.toLocaleString()}
+              <p style={{ fontSize: '13px', fontWeight: '600', color: '#f1f7ff' }}>خطر إفلاس محتمل</p>
+              <p style={{ fontSize: '11px', color: '#8290a7', marginTop: '4px' }}>
+                3 عملاء لديهم ديون متأخرة أكثر من 60 يوم. يُنصح باتخاذ إجراءات قانونية فورية.
               </p>
-              <Button variant="ghost" size="sm" className="mt-2 text-red">
-                عرض التفاصيل ←
+              <Button variant="secondary" size={getButtonSize('debts', 'recommendation')}>
+                عرض التوصية ←
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Stats Cards - Futuristic + Attention-focused */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-md">
+      {/* Stats Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px' }}
+           className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard 
-          title={t('debts.totalDebts')} 
+          title="إجمالي الديون" 
           value={`₪${totalDebts.toLocaleString()}`} 
           icon={DollarSign}
-          subtitle="إجمالي الديون"
-          variant="default"
-          trend="+5%"
-          trendUp={false}
+          subtitle={`${debts.length} عميل`}
+          variant="featured"
         />
         <StatCard 
-          title={t('debts.overdue')} 
+          title="ديون متأخرة" 
           value={`₪${overdueAmount.toLocaleString()}`} 
           icon={AlertTriangle}
-          subtitle="ديون متأخرة"
-          variant={overdueAmount > 0 ? 'danger' : 'success'}
-          trend={overdueAmount > 0 ? '+3' : null}
-          trendUp={false}
+          subtitle={`${overdueDebts.length} عميل`}
+          variant="danger"
         />
         <StatCard 
-          title={t('debts.dueSoon')} 
-          value={`₪${dueSoonAmount.toLocaleString()}`} 
+          title="متأخرة 1-7 أيام" 
+          value={debts.filter((d: any) => {
+            const aging = getDebtAging(d.dueDate, d.status);
+            return aging.category === 'OVERDUE_1_7';
+          }).length}
           icon={Clock}
-          subtitle="ديون قريب الاستحقاق"
-          variant={dueSoonAmount > 0 ? 'warning' : 'success'}
-          trend={dueSoonAmount > 0 ? '+2' : null}
-          trendUp={false}
+          subtitle="يحتاج متابعة سريعة"
+          variant="warning"
         />
         <StatCard 
-          title={t('debts.paid')} 
-          value={`₪${(totalDebts - overdueAmount - dueSoonAmount).toLocaleString()}`} 
-          icon={TrendingUp}
-          subtitle="المدفوع"
-          variant="success"
-          trend="+15%"
-          trendUp={true}
+          title="متأخرة 30+ يوم" 
+          value={debts.filter((d: any) => {
+            const aging = getDebtAging(d.dueDate, d.status);
+            return aging.category === 'OVERDUE_30_PLUS';
+          }).length}
+          icon={AlertCircle}
+          subtitle="خطر عالي"
+          variant="danger"
         />
       </div>
 
-      {/* Overdue Debts Alert - Integration with Debt Worker - Futuristic + Attention-focused */}
-      {overdueDebts.length > 0 && (
-        <Card variant="warning">
-          <CardContent className="p-lg">
-            <div className="flex items-center gap-md">
-              <AlertTriangle className="w-5 h-5 text-yellow" />
-              <div className="flex-1">
-                <p className="text-small font-semibold text-text">
-                  تنبيه: لديك {overdueDebts.length} ديون متأخرة
-                </p>
-                <p className="text-tiny text-text-muted">
-                  إجمالي المبلغ المتأخر: ₪{overdueAmount.toLocaleString()}
-                </p>
-              </div>
-              <Button variant="primary" size="sm" className="gap-2">
-                <Zap className="w-4 h-4" />
-                اتخاذ إجراء
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Search - Futuristic + Attention-focused */}
+      {/* Search */}
       <Card>
-        <CardContent className="p-lg">
-          <div className="relative">
-            <Search className="absolute inset-y-0 end-3 w-4 h-4 text-cyan" />
-            <Input
-              placeholder="بحث عن عميل..."
+        <CardContent>
+          <div style={{ padding: '18px' }}>
+            <SearchInput
+              placeholder="ابحث بالاسم أو الكود..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pe-10"
+              onClear={handleClearSearch}
+              size="sm"
+              className="w-full md:w-[500px] lg:w-[600px]"
             />
           </div>
         </CardContent>
       </Card>
 
-      {/* Debts Table - Futuristic + Attention-focused */}
+      {/* Debts Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <DollarSign className="w-5 h-5 text-cyan" />
+          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertTriangle style={{ width: '20px', height: '20px', color: '#22d3ee' }} />
             قائمة الديون
           </CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan" />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '256px' }}>
+              <div style={{ animation: 'spin 1s linear infinite', borderRadius: '50%', height: '32px', width: '32px', borderBottom: '2px solid #22d3ee' }} />
+            </div>
+          ) : filteredDebts.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+              <DollarSign style={{ width: '48px', height: '48px', color: '#8290a7', margin: '0 auto 16px' }} />
+              <p style={{ fontSize: '13px', color: '#8290a7' }}>
+                لا توجد ديون
+              </p>
+              <p style={{ fontSize: '11px', color: '#56647a', marginTop: '4px' }}>
+                جميع الديون مدفوعة
+              </p>
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>العميل</TableHead>
-                  <TableHead>المبلغ الكلي</TableHead>
-                  <TableHead>المدفوع</TableHead>
+                  <TableHead>المبلغ</TableHead>
                   <TableHead>المتبقي</TableHead>
                   <TableHead>تاريخ الاستحقاق</TableHead>
-                  <TableHead>أيام التأخير</TableHead>
-                  <TableHead>فئة التقادم</TableHead>
+                  <TableHead>تصنيف العمر</TableHead>
                   <TableHead>الحالة</TableHead>
-                  <TableHead className="text-start">الإجراءات</TableHead>
+                  <TableHead style={{ textAlign: 'right' }}>الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredDebts.map((debt: any) => {
-                  const daysOverdue = getDaysOverdue(debt.dueDate);
-                  const isOverdue = daysOverdue > 0;
-                  const agingCategory = getAgingCategory(daysOverdue);
+                  const aging = getDebtAging(debt.dueDate, debt.status);
                   
                   return (
                     <TableRow key={debt.id}>
-                      <TableCell className="font-medium text-text">
-                        {debt.customer?.name}
-                      </TableCell>
-                      <TableCell className="text-small text-text">₪{debt.amount.toLocaleString()}</TableCell>
-                      <TableCell className="text-small text-green">
-                        ₪{debt.paidAmount.toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-small font-bold text-text">
-                        ₪{debt.remainingAmount.toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-small text-text-muted">
-                        {new Date(debt.dueDate).toLocaleDateString('ar-SA')}
+                      <TableCell style={{ fontWeight: '500' }}>{debt.customer?.name}</TableCell>
+                      <TableCell>₪{debt.amount?.toLocaleString()}</TableCell>
+                      <TableCell>
+                        <span style={{ color: '#fb7185', fontWeight: '500' }}>
+                          ₪{debt.remainingAmount?.toLocaleString()}
+                        </span>
                       </TableCell>
                       <TableCell>
-                        {isOverdue ? (
-                          <span className="text-tiny text-red font-medium">
-                            {daysOverdue} يوم
-                          </span>
-                        ) : (
-                          <span className="text-tiny text-text-muted">
-                            {Math.abs(daysOverdue)} يوم
-                          </span>
-                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Calendar style={{ width: '14px', height: '14px', color: '#8290a7' }} />
+                          {new Date(debt.dueDate).toLocaleDateString('ar-SA')}
+                        </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={agingCategory.variant} size="sm">
-                          {agingCategory.label}
+                        <Badge variant={aging.variant} style={{ fontSize: '11px' }}>
+                          {aging.label}
+                          {aging.days > 0 && ` (${aging.days} يوم)`}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={
-                          debt.status === 'paid' ? 'success' :
-                          debt.status === 'overdue' ? 'danger' : 'warning'
-                        } size="sm">
-                          {debt.status === 'paid' ? 'مدفوع' :
-                           debt.status === 'overdue' ? 'متأخر' : 'مستحق'}
+                        <Badge variant={debt.status === 'overdue' ? 'danger' : 'warning'}>
+                          {debt.status === 'overdue' ? 'متأخر' : 'معلق'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-start">
-                        {debt.status !== 'paid' && (
+                      <TableCell style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                           <Button
-                            variant="primary"
-                            size="sm"
-                            className="gap-2"
-                            onClick={() => handleRecordPayment(debt.customer.id)}
-                            disabled={recordPaymentMutation.isPending}
+                            variant="ghost"
+                            size={getButtonSize('debts', 'iconAction')}
+                            onClick={() => handleViewDebt(debt)}
                           >
-                            <CreditCard className="w-4 h-4" />
-                            تسجيل دفعة
+                            <Eye className="w-3.5 h-3.5" />
                           </Button>
-                        )}
+                          <Button
+                            variant="ghost"
+                            size={getButtonSize('debts', 'iconAction')}
+                            onClick={() => handleRecordPayment(debt.customer?.id, debt.customer?.name)}
+                          >
+                            <DollarSign className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -312,73 +361,86 @@ export function DebtsPage() {
           )}
         </CardContent>
       </Card>
-    </div>
-  );
-}
 
-interface StatCardProps {
-  title: string;
-  value: string;
-  icon: any;
-  subtitle?: string;
-  variant?: 'default' | 'featured' | 'warning' | 'ai' | 'danger' | 'success' | 'info';
-  trend?: string | null;
-  trendUp?: boolean | null;
-}
-
-function StatCard({ title, value, icon: Icon, subtitle, variant = 'default', trend, trendUp }: StatCardProps) {
-  return (
-    <Card 
-      variant={variant} 
-      className="hover:border-border/22 hover:-translate-y-1 cursor-pointer"
-      hoverable
-    >
-      <CardContent className="p-lg">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <p className="text-small text-text-muted">{title}</p>
-            <p className="text-metric font-bold text-text mt-1">
-              {value}
-            </p>
-            {subtitle && (
-              <p className="text-tiny text-text-muted mt-1">
-                {subtitle}
-              </p>
-            )}
-            {trend && (
-              <div className="flex items-center gap-1 mt-2">
-                {trendUp ? (
-                  <TrendingUp className="w-3 h-3 text-green" />
-                ) : (
-                  <TrendingDown className="w-3 h-3 text-red" />
-                )}
-                <span className={`text-tiny ${trendUp ? 'text-green' : 'text-red'}`}>
-                  {trend}
-                </span>
-              </div>
-            )}
+      {/* Payment Modal */}
+      <Modal
+        isOpen={paymentModalOpen}
+        onClose={() => setPaymentModalOpen(false)}
+        title="تسجيل دفعة"
+      >
+        <div className="space-y-md">
+          <div>
+            <label className="text-small font-medium text-text mb-sm block">
+              العميل
+            </label>
+            <Input
+              value={selectedCustomer?.name || ''}
+              disabled
+            />
           </div>
-          <div className={`w-10 h-10 rounded-sm flex items-center justify-center ${
-            variant === 'featured' ? 'bg-cyan/10' :
-            variant === 'warning' ? 'bg-yellow/10' :
-            variant === 'danger' ? 'bg-red/10' :
-            variant === 'success' ? 'bg-green/10' :
-            variant === 'info' ? 'bg-cyan/10' :
-            variant === 'ai' ? 'bg-cyan/10' :
-            'bg-cyan/10'
-          }`}>
-            <Icon className={`w-5 h-5 ${
-              variant === 'featured' ? 'text-cyan' :
-              variant === 'warning' ? 'text-yellow' :
-              variant === 'danger' ? 'text-red' :
-              variant === 'success' ? 'text-green' :
-              variant === 'info' ? 'text-cyan' :
-              variant === 'ai' ? 'text-cyan' :
-              'text-cyan'
-            }`} />
+          <div>
+            <label className="text-small font-medium text-text mb-sm block">
+              مبلغ الدفعة
+            </label>
+            <Input
+              type="number"
+              placeholder="أدخل المبلغ..."
+              value={paymentAmount}
+              onChange={(e) => setPaymentAmount(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-sm justify-end">
+            <Button
+              variant="secondary"
+              size={getButtonSize('debts', 'modalAction')}
+              onClick={() => setPaymentModalOpen(false)}
+            >
+              إلغاء
+            </Button>
+            <Button
+              variant="primary"
+              size={getButtonSize('debts', 'modalAction')}
+              onClick={handlePaymentSubmit}
+              disabled={!paymentAmount || isNaN(parseFloat(paymentAmount))}
+            >
+              تسجيل الدفعة
+            </Button>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </Modal>
+
+      {/* View Debt Modal */}
+      <Modal
+        isOpen={isViewModalOpen}
+        onClose={() => setIsViewModalOpen(false)}
+        title="تفاصيل الدين"
+      >
+        {selectedDebt && (
+          <div className="space-y-md">
+            <div>
+              <label className="text-small font-medium text-text mb-sm block">العميل</label>
+              <Input value={selectedDebt.customer?.name || ''} disabled />
+            </div>
+            <div>
+              <label className="text-small font-medium text-text mb-sm block">مبلغ الدين</label>
+              <Input value={`₪${selectedDebt.amount?.toLocaleString() || 0}`} disabled />
+            </div>
+            <div>
+              <label className="text-small font-medium text-text mb-sm block">تاريخ الاستحقاق</label>
+              <Input value={new Date(selectedDebt.dueDate).toLocaleDateString('ar-SA')} disabled />
+            </div>
+            <div>
+              <label className="text-small font-medium text-text mb-sm block">الحالة</label>
+              <Input value={selectedDebt.status === 'overdue' ? 'متأخر' : 'معلق'} disabled />
+            </div>
+            <div className="flex gap-sm justify-end">
+              <Button variant="secondary" size={getButtonSize('debts', 'modalAction')} onClick={() => setIsViewModalOpen(false)}>
+                إغلاق
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
   );
 }

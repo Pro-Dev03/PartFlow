@@ -19,7 +19,7 @@ func NewService(repo *Repository) *Service {
 }
 
 // CreatePayment creates a new payment
-func (s *Service) CreatePayment(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, req *CreatePaymentRequest) (*PaymentResponse, error) {
+func (s *Service) CreatePayment(ctx context.Context, userID uuid.UUID, req *CreatePaymentRequest) (*PaymentResponse, error) {
 	// Validate payment type
 	if req.Type != "customer" && req.Type != "supplier" && req.Type != "expense" {
 		return nil, ErrInvalidPaymentType
@@ -37,7 +37,7 @@ func (s *Service) CreatePayment(ctx context.Context, organizationID uuid.UUID, u
 	}
 
 	// Create payment
-	payment := NewPayment(organizationID, req.Type, req.ReferenceID, req.Amount, req.Method, userID)
+	payment := NewPayment(req.Type, req.ReferenceID, req.Amount, req.Method, userID)
 	payment.PaymentDate = paymentDate
 	payment.Reference = req.Reference
 	payment.Notes = req.Notes
@@ -53,8 +53,8 @@ func (s *Service) CreatePayment(ctx context.Context, organizationID uuid.UUID, u
 }
 
 // GetPayment retrieves a payment by ID
-func (s *Service) GetPayment(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*PaymentResponse, error) {
-	payment, err := s.repo.GetByID(ctx, id, organizationID)
+func (s *Service) GetPayment(ctx context.Context, id uuid.UUID) (*PaymentResponse, error) {
+	payment, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func (s *Service) GetPayment(ctx context.Context, id uuid.UUID, organizationID u
 }
 
 // ListPayments retrieves payments with pagination and filters
-func (s *Service) ListPayments(ctx context.Context, organizationID uuid.UUID, page, perPage int, filters map[string]interface{}) ([]PaymentResponse, int, error) {
+func (s *Service) ListPayments(ctx context.Context, page, perPage int, filters map[string]interface{}) ([]PaymentResponse, int, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -74,7 +74,7 @@ func (s *Service) ListPayments(ctx context.Context, organizationID uuid.UUID, pa
 		perPage = 20
 	}
 
-	payments, total, err := s.repo.List(ctx, organizationID, page, perPage, filters)
+	payments, total, err := s.repo.List(ctx, page, perPage, filters)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -90,8 +90,8 @@ func (s *Service) ListPayments(ctx context.Context, organizationID uuid.UUID, pa
 }
 
 // UpdatePayment updates a payment
-func (s *Service) UpdatePayment(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, req *UpdatePaymentRequest) (*PaymentResponse, error) {
-	payment, err := s.repo.GetByID(ctx, id, organizationID)
+func (s *Service) UpdatePayment(ctx context.Context, id uuid.UUID, req *UpdatePaymentRequest) (*PaymentResponse, error) {
+	payment, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -131,8 +131,8 @@ func (s *Service) UpdatePayment(ctx context.Context, id uuid.UUID, organizationI
 }
 
 // DeletePayment deletes a payment
-func (s *Service) DeletePayment(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	payment, err := s.repo.GetByID(ctx, id, organizationID)
+func (s *Service) DeletePayment(ctx context.Context, id uuid.UUID) error {
+	payment, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -142,12 +142,12 @@ func (s *Service) DeletePayment(ctx context.Context, id uuid.UUID, organizationI
 		return ErrPaymentCannotBeCancelled
 	}
 
-	return s.repo.Delete(ctx, id, organizationID)
+	return s.repo.Delete(ctx, id)
 }
 
 // CompletePayment marks a payment as completed
-func (s *Service) CompletePayment(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*PaymentResponse, error) {
-	payment, err := s.repo.GetByID(ctx, id, organizationID)
+func (s *Service) CompletePayment(ctx context.Context, id uuid.UUID) (*PaymentResponse, error) {
+	payment, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -170,8 +170,8 @@ func (s *Service) CompletePayment(ctx context.Context, id uuid.UUID, organizatio
 }
 
 // CancelPayment cancels a payment
-func (s *Service) CancelPayment(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*PaymentResponse, error) {
-	payment, err := s.repo.GetByID(ctx, id, organizationID)
+func (s *Service) CancelPayment(ctx context.Context, id uuid.UUID) (*PaymentResponse, error) {
+	payment, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -198,8 +198,8 @@ func (s *Service) CancelPayment(ctx context.Context, id uuid.UUID, organizationI
 }
 
 // GetPaymentSummary retrieves payment summary statistics
-func (s *Service) GetPaymentSummary(ctx context.Context, organizationID uuid.UUID) (*PaymentSummary, error) {
-	return s.repo.GetPaymentSummary(ctx, organizationID)
+func (s *Service) GetPaymentSummary(ctx context.Context) (*PaymentSummary, error) {
+	return s.repo.GetPaymentSummary(ctx)
 }
 
 // toPaymentResponse converts a Payment to PaymentResponse
@@ -211,7 +211,6 @@ func (s *Service) toPaymentResponse(payment *Payment, referenceName string) *Pay
 
 	return &PaymentResponse{
 		ID:             payment.ID,
-		OrganizationID: payment.OrganizationID,
 		Type:           payment.Type,
 		ReferenceID:    payment.ReferenceID,
 		ReferenceName:  refName,

@@ -27,15 +27,9 @@ func (h *Handler) CreateAuditLog(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, http.StatusUnauthorized, "Organization not found", "")
-		return
-	}
-
 	userID, exists := c.Get("user_id")
 	if !exists {
-		response.Error(c, http.StatusUnauthorized, http.StatusUnauthorized, "User not found", "")
+		response.Error(c, http.StatusUnauthorized, http.StatusUnauthorized, "Unauthorized", "User not authenticated")
 		return
 	}
 
@@ -46,7 +40,7 @@ func (h *Handler) CreateAuditLog(c *gin.Context) {
 	userAgent := c.GetHeader("User-Agent")
 	requestID := c.GetHeader("X-Request-ID")
 
-	auditLog, err := h.service.CreateAuditLog(c.Request.Context(), organizationID.(uuid.UUID), &req, ipAddress, userAgent, requestID)
+	auditLog, err := h.service.CreateAuditLog(c.Request.Context(), &req, ipAddress, userAgent, requestID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to create audit log", err.Error())
 		return
@@ -63,13 +57,7 @@ func (h *Handler) GetAuditLog(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, http.StatusUnauthorized, "Organization not found", "")
-		return
-	}
-
-	auditLog, err := h.service.GetAuditLog(c.Request.Context(), id, organizationID.(uuid.UUID))
+	auditLog, err := h.service.GetAuditLog(c.Request.Context(), id)
 	if err != nil {
 		response.Error(c, http.StatusNotFound, http.StatusNotFound, "Audit log not found", err.Error())
 		return
@@ -86,13 +74,7 @@ func (h *Handler) ListAuditLogs(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, http.StatusUnauthorized, "Organization not found", "")
-		return
-	}
-
-	auditLogs, total, err := h.service.ListAuditLogs(c.Request.Context(), organizationID.(uuid.UUID), req)
+	auditLogs, total, err := h.service.ListAuditLogs(c.Request.Context(), req)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve audit logs", err.Error())
 		return
@@ -103,13 +85,7 @@ func (h *Handler) ListAuditLogs(c *gin.Context) {
 
 // GetAuditLogSummary retrieves audit log summary statistics
 func (h *Handler) GetAuditLogSummary(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, http.StatusUnauthorized, "Organization not found", "")
-		return
-	}
-
-	summary, err := h.service.GetAuditLogSummary(c.Request.Context(), organizationID.(uuid.UUID))
+	summary, err := h.service.GetAuditLogSummary(c.Request.Context())
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve audit log summary", err.Error())
 		return
@@ -126,12 +102,6 @@ func (h *Handler) GetUserAuditLogs(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, http.StatusUnauthorized, "Organization not found", "")
-		return
-	}
-
 	var req AuditLogListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid query parameters", err.Error())
@@ -140,7 +110,7 @@ func (h *Handler) GetUserAuditLogs(c *gin.Context) {
 
 	req.UserID = &userID
 
-	auditLogs, total, err := h.service.ListAuditLogs(c.Request.Context(), organizationID.(uuid.UUID), req)
+	auditLogs, total, err := h.service.ListAuditLogs(c.Request.Context(), req)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve user audit logs", err.Error())
 		return
@@ -163,12 +133,6 @@ func (h *Handler) GetEntityAuditLogs(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, http.StatusUnauthorized, "Organization not found", "")
-		return
-	}
-
 	var req AuditLogListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid query parameters", err.Error())
@@ -178,7 +142,7 @@ func (h *Handler) GetEntityAuditLogs(c *gin.Context) {
 	req.EntityID = &entityID
 	req.EntityType = entityType
 
-	auditLogs, total, err := h.service.ListAuditLogs(c.Request.Context(), organizationID.(uuid.UUID), req)
+	auditLogs, total, err := h.service.ListAuditLogs(c.Request.Context(), req)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve entity audit logs", err.Error())
 		return
@@ -189,12 +153,6 @@ func (h *Handler) GetEntityAuditLogs(c *gin.Context) {
 
 // ExportAuditLogs exports audit logs to CSV
 func (h *Handler) ExportAuditLogs(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, http.StatusUnauthorized, "Organization not found", "")
-		return
-	}
-
 	var req AuditLogListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid query parameters", err.Error())
@@ -205,7 +163,7 @@ func (h *Handler) ExportAuditLogs(c *gin.Context) {
 	req.PerPage = 10000
 	req.Page = 1
 
-	auditLogs, _, err := h.service.ListAuditLogs(c.Request.Context(), organizationID.(uuid.UUID), req)
+	auditLogs, _, err := h.service.ListAuditLogs(c.Request.Context(), req)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve audit logs for export", err.Error())
 		return
@@ -231,19 +189,13 @@ func (h *Handler) ExportAuditLogs(c *gin.Context) {
 
 // GetAuditStats retrieves audit statistics for dashboard
 func (h *Handler) GetAuditStats(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.Error(c, http.StatusUnauthorized, http.StatusUnauthorized, "Organization not found", "")
-		return
-	}
-
 	days := c.DefaultQuery("days", "30")
 	_, err := strconv.Atoi(days)
 	if err != nil {
 		// Use default
 	}
 
-	stats, err := h.service.GetAuditLogSummary(c.Request.Context(), organizationID.(uuid.UUID))
+	stats, err := h.service.GetAuditLogSummary(c.Request.Context())
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve audit statistics", err.Error())
 		return

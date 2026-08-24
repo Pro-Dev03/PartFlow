@@ -1,15 +1,16 @@
 import type { HTMLAttributes } from 'react';
 import { forwardRef } from 'react';
-import { cn } from '../../lib/utils';
+import { cn } from '../../utils';
 
 export interface BadgeProps extends HTMLAttributes<HTMLDivElement> {
   variant?: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'destructive' | 'secondary' | 'outline';
   size?: 'sm' | 'md' | 'lg';
   dot?: boolean;
+  'aria-label'?: string;
 }
 
 const Badge = forwardRef<HTMLDivElement, BadgeProps>(
-  ({ className, variant = 'default', size = 'md', dot = false, children, ...props }, ref) => {
+  ({ className, variant = 'default', size = 'md', dot = false, children, 'aria-label': ariaLabel, ...props }, ref) => {
     const variants = {
       default: 'bg-surface border border-border text-text',
       success: 'bg-green/8 text-green border border-green/20',
@@ -20,13 +21,24 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
       secondary: 'bg-surface-2 text-text border border-border',
       outline: 'border border-border text-text bg-transparent',
     };
-    
+
     const sizes = {
       sm: 'px-2 py-0.5 text-tiny',
       md: 'px-2 py-1 text-tiny',
       lg: 'px-3 py-1 text-small',
     };
-    
+
+    const getStatusText = () => {
+      switch (variant) {
+        case 'success': return 'نشط';
+        case 'warning': return 'تحذير';
+        case 'danger': return 'خطر';
+        case 'info': return 'معلومات';
+        case 'default': return 'افتراضي';
+        default: return 'حالة';
+      }
+    };
+
     return (
       <div
         ref={ref}
@@ -37,11 +49,11 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
           className
         )}
         role="status"
-        aria-label={typeof children === 'string' ? children : undefined}
+        aria-label={ariaLabel || (typeof children === 'string' ? children : undefined)}
         {...props}
       >
         {dot && (
-          <span 
+          <span
             className={cn(
               'w-1.5 h-1.5 rounded-full',
               variant === 'success' && 'bg-green',
@@ -54,6 +66,12 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
           />
         )}
         {children}
+        {/* Screen reader text for color-only status */}
+        {!ariaLabel && typeof children !== 'string' && (
+          <span className="sr-only" aria-hidden="true">
+            {getStatusText()}
+          </span>
+        )}
       </div>
     );
   }

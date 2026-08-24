@@ -9,7 +9,6 @@ import (
 // Return represents a product return
 type Return struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	SaleID         uuid.UUID  `json:"sale_id" db:"sale_id"`
 	CustomerID     uuid.UUID  `json:"customer_id" db:"customer_id"`
 	ReturnNumber   string     `json:"return_number" db:"return_number"`

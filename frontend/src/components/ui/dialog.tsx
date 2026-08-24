@@ -1,5 +1,5 @@
 import { forwardRef, type HTMLAttributes } from 'react';
-import { cn } from '../../lib/utils/helpers';
+import { cn } from '../../utils/helpers';
 import { X } from 'lucide-react';
 
 export interface DialogProps extends HTMLAttributes<HTMLDivElement> {
@@ -22,22 +22,22 @@ const Dialog = forwardRef<HTMLDivElement, DialogProps>(
     };
 
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="fixed inset-0 z-modal flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
         <div
           ref={ref}
           className={cn(
-            'bg-white rounded-lg shadow-xl w-full',
+            'bg-surface rounded-xl shadow-card border border-border w-full animate-scale-in',
             sizes[size],
             className
           )}
           {...props}
         >
           {title && (
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
+            <div className="flex items-center justify-between p-6 border-b border-border">
+              <h2 className="text-xl font-semibold text-text-primary">{title}</h2>
               <button
                 onClick={onClose}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
+                className="text-text-secondary hover:text-text-primary transition-colors duration-normal"
               >
                 <X className="w-5 h-5" />
               </button>

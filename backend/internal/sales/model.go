@@ -9,7 +9,6 @@ import (
 // Sale represents a sales transaction
 type Sale struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID `json:"organization_id" db:"organization_id"`
 	InvoiceNumber  string     `json:"invoice_number" db:"invoice_number"`
 	CustomerID     *uuid.UUID `json:"customer_id,omitempty" db:"customer_id"`
 	UserID         uuid.UUID  `json:"user_id" db:"user_id"`
@@ -32,16 +31,17 @@ type Sale struct {
 
 // SaleItem represents an item in a sale
 type SaleItem struct {
-	ID            uuid.UUID `json:"id" db:"id"`
-	SaleID        uuid.UUID `json:"sale_id" db:"sale_id"`
-	ProductID     uuid.UUID `json:"product_id" db:"product_id"`
-	Quantity      int       `json:"quantity" db:"quantity"`
-	UnitPrice     float64   `json:"unit_price" db:"unit_price"`
-	UnitCost      float64   `json:"unit_cost" db:"unit_cost"`
-	DiscountAmount float64  `json:"discount_amount" db:"discount_amount"`
-	TaxAmount     float64   `json:"tax_amount" db:"tax_amount"`
-	TotalAmount   float64   `json:"total_amount" db:"total_amount"`
-	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	ID            uuid.UUID  `json:"id" db:"id"`
+	SaleID        uuid.UUID  `json:"sale_id" db:"sale_id"`
+	ProductID     uuid.UUID  `json:"product_id" db:"product_id"`
+	Quantity      int        `json:"quantity" db:"quantity"`
+	UnitPrice     float64    `json:"unit_price" db:"unit_price"`
+	UnitCost      float64    `json:"unit_cost" db:"unit_cost"`
+	DiscountAmount float64    `json:"discount_amount" db:"discount_amount"`
+	TaxAmount     float64    `json:"tax_amount" db:"tax_amount"`
+	TotalAmount   float64    `json:"total_amount" db:"total_amount"`
+	SupplierID    *uuid.UUID `json:"supplier_id,omitempty" db:"supplier_id"`
+	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 }
 
 // TableName returns the table name for the Sale model
@@ -58,7 +58,6 @@ func (SaleItem) TableName() string {
 func NewSale(organizationID uuid.UUID, invoiceNumber string, userID uuid.UUID) *Sale {
 	return &Sale{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		InvoiceNumber:  invoiceNumber,
 		UserID:         userID,
 		SaleDate:       time.Now(),
@@ -77,7 +76,6 @@ func NewSale(organizationID uuid.UUID, invoiceNumber string, userID uuid.UUID) *
 // Transaction represents a financial transaction
 type Transaction struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	SaleID         *uuid.UUID `json:"sale_id,omitempty" db:"sale_id"`
 	Type           string     `json:"type" db:"type"` // "sale", "refund", "payment", "expense"
 	Amount         float64    `json:"amount" db:"amount"`
@@ -94,7 +92,6 @@ type Transaction struct {
 // ProfitEntry represents a profit/loss entry
 type ProfitEntry struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	SaleID         *uuid.UUID `json:"sale_id,omitempty" db:"sale_id"`
 	Period         string     `json:"period" db:"period"` // "daily", "weekly", "monthly"
 	StartDate      time.Time  `json:"start_date" db:"start_date"`

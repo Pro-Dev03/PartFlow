@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 import { X } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn } from '../../utils';
 import { Button } from '../ui/button';
 
 export interface DialogProps {
@@ -71,11 +71,10 @@ export function Dialog({
             {showCloseButton && (
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
                 onClick={onClose}
-                className="p-2"
               >
-                <X className="w-4 h-4" />
+                <X className="w-3.5 h-3.5" />
               </Button>
             )}
           </div>

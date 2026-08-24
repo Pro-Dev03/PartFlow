@@ -35,19 +35,13 @@ func NewHandler(service *Service) *Handler {
 // @Failure 401 {object} response.Response
 // @Router /api/v1/categories [post]
 func (h *Handler) CreateCategory(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		errors.HandleError(c, errors.NewValidationError("organization_id required", nil))
-		return
-	}
-
 	var req CategoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errors.HandleError(c, errors.ValidateRequest(err))
 		return
 	}
 
-	category, err := h.service.CreateCategory(c.Request.Context(), organizationID.(uuid.UUID), &req)
+	category, err := h.service.CreateCategory(c.Request.Context(), &req)
 	if err != nil {
 		errors.HandleError(c, errors.WrapError(err, "Failed to create category"))
 		return
@@ -84,20 +78,14 @@ func (h *Handler) GetCategory(c *gin.Context) {
 
 // ListCategories retrieves all categories
 // @Summary List Categories
-// @Description Get all categories for the organization
+// @Description Get all categories
 // @Tags categories
 // @Produce json
 // @Security Bearer
 // @Success 200 {object} response.Response{data=[]Category}
 // @Router /api/v1/categories [get]
 func (h *Handler) ListCategories(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	categories, err := h.service.ListCategories(c.Request.Context(), organizationID.(uuid.UUID))
+	categories, err := h.service.ListCategories(c.Request.Context())
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -126,19 +114,13 @@ func (h *Handler) UpdateCategory(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
 	var req CategoryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 
-	category, err := h.service.UpdateCategory(c.Request.Context(), id, organizationID.(uuid.UUID), &req)
+	category, err := h.service.UpdateCategory(c.Request.Context(), id, &req)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -164,13 +146,7 @@ func (h *Handler) DeleteCategory(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	if err := h.service.DeleteCategory(c.Request.Context(), id, organizationID.(uuid.UUID)); err != nil {
+	if err := h.service.DeleteCategory(c.Request.Context(), id); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -193,19 +169,13 @@ func (h *Handler) DeleteCategory(c *gin.Context) {
 // @Failure 401 {object} response.Response
 // @Router /api/v1/brands [post]
 func (h *Handler) CreateBrand(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
 	var req BrandRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 
-	brand, err := h.service.CreateBrand(c.Request.Context(), organizationID.(uuid.UUID), &req)
+	brand, err := h.service.CreateBrand(c.Request.Context(), &req)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -242,20 +212,15 @@ func (h *Handler) GetBrand(c *gin.Context) {
 
 // ListBrands retrieves all brands
 // @Summary List Brands
-// @Description Get all brands for the organization
+// @Description Get all brands
 // @Tags brands
 // @Produce json
 // @Security Bearer
 // @Success 200 {object} response.Response{data=[]Brand}
 // @Router /api/v1/brands [get]
 func (h *Handler) ListBrands(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
 
-	brands, err := h.service.ListBrands(c.Request.Context(), organizationID.(uuid.UUID))
+	brands, err := h.service.ListBrands(c.Request.Context())
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -284,19 +249,13 @@ func (h *Handler) UpdateBrand(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
 	var req BrandRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 
-	brand, err := h.service.UpdateBrand(c.Request.Context(), id, organizationID.(uuid.UUID), &req)
+	brand, err := h.service.UpdateBrand(c.Request.Context(), id, &req)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -322,13 +281,7 @@ func (h *Handler) DeleteBrand(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	if err := h.service.DeleteBrand(c.Request.Context(), id, organizationID.(uuid.UUID)); err != nil {
+	if err := h.service.DeleteBrand(c.Request.Context(), id); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -351,19 +304,13 @@ func (h *Handler) DeleteBrand(c *gin.Context) {
 // @Failure 401 {object} response.Response
 // @Router /api/v1/products [post]
 func (h *Handler) CreateProduct(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		errors.HandleError(c, errors.NewValidationError("organization_id required", nil))
-		return
-	}
-
 	var req ProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errors.HandleError(c, errors.ValidateRequest(err))
 		return
 	}
 
-	product, err := h.service.CreateProduct(c.Request.Context(), organizationID.(uuid.UUID), &req)
+	product, err := h.service.CreateProduct(c.Request.Context(), &req)
 	if err != nil {
 		errors.HandleError(c, errors.WrapError(err, "Failed to create product"))
 		return
@@ -410,13 +357,8 @@ func (h *Handler) GetProduct(c *gin.Context) {
 // @Router /api/v1/products/barcode/{barcode} [get]
 func (h *Handler) GetProductByBarcode(c *gin.Context) {
 	barcode := c.Param("barcode")
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
 
-	product, err := h.service.GetProductByBarcode(c.Request.Context(), barcode, organizationID.(uuid.UUID))
+	product, err := h.service.GetProductByBarcode(c.Request.Context(), barcode)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -443,11 +385,6 @@ func (h *Handler) GetProductByBarcode(c *gin.Context) {
 // @Success 200 {object} response.Response{data=[]Product}
 // @Router /api/v1/products [get]
 func (h *Handler) ListProducts(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
 
 	req := &ProductListRequest{
 		Page:    1,
@@ -490,10 +427,15 @@ func (h *Handler) ListProducts(c *gin.Context) {
 		}
 	}
 
-	products, total, err := h.service.ListProducts(c.Request.Context(), organizationID.(uuid.UUID), req)
+	products, total, err := h.service.ListProducts(c.Request.Context(), req)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
+	}
+
+	// Ensure products is never null
+	if products == nil {
+		products = []Product{}
 	}
 
 	response.OK(c, gin.H{
@@ -524,19 +466,13 @@ func (h *Handler) UpdateProduct(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
 	var req ProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 
-	product, err := h.service.UpdateProduct(c.Request.Context(), id, organizationID.(uuid.UUID), &req)
+	product, err := h.service.UpdateProduct(c.Request.Context(), id, &req)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -556,19 +492,20 @@ func (h *Handler) UpdateProduct(c *gin.Context) {
 // @Failure 404 {object} response.Response
 // @Router /api/v1/products/{id} [delete]
 func (h *Handler) DeleteProduct(c *gin.Context) {
+	// SECURITY: Only owners and admins can delete products
+	role := c.GetString("role")
+	if role != "owner" && role != "admin" {
+		response.Forbidden(c, "Only owners and admins can delete products")
+		return
+	}
+
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.BadRequest(c, "invalid product id")
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	if err := h.service.DeleteProduct(c.Request.Context(), id, organizationID.(uuid.UUID)); err != nil {
+	if err := h.service.DeleteProduct(c.Request.Context(), id); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -593,13 +530,7 @@ func (h *Handler) ArchiveProduct(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	if err := h.service.ArchiveProduct(c.Request.Context(), id, organizationID.(uuid.UUID)); err != nil {
+	if err := h.service.ArchiveProduct(c.Request.Context(), id); err != nil {
 		if err == ErrProductNotFound {
 			response.NotFound(c, "product not found")
 			return
@@ -629,13 +560,7 @@ func (h *Handler) GenerateBarcode(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	barcode, err := h.service.GenerateBarcode(c.Request.Context(), id, organizationID.(uuid.UUID))
+	barcode, err := h.service.GenerateBarcode(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrProductNotFound {
 			response.NotFound(c, "product not found")
@@ -666,13 +591,7 @@ func (h *Handler) GetProductStock(c *gin.Context) {
 		return
 	}
 
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
-	stockInfo, err := h.service.GetProductStock(c.Request.Context(), id, organizationID.(uuid.UUID))
+	stockInfo, err := h.service.GetProductStock(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrProductNotFound {
 			response.NotFound(c, "product not found")
@@ -697,12 +616,6 @@ func (h *Handler) GetProductStock(c *gin.Context) {
 // @Failure 400 {object} response.Response
 // @Router /api/v1/products/search [get]
 func (h *Handler) SearchProducts(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
 	query := c.Query("q")
 	if query == "" {
 		response.BadRequest(c, "query parameter 'q' is required")
@@ -716,7 +629,7 @@ func (h *Handler) SearchProducts(c *gin.Context) {
 		}
 	}
 
-	products, err := h.service.SearchProducts(c.Request.Context(), organizationID.(uuid.UUID), query, limit)
+	products, err := h.service.SearchProducts(c.Request.Context(), query, limit)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

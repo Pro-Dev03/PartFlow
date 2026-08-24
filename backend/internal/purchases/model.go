@@ -9,7 +9,6 @@ import (
 // Purchase represents a purchase from a supplier
 type Purchase struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	SupplierID     uuid.UUID  `json:"supplier_id" db:"supplier_id"`
 	InvoiceNumber  string     `json:"invoice_number" db:"invoice_number"`
 	PurchaseDate   time.Time  `json:"purchase_date" db:"purchase_date"`
@@ -32,6 +31,7 @@ type PurchaseItem struct {
 	TotalCost      float64    `json:"total_cost" db:"total_cost"`
 	SerialNumber   string     `json:"serial_number" db:"serial_number"`
 	Condition      string     `json:"condition" db:"condition"` // new, used, refurbished
+	Grade          string     `json:"grade" db:"grade"`         // excellent, very_good, good, fair, poor
 	LocationID     *uuid.UUID `json:"location_id" db:"location_id"`
 	Notes          string     `json:"notes" db:"notes"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
@@ -54,6 +54,7 @@ type PurchaseItemRequest struct {
 	UnitCost     float64    `json:"unit_cost" binding:"required,min=0"`
 	SerialNumber string     `json:"serial_number"`
 	Condition    string     `json:"condition" binding:"required,oneof=new used refurbished"`
+	Grade        string     `json:"grade" binding:"omitempty,oneof=excellent very_good good fair poor"`
 	LocationID   *uuid.UUID `json:"location_id"`
 	Notes        string     `json:"notes"`
 }

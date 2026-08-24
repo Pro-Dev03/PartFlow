@@ -1,38 +1,61 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { cn } from '../../../utils';
 import { dashboardApi, notificationsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
-import { Skeleton, StatCardSkeleton } from '../../../components/ui/skeleton';
+import { StatCardSkeleton } from '../../../components/ui/skeleton';
 import { SalesChart } from '../../../components/charts/SalesChart';
 import { CategoryChart } from '../../../components/charts/CategoryChart';
-import { LoadingSpinner } from '../../../components/ui/loading-spinner';
+import { DashboardMetrics } from '../components/DashboardMetrics';
+import { AttentionSection } from '../components/AttentionSection';
+import { SmartActions } from '../components/SmartActions';
+import { AIInsight } from '../components/AIInsight';
+import { SmartAlerts } from '../../../components/notifications/smart-alerts';
+import { getButtonSize } from '../../../config/button-sizes';
 import {
   ShoppingCart,
   DollarSign,
-  Package,
   AlertTriangle,
-  Plus,
-  ArrowUpRight,
-  ArrowDownRight,
   Clock,
   Activity,
-  AlertCircle,
-  Shield,
-  RotateCcw,
   Bell,
+  ArrowUpRight,
+  RotateCcw,
+  Plus,
+  Package,
+  Shield,
+  TrendingUp,
+  Target,
+  Zap,
+  XCircle,
+  Calendar,
   Users,
   BarChart3,
   Sparkles,
-  TrendingUp
+  Sun,
+  Moon,
+  Coffee
 } from 'lucide-react';
 
 export function DashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const { data: dashboardData, isLoading, error } = useQuery({
     queryKey: ['dashboard'],
@@ -43,7 +66,7 @@ export function DashboardPage() {
 
   const { data: notificationsData } = useQuery({
     queryKey: ['notifications'],
-    queryFn: () => notificationsApi.list(),
+    queryFn: () => notificationsApi.list({ page: 1, per_page: 20 }),
     refetchInterval: 60000,
     staleTime: 30000,
   });
@@ -57,13 +80,13 @@ export function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-md">
-        <PageHeader 
-          eyebrow="لوحة التحكم"
-          title="صباح الخير، صاحب المتجر"
-          description="إليك نظرة عامة على أداء متجرك اليوم"
+      <div>
+        <PageHeader
+          eyebrow={t('dashboard.title')}
+          title={t('dashboard.welcome')}
+          description={t('dashboard.subtitle')}
         />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px' }}>
           <StatCardSkeleton />
           <StatCardSkeleton />
           <StatCardSkeleton />
@@ -75,11 +98,11 @@ export function DashboardPage() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <AlertTriangle className="w-12 h-12 text-danger mx-auto mb-2" />
-          <p className="text-text-secondary">
-            فشل تحميل البيانات
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '256px' }}>
+        <div style={{ textAlign: 'center' }}>
+          <AlertTriangle className="w-12 h-12 mx-auto mb-2" style={{ color: 'var(--color-danger)' }} />
+          <p style={{ color: 'var(--text-secondary)' }}>
+            {t('common.error')}
           </p>
         </div>
       </div>
@@ -89,128 +112,65 @@ export function DashboardPage() {
   const stats = dashboardData as any;
 
   return (
-    <div className="space-y-md">
-      {/* Page Header with Actions - Futuristic + Visual */}
+    <div>
+      {/* Page Header with Actions */}
       <PageHeader
-        eyebrow="Store Intelligence"
-        title="صباح الخير، صاحب المتجر"
-        description="إليك نظرة عامة على أداء متجرك اليوم"
+        eyebrow={t('dashboard.title')}
+        title={t('dashboard.welcome')}
+        description={t('dashboard.subtitle')}
         actions={
-          <div className="flex items-center gap-sm">
-            <Button variant="primary" onClick={() => navigate('/app/sales')} className="gap-2">
+          <div className={cn(
+            "flex gap-3",
+            isMobile ? "flex-col w-full" : ""
+          )}>
+            <Button 
+              variant="secondary" 
+              size={getButtonSize('customers', 'headerActions')} 
+              onClick={() => navigate('/app/sales')} 
+              className={cn("gap-2", isMobile ? "w-full" : "")}
+            >
               <ShoppingCart className="w-4 h-4" />
-              <span>بيع جديد</span>
+              <span>{t('dashboard.newSale')}</span>
             </Button>
-            <Button variant="secondary" onClick={() => navigate('/app/inventory')} className="gap-2">
+            <Button 
+              variant="secondary" 
+              size={getButtonSize('customers', 'headerActions')} 
+              onClick={() => navigate('/app/inventory')} 
+              className={cn("gap-2", isMobile ? "w-full" : "")}
+            >
               <Plus className="w-4 h-4" />
-              <span>إضافة منتج</span>
+              <span>{t('dashboard.addProduct')}</span>
             </Button>
           </div>
         }
       />
 
-      {/* Key Metrics Cards - Futuristic + Visual */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
-        <MetricCard
-          title="مبيعات اليوم"
-          value={`₪${(stats?.todaySales as number)?.toLocaleString() || 0}`}
-          icon={ShoppingCart}
-          trend="+12.4%"
-          trendUp={true}
-          subtitle="مقارنة بالأمس"
-          variant="featured"
-        />
-        <MetricCard
-          title="المعاملات"
-          value={(stats?.todayTransactions as number) || 0}
-          icon={Activity}
-          trend="+8%"
-          trendUp={true}
-          subtitle="مقارنة بالأمس"
-        />
-        <MetricCard
-          title="الديون المستحقة"
-          value={`₪${(stats?.outstandingDebts as number)?.toLocaleString() || 0}`}
-          icon={AlertTriangle}
-          trend="+5%"
-          trendUp={false}
-          subtitle={`${(stats?.activeCustomers as number) || 0} عميل`}
-          variant="warning"
-        />
-        <MetricCard
-          title="المخزون المنخفض"
-          value={(stats?.lowStockCount as number) || 0}
-          icon={Package}
-          trend={null}
-          trendUp={null}
-          subtitle="يحتاج انتباه"
-          variant="danger"
+      {/* "يحتاج انتباهك" Section - أهم قسم في Dashboard */}
+      <div style={{ marginTop: '16px' }}>
+        <AttentionSection
+          lowStockCount={stats?.lowStockCount as number}
+          overdueDebtsCount={stats?.overdueDebts as number}
         />
       </div>
 
-      {/* AI Insights Card - Futuristic + Visual */}
-      <Card variant="ai">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-cyan" />
-            AI Insight
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-md">
-            <div className="w-8 h-8 rounded-sm bg-cyan/10 flex items-center justify-center flex-shrink-0">
-              <Sparkles className="w-4 h-4 text-cyan" />
-            </div>
-            <div>
-              <p className="text-small font-semibold text-text">ارتفاع الطلب على RTX 3060</p>
-              <p className="text-tiny text-text-muted mt-1">
-                المبيعات زادت 34% هذا الشهر. المخزون الحالي قد يستمر لمدة 6 أيام تقريباً.
-              </p>
-              <Button variant="ghost" size="sm" className="mt-2 text-cyan">
-                عرض التوصية ←
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Smart Actions - العمليات اليومية الأكثر استخداماً */}
+      <div style={{ marginTop: '16px' }}>
+        <SmartActions />
+      </div>
 
-      {/* Needs Attention Section - Futuristic + Visual */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-yellow" />
-            يحتاج انتباهك
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-sm">
-            <AttentionItem
-              icon={Package}
-              title={`${(stats?.lowStockCount as number) || 0} منتج منخفض المخزون`}
-              description="راجع المخزون الآن"
-              action={() => navigate('/app/inventory')}
-            />
-            <AttentionItem
-              icon={AlertTriangle}
-              title={`${(stats?.overdueDebtsCount as number) || 0} ديون متأخرة`}
-              description="راجع الديون"
-              action={() => navigate('/app/debts')}
-            />
-            <AttentionItem
-              icon={Shield}
-              title={`${(stats?.expiringWarrantiesCount as number) || 0} ضمانات تنتهي قريباً`}
-              description="راجع الضمانات"
-              action={() => navigate('/app/warranties')}
-            />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Key Metrics Cards */}
+      <DashboardMetrics stats={stats} />
 
-      {/* Charts Section - Futuristic + Visual */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-md">
+      {/* Content Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.65fr) minmax(0, 0.9fr)', gap: '16px' }}
+           className="grid-cols-1 md:grid-cols-2">
+        {/* Sales Chart */}
         <Card>
           <CardHeader>
-            <CardTitle>نظرة عامة على المبيعات</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5" style={{ color: 'var(--color-success)' }} />
+              {t('dashboard.performance')}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <SalesChart data={[
@@ -225,9 +185,13 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
+        {/* Category Chart */}
         <Card>
           <CardHeader>
-            <CardTitle>توزيع المبيعات حسب الفئة</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
+              {t('dashboard.trends')}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <CategoryChart data={[
@@ -241,206 +205,135 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      {/* Recent Activity Section - Futuristic + Visual */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="w-5 h-5 text-cyan" />
-            النشاط الأخير
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-sm">
-            <ActivityItem
-              type="sale"
-              title="بيع #1234"
-              description="مبيعات RTX 3060"
-              amount="₪2,450"
-              time="منذ 5 دقائق"
-              status="completed"
+      {/* AI Insights Card */}
+      {dashboardData?.data?.insights && dashboardData.data.insights.length > 0 && (
+        <div style={{ marginTop: '16px' }}>
+          {dashboardData.data.insights.map((insight: any, index: number) => (
+            <AIInsight
+              key={index}
+              title={insight.title}
+              description={insight.description}
+              actionLabel={t('dashboard.viewDetails')}
+              onAction={() => navigate(insight.link || '/app/inventory')}
             />
-            <ActivityItem
-              type="purchase"
-              title="شراء #987"
-              description="شراء كروت شاشة من المورد"
-              amount="₪5,200"
-              time="منذ 15 دقيقة"
-              status="completed"
-            />
-            <ActivityItem
-              type="payment"
-              title="دفعة دين"
-              description="دفعة من أحمد محمد"
-              amount="₪1,000"
-              time="منذ 30 دقيقة"
-              status="completed"
-            />
-            <ActivityItem
-              type="return"
-              title="مرتجع #456"
-              description="مرتجع منتج معيب"
-              amount="₪850"
-              time="منذ ساعة"
-              status="completed"
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Recent Notifications Section - Futuristic + Visual */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="w-5 h-5 text-cyan" />
-            الإشعارات الحديثة
-            {unreadCountData && typeof unreadCountData === 'object' && 'data' in unreadCountData && (unreadCountData as any).data > 0 && (
-              <Badge variant="danger" size="sm">
-                {(unreadCountData as any).data}
-              </Badge>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-sm">
-            {(notificationsData?.data as any[])?.slice(0, 5).map((notification: any, index: number) => (
-              <div
-                key={index}
-                className={`flex items-start gap-md p-lg rounded-sm border ${
-                  notification.is_read
-                    ? 'bg-surface border-border'
-                    : 'bg-cyan/5 border-cyan/20'
-                }`}
-              >
-                <div className="flex-shrink-0">
-                  {getNotificationIcon(notification.type)}
-                </div>
-                <div className="flex-1">
-                  <p className="text-small font-medium text-text">
-                    {notification.title}
-                  </p>
-                  <p className="text-tiny text-text-muted mt-1">
-                    {notification.message}
-                  </p>
-                  <p className="text-tiny text-text-muted mt-2">
-                    {new Date(notification.created_at).toLocaleString('ar-SA')}
-                  </p>
-                </div>
-              </div>
-            ))}
-            {(!notificationsData?.data || (notificationsData.data as any[]).length === 0) && (
-              <p className="text-small text-text-muted text-center py-4">
-                لا توجد إشعارات حديثة
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Quick Actions - Futuristic + Visual */}
-      <div>
-        <h2 className="text-h3 font-semibold text-text mb-md">
-          الإجراءات السريعة
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-sm">
-          <QuickActionButton
-            icon={ShoppingCart}
-            label="بيع جديد"
-            onClick={() => navigate('/app/sales')}
-          />
-          <QuickActionButton
-            icon={Package}
-            label="إضافة منتج"
-            onClick={() => navigate('/app/inventory')}
-          />
-          <QuickActionButton
-            icon={Users}
-            label="إضافة عميل"
-            onClick={() => navigate('/app/customers')}
-          />
-          <QuickActionButton
-            icon={DollarSign}
-            label="تسجيل دفعة"
-            onClick={() => navigate('/app/debts')}
-          />
-          <QuickActionButton
-            icon={BarChart3}
-            label="التقارير"
-            onClick={() => navigate('/app/reports')}
-          />
+          ))}
         </div>
+      )}
+
+      {/* Smart Alerts Section - التنبيهات الذكية */}
+      <div style={{ marginTop: '16px' }}>
+        <Card style={{
+          background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(236, 72, 153, 0.05) 100%)',
+          border: '1px solid rgba(99, 102, 241, 0.2)'
+        }}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
+              {t('notifications.smartAlerts')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SmartAlerts alerts={[]} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Recent Activity Section */}
+      <div style={{ marginTop: '16px' }}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
+              {t('dashboard.recentActivity')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {dashboardData?.data?.recent_activity?.length > 0 ? (
+                dashboardData?.data?.recent_activity?.map((activity: any) => (
+                  <ActivityItem
+                    key={activity.id}
+                    type={activity.type}
+                    title={activity.title}
+                    description={activity.description}
+                    amount={activity.amount}
+                    time={activity.time}
+                    status={activity.status}
+                  />
+                ))
+              ) : (
+                <p className="text-center text-text-muted py-4">
+                  {t('dashboard.noRecentActivity')}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Recent Notifications Section */}
+      <div style={{ marginTop: '16px' }}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bell className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
+              {t('notifications.title')}
+              {unreadCountData && typeof unreadCountData === 'object' && 'data' in unreadCountData && (unreadCountData as any).data > 0 && (
+                <Badge variant="danger" className="text-xs">
+                  {(unreadCountData as any).data}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {(notificationsData?.data as any[])?.slice(0, 5).map((notification: any, index: number) => (
+                <div
+                  key={index}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '14px',
+                    padding: '18px',
+                    borderRadius: '10px',
+                    border: notification.is_read
+                      ? '1px solid var(--border-default)'
+                      : '1px solid var(--border-primary)',
+                    background: notification.is_read
+                      ? 'var(--bg-surface)'
+                      : 'rgba(99, 102, 241, 0.05)'
+                  }}
+                >
+                  <div style={{ flexShrink: 0 }}>
+                    {getNotificationIcon(notification.type)}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)' }}>
+                      {notification.title}
+                    </p>
+                    <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      {notification.message}
+                    </p>
+                    <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                      {new Date(notification.created_at).toLocaleString('ar-SA')}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {(!notificationsData?.data || (notificationsData.data as any[]).length === 0) && (
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center', padding: '16px' }}>
+                  {t('notifications.noNotifications')}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 }
 
-// Unified Metric Card Component - Following Design System
-function MetricCard({ title, value, icon: Icon, trend, trendUp, subtitle, variant = 'default' }: any) {
-  return (
-    <Card variant={variant} className="hover:border-border/22 hover:-translate-y-1 cursor-pointer" hoverable>
-      <CardContent className="p-lg">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <p className="text-small text-text-muted mb-1">{title}</p>
-            <p className="text-metric font-bold text-text mb-1">{value}</p>
-            {subtitle && (
-              <p className="text-tiny text-text-muted">{subtitle}</p>
-            )}
-          </div>
-          <div className={`w-10 h-10 rounded-sm flex items-center justify-center ${
-            variant === 'featured' ? 'bg-cyan/10' :
-            variant === 'warning' ? 'bg-yellow/10' :
-            variant === 'danger' ? 'bg-red/10' :
-            variant === 'success' ? 'bg-green/10' :
-            variant === 'info' ? 'bg-cyan/10' :
-            'bg-cyan/10'
-          }`}>
-            <Icon className={`w-5 h-5 ${
-              variant === 'featured' ? 'text-cyan' :
-              variant === 'warning' ? 'text-yellow' :
-              variant === 'danger' ? 'text-red' :
-              variant === 'success' ? 'text-green' :
-              variant === 'info' ? 'text-cyan' :
-              'text-cyan'
-            }`} />
-          </div>
-        </div>
-        {trend && (
-          <div className="flex items-center gap-1 mt-3">
-            {trendUp ? (
-              <ArrowUpRight className="w-4 h-4 text-green" />
-            ) : (
-              <ArrowDownRight className="w-4 h-4 text-red" />
-            )}
-            <span className={`text-small ${trendUp ? 'text-green' : 'text-red'}`}>
-              {trend}
-            </span>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// Attention Item Component - Following Design System
-function AttentionItem({ icon: Icon, title, description, action }: any) {
-  return (
-    <div 
-      className="flex items-center gap-md p-lg rounded-sm bg-surface hover:bg-surface-2 cursor-pointer transition-colors duration-normal" 
-      onClick={action}
-    >
-      <div className="w-10 h-10 rounded-sm bg-yellow/10 flex items-center justify-center flex-shrink-0">
-        <Icon className="w-5 h-5 text-yellow" />
-      </div>
-      <div className="flex-1">
-        <p className="text-small font-medium text-text">{title}</p>
-        <p className="text-tiny text-text-muted">{description}</p>
-      </div>
-      <ArrowUpRight className="w-4 h-4 text-text-muted" />
-    </div>
-  );
-}
-
-// Activity Item Component - Following Design System
+// Activity Item Component
 function ActivityItem({ type, title, description, amount, time, status }: any) {
   const getIcon = () => {
     switch (type) {
@@ -455,37 +348,37 @@ function ActivityItem({ type, title, description, amount, time, status }: any) {
   const Icon = getIcon();
 
   return (
-    <div className="flex items-center gap-md p-lg rounded-sm border border-border hover:bg-surface-2 transition-colors duration-normal">
-      <div className="w-10 h-10 rounded-sm bg-cyan/10 flex items-center justify-center flex-shrink-0">
-        <Icon className="w-5 h-5 text-cyan" />
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: '14px',
+      padding: '18px',
+      borderRadius: '10px',
+      border: '1px solid var(--border-default)',
+      transition: '180ms ease'
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.background = 'var(--bg-surface-elevated)';
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.background = 'transparent';
+    }}
+    >
+      <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(99, 102, 241, 0.1)' }}>
+        <Icon className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
       </div>
-      <div className="flex-1">
-        <p className="text-small font-medium text-text">{title}</p>
-        <p className="text-tiny text-text-muted">{description}</p>
+      <div style={{ flex: 1 }}>
+        <p style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)' }}>{title}</p>
+        <p style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{description}</p>
       </div>
-      <div className="text-right">
-        <p className="text-small font-medium text-text">{amount}</p>
-        <p className="text-tiny text-text-muted">{time}</p>
+      <div style={{ textAlign: 'right' }}>
+        <p style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)' }}>{amount}</p>
+        <p style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{time}</p>
       </div>
-      <Badge variant={status === 'completed' ? 'success' : 'warning'} size="sm">
+      <Badge variant={status === 'completed' ? 'success' : 'warning'} className="text-xs">
         {status === 'completed' ? 'مكتمل' : status}
       </Badge>
     </div>
-  );
-}
-
-// Quick Action Button Component - Following Design System
-function QuickActionButton({ icon: Icon, label, onClick }: any) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex flex-col items-center gap-sm p-lg rounded-sm border border-border hover:bg-surface-2 hover:border-cyan/30 transition-all duration-normal"
-    >
-      <div className="w-10 h-10 rounded-sm bg-cyan/10 flex items-center justify-center">
-        <Icon className="w-5 h-5 text-cyan" />
-      </div>
-      <span className="text-tiny text-text">{label}</span>
-    </button>
   );
 }
 
@@ -493,12 +386,12 @@ function QuickActionButton({ icon: Icon, label, onClick }: any) {
 function getNotificationIcon(type: string) {
   switch (type) {
     case 'debt':
-      return <AlertTriangle className="w-5 h-5 text-yellow" />;
+      return <AlertTriangle className="w-5 h-5" style={{ color: 'var(--color-warning)' }} />;
     case 'inventory':
-      return <Package className="w-5 h-5 text-cyan" />;
-    case 'warranty':
-      return <Shield className="w-5 h-5 text-cyan" />;
+      return <Package className="w-5 h-5" style={{ color: 'var(--color-info)' }} />;
     default:
-      return <Bell className="w-5 h-5 text-cyan" />;
+      return <Bell className="w-5 h-5" style={{ color: 'var(--color-info)' }} />;
   }
 }
+
+

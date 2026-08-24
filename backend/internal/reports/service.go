@@ -19,14 +19,14 @@ func NewService(repo *Repository) *Service {
 }
 
 // GenerateReport generates a new report
-func (s *Service) GenerateReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, req *ReportRequest) (*Report, error) {
+func (s *Service) GenerateReport(ctx context.Context, userID uuid.UUID, req *ReportRequest) (*Report, error) {
 	// Validate request
 	if err := ValidateReportRequest(req); err != nil {
 		return nil, err
 	}
 
 	// Create report
-	report := CreateReport(organizationID, userID, req)
+	report := CreateReport(userID, req)
 
 	if err := s.repo.CreateReport(ctx, report); err != nil {
 		return nil, fmt.Errorf("failed to create report: %w", err)
@@ -50,21 +50,19 @@ func (s *Service) GenerateReport(ctx context.Context, organizationID uuid.UUID, 
 
 	switch req.Type {
 	case "sales":
-		data, err = s.repo.GetSalesData(ctx, organizationID, start, end)
+		data, err = s.repo.GetSalesData(ctx, start, end)
 	case "inventory":
-		data, err = s.repo.GetInventoryData(ctx, organizationID)
+		data, err = s.repo.GetInventoryData(ctx)
 	case "expenses":
-		data, err = s.repo.GetExpensesData(ctx, organizationID, start, end)
+		data, err = s.repo.GetExpensesData(ctx, start, end)
 	case "profits":
-		data, err = s.repo.GetProfitsData(ctx, organizationID, start, end)
+		data, err = s.repo.GetProfitsData(ctx, start, end)
 	case "debts":
-		data, err = s.repo.GetDebtsData(ctx, organizationID)
+		data, err = s.repo.GetDebtsData(ctx)
 	case "purchases":
-		data, err = s.repo.GetPurchasesData(ctx, organizationID, start, end)
+		data, err = s.repo.GetPurchasesData(ctx, start, end)
 	case "returns":
-		data, err = s.repo.GetReturnsData(ctx, organizationID, start, end)
-	case "warranties":
-		data, err = s.repo.GetWarrantyData(ctx, organizationID)
+		data, err = s.repo.GetReturnsData(ctx, start, end)
 	default:
 		err = ErrInvalidReportType
 	}
@@ -93,12 +91,12 @@ func (s *Service) GenerateReport(ctx context.Context, organizationID uuid.UUID, 
 }
 
 // GetReport retrieves a report by ID
-func (s *Service) GetReport(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*Report, error) {
-	return s.repo.GetReportByID(ctx, id, organizationID)
+func (s *Service) GetReport(ctx context.Context, id uuid.UUID) (*Report, error) {
+	return s.repo.GetReportByID(ctx, id)
 }
 
 // ListReports retrieves reports with pagination and filters
-func (s *Service) ListReports(ctx context.Context, organizationID uuid.UUID, req ReportListRequest) ([]map[string]interface{}, int, error) {
+func (s *Service) ListReports(ctx context.Context, req ReportListRequest) ([]map[string]interface{}, int, error) {
 	if req.Page <= 0 {
 		req.Page = 1
 	}
@@ -106,7 +104,7 @@ func (s *Service) ListReports(ctx context.Context, organizationID uuid.UUID, req
 		req.PerPage = 20
 	}
 
-	reports, total, err := s.repo.ListReports(ctx, organizationID, req)
+	reports, total, err := s.repo.ListReports(ctx, req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -125,12 +123,12 @@ func (s *Service) ListReports(ctx context.Context, organizationID uuid.UUID, req
 }
 
 // DeleteReport deletes a report
-func (s *Service) DeleteReport(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	return s.repo.DeleteReport(ctx, id, organizationID)
+func (s *Service) DeleteReport(ctx context.Context, id uuid.UUID) error {
+	return s.repo.DeleteReport(ctx, id)
 }
 
 // GenerateSalesReport generates a sales report
-func (s *Service) GenerateSalesReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, startDate, endDate time.Time) (*SalesReport, error) {
+func (s *Service) GenerateSalesReport(ctx context.Context, userID uuid.UUID, startDate, endDate time.Time) (*SalesReport, error) {
 	req := &ReportRequest{
 		Type:        "sales",
 		Title:       "Sales Report",
@@ -141,7 +139,7 @@ func (s *Service) GenerateSalesReport(ctx context.Context, organizationID uuid.U
 		},
 	}
 
-	report, err := s.GenerateReport(ctx, organizationID, userID, req)
+	report, err := s.GenerateReport(ctx, userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +158,7 @@ func (s *Service) GenerateSalesReport(ctx context.Context, organizationID uuid.U
 }
 
 // GenerateInventoryReport generates an inventory report
-func (s *Service) GenerateInventoryReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID) (*InventoryReport, error) {
+func (s *Service) GenerateInventoryReport(ctx context.Context, userID uuid.UUID) (*InventoryReport, error) {
 	req := &ReportRequest{
 		Type:        "inventory",
 		Title:       "Inventory Report",
@@ -168,7 +166,7 @@ func (s *Service) GenerateInventoryReport(ctx context.Context, organizationID uu
 		Parameters:  map[string]interface{}{},
 	}
 
-	report, err := s.GenerateReport(ctx, organizationID, userID, req)
+	report, err := s.GenerateReport(ctx, userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +185,7 @@ func (s *Service) GenerateInventoryReport(ctx context.Context, organizationID uu
 }
 
 // GenerateExpensesReport generates an expenses report
-func (s *Service) GenerateExpensesReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, startDate, endDate time.Time) (*ExpensesReport, error) {
+func (s *Service) GenerateExpensesReport(ctx context.Context, userID uuid.UUID, startDate, endDate time.Time) (*ExpensesReport, error) {
 	req := &ReportRequest{
 		Type:        "expenses",
 		Title:       "Expenses Report",
@@ -198,7 +196,7 @@ func (s *Service) GenerateExpensesReport(ctx context.Context, organizationID uui
 		},
 	}
 
-	report, err := s.GenerateReport(ctx, organizationID, userID, req)
+	report, err := s.GenerateReport(ctx, userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +215,7 @@ func (s *Service) GenerateExpensesReport(ctx context.Context, organizationID uui
 }
 
 // GenerateProfitsReport generates a profits report
-func (s *Service) GenerateProfitsReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, startDate, endDate time.Time) (*ProfitsReport, error) {
+func (s *Service) GenerateProfitsReport(ctx context.Context, userID uuid.UUID, startDate, endDate time.Time) (*ProfitsReport, error) {
 	req := &ReportRequest{
 		Type:        "profits",
 		Title:       "Profits Report",
@@ -228,7 +226,7 @@ func (s *Service) GenerateProfitsReport(ctx context.Context, organizationID uuid
 		},
 	}
 
-	report, err := s.GenerateReport(ctx, organizationID, userID, req)
+	report, err := s.GenerateReport(ctx, userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +245,7 @@ func (s *Service) GenerateProfitsReport(ctx context.Context, organizationID uuid
 }
 
 // GenerateDebtsReport generates a debts report
-func (s *Service) GenerateDebtsReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID) (*DebtsReport, error) {
+func (s *Service) GenerateDebtsReport(ctx context.Context, userID uuid.UUID) (*DebtsReport, error) {
 	req := &ReportRequest{
 		Type:        "debts",
 		Title:       "Debts Report",
@@ -255,7 +253,7 @@ func (s *Service) GenerateDebtsReport(ctx context.Context, organizationID uuid.U
 		Parameters:  map[string]interface{}{},
 	}
 
-	report, err := s.GenerateReport(ctx, organizationID, userID, req)
+	report, err := s.GenerateReport(ctx, userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +272,7 @@ func (s *Service) GenerateDebtsReport(ctx context.Context, organizationID uuid.U
 }
 
 // GeneratePurchasesReport generates a purchases report
-func (s *Service) GeneratePurchasesReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, startDate, endDate time.Time) (*PurchasesReport, error) {
+func (s *Service) GeneratePurchasesReport(ctx context.Context, userID uuid.UUID, startDate, endDate time.Time) (*PurchasesReport, error) {
 	req := &ReportRequest{
 		Type:        "purchases",
 		Title:       "Purchases Report",
@@ -285,7 +283,7 @@ func (s *Service) GeneratePurchasesReport(ctx context.Context, organizationID uu
 		},
 	}
 
-	report, err := s.GenerateReport(ctx, organizationID, userID, req)
+	report, err := s.GenerateReport(ctx, userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +302,7 @@ func (s *Service) GeneratePurchasesReport(ctx context.Context, organizationID uu
 }
 
 // GenerateReturnsReport generates a returns report
-func (s *Service) GenerateReturnsReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, startDate, endDate time.Time) (*ReturnsReport, error) {
+func (s *Service) GenerateReturnsReport(ctx context.Context, userID uuid.UUID, startDate, endDate time.Time) (*ReturnsReport, error) {
 	req := &ReportRequest{
 		Type:        "returns",
 		Title:       "Returns Report",
@@ -315,7 +313,7 @@ func (s *Service) GenerateReturnsReport(ctx context.Context, organizationID uuid
 		},
 	}
 
-	report, err := s.GenerateReport(ctx, organizationID, userID, req)
+	report, err := s.GenerateReport(ctx, userID, req)
 	if err != nil {
 		return nil, err
 	}
@@ -331,16 +329,4 @@ func (s *Service) GenerateReturnsReport(ctx context.Context, organizationID uuid
 	}
 
 	return returnsReport, nil
-}
-
-// GenerateWarrantyReport generates a warranty report
-func (s *Service) GenerateWarrantyReport(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID) (*WarrantyReport, error) {
-	// Generate report directly without using the general report generation
-	// since warranty reports don't require date ranges
-	report, err := s.repo.GetWarrantyData(ctx, organizationID)
-	if err != nil {
-		return nil, err
-	}
-
-	return report, nil
 }

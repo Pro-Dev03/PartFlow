@@ -2,6 +2,8 @@
  * PartFlow Themes
  * 
  * دعم الوضع الليلي والنهاري
+ * جميع القيم تعتمد على tokens.css كـ Single Source of Truth
+ * تصميم عصري مع ألوان حيوية وanimations محسنة
  */
 
 /* ============================================================================
@@ -9,62 +11,149 @@
    ============================================================================ */
 
 :root {
-  /* Background Colors */
-  --bg-background: var(--color-background);
-  --bg-surface: var(--color-surface);
-  --bg-surface-elevated: var(--color-surface-elevated);
-  --bg-border: var(--color-border);
-  
-  /* Text Colors */
-  --text-primary: var(--color-text-primary);
-  --text-secondary: var(--color-text-secondary);
-  --text-tertiary: var(--color-text-tertiary);
-  --text-disabled: var(--color-text-disabled);
-  
-  /* Primary Colors */
-  --primary: var(--color-primary);
-  --primary-hover: var(--color-primary-hover);
-  --primary-active: var(--color-primary-active);
-  
-  /* Status Colors */
-  --success: var(--color-success);
-  --success-hover: var(--color-success-hover);
-  --warning: var(--color-warning);
-  --warning-hover: var(--color-warning-hover);
-  --danger: var(--color-danger);
-  --danger-hover: var(--color-danger-hover);
-  --info: var(--color-info);
-  --info-hover: var(--color-info-hover);
-  
-  /* Component-specific Dark Theme */
+  /* جميع الألوان تأتي من tokens.css - لا إعادة تعريف */
+  /* Component-specific Dark Theme - تعتمد على tokens.css */
   --card-bg: var(--bg-surface);
-  --card-border: var(--bg-border);
-  --card-shadow: var(--shadow-md);
+  --card-border: var(--border-default);
+  --card-shadow: var(--shadow-card);
   
   --input-bg: var(--bg-surface);
-  --input-border: var(--bg-border);
+  --input-border: var(--border-default);
   --input-placeholder: var(--text-tertiary);
   
-  --button-primary-bg: var(--primary);
+  /* Sidebar gradients للوضع الليلي */
+  --bg-sidebar-gradient: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(10, 15, 25, 0.9));
+  --bg-logo-gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.1));
+  --bg-nav-active-gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.15));
+  --bg-button-primary-gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(99, 102, 241, 0.08));
+  
+  /* Shadow variables للوضع الليلي */
+  --shadow-glow-strong: 0 0 40px rgba(99, 102, 241, 0.2);
+  --shadow-glow: 0 0 30px rgba(99, 102, 241, 0.15);
+  
+  /* تحديث الألوان الرئيسية لتكون أكثر عصرية */
+  --button-primary-bg: #6366F1; /* Indigo - أكثر عصرية */
   --button-primary-text: #FFFFFF;
-  --button-primary-hover: var(--primary-hover);
+  --button-primary-hover: #4F46E5;
+  
+  /* Primary color للوضع الليلي - Indigo */
+  --primary: #6366F1;
+  --primary-hover: #4F46E5;
+  --primary-active: #4338CA;
+  
+  /* إعادة تعريف ألوان النصوص للوضع الليلي */
+  --text-primary: #f1f7ff !important;
+  --text-secondary: #94a3b8 !important;
+  --text-tertiary: #64748b !important;
+  --text-muted: #475569 !important;
+  --text-disabled: #334155 !important;
+  
+  /* لون النص على الخلفيات الملونة (مثل الأزرار primary) */
+  --text-on-primary: #FFFFFF !important;
   
   --button-secondary-bg: var(--bg-surface-elevated);
   --button-secondary-text: var(--text-primary);
-  --button-secondary-border: var(--bg-border);
+  --button-secondary-border: var(--border-default);
   
   --table-header-bg: var(--bg-surface-elevated);
   --table-row-bg: var(--bg-surface);
   --table-row-hover: var(--bg-surface-elevated);
-  --table-border: var(--bg-border);
+  --table-border: var(--border-default);
   
   --sidebar-bg: var(--bg-surface);
-  --sidebar-border: var(--bg-border);
+  --sidebar-border: var(--border-default);
   --sidebar-item-hover: var(--bg-surface-elevated);
-  --sidebar-item-active: rgba(59, 130, 246, 0.1);
+  --sidebar-item-active: rgba(99, 102, 241, 0.15);
   
   --topbar-bg: var(--bg-surface);
-  --topbar-border: var(--bg-border);
+  --topbar-border: var(--border-default);
+  
+  /* Additional variables for Tailwind compatibility */
+  --bg-border: var(--border-default);
+  --border-default: rgba(148, 163, 184, 0.13);
+  
+  /* Modern Colors - ألوان عصرية */
+  --color-primary: #6366F1;
+  --color-primary-light: #818CF8;
+  --color-accent: #EC4899; /* Pink - أكثر حيوية */
+  --color-success: #22C55E; /* أخضر أكثر سطوعاً */
+  --color-warning: #F59E0B;
+  --color-danger: #EF4444;
+  --color-info: #06B6D4;
+
+  /* RGBA Opacity Variants - لسهولة الاستخدام في الشفافية */
+  --color-primary-05: rgba(99, 102, 241, 0.05);
+  --color-primary-08: rgba(99, 102, 241, 0.08);
+  --color-primary-10: rgba(99, 102, 241, 0.10);
+  --color-primary-12: rgba(99, 102, 241, 0.12);
+  --color-primary-15: rgba(99, 102, 241, 0.15);
+  --color-primary-20: rgba(99, 102, 241, 0.20);
+  --color-primary-25: rgba(99, 102, 241, 0.25);
+  --color-primary-30: rgba(99, 102, 241, 0.30);
+  --color-primary-40: rgba(99, 102, 241, 0.40);
+  --color-primary-50: rgba(99, 102, 241, 0.50);
+  --color-primary-85: rgba(99, 102, 241, 0.85);
+  --color-primary-90: rgba(99, 102, 241, 0.90);
+
+  --color-info-05: rgba(6, 182, 212, 0.05);
+  --color-info-08: rgba(6, 182, 212, 0.08);
+  --color-info-10: rgba(6, 182, 212, 0.10);
+  --color-info-12: rgba(6, 182, 212, 0.12);
+  --color-info-15: rgba(6, 182, 212, 0.15);
+  --color-info-20: rgba(6, 182, 212, 0.20);
+  --color-info-25: rgba(6, 182, 212, 0.25);
+  --color-info-30: rgba(6, 182, 212, 0.30);
+  --color-info-40: rgba(6, 182, 212, 0.40);
+
+  --color-success-05: rgba(34, 197, 94, 0.05);
+  --color-success-08: rgba(34, 197, 94, 0.08);
+  --color-success-10: rgba(34, 197, 94, 0.10);
+  --color-success-12: rgba(34, 197, 94, 0.12);
+  --color-success-15: rgba(34, 197, 94, 0.15);
+  --color-success-20: rgba(34, 197, 94, 0.20);
+  --color-success-25: rgba(34, 197, 94, 0.25);
+  --color-success-30: rgba(34, 197, 94, 0.30);
+  --color-success-40: rgba(34, 197, 94, 0.40);
+
+  --color-warning-05: rgba(245, 158, 11, 0.05);
+  --color-warning-08: rgba(245, 158, 11, 0.08);
+  --color-warning-10: rgba(245, 158, 11, 0.10);
+  --color-warning-12: rgba(245, 158, 11, 0.12);
+  --color-warning-15: rgba(245, 158, 11, 0.15);
+  --color-warning-20: rgba(245, 158, 11, 0.20);
+  --color-warning-25: rgba(245, 158, 11, 0.25);
+  --color-warning-30: rgba(245, 158, 11, 0.30);
+  --color-warning-40: rgba(245, 158, 11, 0.40);
+
+  --color-danger-05: rgba(239, 68, 68, 0.05);
+  --color-danger-08: rgba(239, 68, 68, 0.08);
+  --color-danger-10: rgba(239, 68, 68, 0.10);
+  --color-danger-12: rgba(239, 68, 68, 0.12);
+  --color-danger-15: rgba(239, 68, 68, 0.15);
+  --color-danger-20: rgba(239, 68, 68, 0.20);
+  --color-danger-25: rgba(239, 68, 68, 0.25);
+  --color-danger-30: rgba(239, 68, 68, 0.30);
+  --color-danger-40: rgba(239, 68, 68, 0.40);
+  
+  /* Modern Gradients - تدرجات عصرية */
+  --gradient-primary: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+  --gradient-accent: linear-gradient(135deg, #EC4899 0%, #F43F5E 100%);
+  --gradient-success: linear-gradient(135deg, #22C55E 0%, #10B981 100%);
+  --gradient-info: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);
+  
+  /* Modern Shadows - ظلال عصرية */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+  --shadow-2xl: 0 25px 50px rgba(0, 0, 0, 0.25);
+  
+  /* Modern Animations - حركات عصرية */
+  --transition-fast: 150ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ============================================================================
@@ -72,62 +161,150 @@
    ============================================================================ */
 
 .light {
-  /* Background Colors */
-  --bg-background: var(--light-color-background);
-  --bg-surface: var(--light-color-surface);
-  --bg-surface-elevated: var(--light-color-surface-elevated);
-  --bg-border: var(--light-color-border);
-  
-  /* Text Colors */
-  --text-primary: var(--light-color-text-primary);
-  --text-secondary: var(--light-color-text-secondary);
-  --text-tertiary: var(--light-color-text-tertiary);
-  --text-disabled: var(--light-color-text-disabled);
-  
-  /* Primary Colors */
-  --primary: var(--light-color-primary);
-  --primary-hover: var(--light-color-primary-hover);
-  --primary-active: var(--light-color-primary-active);
-  
-  /* Status Colors */
-  --success: var(--light-color-success);
-  --success-hover: var(--light-color-success-hover);
-  --warning: var(--light-color-warning);
-  --warning-hover: var(--light-color-warning-hover);
-  --danger: var(--light-color-danger);
-  --danger-hover: var(--light-color-danger-hover);
-  --info: var(--light-color-info);
-  --info-hover: var(--light-color-info-hover);
-  
-  /* Component-specific Light Theme */
-  --card-bg: var(--bg-surface);
-  --card-border: var(--bg-border);
-  --card-shadow: var(--shadow-md);
-  
-  --input-bg: var(--bg-surface);
-  --input-border: var(--bg-border);
-  --input-placeholder: var(--text-tertiary);
-  
-  --button-primary-bg: var(--primary);
-  --button-primary-text: #FFFFFF;
-  --button-primary-hover: var(--primary-hover);
-  
-  --button-secondary-bg: var(--bg-surface);
-  --button-secondary-text: var(--text-primary);
-  --button-secondary-border: var(--bg-border);
-  
-  --table-header-bg: var(--bg-surface-elevated);
-  --table-row-bg: var(--bg-surface);
-  --table-row-hover: #F3F4F6;
-  --table-border: var(--bg-border);
-  
-  --sidebar-bg: var(--bg-surface);
-  --sidebar-border: var(--bg-border);
-  --sidebar-item-hover: #F3F4F6;
-  --sidebar-item-active: rgba(37, 99, 235, 0.1);
-  
-  --topbar-bg: var(--bg-surface);
-  --topbar-border: var(--bg-border);
+  /* Background Colors - تصميم احترافي للوضع الفاتح */
+  --bg-background: #F8FAFC !important;
+  --bg-surface: #FFFFFF !important;
+  --bg-surface-elevated: #F1F5F9 !important;
+  --bg-surface-3: #E2E8F0 !important;
+  --bg-border: #CBD5E1 !important;
+
+  /* إضافة gradients احترافية للوضع الفاتح */
+  --bg-gradient-light: radial-gradient(circle at 80% 0%, rgba(99, 102, 241, 0.08), transparent 40%), radial-gradient(circle at 20% 80%, rgba(236, 72, 153, 0.05), transparent 40%);
+
+  /* Sidebar gradients احترافية للوضع الفاتح */
+  --bg-sidebar-gradient: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+  --bg-logo-gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.08));
+  --bg-nav-active-gradient: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.08));
+  --bg-button-primary-gradient: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
+
+  /* Shadow variables محسنة للوضع الفاتح */
+  --shadow-glow-strong: 0 8px 30px rgba(99, 102, 241, 0.15);
+  --shadow-glow: 0 4px 20px rgba(99, 102, 241, 0.12);
+  --shadow-card: 0 10px 40px rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.12);
+
+  /* Primary color للوضع الفاتح */
+  --primary: #6366F1;
+  --primary-hover: #4F46E5;
+  --primary-active: #4338CA;
+
+  /* Text Colors محسنة للوضع الفاتح */
+  --text-primary: #1E293B !important;
+  --text-secondary: #64748B !important;
+  --text-tertiary: #94A3B8 !important;
+  --text-muted: #CBD5E1 !important;
+  --text-disabled: #E2E8F0 !important;
+
+  /* لون النص على الخلفيات الملونة */
+  --text-on-primary: #FFFFFF !important;
+
+  /* Status Colors محسنة للوضع الفاتح */
+  --success: #10B981 !important;
+  --success-hover: #059669 !important;
+  --warning: #F59E0B !important;
+  --warning-hover: #D97706 !important;
+  --danger: #EF4444 !important;
+  --danger-hover: #DC2626 !important;
+  --info: #06B6D4 !important;
+  --info-hover: #0891B2 !important;
+
+  /* Component-specific Light Theme محسنة */
+  --card-bg: #FFFFFF !important;
+  --card-border: #E2E8F0 !important;
+  --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+
+  --input-bg: #FFFFFF !important;
+  --input-border: #CBD5E1 !important;
+  --input-placeholder: #94A3B8 !important;
+
+  --button-primary-bg: #6366F1 !important;
+  --button-primary-text: #FFFFFF !important;
+  --button-primary-hover: #4F46E5 !important;
+
+  --button-secondary-bg: #F8FAFC !important;
+  --button-secondary-text: #1E293B !important;
+  --button-secondary-border: #CBD5E1 !important;
+
+  --table-header-bg: #F8FAFC !important;
+  --table-row-bg: #FFFFFF !important;
+  --table-row-hover: #F1F5F9 !important;
+  --table-border: #E2E8F0 !important;
+
+  --sidebar-bg: #FFFFFF !important;
+  --sidebar-border: #E2E8F0 !important;
+  --sidebar-item-hover: #F1F5F9 !important;
+  --sidebar-item-active: rgba(99, 102, 241, 0.12) !important;
+
+  --topbar-bg: #FFFFFF !important;
+  --topbar-border: #E2E8F0 !important;
+
+  /* Additional variables محسنة */
+  --border-default: #E2E8F0 !important;
+
+  /* Modern Colors محسنة للوضع الفاتح */
+  --color-primary: #6366F1;
+  --color-primary-light: #818CF8;
+  --color-accent: #EC4899;
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-danger: #EF4444;
+  --color-info: #06B6D4;
+
+  /* RGBA Opacity Variants - لسهولة الاستخدام في الشفافية */
+  --color-primary-05: rgba(99, 102, 241, 0.05);
+  --color-primary-08: rgba(99, 102, 241, 0.08);
+  --color-primary-10: rgba(99, 102, 241, 0.10);
+  --color-primary-12: rgba(99, 102, 241, 0.12);
+  --color-primary-15: rgba(99, 102, 241, 0.15);
+  --color-primary-20: rgba(99, 102, 241, 0.20);
+  --color-primary-25: rgba(99, 102, 241, 0.25);
+  --color-primary-30: rgba(99, 102, 241, 0.30);
+  --color-primary-40: rgba(99, 102, 241, 0.40);
+  --color-primary-50: rgba(99, 102, 241, 0.50);
+  --color-primary-85: rgba(99, 102, 241, 0.85);
+  --color-primary-90: rgba(99, 102, 241, 0.90);
+
+  --color-info-05: rgba(6, 182, 212, 0.05);
+  --color-info-08: rgba(6, 182, 212, 0.08);
+  --color-info-10: rgba(6, 182, 212, 0.10);
+  --color-info-12: rgba(6, 182, 212, 0.12);
+  --color-info-15: rgba(6, 182, 212, 0.15);
+  --color-info-20: rgba(6, 182, 212, 0.20);
+  --color-info-25: rgba(6, 182, 212, 0.25);
+  --color-info-30: rgba(6, 182, 212, 0.30);
+  --color-info-40: rgba(6, 182, 212, 0.40);
+
+  --color-success-05: rgba(34, 197, 94, 0.05);
+  --color-success-08: rgba(34, 197, 94, 0.08);
+  --color-success-10: rgba(34, 197, 94, 0.10);
+  --color-success-12: rgba(34, 197, 94, 0.12);
+  --color-success-15: rgba(34, 197, 94, 0.15);
+  --color-success-20: rgba(34, 197, 94, 0.20);
+  --color-success-25: rgba(34, 197, 94, 0.25);
+  --color-success-30: rgba(34, 197, 94, 0.30);
+  --color-success-40: rgba(34, 197, 94, 0.40);
+
+  --color-warning-05: rgba(245, 158, 11, 0.05);
+  --color-warning-08: rgba(245, 158, 11, 0.08);
+  --color-warning-10: rgba(245, 158, 11, 0.10);
+  --color-warning-12: rgba(245, 158, 11, 0.12);
+  --color-warning-15: rgba(245, 158, 11, 0.15);
+  --color-warning-20: rgba(245, 158, 11, 0.20);
+  --color-warning-25: rgba(245, 158, 11, 0.25);
+  --color-warning-30: rgba(245, 158, 11, 0.30);
+  --color-warning-40: rgba(245, 158, 11, 0.40);
+
+  --color-danger-05: rgba(239, 68, 68, 0.05);
+  --color-danger-08: rgba(239, 68, 68, 0.08);
+  --color-danger-10: rgba(239, 68, 68, 0.10);
+  --color-danger-12: rgba(239, 68, 68, 0.12);
+  --color-danger-15: rgba(239, 68, 68, 0.15);
+  --color-danger-20: rgba(239, 68, 68, 0.20);
+  --color-danger-25: rgba(239, 68, 68, 0.25);
+  --color-danger-30: rgba(239, 68, 68, 0.30);
+  --color-danger-40: rgba(239, 68, 68, 0.40);
 }
 
 /* ============================================================================
@@ -142,11 +319,621 @@ body {
   transition: background-color var(--transition-normal), color var(--transition-normal);
 }
 
+/* Light theme specific overrides */
+.light body {
+  background-color: var(--bg-background) !important;
+  color: var(--text-primary) !important;
+}
+
+.light * {
+  border-color: var(--border-default) !important;
+}
+
+.light .text-text {
+  color: var(--text-primary) !important;
+}
+
+.light .text-text-muted {
+  color: var(--text-muted) !important;
+}
+
+.light .text-primary {
+  color: var(--text-primary) !important;
+}
+
+.light .text-secondary {
+  color: var(--text-secondary) !important;
+}
+
+/* Card overrides for light theme */
+.light .card {
+  background-color: var(--card-bg) !important;
+  border-color: var(--card-border) !important;
+}
+
+/* Input overrides for light theme */
+.light .input {
+  background-color: var(--input-bg) !important;
+  border-color: var(--input-border) !important;
+  color: var(--text-primary) !important;
+}
+
+.light .input::placeholder {
+  color: var(--input-placeholder) !important;
+}
+
+/* Table overrides for light theme */
+.light .table {
+  background-color: var(--table-row-bg) !important;
+  border-color: var(--table-border) !important;
+}
+
+.light .table-header {
+  background-color: var(--table-header-bg) !important;
+}
+
+.light .table-row:hover {
+  background-color: var(--table-row-hover) !important;
+}
+
+/* Sidebar overrides for light theme */
+.light .sidebar {
+  background: var(--bg-sidebar-gradient) !important;
+  border-color: var(--sidebar-border) !important;
+}
+
+.light .sidebar-item:hover {
+  background-color: var(--sidebar-item-hover) !important;
+}
+
+.light .sidebar-item.active {
+  background: var(--bg-nav-active-gradient) !important;
+}
+
+/* Button overrides for light theme */
+.light .button-primary {
+  background: var(--gradient-primary) !important;
+  color: var(--button-primary-text) !important;
+}
+
+.light .button-secondary {
+  background-color: var(--button-secondary-bg) !important;
+  color: var(--button-secondary-text) !important;
+  border-color: var(--button-secondary-border) !important;
+}
+
+/* Ensure text visibility in light theme */
+.light .text-muted,
+.light .text-tertiary {
+  color: var(--text-secondary) !important;
+}
+
+/* Light theme specific enhancements */
+.light .card {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06) !important;
+  border: 1px solid var(--card-border) !important;
+}
+
+.light .card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1) !important;
+}
+
+.light .button-primary {
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25) !important;
+}
+
+.light .button-primary:hover {
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35) !important;
+}
+
+.light .sidebar {
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.06) !important;
+}
+
+.light .topbar {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Improve input styling in light theme */
+.light input:not([style*="background"]):not(.search-input-custom),
+.light textarea:not([style*="background"]):not(.search-input-custom),
+.light select:not([style*="background"]):not(.select-custom) {
+  background-color: var(--input-bg) !important;
+  border-color: var(--input-border) !important;
+  color: var(--text-primary) !important;
+}
+
+.light input:not([style*="background"]):not(.search-input-custom):focus,
+.light textarea:not([style*="background"]):not(.search-input-custom):focus,
+.light select:not([style*="background"]):not(.select-custom):focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1) !important;
+}
+
+/* Improve table styling in light theme */
+.light table {
+  background-color: var(--table-row-bg) !important;
+}
+
+.light th {
+  background-color: var(--table-header-bg) !important;
+  color: var(--text-primary) !important;
+  border-bottom: 2px solid var(--table-border) !important;
+}
+
+.light td {
+  border-bottom: 1px solid var(--table-border) !important;
+}
+
+.light tr:hover td {
+  background-color: var(--table-row-hover) !important;
+}
+
+/* Improve badge styling in light theme */
+.light .badge {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Improve dropdown styling in light theme */
+.light .dropdown-menu {
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--border-default) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Improve modal styling in light theme */
+.light .modal {
+  background-color: var(--bg-surface) !important;
+  border: 1px solid var(--border-default) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Improve tooltip styling in light theme */
+.light .tooltip {
+  background-color: var(--bg-surface-elevated) !important;
+  border: 1px solid var(--border-default) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Improve scrollbar styling in light theme */
+.light ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.light ::-webkit-scrollbar-track {
+  background: var(--bg-surface-elevated);
+  border-radius: 4px;
+}
+
+.light ::-webkit-scrollbar-thumb {
+  background: var(--color-primary-20);
+  border-radius: 4px;
+}
+
+.light ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-30);
+}
+
+/* Improve focus states in light theme */
+.light :focus-visible {
+  outline: 2px solid var(--color-primary) !important;
+  outline-offset: 2px !important;
+}
+
+/* Improve selection styling in light theme */
+.light ::selection {
+  background-color: var(--color-primary-20) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Improve link styling in light theme */
+.light a {
+  color: var(--color-primary) !important;
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.light a:hover {
+  color: var(--primary-hover) !important;
+  text-decoration: underline;
+}
+
+/* Improve tag/badge styling in light theme */
+.light .tag,
+.light .badge {
+  font-weight: 500;
+  letter-spacing: 0.025em;
+}
+
+/* Improve divider styling in light theme */
+.light hr,
+.light .divider {
+  border-color: var(--border-default) !important;
+  opacity: 0.6;
+}
+
+/* Improve progress bar styling in light theme */
+.light .progress-bar {
+  background-color: var(--bg-surface-elevated);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.light .progress-bar-fill {
+  background: linear-gradient(90deg, var(--color-primary), var(--color-primary-light));
+  transition: width var(--transition-normal);
+}
+
+/* Improve switch/toggle styling in light theme */
+.light .switch {
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+}
+
+.light .switch.active {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* Improve checkbox/radio styling in light theme */
+.light input[type="checkbox"],
+.light input[type="radio"] {
+  accent-color: var(--color-primary);
+  border-color: var(--border-default);
+}
+
+/* Improve slider styling in light theme */
+.light input[type="range"] {
+  accent-color: var(--color-primary);
+}
+
+/* Improve alert/notification styling in light theme */
+.light .alert,
+.light .notification {
+  border-left: 4px solid var(--color-primary);
+  background-color: var(--bg-surface-elevated);
+}
+
+.light .alert.success,
+.light .notification.success {
+  border-left-color: var(--color-success);
+}
+
+.light .alert.warning,
+.light .notification.warning {
+  border-left-color: var(--color-warning);
+}
+
+.light .alert.danger,
+.light .notification.danger {
+  border-left-color: var(--color-danger);
+}
+
+.light .alert.info,
+.light .notification.info {
+  border-left-color: var(--color-info);
+}
+
+/* Professional Light Theme Enhancements */
+.light {
+  /* Enhanced background with subtle pattern */
+  background-image: 
+    radial-gradient(circle at 1px 1px, rgba(99, 102, 241, 0.03) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* Better contrast for text in light theme */
+.light h1, .light h2, .light h3, .light h4, .light h5, .light h6 {
+  color: var(--text-primary) !important;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.light h1 {
+  font-size: 32px;
+  line-height: 1.2;
+}
+
+.light h2 {
+  font-size: 24px;
+  line-height: 1.3;
+}
+
+.light h3 {
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+/* Improved card spacing in light theme */
+.light .card {
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+}
+
+/* Improved button states in light theme */
+.light button:active {
+  transform: scale(0.98);
+}
+
+/* Improved input focus states in light theme */
+.light input:focus:not(.search-input-custom),
+.light textarea:focus:not(.search-input-custom),
+.light select:focus:not(.select-custom) {
+  outline: none;
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1), 0 0 0 1px var(--color-primary) !important;
+}
+
+/* Improved table styling in light theme */
+.light thead th {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary) !important;
+}
+
+.light tbody tr {
+  transition: background-color var(--transition-fast);
+}
+
+/* Improved sidebar navigation in light theme */
+.light .nav-item {
+  border-radius: 8px;
+  margin: 2px 4px;
+  transition: all var(--transition-fast);
+}
+
+.light .nav-item:hover {
+  background-color: var(--sidebar-item-hover);
+}
+
+.light .nav-item.active {
+  background: var(--bg-nav-active-gradient);
+  color: var(--color-primary) !important;
+  font-weight: 500;
+}
+
+/* Improved topbar in light theme */
+.light .topbar {
+  backdrop-filter: blur(10px);
+  background-color: rgba(255, 255, 255, 0.95);
+}
+
+/* Improved modal backdrop in light theme */
+.light .modal-backdrop {
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+}
+
+/* Improved dropdown menus in light theme */
+.light .dropdown-item {
+  padding: 8px 12px;
+  border-radius: 6px;
+  transition: background-color var(--transition-fast);
+}
+
+.light .dropdown-item:hover {
+  background-color: var(--bg-surface-elevated);
+}
+
+/* Improved statistics/metrics cards in light theme */
+.light .metric-card {
+  background: linear-gradient(135deg, var(--card-bg) 0%, var(--bg-surface-elevated) 100%);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: all var(--transition-normal);
+}
+
+.light .metric-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+/* Improved chart colors in light theme */
+.light .chart-line {
+  stroke: var(--color-primary);
+  stroke-width: 2;
+}
+
+.light .chart-area {
+  fill: url(#gradient-primary);
+  opacity: 0.3;
+}
+
+/* Improved loading states in light theme */
+.light .skeleton {
+  background: linear-gradient(90deg, var(--bg-surface-elevated) 25%, var(--bg-surface-3) 50%, var(--bg-surface-elevated) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Improved empty states in light theme */
+.light .empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-secondary);
+}
+
+.light .empty-state-icon {
+  font-size: 48px;
+  color: var(--color-primary-20);
+  margin-bottom: 16px;
+}
+
+/* Improved form validation in light theme */
+.light input:invalid:not(.search-input-custom),
+.light textarea:invalid:not(.search-input-custom),
+.light select:invalid:not(.select-custom) {
+  border-color: var(--color-danger) !important;
+}
+
+.light input:valid:not(.search-input-custom),
+.light textarea:valid:not(.search-input-custom),
+.light select:valid:not(.select-custom) {
+  border-color: var(--color-success) !important;
+}
+
+/* Improved tooltips in light theme */
+.light [data-tooltip] {
+  position: relative;
+}
+
+.light [data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: all var(--transition-fast);
+  z-index: 1000;
+}
+
+.light [data-tooltip]:hover::after {
+  opacity: 1;
+  visibility: visible;
+  bottom: calc(100% + 8px);
+}
+
+/* Modern Animations - حركات عصرية */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* Animation Classes */
+.animate-fade-in {
+  animation: fadeIn var(--transition-normal) var(--ease-out);
+}
+
+.animate-slide-in {
+  animation: slideIn var(--transition-normal) var(--ease-out);
+}
+
+.animate-scale-in {
+  animation: scaleIn var(--transition-normal) var(--ease-out);
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-bounce {
+  animation: bounce 1s infinite;
+}
+
+/* Hover Effects - تأثيرات hover عصرية */
+.hover-lift {
+  transition: transform var(--transition-fast) var(--ease-out), box-shadow var(--transition-fast) var(--ease-out);
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.hover-glow {
+  transition: box-shadow var(--transition-normal) var(--ease-out);
+}
+
+.hover-glow:hover {
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+}
+
+/* Button Hover Effects */
+.button-hover-effect {
+  transition: all var(--transition-fast) var(--ease-out);
+}
+
+.button-hover-effect:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.button-hover-effect:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
 /* Card component theme application */
 .card {
   background-color: var(--card-bg);
   border-color: var(--card-border);
   box-shadow: var(--card-shadow);
+  transition: all var(--transition-normal) var(--ease-out);
+}
+
+.card:hover {
+  box-shadow: var(--shadow-lg);
 }
 
 /* Input component theme application */
@@ -162,18 +949,33 @@ body {
 
 /* Button component theme application */
 .button-primary {
-  background-color: var(--button-primary-bg);
+  background: var(--gradient-primary);
   color: var(--button-primary-text);
+  transition: all var(--transition-fast) var(--ease-out);
 }
 
 .button-primary:hover {
-  background-color: var(--button-primary-hover);
+  background: var(--button-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.button-primary:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
 }
 
 .button-secondary {
   background-color: var(--button-secondary-bg);
   color: var(--button-secondary-text);
   border-color: var(--button-secondary-border);
+  transition: all var(--transition-fast) var(--ease-out);
+}
+
+.button-secondary:hover {
+  background-color: var(--bg-surface-elevated);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 /* Table component theme application */
@@ -192,20 +994,188 @@ body {
 
 /* Sidebar component theme application */
 .sidebar {
-  background-color: var(--sidebar-bg);
+  background: var(--bg-sidebar-gradient);
   border-color: var(--sidebar-border);
+  transition: all var(--transition-normal) var(--ease-out);
+}
+
+.sidebar-item {
+  transition: all var(--transition-fast) var(--ease-out);
 }
 
 .sidebar-item:hover {
   background-color: var(--sidebar-item-hover);
+  transform: translateX(4px);
 }
 
 .sidebar-item.active {
-  background-color: var(--sidebar-item-active);
+  background: var(--bg-nav-active-gradient);
+  border-left: 3px solid var(--color-primary);
+  transform: translateX(4px);
+}
+
+/* Modern Sidebar Glass Effect */
+.sidebar-glass {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: var(--bg-sidebar-gradient);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Modern Sidebar Item Hover */
+.sidebar-item-modern {
+  position: relative;
+  overflow: hidden;
+  transition: all var(--transition-normal) var(--ease-out);
+}
+
+.sidebar-item-modern::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.1), transparent);
+  transform: translateX(-100%);
+  transition: transform var(--transition-normal) var(--ease-out);
+}
+
+.sidebar-item-modern:hover::before {
+  transform: translateX(100%);
+}
+
+.sidebar-item-modern:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
 }
 
 /* Topbar component theme application */
 .topbar {
   background-color: var(--topbar-bg);
   border-color: var(--topbar-border);
+  backdrop-filter: blur(10px);
+  transition: all var(--transition-normal) var(--ease-out);
+}
+
+/* Modern Badge Styles */
+.badge-modern {
+  background: var(--gradient-primary);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast) var(--ease-out);
+}
+
+.badge-modern:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-md);
+}
+
+/* Modern Progress Bar */
+.progress-modern {
+  height: 8px;
+  background: var(--bg-surface-3);
+  border-radius: 9999px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--gradient-primary);
+  border-radius: 9999px;
+  transition: width var(--transition-normal) var(--ease-out);
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.3);
+}
+
+/* Modern Loading States */
+.loading-skeleton {
+  background: linear-gradient(90deg, var(--bg-surface-3) 25%, var(--bg-surface) 50%, var(--bg-surface-3) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+  border-radius: 8px;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Modern Card Variants */
+.card-elevated {
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-default);
+}
+
+.card-interactive {
+  cursor: pointer;
+  transition: all var(--transition-normal) var(--ease-out);
+}
+
+.card-interactive:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-xl);
+}
+
+.card-gradient {
+  background: var(--gradient-primary);
+  color: white;
+  border: none;
+}
+
+/* Modern Typography Enhancements */
+.typography-enhanced h1 {
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.typography-enhanced h2 {
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.typography-enhanced h3 {
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+
+.text-gradient {
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Modern Spacing System */
+.space-y-sm > * + * {
+  margin-top: 8px;
+}
+
+.space-y-md > * + * {
+  margin-top: 16px;
+}
+
+.space-y-lg > * + * {
+  margin-top: 24px;
+}
+
+.space-y-xl > * + * {
+  margin-top: 32px;
+}
+
+/* Modern Focus States */
+.focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3);
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }

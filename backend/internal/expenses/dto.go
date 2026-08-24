@@ -31,10 +31,9 @@ func (e *Expense) ToExpenseListItem(categoryName string) map[string]interface{} 
 }
 
 // CreateExpense creates an Expense from request
-func CreateExpense(organizationID uuid.UUID, userID uuid.UUID, req *ExpenseRequest) *Expense {
+func CreateExpense(userID uuid.UUID, req *ExpenseRequest) *Expense {
 	return &Expense{
 		ID:              uuid.New(),
-		OrganizationID:  organizationID,
 		CategoryID:      req.CategoryID,
 		Title:           req.Title,
 		Description:     req.Description,
@@ -54,10 +53,9 @@ func CreateExpense(organizationID uuid.UUID, userID uuid.UUID, req *ExpenseReque
 }
 
 // CreateExpenseCategory creates an ExpenseCategory from request
-func CreateExpenseCategory(organizationID uuid.UUID, req *ExpenseCategoryRequest) *ExpenseCategory {
+func CreateExpenseCategory(req *ExpenseCategoryRequest) *ExpenseCategory {
 	return &ExpenseCategory{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		Name:           req.Name,
 		Description:    req.Description,
 		Color:          req.Color,

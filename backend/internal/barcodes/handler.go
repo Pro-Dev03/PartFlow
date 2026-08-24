@@ -6,7 +6,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/partflow/smart-store/pkg/middleware"
 )
 
 type Handler struct {
@@ -21,26 +20,53 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	barcodes := router.Group("/barcodes")
 	{
-		barcodes.GET("/:code", middleware.RequirePermission("inventory", "read"), h.LookupBarcode)
-		barcodes.POST("/generate", middleware.RequirePermission("inventory", "adjust"), h.GenerateBarcode)
-		barcodes.POST("/labels", middleware.RequirePermission("inventory", "read"), h.GenerateLabels)
-		barcodes.GET("", middleware.RequirePermission("inventory", "read"), h.ListBarcodes)
-		barcodes.DELETE("/:id", middleware.RequirePermission("inventory", "adjust"), h.DeleteBarcode)
+		barcodes.GET("/:code", h.LookupBarcode)
+		barcodes.GET("/product/:code", h.LookupProductByBarcode)
+		barcodes.GET("/sku/:sku", h.LookupProductBySKU)
+		barcodes.POST("/generate", h.GenerateBarcode)
+		barcodes.POST("/labels", h.GenerateLabels)
+		barcodes.GET("", h.ListBarcodes)
+		barcodes.DELETE("/:id", h.DeleteBarcode)
 	}
 }
 
 // LookupBarcode looks up a barcode by code
 func (h *Handler) LookupBarcode(c *gin.Context) {
 	code := c.Param("code")
-	organizationID := getOrganizationID(c)
 
-	barcode, err := h.service.LookupBarcode(c.Request.Context(), code, organizationID)
+	barcode, err := h.service.LookupBarcode(c.Request.Context(), code)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "barcode not found"})
 		return
 	}
 
 	c.JSON(http.StatusOK, barcode)
+}
+
+// LookupProductByBarcode looks up product information by barcode code
+func (h *Handler) LookupProductByBarcode(c *gin.Context) {
+	code := c.Param("code")
+
+	product, err := h.service.LookupProductByBarcode(c.Request.Context(), code)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "product not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, product)
+}
+
+// LookupProductBySKU looks up product information by SKU
+func (h *Handler) LookupProductBySKU(c *gin.Context) {
+	sku := c.Param("sku")
+
+	product, err := h.service.LookupProductBySKU(c.Request.Context(), sku)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "product not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, product)
 }
 
 // GenerateBarcode generates a new barcode
@@ -51,9 +77,8 @@ func (h *Handler) GenerateBarcode(c *gin.Context) {
 		return
 	}
 
-	organizationID := getOrganizationID(c)
 
-	barcode, err := h.service.GenerateBarcode(c.Request.Context(), &req, organizationID)
+	barcode, err := h.service.GenerateBarcode(c.Request.Context(), &req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -67,9 +92,8 @@ func (h *Handler) ListBarcodes(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "10"))
 
-	organizationID := getOrganizationID(c)
 
-	barcodes, total, err := h.service.ListBarcodes(c.Request.Context(), organizationID, page, perPage)
+	barcodes, total, err := h.service.ListBarcodes(c.Request.Context(), page, perPage)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -91,9 +115,8 @@ func (h *Handler) DeleteBarcode(c *gin.Context) {
 		return
 	}
 
-	organizationID := getOrganizationID(c)
 
-	if err := h.service.DeleteBarcode(c.Request.Context(), id, organizationID); err != nil {
+	if err := h.service.DeleteBarcode(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -109,9 +132,8 @@ func (h *Handler) GenerateLabels(c *gin.Context) {
 		return
 	}
 
-	organizationID := getOrganizationID(c)
 
-	labels, err := h.service.GenerateLabels(c.Request.Context(), &req, organizationID)
+	labels, err := h.service.GenerateLabels(c.Request.Context(), &req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -121,9 +143,4 @@ func (h *Handler) GenerateLabels(c *gin.Context) {
 		"labels": labels,
 		"count":  len(labels),
 	})
-}
-
-// Helper function to get organization ID from context
-func getOrganizationID(c *gin.Context) uuid.UUID {
-	return uuid.MustParse(c.GetHeader("X-Organization-ID"))
 }

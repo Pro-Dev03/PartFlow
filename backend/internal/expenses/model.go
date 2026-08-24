@@ -9,7 +9,6 @@ import (
 // Expense represents an expense in the system
 type Expense struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	CategoryID     uuid.UUID  `json:"category_id" db:"category_id"`
 	Title          string     `json:"title" db:"title"`
 	Description    string     `json:"description" db:"description"`
@@ -31,7 +30,6 @@ type Expense struct {
 // ExpenseCategory represents an expense category
 type ExpenseCategory struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	Name           string     `json:"name" db:"name"`
 	Description    string     `json:"description" db:"description"`
 	Color          string     `json:"color" db:"color"`

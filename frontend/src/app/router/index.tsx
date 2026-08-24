@@ -1,0 +1,51 @@
+import { lazy } from 'react';
+import { Routes, Route } from 'react-router-dom';
+
+// Lazy load components for better performance
+const DashboardPage = lazy(() => import('../../features/dashboard/pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
+const InventoryPage = lazy(() => import('../../features/inventory/pages/InventoryPage').then(m => ({ default: m.InventoryPage })));
+const POSPage = lazy(() => import('../../features/sales/pages/POSPage').then(m => ({ default: m.POSPage })));
+const CustomersPage = lazy(() => import('../../features/customers/pages/CustomersPage').then(m => ({ default: m.CustomersPage })));
+const DebtsPage = lazy(() => import('../../features/debts/pages/DebtsPage').then(m => ({ default: m.DebtsPage })));
+const SuppliersPage = lazy(() => import('../../features/suppliers/pages/SuppliersPage').then(m => ({ default: m.SuppliersPage })));
+const PurchasesPage = lazy(() => import('../../features/purchases/pages/PurchasesPage').then(m => ({ default: m.PurchasesPage })));
+const ExpensesPage = lazy(() => import('../../features/expenses/pages/ExpensesPage').then(m => ({ default: m.ExpensesPage })));
+const ReturnsPage = lazy(() => import('../../features/returns/pages/ReturnsPage').then(m => ({ default: m.ReturnsPage })));
+const ReportsPage = lazy(() => import('../../features/reports/pages/ReportsPage').then(m => ({ default: m.ReportsPage })));
+const SettingsPage = lazy(() => import('../../features/settings/pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+
+const PartTypesPage = lazy(() => import('../../features/parttypes/pages/PartTypesPage').then(m => ({ default: m.PartTypesPage })));
+const UsedPartsPage = lazy(() => import('../../features/usedparts/pages/UsedPartsPage').then(m => ({ default: m.UsedPartsPage })));
+
+// Loading component for lazy loaded routes
+export function PageLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan"></div>
+    </div>
+  );
+}
+
+// Centralized routes configuration
+export const appRoutes = (
+  <Routes>
+    {/* Protected routes */}
+    <Route path="/" element={<DashboardPage />} />
+    <Route path="/dashboard" element={<DashboardPage />} />
+    <Route path="/sales" element={<POSPage />} />
+    <Route path="/inventory" element={<InventoryPage />} />
+    <Route path="/usedparts" element={<UsedPartsPage />} />
+    <Route path="/customers" element={<CustomersPage />} />
+    <Route path="/debts" element={<DebtsPage />} />
+    <Route path="/suppliers" element={<SuppliersPage />} />
+    <Route path="/purchases" element={<PurchasesPage />} />
+    <Route path="/expenses" element={<ExpensesPage />} />
+    <Route path="/returns" element={<ReturnsPage />} />
+    <Route path="/reports" element={<ReportsPage />} />
+    <Route path="/settings" element={<SettingsPage />} />
+    <Route path="/parttypes" element={<PartTypesPage />} />
+    
+    {/* Catch all - redirect to dashboard */}
+    <Route path="*" element={<DashboardPage />} />
+  </Routes>
+);

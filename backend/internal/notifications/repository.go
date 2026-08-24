@@ -23,17 +23,15 @@ func NewRepository(db *sqlx.DB) *Repository {
 // CreateNotification creates a new notification
 func (r *Repository) CreateNotification(ctx context.Context, notification *Notification) error {
 	query := `
-		INSERT INTO notifications (id, organization_id, user_id, type, title, message, 
-			data, priority, status, action_url, action_text, expires_at, created_at, updated_at, read_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		INSERT INTO notifications (user_id, type, title, message, data, priority, status, action_url, action_text, expires_at, created_at, updated_at, read_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at
 	`
-	
+
 	err := r.db.QueryRowContext(ctx, query,
-		notification.ID, notification.OrganizationID, notification.UserID, notification.Type,
-		notification.Title, notification.Message, notification.Data, notification.Priority,
-		notification.Status, notification.ActionURL, notification.ActionText, notification.ExpiresAt,
-		notification.CreatedAt, notification.UpdatedAt, notification.ReadAt,
+		notification.UserID, notification.Type, notification.Title, notification.Message, notification.Data,
+		notification.Priority, notification.Status, notification.ActionURL, notification.ActionText,
+		notification.ExpiresAt, notification.CreatedAt, notification.UpdatedAt, notification.ReadAt,
 	).Scan(&notification.ID, &notification.CreatedAt)
 	
 	if err != nil {
@@ -43,16 +41,15 @@ func (r *Repository) CreateNotification(ctx context.Context, notification *Notif
 }
 
 // GetNotificationByID retrieves a notification by ID
-func (r *Repository) GetNotificationByID(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*Notification, error) {
+func (r *Repository) GetNotificationByID(ctx context.Context, id uuid.UUID) (*Notification, error) {
 	var notification Notification
 	query := `
-		SELECT id, organization_id, user_id, type, title, message, 
-			data, priority, status, action_url, action_text, expires_at, created_at, read_at
+		SELECT id, user_id, type, title, message, data, priority, status, action_url, action_text, expires_at, created_at, read_at
 		FROM notifications
-		WHERE id = $1 AND organization_id = $2
+		WHERE id = $1
 	`
-	
-	err := r.db.GetContext(ctx, &notification, query, id, organizationID)
+
+	err := r.db.GetContext(ctx, &notification, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotificationNotFound
@@ -63,21 +60,23 @@ func (r *Repository) GetNotificationByID(ctx context.Context, id uuid.UUID, orga
 }
 
 // ListNotifications retrieves notifications with pagination and filters
-func (r *Repository) ListNotifications(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, req NotificationListRequest) ([]Notification, int, error) {
+func (r *Repository) ListNotifications(ctx context.Context, userID uuid.UUID, req NotificationListRequest) ([]Notification, int, error) {
 	var notifications []Notification
 	var count int
-	
+
 	// Build base query
 	baseQuery := `
-		SELECT id, organization_id, user_id, type, title, message, 
-			data, priority, status, action_url, action_text, expires_at, created_at, read_at
+		SELECT id, user_id, type, title, message, data, priority, status, action_url, action_text, expires_at, created_at, read_at
 		FROM notifications
-		WHERE organization_id = $1 AND user_id = $2
+		WHERE user_id = $1
 	`
-	countQuery := `SELECT COUNT(*) FROM notifications WHERE organization_id = $1 AND user_id = $2`
-	
-	args := []interface{}{organizationID, userID}
-	argCount := 2
+
+	countQuery := `
+		SELECT COUNT(*) FROM notifications WHERE user_id = $1
+	`
+
+	args := []interface{}{userID}
+	argCount := 1
 	
 	// Add filters
 	if req.Type != "" {
@@ -157,12 +156,12 @@ func (r *Repository) UpdateNotification(ctx context.Context, notification *Notif
 	query := `
 		UPDATE notifications
 		SET status = $2, read_at = $3
-		WHERE id = $1 AND organization_id = $4
+		WHERE id = $1
 		RETURNING updated_at
 	`
-	
+
 	err := r.db.QueryRowContext(ctx, query,
-		notification.ID, notification.Status, notification.ReadAt, notification.OrganizationID,
+		notification.ID, notification.Status, notification.ReadAt,
 	).Scan(&notification.UpdatedAt)
 	
 	if err != nil {
@@ -175,10 +174,10 @@ func (r *Repository) UpdateNotification(ctx context.Context, notification *Notif
 }
 
 // DeleteNotification deletes a notification
-func (r *Repository) DeleteNotification(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	query := `DELETE FROM notifications WHERE id = $1 AND organization_id = $2`
-	
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+func (r *Repository) DeleteNotification(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM notifications WHERE id = $1`
+
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete notification: %w", err)
 	}
@@ -192,16 +191,16 @@ func (r *Repository) DeleteNotification(ctx context.Context, id uuid.UUID, organ
 }
 
 // MarkAsRead marks notification as read
-func (r *Repository) MarkAsRead(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
+func (r *Repository) MarkAsRead(ctx context.Context, id uuid.UUID) error {
 	query := `
 		UPDATE notifications
 		SET status = 'read', read_at = CURRENT_TIMESTAMP
-		WHERE id = $1 AND organization_id = $2
+		WHERE id = $1
 		RETURNING read_at
 	`
-	
+
 	var readAt time.Time
-	err := r.db.QueryRowContext(ctx, query, id, organizationID).Scan(&readAt)
+	err := r.db.QueryRowContext(ctx, query, id).Scan(&readAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return ErrNotificationNotFound
@@ -212,14 +211,14 @@ func (r *Repository) MarkAsRead(ctx context.Context, id uuid.UUID, organizationI
 }
 
 // MarkAllAsRead marks all notifications as read for a user
-func (r *Repository) MarkAllAsRead(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID) error {
+func (r *Repository) MarkAllAsRead(ctx context.Context, userID uuid.UUID) error {
 	query := `
 		UPDATE notifications
 		SET status = 'read', read_at = CURRENT_TIMESTAMP
-		WHERE user_id = $1 AND organization_id = $2 AND status = 'unread'
+		WHERE user_id = $1
 	`
 	
-	_, err := r.db.ExecContext(ctx, query, userID, organizationID)
+	_, err := r.db.ExecContext(ctx, query, userID)
 	if err != nil {
 		return fmt.Errorf("failed to mark all notifications as read: %w", err)
 	}
@@ -227,57 +226,57 @@ func (r *Repository) MarkAllAsRead(ctx context.Context, userID uuid.UUID, organi
 }
 
 // GetNotificationSummary retrieves notification summary for a user
-func (r *Repository) GetNotificationSummary(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID) (*NotificationSummary, error) {
+func (r *Repository) GetNotificationSummary(ctx context.Context, userID uuid.UUID) (*NotificationSummary, error) {
 	var summary NotificationSummary
-	
+
 	// Total notifications
-	err := r.db.GetContext(ctx, &summary.Total, 
-		`SELECT COUNT(*) FROM notifications 
-		 WHERE user_id = $1 AND organization_id = $2 
+	err := r.db.GetContext(ctx, &summary.Total,
+		`SELECT COUNT(*) FROM notifications
+		 WHERE user_id = $1
 		 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
-		userID, organizationID)
+		userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total notifications: %w", err)
 	}
-	
+
 	// Unread notifications
-	err = r.db.GetContext(ctx, &summary.Unread, 
-		`SELECT COUNT(*) FROM notifications 
-		 WHERE user_id = $1 AND organization_id = $2 AND status = 'unread'
+	err = r.db.GetContext(ctx, &summary.Unread,
+		`SELECT COUNT(*) FROM notifications
+		 WHERE user_id = $1 AND status = 'unread'
 		 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
-		userID, organizationID)
+		userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get unread notifications: %w", err)
 	}
-	
+
 	// Priority notifications
-	err = r.db.GetContext(ctx, &summary.Priority, 
-		`SELECT COUNT(*) FROM notifications 
-		 WHERE user_id = $1 AND organization_id = $2 AND priority IN ('high', 'urgent')
+	err = r.db.GetContext(ctx, &summary.Priority,
+		`SELECT COUNT(*) FROM notifications
+		 WHERE user_id = $1 AND priority IN ('high', 'urgent')
 		 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
-		userID, organizationID)
+		userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get priority notifications: %w", err)
 	}
-	
+
 	// Urgent notifications
-	err = r.db.GetContext(ctx, &summary.Urgent, 
-		`SELECT COUNT(*) FROM notifications 
-		 WHERE user_id = $1 AND organization_id = $2 AND priority = 'urgent'
+	err = r.db.GetContext(ctx, &summary.Urgent,
+		`SELECT COUNT(*) FROM notifications
+		 WHERE user_id = $1 AND priority = 'urgent'
 		 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
-		userID, organizationID)
+		userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get urgent notifications: %w", err)
 	}
 	
 	// By type
 	summary.ByType = make(map[string]int)
-	rows, err := r.db.QueryContext(ctx, 
-		`SELECT type, COUNT(*) FROM notifications 
-		 WHERE user_id = $1 AND organization_id = $2 
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT type, COUNT(*) FROM notifications
+		 WHERE user_id = $1
 		 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
 		 GROUP BY type`,
-		userID, organizationID)
+		userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get notifications by type: %w", err)
 	}
@@ -298,17 +297,15 @@ func (r *Repository) GetNotificationSummary(ctx context.Context, userID uuid.UUI
 // CreateNotificationPreferences creates notification preferences for a user
 func (r *Repository) CreateNotificationPreferences(ctx context.Context, preferences *NotificationPreferences) error {
 	query := `
-		INSERT INTO notification_preferences (id, user_id, organization_id, email_enabled, push_enabled,
-			low_stock, debt_overdue, warranty_expiring, return_requests, expense_approval, sales_updates, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO notification_preferences (user_id, email_enabled, push_enabled, low_stock, debt_overdue, return_requests, expense_approval, sales_updates, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at
 	`
-	
+
 	err := r.db.QueryRowContext(ctx, query,
-		preferences.ID, preferences.UserID, preferences.OrganizationID, preferences.EmailEnabled,
-		preferences.PushEnabled, preferences.LowStock, preferences.DebtOverdue, preferences.WarrantyExpiring,
-		preferences.ReturnRequests, preferences.ExpenseApproval, preferences.SalesUpdates,
-		preferences.CreatedAt,
+		preferences.UserID, preferences.EmailEnabled, preferences.PushEnabled, preferences.LowStock,
+		preferences.DebtOverdue, preferences.ReturnRequests, preferences.ExpenseApproval,
+		preferences.SalesUpdates, preferences.CreatedAt, preferences.UpdatedAt,
 	).Scan(&preferences.ID, &preferences.CreatedAt)
 	
 	if err != nil {
@@ -318,16 +315,15 @@ func (r *Repository) CreateNotificationPreferences(ctx context.Context, preferen
 }
 
 // GetNotificationPreferences retrieves notification preferences for a user
-func (r *Repository) GetNotificationPreferences(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID) (*NotificationPreferences, error) {
+func (r *Repository) GetNotificationPreferences(ctx context.Context, userID uuid.UUID) (*NotificationPreferences, error) {
 	var preferences NotificationPreferences
 	query := `
-		SELECT id, user_id, organization_id, email_enabled, push_enabled,
-			low_stock, debt_overdue, warranty_expiring, return_requests, expense_approval, sales_updates, created_at, updated_at
+		SELECT id, user_id, email_enabled, push_enabled, low_stock, debt_overdue, return_requests, expense_approval, sales_updates, created_at, updated_at
 		FROM notification_preferences
-		WHERE user_id = $1 AND organization_id = $2
+		WHERE user_id = $1
 	`
-	
-	err := r.db.GetContext(ctx, &preferences, query, userID, organizationID)
+
+	err := r.db.GetContext(ctx, &preferences, query, userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrPreferencesNotFound
@@ -342,16 +338,15 @@ func (r *Repository) UpdateNotificationPreferences(ctx context.Context, preferen
 	query := `
 		UPDATE notification_preferences
 		SET email_enabled = $2, push_enabled = $3, low_stock = $4, debt_overdue = $5,
-			warranty_expiring = $6, return_requests = $7, expense_approval = $8, sales_updates = $9, updated_at = $10
-		WHERE id = $1 AND organization_id = $11
+			return_requests = $6, expense_approval = $7, sales_updates = $8, updated_at = $9
+		WHERE id = $1
 		RETURNING updated_at
 	`
-	
+
 	err := r.db.QueryRowContext(ctx, query,
 		preferences.ID, preferences.EmailEnabled, preferences.PushEnabled, preferences.LowStock,
-		preferences.DebtOverdue, preferences.WarrantyExpiring, preferences.ReturnRequests,
+		preferences.DebtOverdue, preferences.ReturnRequests,
 		preferences.ExpenseApproval, preferences.SalesUpdates, preferences.UpdatedAt,
-		preferences.OrganizationID,
 	).Scan(&preferences.UpdatedAt)
 	
 	if err != nil {
@@ -364,13 +359,13 @@ func (r *Repository) UpdateNotificationPreferences(ctx context.Context, preferen
 }
 
 // GetUnreadCount retrieves the count of unread notifications for a user
-func (r *Repository) GetUnreadCount(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID) (int, error) {
+func (r *Repository) GetUnreadCount(ctx context.Context, userID uuid.UUID) (int, error) {
 	var count int
-	err := r.db.GetContext(ctx, &count, 
-		`SELECT COUNT(*) FROM notifications 
-		 WHERE user_id = $1 AND organization_id = $2 AND status = 'unread'
+	err := r.db.GetContext(ctx, &count,
+		`SELECT COUNT(*) FROM notifications
+		 WHERE user_id = $1 AND status = 'unread'
 		 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
-		userID, organizationID)
+		userID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get unread count: %w", err)
 	}

@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Header } from '../../components/navigation/header';
 import { Sidebar } from '../../components/navigation/sidebar';
+import { ScrollIndicator, ScrollProgress } from '../../components/ui/scroll-indicator';
 import { useTranslation } from '../../hooks/useTranslation';
-import { cn } from '../../lib/utils';
+import { useUIStore } from '../../stores/uiStore';
+import { cn } from '../../utils';
+import { ChevronUp } from 'lucide-react';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -10,33 +13,91 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const { direction } = useTranslation();
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const { sidebarCollapsed, toggleSidebar, theme } = useUIStore();
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const mainRef = useRef<HTMLDivElement | null>(null);
+
+  // Handle scroll to show/hide scroll-to-top button
+  useEffect(() => {
+    const handleScroll = () => {
+      if (mainRef.current) {
+        const scrollTop = mainRef.current.scrollTop;
+        setShowScrollTop(scrollTop > 300);
+      }
+    };
+
+    const mainElement = mainRef.current;
+    if (mainElement) {
+      mainElement.addEventListener('scroll', handleScroll);
+      return () => mainElement.removeEventListener('scroll', handleScroll);
+    }
+    return () => {};
+  }, []);
+
+  // Scroll to top function
+  const scrollToTop = () => {
+    if (mainRef.current) {
+      mainRef.current.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+
+
+
 
   return (
-    <div 
-      dir={direction} 
-      className="min-h-screen bg-bg-gradient"
+    <div
+      dir={direction}
+      className={theme === 'light' ? 'light' : ''}
       style={{
-        background: 'radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.10), transparent 30%), radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.08), transparent 30%), #070a12'
+        minHeight: '100vh',
+        background: theme !== 'light'
+          ? 'radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.10), transparent 30%), radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.08), transparent 30%), var(--bg-background)'
+          : 'var(--bg-gradient-light), var(--bg-background)'
       }}
     >
-      <div className="flex flex-col h-screen">
-        <Header onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
-        <div className="flex flex-1 overflow-hidden">
-          <Sidebar 
-            isCollapsed={isSidebarCollapsed} 
-            onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)} 
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        <Header
+          onToggleSidebar={toggleSidebar}
+        />
+        <div style={{ display: 'flex', flex: 1, minWidth: 0, alignItems: 'stretch' }}>
+          <Sidebar
+            isCollapsed={sidebarCollapsed}
+            onToggle={toggleSidebar}
           />
-          <main className={cn(
-            'flex-1 overflow-y-auto',
-            'max-w-[1500px] mx-auto',
-            'w-full',
-            'px-2xl py-2xl pb-4xl'
-          )}>
+          <main
+            ref={mainRef}
+            id="main-content"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              maxWidth: '1500px',
+              margin: 'auto',
+              width: '100%',
+              padding: '24px 28px'
+            }}
+            className="px-4 md:px-8 lg:px-8"
+          >
             {children}
           </main>
         </div>
       </div>
+
+      {/* Scroll UX Components - using window scroll */}
+      <ScrollIndicator />
+      <ScrollProgress />
+
+      {/* Scroll to top button */}
+      <button
+        onClick={scrollToTop}
+        className={cn('scroll-to-top', showScrollTop && 'visible')}
+        aria-label="Scroll to top"
+      >
+        <ChevronUp className="w-5 h-5" />
+      </button>
     </div>
   );
 }

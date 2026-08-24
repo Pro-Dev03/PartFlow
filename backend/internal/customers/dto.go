@@ -24,7 +24,6 @@ type CustomerRequest struct {
 // CustomerResponse represents customer response
 type CustomerResponse struct {
 	ID             uuid.UUID  `json:"id"`
-	OrganizationID uuid.UUID `json:"organization_id"`
 	Code           string     `json:"code"`
 	Name           string     `json:"name"`
 	Email          *string    `json:"email,omitempty"`

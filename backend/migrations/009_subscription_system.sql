@@ -29,11 +29,11 @@ CREATE INDEX IF NOT EXISTS idx_users_subscription_expires_at ON users(subscripti
 -- Passwords should be changed in production
 INSERT INTO users (
   id,
-  organization_id,
-  full_name,
+  first_name,
+  last_name,
   email,
   password_hash,
-  role_id,
+  role,
   is_active,
   subscription_status,
   subscription_expires_at,
@@ -42,11 +42,11 @@ INSERT INTO users (
 )
 SELECT
   gen_random_uuid(),
-  (SELECT id FROM organizations LIMIT 1),
-  'System Admin',
+  'System',
+  'Admin',
   'admin@partflow.com',
   crypt('admin123', gen_salt('bf', 12)),  -- Password: admin123
-  (SELECT id FROM roles WHERE name = 'admin' LIMIT 1),
+  'owner',
   TRUE,
   'active',
   NOW() + INTERVAL '1 year',  -- 1 year subscription
@@ -59,11 +59,11 @@ WHERE NOT EXISTS (
 -- Insert another admin with lifetime subscription
 INSERT INTO users (
   id,
-  organization_id,
-  full_name,
+  first_name,
+  last_name,
   email,
   password_hash,
-  role_id,
+  role,
   is_active,
   subscription_status,
   subscription_expires_at,
@@ -72,11 +72,11 @@ INSERT INTO users (
 )
 SELECT
   gen_random_uuid(),
-  (SELECT id FROM organizations LIMIT 1),
-  'Super Admin',
+  'Super',
+  'Admin',
   'superadmin@partflow.com',
   crypt('superadmin123', gen_salt('bf', 12)),  -- Password: superadmin123
-  (SELECT id FROM roles WHERE name = 'admin' LIMIT 1),
+  'owner',
   TRUE,
   'active',
   NULL,  -- Lifetime subscription
@@ -87,9 +87,10 @@ WHERE NOT EXISTS (
 );
 
 -- Verify the users
-SELECT 
+SELECT
   id,
-  full_name,
+  first_name,
+  last_name,
   email,
   subscription_status,
   subscription_expires_at,

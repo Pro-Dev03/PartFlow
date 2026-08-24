@@ -19,7 +19,7 @@ func NewService(repo *Repository) *Service {
 }
 
 // CreateReturn creates a new return with items
-func (s *Service) CreateReturn(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, req *ReturnRequest) (*ReturnResponse, error) {
+func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *ReturnRequest) (*ReturnResponse, error) {
 	// Validate request
 	if err := ValidateReturnRequest(req); err != nil {
 		return nil, err
@@ -32,13 +32,13 @@ func (s *Service) CreateReturn(ctx context.Context, organizationID uuid.UUID, us
 	}
 
 	// Check if return number already exists
-	existing, err := s.repo.GetReturnByReturnNumber(ctx, generateReturnNumber(), organizationID)
+	existing, err := s.repo.GetReturnByReturnNumber(ctx, generateReturnNumber())
 	if err == nil && existing != nil {
 		return nil, ErrReturnExists
 	}
 
 	// Create return
-	returnRecord := CreateReturn(organizationID, userID, req)
+	returnRecord := CreateReturn(userID, req)
 	returnRecord.CustomerID = sale.ID // This should come from the sale
 
 	if err := s.repo.CreateReturn(ctx, returnRecord); err != nil {
@@ -86,8 +86,8 @@ func (s *Service) CreateReturn(ctx context.Context, organizationID uuid.UUID, us
 }
 
 // GetReturn retrieves a return by ID
-func (s *Service) GetReturn(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*ReturnResponse, error) {
-	returnRecord, err := s.repo.GetReturnByID(ctx, id, organizationID)
+func (s *Service) GetReturn(ctx context.Context, id uuid.UUID) (*ReturnResponse, error) {
+	returnRecord, err := s.repo.GetReturnByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (s *Service) GetReturn(ctx context.Context, id uuid.UUID, organizationID uu
 }
 
 // ListReturns retrieves returns with pagination and filters
-func (s *Service) ListReturns(ctx context.Context, organizationID uuid.UUID, req ReturnListRequest) ([]map[string]interface{}, int, error) {
+func (s *Service) ListReturns(ctx context.Context, req ReturnListRequest) ([]map[string]interface{}, int, error) {
 	if req.Page <= 0 {
 		req.Page = 1
 	}
@@ -119,7 +119,7 @@ func (s *Service) ListReturns(ctx context.Context, organizationID uuid.UUID, req
 		req.PerPage = 20
 	}
 
-	returns, total, err := s.repo.ListReturns(ctx, organizationID, req)
+	returns, total, err := s.repo.ListReturns(ctx, req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -149,8 +149,8 @@ func (s *Service) ListReturns(ctx context.Context, organizationID uuid.UUID, req
 }
 
 // UpdateReturn updates a return
-func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, req *ReturnUpdateRequest) (*ReturnResponse, error) {
-	returnRecord, err := s.repo.GetReturnByID(ctx, id, organizationID)
+func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, req *ReturnUpdateRequest) (*ReturnResponse, error) {
+	returnRecord, err := s.repo.GetReturnByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -196,12 +196,12 @@ func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, organizationID
 		return nil, err
 	}
 
-	return s.GetReturn(ctx, id, organizationID)
+	return s.GetReturn(ctx, id)
 }
 
 // DeleteReturn deletes a return
-func (s *Service) DeleteReturn(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	returnRecord, err := s.repo.GetReturnByID(ctx, id, organizationID)
+func (s *Service) DeleteReturn(ctx context.Context, id uuid.UUID, ) error {
+	returnRecord, err := s.repo.GetReturnByID(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -211,12 +211,12 @@ func (s *Service) DeleteReturn(ctx context.Context, id uuid.UUID, organizationID
 		return ErrReturnAlreadyCompleted
 	}
 
-	return s.repo.DeleteReturn(ctx, id, organizationID)
+	return s.repo.DeleteReturn(ctx, id)
 }
 
 // ApproveReturn approves a return
-func (s *Service) ApproveReturn(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*ReturnResponse, error) {
-	returnRecord, err := s.repo.GetReturnByID(ctx, id, organizationID)
+func (s *Service) ApproveReturn(ctx context.Context, id uuid.UUID, ) (*ReturnResponse, error) {
+	returnRecord, err := s.repo.GetReturnByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -240,12 +240,12 @@ func (s *Service) ApproveReturn(ctx context.Context, id uuid.UUID, organizationI
 		return nil, err
 	}
 
-	return s.GetReturn(ctx, id, organizationID)
+	return s.GetReturn(ctx, id)
 }
 
 // RejectReturn rejects a return
-func (s *Service) RejectReturn(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*ReturnResponse, error) {
-	returnRecord, err := s.repo.GetReturnByID(ctx, id, organizationID)
+func (s *Service) RejectReturn(ctx context.Context, id uuid.UUID) (*ReturnResponse, error) {
+	returnRecord, err := s.repo.GetReturnByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -269,12 +269,12 @@ func (s *Service) RejectReturn(ctx context.Context, id uuid.UUID, organizationID
 		return nil, err
 	}
 
-	return s.GetReturn(ctx, id, organizationID)
+	return s.GetReturn(ctx, id)
 }
 
 // ProcessRefund processes refund for a return
-func (s *Service) ProcessRefund(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*ReturnResponse, error) {
-	returnRecord, err := s.repo.GetReturnByID(ctx, id, organizationID)
+func (s *Service) ProcessRefund(ctx context.Context, id uuid.UUID) (*ReturnResponse, error) {
+	returnRecord, err := s.repo.GetReturnByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -296,12 +296,12 @@ func (s *Service) ProcessRefund(ctx context.Context, id uuid.UUID, organizationI
 		return nil, err
 	}
 
-	return s.GetReturn(ctx, id, organizationID)
+	return s.GetReturn(ctx, id)
 }
 
 // AddReturnItem adds an item to a return
-func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, organizationID uuid.UUID, req ReturnItemRequest) (*ReturnItem, error) {
-	returnRecord, err := s.repo.GetReturnByID(ctx, returnID, organizationID)
+func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, req ReturnItemRequest) (*ReturnItem, error) {
+	returnRecord, err := s.repo.GetReturnByID(ctx, returnID)
 	if err != nil {
 		return nil, err
 	}
@@ -337,7 +337,7 @@ func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, organiz
 }
 
 // UpdateReturnItem updates a return item
-func (s *Service) UpdateReturnItem(ctx context.Context, itemID uuid.UUID, organizationID uuid.UUID, req ReturnItemRequest) (*ReturnItem, error) {
+func (s *Service) UpdateReturnItem(ctx context.Context, itemID uuid.UUID, req ReturnItemRequest) (*ReturnItem, error) {
 	// Get the item first
 	items, err := s.repo.GetReturnItems(ctx, uuid.Nil) // This would need proper implementation
 	if err != nil {

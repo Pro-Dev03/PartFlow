@@ -9,7 +9,6 @@ import (
 // Supplier represents a supplier
 type Supplier struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID `json:"organization_id" db:"organization_id"`
 	Code           string     `json:"code" db:"code"`
 	Name           string     `json:"name" db:"name"`
 	Email          *string    `json:"email,omitempty" db:"email"`
@@ -33,10 +32,9 @@ func (Supplier) TableName() string {
 }
 
 // NewSupplier creates a new Supplier instance
-func NewSupplier(organizationID uuid.UUID, code, name string) *Supplier {
+func NewSupplier(code, name string) *Supplier {
 	return &Supplier{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		Code:           code,
 		Name:           name,
 		CreditLimit:    0,

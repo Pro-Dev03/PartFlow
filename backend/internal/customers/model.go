@@ -9,7 +9,6 @@ import (
 // Customer represents a customer
 type Customer struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID `json:"organization_id" db:"organization_id"`
 	Code           string     `json:"code" db:"code"`
 	Name           string     `json:"name" db:"name"`
 	Email          *string    `json:"email,omitempty" db:"email"`
@@ -32,10 +31,9 @@ func (Customer) TableName() string {
 }
 
 // NewCustomer creates a new Customer instance
-func NewCustomer(organizationID uuid.UUID, code, name string) *Customer {
+func NewCustomer(code, name string) *Customer {
 	return &Customer{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		Code:           code,
 		Name:           name,
 		CreditLimit:    0,

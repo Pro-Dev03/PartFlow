@@ -20,17 +20,16 @@ func NewService(repo *Repository) *Service {
 }
 
 // CreateUser creates a new user
-func (s *Service) CreateUser(ctx context.Context, organizationID uuid.UUID, email, passwordHash, firstName, lastName string, phone, avatarURL *string, roleID *uuid.UUID, isActive bool) (*User, error) {
+func (s *Service) CreateUser(ctx context.Context, email, passwordHash, firstName, lastName string, phone, avatarURL *string, isActive bool) (*User, error) {
 	// Check if email already exists
 	existing, err := s.repo.GetByEmail(ctx, email)
 	if err == nil && existing != nil {
 		return nil, ErrUserEmailExists
 	}
 
-	user := NewUser(organizationID, email, passwordHash, firstName, lastName)
+	user := NewUser(email, passwordHash, firstName, lastName)
 	user.Phone = phone
 	user.AvatarURL = avatarURL
-	user.RoleID = roleID
 	user.IsActive = isActive
 
 	if err := s.repo.Create(ctx, user); err != nil {
@@ -41,12 +40,12 @@ func (s *Service) CreateUser(ctx context.Context, organizationID uuid.UUID, emai
 }
 
 // GetUser retrieves a user by ID
-func (s *Service) GetUser(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*User, error) {
-	return s.repo.GetByID(ctx, id, organizationID)
+func (s *Service) GetUser(ctx context.Context, id uuid.UUID) (*User, error) {
+	return s.repo.GetByID(ctx, id)
 }
 
 // ListUsers retrieves users with pagination and filters
-func (s *Service) ListUsers(ctx context.Context, organizationID uuid.UUID, page, perPage int, search string, isActive *bool, roleID *uuid.UUID) ([]User, int, error) {
+func (s *Service) ListUsers(ctx context.Context, page, perPage int, search string, isActive *bool) ([]User, int, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -54,12 +53,12 @@ func (s *Service) ListUsers(ctx context.Context, organizationID uuid.UUID, page,
 		perPage = 20
 	}
 
-	return s.repo.List(ctx, organizationID, page, perPage, search, isActive, roleID)
+	return s.repo.List(ctx, page, perPage, search, isActive)
 }
 
 // UpdateUser updates a user
-func (s *Service) UpdateUser(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, email, passwordHash, firstName, lastName string, phone, avatarURL *string, roleID *uuid.UUID, isActive bool) (*User, error) {
-	user, err := s.repo.GetByID(ctx, id, organizationID)
+func (s *Service) UpdateUser(ctx context.Context, id uuid.UUID, email, passwordHash, firstName, lastName string, phone, avatarURL *string, isActive bool) (*User, error) {
+	user, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +86,6 @@ func (s *Service) UpdateUser(ctx context.Context, id uuid.UUID, organizationID u
 	}
 	user.Phone = phone
 	user.AvatarURL = avatarURL
-	user.RoleID = roleID
 	user.IsActive = isActive
 	user.UpdatedAt = time.Now()
 
@@ -99,14 +97,14 @@ func (s *Service) UpdateUser(ctx context.Context, id uuid.UUID, organizationID u
 }
 
 // DeleteUser deletes a user
-func (s *Service) DeleteUser(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	return s.repo.Delete(ctx, id, organizationID)
+func (s *Service) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	return s.repo.Delete(ctx, id)
 }
 
 // ChangePassword changes a user's password
 func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, currentPassword, newPassword string) error {
 	// Get user
-	user, err := s.repo.GetByID(ctx, userID, uuid.Nil) // No organization check for password change
+	user, err := s.repo.GetByID(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -154,61 +152,4 @@ func (s *Service) Authenticate(ctx context.Context, email, password string) (*Us
 func (s *Service) UpdateLastLogin(ctx context.Context, userID uuid.UUID) error {
 	now := time.Now()
 	return s.repo.UpdateLastLogin(ctx, userID, now)
-}
-
-// AssignRole assigns a role to a user
-func (s *Service) AssignRole(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID, roleID uuid.UUID) error {
-	user, err := s.repo.GetByID(ctx, userID, organizationID)
-	if err != nil {
-		return err
-	}
-
-	user.RoleID = &roleID
-	user.UpdatedAt = time.Now()
-
-	if err := s.repo.Update(ctx, user); err != nil {
-		return fmt.Errorf("failed to assign role: %w", err)
-	}
-
-	return nil
-}
-
-// RemoveRole removes a role from a user
-func (s *Service) RemoveRole(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID, roleID uuid.UUID) error {
-	user, err := s.repo.GetByID(ctx, userID, organizationID)
-	if err != nil {
-		return err
-	}
-
-	if user.RoleID == nil || *user.RoleID != roleID {
-		return fmt.Errorf("user does not have this role")
-	}
-
-	user.RoleID = nil
-	user.UpdatedAt = time.Now()
-
-	if err := s.repo.Update(ctx, user); err != nil {
-		return fmt.Errorf("failed to remove role: %w", err)
-	}
-
-	return nil
-}
-
-// GetUserRoles gets the roles assigned to a user
-func (s *Service) GetUserRoles(ctx context.Context, userID uuid.UUID, organizationID uuid.UUID) ([]interface{}, error) {
-	user, err := s.repo.GetByID(ctx, userID, organizationID)
-	if err != nil {
-		return nil, err
-	}
-
-	if user.RoleID == nil {
-		return []interface{}{}, nil
-	}
-
-	// Return role information
-	return []interface{}{
-		map[string]interface{}{
-			"role_id": user.RoleID,
-		},
-	}, nil
 }

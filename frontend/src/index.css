@@ -10,3 +10,6 @@
 
 /* Import Global Styles (components layer) */
 @import './styles/globals.css';
+
+/* Import Mobile-specific enhancements */
+@import './styles/mobile.css';

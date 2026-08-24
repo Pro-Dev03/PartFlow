@@ -26,8 +26,8 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		auth.POST("/refresh", h.RefreshToken)
 		auth.POST("/logout", h.Logout)
 		auth.POST("/change-password", h.ChangePassword)
-		auth.POST("/password-reset", h.RequestPasswordReset)
-		auth.POST("/password-reset/confirm", h.ResetPassword)
+		// auth.POST("/password-reset", h.RequestPasswordReset)
+		// auth.POST("/password-reset/confirm", h.ResetPassword)
 	}
 
 	users := router.Group("/users")
@@ -67,29 +67,23 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
-	// Get role name for response
-	var roleName string
-	err = h.service.db.QueryRowContext(c.Request.Context(), "SELECT name FROM roles WHERE id = $1", resp.User.RoleID).Scan(&roleName)
-	if err != nil {
-		roleName = "admin" // default
-	}
-
 	// Response format based on worktrack
 	response := gin.H{
-		"access_token":  resp.AccessToken,
-		"refresh_token": resp.RefreshToken,
-		"expires_in":    resp.ExpiresIn,
-		"user": gin.H{
-			"id":                    resp.User.ID.String(),
-			"email":                 resp.User.Email,
-			"first_name":            resp.User.FirstName,
-			"last_name":             resp.User.LastName,
-			"phone":                 resp.User.Phone,
-			"role_id":               resp.User.RoleID,
-			"role":                  roleName,
-			"is_active":             resp.User.IsActive,
-			"subscription_status":   resp.User.SubscriptionStatus,
-			"subscription_expires_at": resp.User.SubscriptionExpiresAt,
+		"data": gin.H{
+			"token":         resp.AccessToken,
+			"access_token":  resp.AccessToken,
+			"refresh_token": resp.RefreshToken,
+			"expires_in":    resp.ExpiresIn,
+			"user": gin.H{
+				"id":                      resp.User.ID.String(),
+				"email":                   resp.User.Email,
+				"first_name":              resp.User.FirstName,
+				"last_name":               resp.User.LastName,
+				"phone":                   resp.User.Phone,
+				"is_active":               resp.User.IsActive,
+				"subscription_status":     resp.User.SubscriptionStatus,
+				"subscription_expires_at": resp.User.SubscriptionExpiresAt,
+			},
 		},
 	}
 

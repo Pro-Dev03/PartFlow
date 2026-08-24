@@ -22,20 +22,20 @@ func NewRepository(db *sqlx.DB) *Repository {
 // CreateExpense creates a new expense
 func (r *Repository) CreateExpense(ctx context.Context, expense *Expense) error {
 	query := `
-		INSERT INTO expenses (id, organization_id, category_id, title, description, 
+		INSERT INTO expenses (id, category_id, title, description,
 			amount, currency, expense_date, payment_method, reference, receipt_url, 
 			is_recurring, recurring_period, approved_by, status, created_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING id, created_at, updated_at
 	`
-	
+
 	err := r.db.QueryRowContext(ctx, query,
-		expense.ID, expense.OrganizationID, expense.CategoryID, expense.Title, expense.Description,
+		expense.ID, expense.CategoryID, expense.Title, expense.Description,
 		expense.Amount, expense.Currency, expense.ExpenseDate, expense.PaymentMethod, expense.Reference,
 		expense.ReceiptURL, expense.IsRecurring, expense.RecurringPeriod, expense.ApprovedBy,
 		expense.Status, expense.CreatedBy, expense.CreatedAt, expense.UpdatedAt,
 	).Scan(&expense.ID, &expense.CreatedAt, &expense.UpdatedAt)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to create expense: %w", err)
 	}
@@ -43,17 +43,17 @@ func (r *Repository) CreateExpense(ctx context.Context, expense *Expense) error 
 }
 
 // GetExpenseByID retrieves an expense by ID
-func (r *Repository) GetExpenseByID(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*Expense, error) {
+func (r *Repository) GetExpenseByID(ctx context.Context, id uuid.UUID) (*Expense, error) {
 	var expense Expense
 	query := `
-		SELECT id, organization_id, category_id, title, description, amount, currency, 
-			expense_date, payment_method, reference, receipt_url, is_recurring, 
+		SELECT id, category_id, title, description,
+			amount, currency, expense_date, payment_method, reference, receipt_url, is_recurring, 
 			recurring_period, approved_by, status, created_by, created_at, updated_at
 		FROM expenses
-		WHERE id = $1 AND organization_id = $2
+		WHERE id = $1
 	`
 	
-	err := r.db.GetContext(ctx, &expense, query, id, organizationID)
+	err := r.db.GetContext(ctx, &expense, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrExpenseNotFound
@@ -64,29 +64,34 @@ func (r *Repository) GetExpenseByID(ctx context.Context, id uuid.UUID, organizat
 }
 
 // ListExpenses retrieves expenses with pagination and filters
-func (r *Repository) ListExpenses(ctx context.Context, organizationID uuid.UUID, req ExpenseListRequest) ([]Expense, int, error) {
+func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) ([]Expense, int, error) {
 	var expenses []Expense
 	var count int
 	
 	// Build base query
 	baseQuery := `
-		SELECT id, organization_id, category_id, title, description, amount, currency, 
-			expense_date, payment_method, reference, receipt_url, is_recurring, 
+		SELECT id, category_id, title, description,
+			amount, currency, expense_date, payment_method, reference, receipt_url, is_recurring, 
 			recurring_period, approved_by, status, created_by, created_at, updated_at
 		FROM expenses
-		WHERE organization_id = $1
 	`
-	countQuery := `SELECT COUNT(*) FROM expenses WHERE organization_id = $1`
 	
-	args := []interface{}{organizationID}
-	argCount := 1
+	countQuery := `
+		SELECT COUNT(*) FROM expenses
+	`
+	
+	args := []interface{}{}
+	argCount := 0
 	
 	// Add filters
 	if req.CategoryID != nil {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND category_id = $%d", argCount)
-		countQuery += fmt.Sprintf(" AND category_id = $%d", argCount)
+		baseQuery += fmt.Sprintf(" WHERE category_id = $%d", argCount)
+		countQuery += fmt.Sprintf(" WHERE category_id = $%d", argCount)
 		args = append(args, *req.CategoryID)
+	} else {
+		baseQuery += " WHERE 1=1"
+		countQuery += " WHERE 1=1"
 	}
 	
 	if req.Status != "" {
@@ -170,7 +175,6 @@ func (r *Repository) UpdateExpense(ctx context.Context, expense *Expense) error 
 		SET category_id = $2, title = $3, description = $4, amount = $5, currency = $6,
 			expense_date = $7, payment_method = $8, reference = $9, receipt_url = $10,
 			is_recurring = $11, recurring_period = $12, approved_by = $13, status = $14, updated_at = $15
-		WHERE id = $1 AND organization_id = $16
 		RETURNING updated_at
 	`
 	
@@ -178,7 +182,6 @@ func (r *Repository) UpdateExpense(ctx context.Context, expense *Expense) error 
 		expense.ID, expense.CategoryID, expense.Title, expense.Description, expense.Amount,
 		expense.Currency, expense.ExpenseDate, expense.PaymentMethod, expense.Reference,
 		expense.ReceiptURL, expense.IsRecurring, expense.RecurringPeriod, expense.ApprovedBy,
-		expense.Status, expense.UpdatedAt, expense.OrganizationID,
 	).Scan(&expense.UpdatedAt)
 	
 	if err != nil {
@@ -191,10 +194,10 @@ func (r *Repository) UpdateExpense(ctx context.Context, expense *Expense) error 
 }
 
 // DeleteExpense deletes an expense
-func (r *Repository) DeleteExpense(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	query := `DELETE FROM expenses WHERE id = $1 AND organization_id = $2`
+func (r *Repository) DeleteExpense(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM expenses WHERE id = $1`
 	
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete expense: %w", err)
 	}
@@ -210,15 +213,14 @@ func (r *Repository) DeleteExpense(ctx context.Context, id uuid.UUID, organizati
 // CreateExpenseCategory creates a new expense category
 func (r *Repository) CreateExpenseCategory(ctx context.Context, category *ExpenseCategory) error {
 	query := `
-		INSERT INTO expense_categories (id, organization_id, name, description, color, icon, budget, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO expense_categories (id, name, description, color, icon, budget, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at, updated_at
 	`
 	
 	err := r.db.QueryRowContext(ctx, query,
-		category.ID, category.OrganizationID, category.Name, category.Description,
-		category.Color, category.Icon, category.Budget, category.IsActive,
-		category.CreatedAt, category.UpdatedAt,
+		category.ID, category.Name, category.Description, category.Color, category.Icon, 
+		category.Budget, category.IsActive, category.CreatedAt, category.UpdatedAt,
 	).Scan(&category.ID, &category.CreatedAt, &category.UpdatedAt)
 	
 	if err != nil {
@@ -228,15 +230,15 @@ func (r *Repository) CreateExpenseCategory(ctx context.Context, category *Expens
 }
 
 // GetExpenseCategoryByID retrieves an expense category by ID
-func (r *Repository) GetExpenseCategoryByID(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*ExpenseCategory, error) {
+func (r *Repository) GetExpenseCategoryByID(ctx context.Context, id uuid.UUID) (*ExpenseCategory, error) {
 	var category ExpenseCategory
 	query := `
-		SELECT id, organization_id, name, description, color, icon, budget, is_active, created_at, updated_at
+		SELECT id, name, description, color, icon, budget, is_active, created_at, updated_at
 		FROM expense_categories
-		WHERE id = $1 AND organization_id = $2
+		WHERE id = $1
 	`
 	
-	err := r.db.GetContext(ctx, &category, query, id, organizationID)
+	err := r.db.GetContext(ctx, &category, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrExpenseCategoryNotFound
@@ -247,22 +249,27 @@ func (r *Repository) GetExpenseCategoryByID(ctx context.Context, id uuid.UUID, o
 }
 
 // ListExpenseCategories retrieves expense categories with pagination and filters
-func (r *Repository) ListExpenseCategories(ctx context.Context, organizationID uuid.UUID, req ExpenseCategoryListRequest) ([]ExpenseCategory, int, error) {
+func (r *Repository) ListExpenseCategories(ctx context.Context, req ExpenseCategoryListRequest) ([]ExpenseCategory, int, error) {
 	var categories []ExpenseCategory
 	var count int
 	
 	// Build base query
 	baseQuery := `
-		SELECT id, organization_id, name, description, color, icon, budget, is_active, created_at, updated_at
+		SELECT id, name, description, color, icon, budget, is_active, created_at, updated_at
 		FROM expense_categories
-		WHERE organization_id = $1
 	`
-	countQuery := `SELECT COUNT(*) FROM expense_categories WHERE organization_id = $1`
 	
-	args := []interface{}{organizationID}
-	argCount := 1
+	countQuery := `
+		SELECT COUNT(*) FROM expense_categories
+	`
+	
+	args := []interface{}{}
+	argCount := 0
 	
 	// Add filters
+	baseQuery += " WHERE 1=1"
+	countQuery += " WHERE 1=1"
+	
 	if req.IsActive != nil {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND is_active = $%d", argCount)
@@ -314,14 +321,12 @@ func (r *Repository) UpdateExpenseCategory(ctx context.Context, category *Expens
 	query := `
 		UPDATE expense_categories
 		SET name = $2, description = $3, color = $4, icon = $5, budget = $6, is_active = $7, updated_at = $8
-		WHERE id = $1 AND organization_id = $9
 		RETURNING updated_at
 	`
 	
 	err := r.db.QueryRowContext(ctx, query,
 		category.ID, category.Name, category.Description, category.Color,
 		category.Icon, category.Budget, category.IsActive, category.UpdatedAt,
-		category.OrganizationID,
 	).Scan(&category.UpdatedAt)
 	
 	if err != nil {
@@ -334,10 +339,10 @@ func (r *Repository) UpdateExpenseCategory(ctx context.Context, category *Expens
 }
 
 // DeleteExpenseCategory deletes an expense category
-func (r *Repository) DeleteExpenseCategory(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	query := `DELETE FROM expense_categories WHERE id = $1 AND organization_id = $2`
+func (r *Repository) DeleteExpenseCategory(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM expense_categories WHERE id = $1`
 	
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete expense category: %w", err)
 	}
@@ -351,15 +356,15 @@ func (r *Repository) DeleteExpenseCategory(ctx context.Context, id uuid.UUID, or
 }
 
 // GetExpenseCategoryByName retrieves an expense category by name
-func (r *Repository) GetExpenseCategoryByName(ctx context.Context, name string, organizationID uuid.UUID) (*ExpenseCategory, error) {
+func (r *Repository) GetExpenseCategoryByName(ctx context.Context, name string) (*ExpenseCategory, error) {
 	var category ExpenseCategory
 	query := `
-		SELECT id, organization_id, name, description, color, icon, budget, is_active, created_at, updated_at
+		SELECT id, name, description, color, icon, budget, is_active, created_at, updated_at
 		FROM expense_categories
-		WHERE name = $1 AND organization_id = $2
+		WHERE name = $1
 	`
 	
-	err := r.db.GetContext(ctx, &category, query, name, organizationID)
+	err := r.db.GetContext(ctx, &category, query, name)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrExpenseCategoryNotFound
@@ -370,29 +375,26 @@ func (r *Repository) GetExpenseCategoryByName(ctx context.Context, name string, 
 }
 
 // GetExpenseSummary retrieves expense summary statistics
-func (r *Repository) GetExpenseSummary(ctx context.Context, organizationID uuid.UUID) (*ExpenseSummary, error) {
+func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, error) {
 	var summary ExpenseSummary
 	
 	// Total expenses
 	err := r.db.GetContext(ctx, &summary.TotalExpenses, 
-		`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE organization_id = $1 AND status = 'approved'`, 
-		organizationID)
+		`SELECT COALESCE(SUM(amount), 0) FROM expenses`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total expenses: %w", err)
 	}
 	
 	// Pending expenses
 	err = r.db.GetContext(ctx, &summary.PendingExpenses, 
-		`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE organization_id = $1 AND status = 'pending'`, 
-		organizationID)
+		`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE status = 'pending'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pending expenses: %w", err)
 	}
 	
 	// Approved expenses
 	err = r.db.GetContext(ctx, &summary.ApprovedExpenses, 
-		`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE organization_id = $1 AND status = 'approved'`, 
-		organizationID)
+		`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE status = 'approved'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get approved expenses: %w", err)
 	}
@@ -400,9 +402,7 @@ func (r *Repository) GetExpenseSummary(ctx context.Context, organizationID uuid.
 	// This month expenses
 	err = r.db.GetContext(ctx, &summary.ThisMonth, 
 		`SELECT COALESCE(SUM(amount), 0) FROM expenses 
-		 WHERE organization_id = $1 AND status = 'approved' 
-		 AND DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE)`, 
-		organizationID)
+		 WHERE DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE)`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this month expenses: %w", err)
 	}
@@ -410,9 +410,7 @@ func (r *Repository) GetExpenseSummary(ctx context.Context, organizationID uuid.
 	// Last month expenses
 	err = r.db.GetContext(ctx, &summary.LastMonth, 
 		`SELECT COALESCE(SUM(amount), 0) FROM expenses 
-		 WHERE organization_id = $1 AND status = 'approved' 
-		 AND DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')`, 
-		organizationID)
+		 WHERE DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get last month expenses: %w", err)
 	}
@@ -422,10 +420,8 @@ func (r *Repository) GetExpenseSummary(ctx context.Context, organizationID uuid.
 	rows, err := r.db.QueryContext(ctx, 
 		`SELECT ec.name, COALESCE(SUM(e.amount), 0) 
 		 FROM expense_categories ec 
-		 LEFT JOIN expenses e ON ec.id = e.category_id AND e.organization_id = $1 AND e.status = 'approved'
-		 WHERE ec.organization_id = $1 
-		 GROUP BY ec.name`, 
-		organizationID)
+		 LEFT JOIN expenses e ON ec.id = e.category_id
+		 GROUP BY ec.name`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get expenses by category: %w", err)
 	}
@@ -445,9 +441,7 @@ func (r *Repository) GetExpenseSummary(ctx context.Context, organizationID uuid.
 	rows, err = r.db.QueryContext(ctx, 
 		`SELECT payment_method, COALESCE(SUM(amount), 0) 
 		 FROM expenses 
-		 WHERE organization_id = $1 AND status = 'approved'
-		 GROUP BY payment_method`, 
-		organizationID)
+		 GROUP BY payment_method`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get expenses by payment method: %w", err)
 	}

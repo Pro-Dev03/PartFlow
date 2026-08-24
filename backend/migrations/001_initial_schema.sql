@@ -1,64 +1,22 @@
 -- PartFlow Database Schema
--- Multi-tenant Store Management System
+-- Single-tenant Store Management System
 
 -- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ============================================
--- Organizations (Multi-tenant support)
--- ============================================
-CREATE TABLE organizations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL,
-    slug VARCHAR(100) UNIQUE NOT NULL,
-    email VARCHAR(255),
-    phone VARCHAR(50),
-    address TEXT,
-    city VARCHAR(100),
-    country VARCHAR(100),
-    logo_url TEXT,
-    settings JSONB DEFAULT '{}',
-    subscription_plan VARCHAR(50) DEFAULT 'free',
-    subscription_status VARCHAR(50) DEFAULT 'active',
-    trial_ends_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_organizations_slug ON organizations(slug);
-CREATE INDEX idx_organizations_subscription ON organizations(subscription_status);
-
--- ============================================
--- Roles (must come before users)
--- ============================================
-CREATE TABLE roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    permissions JSONB DEFAULT '[]',
-    is_system BOOLEAN DEFAULT false,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, name)
-);
-
-CREATE INDEX idx_roles_organization ON roles(organization_id);
-
--- ============================================
--- Users (depends on organizations and roles)
+-- Users
 -- ============================================
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     phone VARCHAR(50),
     avatar_url TEXT,
-    role_id UUID REFERENCES roles(id),
+    role VARCHAR(20) DEFAULT 'owner' CHECK (role = 'owner'),
     is_active BOOLEAN DEFAULT true,
     is_verified BOOLEAN DEFAULT false,
     last_login_at TIMESTAMP WITH TIME ZONE,
@@ -66,16 +24,14 @@ CREATE TABLE users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_users_organization ON users(organization_id);
 CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_role ON users(role_id);
+CREATE INDEX idx_users_role ON users(role);
 
 -- ============================================
 -- Categories (must come before products)
 -- ============================================
 CREATE TABLE categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     parent_id UUID REFERENCES categories(id),
@@ -84,10 +40,9 @@ CREATE TABLE categories (
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, name)
+    UNIQUE(name)
 );
 
-CREATE INDEX idx_categories_organization ON categories(organization_id);
 CREATE INDEX idx_categories_parent ON categories(parent_id);
 
 -- ============================================
@@ -95,7 +50,6 @@ CREATE INDEX idx_categories_parent ON categories(parent_id);
 -- ============================================
 CREATE TABLE products (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     sku VARCHAR(100) NOT NULL,
     barcode VARCHAR(100),
     name VARCHAR(255) NOT NULL,
@@ -114,10 +68,9 @@ CREATE TABLE products (
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, sku)
+    UNIQUE(sku)
 );
 
-CREATE INDEX idx_products_organization ON products(organization_id);
 CREATE INDEX idx_products_sku ON products(sku);
 CREATE INDEX idx_products_barcode ON products(barcode);
 CREATE INDEX idx_products_category ON products(category_id);
@@ -127,7 +80,6 @@ CREATE INDEX idx_products_category ON products(category_id);
 -- ============================================
 CREATE TABLE warehouses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     address TEXT,
     city VARCHAR(100),
@@ -139,14 +91,11 @@ CREATE TABLE warehouses (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_warehouses_organization ON warehouses(organization_id);
-
 -- ============================================
 -- Inventory (depends on products and warehouses)
 -- ============================================
 CREATE TABLE inventory (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     quantity INTEGER NOT NULL DEFAULT 0,
     reserved_quantity INTEGER DEFAULT 0,
@@ -155,10 +104,9 @@ CREATE TABLE inventory (
     last_restocked_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, product_id, location)
+    UNIQUE(product_id, location)
 );
 
-CREATE INDEX idx_inventory_organization ON inventory(organization_id);
 CREATE INDEX idx_inventory_product ON inventory(product_id);
 CREATE INDEX idx_inventory_warehouse ON inventory(warehouse_id);
 
@@ -167,7 +115,6 @@ CREATE INDEX idx_inventory_warehouse ON inventory(warehouse_id);
 -- ============================================
 CREATE TABLE customers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     code VARCHAR(50) NOT NULL,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255),
@@ -182,10 +129,9 @@ CREATE TABLE customers (
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, code)
+    UNIQUE(code)
 );
 
-CREATE INDEX idx_customers_organization ON customers(organization_id);
 CREATE INDEX idx_customers_code ON customers(code);
 CREATE INDEX idx_customers_email ON customers(email);
 
@@ -194,7 +140,6 @@ CREATE INDEX idx_customers_email ON customers(email);
 -- ============================================
 CREATE TABLE suppliers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     code VARCHAR(50) NOT NULL,
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255),
@@ -208,10 +153,9 @@ CREATE TABLE suppliers (
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, code)
+    UNIQUE(code)
 );
 
-CREATE INDEX idx_suppliers_organization ON suppliers(organization_id);
 CREATE INDEX idx_suppliers_code ON suppliers(code);
 
 -- ============================================
@@ -219,7 +163,6 @@ CREATE INDEX idx_suppliers_code ON suppliers(code);
 -- ============================================
 CREATE TABLE sales (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     invoice_number VARCHAR(50) NOT NULL,
     customer_id UUID REFERENCES customers(id),
     user_id UUID NOT NULL REFERENCES users(id),
@@ -235,10 +178,9 @@ CREATE TABLE sales (
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, invoice_number)
+    UNIQUE(invoice_number)
 );
 
-CREATE INDEX idx_sales_organization ON sales(organization_id);
 CREATE INDEX idx_sales_customer ON sales(customer_id);
 CREATE INDEX idx_sales_user ON sales(user_id);
 CREATE INDEX idx_sales_date ON sales(sale_date);
@@ -267,7 +209,6 @@ CREATE INDEX idx_sale_items_product ON sale_items(product_id);
 -- ============================================
 CREATE TABLE purchases (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     invoice_number VARCHAR(50) NOT NULL,
     supplier_id UUID NOT NULL REFERENCES suppliers(id),
     user_id UUID NOT NULL REFERENCES users(id),
@@ -283,10 +224,9 @@ CREATE TABLE purchases (
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, invoice_number)
+    UNIQUE(invoice_number)
 );
 
-CREATE INDEX idx_purchases_organization ON purchases(organization_id);
 CREATE INDEX idx_purchases_supplier ON purchases(supplier_id);
 CREATE INDEX idx_purchases_user ON purchases(user_id);
 CREATE INDEX idx_purchases_date ON purchases(purchase_date);
@@ -314,7 +254,6 @@ CREATE INDEX idx_purchase_items_product ON purchase_items(product_id);
 -- ============================================
 CREATE TABLE payments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     reference_number VARCHAR(50) NOT NULL,
     sale_id UUID REFERENCES sales(id),
     purchase_id UUID REFERENCES purchases(id),
@@ -328,7 +267,6 @@ CREATE TABLE payments (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_payments_organization ON payments(organization_id);
 CREATE INDEX idx_payments_sale ON payments(sale_id);
 CREATE INDEX idx_payments_purchase ON payments(purchase_id);
 
@@ -337,7 +275,6 @@ CREATE INDEX idx_payments_purchase ON payments(purchase_id);
 -- ============================================
 CREATE TABLE debts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     customer_id UUID NOT NULL REFERENCES customers(id),
     amount DECIMAL(10,2) NOT NULL,
     remaining_amount DECIMAL(10,2) NOT NULL,
@@ -348,7 +285,6 @@ CREATE TABLE debts (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_debts_organization ON debts(organization_id);
 CREATE INDEX idx_debts_customer ON debts(customer_id);
 CREATE INDEX idx_debts_status ON debts(status);
 CREATE INDEX idx_debts_due_date ON debts(due_date);
@@ -358,7 +294,6 @@ CREATE INDEX idx_debts_due_date ON debts(due_date);
 -- ============================================
 CREATE TABLE expenses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     reference_number VARCHAR(50) NOT NULL,
     category VARCHAR(100) NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
@@ -371,7 +306,6 @@ CREATE TABLE expenses (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_expenses_organization ON expenses(organization_id);
 CREATE INDEX idx_expenses_category ON expenses(category);
 CREATE INDEX idx_expenses_date ON expenses(expense_date);
 
@@ -380,7 +314,6 @@ CREATE INDEX idx_expenses_date ON expenses(expense_date);
 -- ============================================
 CREATE TABLE returns (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     reference_number VARCHAR(50) NOT NULL,
     type VARCHAR(50) NOT NULL, -- 'sale' or 'purchase'
     sale_id UUID REFERENCES sales(id),
@@ -393,36 +326,14 @@ CREATE TABLE returns (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_returns_organization ON returns(organization_id);
 CREATE INDEX idx_returns_sale ON returns(sale_id);
 CREATE INDEX idx_returns_purchase ON returns(purchase_id);
-
--- ============================================
--- Warranties
--- ============================================
-CREATE TABLE warranties (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    sale_id UUID NOT NULL REFERENCES sales(id),
-    product_id UUID NOT NULL REFERENCES products(id),
-    warranty_period INTEGER NOT NULL, -- in months
-    expires_at DATE NOT NULL,
-    terms TEXT,
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX idx_warranties_organization ON warranties(organization_id);
-CREATE INDEX idx_warranties_sale ON warranties(sale_id);
-CREATE INDEX idx_warranties_product ON warranties(product_id);
 
 -- ============================================
 -- Inspections
 -- ============================================
 CREATE TABLE inspections (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     product_id UUID NOT NULL REFERENCES products(id),
     inspector_id UUID NOT NULL REFERENCES users(id),
     inspection_date DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -432,7 +343,6 @@ CREATE TABLE inspections (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_inspections_organization ON inspections(organization_id);
 CREATE INDEX idx_inspections_product ON inspections(product_id);
 CREATE INDEX idx_inspections_date ON inspections(inspection_date);
 
@@ -441,7 +351,6 @@ CREATE INDEX idx_inspections_date ON inspections(inspection_date);
 -- ============================================
 CREATE TABLE audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id),
     action VARCHAR(100) NOT NULL,
     entity_type VARCHAR(100) NOT NULL,
@@ -453,7 +362,6 @@ CREATE TABLE audit_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_audit_logs_organization ON audit_logs(organization_id);
 CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
 CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_type, entity_id);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
@@ -463,7 +371,6 @@ CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);
 -- ============================================
 CREATE TABLE notifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id),
     type VARCHAR(100) NOT NULL,
     title VARCHAR(255) NOT NULL,
@@ -473,7 +380,6 @@ CREATE TABLE notifications (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_notifications_organization ON notifications(organization_id);
 CREATE INDEX idx_notifications_user ON notifications(user_id);
 CREATE INDEX idx_notifications_read ON notifications(is_read);
 
@@ -482,7 +388,6 @@ CREATE INDEX idx_notifications_read ON notifications(is_read);
 -- ============================================
 CREATE TABLE automations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     trigger_type VARCHAR(100) NOT NULL,
     trigger_config JSONB NOT NULL,
@@ -494,7 +399,6 @@ CREATE TABLE automations (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_automations_organization ON automations(organization_id);
 CREATE INDEX idx_automations_active ON automations(is_active);
 
 -- ============================================
@@ -511,13 +415,7 @@ END;
 $$ language 'plpgsql';
 
 -- Apply updated_at trigger to all relevant tables
-CREATE TRIGGER update_organizations_updated_at BEFORE UPDATE ON organizations
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_roles_updated_at BEFORE UPDATE ON roles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON products
@@ -554,9 +452,6 @@ CREATE TRIGGER update_expenses_updated_at BEFORE UPDATE ON expenses
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_returns_updated_at BEFORE UPDATE ON returns
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_warranties_updated_at BEFORE UPDATE ON warranties
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_automations_updated_at BEFORE UPDATE ON automations

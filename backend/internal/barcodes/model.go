@@ -20,12 +20,12 @@ const (
 // Barcode represents a barcode
 type Barcode struct {
 	ID             uuid.UUID    `json:"id" db:"id"`
-	OrganizationID uuid.UUID    `json:"organization_id" db:"organization_id"`
 	Code           string       `json:"code" db:"code"`
 	Type           BarcodeType  `json:"type" db:"type"`
 	ProductID      *uuid.UUID   `json:"product_id" db:"product_id"`
 	InventoryItemID *uuid.UUID  `json:"inventory_item_id" db:"inventory_item_id"`
 	IsActive       bool         `json:"is_active" db:"is_active"`
+	GeneratedAt    time.Time    `json:"generated_at" db:"generated_at"`
 	CreatedAt      time.Time    `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time    `json:"updated_at" db:"updated_at"`
 }
@@ -57,7 +57,6 @@ type LabelGenerationRequest struct {
 // Label represents a printable label
 type Label struct {
 	ID             uuid.UUID `json:"id" db:"id"`
-	OrganizationID uuid.UUID `json:"organization_id" db:"organization_id"`
 	BarcodeID      uuid.UUID `json:"barcode_id" db:"barcode_id"`
 	BarcodeCode    string    `json:"barcode_code" db:"barcode_code"`
 	ProductName    string    `json:"product_name" db:"product_name"`

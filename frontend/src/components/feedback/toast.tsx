@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn } from '../../utils';
 
 export interface ToastProps {
   type?: 'success' | 'error' | 'warning' | 'info';

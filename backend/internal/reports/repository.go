@@ -23,18 +23,18 @@ func NewRepository(db *sqlx.DB) *Repository {
 // CreateReport creates a new report
 func (r *Repository) CreateReport(ctx context.Context, report *Report) error {
 	query := `
-		INSERT INTO reports (id, organization_id, type, title, description, parameters, 
+		INSERT INTO reports (type, title, description, parameters,
 			data, status, generated_by, generated_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at, updated_at
 	`
-	
+
 	err := r.db.QueryRowContext(ctx, query,
-		report.ID, report.OrganizationID, report.Type, report.Title, report.Description,
-		report.Parameters, report.Data, report.Status, report.GeneratedBy, report.GeneratedAt,
+		report.Type, report.Title, report.Description, report.Parameters,
+		report.Data, report.Status, report.GeneratedBy, report.GeneratedAt,
 		report.CreatedAt, report.UpdatedAt,
 	).Scan(&report.ID, &report.CreatedAt, &report.UpdatedAt)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to create report: %w", err)
 	}
@@ -42,16 +42,16 @@ func (r *Repository) CreateReport(ctx context.Context, report *Report) error {
 }
 
 // GetReportByID retrieves a report by ID
-func (r *Repository) GetReportByID(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*Report, error) {
+func (r *Repository) GetReportByID(ctx context.Context, id uuid.UUID) (*Report, error) {
 	var report Report
 	query := `
-		SELECT id, organization_id, type, title, description, parameters, 
+		SELECT id, type, title, description, parameters,
 			data, status, generated_by, generated_at, created_at, updated_at
 		FROM reports
-		WHERE id = $1 AND organization_id = $2
+		WHERE id = $1
 	`
-	
-	err := r.db.GetContext(ctx, &report, query, id, organizationID)
+
+	err := r.db.GetContext(ctx, &report, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrReportNotFound
@@ -62,22 +62,27 @@ func (r *Repository) GetReportByID(ctx context.Context, id uuid.UUID, organizati
 }
 
 // ListReports retrieves reports with pagination and filters
-func (r *Repository) ListReports(ctx context.Context, organizationID uuid.UUID, req ReportListRequest) ([]Report, int, error) {
+func (r *Repository) ListReports(ctx context.Context, req ReportListRequest) ([]Report, int, error) {
 	var reports []Report
 	var count int
-	
+
 	// Build base query
 	baseQuery := `
-		SELECT id, organization_id, type, title, description, parameters, 
+		SELECT id, type, title, description, parameters,
 			data, status, generated_by, generated_at, created_at, updated_at
 		FROM reports
-		WHERE organization_id = $1
+		WHERE 1=1
 	`
-	countQuery := `SELECT COUNT(*) FROM reports WHERE organization_id = $1`
-	
-	args := []interface{}{organizationID}
-	argCount := 1
-	
+
+	countQuery := `
+		SELECT COUNT(*)
+		FROM reports
+		WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argCount := 0
+
 	// Add filters
 	if req.Type != "" {
 		argCount++
@@ -158,14 +163,14 @@ func (r *Repository) UpdateReport(ctx context.Context, report *Report) error {
 	query := `
 		UPDATE reports
 		SET data = $2, status = $3, updated_at = $4
-		WHERE id = $1 AND organization_id = $5
+		WHERE id = $1
 		RETURNING updated_at
 	`
-	
+
 	err := r.db.QueryRowContext(ctx, query,
-		report.ID, report.Data, report.Status, report.UpdatedAt, report.OrganizationID,
+		report.ID, report.Data, report.Status, report.UpdatedAt,
 	).Scan(&report.UpdatedAt)
-	
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return ErrReportNotFound
@@ -176,19 +181,19 @@ func (r *Repository) UpdateReport(ctx context.Context, report *Report) error {
 }
 
 // DeleteReport deletes a report
-func (r *Repository) DeleteReport(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	query := `DELETE FROM reports WHERE id = $1 AND organization_id = $2`
-	
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+func (r *Repository) DeleteReport(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM reports WHERE id = $1`
+
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete report: %w", err)
 	}
-	
+
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		return ErrReportNotFound
 	}
-	
+
 	return nil
 }
 
@@ -205,33 +210,33 @@ func (r *Repository) GetUserName(ctx context.Context, userID uuid.UUID) (string,
 }
 
 // GetSalesData retrieves sales data for report
-func (r *Repository) GetSalesData(ctx context.Context, organizationID uuid.UUID, startDate, endDate time.Time) (*SalesReport, error) {
+func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.Time) (*SalesReport, error) {
 	var report SalesReport
 	report.StartDate = startDate
 	report.EndDate = endDate
 	
 	// Total sales and revenue
-	err := r.db.GetContext(ctx, &report.TotalSales, 
-		`SELECT COUNT(*) FROM sales WHERE organization_id = $1 AND sale_date BETWEEN $2 AND $3`,
-		organizationID, startDate, endDate)
+	err := r.db.GetContext(ctx, &report.TotalSales,
+		`SELECT COUNT(*) FROM sales WHERE sale_date >= $1 AND sale_date <= $2`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total sales: %w", err)
 	}
-	
-	err = r.db.GetContext(ctx, &report.TotalRevenue, 
-		`SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE organization_id = $1 AND sale_date BETWEEN $2 AND $3`,
-		organizationID, startDate, endDate)
+
+	err = r.db.GetContext(ctx, &report.TotalRevenue,
+		`SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE sale_date >= $1 AND sale_date <= $2`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total revenue: %w", err)
 	}
-	
+
 	// Calculate COGS (this would be more complex in real implementation)
-	err = r.db.GetContext(ctx, &report.TotalCOGS, 
-		`SELECT COALESCE(SUM(si.quantity * si.unit_cost), 0) 
-		 FROM sale_items si 
-		 JOIN sales s ON si.sale_id = s.id 
-		 WHERE s.organization_id = $1 AND s.sale_date BETWEEN $2 AND $3`,
-		organizationID, startDate, endDate)
+	err = r.db.GetContext(ctx, &report.TotalCOGS,
+		`SELECT COALESCE(SUM(si.quantity * si.unit_cost), 0)
+		 FROM sale_items si
+		 JOIN sales s ON si.sale_id = s.id
+		 WHERE s.sale_date >= $1 AND s.sale_date <= $2`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total COGS: %w", err)
 	}
@@ -243,10 +248,8 @@ func (r *Repository) GetSalesData(ctx context.Context, organizationID uuid.UUID,
 	rows, err := r.db.QueryContext(ctx, 
 		`SELECT DATE(sale_date) as date, COUNT(*) as sales, COALESCE(SUM(total_amount), 0) as revenue
 		 FROM sales 
-		 WHERE organization_id = $1 AND sale_date BETWEEN $2 AND $3
 		 GROUP BY DATE(sale_date)
-		 ORDER BY date`,
-		organizationID, startDate, endDate)
+		 ORDER BY date`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get daily sales: %w", err)
 	}
@@ -266,11 +269,9 @@ func (r *Repository) GetSalesData(ctx context.Context, organizationID uuid.UUID,
 		 FROM sale_items si
 		 JOIN sales s ON si.sale_id = s.id
 		 JOIN products p ON si.product_id = p.id
-		 WHERE s.organization_id = $1 AND s.sale_date BETWEEN $2 AND $3
 		 GROUP BY p.id, p.name
 		 ORDER BY revenue DESC
-		 LIMIT 10`,
-		organizationID, startDate, endDate)
+		 LIMIT 10`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get top products: %w", err)
 	}
@@ -291,9 +292,7 @@ func (r *Repository) GetSalesData(ctx context.Context, organizationID uuid.UUID,
 		`SELECT payment_method, COALESCE(SUM(amount), 0) as total
 		 FROM payments
 		 JOIN sales s ON payments.sale_id = s.id
-		 WHERE s.organization_id = $1 AND s.sale_date BETWEEN $2 AND $3
-		 GROUP BY payment_method`,
-		organizationID, startDate, endDate)
+		 GROUP BY payment_method`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get payment methods: %w", err)
 	}
@@ -312,34 +311,31 @@ func (r *Repository) GetSalesData(ctx context.Context, organizationID uuid.UUID,
 }
 
 // GetInventoryData retrieves inventory data for report
-func (r *Repository) GetInventoryData(ctx context.Context, organizationID uuid.UUID) (*InventoryReport, error) {
+func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, error) {
 	var report InventoryReport
 	
 	// Get total items and value
-	err := r.db.GetContext(ctx, &report.TotalItems, 
-		`SELECT COUNT(*) FROM inventory_items WHERE organization_id = $1`,
-		organizationID)
+	err := r.db.GetContext(ctx, &report.TotalItems,
+		`SELECT COUNT(*) FROM inventory_items WHERE status = 'available'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total items: %w", err)
 	}
-	
-	err = r.db.GetContext(ctx, &report.TotalValue, 
-		`SELECT COALESCE(SUM(purchase_cost), 0) FROM inventory_items WHERE organization_id = $1`,
-		organizationID)
+
+	err = r.db.GetContext(ctx, &report.TotalValue,
+		`SELECT COALESCE(SUM(purchase_cost), 0) FROM inventory_items WHERE status = 'available'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total value: %w", err)
 	}
-	
+
 	// Get items by condition
 	report.ByCondition = make(map[string]int)
-	rows, err := r.db.QueryContext(ctx, 
-		`SELECT condition, COUNT(*) FROM inventory_items WHERE organization_id = $1 GROUP BY condition`,
-		organizationID)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT condition, COUNT(*) FROM inventory_items GROUP BY condition`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get items by condition: %w", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var condition string
 		var count int
@@ -348,16 +344,14 @@ func (r *Repository) GetInventoryData(ctx context.Context, organizationID uuid.U
 		}
 		report.ByCondition[condition] = count
 	}
-	
+
 	// Get low stock items
-	rows, err = r.db.QueryContext(ctx, 
+	rows, err = r.db.QueryContext(ctx,
 		`SELECT p.id, p.name, COUNT(ii.id) as current_stock, p.min_stock_level
 		 FROM inventory_items ii
 		 JOIN products p ON ii.product_id = p.id
-		 WHERE ii.organization_id = $1 AND ii.status = 'available'
 		 GROUP BY p.id, p.name, p.min_stock_level
-		 HAVING COUNT(ii.id) < p.min_stock_level`,
-		organizationID)
+		 HAVING COUNT(ii.id) < p.min_stock_level`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get low stock items: %w", err)
 	}
@@ -376,34 +370,33 @@ func (r *Repository) GetInventoryData(ctx context.Context, organizationID uuid.U
 }
 
 // GetExpensesData retrieves expenses data for report
-func (r *Repository) GetExpensesData(ctx context.Context, organizationID uuid.UUID, startDate, endDate time.Time) (*ExpensesReport, error) {
+func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate time.Time) (*ExpensesReport, error) {
 	var report ExpensesReport
 	report.StartDate = startDate
 	report.EndDate = endDate
 	
 	// Total expenses
-	err := r.db.GetContext(ctx, &report.TotalExpenses, 
-		`SELECT COALESCE(SUM(amount), 0) FROM expenses 
-		 WHERE organization_id = $1 AND expense_date BETWEEN $2 AND $3 AND status = 'approved'`,
-		organizationID, startDate, endDate)
+	err := r.db.GetContext(ctx, &report.TotalExpenses,
+		`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date >= $1 AND expense_date <= $2`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total expenses: %w", err)
 	}
-	
+
 	// Get expenses by category
 	report.ByCategory = make(map[string]float64)
-	rows, err := r.db.QueryContext(ctx, 
+	rows, err := r.db.QueryContext(ctx,
 		`SELECT ec.name, COALESCE(SUM(e.amount), 0) as total
 		 FROM expenses e
 		 JOIN expense_categories ec ON e.category_id = ec.id
-		 WHERE e.organization_id = $1 AND e.expense_date BETWEEN $2 AND $3 AND e.status = 'approved'
+		 WHERE e.expense_date >= $1 AND e.expense_date <= $2
 		 GROUP BY ec.name`,
-		organizationID, startDate, endDate)
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get expenses by category: %w", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var category string
 		var total float64
@@ -412,15 +405,15 @@ func (r *Repository) GetExpensesData(ctx context.Context, organizationID uuid.UU
 		}
 		report.ByCategory[category] = total
 	}
-	
+
 	// Get expenses by payment method
 	report.ByPaymentMethod = make(map[string]float64)
-	rows, err = r.db.QueryContext(ctx, 
+	rows, err = r.db.QueryContext(ctx,
 		`SELECT payment_method, COALESCE(SUM(amount), 0) as total
-		 FROM expenses 
-		 WHERE organization_id = $1 AND expense_date BETWEEN $2 AND $3 AND status = 'approved'
+		 FROM expenses
+		 WHERE expense_date >= $1 AND expense_date <= $2
 		 GROUP BY payment_method`,
-		organizationID, startDate, endDate)
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get expenses by payment method: %w", err)
 	}
@@ -439,38 +432,36 @@ func (r *Repository) GetExpensesData(ctx context.Context, organizationID uuid.UU
 }
 
 // GetProfitsData retrieves profits data for report
-func (r *Repository) GetProfitsData(ctx context.Context, organizationID uuid.UUID, startDate, endDate time.Time) (*ProfitsReport, error) {
+func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time.Time) (*ProfitsReport, error) {
 	var report ProfitsReport
 	report.StartDate = startDate
 	report.EndDate = endDate
 	
 	// Get revenue
-	err := r.db.GetContext(ctx, &report.TotalRevenue, 
-		`SELECT COALESCE(SUM(total_amount), 0) FROM sales 
-		 WHERE organization_id = $1 AND sale_date BETWEEN $2 AND $3`,
-		organizationID, startDate, endDate)
+	err := r.db.GetContext(ctx, &report.TotalRevenue,
+		`SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE sale_date >= $1 AND sale_date <= $2`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total revenue: %w", err)
 	}
-	
+
 	// Get COGS
-	err = r.db.GetContext(ctx, &report.TotalCOGS, 
-		`SELECT COALESCE(SUM(si.quantity * si.unit_cost), 0) 
-		 FROM sale_items si 
-		 JOIN sales s ON si.sale_id = s.id 
-		 WHERE s.organization_id = $1 AND s.sale_date BETWEEN $2 AND $3`,
-		organizationID, startDate, endDate)
+	err = r.db.GetContext(ctx, &report.TotalCOGS,
+		`SELECT COALESCE(SUM(si.quantity * si.unit_cost), 0)
+		 FROM sale_items si
+		 JOIN sales s ON si.sale_id = s.id
+		 WHERE s.sale_date >= $1 AND s.sale_date <= $2`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total COGS: %w", err)
 	}
-	
+
 	report.GrossProfit = report.TotalRevenue - report.TotalCOGS
-	
+
 	// Get expenses
-	err = r.db.GetContext(ctx, &report.TotalExpenses, 
-		`SELECT COALESCE(SUM(amount), 0) FROM expenses 
-		 WHERE organization_id = $1 AND expense_date BETWEEN $2 AND $3 AND status = 'approved'`,
-		organizationID, startDate, endDate)
+	err = r.db.GetContext(ctx, &report.TotalExpenses,
+		`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date >= $1 AND expense_date <= $2`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total expenses: %w", err)
 	}
@@ -482,45 +473,38 @@ func (r *Repository) GetProfitsData(ctx context.Context, organizationID uuid.UUI
 }
 
 // GetDebtsData retrieves debts data for report
-func (r *Repository) GetDebtsData(ctx context.Context, organizationID uuid.UUID) (*DebtsReport, error) {
+func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 	var report DebtsReport
-	
+
 	// Get total debt
-	err := r.db.GetContext(ctx, &report.TotalDebt, 
-		`SELECT COALESCE(SUM(amount), 0) FROM customer_ledger 
-		 WHERE organization_id = $1 AND transaction_type = 'sale'`,
-		organizationID)
+	err := r.db.GetContext(ctx, &report.TotalDebt,
+		`SELECT COALESCE(SUM(balance), 0) FROM customers WHERE balance > 0`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total debt: %w", err)
 	}
-	
+
 	// Get total paid
-	err = r.db.GetContext(ctx, &report.TotalPaid, 
-		`SELECT COALESCE(SUM(ABS(amount)), 0) FROM customer_ledger 
-		 WHERE organization_id = $1 AND transaction_type = 'payment'`,
-		organizationID)
+	err = r.db.GetContext(ctx, &report.TotalPaid,
+		`SELECT COALESCE(SUM(total_paid), 0) FROM customers`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total paid: %w", err)
 	}
-	
-	report.Outstanding = report.TotalDebt - report.TotalPaid
-	
+
+	report.Outstanding = report.TotalDebt
+
 	// Get overdue debt
-	err = r.db.GetContext(ctx, &report.OverdueDebt, 
-		`SELECT COALESCE(SUM(balance), 0) FROM customers 
-		 WHERE organization_id = $1 AND balance > 0 AND due_date < CURRENT_DATE`,
-		organizationID)
+	err = r.db.GetContext(ctx, &report.OverdueDebt,
+		`SELECT COALESCE(SUM(balance), 0) FROM customers WHERE balance > 0 AND due_date < NOW()`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get overdue debt: %w", err)
 	}
-	
+
 	// Get debts by customer
-	rows, err := r.db.QueryContext(ctx, 
-		`SELECT id, name, total_purchases, total_paid, balance, due_date 
-		 FROM customers 
-		 WHERE organization_id = $1 AND balance > 0
-		 ORDER BY balance DESC`,
-		organizationID)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, name, total_purchases, total_paid, balance, due_date
+		 FROM customers
+		 WHERE balance > 0
+		 ORDER BY balance DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get debts by customer: %w", err)
 	}
@@ -545,22 +529,22 @@ func (r *Repository) GetDebtsData(ctx context.Context, organizationID uuid.UUID)
 }
 
 // GetPurchasesData retrieves purchases data for report
-func (r *Repository) GetPurchasesData(ctx context.Context, organizationID uuid.UUID, startDate, endDate time.Time) (*PurchasesReport, error) {
+func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate time.Time) (*PurchasesReport, error) {
 	var report PurchasesReport
 	report.StartDate = startDate
 	report.EndDate = endDate
 
 	// Get total purchases and cost
 	err := r.db.GetContext(ctx, &report.TotalPurchases,
-		`SELECT COUNT(*) FROM purchases WHERE organization_id = $1 AND purchase_date BETWEEN $2 AND $3`,
-		organizationID, startDate, endDate)
+		`SELECT COUNT(*) FROM purchases WHERE purchase_date >= $1 AND purchase_date <= $2`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total purchases: %w", err)
 	}
 
 	err = r.db.GetContext(ctx, &report.TotalCost,
-		`SELECT COALESCE(SUM(total_cost), 0) FROM purchases WHERE organization_id = $1 AND purchase_date BETWEEN $2 AND $3`,
-		organizationID, startDate, endDate)
+		`SELECT COALESCE(SUM(total_cost), 0) FROM purchases WHERE purchase_date >= $1 AND purchase_date <= $2`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total cost: %w", err)
 	}
@@ -570,10 +554,10 @@ func (r *Repository) GetPurchasesData(ctx context.Context, organizationID uuid.U
 		`SELECT s.id, s.name, COALESCE(SUM(p.total_cost), 0) as total_cost, COUNT(p.id) as item_count
 		 FROM purchases p
 		 JOIN suppliers s ON p.supplier_id = s.id
-		 WHERE p.organization_id = $1 AND p.purchase_date BETWEEN $2 AND $3
+		 WHERE p.purchase_date >= $1 AND p.purchase_date <= $2
 		 GROUP BY s.id, s.name
 		 ORDER BY total_cost DESC`,
-		organizationID, startDate, endDate)
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get purchases by supplier: %w", err)
 	}
@@ -591,22 +575,22 @@ func (r *Repository) GetPurchasesData(ctx context.Context, organizationID uuid.U
 }
 
 // GetReturnsData retrieves returns data for report
-func (r *Repository) GetReturnsData(ctx context.Context, organizationID uuid.UUID, startDate, endDate time.Time) (*ReturnsReport, error) {
+func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time.Time) (*ReturnsReport, error) {
 	var report ReturnsReport
 	report.StartDate = startDate
 	report.EndDate = endDate
 
 	// Get total returns and refunds
 	err := r.db.GetContext(ctx, &report.TotalReturns,
-		`SELECT COUNT(*) FROM returns WHERE organization_id = $1 AND return_date BETWEEN $2 AND $3`,
-		organizationID, startDate, endDate)
+		`SELECT COUNT(*) FROM returns WHERE return_date >= $1 AND return_date <= $2`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total returns: %w", err)
 	}
 
 	err = r.db.GetContext(ctx, &report.TotalRefunded,
-		`SELECT COALESCE(SUM(refund_amount), 0) FROM returns WHERE organization_id = $1 AND return_date BETWEEN $2 AND $3`,
-		organizationID, startDate, endDate)
+		`SELECT COALESCE(SUM(refund_amount), 0) FROM returns WHERE return_date >= $1 AND return_date <= $2`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total refunded: %w", err)
 	}
@@ -614,8 +598,8 @@ func (r *Repository) GetReturnsData(ctx context.Context, organizationID uuid.UUI
 	// Get returns by reason
 	report.ByReason = make(map[string]int)
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT reason, COUNT(*) FROM returns WHERE organization_id = $1 AND return_date BETWEEN $2 AND $3 GROUP BY reason`,
-		organizationID, startDate, endDate)
+		`SELECT reason, COUNT(*) FROM returns WHERE return_date >= $1 AND return_date <= $2 GROUP BY reason`,
+		startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get returns by reason: %w", err)
 	}
@@ -628,73 +612,6 @@ func (r *Repository) GetReturnsData(ctx context.Context, organizationID uuid.UUI
 			continue
 		}
 		report.ByReason[reason] = count
-	}
-
-	return &report, nil
-}
-
-// GetWarrantyData retrieves warranty data for report
-func (r *Repository) GetWarrantyData(ctx context.Context, organizationID uuid.UUID) (*WarrantyReport, error) {
-	var report WarrantyReport
-
-	// Get active warranties
-	err := r.db.GetContext(ctx, &report.ActiveWarranties,
-		`SELECT COUNT(*) FROM warranties WHERE organization_id = $1 AND status = 'active' AND end_date > CURRENT_DATE`,
-		organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get active warranties: %w", err)
-	}
-
-	// Get expiring soon (within 30 days)
-	err = r.db.GetContext(ctx, &report.ExpiringSoon,
-		`SELECT COUNT(*) FROM warranties WHERE organization_id = $1 AND status = 'active' AND end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'`,
-		organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get expiring warranties: %w", err)
-	}
-
-	// Get expired warranties
-	err = r.db.GetContext(ctx, &report.ExpiredWarranties,
-		`SELECT COUNT(*) FROM warranties WHERE organization_id = $1 AND end_date < CURRENT_DATE`,
-		organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get expired warranties: %w", err)
-	}
-
-	// Get total claims
-	err = r.db.GetContext(ctx, &report.TotalClaims,
-		`SELECT COUNT(*) FROM warranty_claims WHERE organization_id = $1`,
-		organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get total claims: %w", err)
-	}
-
-	// Get claims by status
-	report.ByStatus = make(map[string]int)
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT status, COUNT(*) FROM warranty_claims WHERE organization_id = $1 GROUP BY status`,
-		organizationID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get claims by status: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var status string
-		var count int
-		if err := rows.Scan(&status, &count); err != nil {
-			continue
-		}
-		report.ByStatus[status] = count
-
-		switch status {
-		case "approved":
-			report.ApprovedClaims = count
-		case "rejected":
-			report.RejectedClaims = count
-		case "completed":
-			report.CompletedClaims = count
-		}
 	}
 
 	return &report, nil

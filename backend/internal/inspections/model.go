@@ -9,7 +9,6 @@ import (
 // Inspection represents an inspection of a used item
 type Inspection struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	ProductID      uuid.UUID  `json:"product_id" db:"product_id"`
 	SerialNumber   string     `json:"serial_number" db:"serial_number"`
 	InspectionDate time.Time  `json:"inspection_date" db:"inspection_date"`

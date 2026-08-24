@@ -4,13 +4,13 @@
 
 @layer base {
   /* Base styles will be handled by Design Tokens and Themes */
-  
+
   /* RTL/LTR Support using logical properties */
   [dir="rtl"] {
     direction: rtl;
     text-align: right;
   }
-  
+
   [dir="ltr"] {
     direction: ltr;
     text-align: left;
@@ -90,11 +90,47 @@
     font-family: var(--font-family-base);
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+  
+  /* RTL Logical Properties for animations */
+  [dir="rtl"] .sidebar-link:hover {
+    transform: translateX(2px);
+  }
+  
+  [dir="ltr"] .sidebar-link:hover {
+    transform: translateX(2px);
+  }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+  
+  /* Text utilities - متوافقة مع نظام التصميم */
+  .text-text {
+    color: var(--text-primary);
+  }
+  
+  .text-text-muted {
+    color: var(--text-muted);
+  }
+  
+  /* Text on primary background */
+  .text-on-primary {
+    color: var(--text-on-primary) !important;
+  }
+  
+  /* حجم الخطوط - استخدام CSS قياسي */
+  .text-h1 {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -1px;
+  }
+  
+  .text-eyebrow {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
   }
 }
 
@@ -220,59 +256,206 @@
 }
 
 /* Animation utility classes */
-.animate-fadeIn {
+.animate-fade-in {
   animation: fadeIn 300ms ease-out;
 }
 
-.animate-fadeOut {
+.animate-fade-out {
   animation: fadeOut 200ms ease-in;
 }
 
-.animate-slideInUp {
+.animate-slide-in-up {
   animation: slideInUp 300ms ease-out;
 }
 
-.animate-slideInDown {
+.animate-slide-in-down {
   animation: slideInDown 300ms ease-out;
 }
 
-.animate-slideInLeft {
+.animate-slide-in-left {
   animation: slideInLeft 300ms ease-out;
 }
 
-.animate-slideInRight {
+.animate-slide-in-right {
   animation: slideInRight 300ms ease-out;
 }
 
-.animate-scaleIn {
+.animate-scale-in {
   animation: scaleIn 200ms ease-out;
 }
 
-.animate-scaleOut {
+.animate-scale-out {
   animation: scaleOut 200ms ease-in;
 }
 
-.animate-fadeInScale {
+.animate-fade-in-scale {
   animation: fadeInScale 300ms ease-out;
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar - Always on the right side */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
+}
+
+/* Force scrollbar to always be on the right side using scrollbar-gutter */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* Force scrollbar position in RTL mode */
+[dir="rtl"] {
+  direction: rtl;
+  scrollbar-gutter: stable;
+}
+
+/* Hide scrollbars in sidebar and mobile menu (keep functionality) */
+aside::-webkit-scrollbar,
+.mobile-menu::-webkit-scrollbar {
+  display: none;
+}
+
+aside,
+.mobile-menu {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-tertiary) var(--bg-surface);
 }
 
 ::-webkit-scrollbar-track {
-  background-color: var(--bg-surface);
+  background-color: transparent;
+  border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: var(--text-tertiary);
-  border-radius: 9999px;
+  background: linear-gradient(180deg, var(--text-tertiary) 0%, var(--text-secondary) 100%);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: all 0.3s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-secondary);
+  background: linear-gradient(180deg, var(--text-secondary) 0%, var(--text-primary) 100%);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(180deg, var(--primary) 0%, var(--primary-hover) 100%);
+}
+
+/* Smooth scrollbar for main content */
+#main-content::-webkit-scrollbar {
+  width: 12px;
+}
+
+#main-content::-webkit-scrollbar-track {
+  background: rgba(17, 24, 39, 0.3);
+  border-radius: 6px;
+}
+
+#main-content::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.6) 0%, rgba(139, 92, 246, 0.6) 100%);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+#main-content::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.8) 0%, rgba(139, 92, 246, 0.8) 100%);
+}
+
+/* Light theme scrollbar adjustments */
+.light ::-webkit-scrollbar-track {
+  background: rgba(243, 244, 246, 0.5);
+}
+
+.light #main-content::-webkit-scrollbar-track {
+  background: rgba(243, 244, 246, 0.8);
+}
+
+/* Smooth scrolling for all scrollable elements */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Mobile touch scrolling improvements */
+@media (max-width: 768px) {
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Smart scroll containers - for hybrid scrolling approach */
+.smart-scroll-container {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Horizontal scroll containers for tables */
+.horizontal-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+  max-width: 100%;
+}
+
+/* Scrollable cards with reasonable max height */
+.scrollable-card {
+  overflow-y: auto;
+}
+
+/* Smaller scrollable cards for cart sections */
+.scrollable-card-sm {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Smooth scroll to top functionality */
+.scroll-to-top {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.8) 0%, rgba(139, 92, 246, 0.8) 100%);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s ease;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+/* RTL support for scroll-to-top button */
+[dir="rtl"] .scroll-to-top {
+  right: auto;
+  left: 20px;
+}
+
+.scroll-to-top.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.scroll-to-top:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+}
+
+.scroll-to-top:active {
+  transform: translateY(0);
 }
 
 /* Focus styles for accessibility */
@@ -366,26 +549,92 @@
 }
 
 /* Enhanced animation utility classes */
-.animate-bounceIn {
+.animate-bounce-in {
   animation: bounceIn 600ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
 }
 
-.animate-flipIn {
+.animate-flip-in {
   animation: flipIn 600ms ease-in-out;
 }
 
-.animate-rotateIn {
+.animate-rotate-in {
   animation: rotateIn 600ms ease-out;
 }
 
-.animate-zoomIn {
+.animate-zoom-in {
   animation: zoomIn 300ms ease-out;
 }
 
-.animate-slideInFromLeftWithFade {
+.animate-slide-in-from-left-with-fade {
   animation: slideInFromLeftWithFade 400ms ease-out;
 }
 
-.animate-slideInFromRightWithFade {
+.animate-slide-in-from-right-with-fade {
   animation: slideInFromRightWithFade 400ms ease-out;
+}
+
+/* Force full height for sidebar */
+html, body {
+  height: 100%;
+  min-height: 100%;
+}
+
+#root {
+  height: 100%;
+  min-height: 100%;
+}
+
+/* Force sidebar to full height */
+aside.sidebar {
+  height: 100% !important;
+  min-height: 100% !important;
+}
+
+/* Remove overflow from navigation in sidebar */
+aside.sidebar nav {
+  overflow: hidden !important;
+}
+
+/* Custom Enhanced Input Styles - Override Theme CSS */
+.search-input-custom {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%) !important;
+  border: 1px solid #6366f1 !important;
+  backdrop-filter: blur(10px) !important;
+  color: var(--text-primary) !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.2px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Override inline styles on search input */
+.search-input-custom[style*="background"] {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%) !important;
+}
+
+.search-input-custom[style*="border"] {
+  border: 1px solid #6366f1 !important;
+}
+
+.search-input-custom:focus {
+  border: 2px solid #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3), 0 4px 20px rgba(99, 102, 241, 0.4) !important;
+}
+
+.select-custom {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%) !important;
+  border: 1px solid #6366f1 !important;
+  backdrop-filter: blur(10px) !important;
+  color: var(--text-primary) !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.2px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.select-custom:focus {
+  border: 2px solid #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3), 0 4px 20px rgba(99, 102, 241, 0.4) !important;
 }

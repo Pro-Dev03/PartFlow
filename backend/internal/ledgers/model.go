@@ -30,7 +30,6 @@ const (
 // LedgerEntry represents a ledger entry
 type LedgerEntry struct {
 	ID             uuid.UUID       `json:"id" db:"id"`
-	OrganizationID uuid.UUID       `json:"organization_id" db:"organization_id"`
 	LedgerType     LedgerType      `json:"ledger_type" db:"ledger_type"`
 	EntityID       uuid.UUID       `json:"entity_id" db:"entity_id"` // customer_id or supplier_id
 	TransactionType TransactionType `json:"transaction_type" db:"transaction_type"`

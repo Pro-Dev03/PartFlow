@@ -1,45 +1,106 @@
 /**
- * PartFlow Design Tokens
+ * PartFlow Design Tokens - Single Source of Truth
  * 
  * نظام متكامل للقيم البصرية الأساسية
- * مستوحى من demo.html - Futuristic Professional Design System
- * يتم استخدام هذه القيم في جميع أنحاء التطبيق
+ * مستوحى من demo-logim.html - Futuristic Professional Design System
+ * 
+ * Architecture: Primitive → Semantic → Tailwind → Components → Pages
  */
 
 /* ============================================================================
-   COLORS - نظام الألوان (من demo.html)
+   PRIMITIVE TOKENS - الألوان الأساسية
    ============================================================================ */
 
 :root {
-  /* Backgrounds - الخلفيات */
+  /* Primitive Colors - لا تعتمد على متغيرات أخرى */
+  --cyan: #22d3ee;
+  --blue: #38bdf8;
+  --green: #34d399;
+  --yellow: #fbbf24;
+  --red: #fb7185;
+  
+  /* Backgrounds */
   --bg-background: #070a12;
   --bg-surface: #0c111c;
   --bg-surface-elevated: #111827;
   --bg-surface-3: #151e2d;
   
-  /* Borders - الحدود */
-  --bg-border: rgba(148, 163, 184, 0.13);
+  /* Borders */
+  --border-default: rgba(148, 163, 184, 0.13);
+  --border-primary: rgba(34, 211, 238, 0.35);
+  --border-width-thin: 1px;
+  --border-width-medium: 2px;
+  --border-width-thick: 3px;
+  --border-style-solid: solid;
+  --border-style-dashed: dashed;
+  --border-style-dotted: dotted;
   
-  /* Primary/Accent Colors - الألوان الأساسية */
-  --primary: #22d3ee; /* Cyan - اللون الأساسي */
+  /* Text */
+  --text-primary: #f1f7ff;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --text-muted: #475569;
+  --text-disabled: #334155;
+  
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 9px;
+  --spacing-md: 14px;
+  --spacing-lg: 18px;
+  --spacing-xl: 22px;
+  --spacing-2xl: 28px;
+  --spacing-3xl: 32px;
+  --spacing-4xl: 50px;
+  
+  /* Spacing Numeric (للاستخدام في component-specific tokens) */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+  
+  /* Radius */
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 999px;
+  --radius-xl: 999px;
+  --radius-full: 9999px;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+  --shadow-glow: 0 0 25px rgba(34, 211, 238, 0.07);
+  --shadow-glow-strong: 0 0 30px rgba(34, 211, 238, 0.10);
+  --shadow-glow-soft: 0 0 20px rgba(34, 211, 238, 0.08);
+  --shadow-card: 0 15px 50px rgba(0, 0, 0, 0.20);
+}
+
+/* ============================================================================
+   SEMANTIC TOKENS - تعتمد على Primitive Tokens
+   ============================================================================ */
+
+:root {
+  /* Primary/Accent - تعتمد على --cyan */
+  --primary: var(--cyan);
   --primary-hover: #06b6d4;
   --primary-active: #0891b2;
   
-  /* Status Colors - ألوان الحالات */
-  --success: #34d399;
+  /* Status - تعتمد على Primitive Colors */
+  --success: var(--green);
   --success-hover: #10b981;
-  --warning: #fbbf24;
+  --warning: var(--yellow);
   --warning-hover: #f59e0b;
-  --danger: #fb7185;
+  --danger: var(--red);
   --danger-hover: #f43f5e;
-  --info: #38bdf8;
+  --info: var(--blue);
   --info-hover: #0ea5e9;
-  
-  /* Text Colors - ألوان النصوص */
-  --text-primary: #f1f7ff;
-  --text-secondary: #8290a7;
-  --text-tertiary: #56647a;
-  --text-disabled: #4b5563;
   
   /* Light Theme - الوضع النهاري (للاستخدام المستقبلي) */
   --light-bg-background: #F7F9FC;
@@ -61,9 +122,9 @@
   --light-info-hover: #0E7490;
   
   --light-text-primary: #111827;
-  --light-text-secondary: #6B7280;
-  --light-text-tertiary: #9CA3AF;
-  --light-text-disabled: #D1D5DB;
+  --light-text-secondary: #475569;
+  --light-text-tertiary: #64748b;
+  --light-text-disabled: #94a3b8;
 }
 
 /* ============================================================================
@@ -98,60 +159,6 @@
   --letter-spacing-tight: -0.025em;
   --letter-spacing-normal: 0;
   --letter-spacing-wide: 0.025em;
-}
-
-/* ============================================================================
-   SPACING - نظام المسافات
-   ============================================================================ */
-
-:root {
-  --spacing-1: 4px;
-  --spacing-2: 8px;
-  --spacing-3: 12px;
-  --spacing-4: 16px;
-  --spacing-5: 20px;
-  --spacing-6: 24px;
-  --spacing-8: 32px;
-  --spacing-10: 40px;
-  --spacing-12: 48px;
-  --spacing-16: 64px;
-}
-
-/* ============================================================================
-   BORDER RADIUS - نظام زوايا الحدود
-   ============================================================================ */
-
-:root {
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-full: 9999px;
-}
-
-/* ============================================================================
-   SHADOWS - نظام الظلال
-   ============================================================================ */
-
-:root {
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-}
-
-/* ============================================================================
-   BORDERS - نظام الحدود
-   ============================================================================ */
-
-:root {
-  --border-width-thin: 1px;
-  --border-width-medium: 2px;
-  --border-width-thick: 3px;
-  
-  --border-style-solid: solid;
-  --border-style-dashed: dashed;
-  --border-style-dotted: dotted;
 }
 
 /* ============================================================================
@@ -193,11 +200,50 @@
    ============================================================================ */
 
 :root {
+  --breakpoint-xs: 375px;
   --breakpoint-sm: 640px;
   --breakpoint-md: 768px;
   --breakpoint-lg: 1024px;
   --breakpoint-xl: 1280px;
   --breakpoint-2xl: 1536px;
+}
+
+/* ============================================================================
+   RESPONSIVE ENHANCEMENTS - تحسينات الاستجابة (مستوحاة من worktrack)
+   ============================================================================ */
+
+/* Mobile-specific enhancements */
+@media (max-width: 768px) {
+  :root {
+    /* Reduced spacing for mobile */
+    --spacing-md: 12px;
+    --spacing-lg: 16px;
+    --spacing-xl: 20px;
+    
+    /* Touch-friendly sizing */
+    --button-height-sm: 40px;
+    --button-height-md: 44px;
+    --button-height-lg: 48px;
+    
+    --input-height-sm: 40px;
+    --input-height-md: 44px;
+    --input-height-lg: 48px;
+    
+    /* Compact cards */
+    --card-padding-sm: var(--spacing-3);
+    --card-padding-md: var(--spacing-4);
+    --card-padding-lg: var(--spacing-5);
+  }
+}
+
+/* Small mobile devices */
+@media (max-width: 375px) {
+  :root {
+    /* Further reduced spacing */
+    --spacing-md: 10px;
+    --spacing-lg: 14px;
+    --spacing-xl: 18px;
+  }
 }
 
 /* ============================================================================
@@ -240,10 +286,23 @@
   --table-row-height: 48px;
   --table-cell-padding: var(--spacing-4);
   
-  /* Sidebar */
+  /* Sidebar - Based on worktrack */
   --sidebar-width-expanded: 260px;
-  --sidebar-width-collapsed: 64px;
+  --sidebar-width-collapsed: 80px;
+  --sidebar-width-mobile: 60px;
   
-  /* Topbar */
-  --topbar-height: 64px;
+  /* Topbar - Based on worktrack */
+  --topbar-height: 60px;
+  --topbar-height-mobile: 56px;
+  
+  /* Content - Based on worktrack */
+  --content-padding-desktop: 24px 28px;
+  --content-padding-mobile: 16px;
+  
+  /* Icon sizes - Based on worktrack */
+  --icon-size-nav: 20px;
+  --icon-size-sm: 16px;
+  --icon-size-md: 18px;
+  --icon-size-lg: 28px;
+  --icon-size-xl: 32px;
 }

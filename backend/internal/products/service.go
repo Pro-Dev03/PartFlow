@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/dashboard"
 )
 
 // Service handles products business logic
@@ -19,9 +20,8 @@ func NewService(repo *Repository) *Service {
 // Category operations
 
 // CreateCategory creates a new category
-func (s *Service) CreateCategory(ctx context.Context, organizationID uuid.UUID, req *CategoryRequest) (*Category, error) {
+func (s *Service) CreateCategory(ctx context.Context, req *CategoryRequest) (*Category, error) {
 	category := &Category{
-		OrganizationID: organizationID,
 		Name:           req.Name,
 		Description:    req.Description,
 		ParentID:       req.ParentID,
@@ -40,19 +40,15 @@ func (s *Service) GetCategory(ctx context.Context, id uuid.UUID) (*Category, err
 }
 
 // ListCategories retrieves all categories
-func (s *Service) ListCategories(ctx context.Context, organizationID uuid.UUID) ([]Category, error) {
-	return s.repo.ListCategories(ctx, organizationID)
+func (s *Service) ListCategories(ctx context.Context) ([]Category, error) {
+	return s.repo.ListCategories(ctx)
 }
 
 // UpdateCategory updates a category
-func (s *Service) UpdateCategory(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, req *CategoryRequest) (*Category, error) {
+func (s *Service) UpdateCategory(ctx context.Context, id uuid.UUID, req *CategoryRequest) (*Category, error) {
 	category, err := s.repo.GetCategoryByID(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-
-	if category.OrganizationID != organizationID {
-		return nil, ErrCategoryNotFound
 	}
 
 	category.Name = req.Name
@@ -67,16 +63,15 @@ func (s *Service) UpdateCategory(ctx context.Context, id uuid.UUID, organization
 }
 
 // DeleteCategory deletes a category
-func (s *Service) DeleteCategory(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	return s.repo.DeleteCategory(ctx, id, organizationID)
+func (s *Service) DeleteCategory(ctx context.Context, id uuid.UUID) error {
+	return s.repo.DeleteCategory(ctx, id)
 }
 
 // Brand operations
 
 // CreateBrand creates a new brand
-func (s *Service) CreateBrand(ctx context.Context, organizationID uuid.UUID, req *BrandRequest) (*Brand, error) {
+func (s *Service) CreateBrand(ctx context.Context, req *BrandRequest) (*Brand, error) {
 	brand := &Brand{
-		OrganizationID: organizationID,
 		Name:           req.Name,
 		Description:    req.Description,
 		LogoURL:        req.LogoURL,
@@ -95,19 +90,15 @@ func (s *Service) GetBrand(ctx context.Context, id uuid.UUID) (*Brand, error) {
 }
 
 // ListBrands retrieves all brands
-func (s *Service) ListBrands(ctx context.Context, organizationID uuid.UUID) ([]Brand, error) {
-	return s.repo.ListBrands(ctx, organizationID)
+func (s *Service) ListBrands(ctx context.Context, ) ([]Brand, error) {
+	return s.repo.ListBrands(ctx)
 }
 
 // UpdateBrand updates a brand
-func (s *Service) UpdateBrand(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, req *BrandRequest) (*Brand, error) {
+func (s *Service) UpdateBrand(ctx context.Context, id uuid.UUID, req *BrandRequest) (*Brand, error) {
 	brand, err := s.repo.GetBrandByID(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-
-	if brand.OrganizationID != organizationID {
-		return nil, ErrBrandNotFound
 	}
 
 	brand.Name = req.Name
@@ -122,16 +113,15 @@ func (s *Service) UpdateBrand(ctx context.Context, id uuid.UUID, organizationID 
 }
 
 // DeleteBrand deletes a brand
-func (s *Service) DeleteBrand(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	return s.repo.DeleteBrand(ctx, id, organizationID)
+func (s *Service) DeleteBrand(ctx context.Context, id uuid.UUID) error {
+	return s.repo.DeleteBrand(ctx, id)
 }
 
 // Product operations
 
 // CreateProduct creates a new product
-func (s *Service) CreateProduct(ctx context.Context, organizationID uuid.UUID, req *ProductRequest) (*Product, error) {
+func (s *Service) CreateProduct(ctx context.Context, req *ProductRequest) (*Product, error) {
 	product := &Product{
-		OrganizationID:  organizationID,
 		CategoryID:      req.CategoryID,
 		BrandID:         req.BrandID,
 		Name:            req.Name,
@@ -148,6 +138,9 @@ func (s *Service) CreateProduct(ctx context.Context, organizationID uuid.UUID, r
 	if err := s.repo.CreateProduct(ctx, product); err != nil {
 		return nil, err
 	}
+
+	// Invalidate dashboard cache since products data changed
+	dashboard.InvalidateDashboardCacheWithReason("product_created")
 
 	return product, nil
 }
@@ -189,8 +182,8 @@ func (s *Service) GetProduct(ctx context.Context, id uuid.UUID) (*ProductRespons
 }
 
 // GetProductByBarcode retrieves a product by barcode
-func (s *Service) GetProductByBarcode(ctx context.Context, barcode string, organizationID uuid.UUID) (*ProductResponse, error) {
-	product, err := s.repo.GetProductByBarcode(ctx, barcode, organizationID)
+func (s *Service) GetProductByBarcode(ctx context.Context, barcode string) (*ProductResponse, error) {
+	product, err := s.repo.GetProductByBarcode(ctx, barcode)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +192,7 @@ func (s *Service) GetProductByBarcode(ctx context.Context, barcode string, organ
 }
 
 // ListProducts retrieves products with pagination and filters
-func (s *Service) ListProducts(ctx context.Context, organizationID uuid.UUID, req *ProductListRequest) ([]Product, int, error) {
+func (s *Service) ListProducts(ctx context.Context, req *ProductListRequest) ([]Product, int, error) {
 	// Set default pagination values
 	if req.Page <= 0 {
 		req.Page = 1
@@ -208,18 +201,14 @@ func (s *Service) ListProducts(ctx context.Context, organizationID uuid.UUID, re
 		req.PerPage = 20
 	}
 
-	return s.repo.ListProducts(ctx, organizationID, req)
+	return s.repo.ListProducts(ctx, req)
 }
 
 // UpdateProduct updates a product
-func (s *Service) UpdateProduct(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, req *ProductRequest) (*Product, error) {
+func (s *Service) UpdateProduct(ctx context.Context, id uuid.UUID, req *ProductRequest) (*Product, error) {
 	product, err := s.repo.GetProductByID(ctx, id)
 	if err != nil {
 		return nil, err
-	}
-
-	if product.OrganizationID != organizationID {
-		return nil, ErrProductNotFound
 	}
 
 	product.CategoryID = req.CategoryID
@@ -238,37 +227,32 @@ func (s *Service) UpdateProduct(ctx context.Context, id uuid.UUID, organizationI
 		return nil, err
 	}
 
+	// Invalidate dashboard cache since products data changed
+	dashboard.InvalidateDashboardCacheWithReason("product_updated")
+
 	return product, nil
 }
 
 // DeleteProduct deletes a product
-func (s *Service) DeleteProduct(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	return s.repo.DeleteProduct(ctx, id, organizationID)
+func (s *Service) DeleteProduct(ctx context.Context, id uuid.UUID) error {
+	return s.repo.DeleteProduct(ctx, id)
 }
 
 // ArchiveProduct archives a product (soft delete)
-func (s *Service) ArchiveProduct(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	product, err := s.repo.GetProductByID(ctx, id)
+func (s *Service) ArchiveProduct(ctx context.Context, id uuid.UUID) error {
+	_, err := s.repo.GetProductByID(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	if product.OrganizationID != organizationID {
-		return ErrProductNotFound
-	}
-
-	return s.repo.ArchiveProduct(ctx, id, organizationID)
+	return s.repo.ArchiveProduct(ctx, id)
 }
 
 // GenerateBarcode generates a new barcode for a product
-func (s *Service) GenerateBarcode(ctx context.Context, productID uuid.UUID, organizationID uuid.UUID) (string, error) {
+func (s *Service) GenerateBarcode(ctx context.Context, productID uuid.UUID) (string, error) {
 	product, err := s.repo.GetProductByID(ctx, productID)
 	if err != nil {
 		return "", err
-	}
-
-	if product.OrganizationID != organizationID {
-		return "", ErrProductNotFound
 	}
 
 	// Generate internal barcode if not exists
@@ -287,14 +271,10 @@ func (s *Service) GenerateBarcode(ctx context.Context, productID uuid.UUID, orga
 }
 
 // GetProductStock retrieves detailed stock information for a product
-func (s *Service) GetProductStock(ctx context.Context, productID uuid.UUID, organizationID uuid.UUID) (*ProductStockInfo, error) {
+func (s *Service) GetProductStock(ctx context.Context, productID uuid.UUID) (*ProductStockInfo, error) {
 	product, err := s.repo.GetProductByID(ctx, productID)
 	if err != nil {
 		return nil, err
-	}
-
-	if product.OrganizationID != organizationID {
-		return nil, ErrProductNotFound
 	}
 
 	stockCount, err := s.repo.GetProductStockCount(ctx, productID)
@@ -326,8 +306,8 @@ func (s *Service) GetProductStock(ctx context.Context, productID uuid.UUID, orga
 }
 
 // SearchProducts searches products by name, SKU, or barcode
-func (s *Service) SearchProducts(ctx context.Context, organizationID uuid.UUID, query string, limit int) ([]Product, error) {
-	return s.repo.SearchProducts(ctx, organizationID, query, limit)
+func (s *Service) SearchProducts(ctx context.Context, query string, limit int) ([]Product, error) {
+	return s.repo.SearchProducts(ctx, query, limit)
 }
 
 // Helper functions

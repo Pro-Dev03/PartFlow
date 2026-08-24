@@ -1,8 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Search, Moon, Sun, Globe, User, LogOut, ChevronDown, Menu } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, Moon, Sun, Globe, User, LogOut, Menu, ShoppingCart, Plus, CreditCard, Users } from 'lucide-react';
 import { useTranslation } from '../../hooks/useTranslation';
+import { SearchInput } from '../ui/search-input';
 import { Button } from '../ui/button';
-import { cn } from '../../lib/utils';
+import { IconButton } from '../ui/icon-button';
+import { cn } from '../../utils';
+import { useAuthStore } from '../../stores/authStore';
+import { useUIStore } from '../../stores/uiStore';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -10,13 +15,39 @@ interface HeaderProps {
 
 export function Header({ onToggleSidebar }: HeaderProps) {
   const { t, currentLanguage, languages, changeLanguage } = useTranslation();
-  const [isDark, setIsDark] = useState(false);
+  const navigate = useNavigate();
+  const logout = useAuthStore((state) => state.logout);
+  const user = useAuthStore((state) => state.user);
+  const { theme, setTheme } = useUIStore();
   const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
   const langDropdownRef = useRef<HTMLDivElement>(null);
+  const [headerSearchQuery, setHeaderSearchQuery] = useState('');
+
+  const handleClearHeaderSearch = () => {
+    setHeaderSearchQuery('');
+  };
+
+  // Initialize theme from store
+  useEffect(() => {
+    const isDark = theme !== 'light';
+    if (isDark) {
+      document.documentElement.classList.remove('light');
+      document.body.classList.remove('light');
+    } else {
+      document.documentElement.classList.add('light');
+      document.body.classList.add('light');
+    }
+  }, [theme]);
 
   const toggleTheme = () => {
-    setIsDark(!isDark);
-    document.documentElement.classList.toggle('light');
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    localStorage.setItem('theme', newTheme);
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
   };
 
   // Close dropdown when clicking outside
@@ -32,135 +63,156 @@ export function Header({ onToggleSidebar }: HeaderProps) {
   }, []);
 
   return (
-    <header className="h-16 bg-surface border-b border-border flex items-center justify-between px-lg">
-      {/* Left side */}
-      <div className="flex items-center gap-md">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onToggleSidebar}
-          className="p-2"
-          aria-label="Toggle sidebar"
-        >
-          <Menu className="w-5 h-5 flip-rtl" />
-        </Button>
-        
-        {/* Search */}
-        <div className="relative hidden md:block">
-          <Search className="absolute inset-y-0 start-0 flex items-center ps-3 w-4 h-4 text-text-muted" />
-          <input
-            type="text"
-            placeholder={t('common.search') || "بحث المنتجات، العملاء، الفواتير..."}
-            className={cn(
-              'w-64 lg:w-96 h-10 ps-10 pe-4 rounded-sm border border-border',
-              'bg-surface/75',
-              'focus:outline-none focus:ring-2 focus:ring-cyan focus:border-transparent',
-              'text-body text-text placeholder:text-text-muted',
-              'transition-all duration-normal'
-            )}
-            dir="auto"
-            aria-label="Search"
-          />
-        </div>
-      </div>
-
-      {/* Right side */}
-      <div className="flex items-center gap-sm">
-        {/* Language selector */}
-        <div className="relative" ref={langDropdownRef}>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="gap-2"
-            onClick={() => setIsLangDropdownOpen(!isLangDropdownOpen)}
-            aria-label="Change language"
-            aria-expanded={isLangDropdownOpen}
+    <>
+      <header className="h-16 flex items-center justify-between px-lg" style={{
+        background: 'var(--topbar-bg)',
+        borderBottom: '1px solid var(--topbar-border)'
+      }}>
+        {/* Left side */}
+        <div className="flex items-center gap-md">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleSidebar}
+            aria-label="Toggle sidebar"
           >
-            <Globe className="w-4 h-4" />
-            <span className="hidden sm:inline">{currentLanguage.toUpperCase()}</span>
-            <ChevronDown className="w-4 h-4" />
+            <Menu className="w-4 h-4 flip-rtl" />
           </Button>
-          
-          {isLangDropdownOpen && (
-            <div 
-              className="absolute top-full end-0 mt-2 w-48 bg-surface border border-border rounded-sm shadow-card z-dropdown"
-              role="menu"
-            >
-              {languages.map((lang) => (
-                <button
-                  key={lang.code}
-                  onClick={() => {
-                    changeLanguage(lang.code);
-                    setIsLangDropdownOpen(false);
-                  }}
-                  className={cn(
-                    'w-full px-4 py-2 text-start hover:bg-surface/50',
-                    'flex items-center gap-3 transition-colors duration-normal',
-                    currentLanguage === lang.code && 'bg-surface/50'
-                  )}
-                  role="menuitem"
-                >
-                  <span className="text-xl">{lang.flag}</span>
-                  <div>
-                    <p className="font-medium text-small text-text">
-                      {lang.nativeName}
-                    </p>
-                    <p className="text-tiny text-text-muted">
-                      {lang.name}
-                    </p>
-                  </div>
-                  {currentLanguage === lang.code && (
-                    <span className="me-auto text-cyan">✓</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
+
+          {/* Search */}
+          <div className="hidden md:block">
+            <SearchInput
+              placeholder={t('common.search') || "بحث المنتجات، العملاء، الفواتير..."}
+              value={headerSearchQuery}
+              onChange={(e) => setHeaderSearchQuery(e.target.value)}
+              onClear={handleClearHeaderSearch}
+              className="w-80 lg:w-[480px]"
+              size="sm"
+            />
+          </div>
         </div>
 
-        {/* Theme toggle */}
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          onClick={toggleTheme}
-          aria-label="Toggle theme"
-        >
-          {isDark ? (
-            <Sun className="w-4 h-4" />
-          ) : (
-            <Moon className="w-4 h-4" />
-          )}
-        </Button>
-
-        {/* Notifications */}
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          className="relative"
-          aria-label="Notifications"
-        >
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1 end-1 w-2 h-2 bg-red rounded-full" aria-hidden="true" />
-        </Button>
-
-        {/* User menu */}
-        <div className="flex items-center gap-2 ps-2 border-s border-border">
-          <div className="w-8 h-8 bg-cyan/10 rounded-full flex items-center justify-center">
-            <User className="w-4 h-4 text-cyan" />
+        {/* Right side */}
+        <div className="flex items-center gap-2">
+          {/* Quick Actions - Soft UI Icons */}
+          <div className="hidden lg:flex items-center gap-1">
+            <IconButton
+              onClick={() => navigate('/app/sales')}
+              icon={<ShoppingCart style={{ width: '16px', height: '16px' }} />}
+              title={t('dashboard.newSale')}
+            />
+            <IconButton
+              onClick={() => navigate('/app/inventory')}
+              icon={<Plus style={{ width: '16px', height: '16px' }} />}
+              title={t('dashboard.addProduct')}
+              variant="success"
+            />
+            <IconButton
+              onClick={() => navigate('/app/customers')}
+              icon={<Users style={{ width: '16px', height: '16px' }} />}
+              title={t('dashboard.addCustomer')}
+            />
+            <IconButton
+              onClick={() => navigate('/app/debts')}
+              icon={<CreditCard style={{ width: '16px', height: '16px' }} />}
+              title={t('dashboard.recordPayment')}
+              variant="danger"
+            />
           </div>
-          <div className="hidden sm:block text-small">
-            <p className="font-medium text-text">أحمد محمد</p>
-            <p className="text-tiny text-text-muted">المدير</p>
-          </div>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            aria-label="Logout"
-          >
-            <LogOut className="w-4 h-4" />
-          </Button>
+
+          {/* Separator */}
+          <div className="hidden lg:block w-px h-4" style={{ background: 'var(--border-default)' }} />
+
+           {/* System Actions */}
+           <div className="flex items-center gap-1">
+             {/* Language */}
+             <div className="relative" ref={langDropdownRef}>
+               <IconButton
+                 onClick={() => setIsLangDropdownOpen(!isLangDropdownOpen)}
+                 icon={<Globe style={{ width: '16px', height: '16px' }} />}
+                 title="Change language"
+               />
+
+               {isLangDropdownOpen && (
+                 <div
+                   className="absolute top-full end-0 mt-2 w-48 rounded-lg shadow-lg z-dropdown overflow-hidden"
+                   style={{
+                     background: 'var(--bg-surface-elevated)',
+                     border: '1px solid var(--border-default)'
+                   }}
+                   role="menu"
+                 >
+                   {languages.map((lang) => (
+                     <button
+                       key={lang.code}
+                       onClick={() => {
+                         changeLanguage(lang.code);
+                         setIsLangDropdownOpen(false);
+                       }}
+                       className="w-full px-3 py-2 text-start hover:bg-white/5 transition-colors flex items-center gap-2"
+                       role="menuitem"
+                       style={{ color: 'var(--text-primary)' }}
+                     >
+                       <span>{lang.flag}</span>
+                       <span className="text-sm">{lang.nativeName}</span>
+                     </button>
+                   ))}
+                 </div>
+               )}
+             </div>
+
+             {/* Theme */}
+             <IconButton
+               onClick={toggleTheme}
+               icon={theme !== 'light' ? (
+                 <Sun style={{ width: '16px', height: '16px' }} />
+               ) : (
+                 <Moon style={{ width: '16px', height: '16px' }} />
+               )}
+               title="Toggle theme"
+             />
+
+             {/* Notifications */}
+             <IconButton
+               icon={<Bell style={{ width: '16px', height: '16px' }} />}
+               title="Notifications"
+             >
+               <span className="absolute top-1 right-1 w-2 h-2 rounded-full" style={{ 
+                 background: 'var(--color-danger)'
+               }} />
+             </IconButton>
+           </div>
+
+           {/* Separator */}
+           <div className="w-px h-4" style={{ background: 'var(--border-default)' }} />
+
+           {/* User Section */}
+           <div className="flex items-center gap-2">
+             <div className="flex items-center justify-center" style={{
+               width: '32px',
+               height: '32px',
+               borderRadius: '8px',
+               background: 'rgba(99, 102, 241, 0.08)',
+               border: '1px solid rgba(99, 102, 241, 0.15)',
+               color: 'var(--color-primary)',
+               boxShadow: '0 1px 2px rgba(99, 102, 241, 0.05)'
+             }}>
+               <User style={{ width: '16px', height: '16px' }} />
+             </div>
+             <div className="hidden sm:block">
+               <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                 {user?.first_name || 'Admin'}
+               </p>
+             </div>
+             <IconButton
+               onClick={handleLogout}
+               icon={<LogOut style={{ width: '16px', height: '16px' }} />}
+               title="Logout"
+               variant="danger"
+             />
+           </div>
         </div>
-      </div>
-    </header>
+      </header>
+    </>
   );
 }

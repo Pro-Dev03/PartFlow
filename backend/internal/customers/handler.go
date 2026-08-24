@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/partflow/smart-store/pkg/errors"
-	"github.com/partflow/smart-store/pkg/middleware"
 	"github.com/partflow/smart-store/pkg/response"
 )
 
@@ -28,9 +27,8 @@ func (h *Handler) CreateCustomer(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	customer, err := h.service.CreateCustomer(c.Request.Context(), organizationID, &req)
+	customer, err := h.service.CreateCustomer(c.Request.Context(), &req)
 	if err != nil {
 		if err == ErrCustomerCodeExists {
 			errors.HandleError(c, errors.NewConflictError("Customer code already exists", err))
@@ -51,9 +49,8 @@ func (h *Handler) GetCustomer(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	customer, err := h.service.GetCustomer(c.Request.Context(), id, organizationID)
+	customer, err := h.service.GetCustomer(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -74,9 +71,8 @@ func (h *Handler) ListCustomers(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	customers, total, err := h.service.ListCustomers(c.Request.Context(), organizationID, req.Page, req.PerPage, req.Search, req.IsActive)
+	customers, total, err := h.service.ListCustomers(c.Request.Context(), req.Page, req.PerPage, req.Search, req.IsActive)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve customers", err.Error())
 		return
@@ -99,9 +95,8 @@ func (h *Handler) UpdateCustomer(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	customer, err := h.service.UpdateCustomer(c.Request.Context(), id, organizationID, &req)
+	customer, err := h.service.UpdateCustomer(c.Request.Context(), id, &req)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -120,15 +115,21 @@ func (h *Handler) UpdateCustomer(c *gin.Context) {
 
 // DeleteCustomer handles customer deletion
 func (h *Handler) DeleteCustomer(c *gin.Context) {
+	// SECURITY: Only owners and admins can delete customers
+	role := c.GetString("role")
+	if role != "owner" && role != "admin" {
+		response.Forbidden(c, "Only owners and admins can delete customers")
+		return
+	}
+
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	err = h.service.DeleteCustomer(c.Request.Context(), id, organizationID)
+	err = h.service.DeleteCustomer(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -149,9 +150,8 @@ func (h *Handler) GetCustomerLedger(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	ledger, err := h.service.GetCustomerLedger(c.Request.Context(), id, organizationID)
+	ledger, err := h.service.GetCustomerLedger(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -178,9 +178,8 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	payment, err := h.service.AddPayment(c.Request.Context(), id, organizationID, &req)
+	payment, err := h.service.AddPayment(c.Request.Context(), id, &req)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -209,9 +208,8 @@ func (h *Handler) GetCustomerDebtSummary(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	summary, err := h.service.GetCustomerDebtSummary(c.Request.Context(), id, organizationID)
+	summary, err := h.service.GetCustomerDebtSummary(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -238,9 +236,8 @@ func (h *Handler) UpdateCreditLimit(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	err = h.service.UpdateCreditLimit(c.Request.Context(), id, organizationID, req.NewLimit)
+	err = h.service.UpdateCreditLimit(c.Request.Context(), id, req.NewLimit)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -259,9 +256,8 @@ func (h *Handler) UpdateCreditLimit(c *gin.Context) {
 
 // GetOverdueCustomers handles overdue customers retrieval
 func (h *Handler) GetOverdueCustomers(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 
-	overdueCustomers, err := h.service.GetOverdueCustomers(c.Request.Context(), organizationID)
+	overdueCustomers, err := h.service.GetOverdueCustomers(c.Request.Context())
 	if err != nil {
 		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve overdue customers"))
 		return
@@ -284,9 +280,8 @@ func (h *Handler) CreateDebtEntry(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	err = h.service.CreateDebtEntry(c.Request.Context(), id, organizationID, req.Amount, req.ReferenceID, req.ReferenceType, req.DueDate)
+	err = h.service.CreateDebtEntry(c.Request.Context(), id, req.Amount, req.ReferenceID, req.ReferenceType, req.DueDate)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -311,9 +306,8 @@ func (h *Handler) GetDebtEntries(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	debts, err := h.service.GetDebtEntries(c.Request.Context(), id, organizationID)
+	debts, err := h.service.GetDebtEntries(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -340,9 +334,8 @@ func (h *Handler) CreateDebtCollection(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	err = h.service.CreateDebtCollection(c.Request.Context(), id, organizationID, req.Type, req.ScheduledDate, req.Notes)
+	err = h.service.CreateDebtCollection(c.Request.Context(), id, req.Type, req.ScheduledDate, req.Notes)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -363,9 +356,8 @@ func (h *Handler) GetDebtCollections(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	collections, err := h.service.GetDebtCollections(c.Request.Context(), id, organizationID)
+	collections, err := h.service.GetDebtCollections(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -380,9 +372,8 @@ func (h *Handler) GetDebtCollections(c *gin.Context) {
 
 // GetPendingDebtCollections handles pending debt collections retrieval
 func (h *Handler) GetPendingDebtCollections(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 
-	collections, err := h.service.GetPendingDebtCollections(c.Request.Context(), organizationID)
+	collections, err := h.service.GetPendingDebtCollections(c.Request.Context())
 	if err != nil {
 		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve pending debt collections"))
 		return
@@ -405,9 +396,8 @@ func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	err = h.service.ProcessDebtPayment(c.Request.Context(), id, organizationID, req.Amount, req.Method)
+	err = h.service.ProcessDebtPayment(c.Request.Context(), id, req.Amount, req.Method)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))

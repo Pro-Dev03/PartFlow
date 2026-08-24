@@ -22,13 +22,13 @@ func NewRepository(db *sqlx.DB) *Repository {
 // Create creates a new user
 func (r *Repository) Create(ctx context.Context, user *User) error {
 	query := `
-		INSERT INTO users (id, organization_id, email, password_hash, first_name, last_name, phone, avatar_url, role_id, is_active, is_verified, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO users (id, email, password_hash, first_name, last_name, phone, avatar_url,
+			is_active, is_verified, last_login_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		user.ID, user.OrganizationID, user.Email, user.PasswordHash,
-		user.FirstName, user.LastName, user.Phone, user.AvatarURL,
-		user.RoleID, user.IsActive, user.IsVerified, user.CreatedAt, user.UpdatedAt,
+		user.ID, user.Email, user.PasswordHash, user.FirstName, user.LastName, user.Phone, user.AvatarURL,
+		user.IsActive, user.IsVerified, user.LastLoginAt, user.CreatedAt, user.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
@@ -37,26 +37,13 @@ func (r *Repository) Create(ctx context.Context, user *User) error {
 }
 
 // GetByID retrieves a user by ID
-func (r *Repository) GetByID(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*User, error) {
+func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*User, error) {
 	query := `
-		SELECT id, organization_id, email, password_hash, first_name, last_name, phone, avatar_url, 
-		       role_id, is_active, is_verified, last_login_at, created_at, updated_at
+		SELECT id, email, password_hash, first_name, last_name, phone, avatar_url,
+		       is_active, is_verified, last_login_at, created_at, updated_at
 		FROM users WHERE id = $1
 	`
-	
-	if organizationID != uuid.Nil {
-		query += " AND organization_id = $2"
-		var user User
-		err := r.db.GetContext(ctx, &user, query, id, organizationID)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				return nil, ErrUserNotFound
-			}
-			return nil, fmt.Errorf("failed to get user: %w", err)
-		}
-		return &user, nil
-	}
-	
+
 	var user User
 	err := r.db.GetContext(ctx, &user, query, id)
 	if err != nil {
@@ -71,8 +58,8 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID, organizationID u
 // GetByEmail retrieves a user by email
 func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error) {
 	query := `
-		SELECT id, organization_id, email, password_hash, first_name, last_name, phone, avatar_url, 
-		       role_id, is_active, is_verified, last_login_at, created_at, updated_at
+		SELECT id, email, password_hash, first_name, last_name, phone, avatar_url,
+		       is_active, is_verified, last_login_at, created_at, updated_at
 		FROM users WHERE email = $1
 	`
 
@@ -89,16 +76,19 @@ func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error
 }
 
 // List retrieves users with pagination and filters
-func (r *Repository) List(ctx context.Context, organizationID uuid.UUID, page, perPage int, search string, isActive *bool, roleID *uuid.UUID) ([]User, int, error) {
+func (r *Repository) List(ctx context.Context, page, perPage int, search string, isActive *bool) ([]User, int, error) {
 	offset := (page - 1) * perPage
 
 	query := `
-		SELECT id, organization_id, email, password_hash, first_name, last_name, phone, avatar_url, 
-		       role_id, is_active, is_verified, last_login_at, created_at, updated_at
-		FROM users WHERE organization_id = $1
+		SELECT id, email, password_hash, first_name, last_name, phone, avatar_url,
+		       is_active, is_verified, last_login_at, created_at, updated_at
+		FROM users WHERE 1=1
 	`
-	args := []interface{}{organizationID}
-	argCount := 1
+	countQuery := `
+		SELECT COUNT(*) FROM users WHERE 1=1
+	`
+	args := []interface{}{}
+	argCount := 0
 
 	if search != "" {
 		argCount++
@@ -114,16 +104,9 @@ func (r *Repository) List(ctx context.Context, organizationID uuid.UUID, page, p
 		args = append(args, *isActive)
 	}
 
-	if roleID != nil {
-		argCount++
-		query += fmt.Sprintf(" AND role_id = $%d", argCount)
-		args = append(args, *roleID)
-	}
-
 	// Get total count
-	countQuery := "SELECT COUNT(*) FROM users WHERE organization_id = $1"
-	countArgs := []interface{}{organizationID}
-	countArgCount := 1
+	countArgs := []interface{}{}
+	countArgCount := 0
 
 	if search != "" {
 		countArgCount++
@@ -137,12 +120,6 @@ func (r *Repository) List(ctx context.Context, organizationID uuid.UUID, page, p
 		countArgCount++
 		countQuery += fmt.Sprintf(" AND is_active = $%d", countArgCount)
 		countArgs = append(countArgs, *isActive)
-	}
-
-	if roleID != nil {
-		countArgCount++
-		countQuery += fmt.Sprintf(" AND role_id = $%d", countArgCount)
-		countArgs = append(countArgs, *roleID)
 	}
 
 	var total int
@@ -169,12 +146,12 @@ func (r *Repository) Update(ctx context.Context, user *User) error {
 	query := `
 		UPDATE users 
 		SET email = $2, password_hash = $3, first_name = $4, last_name = $5, phone = $6, avatar_url = $7, 
-		    role_id = $8, is_active = $9, updated_at = $10
+		    is_active = $8, updated_at = $9
 		WHERE id = $1
 	`
 	result, err := r.db.ExecContext(ctx, query,
 		user.ID, user.Email, user.PasswordHash, user.FirstName, user.LastName,
-		user.Phone, user.AvatarURL, user.RoleID, user.IsActive, user.UpdatedAt,
+		user.Phone, user.AvatarURL, user.IsActive, user.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
@@ -215,24 +192,15 @@ func (r *Repository) UpdateLastLogin(ctx context.Context, id uuid.UUID, lastLogi
 }
 
 // Delete deletes a user
-func (r *Repository) Delete(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
+func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM users WHERE id = $1`
-	if organizationID != uuid.Nil {
-		query += " AND organization_id = $2"
-		result, err := r.db.ExecContext(ctx, query, id, organizationID)
-		if err != nil {
-			return fmt.Errorf("failed to delete user: %w", err)
-		}
-		rowsAffected, _ := result.RowsAffected()
-		if rowsAffected == 0 {
-			return ErrUserNotFound
-		}
-		return nil
-	}
-	
-	_, err := r.db.ExecContext(ctx, query, id)
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return ErrUserNotFound
 	}
 	return nil
 }

@@ -31,10 +31,9 @@ func (i *Inspection) ToInspectionListItem(productName string, inspectorName stri
 }
 
 // CreateInspection creates an Inspection from request
-func CreateInspection(organizationID uuid.UUID, userID uuid.UUID, req *InspectionRequest) *Inspection {
+func CreateInspection(userID uuid.UUID, req *InspectionRequest) *Inspection {
 	return &Inspection{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		ProductID:      req.ProductID,
 		SerialNumber:   req.SerialNumber,
 		InspectionDate: req.InspectionDate,

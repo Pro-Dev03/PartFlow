@@ -35,10 +35,9 @@ func (r *Return) ToReturnListItem(itemCount int, customerName string, saleInvoic
 }
 
 // CreateReturn creates a Return from request
-func CreateReturn(organizationID uuid.UUID, userID uuid.UUID, req *ReturnRequest) *Return {
+func CreateReturn(userID uuid.UUID, req *ReturnRequest) *Return {
 	return &Return{
 		ID:           uuid.New(),
-		OrganizationID: organizationID,
 		SaleID:       req.SaleID,
 		ReturnNumber: generateReturnNumber(),
 		ReturnDate:   req.ReturnDate,

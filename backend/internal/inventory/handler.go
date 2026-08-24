@@ -1,48 +1,55 @@
 package inventory
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/partflow/smart-store/pkg/middleware"
+	"github.com/jmoiron/sqlx"
 )
 
 type Handler struct {
 	service *Service
+	db      *sqlx.DB
 }
 
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service *Service, db *sqlx.DB) *Handler {
+	return &Handler{service, db}
 }
 
 // RegisterRoutes registers inventory routes
 func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	inventory := router.Group("/inventory")
 	{
-		inventory.POST("/items", middleware.RequirePermission("inventory", "adjust"), h.CreateInventoryItem)
-		inventory.GET("/items/:id", middleware.RequirePermission("inventory", "read"), h.GetInventoryItem)
-		inventory.GET("/items", middleware.RequirePermission("inventory", "read"), h.ListInventoryItems)
-		inventory.PATCH("/items/:id/status", middleware.RequirePermission("inventory", "adjust"), h.UpdateItemStatus)
-		inventory.POST("/items/:id/receive", middleware.RequirePermission("inventory", "adjust"), h.ReceiveItem)
-		inventory.POST("/items/:id/adjust", middleware.RequirePermission("inventory", "adjust"), h.AdjustInventory)
-		inventory.POST("/items/:id/transfer", middleware.RequirePermission("inventory", "transfer"), h.TransferItem)
-		inventory.GET("/items/:id/history", middleware.RequirePermission("inventory", "read"), h.GetItemHistory)
-		inventory.GET("/barcode/:code", middleware.RequirePermission("inventory", "read"), h.LookupBarcode)
+		inventory.POST("/items", h.CreateInventoryItem)
+		inventory.GET("/items/:id", h.GetInventoryItem)
+		inventory.GET("/items", h.ListInventoryItems)
+		inventory.PATCH("/items/:id/status", h.UpdateItemStatus)
+		inventory.POST("/items/:id/receive", h.ReceiveItem)
+		inventory.POST("/items/:id/adjust", h.AdjustInventory)
+		inventory.POST("/items/:id/transfer", h.TransferItem)
+		inventory.GET("/items/:id/history", h.GetItemHistory)
+		inventory.GET("/barcode/:code", h.LookupBarcode)
 	}
 
 	locations := router.Group("/locations")
 	{
-		locations.POST("", middleware.RequirePermission("inventory", "adjust"), h.CreateLocation)
-		locations.GET("/:id", middleware.RequirePermission("inventory", "read"), h.GetLocation)
-		locations.GET("", middleware.RequirePermission("inventory", "read"), h.ListLocations)
+		locations.POST("", h.CreateLocation)
+		locations.GET("/:id", h.GetLocation)
+		locations.GET("", h.ListLocations)
 	}
 
 	reservations := router.Group("/reservations")
 	{
-		reservations.POST("", middleware.RequirePermission("inventory", "adjust"), h.CreateReservation)
-		reservations.POST("/:id/release", middleware.RequirePermission("inventory", "adjust"), h.ReleaseReservation)
+		reservations.POST("", h.CreateReservation)
+		reservations.POST("/:id/release", h.ReleaseReservation)
+	}
+
+	tradeIns := router.Group("/trade-ins")
+	{
+		tradeIns.POST("", h.CreateTradeIn)
 	}
 }
 
@@ -54,10 +61,9 @@ func (h *Handler) CreateInventoryItem(c *gin.Context) {
 		return
 	}
 
-	organizationID := getOrganizationID(c)
 	userID := getUserID(c)
 
-	item, err := h.service.CreateInventoryItem(c.Request.Context(), &req, organizationID, userID)
+	item, err := h.service.CreateInventoryItem(c.Request.Context(), &req, userID)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -74,9 +80,8 @@ func (h *Handler) GetInventoryItem(c *gin.Context) {
 		return
 	}
 
-	organizationID := getOrganizationID(c)
 
-	item, err := h.service.GetInventoryItem(c.Request.Context(), id, organizationID)
+	item, err := h.service.GetInventoryItem(c.Request.Context(), id)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -90,7 +95,6 @@ func (h *Handler) ListInventoryItems(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "10"))
 
-	organizationID := getOrganizationID(c)
 
 	filters := make(map[string]interface{})
 	if status := c.Query("status"); status != "" {
@@ -109,18 +113,31 @@ func (h *Handler) ListInventoryItems(c *gin.Context) {
 			filters["product_id"] = id
 		}
 	}
+	if partTypeID := c.Query("part_type_id"); partTypeID != "" {
+		if id, err := uuid.Parse(partTypeID); err == nil {
+			filters["part_type_id"] = id
+		}
+	}
 
-	items, total, err := h.service.ListInventoryItems(c.Request.Context(), organizationID, page, perPage, filters)
+	items, total, err := h.service.ListInventoryItems(c.Request.Context(), page, perPage, filters)
 	if err != nil {
 		handleError(c, err)
 		return
 	}
 
+	// Ensure items is never null
+	if items == nil {
+		items = []*InventoryItem{}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"items": items,
-		"total": total,
-		"page":  page,
-		"per_page": perPage,
+		"success": true,
+		"data": items,
+		"meta": gin.H{
+			"total": total,
+			"page":  page,
+			"per_page": perPage,
+		},
 	})
 }
 
@@ -133,16 +150,15 @@ func (h *Handler) UpdateItemStatus(c *gin.Context) {
 	}
 
 	var req struct {
-		Status Status `json:"status" binding:"required"`
+		Status string `json:"status" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	organizationID := getOrganizationID(c)
 
-	if err := h.service.UpdateItemStatus(c.Request.Context(), id, organizationID, req.Status); err != nil {
+	if err := h.service.UpdateItemStatus(c.Request.Context(), id, req.Status); err != nil {
 		handleError(c, err)
 		return
 	}
@@ -166,10 +182,9 @@ func (h *Handler) ReceiveItem(c *gin.Context) {
 		return
 	}
 
-	organizationID := getOrganizationID(c)
 	userID := getUserID(c)
 
-	if err := h.service.ReceiveItem(c.Request.Context(), id, organizationID, req.LocationID, userID); err != nil {
+	if err := h.service.ReceiveItem(c.Request.Context(), id, req.LocationID, userID); err != nil {
 		handleError(c, err)
 		return
 	}
@@ -192,10 +207,9 @@ func (h *Handler) AdjustInventory(c *gin.Context) {
 	}
 
 	req.ItemID = id
-	organizationID := getOrganizationID(c)
 	userID := getUserID(c)
 
-	if err := h.service.AdjustInventory(c.Request.Context(), &req, organizationID, userID); err != nil {
+	if err := h.service.AdjustInventory(c.Request.Context(), &req, userID); err != nil {
 		handleError(c, err)
 		return
 	}
@@ -218,10 +232,9 @@ func (h *Handler) TransferItem(c *gin.Context) {
 	}
 
 	req.ItemID = id
-	organizationID := getOrganizationID(c)
 	userID := getUserID(c)
 
-	if err := h.service.TransferItem(c.Request.Context(), &req, organizationID, userID); err != nil {
+	if err := h.service.TransferItem(c.Request.Context(), &req, userID); err != nil {
 		handleError(c, err)
 		return
 	}
@@ -240,9 +253,8 @@ func (h *Handler) GetItemHistory(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "10"))
 
-	organizationID := getOrganizationID(c)
 
-	movements, total, err := h.service.GetItemHistory(c.Request.Context(), id, organizationID, page, perPage)
+	movements, total, err := h.service.GetItemHistory(c.Request.Context(), id, page, perPage)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -259,9 +271,8 @@ func (h *Handler) GetItemHistory(c *gin.Context) {
 // LookupBarcode looks up a product or item by barcode
 func (h *Handler) LookupBarcode(c *gin.Context) {
 	barcode := c.Param("code")
-	organizationID := getOrganizationID(c)
 
-	item, err := h.service.LookupBarcode(c.Request.Context(), barcode, organizationID)
+	item, err := h.service.LookupBarcode(c.Request.Context(), barcode)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -278,11 +289,9 @@ func (h *Handler) CreateLocation(c *gin.Context) {
 		return
 	}
 
-	organizationID := getOrganizationID(c)
 
 	location := &Location{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		Name:           req.Name,
 		Type:           req.Type,
 		ParentID:       req.ParentID,
@@ -297,24 +306,19 @@ func (h *Handler) CreateLocation(c *gin.Context) {
 
 // GetLocation retrieves a location by ID
 func (h *Handler) GetLocation(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+	_, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 
-	organizationID := getOrganizationID(c)
-
 	// This would need service implementation
-	c.JSON(http.StatusOK, gin.H{"id": id, "organization_id": organizationID})
 }
 
 // ListLocations lists all locations
 func (h *Handler) ListLocations(c *gin.Context) {
-	organizationID := getOrganizationID(c)
 
 	// This would need service implementation
-	c.JSON(http.StatusOK, gin.H{"organization_id": organizationID})
 }
 
 // CreateReservation creates a new reservation
@@ -325,10 +329,9 @@ func (h *Handler) CreateReservation(c *gin.Context) {
 		return
 	}
 
-	organizationID := getOrganizationID(c)
 	userID := getUserID(c)
 
-	reservation, err := h.service.ReserveItem(c.Request.Context(), &req, organizationID, userID)
+	reservation, err := h.service.ReserveItem(c.Request.Context(), &req, userID)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -345,9 +348,9 @@ func (h *Handler) ReleaseReservation(c *gin.Context) {
 		return
 	}
 
-	organizationID := getOrganizationID(c)
+	userID := getUserID(c)
 
-	if err := h.service.ReleaseReservation(c.Request.Context(), id, organizationID); err != nil {
+	if err := h.service.ReleaseReservation(c.Request.Context(), id, userID); err != nil {
 		handleError(c, err)
 		return
 	}
@@ -355,15 +358,148 @@ func (h *Handler) ReleaseReservation(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "reservation released successfully"})
 }
 
-// Helper functions
+// CreateTradeIn creates a new inventory item from a customer trade-in (buying used items)
+func (h *Handler) CreateTradeIn(c *gin.Context) {
+	var req struct {
+		CustomerID      *uuid.UUID `json:"customer_id"`
+		CustomerName    string     `json:"customer_name"`
+		ProductID       *uuid.UUID `json:"product_id"`
+		ProductName     string     `json:"product_name"`
+		PartTypeID      *uuid.UUID `json:"part_type_id"`
+		PurchaseCost    int64      `json:"purchase_cost" binding:"required"`
+		SellingPrice    int64      `json:"selling_price"`
+		Notes           string     `json:"notes"`
+		Specifications  []struct {
+			SpecificationID uuid.UUID  `json:"specification_id"`
+			ValueText       *string    `json:"value_text"`
+			ValueNumber     *float64   `json:"value_number"`
+			ValueBoolean    *bool      `json:"value_boolean"`
+		} `json:"specifications"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-func getOrganizationID(c *gin.Context) uuid.UUID {
-	// This would extract organization ID from JWT token or context
-	return uuid.MustParse(c.GetHeader("X-Organization-ID"))
+	// Validate that customer is provided
+	if req.CustomerID == nil && req.CustomerName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "either customer_id or customer_name must be provided"})
+		return
+	}
+	
+	// Validate that either product or part type is provided
+	if req.ProductID == nil && req.ProductName == "" && req.PartTypeID == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "either product_id/product_name or part_type_id must be provided"})
+		return
+	}
+
+	userID := getUserID(c)
+
+	// If manual names are provided, we need to create or find the customer/product
+	// For now, we'll use a simple approach: if manual names, store them directly in the item notes
+	// In a production system, you'd want to create the customer/product records first
+	
+	// For manual entries, we'll use a placeholder ID and store the name in notes
+	var customerID uuid.UUID
+	var productID uuid.UUID
+	
+	if req.CustomerID != nil {
+		customerID = *req.CustomerID
+	} else {
+		// For manual customer, use a nil UUID and store name in notes
+		customerID = uuid.Nil
+		req.Notes = fmt.Sprintf("زبون: %s - %s", req.CustomerName, req.Notes)
+	}
+	
+	// Handle product/part type logic
+	if req.ProductID != nil {
+		productID = *req.ProductID
+	} else if req.ProductName != "" {
+		// For manual product, use a nil UUID and store name in notes
+		productID = uuid.Nil
+		req.Notes = fmt.Sprintf("منتج: %s - %s", req.ProductName, req.Notes)
+	} else {
+		// No product, using part type only - add note
+		productID = uuid.Nil
+		if req.PartTypeID != nil {
+			req.Notes = fmt.Sprintf("قطعة بدون منتج - %s", req.Notes)
+		}
+	}
+
+	// Default selling price if not provided (50% markup)
+	if req.SellingPrice == 0 {
+		req.SellingPrice = req.PurchaseCost * 150 / 100
+	}
+
+	// Create inventory item request
+	// For used parts, we might not have a product_id, so handle nil case
+	var productIDPtr *uuid.UUID
+	if productID != uuid.Nil {
+		productIDPtr = &productID
+	}
+	
+	grade := GradeGood
+	inventoryReq := &InventoryItemRequest{
+		ProductID:    productIDPtr,
+		PartTypeID:   req.PartTypeID,
+		Condition:    ConditionUsed,
+		Grade:        &grade,
+		PurchaseCost: float64(req.PurchaseCost),
+		SellingPrice: float64(req.SellingPrice),
+		Status:       StatusAvailable,
+		Notes:        req.Notes,
+	}
+
+	item, err := h.service.CreateInventoryItem(c.Request.Context(), inventoryReq, userID)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+
+	// Save specifications if provided
+	if len(req.Specifications) > 0 {
+		for _, spec := range req.Specifications {
+			specQuery := `
+				INSERT INTO item_specification_values (id, inventory_item_id, specification_id, value_text, value_number, value_boolean, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+			`
+			_, err = h.db.ExecContext(c.Request.Context(), specQuery,
+				uuid.New(), item.ID, spec.SpecificationID, spec.ValueText, spec.ValueNumber, spec.ValueBoolean)
+			if err != nil {
+				// Log but don't fail the operation
+				fmt.Printf("Warning: failed to save specification value: %v\n", err)
+			}
+		}
+	}
+
+	// Also save to trade_ins table for tracking
+	// Only save if we have a valid customer ID (not manual entry)
+	if customerID != uuid.Nil {
+		tradeInQuery := `
+			INSERT INTO trade_ins (id, customer_id, item_id, purchase_cost, notes, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		`
+		_, err = h.db.ExecContext(c.Request.Context(), tradeInQuery,
+			uuid.New(), customerID, item.ID, req.PurchaseCost, req.Notes)
+		if err != nil {
+			// Log but don't fail the operation
+			fmt.Printf("Warning: failed to save trade-in record: %v\n", err)
+		}
+	}
+
+	c.JSON(http.StatusCreated, item)
 }
 
+// Helper functions
+
 func getUserID(c *gin.Context) uuid.UUID {
-	// This would extract user ID from JWT token or context
+	// Extract user ID from context (set by Auth middleware)
+	if userID, exists := c.Get("user_id"); exists {
+		if uuid, ok := userID.(uuid.UUID); ok {
+			return uuid
+		}
+	}
+	// Fallback to header for backward compatibility
 	return uuid.MustParse(c.GetHeader("X-User-ID"))
 }
 

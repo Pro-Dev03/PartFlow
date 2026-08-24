@@ -18,7 +18,7 @@ ADD COLUMN IF NOT EXISTS unit_cost DECIMAL(10,2) DEFAULT 0;
 -- ============================================
 -- Create Indexes for Performance
 -- ============================================
-CREATE INDEX IF NOT EXISTS idx_sales_organization_date ON sales(organization_id, sale_date);
+CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(sale_date);
 CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id) WHERE customer_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
 

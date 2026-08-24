@@ -9,7 +9,6 @@ import (
 // Report represents a generated report
 type Report struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	Type           string     `json:"type" db:"type"` // sales, inventory, expenses, purchases, returns, warranties, customers, suppliers
 	Title          string     `json:"title" db:"title"`
 	Description    string     `json:"description" db:"description"`
@@ -236,43 +235,11 @@ type MonthlyReturns struct {
 	Amount float64   `json:"amount"`
 }
 
-// WarrantyReport represents warranty report data
-type WarrantyReport struct {
-	ActiveWarranties      int                    `json:"active_warranties"`
-	ExpiringSoon          int                    `json:"expiring_soon"`
-	ExpiredWarranties     int                    `json:"expired_warranties"`
-	TotalClaims           int                    `json:"total_claims"`
-	ApprovedClaims        int                    `json:"approved_claims"`
-	RejectedClaims        int                    `json:"rejected_claims"`
-	CompletedClaims       int                    `json:"completed_claims"`
-	ByProduct             []ProductWarranty      `json:"by_product"`
-	ByStatus             map[string]int         `json:"by_status"`
-	PendingClaims         []PendingClaim         `json:"pending_claims"`
-}
 
-// ProductWarranty represents product warranty data
-type ProductWarranty struct {
-	ProductID     uuid.UUID `json:"product_id"`
-	ProductName   string    `json:"product_name"`
-	ActiveCount   int       `json:"active_count"`
-	ClaimsCount   int       `json:"claims_count"`
-	ClaimRate     float64   `json:"claim_rate"`
-}
-
-// PendingClaim represents pending warranty claim
-type PendingClaim struct {
-	ClaimID      uuid.UUID `json:"claim_id"`
-	CustomerID   uuid.UUID `json:"customer_id"`
-	CustomerName string    `json:"customer_name"`
-	ProductID    uuid.UUID `json:"product_id"`
-	ProductName  string    `json:"product_name"`
-	ClaimDate    time.Time `json:"claim_date"`
-	Status       string    `json:"status"`
-}
 
 // ReportRequest represents report generation request
 type ReportRequest struct {
-	Type        string                 `json:"type" binding:"required,oneof=sales inventory expenses profits debts purchases returns warranties"`
+	Type        string                 `json:"type" binding:"required,oneof=sales inventory expenses profits debts purchases returns"`
 	Title       string                 `json:"title" binding:"required"`
 	Description string                 `json:"description"`
 	Parameters  map[string]interface{} `json:"parameters"`

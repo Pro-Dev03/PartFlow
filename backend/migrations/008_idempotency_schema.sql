@@ -6,7 +6,6 @@
 -- ============================================
 CREATE TABLE IF NOT EXISTS idempotency_keys (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     idempotency_key VARCHAR(255) NOT NULL,
     resource_type VARCHAR(100) NOT NULL,
     resource_id UUID,
@@ -15,10 +14,9 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     response_body JSONB NOT NULL,
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, idempotency_key)
+    UNIQUE(idempotency_key)
 );
 
-CREATE INDEX idx_idempotency_keys_organization ON idempotency_keys(organization_id);
 CREATE INDEX idx_idempotency_keys_key ON idempotency_keys(idempotency_key);
 CREATE INDEX idx_idempotency_keys_expires_at ON idempotency_keys(expires_at);
 

@@ -1,4 +1,4 @@
-import { cn } from '../../lib/utils';
+import { cn } from '../../utils';
 
 interface TableProps {
   className?: string;
@@ -7,36 +7,55 @@ interface TableProps {
 
 const Table = ({ className, children }: TableProps) => (
   <div className="w-full overflow-auto" role="region" aria-label="جدول البيانات">
-    <table className={cn('w-full caption-bottom text-small', className)}>{children}</table>
+    <table className={cn('w-full caption-bottom text-small border-collapse', className)}>{children}</table>
   </div>
 );
 
 const TableHeader = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
-  <thead className={cn('[&_tr]:border-b', className)} {...props} />
+  <thead className={cn('[&_tr]:border-b border-border bg-surface-elevated', className)} {...props} />
 );
 
 const TableBody = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
-  <tbody className={cn('[&_tr:last-child]:border-0', className)} {...props} />
+  <tbody className={cn('[&_tr:last-child]:border-0 bg-surface', className)} {...props} />
 );
 
 const TableFooter = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
-  <tfoot className={cn('border-t bg-surface-2 font-medium [&_tr]:last:border-b-0', className)} {...props} />
+  <tfoot className={cn('border-t border-border bg-surface-elevated font-medium [&_tr]:last:border-b-0', className)} {...props} />
 );
 
 const TableRow = ({ className, ...props }: React.HTMLAttributes<HTMLTableRowElement>) => (
-  <tr className={cn('border-b border-border transition-colors hover:bg-surface-2', className)} {...props} />
+  <tr 
+    className={cn(
+      'border-b border-border transition-colors duration-normal',
+      'hover:bg-surface-elevated cursor-pointer',
+      className
+    )} 
+    {...props} 
+  />
 );
 
 const TableHead = ({ className, ...props }: React.HTMLAttributes<HTMLTableCellElement>) => (
   <th 
-    className={cn('h-12 px-4 text-start align-middle font-medium text-text [&:has([role=checkbox])]:pr-0', className)} 
+    className={cn(
+      'h-12 px-4 text-start align-middle font-medium text-text-primary',
+      'transition-colors duration-normal',
+      '[&:has([role=checkbox])]:pr-0',
+      className
+    )} 
     scope="col"
     {...props} 
   />
 );
 
 const TableCell = ({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) => (
-  <td className={cn('p-4 align-middle text-text-muted [&:has([role=checkbox])]:pr-0', className)} {...props} />
+  <td 
+    className={cn(
+      'p-4 align-middle text-text-secondary transition-colors duration-normal',
+      '[&:has([role=checkbox])]:pr-0',
+      className
+    )} 
+    {...props} 
+  />
 );
 
 const TableCaption = ({ className, ...props }: React.HTMLAttributes<HTMLTableCaptionElement>) => (

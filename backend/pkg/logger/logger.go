@@ -125,12 +125,11 @@ func WithFields(fields map[string]interface{}) zerolog.Logger {
 }
 
 // WithRequest creates a logger with request context
-func WithRequest(requestID, userID, organizationID, method, path string) zerolog.Logger {
+func WithRequest(requestID, userID, method, path string) zerolog.Logger {
 	logger := GetLogger()
 	return logger.With().
 		Str("request_id", requestID).
 		Str("user_id", userID).
-		Str("organization_id", organizationID).
 		Str("method", method).
 		Str("path", path).
 		Logger()
@@ -224,16 +223,15 @@ func LogHTTPRequest(method, path, userAgent, ipAddress string, statusCode int, d
 }
 
 // LogAuthEvent logs authentication events
-func LogAuthEvent(event, userID, organizationID, ipAddress string, success bool) {
+func LogAuthEvent(event, userID, ipAddress string, success bool) {
 	fields := map[string]interface{}{
-		"event":          event,
-		"user_id":        userID,
-		"organization_id": organizationID,
-		"ip_address":     ipAddress,
-		"success":        success,
-		"type":           "auth",
+		"event":      event,
+		"user_id":    userID,
+		"ip_address": ipAddress,
+		"success":    success,
+		"type":       "auth",
 	}
-	
+
 	if success {
 		Info("Authentication event", fields)
 	} else {
@@ -242,14 +240,13 @@ func LogAuthEvent(event, userID, organizationID, ipAddress string, success bool)
 }
 
 // LogBusinessEvent logs business events
-func LogBusinessEvent(event, entityType, entityID, userID, organizationID string, data map[string]interface{}) {
+func LogBusinessEvent(event, entityType, entityID, userID string, data map[string]interface{}) {
 	fields := map[string]interface{}{
-		"event":          event,
-		"entity_type":    entityType,
-		"entity_id":      entityID,
-		"user_id":        userID,
-		"organization_id": organizationID,
-		"type":           "business",
+		"event":       event,
+		"entity_type": entityType,
+		"entity_id":   entityID,
+		"user_id":     userID,
+		"type":        "business",
 	}
 	
 	// Merge additional data

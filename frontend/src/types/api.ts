@@ -18,28 +18,13 @@ export interface LoginRequest {
 export interface LoginResponse {
   user: User;
   token: string;
-  organization: Organization;
 }
 
 export interface User {
   id: string;
   email: string;
   name: string;
-  role: string;
-  permissions: string[];
   createdAt: string;
-}
-
-export interface Organization {
-  id: string;
-  name: string;
-  settings: OrganizationSettings;
-}
-
-export interface OrganizationSettings {
-  currency: string;
-  language: string;
-  timezone: string;
 }
 
 // Dashboard Types

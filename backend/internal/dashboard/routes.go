@@ -7,7 +7,7 @@ import (
 
 // RegisterRoutes registers dashboard routes
 func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
-	service := NewService(db)
+	service := NewCachedService(db)
 	handler := NewHandler(service)
 
 	// Dashboard routes

@@ -9,24 +9,20 @@ ADD COLUMN IF NOT EXISTS product_type VARCHAR(20) DEFAULT 'quantity' CHECK (prod
 ADD COLUMN IF NOT EXISTS track_serial BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS track_individual BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS default_cost DECIMAL(10,2) DEFAULT 0,
-ADD COLUMN IF NOT EXISTS default_price DECIMAL(10,2) DEFAULT 0,
-ADD COLUMN IF NOT EXISTS warranty_policy TEXT;
+ADD COLUMN IF NOT EXISTS default_price DECIMAL(10,2) DEFAULT 0;
 
 -- ============================================
 -- Add brands table if not exists
 -- ============================================
 CREATE TABLE IF NOT EXISTS brands (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     logo_url TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, name)
+    UNIQUE(name)
 );
-
-CREATE INDEX IF NOT EXISTS idx_brands_organization ON brands(organization_id);
 
 -- ============================================
 -- Add brand_id to products

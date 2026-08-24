@@ -19,7 +19,7 @@ func Initialize() error {
 		return fmt.Errorf("DATABASE_URL environment variable is not set")
 	}
 
-	// Add SSL mode to connection string for Supabase
+	// Add SSL mode to connection string for Supabase (only if not already specified)
 	if !strings.Contains(databaseURL, "sslmode") {
 		databaseURL += "?sslmode=require"
 	}

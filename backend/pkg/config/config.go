@@ -103,7 +103,7 @@ func Load() (*Config, error) {
 		// CORS
 		CORSAllowedOrigins: []string{getEnv("CORS_ALLOWED_ORIGINS", "*")},
 		CORSAllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		CORSAllowedHeaders: []string{"Origin", "Content-Type", "Authorization", "X-Request-ID", "X-Organization-ID"},
+		CORSAllowedHeaders: []string{"Origin", "Content-Type", "Authorization", "X-Request-ID"},
 
 		// Rate Limiting
 		RateLimitEnabled:   getBoolEnv("RATE_LIMIT_ENABLED", false),

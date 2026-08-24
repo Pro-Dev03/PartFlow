@@ -31,15 +31,9 @@ func NewHandler(service *Service) *Handler {
 // @Failure 401 {object} response.Response
 // @Router /api/v1/sales [post]
 func (h *Handler) CreateSale(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		errors.HandleError(c, errors.NewValidationError("organization_id required", nil))
-		return
-	}
-
 	userID, exists := c.Get("user_id")
 	if !exists {
-		errors.HandleError(c, errors.NewValidationError("user_id required", nil))
+		errors.HandleError(c, errors.NewUnauthorizedError("User not authenticated", nil))
 		return
 	}
 
@@ -49,7 +43,7 @@ func (h *Handler) CreateSale(c *gin.Context) {
 		return
 	}
 
-	sale, err := h.service.CreateSale(c.Request.Context(), organizationID.(uuid.UUID), userID.(uuid.UUID), &req)
+	sale, err := h.service.CreateSale(c.Request.Context(), userID.(uuid.UUID), &req)
 	if err != nil {
 		switch err {
 		case ErrInsufficientStock:
@@ -119,12 +113,6 @@ func (h *Handler) GetSale(c *gin.Context) {
 // @Success 200 {object} response.Response{data=[]Sale}
 // @Router /api/v1/sales [get]
 func (h *Handler) ListSales(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		errors.HandleError(c, errors.NewValidationError("organization_id required", nil))
-		return
-	}
-
 	req := &SalesListRequest{
 		Page:    1,
 		PerPage: 20,
@@ -159,7 +147,7 @@ func (h *Handler) ListSales(c *gin.Context) {
 		filters["end_date"] = req.EndDate
 	}
 
-	sales, total, err := h.service.ListSales(c.Request.Context(), organizationID.(uuid.UUID), req.Page, req.PerPage, filters)
+	sales, total, err := h.service.ListSales(c.Request.Context(), req.Page, req.PerPage, filters)
 	if err != nil {
 		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve sales"))
 		return
@@ -187,15 +175,9 @@ func (h *Handler) ListSales(c *gin.Context) {
 // @Failure 404 {object} response.Response
 // @Router /api/v1/sales/{id}/payment [post]
 func (h *Handler) UpdateSalePayment(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		errors.HandleError(c, errors.NewValidationError("organization_id required", nil))
-		return
-	}
-
 	userID, exists := c.Get("user_id")
 	if !exists {
-		errors.HandleError(c, errors.NewValidationError("user_id required", nil))
+		errors.HandleError(c, errors.NewUnauthorizedError("User not authenticated", nil))
 		return
 	}
 
@@ -211,7 +193,7 @@ func (h *Handler) UpdateSalePayment(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.UpdateSalePayment(c.Request.Context(), organizationID.(uuid.UUID), userID.(uuid.UUID), id, req.Amount, req.PaymentMethod); err != nil {
+	if err := h.service.UpdateSalePayment(c.Request.Context(), userID.(uuid.UUID), id, req.Amount, req.PaymentMethod); err != nil {
 		switch err {
 		case ErrSaleNotFound:
 			errors.HandleError(c, errors.NewNotFoundError("Sale", err))
@@ -269,12 +251,6 @@ func (h *Handler) CancelSale(c *gin.Context) {
 // @Success 200 {object} response.Response{data=SalesSummary}
 // @Router /api/v1/sales/summary [get]
 func (h *Handler) GetSalesSummary(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
-
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
 
@@ -283,7 +259,7 @@ func (h *Handler) GetSalesSummary(c *gin.Context) {
 		return
 	}
 
-	summary, err := h.service.GetSalesSummary(c.Request.Context(), organizationID.(uuid.UUID), startDate, endDate)
+	summary, err := h.service.GetSalesSummary(c.Request.Context(), startDate, endDate)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -302,11 +278,6 @@ func (h *Handler) GetSalesSummary(c *gin.Context) {
 // @Success 200 {object} response.Response{data=[]TopSellingProduct}
 // @Router /api/v1/sales/top-products [get]
 func (h *Handler) GetTopSellingProducts(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
 
 	limit := 10
 	if limitStr := c.Query("limit"); limitStr != "" {
@@ -315,7 +286,7 @@ func (h *Handler) GetTopSellingProducts(c *gin.Context) {
 		}
 	}
 
-	products, err := h.service.GetTopSellingProducts(c.Request.Context(), organizationID.(uuid.UUID), limit)
+	products, err := h.service.GetTopSellingProducts(c.Request.Context(), limit)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -336,11 +307,6 @@ func (h *Handler) GetTopSellingProducts(c *gin.Context) {
 // @Failure 400 {object} response.Response
 // @Router /api/v1/transactions [post]
 func (h *Handler) CreateTransaction(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
 
 	var tx Transaction
 	if err := c.ShouldBindJSON(&tx); err != nil {
@@ -348,7 +314,7 @@ func (h *Handler) CreateTransaction(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.CreateTransaction(c.Request.Context(), organizationID.(uuid.UUID), &tx); err != nil {
+	if err := h.service.CreateTransaction(c.Request.Context(), &tx); err != nil {
 		response.InternalError(c, err.Error())
 		return
 	}
@@ -397,11 +363,6 @@ func (h *Handler) GetTransaction(c *gin.Context) {
 // @Success 200 {object} response.Response{data=[]Transaction}
 // @Router /api/v1/transactions [get]
 func (h *Handler) ListTransactions(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
 
 	page := 1
 	perPage := 20
@@ -432,7 +393,7 @@ func (h *Handler) ListTransactions(c *gin.Context) {
 		filters["end_date"] = endDate
 	}
 
-	transactions, total, err := h.service.ListTransactions(c.Request.Context(), organizationID.(uuid.UUID), page, perPage, filters)
+	transactions, total, err := h.service.ListTransactions(c.Request.Context(), page, perPage, filters)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -458,11 +419,6 @@ func (h *Handler) ListTransactions(c *gin.Context) {
 // @Success 200 {object} response.Response{data=ProfitEntry}
 // @Router /api/v1/profit/calculate [get]
 func (h *Handler) CalculateProfitForPeriod(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
 
 	period := c.Query("period")
 	startDateStr := c.Query("start_date")
@@ -485,7 +441,7 @@ func (h *Handler) CalculateProfitForPeriod(c *gin.Context) {
 		return
 	}
 
-	profitEntry, err := h.service.CalculateProfitForPeriod(c.Request.Context(), organizationID.(uuid.UUID), period, startDate, endDate)
+	profitEntry, err := h.service.CalculateProfitForPeriod(c.Request.Context(), period, startDate, endDate)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -506,11 +462,6 @@ func (h *Handler) CalculateProfitForPeriod(c *gin.Context) {
 // @Success 200 {object} response.Response{data=[]ProfitEntry}
 // @Router /api/v1/profit/entries [get]
 func (h *Handler) GetProfitEntries(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
 
 	period := c.Query("period")
 	startDateStr := c.Query("start_date")
@@ -533,7 +484,7 @@ func (h *Handler) GetProfitEntries(c *gin.Context) {
 		return
 	}
 
-	entries, err := h.service.GetProfitEntries(c.Request.Context(), organizationID.(uuid.UUID), period, startDate, endDate)
+	entries, err := h.service.GetProfitEntries(c.Request.Context(), period, startDate, endDate)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -552,11 +503,6 @@ func (h *Handler) GetProfitEntries(c *gin.Context) {
 // @Success 200 {object} response.Response{data=gin.H}
 // @Router /api/v1/transactions/accounts/{account}/balance [get]
 func (h *Handler) GetAccountBalance(c *gin.Context) {
-	organizationID, exists := c.Get("organization_id")
-	if !exists {
-		response.BadRequest(c, "organization_id required")
-		return
-	}
 
 	account := c.Param("account")
 	if account == "" {
@@ -564,7 +510,7 @@ func (h *Handler) GetAccountBalance(c *gin.Context) {
 		return
 	}
 
-	balance, err := h.service.GetAccountBalance(c.Request.Context(), organizationID.(uuid.UUID), account)
+	balance, err := h.service.GetAccountBalance(c.Request.Context(), account)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return

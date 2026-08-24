@@ -5,7 +5,6 @@ import "time"
 // InventoryItemResponse represents inventory item response
 type InventoryItemResponse struct {
 	ID             string    `json:"id"`
-	OrganizationID string    `json:"organization_id"`
 	ProductID      string    `json:"product_id"`
 	ItemCode       string    `json:"item_code"`
 	Barcode        string    `json:"barcode"`
@@ -32,7 +31,6 @@ type InventoryItemResponse struct {
 // LocationResponse represents location response
 type LocationResponse struct {
 	ID             string    `json:"id"`
-	OrganizationID string    `json:"organization_id"`
 	Name           string    `json:"name"`
 	Type           string    `json:"type"`
 	ParentID       *string   `json:"parent_id"`
@@ -51,7 +49,6 @@ type LocationResponse struct {
 // MovementResponse represents inventory movement response
 type MovementResponse struct {
 	ID             string    `json:"id"`
-	OrganizationID string    `json:"organization_id"`
 	ItemID         *string   `json:"item_id"`
 	ProductID      *string   `json:"product_id"`
 	MovementType   string    `json:"movement_type"`
@@ -73,7 +70,6 @@ type MovementResponse struct {
 // ReservationResponse represents reservation response
 type ReservationResponse struct {
 	ID             string    `json:"id"`
-	OrganizationID string    `json:"organization_id"`
 	ItemID         string    `json:"item_id"`
 	CustomerID     *string   `json:"customer_id"`
 	UserID         string    `json:"user_id"`
@@ -119,7 +115,6 @@ type BarcodeLookupResponse struct {
 	SellingPrice   int64   `json:"selling_price"`
 	Location       string  `json:"location,omitempty"`
 	Available      bool    `json:"available"`
-	WarrantyDays   int     `json:"warranty_days,omitempty"`
 }
 
 // InventoryListRequest represents inventory list query parameters

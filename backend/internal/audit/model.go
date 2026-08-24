@@ -9,7 +9,6 @@ import (
 // AuditLog represents an audit log entry
 type AuditLog struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	UserID         uuid.UUID  `json:"user_id" db:"user_id"`
 	Action         string     `json:"action" db:"action"` // create, update, delete, login, logout, etc.
 	EntityType     string     `json:"entity_type" db:"entity_type"` // product, customer, sale, etc.

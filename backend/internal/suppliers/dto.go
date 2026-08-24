@@ -25,7 +25,6 @@ type SupplierRequest struct {
 // SupplierResponse represents supplier response
 type SupplierResponse struct {
 	ID             uuid.UUID  `json:"id"`
-	OrganizationID uuid.UUID `json:"organization_id"`
 	Code           string     `json:"code"`
 	Name           string     `json:"name"`
 	Email          *string    `json:"email,omitempty"`

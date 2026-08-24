@@ -1,6 +1,6 @@
 import type { HTMLAttributes, ReactNode } from 'react';
 import { forwardRef } from 'react';
-import { cn } from '../../lib/utils';
+import { cn } from '../../utils';
 
 export interface EmptyStateProps extends HTMLAttributes<HTMLDivElement> {
   icon?: ReactNode;

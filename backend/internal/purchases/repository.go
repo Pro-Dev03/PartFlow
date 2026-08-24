@@ -23,15 +23,15 @@ func NewRepository(db *sqlx.DB) *Repository {
 // Create creates a new purchase
 func (r *Repository) Create(ctx context.Context, purchase *Purchase) error {
 	query := `
-		INSERT INTO purchases (id, organization_id, supplier_id, invoice_number, purchase_date, 
+		INSERT INTO purchases (id, supplier_id, invoice_number, purchase_date,
 			total_amount, paid_amount, status, notes, created_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at, updated_at
 	`
-	
+
 	err := r.db.QueryRowContext(ctx, query,
-		purchase.ID, purchase.OrganizationID, purchase.SupplierID, purchase.InvoiceNumber,
-		purchase.PurchaseDate, purchase.TotalAmount, purchase.PaidAmount, purchase.Status,
+		purchase.ID, purchase.SupplierID, purchase.InvoiceNumber, purchase.PurchaseDate,
+		purchase.TotalAmount, purchase.PaidAmount, purchase.Status,
 		purchase.Notes, purchase.CreatedBy, purchase.CreatedAt, purchase.UpdatedAt,
 	).Scan(&purchase.ID, &purchase.CreatedAt, &purchase.UpdatedAt)
 	
@@ -42,16 +42,16 @@ func (r *Repository) Create(ctx context.Context, purchase *Purchase) error {
 }
 
 // GetByID retrieves a purchase by ID
-func (r *Repository) GetByID(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*Purchase, error) {
+func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Purchase, error) {
 	var purchase Purchase
 	query := `
-		SELECT id, organization_id, supplier_id, invoice_number, purchase_date, 
+		SELECT id, supplier_id, invoice_number, purchase_date,
 			total_amount, paid_amount, status, notes, created_by, created_at, updated_at
 		FROM purchases
-		WHERE id = $1 AND organization_id = $2
+		WHERE id = $1
 	`
-	
-	err := r.db.GetContext(ctx, &purchase, query, id, organizationID)
+
+	err := r.db.GetContext(ctx, &purchase, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrPurchaseNotFound
@@ -62,21 +62,24 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID, organizationID u
 }
 
 // List retrieves purchases with pagination and filters
-func (r *Repository) List(ctx context.Context, organizationID uuid.UUID, req PurchaseListRequest) ([]Purchase, int, error) {
+func (r *Repository) List(ctx context.Context, req PurchaseListRequest) ([]Purchase, int, error) {
 	var purchases []Purchase
 	var count int
-	
+
 	// Build base query
 	baseQuery := `
-		SELECT id, organization_id, supplier_id, invoice_number, purchase_date, 
+		SELECT id, supplier_id, invoice_number, purchase_date,
 			total_amount, paid_amount, status, notes, created_by, created_at, updated_at
 		FROM purchases
-		WHERE organization_id = $1
+		WHERE 1=1
 	`
-	countQuery := `SELECT COUNT(*) FROM purchases WHERE organization_id = $1`
-	
-	args := []interface{}{organizationID}
-	argCount := 1
+
+	countQuery := `
+		SELECT COUNT(*) FROM purchases WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argCount := 0
 	
 	// Add filters
 	if req.SupplierID != nil {
@@ -85,28 +88,28 @@ func (r *Repository) List(ctx context.Context, organizationID uuid.UUID, req Pur
 		countQuery += fmt.Sprintf(" AND supplier_id = $%d", argCount)
 		args = append(args, *req.SupplierID)
 	}
-	
+
 	if req.Status != "" {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND status = $%d", argCount)
 		countQuery += fmt.Sprintf(" AND status = $%d", argCount)
 		args = append(args, req.Status)
 	}
-	
+
 	if req.StartDate != nil {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND purchase_date >= $%d", argCount)
 		countQuery += fmt.Sprintf(" AND purchase_date >= $%d", argCount)
 		args = append(args, *req.StartDate)
 	}
-	
+
 	if req.EndDate != nil {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND purchase_date <= $%d", argCount)
 		countQuery += fmt.Sprintf(" AND purchase_date <= $%d", argCount)
 		args = append(args, *req.EndDate)
 	}
-	
+
 	if req.Search != "" {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND (invoice_number ILIKE $%d OR notes ILIKE $%d)", argCount, argCount)
@@ -151,13 +154,13 @@ func (r *Repository) Update(ctx context.Context, purchase *Purchase) error {
 	query := `
 		UPDATE purchases
 		SET invoice_number = $2, purchase_date = $3, status = $4, notes = $5, updated_at = $6
-		WHERE id = $1 AND organization_id = $7
+		WHERE id = $1
 		RETURNING updated_at
 	`
-	
+
 	err := r.db.QueryRowContext(ctx, query,
 		purchase.ID, purchase.InvoiceNumber, purchase.PurchaseDate, purchase.Status,
-		purchase.Notes, purchase.UpdatedAt, purchase.OrganizationID,
+		purchase.Notes, purchase.UpdatedAt,
 	).Scan(&purchase.UpdatedAt)
 	
 	if err != nil {
@@ -170,10 +173,10 @@ func (r *Repository) Update(ctx context.Context, purchase *Purchase) error {
 }
 
 // Delete deletes a purchase
-func (r *Repository) Delete(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	query := `DELETE FROM purchases WHERE id = $1 AND organization_id = $2`
-	
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM purchases WHERE id = $1`
+
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete purchase: %w", err)
 	}
@@ -299,16 +302,16 @@ func (r *Repository) UpdatePaidAmount(ctx context.Context, purchaseID uuid.UUID,
 }
 
 // GetPurchaseByInvoiceNumber retrieves a purchase by invoice number
-func (r *Repository) GetPurchaseByInvoiceNumber(ctx context.Context, invoiceNumber string, organizationID uuid.UUID) (*Purchase, error) {
+func (r *Repository) GetPurchaseByInvoiceNumber(ctx context.Context, invoiceNumber string) (*Purchase, error) {
 	var purchase Purchase
 	query := `
-		SELECT id, organization_id, supplier_id, invoice_number, purchase_date, 
+		SELECT id, supplier_id, invoice_number, purchase_date,
 			total_amount, paid_amount, status, notes, created_by, created_at, updated_at
 		FROM purchases
-		WHERE invoice_number = $1 AND organization_id = $2
+		WHERE invoice_number = $1
 	`
-	
-	err := r.db.GetContext(ctx, &purchase, query, invoiceNumber, organizationID)
+
+	err := r.db.GetContext(ctx, &purchase, query, invoiceNumber)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrPurchaseNotFound

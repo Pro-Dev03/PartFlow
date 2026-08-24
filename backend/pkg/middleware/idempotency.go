@@ -40,13 +40,6 @@ func (im *IdempotencyMiddleware) Idempotency() gin.HandlerFunc {
 			return
 		}
 
-		// Get organization ID from context
-		organizationID, exists := c.Get("organization_id")
-		if !exists {
-			c.Next()
-			return
-		}
-
 		// Read request body for hashing
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil {
@@ -70,10 +63,10 @@ func (im *IdempotencyMiddleware) Idempotency() gin.HandlerFunc {
 		query := `
 			SELECT response_code, response_body 
 			FROM idempotency_keys 
-			WHERE organization_id = $1 AND idempotency_key = $2 
+			WHERE idempotency_key = $1 
 			AND expires_at > NOW()
 		`
-		err = im.db.Get(&existingRecord, query, organizationID, idempotencyKey)
+		err = im.db.Get(&existingRecord, query, idempotencyKey)
 		if err == nil {
 			// Key exists, return cached response
 			c.Data(existingRecord.ResponseCode, "application/json", existingRecord.ResponseBody)
@@ -90,23 +83,23 @@ func (im *IdempotencyMiddleware) Idempotency() gin.HandlerFunc {
 
 		// If request was successful, cache the response
 		if c.Writer.Status() >= 200 && c.Writer.Status() < 300 {
-			im.cacheResponse(organizationID, idempotencyKey, requestHash, c.Writer.Status(), w.body.Bytes())
+			im.cacheResponse(idempotencyKey, requestHash, c.Writer.Status(), w.body.Bytes())
 		}
 	}
 }
 
-func (im *IdempotencyMiddleware) cacheResponse(organizationID interface{}, idempotencyKey, requestHash string, statusCode int, responseBody []byte) {
+func (im *IdempotencyMiddleware) cacheResponse(idempotencyKey, requestHash string, statusCode int, responseBody []byte) {
 	expiresAt := time.Now().Add(24 * time.Hour) // Cache for 24 hours
 
 	query := `
-		INSERT INTO idempotency_keys (id, organization_id, idempotency_key, resource_type,
+		INSERT INTO idempotency_keys (id, idempotency_key, resource_type,
 			request_hash, response_code, response_body, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-		ON CONFLICT (organization_id, idempotency_key) DO NOTHING
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		ON CONFLICT (idempotency_key) DO NOTHING
 	`
 
 	_, err := im.db.Exec(query,
-		uuid.New(), organizationID, idempotencyKey, "api_request",
+		uuid.New(), idempotencyKey, "api_request",
 		requestHash, statusCode, responseBody, expiresAt)
 	if err != nil {
 		// Log error but don't fail the request

@@ -66,7 +66,6 @@ func TestRepository_CreateBarcode(t *testing.T) {
 
 	barcode := &Barcode{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		Code:           "TEST-BARCODE-002",
 		Type:           BarcodeTypeSKU,
 		ProductID:      nil,
@@ -131,7 +130,6 @@ func TestBarcode(t *testing.T) {
 
 	barcode := Barcode{
 		ID:             id,
-		OrganizationID: organizationID,
 		Code:           "TEST-001",
 		Type:           BarcodeTypeSKU,
 		ProductID:      &productID,
@@ -143,8 +141,6 @@ func TestBarcode(t *testing.T) {
 		t.Errorf("Barcode.ID = %v, want %v", barcode.ID, id)
 	}
 
-	if barcode.OrganizationID != organizationID {
-		t.Errorf("Barcode.OrganizationID = %v, want %v", barcode.OrganizationID, organizationID)
 	}
 
 	if barcode.Code != "TEST-001" {

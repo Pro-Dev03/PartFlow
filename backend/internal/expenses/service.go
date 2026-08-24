@@ -19,14 +19,14 @@ func NewService(repo *Repository) *Service {
 }
 
 // CreateExpense creates a new expense
-func (s *Service) CreateExpense(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, req *ExpenseRequest) (*ExpenseResponse, error) {
+func (s *Service) CreateExpense(ctx context.Context, userID uuid.UUID, req *ExpenseRequest) (*ExpenseResponse, error) {
 	// Validate request
 	if err := ValidateExpenseRequest(req); err != nil {
 		return nil, err
 	}
 
 	// Check if category exists
-	category, err := s.repo.GetExpenseCategoryByID(ctx, req.CategoryID, organizationID)
+	category, err := s.repo.GetExpenseCategoryByID(ctx, req.CategoryID)
 	if err != nil {
 		return nil, ErrExpenseCategoryNotFound
 	}
@@ -38,7 +38,7 @@ func (s *Service) CreateExpense(ctx context.Context, organizationID uuid.UUID, u
 	}
 
 	// Create expense
-	expense := CreateExpense(organizationID, userID, req)
+	expense := CreateExpense(userID, req)
 
 	if err := s.repo.CreateExpense(ctx, expense); err != nil {
 		return nil, fmt.Errorf("failed to create expense: %w", err)
@@ -48,13 +48,13 @@ func (s *Service) CreateExpense(ctx context.Context, organizationID uuid.UUID, u
 }
 
 // GetExpense retrieves an expense by ID
-func (s *Service) GetExpense(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*ExpenseResponse, error) {
-	expense, err := s.repo.GetExpenseByID(ctx, id, organizationID)
+func (s *Service) GetExpense(ctx context.Context, id uuid.UUID) (*ExpenseResponse, error) {
+	expense, err := s.repo.GetExpenseByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	category, err := s.repo.GetExpenseCategoryByID(ctx, expense.CategoryID, organizationID)
+	category, err := s.repo.GetExpenseCategoryByID(ctx, expense.CategoryID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get expense category: %w", err)
 	}
@@ -63,7 +63,7 @@ func (s *Service) GetExpense(ctx context.Context, id uuid.UUID, organizationID u
 }
 
 // ListExpenses retrieves expenses with pagination and filters
-func (s *Service) ListExpenses(ctx context.Context, organizationID uuid.UUID, req ExpenseListRequest) ([]map[string]interface{}, int, error) {
+func (s *Service) ListExpenses(ctx context.Context, req ExpenseListRequest) ([]map[string]interface{}, int, error) {
 	if req.Page <= 0 {
 		req.Page = 1
 	}
@@ -71,7 +71,7 @@ func (s *Service) ListExpenses(ctx context.Context, organizationID uuid.UUID, re
 		req.PerPage = 20
 	}
 
-	expenses, total, err := s.repo.ListExpenses(ctx, organizationID, req)
+	expenses, total, err := s.repo.ListExpenses(ctx, req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -79,7 +79,7 @@ func (s *Service) ListExpenses(ctx context.Context, organizationID uuid.UUID, re
 	// Convert to list items with category names
 	var result []map[string]interface{}
 	for _, expense := range expenses {
-		category, err := s.repo.GetExpenseCategoryByID(ctx, expense.CategoryID, organizationID)
+		category, err := s.repo.GetExpenseCategoryByID(ctx, expense.CategoryID)
 		if err != nil {
 			continue
 		}
@@ -91,8 +91,8 @@ func (s *Service) ListExpenses(ctx context.Context, organizationID uuid.UUID, re
 }
 
 // UpdateExpense updates an expense
-func (s *Service) UpdateExpense(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, req *ExpenseUpdateRequest) (*ExpenseResponse, error) {
-	expense, err := s.repo.GetExpenseByID(ctx, id, organizationID)
+func (s *Service) UpdateExpense(ctx context.Context, id uuid.UUID, req *ExpenseUpdateRequest) (*ExpenseResponse, error) {
+	expense, err := s.repo.GetExpenseByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (s *Service) UpdateExpense(ctx context.Context, id uuid.UUID, organizationI
 	// Update fields
 	if req.CategoryID != uuid.Nil {
 		// Verify category exists
-		_, err := s.repo.GetExpenseCategoryByID(ctx, req.CategoryID, organizationID)
+		_, err := s.repo.GetExpenseCategoryByID(ctx, req.CategoryID)
 		if err != nil {
 			return nil, ErrExpenseCategoryNotFound
 		}
@@ -149,12 +149,12 @@ func (s *Service) UpdateExpense(ctx context.Context, id uuid.UUID, organizationI
 		return nil, err
 	}
 
-	return s.GetExpense(ctx, id, organizationID)
+	return s.GetExpense(ctx, id)
 }
 
 // DeleteExpense deletes an expense
-func (s *Service) DeleteExpense(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	expense, err := s.repo.GetExpenseByID(ctx, id, organizationID)
+func (s *Service) DeleteExpense(ctx context.Context, id uuid.UUID) error {
+	expense, err := s.repo.GetExpenseByID(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -164,12 +164,12 @@ func (s *Service) DeleteExpense(ctx context.Context, id uuid.UUID, organizationI
 		return ErrExpenseAlreadyApproved
 	}
 
-	return s.repo.DeleteExpense(ctx, id, organizationID)
+	return s.repo.DeleteExpense(ctx, id)
 }
 
 // ApproveExpense approves an expense
-func (s *Service) ApproveExpense(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, approverID uuid.UUID) (*ExpenseResponse, error) {
-	expense, err := s.repo.GetExpenseByID(ctx, id, organizationID)
+func (s *Service) ApproveExpense(ctx context.Context, id uuid.UUID, approverID uuid.UUID) (*ExpenseResponse, error) {
+	expense, err := s.repo.GetExpenseByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -190,12 +190,12 @@ func (s *Service) ApproveExpense(ctx context.Context, id uuid.UUID, organization
 		return nil, err
 	}
 
-	return s.GetExpense(ctx, id, organizationID)
+	return s.GetExpense(ctx, id)
 }
 
 // RejectExpense rejects an expense
-func (s *Service) RejectExpense(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*ExpenseResponse, error) {
-	expense, err := s.repo.GetExpenseByID(ctx, id, organizationID)
+func (s *Service) RejectExpense(ctx context.Context, id uuid.UUID) (*ExpenseResponse, error) {
+	expense, err := s.repo.GetExpenseByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -215,24 +215,24 @@ func (s *Service) RejectExpense(ctx context.Context, id uuid.UUID, organizationI
 		return nil, err
 	}
 
-	return s.GetExpense(ctx, id, organizationID)
+	return s.GetExpense(ctx, id)
 }
 
 // CreateExpenseCategory creates a new expense category
-func (s *Service) CreateExpenseCategory(ctx context.Context, organizationID uuid.UUID, req *ExpenseCategoryRequest) (*ExpenseCategory, error) {
+func (s *Service) CreateExpenseCategory(ctx context.Context, req *ExpenseCategoryRequest) (*ExpenseCategory, error) {
 	// Validate request
 	if err := ValidateExpenseCategoryRequest(req); err != nil {
 		return nil, err
 	}
 
 	// Check if category name already exists
-	existing, err := s.repo.GetExpenseCategoryByName(ctx, req.Name, organizationID)
+	existing, err := s.repo.GetExpenseCategoryByName(ctx, req.Name)
 	if err == nil && existing != nil {
 		return nil, ErrExpenseCategoryExists
 	}
 
 	// Create category
-	category := CreateExpenseCategory(organizationID, req)
+	category := CreateExpenseCategory(req)
 
 	if err := s.repo.CreateExpenseCategory(ctx, category); err != nil {
 		return nil, fmt.Errorf("failed to create expense category: %w", err)
@@ -242,12 +242,12 @@ func (s *Service) CreateExpenseCategory(ctx context.Context, organizationID uuid
 }
 
 // GetExpenseCategory retrieves an expense category by ID
-func (s *Service) GetExpenseCategory(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*ExpenseCategory, error) {
-	return s.repo.GetExpenseCategoryByID(ctx, id, organizationID)
+func (s *Service) GetExpenseCategory(ctx context.Context, id uuid.UUID) (*ExpenseCategory, error) {
+	return s.repo.GetExpenseCategoryByID(ctx, id)
 }
 
 // ListExpenseCategories retrieves expense categories with pagination and filters
-func (s *Service) ListExpenseCategories(ctx context.Context, organizationID uuid.UUID, req ExpenseCategoryListRequest) ([]ExpenseCategory, int, error) {
+func (s *Service) ListExpenseCategories(ctx context.Context, req ExpenseCategoryListRequest) ([]ExpenseCategory, int, error) {
 	if req.Page <= 0 {
 		req.Page = 1
 	}
@@ -255,12 +255,12 @@ func (s *Service) ListExpenseCategories(ctx context.Context, organizationID uuid
 		req.PerPage = 20
 	}
 
-	return s.repo.ListExpenseCategories(ctx, organizationID, req)
+	return s.repo.ListExpenseCategories(ctx, req)
 }
 
 // UpdateExpenseCategory updates an expense category
-func (s *Service) UpdateExpenseCategory(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, req *ExpenseCategoryUpdateRequest) (*ExpenseCategory, error) {
-	category, err := s.repo.GetExpenseCategoryByID(ctx, id, organizationID)
+func (s *Service) UpdateExpenseCategory(ctx context.Context, id uuid.UUID, req *ExpenseCategoryUpdateRequest) (*ExpenseCategory, error) {
+	category, err := s.repo.GetExpenseCategoryByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +268,7 @@ func (s *Service) UpdateExpenseCategory(ctx context.Context, id uuid.UUID, organ
 	// Update fields
 	if req.Name != "" {
 		// Check if name already exists for another category
-		existing, err := s.repo.GetExpenseCategoryByName(ctx, req.Name, organizationID)
+		existing, err := s.repo.GetExpenseCategoryByName(ctx, req.Name)
 		if err == nil && existing != nil && existing.ID != id {
 			return nil, ErrExpenseCategoryExists
 		}
@@ -297,15 +297,15 @@ func (s *Service) UpdateExpenseCategory(ctx context.Context, id uuid.UUID, organ
 }
 
 // DeleteExpenseCategory deletes an expense category
-func (s *Service) DeleteExpenseCategory(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
+func (s *Service) DeleteExpenseCategory(ctx context.Context, id uuid.UUID) error {
 	// Check if category has expenses
 	// This would require a count query
 	// For simplicity, we'll allow deletion for now
 
-	return s.repo.DeleteExpenseCategory(ctx, id, organizationID)
+	return s.repo.DeleteExpenseCategory(ctx, id)
 }
 
 // GetExpenseSummary retrieves expense summary statistics
-func (s *Service) GetExpenseSummary(ctx context.Context, organizationID uuid.UUID) (*ExpenseSummary, error) {
-	return s.repo.GetExpenseSummary(ctx, organizationID)
+func (s *Service) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, error) {
+	return s.repo.GetExpenseSummary(ctx)
 }

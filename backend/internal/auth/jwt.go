@@ -6,13 +6,11 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 )
 
 // Claims represents JWT claims (based on worktrack)
 type Claims struct {
-	UserID  string `json:"user_id"`
-	Role    string `json:"role"`
+	UserID string `json:"user_id"`
 	jwt.RegisteredClaims
 }
 
@@ -33,10 +31,9 @@ func NewJWTService(secret string, accessTokenT, refreshTokenT time.Duration) *JW
 }
 
 // GenerateAccessToken generates a new access token (based on worktrack)
-func (s *JWTService) GenerateAccessToken(userID, role string) (string, error) {
+func (s *JWTService) GenerateAccessToken(userID string) (string, error) {
 	claims := Claims{
 		UserID: userID,
-		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessTokenT)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -51,10 +48,9 @@ func (s *JWTService) GenerateAccessToken(userID, role string) (string, error) {
 }
 
 // GenerateRefreshToken generates a new refresh token (based on worktrack)
-func (s *JWTService) GenerateRefreshToken(userID, role string) (string, error) {
+func (s *JWTService) GenerateRefreshToken(userID string) (string, error) {
 	claims := Claims{
 		UserID: userID,
-		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.refreshTokenT)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -104,7 +100,6 @@ func (s *JWTService) RefreshAccessToken(refreshTokenString string) (string, erro
 	// Create new access token with same claims but new expiration
 	newClaims := Claims{
 		UserID: claims.UserID,
-		Role:   claims.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessTokenT)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

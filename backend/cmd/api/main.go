@@ -11,7 +11,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/partflow/smart-store/internal/api"
 	"github.com/partflow/smart-store/internal/auth"
 	"github.com/partflow/smart-store/internal/inventory"
 	"github.com/partflow/smart-store/internal/products"
@@ -22,18 +21,16 @@ import (
 	"github.com/partflow/smart-store/internal/purchases"
 	"github.com/partflow/smart-store/internal/expenses"
 	"github.com/partflow/smart-store/internal/returns"
-	"github.com/partflow/smart-store/internal/warranties"
 	"github.com/partflow/smart-store/internal/inspections"
 	"github.com/partflow/smart-store/internal/reports"
 	"github.com/partflow/smart-store/internal/notifications"
 	"github.com/partflow/smart-store/internal/audit"
 	"github.com/partflow/smart-store/internal/dashboard"
-	"github.com/partflow/smart-store/internal/permissions"
 	"github.com/partflow/smart-store/internal/barcodes"
 	"github.com/partflow/smart-store/internal/search"
-	"github.com/partflow/smart-store/internal/organizations"
+	"github.com/partflow/smart-store/internal/parttypes"
 	"github.com/partflow/smart-store/internal/users"
-	"github.com/partflow/smart-store/internal/roles"
+	"github.com/partflow/smart-store/internal/settings"
 
 	"github.com/partflow/smart-store/pkg/config"
 	"github.com/partflow/smart-store/pkg/database"
@@ -92,15 +89,6 @@ func main() {
 	// Initialize services
 	db := database.GetDB()
 
-	// Permission service
-	permissionService := permissions.NewService(db)
-	middleware.SetPermissionService(permissionService)
-
-	// Initialize standard permissions
-	if err := permissionService.InitializeStandardPermissions(context.Background()); err != nil {
-		logger.Warn("Failed to initialize standard permissions", err)
-	}
-
 	// Auth service
 	authService, err := auth.NewService(db, cfg.JWTSecret, cfg.UseSupabaseAuth, cfg.SupabaseURL, cfg.SupabaseKey)
 	if err != nil {
@@ -112,7 +100,7 @@ func main() {
 
 	// Auth handler
 	authHandler := auth.NewHandler(authService, db)
-	inventoryHandler := inventory.NewHandler(inventory.NewService(inventory.NewRepository(db), db))
+	inventoryHandler := inventory.NewHandler(inventory.NewService(inventory.NewRepository(db), db), db)
 	
 	// Register health check routes
 	router.GET("/health", healthChecker.Check)
@@ -147,10 +135,11 @@ func main() {
 
 		// Protected routes (auth required)
 		protected := v1.Group("")
+		middleware.SetDatabase(db)
 		protected.Use(middleware.Auth())
 		{
 			// Dashboard routes
-			dashboardService := dashboard.NewService(db)
+			dashboardService := dashboard.NewCachedService(db)
 			dashboardHandler := dashboard.NewHandler(dashboardService)
 			protected.GET("/dashboard/stats", dashboardHandler.GetDashboardStats)
 
@@ -166,14 +155,14 @@ func main() {
 			// Inventory routes
 			inventoryHandler.RegisterRoutes(protected)
 
-			// Organization routes
-			organizations.RegisterRoutes(protected, db)
+			// Part Types routes
+			partTypesRepo := parttypes.NewRepository(db)
+			partTypesService := parttypes.NewService(partTypesRepo)
+			partTypesHandler := parttypes.NewHandler(partTypesService)
+			partTypesHandler.RegisterRoutes(protected)
 
 			// Users management routes
 			users.RegisterRoutes(protected, db)
-
-			// Roles routes
-			roles.RegisterRoutes(protected, db)
 
 			// Products routes
 			productRepo := products.NewRepository(db)
@@ -201,16 +190,16 @@ func main() {
 
 			products := protected.Group("/products")
 			{
-				products.POST("", middleware.RequirePermission("products", "create"), productHandler.CreateProduct)
-				products.GET("/:id", middleware.RequirePermission("products", "read"), productHandler.GetProduct)
-				products.GET("/barcode/:barcode", middleware.RequirePermission("products", "read"), productHandler.GetProductByBarcode)
-				products.GET("", middleware.RequirePermission("products", "read"), productHandler.ListProducts)
-				products.PUT("/:id", middleware.RequirePermission("products", "update"), productHandler.UpdateProduct)
-				products.DELETE("/:id", middleware.RequirePermission("products", "delete"), productHandler.DeleteProduct)
-				products.POST("/:id/archive", middleware.RequirePermission("products", "archive"), productHandler.ArchiveProduct)
-				products.POST("/:id/barcode", middleware.RequirePermission("products", "update"), productHandler.GenerateBarcode)
-				products.GET("/:id/stock", middleware.RequirePermission("products", "read"), productHandler.GetProductStock)
-				products.GET("/search", middleware.RequirePermission("products", "read"), productHandler.SearchProducts)
+				products.POST("", productHandler.CreateProduct)
+				products.GET("/:id", productHandler.GetProduct)
+				products.GET("/barcode/:barcode", productHandler.GetProductByBarcode)
+				products.GET("", productHandler.ListProducts)
+				products.PUT("/:id", productHandler.UpdateProduct)
+				products.DELETE("/:id", productHandler.DeleteProduct)
+				products.POST("/:id/archive", productHandler.ArchiveProduct)
+				products.POST("/:id/barcode", productHandler.GenerateBarcode)
+				products.GET("/:id/stock", productHandler.GetProductStock)
+				products.GET("/search", productHandler.SearchProducts)
 			}
 
 			// Customers routes
@@ -220,16 +209,16 @@ func main() {
 			
 			customers := protected.Group("/customers")
 			{
-				customers.POST("", middleware.RequirePermission("customers", "create"), customerHandler.CreateCustomer)
-				customers.GET("/:id", middleware.RequirePermission("customers", "read"), customerHandler.GetCustomer)
-				customers.GET("", middleware.RequirePermission("customers", "read"), customerHandler.ListCustomers)
-				customers.PUT("/:id", middleware.RequirePermission("customers", "update"), customerHandler.UpdateCustomer)
-				customers.DELETE("/:id", middleware.RequirePermission("customers", "delete"), customerHandler.DeleteCustomer)
-				customers.GET("/:id/ledger", middleware.RequirePermission("customers", "read"), customerHandler.GetCustomerLedger)
-				customers.POST("/:id/payments", middleware.RequirePermission("debts", "manage"), customerHandler.AddPayment)
-				customers.GET("/:id/debt-summary", middleware.RequirePermission("debts", "read"), customerHandler.GetCustomerDebtSummary)
-				customers.PUT("/:id/credit-limit", middleware.RequirePermission("debts", "manage"), customerHandler.UpdateCreditLimit)
-				customers.GET("/overdue", middleware.RequirePermission("debts", "read"), customerHandler.GetOverdueCustomers)
+				customers.POST("", customerHandler.CreateCustomer)
+				customers.GET("/:id", customerHandler.GetCustomer)
+				customers.GET("", customerHandler.ListCustomers)
+				customers.PUT("/:id", customerHandler.UpdateCustomer)
+				customers.DELETE("/:id", customerHandler.DeleteCustomer)
+				customers.GET("/:id/ledger", customerHandler.GetCustomerLedger)
+				customers.POST("/:id/payments", customerHandler.AddPayment)
+				customers.GET("/:id/debt-summary", customerHandler.GetCustomerDebtSummary)
+				customers.PUT("/:id/credit-limit", customerHandler.UpdateCreditLimit)
+				customers.GET("/overdue", customerHandler.GetOverdueCustomers)
 			}
 
 			// Sales routes
@@ -239,13 +228,13 @@ func main() {
 			
 			sales := protected.Group("/sales")
 			{
-				sales.POST("", middleware.RequirePermission("sales", "create"), salesHandler.CreateSale)
-				sales.GET("/:id", middleware.RequirePermission("sales", "read"), salesHandler.GetSale)
-				sales.GET("", middleware.RequirePermission("sales", "read"), salesHandler.ListSales)
-				sales.POST("/:id/payment", middleware.RequirePermission("sales", "create"), salesHandler.UpdateSalePayment)
-				sales.POST("/:id/cancel", middleware.RequirePermission("sales", "cancel"), salesHandler.CancelSale)
-				sales.GET("/summary", middleware.RequirePermission("sales", "read"), salesHandler.GetSalesSummary)
-				sales.GET("/top-products", middleware.RequirePermission("sales", "read"), salesHandler.GetTopSellingProducts)
+				sales.POST("", salesHandler.CreateSale)
+				sales.GET("/:id", salesHandler.GetSale)
+				sales.GET("", salesHandler.ListSales)
+				sales.POST("/:id/payment", salesHandler.UpdateSalePayment)
+				sales.POST("/:id/cancel", salesHandler.CancelSale)
+				sales.GET("/summary", salesHandler.GetSalesSummary)
+				sales.GET("/top-products", salesHandler.GetTopSellingProducts)
 			}
 
 			// Payments routes
@@ -267,41 +256,41 @@ func main() {
 
 			// Suppliers routes
 			supplierRepo := suppliers.NewRepository(db)
-			supplierService := suppliers.NewService(supplierRepo)
+			supplierService := suppliers.NewService(supplierRepo, db)
 			supplierHandler := suppliers.NewHandler(supplierService)
 			
 			suppliers := protected.Group("/suppliers")
 			{
-				suppliers.POST("", middleware.RequirePermission("suppliers", "create"), supplierHandler.CreateSupplier)
-				suppliers.GET("/:id", middleware.RequirePermission("suppliers", "read"), supplierHandler.GetSupplier)
-				suppliers.GET("", middleware.RequirePermission("suppliers", "read"), supplierHandler.ListSuppliers)
-				suppliers.PUT("/:id", middleware.RequirePermission("suppliers", "update"), supplierHandler.UpdateSupplier)
-				suppliers.DELETE("/:id", middleware.RequirePermission("suppliers", "delete"), supplierHandler.DeleteSupplier)
-				suppliers.GET("/:id/ledger", middleware.RequirePermission("suppliers", "read"), supplierHandler.GetSupplierLedger)
-				suppliers.POST("/:id/payments", middleware.RequirePermission("debts", "manage"), supplierHandler.AddPayment)
-				suppliers.GET("/:id/debt-summary", middleware.RequirePermission("debts", "read"), supplierHandler.GetSupplierDebtSummary)
-				suppliers.PUT("/:id/credit-limit", middleware.RequirePermission("debts", "manage"), supplierHandler.UpdateCreditLimit)
-				suppliers.GET("/overdue", middleware.RequirePermission("debts", "read"), supplierHandler.GetOverdueSuppliers)
+				suppliers.POST("", supplierHandler.CreateSupplier)
+				suppliers.GET("/:id", supplierHandler.GetSupplier)
+				suppliers.GET("", supplierHandler.ListSuppliers)
+				suppliers.PUT("/:id", supplierHandler.UpdateSupplier)
+				suppliers.DELETE("/:id", supplierHandler.DeleteSupplier)
+				suppliers.GET("/:id/ledger", supplierHandler.GetSupplierLedger)
+				suppliers.POST("/:id/payments", supplierHandler.AddPayment)
+				suppliers.GET("/:id/debt-summary", supplierHandler.GetSupplierDebtSummary)
+				suppliers.PUT("/:id/credit-limit", supplierHandler.UpdateCreditLimit)
+				suppliers.GET("/overdue", supplierHandler.GetOverdueSuppliers)
 			}
 
 			// Purchases routes
 			purchaseRepo := purchases.NewRepository(db)
-			purchaseService := purchases.NewService(purchaseRepo)
+			purchaseService := purchases.NewService(purchaseRepo, db)
 			purchaseHandler := purchases.NewHandler(purchaseService)
 			
 			purchasesRoutes := protected.Group("/purchases")
 			{
-				purchasesRoutes.POST("", middleware.RequirePermission("purchases", "create"), purchaseHandler.CreatePurchase)
-				purchasesRoutes.GET("/:id", middleware.RequirePermission("purchases", "read"), purchaseHandler.GetPurchase)
-				purchasesRoutes.GET("", middleware.RequirePermission("purchases", "read"), purchaseHandler.ListPurchases)
-				purchasesRoutes.PUT("/:id", middleware.RequirePermission("purchases", "update"), purchaseHandler.UpdatePurchase)
-				purchasesRoutes.DELETE("/:id", middleware.RequirePermission("purchases", "update"), purchaseHandler.DeletePurchase)
-				purchasesRoutes.POST("/:id/receive", middleware.RequirePermission("purchases", "receive"), purchaseHandler.ReceivePurchase)
-				purchasesRoutes.POST("/:id/cancel", middleware.RequirePermission("purchases", "update"), purchaseHandler.CancelPurchase)
-				purchasesRoutes.POST("/:id/payment", middleware.RequirePermission("purchases", "update"), purchaseHandler.AddPayment)
-				purchasesRoutes.POST("/:id/items", middleware.RequirePermission("purchases", "create"), purchaseHandler.AddPurchaseItem)
-				purchasesRoutes.PUT("/items/:item_id", middleware.RequirePermission("purchases", "update"), purchaseHandler.UpdatePurchaseItem)
-				purchasesRoutes.DELETE("/items/:item_id", middleware.RequirePermission("purchases", "update"), purchaseHandler.DeletePurchaseItem)
+				purchasesRoutes.POST("", purchaseHandler.CreatePurchase)
+				purchasesRoutes.GET("/:id", purchaseHandler.GetPurchase)
+				purchasesRoutes.GET("", purchaseHandler.ListPurchases)
+				purchasesRoutes.PUT("/:id", purchaseHandler.UpdatePurchase)
+				purchasesRoutes.DELETE("/:id", purchaseHandler.DeletePurchase)
+				purchasesRoutes.POST("/:id/receive", purchaseHandler.ReceivePurchase)
+				purchasesRoutes.POST("/:id/cancel", purchaseHandler.CancelPurchase)
+				purchasesRoutes.POST("/:id/payment", purchaseHandler.AddPayment)
+				purchasesRoutes.POST("/:id/items", purchaseHandler.AddPurchaseItem)
+				purchasesRoutes.PUT("/items/:item_id", purchaseHandler.UpdatePurchaseItem)
+				purchasesRoutes.DELETE("/items/:item_id", purchaseHandler.DeletePurchaseItem)
 			}
 
 			// Expenses routes
@@ -311,15 +300,15 @@ func main() {
 			
 			expensesRoutes := protected.Group("/expenses")
 			{
-				expensesRoutes.POST("", middleware.RequirePermission("expenses", "create"), expenseHandler.CreateExpense)
-				expensesRoutes.GET("/:id", middleware.RequirePermission("expenses", "read"), expenseHandler.GetExpense)
-				expensesRoutes.GET("", middleware.RequirePermission("expenses", "read"), expenseHandler.ListExpenses)
-				expensesRoutes.PUT("/:id", middleware.RequirePermission("expenses", "update"), expenseHandler.UpdateExpense)
-				expensesRoutes.DELETE("/:id", middleware.RequirePermission("expenses", "delete"), expenseHandler.DeleteExpense)
-				expensesRoutes.POST("/:id/approve", middleware.RequirePermission("expenses", "update"), expenseHandler.ApproveExpense)
-				expensesRoutes.POST("/:id/reject", middleware.RequirePermission("expenses", "update"), expenseHandler.RejectExpense)
-				expensesRoutes.GET("/summary", middleware.RequirePermission("expenses", "read"), expenseHandler.GetExpenseSummary)
-				expensesRoutes.GET("/categories", middleware.RequirePermission("expenses", "read"), expenseHandler.ListExpenseCategories)
+				expensesRoutes.POST("", expenseHandler.CreateExpense)
+				expensesRoutes.GET("/:id", expenseHandler.GetExpense)
+				expensesRoutes.GET("", expenseHandler.ListExpenses)
+				expensesRoutes.PUT("/:id", expenseHandler.UpdateExpense)
+				expensesRoutes.DELETE("/:id", expenseHandler.DeleteExpense)
+				expensesRoutes.POST("/:id/approve", expenseHandler.ApproveExpense)
+				expensesRoutes.POST("/:id/reject", expenseHandler.RejectExpense)
+				expensesRoutes.GET("/summary", expenseHandler.GetExpenseSummary)
+				expensesRoutes.GET("/categories", expenseHandler.ListExpenseCategories)
 			}
 
 			// Returns routes
@@ -329,40 +318,17 @@ func main() {
 			
 			returnsRoutes := protected.Group("/returns")
 			{
-				returnsRoutes.POST("", middleware.RequirePermission("returns", "create"), returnHandler.CreateReturn)
-				returnsRoutes.GET("/:id", middleware.RequirePermission("returns", "read"), returnHandler.GetReturn)
-				returnsRoutes.GET("", middleware.RequirePermission("returns", "read"), returnHandler.ListReturns)
-				returnsRoutes.PUT("/:id", middleware.RequirePermission("returns", "update"), returnHandler.UpdateReturn)
-				returnsRoutes.DELETE("/:id", middleware.RequirePermission("returns", "update"), returnHandler.DeleteReturn)
-				returnsRoutes.POST("/:id/approve", middleware.RequirePermission("returns", "approve"), returnHandler.ApproveReturn)
-				returnsRoutes.POST("/:id/reject", middleware.RequirePermission("returns", "approve"), returnHandler.RejectReturn)
-				returnsRoutes.POST("/:id/refund", middleware.RequirePermission("sales", "refund"), returnHandler.ProcessRefund)
-				returnsRoutes.POST("/:id/items", middleware.RequirePermission("returns", "create"), returnHandler.AddReturnItem)
-				returnsRoutes.PUT("/items/:item_id", middleware.RequirePermission("returns", "update"), returnHandler.UpdateReturnItem)
-				returnsRoutes.DELETE("/items/:item_id", middleware.RequirePermission("returns", "update"), returnHandler.DeleteReturnItem)
-			}
-
-			// Warranties routes
-			warrantyRepo := warranties.NewRepository(db)
-			warrantyService := warranties.NewService(warrantyRepo)
-			warrantyHandler := warranties.NewHandler(warrantyService)
-			
-			warrantiesRoutes := protected.Group("/warranties")
-			{
-				warrantiesRoutes.POST("", middleware.RequirePermission("warranties", "read"), warrantyHandler.CreateWarranty)
-				warrantiesRoutes.GET("/:id", middleware.RequirePermission("warranties", "read"), warrantyHandler.GetWarranty)
-				warrantiesRoutes.GET("", middleware.RequirePermission("warranties", "read"), warrantyHandler.ListWarranties)
-				warrantiesRoutes.PUT("/:id", middleware.RequirePermission("warranties", "read"), warrantyHandler.UpdateWarranty)
-				warrantiesRoutes.DELETE("/:id", middleware.RequirePermission("warranties", "read"), warrantyHandler.DeleteWarranty)
-				warrantiesRoutes.GET("/expiring-soon", middleware.RequirePermission("warranties", "read"), warrantyHandler.GetWarrantiesExpiringSoon)
-				warrantiesRoutes.POST("/:id/claims", middleware.RequirePermission("warranties", "claim"), warrantyHandler.CreateWarrantyClaim)
-				warrantiesRoutes.GET("/claims/:id", middleware.RequirePermission("warranties", "read"), warrantyHandler.GetWarrantyClaim)
-				warrantiesRoutes.GET("/claims", middleware.RequirePermission("warranties", "read"), warrantyHandler.ListWarrantyClaims)
-				warrantiesRoutes.PUT("/claims/:id", middleware.RequirePermission("warranties", "read"), warrantyHandler.UpdateWarrantyClaim)
-				warrantiesRoutes.DELETE("/claims/:id", middleware.RequirePermission("warranties", "read"), warrantyHandler.DeleteWarrantyClaim)
-				warrantiesRoutes.POST("/claims/:id/approve", middleware.RequirePermission("warranties", "read"), warrantyHandler.ApproveWarrantyClaim)
-				warrantiesRoutes.POST("/claims/:id/reject", middleware.RequirePermission("warranties", "read"), warrantyHandler.RejectWarrantyClaim)
-				warrantiesRoutes.POST("/claims/:id/complete", middleware.RequirePermission("warranties", "read"), warrantyHandler.CompleteWarrantyClaim)
+				returnsRoutes.POST("", returnHandler.CreateReturn)
+				returnsRoutes.GET("/:id", returnHandler.GetReturn)
+				returnsRoutes.GET("", returnHandler.ListReturns)
+				returnsRoutes.PUT("/:id", returnHandler.UpdateReturn)
+				returnsRoutes.DELETE("/:id", returnHandler.DeleteReturn)
+				returnsRoutes.POST("/:id/approve", returnHandler.ApproveReturn)
+				returnsRoutes.POST("/:id/reject", returnHandler.RejectReturn)
+				returnsRoutes.POST("/:id/refund", returnHandler.ProcessRefund)
+				returnsRoutes.POST("/:id/items", returnHandler.AddReturnItem)
+				returnsRoutes.PUT("/items/:item_id", returnHandler.UpdateReturnItem)
+				returnsRoutes.DELETE("/items/:item_id", returnHandler.DeleteReturnItem)
 			}
 
 			// Inspections routes
@@ -386,10 +352,10 @@ func main() {
 
 			reportsGroup := protected.Group("/reports")
 			{
-				reportsGroup.POST("", middleware.RequirePermission("reports", "read"), reportHandler.GenerateReport)
-				reportsGroup.GET("/:id", middleware.RequirePermission("reports", "read"), reportHandler.GetReport)
-				reportsGroup.GET("", middleware.RequirePermission("reports", "read"), reportHandler.ListReports)
-				reportsGroup.DELETE("/:id", middleware.RequirePermission("reports", "read"), reportHandler.DeleteReport)
+				reportsGroup.POST("", reportHandler.GenerateReport)
+				reportsGroup.GET("/:id", reportHandler.GetReport)
+				reportsGroup.GET("", reportHandler.ListReports)
+				reportsGroup.DELETE("/:id", reportHandler.DeleteReport)
 			}
 
 			// Register specific report routes
@@ -426,6 +392,17 @@ func main() {
 
 			// Search routes
 			search.RegisterRoutes(protected, db)
+
+			// Settings routes
+			settingsHandler := settings.NewHandler(db.DB)
+			settingsRoutes := protected.Group("/settings")
+			{
+				settingsRoutes.GET("/public", settingsHandler.GetPublicSettings)
+				settingsRoutes.GET("/:key", settingsHandler.GetSetting)
+				settingsRoutes.PUT("/:key", settingsHandler.UpdateSetting)
+				settingsRoutes.GET("/tax-rate", settingsHandler.GetTaxRate)
+				settingsRoutes.PUT("/tax-rate", settingsHandler.UpdateTaxRate)
+			}
 		}
 	}
 

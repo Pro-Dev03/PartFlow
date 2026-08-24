@@ -56,7 +56,6 @@ export const ar = {
     purchases: 'المشتريات',
     expenses: 'المصروفات',
     returns: 'المرتجعات',
-    warranties: 'الضمانات',
     reports: 'التقارير',
     settings: 'الإعدادات',
     logout: 'تسجيل الخروج',
@@ -319,33 +318,6 @@ export const ar = {
     items: 'العناصر',
   },
 
-  // Warranties
-  warranties: {
-    title: 'الضمانات',
-    addWarranty: 'إضافة ضمان',
-    editWarranty: 'تعديل الضمان',
-    deleteWarranty: 'حذف الضمان',
-    sale: 'البيع',
-    item: 'العنصر',
-    startDate: 'تاريخ البدء',
-    endDate: 'تاريخ الانتهاء',
-    duration: 'المدة',
-    type: 'النوع',
-    status: 'الحالة',
-    claims: 'المطالبات',
-    addClaim: 'إضافة مطالبة',
-    types: {
-      STANDARD: 'قياسي',
-      EXTENDED: 'ممتد',
-    },
-    statuses: {
-      ACTIVE: 'نشط',
-      EXPIRED: 'منتهي',
-      CLAIMED: 'تم المطالبة',
-      CANCELLED: 'ملغي',
-    },
-  },
-
   // Reports
   reports: {
     title: 'التقارير',
@@ -356,7 +328,6 @@ export const ar = {
     purchaseReport: 'تقرير المشتريات',
     expenseReport: 'تقرير المصروفات',
     returnReport: 'تقرير المرتجعات',
-    warrantyReport: 'تقرير الضمانات',
     dateRange: 'نطاق التاريخ',
     from: 'من',
     to: 'إلى',
@@ -367,12 +338,8 @@ export const ar = {
   // Settings
   settings: {
     title: 'الإعدادات',
-    organization: 'المؤسسة',
     users: 'المستخدمين',
-    roles: 'الأدوار',
-    permissions: 'الصلاحيات',
     profile: 'الملف الشخصي',
-    organizationName: 'اسم المؤسسة',
     storeName: 'اسم المتجر',
     currency: 'العملة',
     timezone: 'المنطقة الزمنية',
@@ -382,12 +349,6 @@ export const ar = {
     deleteUser: 'حذف المستخدم',
     userName: 'اسم المستخدم',
     userEmail: 'بريد المستخدم',
-    userRole: 'دور المستخدم',
-    addRole: 'إضافة دور',
-    editRole: 'تعديل الدور',
-    deleteRole: 'حذف الدور',
-    roleName: 'اسم الدور',
-    rolePermissions: 'صلاحيات الدور',
   },
 
   // Notifications

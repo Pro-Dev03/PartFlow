@@ -1,50 +1,129 @@
 import type { HTMLAttributes } from 'react';
 import { forwardRef } from 'react';
-import { cn } from '../../lib/utils';
+import { cn } from '../../utils';
 
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   noPadding?: boolean;
   hoverable?: boolean;
   variant?: 'default' | 'interactive' | 'featured' | 'warning' | 'ai' | 'danger' | 'success' | 'info';
   fullWidth?: boolean;
+  'aria-label'?: string;
 }
 
 const Card = forwardRef<HTMLDivElement, CardProps>(
-  ({ 
-    className, 
-    noPadding = false, 
-    hoverable = false, 
-    variant = 'default', 
+  ({
+    className,
+    noPadding = false,
+    hoverable = false,
+    variant = 'default',
     fullWidth = false,
-    children, 
-    ...props 
+    children,
+    onClick,
+    'aria-label': ariaLabel,
+    onKeyDown,
+    ...props
   }, ref) => {
-    const variants = {
-      default: 'border border-border bg-card-gradient shadow-card',
-      interactive: 'border border-border bg-card-gradient shadow-card hover:border-border/22 hover:-translate-y-2 cursor-pointer focus-visible:ring-2 focus-visible:ring-cyan focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
-      featured: 'border border-cyan/30 bg-card-gradient shadow-glow hover:border-cyan/50 hover:shadow-glow-strong backdrop-blur-xl',
-      warning: 'border border-yellow/30 bg-yellow/5 hover:border-yellow/50',
-      ai: 'border border-cyan/18 bg-card-ai-gradient hover:border-cyan/30',
-      danger: 'border border-red/30 bg-red/5 hover:border-red/50',
-      success: 'border border-green/30 bg-green/5 hover:border-green/50',
-      info: 'border border-cyan/30 bg-cyan/5 hover:border-cyan/50',
+    const getVariantStyle = () => {
+      const baseStyle: Record<string, string> = {
+        border: '1px solid var(--card-border)',
+        borderRadius: '16px',
+        background: 'var(--card-bg)',
+        boxShadow: 'var(--card-shadow)',
+        transition: '200ms ease',
+        padding: noPadding ? '0' : '20px' // worktrack: 20px padding
+      };
+
+      const variantStyles: Record<string, Record<string, string>> = {
+        default: baseStyle,
+        interactive: {
+          ...baseStyle,
+          cursor: 'pointer'
+        },
+        featured: {
+          ...baseStyle,
+          borderColor: 'var(--color-primary-30)',
+          boxShadow: '0 15px 50px rgba(0, 0, 0, 0.20), 0 0 25px var(--color-primary-15)'
+        },
+        warning: {
+          ...baseStyle,
+          borderColor: 'var(--color-warning-30)',
+          background: 'var(--color-warning-05)'
+        },
+        ai: {
+          ...baseStyle,
+          borderColor: 'var(--color-primary-20)',
+          background: 'linear-gradient(145deg, var(--color-primary-08), var(--card-bg))'
+        },
+        danger: {
+          ...baseStyle,
+          borderColor: 'var(--color-danger-30)',
+          background: 'var(--color-danger-05)'
+        },
+        success: {
+          ...baseStyle,
+          borderColor: 'var(--color-success-30)',
+          background: 'var(--color-success-05)'
+        },
+        info: {
+          ...baseStyle,
+          borderColor: 'var(--color-info-30)',
+          background: 'var(--color-info-05)'
+        }
+      };
+
+      return variantStyles[variant] || variantStyles.default;
     };
-    
+
     const responsive = fullWidth ? 'w-full' : '';
-    
+
+    const isInteractive = hoverable || variant === 'interactive';
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+      // Call custom onKeyDown if provided
+      if (onKeyDown) {
+        onKeyDown(e);
+      }
+
+      // Default keyboard behavior for interactive cards
+      if (isInteractive && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault();
+        if (onClick) {
+          // Create a mouse-like event from the keyboard event
+          const syntheticEvent = {
+            ...e,
+            target: e.currentTarget,
+            currentTarget: e.currentTarget,
+          } as any;
+          onClick(syntheticEvent);
+        }
+      }
+    };
+
     return (
       <div
         ref={ref}
+        style={getVariantStyle()}
         className={cn(
-          'rounded-md transition-all duration-slow',
-          variants[variant],
-          !noPadding && 'p-lg',
           responsive,
-          hoverable && variant === 'default' && 'hover:border-border/22 hover:-translate-y-2 cursor-pointer',
+          isInteractive && 'cursor-pointer',
           className
         )}
-        tabIndex={hoverable || variant === 'interactive' ? 0 : undefined}
-        role={hoverable || variant === 'interactive' ? 'button' : undefined}
+        onMouseEnter={(e) => {
+          if (isInteractive) {
+            e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.22)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+          }
+        }}
+        onMouseLeave={(e) => {
+          const currentStyle = getVariantStyle();
+          e.currentTarget.style.borderColor = currentStyle.borderColor;
+          e.currentTarget.style.transform = 'translateY(0)';
+        }}
+        onClick={onClick}
+        onKeyDown={handleKeyDown}
+        tabIndex={isInteractive ? 0 : undefined}
+        role={isInteractive ? 'button' : undefined}
+        aria-label={isInteractive ? ariaLabel : undefined}
         {...props}
       >
         {children}
@@ -71,7 +150,7 @@ const CardTitle = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLHeadingEle
   ({ className, ...props }, ref) => (
     <h3
       ref={ref}
-      className={cn('text-card-title font-semibold leading-none text-text', className)}
+      className={cn('text-[14px] font-semibold text-text', className)}
       {...props}
     />
   )
@@ -83,7 +162,7 @@ const CardDescription = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLPara
   ({ className, ...props }, ref) => (
     <p
       ref={ref}
-      className={cn('text-small text-text-muted', className)}
+      className={cn('text-[11px] text-text-muted', className)}
       {...props}
     />
   )
@@ -91,9 +170,9 @@ const CardDescription = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLPara
 
 CardDescription.displayName = 'CardDescription';
 
-const CardContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn('', className)} {...props} />
+const CardContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement> & { noPadding?: boolean }>(
+  ({ className, noPadding, ...props }, ref) => (
+    <div ref={ref} className={cn('', className)} style={{ padding: noPadding ? '0' : undefined }} {...props} />
   )
 );
 

@@ -16,7 +16,6 @@ import {
   DollarSign,
   Clock,
   ArrowRight,
-  Filter,
   Volume2,
   VolumeX,
   AlertTriangle,
@@ -140,9 +139,6 @@ export function NotificationCenter() {
       case 'OVERDUE_DEBT':
       case 'debt_overdue':
         return <DollarSign className="w-5 h-5 text-red-500" />;
-      case 'WARRANTY_EXPIRING':
-      case 'warranty_expiring':
-        return <Clock className="w-5 h-5 text-yellow-500" />;
       case 'ITEM_RESERVED':
         return <Package className="w-5 h-5 text-blue-500" />;
       case 'PAYMENT_RECEIVED':
@@ -211,12 +207,12 @@ export function NotificationCenter() {
       <div className="relative">
         <Button
           variant="ghost"
-          size="sm"
+          size="icon"
           onClick={() => setIsOpen(true)}
           className="relative"
           title={t('notifications.title')}
         >
-          <Bell className="w-5 h-5" />
+          <Bell className="w-4 h-4" />
           {unreadCount && unreadCount > 0 && (
             <Badge
               variant="destructive"
@@ -230,19 +226,19 @@ export function NotificationCenter() {
         <div className="absolute -top-8 -right-0 flex gap-1 opacity-0 hover:opacity-100 transition-opacity">
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onClick={() => setSoundEnabled(!soundEnabled)}
             title={soundEnabled ? 'إيقاف الصوت' : 'تشغيل الصوت'}
           >
             {soundEnabled ? (
-              <Volume2 className="w-4 h-4" />
+              <Volume2 className="w-3.5 h-3.5" />
             ) : (
-              <VolumeX className="w-4 h-4" />
+              <VolumeX className="w-3.5 h-3.5" />
             )}
           </Button>
           <Button
             variant="ghost"
-            size="sm"
+            size="icon"
             onClick={() => {
               if (!browserNotificationsEnabled) {
                 requestBrowserNotificationPermission();
@@ -253,9 +249,9 @@ export function NotificationCenter() {
             title={browserNotificationsEnabled ? 'إيقاف إشعارات المتصفح' : 'تفعيل إشعارات المتصفح'}
           >
             {browserNotificationsEnabled ? (
-              <Bell className="w-4 h-4" />
+              <Bell className="w-3.5 h-3.5" />
             ) : (
-              <BellOff className="w-4 h-4" />
+              <BellOff className="w-3.5 h-3.5" />
             )}
           </Button>
         </div>
@@ -282,7 +278,6 @@ export function NotificationCenter() {
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
-                size="sm"
                 onClick={() => setSoundEnabled(!soundEnabled)}
                 title={soundEnabled ? 'إيقاف الصوت' : 'تشغيل الصوت'}
               >
@@ -294,7 +289,6 @@ export function NotificationCenter() {
               </Button>
               <Button
                 variant="ghost"
-                size="sm"
                 onClick={() => {
                   if (!browserNotificationsEnabled) {
                     requestBrowserNotificationPermission();
@@ -313,7 +307,6 @@ export function NotificationCenter() {
               {unreadCount && unreadCount > 0 && (
                 <Button
                   variant="ghost"
-                  size="sm"
                   onClick={handleMarkAllAsRead}
                   disabled={markAllAsReadMutation.isPending}
                 >
@@ -321,17 +314,16 @@ export function NotificationCenter() {
                   {t('notifications.markAllRead')}
                 </Button>
               )}
-              <Button variant="ghost" size="sm" onClick={() => setIsOpen(false)}>
+              <Button variant="ghost" onClick={() => setIsOpen(false)}>
                 <X className="w-4 h-4" />
               </Button>
             </div>
           </div>
 
           {/* Filter Tabs */}
-          <div className="flex gap-2 p-4 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+          <div className="flex gap-2 p-4 border-b border-gray-200 dark:border-gray-700 horizontal-scroll">
             <Button
               variant={filterType === 'all' ? 'primary' : 'ghost'}
-              size="sm"
               onClick={() => setFilterType('all')}
               className="flex-shrink-0"
             >
@@ -339,7 +331,6 @@ export function NotificationCenter() {
             </Button>
             <Button
               variant={filterType === 'LOW_STOCK' || filterType === 'low_stock' ? 'primary' : 'ghost'}
-              size="sm"
               onClick={() => setFilterType('low_stock')}
               className="flex-shrink-0 gap-1"
             >
@@ -348,7 +339,6 @@ export function NotificationCenter() {
             </Button>
             <Button
               variant={filterType === 'OVERDUE_DEBT' || filterType === 'debt_overdue' ? 'primary' : 'ghost'}
-              size="sm"
               onClick={() => setFilterType('debt_overdue')}
               className="flex-shrink-0 gap-1"
             >
@@ -357,7 +347,6 @@ export function NotificationCenter() {
             </Button>
             <Button
               variant={filterType === 'WARRANTY_EXPIRING' || filterType === 'warranty_expiring' ? 'primary' : 'ghost'}
-              size="sm"
               onClick={() => setFilterType('warranty_expiring')}
               className="flex-shrink-0 gap-1"
             >
@@ -366,7 +355,6 @@ export function NotificationCenter() {
             </Button>
             <Button
               variant={filterType === 'daily_insights' ? 'primary' : 'ghost'}
-              size="sm"
               onClick={() => setFilterType('daily_insights')}
               className="flex-shrink-0 gap-1"
             >
@@ -376,7 +364,7 @@ export function NotificationCenter() {
           </div>
 
           {/* Notifications List */}
-          <div className="overflow-y-auto max-h-[60vh]">
+          <div className="scrollable-card" style={{ maxHeight: '60vh' }}>
             {isLoading ? (
               <div className="p-4 text-center text-gray-500 dark:text-gray-400">
                 {t('common.loading')}
@@ -403,7 +391,6 @@ export function NotificationCenter() {
                           <div className="flex-shrink-0">
                             <Button
                               variant="ghost"
-                              size="sm"
                               className="h-6 w-6 p-0"
                               onClick={(e) => {
                                 e.stopPropagation();

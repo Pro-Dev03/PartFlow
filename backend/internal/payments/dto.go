@@ -43,7 +43,6 @@ type PaymentListRequest struct {
 // PaymentResponse represents payment response
 type PaymentResponse struct {
 	ID             uuid.UUID  `json:"id"`
-	OrganizationID uuid.UUID `json:"organization_id"`
 	Type           string     `json:"type"`
 	ReferenceID    uuid.UUID `json:"reference_id"`
 	ReferenceName  *string    `json:"reference_name,omitempty"` // customer/supplier name

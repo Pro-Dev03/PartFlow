@@ -1,6 +1,7 @@
 import { getArabicErrorMessage, isRetryableError } from '../../lib/error-messages';
+import { appConfig } from '../../lib/config/app';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+const API_BASE_URL = appConfig.apiUrl;
 
 interface ApiResponse<T> {
   success: boolean;
@@ -34,6 +35,11 @@ class ApiClient {
   clearToken() {
     this.token = null;
     localStorage.removeItem('auth_token');
+  }
+
+  logout() {
+    this.clearToken();
+    this.clearCache();
   }
 
   private getCacheKey(endpoint: string, options: RequestInit): string {
@@ -110,6 +116,54 @@ class ApiClient {
       const data: ApiResponse<T> = await response.json();
 
       if (!response.ok) {
+        // Handle 401 Unauthorized - try to refresh token
+        if (response.status === 401 && this.token) {
+          try {
+            // Try to refresh token using auth API directly
+            const refreshResponse = await fetch(`${this.baseURL}/auth/refresh`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            });
+
+            if (refreshResponse.ok) {
+              const refreshData = await refreshResponse.json();
+              const newToken = refreshData.data?.token;
+              
+              if (newToken) {
+                this.setToken(newToken);
+                headers['Authorization'] = `Bearer ${newToken}`;
+                
+                // Retry request with new token
+                const retryResponse = await fetch(url, {
+                  ...options,
+                  headers,
+                });
+                const retryData: ApiResponse<T> = await retryResponse.json();
+                
+                if (!retryResponse.ok) {
+                  const error: any = new Error(retryData.error?.message || 'An error occurred');
+                  error.status = retryResponse.status;
+                  error.code = retryData.error?.code;
+                  error.response = retryData;
+                  error.arabicMessage = getArabicErrorMessage(error);
+                  throw error;
+                }
+                
+                return retryData;
+              }
+            }
+          } catch (refreshError) {
+            console.error('Token refresh failed:', refreshError);
+          }
+          
+          // If refresh failed, clear token and redirect
+          this.clearToken();
+          window.location.href = '/login';
+          throw new Error('Session expired. Please login again.');
+        }
+        
         // Create error object with status
         const error: any = new Error(data.error?.message || 'An error occurred');
         error.status = response.status;
@@ -135,8 +189,23 @@ class ApiClient {
     }
   }
 
-  async get<T>(endpoint: string, _params?: any, useCache: boolean = true): Promise<ApiResponse<T>> {
-    const cacheKey = this.getCacheKey(endpoint, { method: 'GET' });
+  async get<T = any>(endpoint: string, params?: any, useCache: boolean = true): Promise<ApiResponse<T>> {
+    // Build URL with query parameters
+    let url = endpoint;
+    if (params && Object.keys(params).length > 0) {
+      const queryParams = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          queryParams.append(key, String(value));
+        }
+      });
+      const queryString = queryParams.toString();
+      if (queryString) {
+        url = `${endpoint}?${queryString}`;
+      }
+    }
+    
+    const cacheKey = this.getCacheKey(url, { method: 'GET' });
     
     if (useCache) {
       const cached = this.getFromCache<T>(cacheKey);
@@ -145,7 +214,7 @@ class ApiClient {
       }
     }
     
-    const result = await this.requestWithRetry<T>(endpoint, { method: 'GET' });
+    const result = await this.requestWithRetry<T>(url, { method: 'GET' });
     
     if (useCache) {
       this.setCache(cacheKey, result);
@@ -154,7 +223,7 @@ class ApiClient {
     return result;
   }
 
-  async post<T>(endpoint: string, body: any): Promise<ApiResponse<T>> {
+  async post<T = any>(endpoint: string, body: any): Promise<ApiResponse<T>> {
     this.clearCachePattern(endpoint.split('/')[1]); // Clear cache for related endpoints
     return this.requestWithRetry<T>(endpoint, {
       method: 'POST',
@@ -162,7 +231,7 @@ class ApiClient {
     });
   }
 
-  async put<T>(endpoint: string, body: any): Promise<ApiResponse<T>> {
+  async put<T = any>(endpoint: string, body: any): Promise<ApiResponse<T>> {
     this.clearCachePattern(endpoint.split('/')[1]); // Clear cache for related endpoints
     return this.requestWithRetry<T>(endpoint, {
       method: 'PUT',
@@ -170,7 +239,7 @@ class ApiClient {
     });
   }
 
-  async patch<T>(endpoint: string, body: any): Promise<ApiResponse<T>> {
+  async patch<T = any>(endpoint: string, body: any): Promise<ApiResponse<T>> {
     this.clearCachePattern(endpoint.split('/')[1]); // Clear cache for related endpoints
     return this.requestWithRetry<T>(endpoint, {
       method: 'PATCH',
@@ -178,9 +247,24 @@ class ApiClient {
     });
   }
 
-  async delete<T>(endpoint: string, _params?: any): Promise<ApiResponse<T>> {
+  async delete<T = any>(endpoint: string, params?: any): Promise<ApiResponse<T>> {
+    // Build URL with query parameters
+    let url = endpoint;
+    if (params && Object.keys(params).length > 0) {
+      const queryParams = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          queryParams.append(key, String(value));
+        }
+      });
+      const queryString = queryParams.toString();
+      if (queryString) {
+        url = `${endpoint}?${queryString}`;
+      }
+    }
+    
     this.clearCachePattern(endpoint.split('/')[1]); // Clear cache for related endpoints
-    return this.requestWithRetry<T>(endpoint, { method: 'DELETE' });
+    return this.requestWithRetry<T>(url, { method: 'DELETE' });
   }
 }
 

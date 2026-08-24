@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { cn } from '../../lib/utils';
+import { useState, useMemo, useEffect } from 'react';
+import { cn } from '../../utils';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import {
@@ -74,6 +74,7 @@ export function DataTable<T extends Record<string, any>>({
   expandable = false,
   renderExpanded,
 }: DataTableProps<T>) {
+  const [isMobile, setIsMobile] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -83,6 +84,16 @@ export function DataTable<T extends Record<string, any>>({
   );
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const visibleColumns = useMemo(() => 
     columns.filter(col => columnVisibility.has(col.key)),
@@ -198,7 +209,7 @@ export function DataTable<T extends Record<string, any>>({
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan"></div>
       </div>
     );
   }
@@ -210,8 +221,14 @@ export function DataTable<T extends Record<string, any>>({
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+      <div className={cn(
+        "flex items-center gap-4",
+        isMobile ? "flex-col items-stretch" : "justify-between"
+      )}>
+        <div className={cn(
+          "flex items-center gap-2",
+          isMobile ? "flex-wrap w-full" : ""
+        )}>
           {selectable && selectedRows.size > 0 && (
             <Badge variant="info" className="gap-1">
               {selectedRows.size} selected
@@ -219,13 +236,16 @@ export function DataTable<T extends Record<string, any>>({
           )}
           
           {selectedRows.size > 0 && bulkActions.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className={cn(
+              "flex items-center gap-2",
+              isMobile ? "flex-wrap w-full" : ""
+            )}>
               {bulkActions.map((action, index) => (
                 <Button
                   key={index}
                   variant={action.variant || 'secondary'}
-                  size="sm"
                   onClick={() => action.onClick(selectedData)}
+                  className={isMobile ? "flex-1" : ""}
                 >
                   {action.icon && <action.icon className="w-4 h-4" />}
                   {action.label}
@@ -235,22 +255,24 @@ export function DataTable<T extends Record<string, any>>({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className={cn(
+          "flex items-center gap-2",
+          isMobile ? "flex-wrap w-full justify-end" : ""
+        )}>
           {refreshable && onRefresh && (
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
               onClick={onRefresh}
               className="text-text-secondary hover:text-text-primary"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3.5 h-3.5" />
             </Button>
           )}
           
           {onExport && (
             <Button
               variant="secondary"
-              size="sm"
               onClick={handleExport}
               className="gap-2"
             >
@@ -262,11 +284,11 @@ export function DataTable<T extends Record<string, any>>({
           <div className="relative">
             <Button
               variant="ghost"
-              size="sm"
+              size="icon"
               onClick={() => setShowColumnMenu(!showColumnMenu)}
               className="text-text-secondary hover:text-text-primary"
             >
-              <MoreHorizontal className="w-4 h-4" />
+              <MoreHorizontal className="w-3.5 h-3.5" />
             </Button>
             
             {showColumnMenu && (
@@ -292,7 +314,10 @@ export function DataTable<T extends Record<string, any>>({
       </div>
 
       {/* Table */}
-      <div className="rounded-lg border border-border bg-surface overflow-hidden">
+      <div className={cn(
+        "rounded-lg border border-border bg-surface overflow-hidden",
+        isMobile && "overflow-x-auto"
+      )}>
         <Table>
           <TableHeader>
             <TableRow>
@@ -312,7 +337,8 @@ export function DataTable<T extends Record<string, any>>({
                   key={column.key}
                   className={cn(
                     'cursor-pointer hover:bg-surface-elevated transition-colors',
-                    column.sortable && 'select-none'
+                    column.sortable && 'select-none',
+                    isMobile && "whitespace-nowrap"
                   )}
                   style={{ width: column.width }}
                   onClick={() => column.sortable && handleSort(column.key)}
@@ -363,23 +389,24 @@ export function DataTable<T extends Record<string, any>>({
                     )}
                     {expandable && (
                       <TableCell>
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleRowExpand(rowId);
                           }}
-                          className="text-text-tertiary hover:text-text-primary transition-colors"
                         >
                           {isExpanded ? (
-                            <ChevronDown className="w-4 h-4" />
+                            <ChevronDown className="w-3.5 h-3.5" />
                           ) : (
-                            <ChevronUp className="w-4 h-4" />
+                            <ChevronUp className="w-3.5 h-3.5" />
                           )}
-                        </button>
+                        </Button>
                       </TableCell>
                     )}
                     {visibleColumns.map((column) => (
-                      <TableCell key={column.key}>
+                      <TableCell key={column.key} className={isMobile ? "whitespace-nowrap" : ""}>
                         {column.render ? column.render(row) : String(row[column.key] || '')}
                       </TableCell>
                     ))}
@@ -400,29 +427,39 @@ export function DataTable<T extends Record<string, any>>({
 
       {/* Pagination */}
       {pagination && (
-        <div className="flex items-center justify-between">
+        <div className={cn(
+          "flex items-center gap-4",
+          isMobile ? "flex-col items-stretch" : "justify-between"
+        )}>
           <div className="text-sm text-text-secondary">
             Showing {((pagination.page - 1) * pagination.pageSize) + 1} to{' '}
             {Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total} results
           </div>
-          <div className="flex items-center gap-2">
-            <button
+          <div className={cn(
+            "flex items-center gap-2",
+            isMobile ? "w-full justify-between" : ""
+          )}>
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => pagination.onPageChange(pagination.page - 1)}
               disabled={pagination.page === 1}
-              className="px-3 py-1 rounded border border-border hover:bg-surface-elevated disabled:opacity-50 disabled:cursor-not-allowed text-sm text-text-primary"
+              className={isMobile ? "flex-1" : ""}
             >
               Previous
-            </button>
+            </Button>
             <span className="text-sm text-text-primary">
               Page {pagination.page}
             </span>
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => pagination.onPageChange(pagination.page + 1)}
               disabled={pagination.page * pagination.pageSize >= pagination.total}
-              className="px-3 py-1 rounded border border-border hover:bg-surface-elevated disabled:opacity-50 disabled:cursor-not-allowed text-sm text-text-primary"
+              className={isMobile ? "flex-1" : ""}
             >
               Next
-            </button>
+            </Button>
           </div>
         </div>
       )}

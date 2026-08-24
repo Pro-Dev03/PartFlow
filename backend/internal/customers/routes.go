@@ -33,6 +33,6 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 		customers.POST("/:id/debt-payments", handler.ProcessDebtPayment)
 	}
 
-	// Organization-level debt collection routes
+	// System-level debt collection routes
 	router.GET("/debt-collections/pending", handler.GetPendingDebtCollections)
 }

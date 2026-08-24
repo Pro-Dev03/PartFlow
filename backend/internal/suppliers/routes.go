@@ -8,7 +8,7 @@ import (
 // RegisterRoutes registers suppliers routes
 func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 	repo := NewRepository(db)
-	service := NewService(repo)
+	service := NewService(repo, db)
 	handler := NewHandler(service)
 
 	// Supplier routes
@@ -33,6 +33,6 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 		suppliers.POST("/:id/debt-payments", handler.ProcessDebtPayment)
 	}
 
-	// Organization-level debt collection routes
+	// System-level debt collection routes
 	router.GET("/supplier-debt-collections/pending", handler.GetPendingDebtCollections)
 }

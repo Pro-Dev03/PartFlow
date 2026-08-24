@@ -61,7 +61,7 @@ export function CheckoutFlow({ cart, total, onComplete, onCancel }: CheckoutFlow
       <Card className="w-full max-w-md mx-auto">
         <CardContent className="p-8 text-center">
           <div className="w-16 h-16 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <CheckCircle className="w-8 h-8 text-green-600" />
+            <CheckCircle className="w-5 h-5 text-green-600" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
             تمت العملية بنجاح
@@ -133,7 +133,7 @@ export function CheckoutFlow({ cart, total, onComplete, onCancel }: CheckoutFlow
 
           {/* Actions */}
           <div className="space-y-2">
-            <Button onClick={handleConfirm} className="w-full" size="lg">
+            <Button onClick={handleConfirm} className="w-full">
               تأكيد الدفع
             </Button>
             <Button onClick={() => setStep('payment')} variant="outline" className="w-full">
@@ -175,7 +175,7 @@ export function CheckoutFlow({ cart, total, onComplete, onCancel }: CheckoutFlow
                   key={method.value}
                   variant={paymentMethod === method.value ? 'primary' : 'outline'}
                   onClick={() => setPaymentMethod(method.value as any)}
-                  className="flex flex-col items-center gap-1 h-auto py-3"
+                  className="flex flex-col items-center gap-1 h-auto py-2"
                 >
                   <Icon className="w-4 h-4" />
                   <span className="text-xs">{method.label}</span>
@@ -210,10 +210,9 @@ export function CheckoutFlow({ cart, total, onComplete, onCancel }: CheckoutFlow
 
         {/* Actions */}
         <div className="space-y-2">
-          <Button 
-            onClick={handlePaymentSubmit} 
-            className="w-full" 
-            size="lg"
+          <Button
+            onClick={handlePaymentSubmit}
+            className="w-full"
             disabled={paymentMethod === 'credit' && paid <= 0}
           >
             متابعة

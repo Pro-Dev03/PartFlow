@@ -25,7 +25,6 @@ func main() {
 	// Start background workers
 	go startReservationExpirationWorker(ctx, logger)
 	go startDebtScanWorker(ctx, logger)
-	go startWarrantyExpirationWorker(ctx, logger)
 	go startLowStockScanWorker(ctx, logger)
 	go startDailyInsightsWorker(ctx, logger)
 
@@ -81,22 +80,6 @@ func startDebtScanWorker(ctx context.Context, logger zerolog.Logger) {
 	}
 }
 
-// startWarrantyExpirationWorker checks for expiring warranties
-func startWarrantyExpirationWorker(ctx context.Context, logger zerolog.Logger) {
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info().Msg("Warranty expiration worker stopped")
-			return
-		case <-ticker.C:
-			logger.Info().Msg("Checking for expiring warranties...")
-			// TODO: Implement warranty expiration logic
-		}
-	}
-}
 
 // startLowStockScanWorker scans for low stock items
 func startLowStockScanWorker(ctx context.Context, logger zerolog.Logger) {

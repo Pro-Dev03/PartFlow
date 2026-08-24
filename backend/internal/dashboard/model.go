@@ -8,7 +8,6 @@ import (
 
 // DashboardData represents aggregated dashboard data
 type DashboardData struct {
-	OrganizationID uuid.UUID        `json:"organization_id"`
 	Date           time.Time        `json:"date"`
 	
 	// Sales metrics
@@ -34,7 +33,6 @@ type DashboardData struct {
 	// Alerts
 	LowStockAlerts    []LowStockAlert    `json:"low_stock_alerts"`
 	OverdueAlerts     []OverdueAlert     `json:"overdue_alerts"`
-	WarrantyAlerts    []WarrantyAlert    `json:"warranty_alerts"`
 	
 	// Top performers
 	TopProducts       []TopProduct       `json:"top_products"`
@@ -65,16 +63,6 @@ type OverdueAlert struct {
 	Amount       int64     `json:"amount"`
 	DaysOverdue  int       `json:"days_overdue"`
 	DueDate      time.Time `json:"due_date"`
-}
-
-// WarrantyAlert represents a warranty expiring alert
-type WarrantyAlert struct {
-	ProductID   uuid.UUID `json:"product_id"`
-	ProductName string    `json:"product_name"`
-	CustomerID   uuid.UUID `json:"customer_id"`
-	CustomerName string    `json:"customer_name"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	DaysRemaining int    `json:"days_remaining"`
 }
 
 // TopProduct represents a top performing product

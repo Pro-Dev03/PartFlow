@@ -24,8 +24,8 @@ func NewRepository(db *sqlx.DB) *Repository {
 // CreateCategory creates a new category
 func (r *Repository) CreateCategory(ctx context.Context, category *Category) error {
 	query := `
-		INSERT INTO categories (id, organization_id, name, description, parent_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO categories (id, name, description, parent_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, created_at, updated_at
 	`
 	now := time.Now()
@@ -35,7 +35,6 @@ func (r *Repository) CreateCategory(ctx context.Context, category *Category) err
 
 	err := r.db.QueryRowContext(ctx, query,
 		category.ID,
-		category.OrganizationID,
 		category.Name,
 		category.Description,
 		category.ParentID,
@@ -49,7 +48,6 @@ func (r *Repository) CreateCategory(ctx context.Context, category *Category) err
 // GetCategoryByID retrieves a category by ID
 func (r *Repository) GetCategoryByID(ctx context.Context, id uuid.UUID) (*Category, error) {
 	query := `
-		SELECT id, organization_id, name, description, parent_id, created_at, updated_at
 		FROM categories
 		WHERE id = $1
 	`
@@ -61,16 +59,14 @@ func (r *Repository) GetCategoryByID(ctx context.Context, id uuid.UUID) (*Catego
 	return &category, err
 }
 
-// ListCategories retrieves all categories for an organization
-func (r *Repository) ListCategories(ctx context.Context, organizationID uuid.UUID) ([]Category, error) {
+// ListCategories retrieves all categories
+func (r *Repository) ListCategories(ctx context.Context, ) ([]Category, error) {
 	query := `
-		SELECT id, organization_id, name, description, parent_id, created_at, updated_at
 		FROM categories
-		WHERE organization_id = $1
 		ORDER BY name
 	`
 	var categories []Category
-	err := r.db.SelectContext(ctx, &categories, query, organizationID)
+	err := r.db.SelectContext(ctx, &categories, query)
 	return categories, err
 }
 
@@ -79,7 +75,6 @@ func (r *Repository) UpdateCategory(ctx context.Context, category *Category) err
 	query := `
 		UPDATE categories
 		SET name = $1, description = $2, parent_id = $3, updated_at = $4
-		WHERE id = $5 AND organization_id = $6
 	`
 	category.UpdatedAt = time.Now()
 	result, err := r.db.ExecContext(ctx, query,
@@ -88,7 +83,6 @@ func (r *Repository) UpdateCategory(ctx context.Context, category *Category) err
 		category.ParentID,
 		category.UpdatedAt,
 		category.ID,
-		category.OrganizationID,
 	)
 	if err != nil {
 		return err
@@ -107,7 +101,7 @@ func (r *Repository) UpdateCategory(ctx context.Context, category *Category) err
 }
 
 // DeleteCategory deletes a category
-func (r *Repository) DeleteCategory(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
+func (r *Repository) DeleteCategory(ctx context.Context, id uuid.UUID, ) error {
 	// Check if category has products
 	var count int
 	checkQuery := `SELECT COUNT(*) FROM products WHERE category_id = $1`
@@ -120,8 +114,8 @@ func (r *Repository) DeleteCategory(ctx context.Context, id uuid.UUID, organizat
 		return ErrCategoryHasProducts
 	}
 
-	query := `DELETE FROM categories WHERE id = $1 AND organization_id = $2`
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+	query := `DELETE FROM categories WHERE id = $1`
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return err
 	}
@@ -143,8 +137,8 @@ func (r *Repository) DeleteCategory(ctx context.Context, id uuid.UUID, organizat
 // CreateBrand creates a new brand
 func (r *Repository) CreateBrand(ctx context.Context, brand *Brand) error {
 	query := `
-		INSERT INTO brands (id, organization_id, name, description, logo_url, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO brands (id, name, description, logo_url, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, created_at, updated_at
 	`
 	now := time.Now()
@@ -154,7 +148,6 @@ func (r *Repository) CreateBrand(ctx context.Context, brand *Brand) error {
 
 	err := r.db.QueryRowContext(ctx, query,
 		brand.ID,
-		brand.OrganizationID,
 		brand.Name,
 		brand.Description,
 		brand.LogoURL,
@@ -168,7 +161,6 @@ func (r *Repository) CreateBrand(ctx context.Context, brand *Brand) error {
 // GetBrandByID retrieves a brand by ID
 func (r *Repository) GetBrandByID(ctx context.Context, id uuid.UUID) (*Brand, error) {
 	query := `
-		SELECT id, organization_id, name, description, logo_url, created_at, updated_at
 		FROM brands
 		WHERE id = $1
 	`
@@ -180,16 +172,14 @@ func (r *Repository) GetBrandByID(ctx context.Context, id uuid.UUID) (*Brand, er
 	return &brand, err
 }
 
-// ListBrands retrieves all brands for an organization
-func (r *Repository) ListBrands(ctx context.Context, organizationID uuid.UUID) ([]Brand, error) {
+// ListBrands retrieves all brands
+func (r *Repository) ListBrands(ctx context.Context, ) ([]Brand, error) {
 	query := `
-		SELECT id, organization_id, name, description, logo_url, created_at, updated_at
 		FROM brands
-		WHERE organization_id = $1
 		ORDER BY name
 	`
 	var brands []Brand
-	err := r.db.SelectContext(ctx, &brands, query, organizationID)
+	err := r.db.SelectContext(ctx, &brands, query)
 	return brands, err
 }
 
@@ -198,7 +188,6 @@ func (r *Repository) UpdateBrand(ctx context.Context, brand *Brand) error {
 	query := `
 		UPDATE brands
 		SET name = $1, description = $2, logo_url = $3, updated_at = $4
-		WHERE id = $5 AND organization_id = $6
 	`
 	brand.UpdatedAt = time.Now()
 	result, err := r.db.ExecContext(ctx, query,
@@ -207,7 +196,6 @@ func (r *Repository) UpdateBrand(ctx context.Context, brand *Brand) error {
 		brand.LogoURL,
 		brand.UpdatedAt,
 		brand.ID,
-		brand.OrganizationID,
 	)
 	if err != nil {
 		return err
@@ -226,7 +214,7 @@ func (r *Repository) UpdateBrand(ctx context.Context, brand *Brand) error {
 }
 
 // DeleteBrand deletes a brand
-func (r *Repository) DeleteBrand(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
+func (r *Repository) DeleteBrand(ctx context.Context, id uuid.UUID, ) error {
 	// Check if brand has products
 	var count int
 	checkQuery := `SELECT COUNT(*) FROM products WHERE brand_id = $1`
@@ -239,8 +227,8 @@ func (r *Repository) DeleteBrand(ctx context.Context, id uuid.UUID, organization
 		return ErrBrandHasProducts
 	}
 
-	query := `DELETE FROM brands WHERE id = $1 AND organization_id = $2`
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+	query := `DELETE FROM brands WHERE id = $1`
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return err
 	}
@@ -262,7 +250,7 @@ func (r *Repository) DeleteBrand(ctx context.Context, id uuid.UUID, organization
 // CreateProduct creates a new product
 func (r *Repository) CreateProduct(ctx context.Context, product *Product) error {
 	query := `
-		INSERT INTO products (id, organization_id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, created_at, updated_at)
+		INSERT INTO products (id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, is_active, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING id, created_at, updated_at
 	`
@@ -270,10 +258,10 @@ func (r *Repository) CreateProduct(ctx context.Context, product *Product) error 
 	product.ID = uuid.New()
 	product.CreatedAt = now
 	product.UpdatedAt = now
+	product.IsActive = true
 
 	err := r.db.QueryRowContext(ctx, query,
 		product.ID,
-		product.OrganizationID,
 		product.CategoryID,
 		product.BrandID,
 		product.Name,
@@ -285,6 +273,7 @@ func (r *Repository) CreateProduct(ctx context.Context, product *Product) error 
 		product.TrackIndividual,
 		product.MinStockLevel,
 		product.WarrantyDays,
+		product.IsActive,
 		product.CreatedAt,
 		product.UpdatedAt,
 	).Scan(&product.ID, &product.CreatedAt, &product.UpdatedAt)
@@ -295,7 +284,6 @@ func (r *Repository) CreateProduct(ctx context.Context, product *Product) error 
 // GetProductByID retrieves a product by ID
 func (r *Repository) GetProductByID(ctx context.Context, id uuid.UUID) (*Product, error) {
 	query := `
-		SELECT id, organization_id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, created_at, updated_at
 		FROM products
 		WHERE id = $1
 	`
@@ -308,14 +296,13 @@ func (r *Repository) GetProductByID(ctx context.Context, id uuid.UUID) (*Product
 }
 
 // GetProductByBarcode retrieves a product by barcode
-func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string, organizationID uuid.UUID) (*Product, error) {
+func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string, ) (*Product, error) {
 	query := `
-		SELECT id, organization_id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, created_at, updated_at
 		FROM products
-		WHERE barcode = $1 AND organization_id = $2
+		WHERE barcode = $1
 	`
 	var product Product
-	err := r.db.GetContext(ctx, &product, query, barcode, organizationID)
+	err := r.db.GetContext(ctx, &product, query, barcode)
 	if err == sql.ErrNoRows {
 		return nil, ErrProductNotFound
 	}
@@ -323,16 +310,17 @@ func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string, or
 }
 
 // ListProducts retrieves products with pagination and filters
-func (r *Repository) ListProducts(ctx context.Context, organizationID uuid.UUID, req *ProductListRequest) ([]Product, int, error) {
+func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) ([]Product, int, error) {
 	// Build base query
 	baseQuery := `
+		SELECT id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, is_active, created_at, updated_at
 		FROM products
-		WHERE organization_id = $1
+		WHERE 1=1
 	`
-	countQuery := `SELECT COUNT(*) ` + baseQuery
+	countQuery := `SELECT COUNT(*) FROM products WHERE 1=1`
 
-	args := []interface{}{organizationID}
-	argCount := 1
+	args := []interface{}{}
+	argCount := 0
 
 	// Add filters
 	if req.CategoryID != nil {
@@ -394,9 +382,8 @@ func (r *Repository) ListProducts(ctx context.Context, organizationID uuid.UUID,
 	args = append(args, req.PerPage, offset)
 
 	// Execute query
-	query := `SELECT id, organization_id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, created_at, updated_at ` + baseQuery
 	var products []Product
-	err = r.db.SelectContext(ctx, &products, query, args...)
+	err = r.db.SelectContext(ctx, &products, baseQuery, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -409,7 +396,7 @@ func (r *Repository) UpdateProduct(ctx context.Context, product *Product) error 
 	query := `
 		UPDATE products
 		SET category_id = $1, brand_id = $2, name = $3, description = $4, model = $5, sku = $6, barcode = $7, track_serial = $8, track_individual = $9, min_stock_level = $10, warranty_days = $11, updated_at = $12
-		WHERE id = $13 AND organization_id = $14
+		WHERE id = $13
 	`
 	product.UpdatedAt = time.Now()
 	result, err := r.db.ExecContext(ctx, query,
@@ -426,7 +413,6 @@ func (r *Repository) UpdateProduct(ctx context.Context, product *Product) error 
 		product.WarrantyDays,
 		product.UpdatedAt,
 		product.ID,
-		product.OrganizationID,
 	)
 	if err != nil {
 		return err
@@ -445,9 +431,9 @@ func (r *Repository) UpdateProduct(ctx context.Context, product *Product) error 
 }
 
 // DeleteProduct deletes a product
-func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	query := `DELETE FROM products WHERE id = $1 AND organization_id = $2`
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM products WHERE id = $1`
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return err
 	}
@@ -477,9 +463,9 @@ func (r *Repository) GetProductStockCount(ctx context.Context, productID uuid.UU
 }
 
 // ArchiveProduct archives a product (soft delete)
-func (r *Repository) ArchiveProduct(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	query := `UPDATE products SET is_active = false, updated_at = NOW() WHERE id = $1 AND organization_id = $2`
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+func (r *Repository) ArchiveProduct(ctx context.Context, id uuid.UUID) error {
+	query := `UPDATE products SET is_active = false, updated_at = $1 WHERE id = $2`
+	result, err := r.db.ExecContext(ctx, query, time.Now(), id)
 	if err != nil {
 		return err
 	}
@@ -521,18 +507,17 @@ func (r *Repository) GetReservedItemCount(ctx context.Context, productID uuid.UU
 }
 
 // SearchProducts searches products by name, SKU, or barcode
-func (r *Repository) SearchProducts(ctx context.Context, organizationID uuid.UUID, query string, limit int) ([]Product, error) {
+func (r *Repository) SearchProducts(ctx context.Context, query string, limit int) ([]Product, error) {
 	searchQuery := `
-		SELECT id, organization_id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, created_at, updated_at
+		SELECT id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, is_active, created_at, updated_at
 		FROM products
-		WHERE organization_id = $1
-		AND (name ILIKE $2 OR model ILIKE $2 OR sku ILIKE $2 OR barcode ILIKE $2)
+		WHERE (name ILIKE $1 OR model ILIKE $1 OR sku ILIKE $1 OR barcode ILIKE $1)
 		AND is_active = true
 		ORDER BY name
-		LIMIT $3
+		LIMIT $2
 	`
 
 	var products []Product
-	err := r.db.SelectContext(ctx, &products, searchQuery, organizationID, "%"+query+"%", limit)
+	err := r.db.SelectContext(ctx, &products, searchQuery, "%"+query+"%", limit)
 	return products, err
 }

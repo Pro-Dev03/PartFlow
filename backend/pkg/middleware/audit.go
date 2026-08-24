@@ -45,9 +45,8 @@ func AuditMiddleware(config AuditMiddlewareConfig) gin.HandlerFunc {
 		// Calculate duration
 		duration := time.Since(start)
 
-		// Get user and organization context
+		// Get user context
 		userID := GetUserID(c)
-		organizationID := GetOrganizationID(c)
 		requestID := GetRequestID(c)
 
 		// Determine action based on HTTP method
@@ -65,7 +64,6 @@ func AuditMiddleware(config AuditMiddlewareConfig) gin.HandlerFunc {
 		// Prepare audit log data
 		auditData := map[string]interface{}{
 			"user_id":         userID,
-			"organization_id": organizationID,
 			"action":          action,
 			"entity_type":     entityType,
 			"request_id":      requestID,
@@ -159,20 +157,18 @@ func NewAuditLogHelper() *AuditLogHelper {
 // LogAction logs a specific action manually
 func (h *AuditLogHelper) LogAction(c *gin.Context, action, entityType string, entityID uuid.UUID, description string, status string) {
 	userID := GetUserID(c)
-	organizationID := GetOrganizationID(c)
 	requestID := GetRequestID(c)
 
 	auditData := map[string]interface{}{
-		"user_id":         userID,
-		"organization_id": organizationID,
-		"action":          action,
-		"entity_type":     entityType,
-		"entity_id":       entityID,
-		"request_id":      requestID,
-		"description":     description,
-		"status":          status,
-		"ip_address":      c.ClientIP(),
-		"user_agent":      c.GetHeader("User-Agent"),
+		"user_id":     userID,
+		"action":      action,
+		"entity_type": entityType,
+		"entity_id":   entityID,
+		"request_id":  requestID,
+		"description": description,
+		"status":      status,
+		"ip_address":  c.ClientIP(),
+		"user_agent":  c.GetHeader("User-Agent"),
 	}
 
 	c.Set("manual_audit_log", auditData)

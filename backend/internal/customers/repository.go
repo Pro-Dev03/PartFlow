@@ -22,12 +22,11 @@ func NewRepository(db *sqlx.DB) *Repository {
 // Create creates a new customer
 func (r *Repository) Create(ctx context.Context, customer *Customer) error {
 	query := `
-		INSERT INTO customers (id, organization_id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		INSERT INTO customers (id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		customer.ID, customer.OrganizationID, customer.Code, customer.Name,
-		customer.Email, customer.Phone, customer.Address, customer.City,
+		customer.ID, customer.Code, customer.Name, customer.Email, customer.Phone, customer.Address, customer.City,
 		customer.Country, customer.TaxID, customer.CreditLimit, customer.CurrentBalance,
 		customer.Notes, customer.IsActive, customer.CreatedAt, customer.UpdatedAt,
 	)
@@ -38,14 +37,14 @@ func (r *Repository) Create(ctx context.Context, customer *Customer) error {
 }
 
 // GetByID retrieves a customer by ID
-func (r *Repository) GetByID(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*Customer, error) {
+func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Customer, error) {
 	query := `
-		SELECT id, organization_id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at
+		SELECT id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at
 		FROM customers
-		WHERE id = $1 AND organization_id = $2
+		WHERE id = $1
 	`
 	var customer Customer
-	err := r.db.GetContext(ctx, &customer, query, id, organizationID)
+	err := r.db.GetContext(ctx, &customer, query, id)
 	if err != nil {
 		return nil, ErrCustomerNotFound
 	}
@@ -53,14 +52,14 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID, organizationID u
 }
 
 // GetByCode retrieves a customer by code
-func (r *Repository) GetByCode(ctx context.Context, code string, organizationID uuid.UUID) (*Customer, error) {
+func (r *Repository) GetByCode(ctx context.Context, code string) (*Customer, error) {
 	query := `
-		SELECT id, organization_id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at
+		SELECT id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at
 		FROM customers
-		WHERE code = $1 AND organization_id = $2
+		WHERE code = $1
 	`
 	var customer Customer
-	err := r.db.GetContext(ctx, &customer, query, code, organizationID)
+	err := r.db.GetContext(ctx, &customer, query, code)
 	if err != nil {
 		return nil, ErrCustomerNotFound
 	}
@@ -68,20 +67,23 @@ func (r *Repository) GetByCode(ctx context.Context, code string, organizationID 
 }
 
 // List retrieves customers with pagination and filters
-func (r *Repository) List(ctx context.Context, organizationID uuid.UUID, page, perPage int, search string, isActive *bool) ([]Customer, int, error) {
+func (r *Repository) List(ctx context.Context, page, perPage int, search string, isActive *bool) ([]Customer, int, error) {
 	offset := (page - 1) * perPage
 
 	query := `
-		SELECT id, organization_id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at
+		SELECT id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at
 		FROM customers
-		WHERE organization_id = $1
+		WHERE 1=1
 	`
-	args := []interface{}{organizationID}
-	argCount := 1
+	countQuery := `SELECT COUNT(*) FROM customers WHERE 1=1`
+	
+	args := []interface{}{}
+	argCount := 0
 
 	if search != "" {
 		argCount++
 		query += fmt.Sprintf(" AND (name ILIKE $%d OR code ILIKE $%d OR email ILIKE $%d OR phone ILIKE $%d)", argCount, argCount, argCount, argCount)
+		countQuery += fmt.Sprintf(" AND (name ILIKE $%d OR code ILIKE $%d OR email ILIKE $%d OR phone ILIKE $%d)", argCount, argCount, argCount, argCount)
 		searchPattern := "%" + search + "%"
 		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
 		argCount += 3
@@ -90,30 +92,12 @@ func (r *Repository) List(ctx context.Context, organizationID uuid.UUID, page, p
 	if isActive != nil {
 		argCount++
 		query += fmt.Sprintf(" AND is_active = $%d", argCount)
+		countQuery += fmt.Sprintf(" AND is_active = $%d", argCount)
 		args = append(args, *isActive)
 	}
 
-	// Get total count
-	countQuery := "SELECT COUNT(*) FROM customers WHERE organization_id = $1"
-	countArgs := []interface{}{organizationID}
-	countArgCount := 1
-
-	if search != "" {
-		countArgCount++
-		countQuery += fmt.Sprintf(" AND (name ILIKE $%d OR code ILIKE $%d OR email ILIKE $%d OR phone ILIKE $%d)", countArgCount, countArgCount, countArgCount, countArgCount)
-		searchPattern := "%" + search + "%"
-		countArgs = append(countArgs, searchPattern, searchPattern, searchPattern, searchPattern)
-		countArgCount += 3
-	}
-
-	if isActive != nil {
-		countArgCount++
-		countQuery += fmt.Sprintf(" AND is_active = $%d", countArgCount)
-		countArgs = append(countArgs, *isActive)
-	}
-
 	var total int
-	err := r.db.GetContext(ctx, &total, countQuery, countArgs...)
+	err := r.db.GetContext(ctx, &total, countQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count customers: %w", err)
 	}
@@ -136,13 +120,12 @@ func (r *Repository) Update(ctx context.Context, customer *Customer) error {
 	query := `
 		UPDATE customers
 		SET code = $2, name = $3, email = $4, phone = $5, address = $6, city = $7, country = $8, tax_id = $9, credit_limit = $10, notes = $11, is_active = $12, updated_at = $13
-		WHERE id = $1 AND organization_id = $14
+		WHERE id = $1
 	`
 	result, err := r.db.ExecContext(ctx, query,
 		customer.ID, customer.Code, customer.Name, customer.Email, customer.Phone,
 		customer.Address, customer.City, customer.Country, customer.TaxID,
 		customer.CreditLimit, customer.Notes, customer.IsActive, customer.UpdatedAt,
-		customer.OrganizationID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update customer: %w", err)
@@ -157,9 +140,9 @@ func (r *Repository) Update(ctx context.Context, customer *Customer) error {
 }
 
 // Delete deletes a customer
-func (r *Repository) Delete(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	query := `DELETE FROM customers WHERE id = $1 AND organization_id = $2`
-	result, err := r.db.ExecContext(ctx, query, id, organizationID)
+func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM customers WHERE id = $1`
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete customer: %w", err)
 	}
@@ -172,14 +155,54 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID, organizationID uu
 	return nil
 }
 
+// HasActiveTransactions checks if customer has active sales/transactions
+func (r *Repository) HasActiveTransactions(ctx context.Context, customerID uuid.UUID) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM sales 
+			WHERE customer_id = $1 
+			AND status != 'cancelled'
+			AND created_at > NOW() - INTERVAL '1 year'
+		)
+	`
+	
+	var hasTransactions bool
+	err := r.db.GetContext(ctx, &hasTransactions, query, customerID)
+	if err != nil {
+		return false, fmt.Errorf("failed to check active transactions: %w", err)
+	}
+	
+	return hasTransactions, nil
+}
+
+// HasActiveWarranties checks if customer has active warranties
+func (r *Repository) HasActiveWarranties(ctx context.Context, customerID uuid.UUID) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM warranties 
+			WHERE customer_id = $1 
+			AND is_active = true 
+			AND expires_at > NOW()
+		)
+	`
+	
+	var hasWarranties bool
+	err := r.db.GetContext(ctx, &hasWarranties, query, customerID)
+	if err != nil {
+		return false, fmt.Errorf("failed to check active warranties: %w", err)
+	}
+	
+	return hasWarranties, nil
+}
+
 // UpdateBalance updates customer balance
-func (r *Repository) UpdateBalance(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID, amount float64) error {
+func (r *Repository) UpdateBalance(ctx context.Context, customerID uuid.UUID, amount float64) error {
 	query := `
 		UPDATE customers
 		SET current_balance = current_balance + $1, updated_at = NOW()
-		WHERE id = $2 AND organization_id = $3
+		WHERE id = $2
 	`
-	result, err := r.db.ExecContext(ctx, query, amount, customerID, organizationID)
+	result, err := r.db.ExecContext(ctx, query, amount, customerID)
 	if err != nil {
 		return fmt.Errorf("failed to update customer balance: %w", err)
 	}
@@ -193,7 +216,7 @@ func (r *Repository) UpdateBalance(ctx context.Context, customerID uuid.UUID, or
 }
 
 // GetCustomerLedger retrieves customer ledger entries
-func (r *Repository) GetCustomerLedger(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID) ([]LedgerEntry, float64, float64, float64, error) {
+func (r *Repository) GetCustomerLedger(ctx context.Context, customerID uuid.UUID) ([]LedgerEntry, float64, float64, float64, error) {
 	// Get ledger entries
 	query := `
 		SELECT id, customer_id, type, amount, balance, description, reference_id, created_at
@@ -356,18 +379,17 @@ func (r *Repository) GetDebtCollections(ctx context.Context, customerID uuid.UUI
 }
 
 // GetPendingDebtCollections retrieves pending debt collection actions
-func (r *Repository) GetPendingDebtCollections(ctx context.Context, organizationID uuid.UUID) ([]DebtCollection, error) {
+func (r *Repository) GetPendingDebtCollections(ctx context.Context) ([]DebtCollection, error) {
 	query := `
 		SELECT dc.id, dc.customer_id, dc.type, dc.status, dc.notes, dc.scheduled_date, dc.completed_date, dc.created_at
 		FROM debt_collections dc
 		JOIN customers c ON dc.customer_id = c.id
-		WHERE c.organization_id = $1
-		AND dc.status = 'pending'
+		WHERE dc.status = 'pending'
 		AND dc.scheduled_date <= NOW()
 		ORDER BY dc.scheduled_date ASC
 	`
 	var collections []DebtCollection
-	err := r.db.SelectContext(ctx, &collections, query, organizationID)
+	err := r.db.SelectContext(ctx, &collections, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pending debt collections: %w", err)
 	}

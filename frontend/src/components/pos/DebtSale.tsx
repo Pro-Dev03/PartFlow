@@ -124,7 +124,6 @@ export function DebtSale({ total, customers, onComplete, onCancel }: DebtSalePro
                 <Button
                   key={index}
                   variant="outline"
-                  size="sm"
                   onClick={() => setPaidAmount(amount.toString())}
                   className="text-xs"
                 >
@@ -193,7 +192,6 @@ export function DebtSale({ total, customers, onComplete, onCancel }: DebtSalePro
             onClick={handleSubmit}
             className="w-full"
             disabled={!selectedCustomer || paid < 0}
-            size="lg"
           >
             <CheckCircle className="w-4 h-4 mr-2" />
             تأكيد البيع على الدين

@@ -9,7 +9,6 @@ import (
 // Payment represents a payment transaction
 type Payment struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID `json:"organization_id" db:"organization_id"`
 	Type           string     `json:"type" db:"type"` // customer, supplier, expense
 	ReferenceID    uuid.UUID  `json:"reference_id" db:"reference_id"` // customer_id, supplier_id, or expense_id
 	Amount         float64    `json:"amount" db:"amount"`
@@ -29,10 +28,9 @@ func (Payment) TableName() string {
 }
 
 // NewPayment creates a new Payment instance
-func NewPayment(organizationID uuid.UUID, paymentType string, referenceID uuid.UUID, amount float64, method string, userID uuid.UUID) *Payment {
+func NewPayment(paymentType string, referenceID uuid.UUID, amount float64, method string, userID uuid.UUID) *Payment {
 	return &Payment{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		Type:           paymentType,
 		ReferenceID:    referenceID,
 		Amount:         amount,

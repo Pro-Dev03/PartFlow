@@ -9,7 +9,6 @@ import (
 // Category represents a product category
 type Category struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	Name           string     `json:"name" db:"name"`
 	Description    string     `json:"description" db:"description"`
 	ParentID       *uuid.UUID `json:"parent_id" db:"parent_id"`
@@ -20,7 +19,6 @@ type Category struct {
 // Brand represents a product brand
 type Brand struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	Name           string     `json:"name" db:"name"`
 	Description    string     `json:"description" db:"description"`
 	LogoURL        string     `json:"logo_url" db:"logo_url"`
@@ -31,18 +29,18 @@ type Brand struct {
 // Product represents a product in the catalog
 type Product struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	CategoryID     *uuid.UUID `json:"category_id" db:"category_id"`
 	BrandID        *uuid.UUID `json:"brand_id" db:"brand_id"`
 	Name           string     `json:"name" db:"name"`
-	Description    string     `json:"description" db:"description"`
-	Model          string     `json:"model" db:"model"`
+	Description    *string    `json:"description" db:"description"`
+	Model          *string    `json:"model" db:"model"`
 	SKU            string     `json:"sku" db:"sku"`
 	Barcode        string     `json:"barcode" db:"barcode"`
 	TrackSerial    bool       `json:"track_serial" db:"track_serial"`
 	TrackIndividual bool      `json:"track_individual" db:"track_individual"`
 	MinStockLevel  int        `json:"min_stock_level" db:"min_stock_level"`
 	WarrantyDays   int        `json:"warranty_days" db:"warranty_days"`
+	IsActive       bool       `json:"is_active" db:"is_active"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 }
@@ -66,9 +64,9 @@ type ProductRequest struct {
 	CategoryID     *uuid.UUID `json:"category_id"`
 	BrandID        *uuid.UUID `json:"brand_id"`
 	Name           string     `json:"name" binding:"required"`
-	Description    string     `json:"description"`
-	Model          string     `json:"model"`
-	SKU            string     `json:"sku"`
+	Description    *string    `json:"description"`
+	Model          *string    `json:"model"`
+	SKU            string     `json:"sku" binding:"required"`
 	Barcode        string     `json:"barcode"`
 	TrackSerial    bool       `json:"track_serial"`
 	TrackIndividual bool      `json:"track_individual"`

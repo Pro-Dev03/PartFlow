@@ -22,18 +22,18 @@ func NewRepository(db *sqlx.DB) *Repository {
 // CreateAuditLog creates a new audit log entry
 func (r *Repository) CreateAuditLog(ctx context.Context, auditLog *AuditLog) error {
 	query := `
-		INSERT INTO audit_logs (id, organization_id, user_id, action, entity_type, entity_id, 
+		INSERT INTO audit_logs (user_id, action, entity_type, entity_id,
 			ip_address, user_agent, request_id, changes, description, status, error_message, metadata, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
-	
+
 	_, err := r.db.ExecContext(ctx, query,
-		auditLog.ID, auditLog.OrganizationID, auditLog.UserID, auditLog.Action, auditLog.EntityType,
-		auditLog.EntityID, auditLog.IPAddress, auditLog.UserAgent, auditLog.RequestID, auditLog.Changes,
+		auditLog.UserID, auditLog.Action, auditLog.EntityType, auditLog.EntityID,
+		auditLog.IPAddress, auditLog.UserAgent, auditLog.RequestID, auditLog.Changes,
 		auditLog.Description, auditLog.Status, auditLog.ErrorMessage, auditLog.Metadata,
 		auditLog.CreatedAt,
 	)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to create audit log: %w", err)
 	}
@@ -41,16 +41,16 @@ func (r *Repository) CreateAuditLog(ctx context.Context, auditLog *AuditLog) err
 }
 
 // GetAuditLogByID retrieves an audit log by ID
-func (r *Repository) GetAuditLogByID(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*AuditLog, error) {
+func (r *Repository) GetAuditLogByID(ctx context.Context, id uuid.UUID) (*AuditLog, error) {
 	var auditLog AuditLog
 	query := `
-		SELECT id, organization_id, user_id, action, entity_type, entity_id, 
+		SELECT id, user_id, action, entity_type, entity_id,
 			ip_address, user_agent, request_id, changes, description, status, error_message, metadata, created_at
 		FROM audit_logs
-		WHERE id = $1 AND organization_id = $2
+		WHERE id = $1
 	`
-	
-	err := r.db.GetContext(ctx, &auditLog, query, id, organizationID)
+
+	err := r.db.GetContext(ctx, &auditLog, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrAuditLogNotFound
@@ -61,22 +61,27 @@ func (r *Repository) GetAuditLogByID(ctx context.Context, id uuid.UUID, organiza
 }
 
 // ListAuditLogs retrieves audit logs with pagination and filters
-func (r *Repository) ListAuditLogs(ctx context.Context, organizationID uuid.UUID, req AuditLogListRequest) ([]AuditLog, int, error) {
+func (r *Repository) ListAuditLogs(ctx context.Context, req AuditLogListRequest) ([]AuditLog, int, error) {
 	var auditLogs []AuditLog
 	var count int
-	
+
 	// Build base query
 	baseQuery := `
-		SELECT id, organization_id, user_id, action, entity_type, entity_id, 
+		SELECT id, user_id, action, entity_type, entity_id,
 			ip_address, user_agent, request_id, changes, description, status, error_message, metadata, created_at
 		FROM audit_logs
-		WHERE organization_id = $1
+		WHERE 1=1
 	`
-	countQuery := `SELECT COUNT(*) FROM audit_logs WHERE organization_id = $1`
-	
-	args := []interface{}{organizationID}
-	argCount := 1
-	
+
+	countQuery := `
+		SELECT COUNT(*)
+		FROM audit_logs
+		WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argCount := 0
+
 	// Add filters
 	if req.UserID != nil {
 		argCount++
@@ -167,63 +172,55 @@ func (r *Repository) ListAuditLogs(ctx context.Context, organizationID uuid.UUID
 }
 
 // GetAuditLogSummary retrieves audit log summary statistics
-func (r *Repository) GetAuditLogSummary(ctx context.Context, organizationID uuid.UUID) (*AuditLogSummary, error) {
+func (r *Repository) GetAuditLogSummary(ctx context.Context) (*AuditLogSummary, error) {
 	var summary AuditLogSummary
-	
+
 	// Total logs
-	err := r.db.GetContext(ctx, &summary.TotalLogs, 
-		`SELECT COUNT(*) FROM audit_logs WHERE organization_id = $1`, 
-		organizationID)
+	err := r.db.GetContext(ctx, &summary.TotalLogs,
+		`SELECT COUNT(*) FROM audit_logs`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total logs: %w", err)
 	}
-	
+
 	// Success logs
-	err = r.db.GetContext(ctx, &summary.SuccessLogs, 
-		`SELECT COUNT(*) FROM audit_logs WHERE organization_id = $1 AND status = 'success'`, 
-		organizationID)
+	err = r.db.GetContext(ctx, &summary.SuccessLogs,
+		`SELECT COUNT(*) FROM audit_logs WHERE status = 'success'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get success logs: %w", err)
 	}
-	
+
 	// Failure logs
-	err = r.db.GetContext(ctx, &summary.FailureLogs, 
-		`SELECT COUNT(*) FROM audit_logs WHERE organization_id = $1 AND status = 'failure'`, 
-		organizationID)
+	err = r.db.GetContext(ctx, &summary.FailureLogs,
+		`SELECT COUNT(*) FROM audit_logs WHERE status = 'failure'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get failure logs: %w", err)
 	}
-	
+
 	// This week logs
-	err = r.db.GetContext(ctx, &summary.ThisWeek, 
-		`SELECT COUNT(*) FROM audit_logs 
-		 WHERE organization_id = $1 
-		 AND created_at >= DATE_TRUNC('week', CURRENT_DATE)`, 
-		organizationID)
+	err = r.db.GetContext(ctx, &summary.ThisWeek,
+		`SELECT COUNT(*) FROM audit_logs
+		 WHERE created_at >= DATE_TRUNC('week', CURRENT_DATE)`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this week logs: %w", err)
 	}
-	
+
 	// This month logs
-	err = r.db.GetContext(ctx, &summary.ThisMonth, 
-		`SELECT COUNT(*) FROM audit_logs 
-		 WHERE organization_id = $1 
-		 AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)`, 
-		organizationID)
+	err = r.db.GetContext(ctx, &summary.ThisMonth,
+		`SELECT COUNT(*) FROM audit_logs
+		 WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this month logs: %w", err)
 	}
-	
+
 	// By action
 	summary.ByAction = make(map[string]int)
-	rows, err := r.db.QueryContext(ctx, 
-		`SELECT action, COUNT(*) FROM audit_logs WHERE organization_id = $1 GROUP BY action`, 
-		organizationID)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT action, COUNT(*) FROM audit_logs GROUP BY action`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logs by action: %w", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var action string
 		var count int
@@ -232,17 +229,16 @@ func (r *Repository) GetAuditLogSummary(ctx context.Context, organizationID uuid
 		}
 		summary.ByAction[action] = count
 	}
-	
+
 	// By entity type
 	summary.ByEntityType = make(map[string]int)
-	rows, err = r.db.QueryContext(ctx, 
-		`SELECT entity_type, COUNT(*) FROM audit_logs WHERE organization_id = $1 GROUP BY entity_type`, 
-		organizationID)
+	rows, err = r.db.QueryContext(ctx,
+		`SELECT entity_type, COUNT(*) FROM audit_logs GROUP BY entity_type`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logs by entity type: %w", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var entityType string
 		var count int
@@ -251,17 +247,16 @@ func (r *Repository) GetAuditLogSummary(ctx context.Context, organizationID uuid
 		}
 		summary.ByEntityType[entityType] = count
 	}
-	
+
 	// By user
 	summary.ByUser = make(map[string]int)
-	rows, err = r.db.QueryContext(ctx, 
-		`SELECT user_id, COUNT(*) FROM audit_logs WHERE organization_id = $1 GROUP BY user_id`, 
-		organizationID)
+	rows, err = r.db.QueryContext(ctx,
+		`SELECT user_id, COUNT(*) FROM audit_logs GROUP BY user_id`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get logs by user: %w", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var userID uuid.UUID
 		var count int
@@ -270,18 +265,16 @@ func (r *Repository) GetAuditLogSummary(ctx context.Context, organizationID uuid
 		}
 		summary.ByUser[userID.String()] = count
 	}
-	
+
 	// Recent activity (last 10 entries)
 	summary.RecentActivity = []AuditLogEntry{}
-	rows, err = r.db.QueryContext(ctx, 
-		`SELECT al.id, al.action, al.entity_type, al.entity_id, al.description, al.status, 
+	rows, err = r.db.QueryContext(ctx,
+		`SELECT al.id, al.action, al.entity_type, al.entity_id, al.description, al.status,
 			al.user_id, u.first_name || ' ' || u.last_name as user_name, al.created_at
 		 FROM audit_logs al
 		 LEFT JOIN users u ON al.user_id = u.id
-		 WHERE al.organization_id = $1
 		 ORDER BY al.created_at DESC
-		 LIMIT 10`,
-		organizationID)
+		 LIMIT 10`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get recent activity: %w", err)
 	}

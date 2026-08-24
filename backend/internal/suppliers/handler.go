@@ -5,7 +5,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/partflow/smart-store/pkg/middleware"
 	"github.com/partflow/smart-store/pkg/response"
 )
 
@@ -27,9 +26,8 @@ func (h *Handler) CreateSupplier(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	supplier, err := h.service.CreateSupplier(c.Request.Context(), organizationID, &req)
+	supplier, err := h.service.CreateSupplier(c.Request.Context(), &req)
 	if err != nil {
 		if err == ErrSupplierCodeExists {
 			response.Error(c, http.StatusConflict, http.StatusConflict, "Supplier code already exists", err.Error())
@@ -50,9 +48,8 @@ func (h *Handler) GetSupplier(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	supplier, err := h.service.GetSupplier(c.Request.Context(), id, organizationID)
+	supplier, err := h.service.GetSupplier(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -73,9 +70,8 @@ func (h *Handler) ListSuppliers(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	suppliers, total, err := h.service.ListSuppliers(c.Request.Context(), organizationID, req.Page, req.PerPage, req.Search, req.IsActive)
+	suppliers, total, err := h.service.ListSuppliers(c.Request.Context(), req.Page, req.PerPage, req.Search, req.IsActive)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve suppliers", err.Error())
 		return
@@ -98,9 +94,8 @@ func (h *Handler) UpdateSupplier(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	supplier, err := h.service.UpdateSupplier(c.Request.Context(), id, organizationID, &req)
+	supplier, err := h.service.UpdateSupplier(c.Request.Context(), id, &req)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -125,9 +120,8 @@ func (h *Handler) DeleteSupplier(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	err = h.service.DeleteSupplier(c.Request.Context(), id, organizationID)
+	err = h.service.DeleteSupplier(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -148,9 +142,8 @@ func (h *Handler) GetSupplierLedger(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	ledger, err := h.service.GetSupplierLedger(c.Request.Context(), id, organizationID)
+	ledger, err := h.service.GetSupplierLedger(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -177,9 +170,8 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	payment, err := h.service.AddPayment(c.Request.Context(), id, organizationID, &req)
+	payment, err := h.service.AddPayment(c.Request.Context(), id, &req)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -204,9 +196,8 @@ func (h *Handler) GetSupplierDebtSummary(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	summary, err := h.service.GetSupplierDebtSummary(c.Request.Context(), id, organizationID)
+	summary, err := h.service.GetSupplierDebtSummary(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -233,9 +224,8 @@ func (h *Handler) UpdateCreditLimit(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	err = h.service.UpdateCreditLimit(c.Request.Context(), id, organizationID, req.NewLimit)
+	err = h.service.UpdateCreditLimit(c.Request.Context(), id, req.NewLimit)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -254,9 +244,8 @@ func (h *Handler) UpdateCreditLimit(c *gin.Context) {
 
 // GetOverdueSuppliers handles overdue suppliers retrieval
 func (h *Handler) GetOverdueSuppliers(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 
-	overdueSuppliers, err := h.service.GetOverdueSuppliers(c.Request.Context(), organizationID)
+	overdueSuppliers, err := h.service.GetOverdueSuppliers(c.Request.Context())
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve overdue suppliers", err.Error())
 		return
@@ -279,9 +268,8 @@ func (h *Handler) CreateDebtEntry(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	err = h.service.CreateDebtEntry(c.Request.Context(), id, organizationID, req.Amount, req.ReferenceID, req.ReferenceType, req.DueDate)
+	err = h.service.CreateDebtEntry(c.Request.Context(), id, req.Amount, req.ReferenceID, req.ReferenceType, req.DueDate)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -306,9 +294,8 @@ func (h *Handler) GetDebtEntries(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	debts, err := h.service.GetDebtEntries(c.Request.Context(), id, organizationID)
+	debts, err := h.service.GetDebtEntries(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -335,9 +322,8 @@ func (h *Handler) CreateDebtCollection(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	err = h.service.CreateDebtCollection(c.Request.Context(), id, organizationID, req.Type, req.ScheduledDate, req.Notes)
+	err = h.service.CreateDebtCollection(c.Request.Context(), id, req.Type, req.ScheduledDate, req.Notes)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -358,9 +344,8 @@ func (h *Handler) GetDebtCollections(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	collections, err := h.service.GetDebtCollections(c.Request.Context(), id, organizationID)
+	collections, err := h.service.GetDebtCollections(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -375,9 +360,8 @@ func (h *Handler) GetDebtCollections(c *gin.Context) {
 
 // GetPendingDebtCollections handles pending debt collections retrieval
 func (h *Handler) GetPendingDebtCollections(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 
-	collections, err := h.service.GetPendingDebtCollections(c.Request.Context(), organizationID)
+	collections, err := h.service.GetPendingDebtCollections(c.Request.Context())
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve pending debt collections", err.Error())
 		return
@@ -400,9 +384,8 @@ func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	err = h.service.ProcessDebtPayment(c.Request.Context(), id, organizationID, req.Amount, req.Method)
+	err = h.service.ProcessDebtPayment(c.Request.Context(), id, req.Amount, req.Method)
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
@@ -413,4 +396,37 @@ func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusOK, nil, "Debt payment processed successfully")
+}
+
+// GetSupplierInventory handles supplier inventory retrieval
+// @Summary Get supplier inventory
+// @Description Get inventory items from a specific supplier
+// @Tags suppliers
+// @Produce json
+// @Param id path string true "Supplier ID"
+// @Success 200 {object} []SupplierInventoryItem
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 404 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/suppliers/{id}/inventory [get]
+func (h *Handler) GetSupplierInventory(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid supplier ID", err.Error())
+		return
+	}
+
+
+	inventory, err := h.service.GetSupplierInventory(c.Request.Context(), id)
+	if err != nil {
+		if err == ErrSupplierNotFound {
+			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve supplier inventory", err.Error())
+		return
+	}
+
+	response.Success(c, http.StatusOK, inventory, "Supplier inventory retrieved successfully")
 }

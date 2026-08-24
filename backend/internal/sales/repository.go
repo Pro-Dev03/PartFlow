@@ -20,14 +20,14 @@ func NewRepository(db *sqlx.DB) *Repository {
 // CreateSale creates a new sale
 func (r *Repository) CreateSale(ctx context.Context, sale *Sale) error {
 	query := `
-		INSERT INTO sales (id, organization_id, invoice_number, customer_id, user_id, sale_date, 
+		INSERT INTO sales (id, sale_date, customer_id, invoice_number, 
 			subtotal, tax_amount, discount_amount, total_amount, paid_amount, payment_method, 
 			payment_status, status, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		sale.ID, sale.OrganizationID, sale.InvoiceNumber, sale.CustomerID, sale.UserID,
-		sale.SaleDate, sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount,
+		sale.ID, sale.SaleDate, sale.CustomerID, sale.InvoiceNumber,
+		sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount,
 		sale.PaidAmount, sale.PaymentMethod, sale.PaymentStatus, sale.Status, sale.Notes,
 		sale.CreatedAt, sale.UpdatedAt)
 	return err
@@ -36,7 +36,7 @@ func (r *Repository) CreateSale(ctx context.Context, sale *Sale) error {
 // GetSaleByID retrieves a sale by ID
 func (r *Repository) GetSaleByID(ctx context.Context, id uuid.UUID) (*Sale, error) {
 	query := `
-		SELECT id, organization_id, invoice_number, customer_id, user_id, sale_date,
+		SELECT id, sale_date, customer_id, invoice_number, 
 			subtotal, tax_amount, discount_amount, total_amount, paid_amount, payment_method,
 			payment_status, status, notes, created_at, updated_at
 		FROM sales WHERE id = $1
@@ -50,15 +50,15 @@ func (r *Repository) GetSaleByID(ctx context.Context, id uuid.UUID) (*Sale, erro
 }
 
 // GetSaleByInvoiceNumber retrieves a sale by invoice number
-func (r *Repository) GetSaleByInvoiceNumber(ctx context.Context, organizationID uuid.UUID, invoiceNumber string) (*Sale, error) {
+func (r *Repository) GetSaleByInvoiceNumber(ctx context.Context, invoiceNumber string) (*Sale, error) {
 	query := `
-		SELECT id, organization_id, invoice_number, customer_id, user_id, sale_date,
+		SELECT id, sale_date, customer_id, invoice_number, 
 			subtotal, tax_amount, discount_amount, total_amount, paid_amount, payment_method,
 			payment_status, status, notes, created_at, updated_at
-		FROM sales WHERE organization_id = $1 AND invoice_number = $2
+		FROM sales WHERE invoice_number = $1
 	`
 	var sale Sale
-	err := r.db.GetContext(ctx, &sale, query, organizationID, invoiceNumber)
+	err := r.db.GetContext(ctx, &sale, query, invoiceNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -66,19 +66,20 @@ func (r *Repository) GetSaleByInvoiceNumber(ctx context.Context, organizationID 
 }
 
 // ListSales retrieves sales with pagination and filters
-func (r *Repository) ListSales(ctx context.Context, organizationID uuid.UUID, page, perPage int, filters map[string]interface{}) ([]Sale, int, error) {
+func (r *Repository) ListSales(ctx context.Context, page, perPage int, filters map[string]interface{}) ([]Sale, int, error) {
 	offset := (page - 1) * perPage
 	
 	baseQuery := `
-		SELECT id, organization_id, invoice_number, customer_id, user_id, sale_date,
+		SELECT id, sale_date, customer_id, invoice_number, 
 			subtotal, tax_amount, discount_amount, total_amount, paid_amount, payment_method,
 			payment_status, status, notes, created_at, updated_at
-		FROM sales WHERE organization_id = $1
+		FROM sales WHERE 1=1
 	`
-	countQuery := `SELECT COUNT(*) FROM sales WHERE organization_id = $1`
 	
-	args := []interface{}{organizationID}
-	argCount := 1
+	countQuery := `SELECT COUNT(*) FROM sales WHERE 1=1`
+	
+	args := []interface{}{}
+	argCount := 0
 	
 	// Add filters
 	if status, ok := filters["status"].(string); ok && status != "" {
@@ -200,7 +201,7 @@ func (r *Repository) GetProductStock(ctx context.Context, productID uuid.UUID) (
 }
 
 // GetSalesSummary retrieves sales summary for a period
-func (r *Repository) GetSalesSummary(ctx context.Context, organizationID uuid.UUID, startDate, endDate string) (*SalesSummary, error) {
+func (r *Repository) GetSalesSummary(ctx context.Context, startDate, endDate string) (*SalesSummary, error) {
 	query := `
 		SELECT 
 			COUNT(*) as total_sales,
@@ -209,13 +210,12 @@ func (r *Repository) GetSalesSummary(ctx context.Context, organizationID uuid.UU
 			COALESCE(SUM(discount_amount), 0) as total_discount,
 			COALESCE(SUM(tax_amount), 0) as total_tax
 		FROM sales 
-		WHERE organization_id = $1 
-		AND sale_date >= $2 
-		AND sale_date <= $3
+		WHERE sale_date >= $1 
+		AND sale_date <= $2
 		AND status = 'completed'
 	`
 	var summary SalesSummary
-	err := r.db.GetContext(ctx, &summary, query, organizationID, startDate, endDate)
+	err := r.db.GetContext(ctx, &summary, query, startDate, endDate)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +223,7 @@ func (r *Repository) GetSalesSummary(ctx context.Context, organizationID uuid.UU
 }
 
 // GetTopSellingProducts retrieves top selling products
-func (r *Repository) GetTopSellingProducts(ctx context.Context, organizationID uuid.UUID, limit int) ([]TopSellingProduct, error) {
+func (r *Repository) GetTopSellingProducts(ctx context.Context, limit int) ([]TopSellingProduct, error) {
 	query := `
 		SELECT 
 			p.id as product_id,
@@ -232,15 +232,13 @@ func (r *Repository) GetTopSellingProducts(ctx context.Context, organizationID u
 			COALESCE(SUM(si.total_amount), 0) as total_revenue
 		FROM products p
 		LEFT JOIN sale_items si ON p.id = si.product_id
-		LEFT JOIN sales s ON si.sale_id = s.id
-		WHERE p.organization_id = $1
-		AND s.status = 'completed'
+		LEFT JOIN sales s ON si.sale_id = s.id AND s.status = 'completed'
 		GROUP BY p.id, p.name
 		ORDER BY total_quantity DESC
-		LIMIT $2
+		LIMIT $1
 	`
 	var products []TopSellingProduct
-	err := r.db.SelectContext(ctx, &products, query, organizationID, limit)
+	err := r.db.SelectContext(ctx, &products, query, limit)
 	return products, err
 }
 
@@ -264,21 +262,20 @@ type TopSellingProduct struct {
 // CreateTransaction creates a new financial transaction
 func (r *Repository) CreateTransaction(ctx context.Context, tx *Transaction) error {
 	query := `
-		INSERT INTO financial_transactions (id, organization_id, sale_id, type, amount, currency, 
-			reference, description, debit_account, credit_account, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO financial_transactions (id, sale_id, type, amount, currency, reference, description,
+			debit_account, credit_account, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		tx.ID, tx.OrganizationID, tx.SaleID, tx.Type, tx.Amount, tx.Currency,
-		tx.Reference, tx.Description, tx.DebitAccount, tx.CreditAccount, tx.Status,
-		tx.CreatedAt, tx.UpdatedAt)
+		tx.ID, tx.SaleID, tx.Type, tx.Amount, tx.Currency, tx.Reference, tx.Description,
+		tx.DebitAccount, tx.CreditAccount, tx.Status, tx.CreatedAt, tx.UpdatedAt)
 	return err
 }
 
 // GetTransactionByID retrieves a transaction by ID
 func (r *Repository) GetTransactionByID(ctx context.Context, id uuid.UUID) (*Transaction, error) {
 	query := `
-		SELECT id, organization_id, sale_id, type, amount, currency, reference, description,
+		SELECT id, sale_id, type, amount, currency, reference, description,
 			debit_account, credit_account, status, created_at, updated_at
 		FROM financial_transactions WHERE id = $1
 	`
@@ -291,18 +288,19 @@ func (r *Repository) GetTransactionByID(ctx context.Context, id uuid.UUID) (*Tra
 }
 
 // ListTransactions retrieves transactions with pagination and filters
-func (r *Repository) ListTransactions(ctx context.Context, organizationID uuid.UUID, page, perPage int, filters map[string]interface{}) ([]Transaction, int, error) {
+func (r *Repository) ListTransactions(ctx context.Context, page, perPage int, filters map[string]interface{}) ([]Transaction, int, error) {
 	offset := (page - 1) * perPage
 	
 	baseQuery := `
-		SELECT id, organization_id, sale_id, type, amount, currency, reference, description,
+		SELECT id, sale_id, type, amount, currency, reference, description,
 			debit_account, credit_account, status, created_at, updated_at
-		FROM financial_transactions WHERE organization_id = $1
+		FROM financial_transactions WHERE 1=1
 	`
-	countQuery := `SELECT COUNT(*) FROM financial_transactions WHERE organization_id = $1`
 	
-	args := []interface{}{organizationID}
-	argCount := 1
+	countQuery := `SELECT COUNT(*) FROM financial_transactions WHERE 1=1`
+	
+	args := []interface{}{}
+	argCount := 0
 	
 	// Add filters
 	if txType, ok := filters["type"].(string); ok && txType != "" {
@@ -354,43 +352,41 @@ func (r *Repository) ListTransactions(ctx context.Context, organizationID uuid.U
 // CreateProfitEntry creates a new profit entry
 func (r *Repository) CreateProfitEntry(ctx context.Context, entry *ProfitEntry) error {
 	query := `
-		INSERT INTO profit_entries (id, organization_id, sale_id, period, start_date, end_date,
+		INSERT INTO profit_entries (id, period, start_date, end_date,
 			revenue, cost, gross_profit, net_profit, margin, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		entry.ID, entry.OrganizationID, entry.SaleID, entry.Period, entry.StartDate, entry.EndDate,
+		entry.ID, entry.Period, entry.StartDate, entry.EndDate,
 		entry.Revenue, entry.Cost, entry.GrossProfit, entry.NetProfit, entry.Margin, entry.CreatedAt)
 	return err
 }
 
 // GetProfitEntries retrieves profit entries for a period
-func (r *Repository) GetProfitEntries(ctx context.Context, organizationID uuid.UUID, period string, startDate, endDate time.Time) ([]ProfitEntry, error) {
+func (r *Repository) GetProfitEntries(ctx context.Context, period string, startDate, endDate time.Time) ([]ProfitEntry, error) {
 	query := `
-		SELECT id, organization_id, sale_id, period, start_date, end_date,
+		SELECT id, period, start_date, end_date,
 			revenue, cost, gross_profit, net_profit, margin, created_at
 		FROM profit_entries 
-		WHERE organization_id = $1 
-		AND period = $2
-		AND start_date >= $3 
-		AND end_date <= $4
+		WHERE period = $1
+		AND start_date >= $2 
+		AND end_date <= $3
 		ORDER BY start_date DESC
 	`
 	var entries []ProfitEntry
-	err := r.db.SelectContext(ctx, &entries, query, organizationID, period, startDate, endDate)
+	err := r.db.SelectContext(ctx, &entries, query, period, startDate, endDate)
 	return entries, err
 }
 
 // GetAccountBalance retrieves the balance for a specific account
-func (r *Repository) GetAccountBalance(ctx context.Context, organizationID uuid.UUID, account string) (float64, error) {
+func (r *Repository) GetAccountBalance(ctx context.Context, account string) (float64, error) {
 	query := `
-		SELECT COALESCE(SUM(CASE WHEN debit_account = $2 THEN amount ELSE -amount END), 0)
+		SELECT COALESCE(SUM(CASE WHEN debit_account = $1 THEN amount ELSE -amount END), 0)
 		FROM financial_transactions 
-		WHERE organization_id = $1 
-		AND (debit_account = $2 OR credit_account = $2)
+		WHERE (debit_account = $1 OR credit_account = $1)
 		AND status = 'completed'
 	`
 	var balance float64
-	err := r.db.GetContext(ctx, &balance, query, organizationID, account)
+	err := r.db.GetContext(ctx, &balance, query, account)
 	return balance, err
 }

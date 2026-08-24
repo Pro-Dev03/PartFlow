@@ -22,8 +22,8 @@ func NewRepository(db *sqlx.DB) *Repository {
 // CreateUser creates a new user
 func (r *Repository) CreateUser(ctx context.Context, user *User) error {
 	query := `
-		INSERT INTO users (id, organization_id, email, password_hash, first_name, last_name, phone, role_id, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO users (id, email, password_hash, first_name, last_name, phone, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at, updated_at
 	`
 	now := time.Now()
@@ -34,13 +34,11 @@ func (r *Repository) CreateUser(ctx context.Context, user *User) error {
 
 	err := r.db.QueryRowContext(ctx, query,
 		user.ID,
-		user.OrganizationID,
 		user.Email,
 		user.PasswordHash,
 		user.FirstName,
 		user.LastName,
 		user.Phone,
-		user.RoleID,
 		user.IsActive,
 		user.CreatedAt,
 		user.UpdatedAt,
@@ -52,7 +50,7 @@ func (r *Repository) CreateUser(ctx context.Context, user *User) error {
 // GetUserByEmail retrieves a user by email
 func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	query := `
-		SELECT id, organization_id, email, password_hash, first_name, last_name, phone, role_id, is_active, last_login_at, created_at, updated_at
+		SELECT id, email, password_hash, first_name, last_name, phone, is_active, last_login_at, created_at, updated_at, subscription_status, subscription_expires_at
 		FROM users
 		WHERE email = $1
 	`
@@ -67,7 +65,7 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, e
 // GetUserByID retrieves a user by ID
 func (r *Repository) GetUserByID(ctx context.Context, id uuid.UUID) (*User, error) {
 	query := `
-		SELECT id, organization_id, email, password_hash, first_name, last_name, phone, role_id, is_active, last_login_at, created_at, updated_at
+		SELECT id, email, password_hash, first_name, last_name, phone, is_active, last_login_at, created_at, updated_at, subscription_status, subscription_expires_at
 		FROM users
 		WHERE id = $1
 	`
@@ -148,33 +146,4 @@ func (r *Repository) UpdatePassword(ctx context.Context, userID uuid.UUID, passw
 	now := time.Now()
 	_, err := r.db.ExecContext(ctx, query, passwordHash, now, userID)
 	return err
-}
-
-// GetRole retrieves a role by ID
-func (r *Repository) GetRole(ctx context.Context, roleID uuid.UUID) (*Role, error) {
-	query := `
-		SELECT id, name, description, created_at, updated_at
-		FROM roles
-		WHERE id = $1
-	`
-	var role Role
-	err := r.db.GetContext(ctx, &role, query, roleID)
-	if err == sql.ErrNoRows {
-		return nil, ErrUserNotFound
-	}
-	return &role, err
-}
-
-// GetUserPermissions retrieves all permissions for a user
-func (r *Repository) GetUserPermissions(ctx context.Context, userID uuid.UUID) ([]Permission, error) {
-	query := `
-		SELECT DISTINCT p.id, p.name, p.description, p.resource, p.action, p.created_at
-		FROM permissions p
-		INNER JOIN role_permissions rp ON p.id = rp.permission_id
-		INNER JOIN users u ON u.role_id = rp.role_id
-		WHERE u.id = $1
-	`
-	var permissions []Permission
-	err := r.db.SelectContext(ctx, &permissions, query, userID)
-	return permissions, err
 }

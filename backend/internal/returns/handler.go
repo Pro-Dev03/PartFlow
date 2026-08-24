@@ -39,10 +39,9 @@ func (h *Handler) CreateReturn(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	response, err := h.service.CreateReturn(c.Request.Context(), organizationID, userID, &req)
+	response, err := h.service.CreateReturn(c.Request.Context(), userID, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -71,9 +70,7 @@ func (h *Handler) GetReturn(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
-
-	response, err := h.service.GetReturn(c.Request.Context(), id, organizationID)
+	response, err := h.service.GetReturn(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -143,9 +140,8 @@ func (h *Handler) ListReturns(c *gin.Context) {
 		}
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	returns, total, err := h.service.ListReturns(c.Request.Context(), organizationID, req)
+	returns, total, err := h.service.ListReturns(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -189,9 +185,8 @@ func (h *Handler) UpdateReturn(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.UpdateReturn(c.Request.Context(), id, organizationID, &req)
+	response, err := h.service.UpdateReturn(c.Request.Context(), id, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -220,9 +215,8 @@ func (h *Handler) DeleteReturn(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	if err := h.service.DeleteReturn(c.Request.Context(), id, organizationID); err != nil {
+	if err := h.service.DeleteReturn(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -250,9 +244,8 @@ func (h *Handler) ApproveReturn(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.ApproveReturn(c.Request.Context(), id, organizationID)
+	response, err := h.service.ApproveReturn(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -281,9 +274,8 @@ func (h *Handler) RejectReturn(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.RejectReturn(c.Request.Context(), id, organizationID)
+	response, err := h.service.RejectReturn(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -312,9 +304,8 @@ func (h *Handler) ProcessRefund(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.ProcessRefund(c.Request.Context(), id, organizationID)
+	response, err := h.service.ProcessRefund(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -350,9 +341,8 @@ func (h *Handler) AddReturnItem(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	item, err := h.service.AddReturnItem(c.Request.Context(), returnID, organizationID, req)
+	item, err := h.service.AddReturnItem(c.Request.Context(), returnID, req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -388,9 +378,8 @@ func (h *Handler) UpdateReturnItem(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	item, err := h.service.UpdateReturnItem(c.Request.Context(), itemID, organizationID, req)
+	item, err := h.service.UpdateReturnItem(c.Request.Context(), itemID, req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

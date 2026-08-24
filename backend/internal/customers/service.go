@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/dashboard"
 )
 
 // Service handles customer business logic
@@ -19,15 +20,15 @@ func NewService(repo *Repository) *Service {
 }
 
 // CreateCustomer creates a new customer
-func (s *Service) CreateCustomer(ctx context.Context, organizationID uuid.UUID, req *CustomerRequest) (*Customer, error) {
+func (s *Service) CreateCustomer(ctx context.Context, req *CustomerRequest) (*Customer, error) {
 	// Check if code already exists
-	_, err := s.repo.GetByCode(ctx, req.Code, organizationID)
+	_, err := s.repo.GetByCode(ctx, req.Code)
 	if err == nil {
 		return nil, ErrCustomerCodeExists
 	}
 
 	// Create customer
-	customer := NewCustomer(organizationID, req.Code, req.Name)
+	customer := NewCustomer(req.Code, req.Name)
 	customer.Email = req.Email
 	customer.Phone = req.Phone
 	customer.Address = req.Address
@@ -42,16 +43,19 @@ func (s *Service) CreateCustomer(ctx context.Context, organizationID uuid.UUID, 
 		return nil, fmt.Errorf("failed to create customer: %w", err)
 	}
 
+	// Invalidate dashboard cache since customers data changed
+	dashboard.InvalidateDashboardCacheWithReason("customer_created")
+
 	return customer, nil
 }
 
 // GetCustomer retrieves a customer by ID
-func (s *Service) GetCustomer(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*Customer, error) {
-	return s.repo.GetByID(ctx, id, organizationID)
+func (s *Service) GetCustomer(ctx context.Context, id uuid.UUID) (*Customer, error) {
+	return s.repo.GetByID(ctx, id)
 }
 
 // ListCustomers retrieves customers with pagination and filters
-func (s *Service) ListCustomers(ctx context.Context, organizationID uuid.UUID, page, perPage int, search string, isActive *bool) ([]Customer, int, error) {
+func (s *Service) ListCustomers(ctx context.Context, page, perPage int, search string, isActive *bool) ([]Customer, int, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -59,19 +63,19 @@ func (s *Service) ListCustomers(ctx context.Context, organizationID uuid.UUID, p
 		perPage = 20
 	}
 
-	return s.repo.List(ctx, organizationID, page, perPage, search, isActive)
+	return s.repo.List(ctx, page, perPage, search, isActive)
 }
 
 // UpdateCustomer updates a customer
-func (s *Service) UpdateCustomer(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, req *CustomerRequest) (*Customer, error) {
-	customer, err := s.repo.GetByID(ctx, id, organizationID)
+func (s *Service) UpdateCustomer(ctx context.Context, id uuid.UUID, req *CustomerRequest) (*Customer, error) {
+	customer, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
 	// Check if new code already exists (if changed)
 	if req.Code != customer.Code {
-		_, err := s.repo.GetByCode(ctx, req.Code, organizationID)
+		_, err := s.repo.GetByCode(ctx, req.Code)
 		if err == nil {
 			return nil, ErrCustomerCodeExists
 		}
@@ -95,17 +99,59 @@ func (s *Service) UpdateCustomer(ctx context.Context, id uuid.UUID, organization
 		return nil, fmt.Errorf("failed to update customer: %w", err)
 	}
 
+	// Invalidate dashboard cache since customers data changed
+	dashboard.InvalidateDashboardCacheWithReason("customer_updated")
+
 	return customer, nil
 }
 
-// DeleteCustomer deletes a customer
-func (s *Service) DeleteCustomer(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	return s.repo.Delete(ctx, id, organizationID)
+// DeleteCustomer deletes a customer with safety checks
+func (s *Service) DeleteCustomer(ctx context.Context, id uuid.UUID) error {
+	// Safety check: Get customer first
+	customer, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// CRITICAL: Check if customer has outstanding debt
+	if customer.CurrentBalance > 0 {
+		return ErrCustomerHasOutstandingDebt
+	}
+
+	// Check for active sales/transactions
+	hasActiveTransactions, err := s.repo.HasActiveTransactions(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to check for active transactions: %w", err)
+	}
+
+	if hasActiveTransactions {
+		return ErrCustomerHasActiveTransactions
+	}
+
+	// Check for active warranties
+	hasActiveWarranties, err := s.repo.HasActiveWarranties(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to check for active warranties: %w", err)
+	}
+
+	if hasActiveWarranties {
+		return ErrCustomerHasActiveWarranties
+	}
+
+	// Safe to delete
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	// Invalidate dashboard cache since customers data changed
+	dashboard.InvalidateDashboardCacheWithReason("customer_deleted")
+
+	return nil
 }
 
 // AddPayment adds a payment to customer
-func (s *Service) AddPayment(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID, req *PaymentRequest) (*PaymentResponse, error) {
-	customer, err := s.repo.GetByID(ctx, customerID, organizationID)
+func (s *Service) AddPayment(ctx context.Context, customerID uuid.UUID, req *PaymentRequest) (*PaymentResponse, error) {
+	customer, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +190,7 @@ func (s *Service) AddPayment(ctx context.Context, customerID uuid.UUID, organiza
 	}
 
 	// Update customer balance
-	if err := s.repo.UpdateBalance(ctx, customerID, organizationID, -req.Amount); err != nil {
+	if err := s.repo.UpdateBalance(ctx, customerID, -req.Amount); err != nil {
 		return nil, fmt.Errorf("failed to update customer balance: %w", err)
 	}
 
@@ -152,13 +198,13 @@ func (s *Service) AddPayment(ctx context.Context, customerID uuid.UUID, organiza
 }
 
 // GetCustomerLedger retrieves customer ledger
-func (s *Service) GetCustomerLedger(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID) (*CustomerLedgerResponse, error) {
-	customer, err := s.repo.GetByID(ctx, customerID, organizationID)
+func (s *Service) GetCustomerLedger(ctx context.Context, customerID uuid.UUID) (*CustomerLedgerResponse, error) {
+	customer, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return nil, err
 	}
 
-	entries, totalPurchases, totalPayments, currentBalance, err := s.repo.GetCustomerLedger(ctx, customerID, organizationID)
+	entries, totalPurchases, totalPayments, currentBalance, err := s.repo.GetCustomerLedger(ctx, customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +220,8 @@ func (s *Service) GetCustomerLedger(ctx context.Context, customerID uuid.UUID, o
 }
 
 // AddDebt adds a debt entry to customer (when they make a purchase on credit)
-func (s *Service) AddDebt(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID, amount float64, referenceID uuid.UUID, description string) error {
-	customer, err := s.repo.GetByID(ctx, customerID, organizationID)
+func (s *Service) AddDebt(ctx context.Context, customerID uuid.UUID, amount float64, referenceID uuid.UUID, description string) error {
+	customer, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return err
 	}
@@ -192,7 +238,7 @@ func (s *Service) AddDebt(ctx context.Context, customerID uuid.UUID, organizatio
 	}
 
 	// Update customer balance
-	if err := s.repo.UpdateBalance(ctx, customerID, organizationID, amount); err != nil {
+	if err := s.repo.UpdateBalance(ctx, customerID, amount); err != nil {
 		return fmt.Errorf("failed to update customer balance: %w", err)
 	}
 
@@ -200,8 +246,8 @@ func (s *Service) AddDebt(ctx context.Context, customerID uuid.UUID, organizatio
 }
 
 // GetCustomerDebtSummary retrieves debt summary for a customer
-func (s *Service) GetCustomerDebtSummary(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID) (*DebtSummary, error) {
-	customer, err := s.repo.GetByID(ctx, customerID, organizationID)
+func (s *Service) GetCustomerDebtSummary(ctx context.Context, customerID uuid.UUID) (*DebtSummary, error) {
+	customer, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -243,8 +289,8 @@ func (s *Service) GetCustomerDebtSummary(ctx context.Context, customerID uuid.UU
 }
 
 // UpdateCreditLimit updates customer credit limit
-func (s *Service) UpdateCreditLimit(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID, newLimit float64) error {
-	customer, err := s.repo.GetByID(ctx, customerID, organizationID)
+func (s *Service) UpdateCreditLimit(ctx context.Context, customerID uuid.UUID, newLimit float64) error {
+	customer, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return err
 	}
@@ -265,14 +311,13 @@ func (s *Service) UpdateCreditLimit(ctx context.Context, customerID uuid.UUID, o
 }
 
 // GetOverdueCustomers retrieves customers with overdue payments
-func (s *Service) GetOverdueCustomers(ctx context.Context, organizationID uuid.UUID) ([]OverdueCustomer, error) {
+func (s *Service) GetOverdueCustomers(ctx context.Context) ([]OverdueCustomer, error) {
 	query := `
 		SELECT c.id, c.name, c.code, c.current_balance, c.credit_limit, c.email, c.phone,
 			COALESCE(SUM(CASE WHEN cl.type = 'debit' AND cl.created_at < NOW() - INTERVAL '30 days' THEN cl.amount ELSE 0 END), 0) as overdue_amount
 		FROM customers c
 		LEFT JOIN customer_ledger cl ON c.id = cl.customer_id
-		WHERE c.organization_id = $1
-		AND c.is_active = true
+		WHERE c.is_active = true
 		AND c.current_balance > 0
 		GROUP BY c.id, c.name, c.code, c.current_balance, c.credit_limit, c.email, c.phone
 		HAVING COALESCE(SUM(CASE WHEN cl.type = 'debit' AND cl.created_at < NOW() - INTERVAL '30 days' THEN cl.amount ELSE 0 END), 0) > 0
@@ -280,7 +325,7 @@ func (s *Service) GetOverdueCustomers(ctx context.Context, organizationID uuid.U
 	`
 
 	var overdueCustomers []OverdueCustomer
-	err := s.repo.db.SelectContext(ctx, &overdueCustomers, query, organizationID)
+	err := s.repo.db.SelectContext(ctx, &overdueCustomers, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get overdue customers: %w", err)
 	}
@@ -309,8 +354,8 @@ func (s *Service) calculateDaysUntilOverdue(ctx context.Context, customerID uuid
 }
 
 // CreateDebtEntry creates a new debt entry for a customer
-func (s *Service) CreateDebtEntry(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID, amount float64, referenceID uuid.UUID, referenceType string, dueDate time.Time) error {
-	customer, err := s.repo.GetByID(ctx, customerID, organizationID)
+func (s *Service) CreateDebtEntry(ctx context.Context, customerID uuid.UUID, amount float64, referenceID uuid.UUID, referenceType string, dueDate time.Time) error {
+	customer, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return err
 	}
@@ -342,7 +387,7 @@ func (s *Service) CreateDebtEntry(ctx context.Context, customerID uuid.UUID, org
 	}
 
 	// Update customer balance
-	if err := s.repo.UpdateBalance(ctx, customerID, organizationID, amount); err != nil {
+	if err := s.repo.UpdateBalance(ctx, customerID, amount); err != nil {
 		return fmt.Errorf("failed to update customer balance: %w", err)
 	}
 
@@ -350,9 +395,9 @@ func (s *Service) CreateDebtEntry(ctx context.Context, customerID uuid.UUID, org
 }
 
 // GetDebtEntries retrieves debt entries for a customer
-func (s *Service) GetDebtEntries(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID) ([]DebtEntry, error) {
+func (s *Service) GetDebtEntries(ctx context.Context, customerID uuid.UUID) ([]DebtEntry, error) {
 	// Verify customer exists
-	_, err := s.repo.GetByID(ctx, customerID, organizationID)
+	_, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -361,9 +406,9 @@ func (s *Service) GetDebtEntries(ctx context.Context, customerID uuid.UUID, orga
 }
 
 // CreateDebtCollection creates a new debt collection action
-func (s *Service) CreateDebtCollection(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID, collectionType string, scheduledDate time.Time, notes *string) error {
+func (s *Service) CreateDebtCollection(ctx context.Context, customerID uuid.UUID, collectionType string, scheduledDate time.Time, notes *string) error {
 	// Verify customer exists
-	_, err := s.repo.GetByID(ctx, customerID, organizationID)
+	_, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return err
 	}
@@ -382,9 +427,9 @@ func (s *Service) CreateDebtCollection(ctx context.Context, customerID uuid.UUID
 }
 
 // GetDebtCollections retrieves debt collection actions for a customer
-func (s *Service) GetDebtCollections(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID) ([]DebtCollection, error) {
+func (s *Service) GetDebtCollections(ctx context.Context, customerID uuid.UUID) ([]DebtCollection, error) {
 	// Verify customer exists
-	_, err := s.repo.GetByID(ctx, customerID, organizationID)
+	_, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return nil, err
 	}
@@ -392,14 +437,14 @@ func (s *Service) GetDebtCollections(ctx context.Context, customerID uuid.UUID, 
 	return s.repo.GetDebtCollections(ctx, customerID)
 }
 
-// GetPendingDebtCollections retrieves pending debt collection actions for the organization
-func (s *Service) GetPendingDebtCollections(ctx context.Context, organizationID uuid.UUID) ([]DebtCollection, error) {
-	return s.repo.GetPendingDebtCollections(ctx, organizationID)
+// GetPendingDebtCollections retrieves pending debt collection actions
+func (s *Service) GetPendingDebtCollections(ctx context.Context) ([]DebtCollection, error) {
+	return s.repo.GetPendingDebtCollections(ctx)
 }
 
 // ProcessDebtPayment processes a payment for specific debts
-func (s *Service) ProcessDebtPayment(ctx context.Context, customerID uuid.UUID, organizationID uuid.UUID, paymentAmount float64, method string) error {
-	_, err := s.repo.GetByID(ctx, customerID, organizationID)
+func (s *Service) ProcessDebtPayment(ctx context.Context, customerID uuid.UUID, paymentAmount float64, method string) error {
+	_, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return err
 	}
@@ -444,7 +489,7 @@ func (s *Service) ProcessDebtPayment(ctx context.Context, customerID uuid.UUID, 
 	}
 
 	// Update customer balance
-	if err := s.repo.UpdateBalance(ctx, customerID, organizationID, -paymentAmount); err != nil {
+	if err := s.repo.UpdateBalance(ctx, customerID, -paymentAmount); err != nil {
 		return fmt.Errorf("failed to update customer balance: %w", err)
 	}
 

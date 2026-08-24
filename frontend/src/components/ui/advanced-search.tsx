@@ -3,7 +3,7 @@ import { Search, Filter, X, ChevronDown } from 'lucide-react';
 import { Button } from './button';
 import { Input } from './input';
 import { Badge } from './badge';
-import { cn } from '../../lib/utils/helpers';
+import { cn } from '../../utils/helpers';
 
 interface FilterOption {
   value: string;
@@ -94,8 +94,8 @@ export function AdvancedSearch({
           </Button>
         )}
         {(query || activeFilterCount > 0) && (
-          <Button variant="ghost" onClick={clearAll}>
-            <X className="w-4 h-4" />
+          <Button variant="ghost" size="icon" onClick={clearAll}>
+            <X className="w-3.5 h-3.5" />
           </Button>
         )}
       </div>
@@ -107,7 +107,7 @@ export function AdvancedSearch({
             <h3 className="font-medium text-gray-900 dark:text-gray-100">
               فلاتر متقدمة
             </h3>
-            <Button variant="ghost" size="sm" onClick={clearAll}>
+            <Button variant="secondary" onClick={clearAll}>
               مسح الكل
             </Button>
           </div>

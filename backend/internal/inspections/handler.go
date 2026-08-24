@@ -39,10 +39,9 @@ func (h *Handler) CreateInspection(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	response, err := h.service.CreateInspection(c.Request.Context(), organizationID, userID, &req)
+	response, err := h.service.CreateInspection(c.Request.Context(), userID, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -71,9 +70,8 @@ func (h *Handler) GetInspection(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.GetInspection(c.Request.Context(), id, organizationID)
+	response, err := h.service.GetInspection(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -147,9 +145,8 @@ func (h *Handler) ListInspections(c *gin.Context) {
 		}
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	inspections, total, err := h.service.ListInspections(c.Request.Context(), organizationID, req)
+	inspections, total, err := h.service.ListInspections(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -193,9 +190,8 @@ func (h *Handler) UpdateInspection(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.UpdateInspection(c.Request.Context(), id, organizationID, &req)
+	response, err := h.service.UpdateInspection(c.Request.Context(), id, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -224,9 +220,8 @@ func (h *Handler) DeleteInspection(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	if err := h.service.DeleteInspection(c.Request.Context(), id, organizationID); err != nil {
+	if err := h.service.DeleteInspection(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -254,9 +249,8 @@ func (h *Handler) PassInspection(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.PassInspection(c.Request.Context(), id, organizationID)
+	response, err := h.service.PassInspection(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -285,9 +279,8 @@ func (h *Handler) FailInspection(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.FailInspection(c.Request.Context(), id, organizationID)
+	response, err := h.service.FailInspection(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -308,9 +301,8 @@ func (h *Handler) FailInspection(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/inspections/summary [get]
 func (h *Handler) GetInspectionSummary(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 
-	summary, err := h.service.GetInspectionSummary(c.Request.Context(), organizationID)
+	summary, err := h.service.GetInspectionSummary(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

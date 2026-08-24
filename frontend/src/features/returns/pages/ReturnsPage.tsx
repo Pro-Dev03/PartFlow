@@ -4,20 +4,25 @@ import { useTranslation } from '../../../hooks/useTranslation';
 import { returnsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
+import { SearchInput } from '../../../components/ui/search-input';
+import { PageHeader } from '../../../components/ui/page-header';
+import { StatCard } from '../../../components/ui/stat-card';
 import { Select } from '../../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Badge } from '../../../components/ui/badge';
+import { exportToCSV, printTable } from '../../../lib/export-utils';
+import { getButtonSize } from '../../../config/button-sizes';
 import { 
   RotateCcw, 
-  Search, 
   Plus, 
-  Filter,
   Eye,
   ShoppingCart,
   AlertTriangle,
   CheckCircle,
-  XCircle
+  XCircle,
+  Package,
+  Download,
+  Printer
 } from 'lucide-react';
 
 export function ReturnsPage() {
@@ -25,9 +30,13 @@ export function ReturnsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
+  const handleClearSearch = () => {
+    setSearchQuery('');
+  };
+
   const { data: returnsData, isLoading } = useQuery({
     queryKey: ['returns'],
-    queryFn: () => returnsApi.list(),
+    queryFn: () => returnsApi.list({ page: 1, per_page: 100 }),
   });
 
   const returns = (returnsData?.data as any[]) || [];
@@ -50,49 +59,83 @@ export function ReturnsPage() {
     return variants[status] || { label: status, variant: 'default', icon: AlertTriangle };
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {t('returns.title')}
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
-            إدارة المرتجعات والاسترجاع
-          </p>
-        </div>
-        <Button className="gap-2">
-          <Plus className="w-4 h-4" />
-          {t('returns.newReturn')}
-        </Button>
-      </div>
+  const handleExport = () => {
+    const dataToExport = returns.map((returnItem: any) => ({
+      'التاريخ': returnItem.date,
+      'العميل': returnItem.customer,
+      'المنتج': returnItem.product,
+      'الحالة': getStatusBadge(returnItem.status).label,
+      'السبب': returnItem.reason
+    }));
+    exportToCSV(dataToExport, `returns-${new Date().toISOString().split('T')[0]}`);
+  };
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <StatCard title="إجمالي المرتجعات" value={returns.length} icon={RotateCcw} />
-        <StatCard title="قيد الانتظار" value={returns.filter((r: any) => r.status === 'pending').length} icon={AlertTriangle} />
-        <StatCard title="موافق عليه" value={returns.filter((r: any) => r.status === 'approved').length} icon={CheckCircle} />
-        <StatCard title="مكتمل" value={returns.filter((r: any) => r.status === 'completed').length} icon={CheckCircle} />
+  const handlePrint = () => {
+    const dataToPrint = returns.map((returnItem: any) => ({
+      'التاريخ': returnItem.date,
+      'العميل': returnItem.customer,
+      'المنتج': returnItem.product,
+      'الحالة': getStatusBadge(returnItem.status).label,
+      'السبب': returnItem.reason
+    }));
+    printTable(dataToPrint, ['التاريخ', 'العميل', 'المنتج', 'الحالة', 'السبب'], 'تقرير المرتجعات');
+  };
+
+  return (
+    <div>
+      {/* Page Header */}
+      <PageHeader
+        eyebrow="Returns Management"
+        title={t('returns.title')}
+        description="إدارة المرتجعات والاسترجاع"
+        actions={
+          <div className="flex gap-sm">
+            <Button variant="primary" size={getButtonSize('returns', 'headerActions')} className="gap-2">
+              <Plus className="w-4 h-4" />
+              {t('returns.newReturn')}
+            </Button>
+            <Button variant="secondary" size={getButtonSize('returns', 'headerActions')} onClick={handleExport} className="gap-2">
+              <Download className="w-4 h-4" />
+              تصدير
+            </Button>
+            <Button variant="secondary" size={getButtonSize('returns', 'headerActions')} onClick={handlePrint} className="gap-2">
+              <Printer className="w-4 h-4" />
+              طباعة
+            </Button>
+          </div>
+        }
+      />
+
+      {/* Stats Cards - Futuristic + Clean */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
+        <StatCard title="إجمالي المرتجعات" value={returns.length} icon={RotateCcw} variant="featured" />
+        <StatCard title="قيد الانتظار" value={returns.filter((r: any) => r.status === 'pending').length} icon={AlertTriangle} variant="warning" />
+        <StatCard title="موافق عليه" value={returns.filter((r: any) => r.status === 'approved').length} icon={CheckCircle} variant="success" />
+        <StatCard title="مكتمل" value={returns.filter((r: any) => r.status === 'completed').length} icon={Package} variant="default" />
       </div>
 
       {/* Search and Filters */}
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute inset-y-0 right-3 w-4 h-4 text-gray-400" />
-              <Input
+        <CardHeader>
+          <CardTitle className="text-base font-medium">البحث والتصفية</CardTitle>
+        </CardHeader>
+        <CardContent className="p-lg pt-0">
+          <div className="flex flex-col md:flex-row gap-md items-start md:items-center">
+            <div className="flex-1 w-full">
+              <SearchInput
                 placeholder="بحث برقم الفاتورة أو العميل..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pr-10"
+                onClear={handleClearSearch}
+                size="md"
+                className="w-full"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="w-full md:w-auto min-w-[200px]">
               <Select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
+                size="md"
                 options={[
                   { value: '', label: 'كل الحالات' },
                   { value: 'pending', label: 'قيد الانتظار' },
@@ -101,10 +144,6 @@ export function ReturnsPage() {
                   { value: 'completed', label: 'مكتمل' },
                 ]}
               />
-              <Button variant="outline" className="gap-2">
-                <Filter className="w-4 h-4" />
-                {t('common.filter')}
-              </Button>
             </div>
           </div>
         </CardContent>
@@ -118,7 +157,7 @@ export function ReturnsPage() {
         <CardContent>
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan" />
             </div>
           ) : (
             <Table>
@@ -132,7 +171,7 @@ export function ReturnsPage() {
                   <TableHead>يتطلب فحص</TableHead>
                   <TableHead>الحالة</TableHead>
                   <TableHead>التاريخ</TableHead>
-                  <TableHead className="text-left">الإجراءات</TableHead>
+                  <TableHead className="text-start">الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -152,7 +191,7 @@ export function ReturnsPage() {
                       </TableCell>
                       <TableCell>
                         {returnItem.inspectionRequired ? (
-                          <Badge variant="destructive">نعم</Badge>
+                          <Badge variant="danger">نعم</Badge>
                         ) : (
                           <Badge variant="default">لا</Badge>
                         )}
@@ -166,8 +205,8 @@ export function ReturnsPage() {
                       <TableCell>
                         {new Date(returnItem.createdAt).toLocaleDateString('ar-SA')}
                       </TableCell>
-                      <TableCell className="text-left">
-                        <Button variant="ghost" size="sm">
+                      <TableCell className="text-start">
+                        <Button variant="ghost" size={getButtonSize('returns', 'tableAction')}>
                           <Eye className="w-4 h-4" />
                         </Button>
                       </TableCell>
@@ -180,29 +219,5 @@ export function ReturnsPage() {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-interface StatCardProps {
-  title: string;
-  value: number;
-  icon: any;
-}
-
-function StatCard({ title, value, icon: Icon }: StatCardProps) {
-  return (
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
-              {value}
-            </p>
-          </div>
-          <Icon className="w-5 h-5 text-gray-400" />
-        </div>
-      </CardContent>
-    </Card>
   );
 }

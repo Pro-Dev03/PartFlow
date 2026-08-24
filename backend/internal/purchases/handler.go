@@ -39,10 +39,9 @@ func (h *Handler) CreatePurchase(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	response, err := h.service.CreatePurchase(c.Request.Context(), organizationID, userID, &req)
+	response, err := h.service.CreatePurchase(c.Request.Context(), userID, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -71,9 +70,8 @@ func (h *Handler) GetPurchase(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.GetPurchase(c.Request.Context(), id, organizationID)
+	response, err := h.service.GetPurchase(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -136,9 +134,8 @@ func (h *Handler) ListPurchases(c *gin.Context) {
 		}
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	purchases, total, err := h.service.ListPurchases(c.Request.Context(), organizationID, req)
+	purchases, total, err := h.service.ListPurchases(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -182,9 +179,8 @@ func (h *Handler) UpdatePurchase(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.UpdatePurchase(c.Request.Context(), id, organizationID, &req)
+	response, err := h.service.UpdatePurchase(c.Request.Context(), id, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -213,9 +209,8 @@ func (h *Handler) DeletePurchase(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	if err := h.service.DeletePurchase(c.Request.Context(), id, organizationID); err != nil {
+	if err := h.service.DeletePurchase(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -225,7 +220,7 @@ func (h *Handler) DeletePurchase(c *gin.Context) {
 
 // ReceivePurchase handles marking a purchase as received
 // @Summary Receive a purchase
-// @Description Mark a purchase as received
+// @Description Mark a purchase as received and create inventory items
 // @Tags purchases
 // @Accept json
 // @Produce json
@@ -243,9 +238,9 @@ func (h *Handler) ReceivePurchase(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
+	userID := middleware.GetUserID(c)
 
-	response, err := h.service.ReceivePurchase(c.Request.Context(), id, organizationID)
+	response, err := h.service.ReceivePurchase(c.Request.Context(), id, userID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -274,9 +269,8 @@ func (h *Handler) CancelPurchase(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	response, err := h.service.CancelPurchase(c.Request.Context(), id, organizationID)
+	response, err := h.service.CancelPurchase(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -307,16 +301,17 @@ func (h *Handler) AddPayment(c *gin.Context) {
 	}
 
 	var req struct {
-		Amount float64 `json:"amount" binding:"required,min=0.01"`
+		Amount        float64 `json:"amount" binding:"required,min=0.01"`
+		PaymentMethod string  `json:"paymentMethod" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
+	userID := middleware.GetUserID(c)
 
-	response, err := h.service.AddPayment(c.Request.Context(), id, organizationID, req.Amount)
+	response, err := h.service.AddPayment(c.Request.Context(), id, userID, req.Amount, req.PaymentMethod)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -352,9 +347,8 @@ func (h *Handler) AddPurchaseItem(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	item, err := h.service.AddPurchaseItem(c.Request.Context(), purchaseID, organizationID, req)
+	item, err := h.service.AddPurchaseItem(c.Request.Context(), purchaseID, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -390,9 +384,8 @@ func (h *Handler) UpdatePurchaseItem(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	item, err := h.service.UpdatePurchaseItem(c.Request.Context(), itemID, organizationID, req)
+	item, err := h.service.UpdatePurchaseItem(c.Request.Context(), itemID, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

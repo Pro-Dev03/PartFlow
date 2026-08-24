@@ -20,7 +20,7 @@ func NewService(db *sqlx.DB) *Service {
 }
 
 // Search performs a global search across all entities
-func (s *Service) Search(ctx context.Context, organizationID uuid.UUID, req *SearchRequest) (*SearchResponse, error) {
+func (s *Service) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, error) {
 	if req.Limit <= 0 {
 		req.Limit = 20
 	}
@@ -44,15 +44,15 @@ func (s *Service) Search(ctx context.Context, organizationID uuid.UUID, req *Sea
 
 		switch searchType {
 		case "products":
-			typeResults, typeTotal = s.searchProducts(ctx, organizationID, req.Query, req.Limit, req.Offset)
+			typeResults, typeTotal = s.searchProducts(ctx, req.Query, req.Limit, req.Offset)
 		case "customers":
-			typeResults, typeTotal = s.searchCustomers(ctx, organizationID, req.Query, req.Limit, req.Offset)
+			typeResults, typeTotal = s.searchCustomers(ctx, req.Query, req.Limit, req.Offset)
 		case "suppliers":
-			typeResults, typeTotal = s.searchSuppliers(ctx, organizationID, req.Query, req.Limit, req.Offset)
+			typeResults, typeTotal = s.searchSuppliers(ctx, req.Query, req.Limit, req.Offset)
 		case "sales":
-			typeResults, typeTotal = s.searchSales(ctx, organizationID, req.Query, req.Limit, req.Offset)
+			typeResults, typeTotal = s.searchSales(ctx, req.Query, req.Limit, req.Offset)
 		case "purchases":
-			typeResults, typeTotal = s.searchPurchases(ctx, organizationID, req.Query, req.Limit, req.Offset)
+			typeResults, typeTotal = s.searchPurchases(ctx, req.Query, req.Limit, req.Offset)
 		}
 
 		results = append(results, typeResults...)
@@ -70,21 +70,20 @@ func (s *Service) Search(ctx context.Context, organizationID uuid.UUID, req *Sea
 }
 
 // searchProducts searches for products
-func (s *Service) searchProducts(ctx context.Context, organizationID uuid.UUID, query string, limit, offset int) ([]SearchResult, int) {
+func (s *Service) searchProducts(ctx context.Context, query string, limit, offset int) ([]SearchResult, int) {
 	var results []SearchResult
 	searchPattern := "%" + query + "%"
 
 	queryStr := `
 		SELECT id, name, sku, model, barcode, created_at
 		FROM products
-		WHERE organization_id = $1
-		AND is_active = true
-		AND (name ILIKE $2 OR sku ILIKE $2 OR model ILIKE $2 OR barcode ILIKE $2)
+		WHERE is_active = true
+		AND (name ILIKE $1 OR sku ILIKE $1 OR model ILIKE $1 OR barcode ILIKE $1)
 		ORDER BY name
-		LIMIT $3 OFFSET $4
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := s.db.QueryContext(ctx, queryStr, organizationID, searchPattern, limit, offset)
+	rows, err := s.db.QueryContext(ctx, queryStr, searchPattern, limit, offset)
 	if err != nil {
 		return results, 0
 	}
@@ -121,31 +120,29 @@ func (s *Service) searchProducts(ctx context.Context, organizationID uuid.UUID, 
 	countQuery := `
 		SELECT COUNT(*)
 		FROM products
-		WHERE organization_id = $1
-		AND is_active = true
-		AND (name ILIKE $2 OR sku ILIKE $2 OR model ILIKE $2 OR barcode ILIKE $2)
+		WHERE is_active = true
+		AND (name ILIKE $1 OR sku ILIKE $1 OR model ILIKE $1 OR barcode ILIKE $1)
 	`
-	s.db.GetContext(ctx, &total, countQuery, organizationID, searchPattern)
+	s.db.GetContext(ctx, &total, countQuery, searchPattern)
 
 	return results, total
 }
 
 // searchCustomers searches for customers
-func (s *Service) searchCustomers(ctx context.Context, organizationID uuid.UUID, query string, limit, offset int) ([]SearchResult, int) {
+func (s *Service) searchCustomers(ctx context.Context, query string, limit, offset int) ([]SearchResult, int) {
 	var results []SearchResult
 	searchPattern := "%" + query + "%"
 
 	queryStr := `
 		SELECT id, name, email, phone, created_at
 		FROM customers
-		WHERE organization_id = $1
-		AND is_active = true
-		AND (name ILIKE $2 OR email ILIKE $2 OR phone ILIKE $2)
+		WHERE is_active = true
+		AND (name ILIKE $1 OR email ILIKE $1 OR phone ILIKE $1)
 		ORDER BY name
-		LIMIT $3 OFFSET $4
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := s.db.QueryContext(ctx, queryStr, organizationID, searchPattern, limit, offset)
+	rows, err := s.db.QueryContext(ctx, queryStr, searchPattern, limit, offset)
 	if err != nil {
 		return results, 0
 	}
@@ -181,31 +178,29 @@ func (s *Service) searchCustomers(ctx context.Context, organizationID uuid.UUID,
 	countQuery := `
 		SELECT COUNT(*)
 		FROM customers
-		WHERE organization_id = $1
-		AND is_active = true
-		AND (name ILIKE $2 OR email ILIKE $2 OR phone ILIKE $2)
+		WHERE is_active = true
+		AND (name ILIKE $1 OR email ILIKE $1 OR phone ILIKE $1)
 	`
-	s.db.GetContext(ctx, &total, countQuery, organizationID, searchPattern)
+	s.db.GetContext(ctx, &total, countQuery, searchPattern)
 
 	return results, total
 }
 
 // searchSuppliers searches for suppliers
-func (s *Service) searchSuppliers(ctx context.Context, organizationID uuid.UUID, query string, limit, offset int) ([]SearchResult, int) {
+func (s *Service) searchSuppliers(ctx context.Context, query string, limit, offset int) ([]SearchResult, int) {
 	var results []SearchResult
 	searchPattern := "%" + query + "%"
 
 	queryStr := `
 		SELECT id, name, email, phone, created_at
 		FROM suppliers
-		WHERE organization_id = $1
-		AND is_active = true
-		AND (name ILIKE $2 OR email ILIKE $2 OR phone ILIKE $2)
+		WHERE is_active = true
+		AND (name ILIKE $1 OR email ILIKE $1 OR phone ILIKE $1)
 		ORDER BY name
-		LIMIT $3 OFFSET $4
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := s.db.QueryContext(ctx, queryStr, organizationID, searchPattern, limit, offset)
+	rows, err := s.db.QueryContext(ctx, queryStr, searchPattern, limit, offset)
 	if err != nil {
 		return results, 0
 	}
@@ -241,30 +236,28 @@ func (s *Service) searchSuppliers(ctx context.Context, organizationID uuid.UUID,
 	countQuery := `
 		SELECT COUNT(*)
 		FROM suppliers
-		WHERE organization_id = $1
-		AND is_active = true
-		AND (name ILIKE $2 OR email ILIKE $2 OR phone ILIKE $2)
+		WHERE is_active = true
+		AND (name ILIKE $1 OR email ILIKE $1 OR phone ILIKE $1)
 	`
-	s.db.GetContext(ctx, &total, countQuery, organizationID, searchPattern)
+	s.db.GetContext(ctx, &total, countQuery, searchPattern)
 
 	return results, total
 }
 
 // searchSales searches for sales
-func (s *Service) searchSales(ctx context.Context, organizationID uuid.UUID, query string, limit, offset int) ([]SearchResult, int) {
+func (s *Service) searchSales(ctx context.Context, query string, limit, offset int) ([]SearchResult, int) {
 	var results []SearchResult
 	searchPattern := "%" + query + "%"
 
 	queryStr := `
 		SELECT id, invoice_number, total_amount, sale_date, created_at
 		FROM sales
-		WHERE organization_id = $1
-		AND (invoice_number ILIKE $2)
+		WHERE invoice_number ILIKE $1
 		ORDER BY sale_date DESC
-		LIMIT $3 OFFSET $4
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := s.db.QueryContext(ctx, queryStr, organizationID, searchPattern, limit, offset)
+	rows, err := s.db.QueryContext(ctx, queryStr, searchPattern, limit, offset)
 	if err != nil {
 		return results, 0
 	}
@@ -301,29 +294,27 @@ func (s *Service) searchSales(ctx context.Context, organizationID uuid.UUID, que
 	countQuery := `
 		SELECT COUNT(*)
 		FROM sales
-		WHERE organization_id = $1
-		AND invoice_number ILIKE $2
+		WHERE invoice_number ILIKE $1
 	`
-	s.db.GetContext(ctx, &total, countQuery, organizationID, searchPattern)
+	s.db.GetContext(ctx, &total, countQuery, searchPattern)
 
 	return results, total
 }
 
 // searchPurchases searches for purchases
-func (s *Service) searchPurchases(ctx context.Context, organizationID uuid.UUID, query string, limit, offset int) ([]SearchResult, int) {
+func (s *Service) searchPurchases(ctx context.Context, query string, limit, offset int) ([]SearchResult, int) {
 	var results []SearchResult
 	searchPattern := "%" + query + "%"
 
 	queryStr := `
 		SELECT id, invoice_number, total_amount, purchase_date, created_at
 		FROM purchases
-		WHERE organization_id = $1
-		AND (invoice_number ILIKE $2)
+		WHERE invoice_number ILIKE $1
 		ORDER BY purchase_date DESC
-		LIMIT $3 OFFSET $4
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := s.db.QueryContext(ctx, queryStr, organizationID, searchPattern, limit, offset)
+	rows, err := s.db.QueryContext(ctx, queryStr, searchPattern, limit, offset)
 	if err != nil {
 		return results, 0
 	}
@@ -360,49 +351,43 @@ func (s *Service) searchPurchases(ctx context.Context, organizationID uuid.UUID,
 	countQuery := `
 		SELECT COUNT(*)
 		FROM purchases
-		WHERE organization_id = $1
-		AND invoice_number ILIKE $2
+		WHERE invoice_number ILIKE $1
 	`
-	s.db.GetContext(ctx, &total, countQuery, organizationID, searchPattern)
+	s.db.GetContext(ctx, &total, countQuery, searchPattern)
 
 	return results, total
 }
 
 // GetSearchStats retrieves search statistics
-func (s *Service) GetSearchStats(ctx context.Context, organizationID uuid.UUID) (*SearchStats, error) {
+func (s *Service) GetSearchStats(ctx context.Context) (*SearchStats, error) {
 	stats := &SearchStats{}
 
 	// Get total products
-	query := `SELECT COUNT(*) FROM products WHERE organization_id = $1 AND is_active = true`
-	err := s.db.GetContext(ctx, &stats.TotalProducts, query, organizationID)
+	err := s.db.GetContext(ctx, &stats.TotalProducts, `SELECT COUNT(*) FROM products WHERE is_active = true`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total products: %w", err)
 	}
 
 	// Get total customers
-	query = `SELECT COUNT(*) FROM customers WHERE organization_id = $1 AND is_active = true`
-	err = s.db.GetContext(ctx, &stats.TotalCustomers, query, organizationID)
+	err = s.db.GetContext(ctx, &stats.TotalCustomers, `SELECT COUNT(*) FROM customers WHERE is_active = true`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total customers: %w", err)
 	}
 
 	// Get total suppliers
-	query = `SELECT COUNT(*) FROM suppliers WHERE organization_id = $1 AND is_active = true`
-	err = s.db.GetContext(ctx, &stats.TotalSuppliers, query, organizationID)
+	err = s.db.GetContext(ctx, &stats.TotalSuppliers, `SELECT COUNT(*) FROM suppliers WHERE is_active = true`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total suppliers: %w", err)
 	}
 
 	// Get total sales
-	query = `SELECT COUNT(*) FROM sales WHERE organization_id = $1`
-	err = s.db.GetContext(ctx, &stats.TotalSales, query, organizationID)
+	err = s.db.GetContext(ctx, &stats.TotalSales, `SELECT COUNT(*) FROM sales`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total sales: %w", err)
 	}
 
 	// Get total purchases
-	query = `SELECT COUNT(*) FROM purchases WHERE organization_id = $1`
-	err = s.db.GetContext(ctx, &stats.TotalPurchases, query, organizationID)
+	err = s.db.GetContext(ctx, &stats.TotalPurchases, `SELECT COUNT(*) FROM purchases`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total purchases: %w", err)
 	}

@@ -19,7 +19,7 @@ func NewService(repo *Repository) *Service {
 }
 
 // CreateInspection creates a new inspection
-func (s *Service) CreateInspection(ctx context.Context, organizationID uuid.UUID, userID uuid.UUID, req *InspectionRequest) (*InspectionResponse, error) {
+func (s *Service) CreateInspection(ctx context.Context, userID uuid.UUID, req *InspectionRequest) (*InspectionResponse, error) {
 	// Validate request
 	if err := ValidateInspectionRequest(req); err != nil {
 		return nil, err
@@ -32,7 +32,7 @@ func (s *Service) CreateInspection(ctx context.Context, organizationID uuid.UUID
 	}
 
 	// Create inspection
-	inspection := CreateInspection(organizationID, userID, req)
+	inspection := CreateInspection(userID, req)
 
 	if err := s.repo.CreateInspection(ctx, inspection); err != nil {
 		return nil, fmt.Errorf("failed to create inspection: %w", err)
@@ -47,8 +47,8 @@ func (s *Service) CreateInspection(ctx context.Context, organizationID uuid.UUID
 }
 
 // GetInspection retrieves an inspection by ID
-func (s *Service) GetInspection(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*InspectionResponse, error) {
-	inspection, err := s.repo.GetInspectionByID(ctx, id, organizationID)
+func (s *Service) GetInspection(ctx context.Context, id uuid.UUID) (*InspectionResponse, error) {
+	inspection, err := s.repo.GetInspectionByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (s *Service) GetInspection(ctx context.Context, id uuid.UUID, organizationI
 }
 
 // ListInspections retrieves inspections with pagination and filters
-func (s *Service) ListInspections(ctx context.Context, organizationID uuid.UUID, req InspectionListRequest) ([]map[string]interface{}, int, error) {
+func (s *Service) ListInspections(ctx context.Context, req InspectionListRequest) ([]map[string]interface{}, int, error) {
 	if req.Page <= 0 {
 		req.Page = 1
 	}
@@ -75,7 +75,7 @@ func (s *Service) ListInspections(ctx context.Context, organizationID uuid.UUID,
 		req.PerPage = 20
 	}
 
-	inspections, total, err := s.repo.ListInspections(ctx, organizationID, req)
+	inspections, total, err := s.repo.ListInspections(ctx, req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -101,8 +101,8 @@ func (s *Service) ListInspections(ctx context.Context, organizationID uuid.UUID,
 }
 
 // UpdateInspection updates an inspection
-func (s *Service) UpdateInspection(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, req *InspectionUpdateRequest) (*InspectionResponse, error) {
-	inspection, err := s.repo.GetInspectionByID(ctx, id, organizationID)
+func (s *Service) UpdateInspection(ctx context.Context, id uuid.UUID, req *InspectionUpdateRequest) (*InspectionResponse, error) {
+	inspection, err := s.repo.GetInspectionByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -144,12 +144,12 @@ func (s *Service) UpdateInspection(ctx context.Context, id uuid.UUID, organizati
 		return nil, err
 	}
 
-	return s.GetInspection(ctx, id, organizationID)
+	return s.GetInspection(ctx, id)
 }
 
 // DeleteInspection deletes an inspection
-func (s *Service) DeleteInspection(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	inspection, err := s.repo.GetInspectionByID(ctx, id, organizationID)
+func (s *Service) DeleteInspection(ctx context.Context, id uuid.UUID, ) error {
+	inspection, err := s.repo.GetInspectionByID(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -159,12 +159,12 @@ func (s *Service) DeleteInspection(ctx context.Context, id uuid.UUID, organizati
 		return ErrCannotUpdateCompletedInspection
 	}
 
-	return s.repo.DeleteInspection(ctx, id, organizationID)
+	return s.repo.DeleteInspection(ctx, id)
 }
 
 // PassInspection marks an inspection as passed
-func (s *Service) PassInspection(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*InspectionResponse, error) {
-	inspection, err := s.repo.GetInspectionByID(ctx, id, organizationID)
+func (s *Service) PassInspection(ctx context.Context, id uuid.UUID, ) (*InspectionResponse, error) {
+	inspection, err := s.repo.GetInspectionByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -180,12 +180,12 @@ func (s *Service) PassInspection(ctx context.Context, id uuid.UUID, organization
 		return nil, err
 	}
 
-	return s.GetInspection(ctx, id, organizationID)
+	return s.GetInspection(ctx, id)
 }
 
 // FailInspection marks an inspection as failed
-func (s *Service) FailInspection(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*InspectionResponse, error) {
-	inspection, err := s.repo.GetInspectionByID(ctx, id, organizationID)
+func (s *Service) FailInspection(ctx context.Context, id uuid.UUID, ) (*InspectionResponse, error) {
+	inspection, err := s.repo.GetInspectionByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -201,10 +201,10 @@ func (s *Service) FailInspection(ctx context.Context, id uuid.UUID, organization
 		return nil, err
 	}
 
-	return s.GetInspection(ctx, id, organizationID)
+	return s.GetInspection(ctx, id)
 }
 
 // GetInspectionSummary retrieves inspection summary statistics
-func (s *Service) GetInspectionSummary(ctx context.Context, organizationID uuid.UUID) (*InspectionSummary, error) {
-	return s.repo.GetInspectionSummary(ctx, organizationID)
+func (s *Service) GetInspectionSummary(ctx context.Context) (*InspectionSummary, error) {
+	return s.repo.GetInspectionSummary(ctx)
 }

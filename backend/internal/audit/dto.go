@@ -22,10 +22,9 @@ func (al *AuditLog) ToAuditLogListItem(userName string) map[string]interface{} {
 }
 
 // CreateAuditLog creates an AuditLog from request
-func CreateAuditLog(organizationID uuid.UUID, req *AuditLogRequest, ipAddress, userAgent, requestID string) *AuditLog {
+func CreateAuditLog(req *AuditLogRequest, ipAddress, userAgent, requestID string) *AuditLog {
 	return &AuditLog{
 		ID:             uuid.New(),
-		OrganizationID: organizationID,
 		UserID:         req.UserID,
 		Action:         req.Action,
 		EntityID:       req.EntityID,
@@ -98,7 +97,6 @@ func ValidateEntityType(entityType string) error {
 		"notification": true,
 		"report":       true,
 		"user":         true,
-		"organization": true,
 		"category":     true,
 		"brand":        true,
 		"inventory":    true,

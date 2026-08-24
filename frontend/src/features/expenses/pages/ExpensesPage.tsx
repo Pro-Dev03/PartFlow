@@ -5,9 +5,12 @@ import { expensesApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
+import { PageHeader } from '../../../components/ui/page-header';
+import { StatCard } from '../../../components/ui/stat-card';
 import { Select } from '../../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Badge } from '../../../components/ui/badge';
+import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { 
   DollarSign, 
   Search, 
@@ -16,7 +19,9 @@ import {
   Edit,
   Trash2,
   Calendar,
-  TrendingUp
+  TrendingUp,
+  Download,
+  Printer
 } from 'lucide-react';
 
 export function ExpensesPage() {
@@ -26,7 +31,7 @@ export function ExpensesPage() {
 
   const { data: expensesData, isLoading } = useQuery({
     queryKey: ['expenses'],
-    queryFn: () => expensesApi.list(),
+    queryFn: () => expensesApi.list({ page: 1, per_page: 100 }),
   });
 
   const expenses = (expensesData?.data as any[]) || [];
@@ -70,45 +75,76 @@ export function ExpensesPage() {
     return cat?.label || category;
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            {t('expenses.title')}
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
-            إدارة المصروفات والميزانية
-          </p>
-        </div>
-        <Button className="gap-2">
-          <Plus className="w-4 h-4" />
-          {t('expenses.addExpense')}
-        </Button>
-      </div>
+  const handleExport = () => {
+    const dataToExport = filteredExpenses.map((expense: any) => ({
+      'التاريخ': expense.date,
+      'الوصف': expense.description,
+      'الفئة': getCategoryLabel(expense.category),
+      'المبلغ': expense.amount
+    }));
+    exportToCSV(dataToExport, `expenses-${new Date().toISOString().split('T')[0]}`);
+  };
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+  const handlePrint = () => {
+    const dataToPrint = filteredExpenses.map((expense: any) => ({
+      'التاريخ': expense.date,
+      'الوصف': expense.description,
+      'الفئة': getCategoryLabel(expense.category),
+      'المبلغ': expense.amount
+    }));
+    printTable(dataToPrint, ['التاريخ', 'الوصف', 'الفئة', 'المبلغ'], 'تقرير المصروفات');
+  };
+
+  return (
+    <div>
+      {/* Page Header */}
+      <PageHeader
+        eyebrow="Expense Management"
+        title={t('expenses.title')}
+        description="إدارة المصروفات والميزانية"
+        actions={
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <Button variant="primary" className="gap-2">
+              <Plus className="w-4 h-4" />
+              {t('expenses.addExpense')}
+            </Button>
+            <Button variant="secondary" onClick={handleExport} className="gap-2">
+              <Download className="w-4 h-4" />
+              تصدير
+            </Button>
+            <Button variant="secondary" onClick={handlePrint} className="gap-2">
+              <Printer className="w-4 h-4" />
+              طباعة
+            </Button>
+          </div>
+        }
+      />
+
+      {/* Stats Cards - Futuristic + Clean */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
         <StatCard 
           title={t('expenses.thisMonth')} 
           value={`₪${thisMonthTotal.toLocaleString()}`} 
-          icon={Calendar} 
+          icon={Calendar}
+          variant="featured"
         />
         <StatCard 
           title="الإيجار" 
           value={`₪${(categoryTotals.rent || 0).toLocaleString()}`} 
-          icon={DollarSign} 
+          icon={DollarSign}
+          variant="default"
         />
         <StatCard 
           title="الرواتب" 
           value={`₪${(categoryTotals.salaries || 0).toLocaleString()}`} 
-          icon={DollarSign} 
+          icon={DollarSign}
+          variant="default"
         />
         <StatCard 
           title="المرافق" 
           value={`₪${(categoryTotals.utilities || 0).toLocaleString()}`} 
-          icon={DollarSign} 
+          icon={DollarSign}
+          variant="default"
         />
       </div>
 
@@ -118,13 +154,13 @@ export function ExpensesPage() {
           <CardTitle>توزيع المصروفات حسب الفئة</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
             {Object.entries(categoryTotals).map(([category, total]) => (
-              <div key={category} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+              <div key={category} className="p-lg bg-surface-2 rounded-sm">
+                <p className="text-small text-text-muted">
                   {getCategoryLabel(category)}
                 </p>
-                <p className="text-xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+                <p className="text-metric font-bold text-text mt-1">
                   ₪{(total as number).toLocaleString()}
                 </p>
               </div>
@@ -135,24 +171,24 @@ export function ExpensesPage() {
 
       {/* Search and Filters */}
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4">
+        <CardContent className="p-lg">
+          <div className="flex flex-col md:flex-row gap-md">
             <div className="flex-1 relative">
-              <Search className="absolute inset-y-0 right-3 w-4 h-4 text-gray-400" />
+              <Search className="absolute inset-y-0 end-3 w-4 h-4 text-cyan" />
               <Input
                 placeholder={t('common.search')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pr-10"
+                className="pe-10"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-sm">
               <Select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 options={categories}
               />
-              <Button variant="outline" className="gap-2">
+              <Button variant="secondary" className="gap-2">
                 <Filter className="w-4 h-4" />
                 {t('common.filter')}
               </Button>
@@ -169,7 +205,7 @@ export function ExpensesPage() {
         <CardContent>
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan" />
             </div>
           ) : (
             <Table>
@@ -181,7 +217,7 @@ export function ExpensesPage() {
                   <TableHead>المبلغ</TableHead>
                   <TableHead>متكرر</TableHead>
                   <TableHead>الإيصال</TableHead>
-                  <TableHead className="text-left">الإجراءات</TableHead>
+                  <TableHead className="text-start">الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -207,7 +243,7 @@ export function ExpensesPage() {
                            expense.recurringPeriod === 'yearly' ? 'سنوي' : 'نعم'}
                         </Badge>
                       ) : (
-                        <span className="text-gray-400">-</span>
+                        <span className="text-text-muted">-</span>
                       )}
                     </TableCell>
                     <TableCell>
@@ -216,16 +252,16 @@ export function ExpensesPage() {
                           عرض
                         </Button>
                       ) : (
-                        <span className="text-gray-400">-</span>
+                        <span className="text-text-muted">-</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-left">
-                      <div className="flex gap-2">
+                    <TableCell className="text-start">
+                      <div className="flex gap-sm">
                         <Button variant="ghost" size="sm">
                           <Edit className="w-4 h-4" />
                         </Button>
                         <Button variant="ghost" size="sm">
-                          <Trash2 className="w-4 h-4 text-red-500" />
+                          <Trash2 className="w-4 h-4 text-red" />
                         </Button>
                       </div>
                     </TableCell>
@@ -237,29 +273,5 @@ export function ExpensesPage() {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-interface StatCardProps {
-  title: string;
-  value: string;
-  icon: any;
-}
-
-function StatCard({ title, value, icon: Icon }: StatCardProps) {
-  return (
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
-              {value}
-            </p>
-          </div>
-          <Icon className="w-5 h-5 text-gray-400" />
-        </div>
-      </CardContent>
-    </Card>
   );
 }

@@ -39,9 +39,8 @@ func (h *Handler) CreateNotification(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	notification, err := h.service.CreateNotification(c.Request.Context(), organizationID, &req)
+	notification, err := h.service.CreateNotification(c.Request.Context(), &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -70,9 +69,8 @@ func (h *Handler) GetNotification(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	notification, err := h.service.GetNotification(c.Request.Context(), id, organizationID)
+	notification, err := h.service.GetNotification(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
@@ -130,10 +128,9 @@ func (h *Handler) ListNotifications(c *gin.Context) {
 		}
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	notifications, total, err := h.service.ListNotifications(c.Request.Context(), organizationID, userID, req)
+	notifications, total, err := h.service.ListNotifications(c.Request.Context(), userID, req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -170,9 +167,8 @@ func (h *Handler) MarkAsRead(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	if err := h.service.MarkAsRead(c.Request.Context(), id, organizationID); err != nil {
+	if err := h.service.MarkAsRead(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -192,10 +188,9 @@ func (h *Handler) MarkAsRead(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/notifications/read-all [post]
 func (h *Handler) MarkAllAsRead(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	if err := h.service.MarkAllAsRead(c.Request.Context(), userID, organizationID); err != nil {
+	if err := h.service.MarkAllAsRead(c.Request.Context(), userID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -223,9 +218,8 @@ func (h *Handler) DeleteNotification(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 
-	if err := h.service.DeleteNotification(c.Request.Context(), id, organizationID); err != nil {
+	if err := h.service.DeleteNotification(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -245,10 +239,9 @@ func (h *Handler) DeleteNotification(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/notifications/summary [get]
 func (h *Handler) GetNotificationSummary(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	summary, err := h.service.GetNotificationSummary(c.Request.Context(), userID, organizationID)
+	summary, err := h.service.GetNotificationSummary(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -269,10 +262,9 @@ func (h *Handler) GetNotificationSummary(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/notifications/preferences [get]
 func (h *Handler) GetNotificationPreferences(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	preferences, err := h.service.GetNotificationPreferences(c.Request.Context(), userID, organizationID)
+	preferences, err := h.service.GetNotificationPreferences(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -300,10 +292,9 @@ func (h *Handler) UpdateNotificationPreferences(c *gin.Context) {
 		return
 	}
 
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	updatedPreferences, err := h.service.UpdateNotificationPreferences(c.Request.Context(), userID, organizationID, &preferences)
+	updatedPreferences, err := h.service.UpdateNotificationPreferences(c.Request.Context(), userID, &preferences)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -324,10 +315,9 @@ func (h *Handler) UpdateNotificationPreferences(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/notifications/unread-count [get]
 func (h *Handler) GetUnreadCount(c *gin.Context) {
-	organizationID := middleware.GetOrganizationID(c)
 	userID := middleware.GetUserID(c)
 
-	count, err := h.service.GetUnreadCount(c.Request.Context(), userID, organizationID)
+	count, err := h.service.GetUnreadCount(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -27,10 +27,9 @@ func LoggingMiddleware() gin.HandlerFunc {
 
 		// Get user context if available
 		userID := GetUserID(c).String()
-		organizationID := GetOrganizationID(c).String()
 
 		// Create request logger
-		requestLogger := logger.WithRequest(requestID, userID, organizationID, method, path)
+		requestLogger := logger.WithRequest(requestID, userID, method, path)
 
 		// Log request start
 		requestLogger.Debug().
@@ -81,11 +80,10 @@ func ErrorLoggingMiddleware() gin.HandlerFunc {
 		if len(c.Errors) > 0 {
 			requestID := GetRequestID(c)
 			userID := GetUserID(c).String()
-			organizationID := GetOrganizationID(c).String()
 			method := c.Request.Method
 			path := c.Request.URL.Path
 
-			errorLogger := logger.WithRequest(requestID, userID, organizationID, method, path)
+			errorLogger := logger.WithRequest(requestID, userID, method, path)
 
 			for _, err := range c.Errors {
 				errorLogger.Error().
@@ -110,17 +108,15 @@ func PerformanceLoggingMiddleware() gin.HandlerFunc {
 		if duration > time.Second {
 			requestID := GetRequestID(c)
 			userID := GetUserID(c).String()
-			organizationID := GetOrganizationID(c).String()
 			method := c.Request.Method
 			path := c.Request.URL.Path
 
 			logger.Warn("Slow request detected", map[string]interface{}{
-				"request_id":   requestID,
-				"user_id":      userID,
-				"organization_id": organizationID,
-				"method":       method,
-				"path":         path,
-				"duration_ms":  duration.Milliseconds(),
+				"request_id":  requestID,
+				"user_id":     userID,
+				"method":      method,
+				"path":        path,
+				"duration_ms": duration.Milliseconds(),
 			})
 		}
 	}
@@ -150,7 +146,6 @@ func SecurityLoggingMiddleware() gin.HandlerFunc {
 		if c.Writer.Status() == 403 {
 			requestID := GetRequestID(c)
 			userID := GetUserID(c).String()
-			organizationID := GetOrganizationID(c).String()
 			method := c.Request.Method
 			path := c.Request.URL.Path
 			ipAddress := c.ClientIP()
@@ -158,7 +153,6 @@ func SecurityLoggingMiddleware() gin.HandlerFunc {
 			logger.Warn("Authorization failed - access denied", map[string]interface{}{
 				"request_id":   requestID,
 				"user_id":      userID,
-				"organization_id": organizationID,
 				"method":       method,
 				"path":         path,
 				"ip_address":   ipAddress,

@@ -9,7 +9,6 @@ import (
 // Notification represents a notification
 type Notification struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	UserID         uuid.UUID  `json:"user_id" db:"user_id"`
 	Type           string     `json:"type" db:"type"` // low_stock, debt_overdue, warranty_expiring, return_request, expense_approval, etc.
 	Title          string     `json:"title" db:"title"`
@@ -60,12 +59,10 @@ type NotificationListRequest struct {
 type NotificationPreferences struct {
 	ID             uuid.UUID `json:"id" db:"id"`
 	UserID         uuid.UUID `json:"user_id" db:"user_id"`
-	OrganizationID uuid.UUID `json:"organization_id" db:"organization_id"`
 	EmailEnabled   bool      `json:"email_enabled" db:"email_enabled"`
 	PushEnabled    bool      `json:"push_enabled" db:"push_enabled"`
 	LowStock       bool      `json:"low_stock" db:"low_stock"`
 	DebtOverdue    bool      `json:"debt_overdue" db:"debt_overdue"`
-	WarrantyExpiring bool    `json:"warranty_expiring" db:"warranty_expiring"`
 	ReturnRequests bool      `json:"return_requests" db:"return_requests"`
 	ExpenseApproval bool     `json:"expense_approval" db:"expense_approval"`
 	SalesUpdates   bool      `json:"sales_updates" db:"sales_updates"`

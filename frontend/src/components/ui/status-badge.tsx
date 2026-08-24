@@ -1,6 +1,6 @@
 import type { HTMLAttributes } from 'react';
 import { forwardRef } from 'react';
-import { cn } from '../../lib/utils';
+import { cn } from '../../utils';
 
 export interface StatusBadgeProps extends HTMLAttributes<HTMLDivElement> {
   status: 'available' | 'low-stock' | 'out-of-stock' | 'reserved' | 'current' | 'due-soon' | 'overdue' | 'paid';
@@ -12,35 +12,35 @@ const StatusBadge = forwardRef<HTMLDivElement, StatusBadgeProps>(
     const statusConfig = {
       'available': {
         label: 'متوفر',
-        className: 'bg-success/10 border border-success/20 text-success'
+        className: 'bg-green/10 border border-green/20 text-green'
       },
       'low-stock': {
         label: 'مخزون منخفض',
-        className: 'bg-warning/10 border border-warning/20 text-warning'
+        className: 'bg-yellow/10 border border-yellow/20 text-yellow'
       },
       'out-of-stock': {
         label: 'نفذ المخزون',
-        className: 'bg-danger/10 border border-danger/20 text-danger'
+        className: 'bg-red/10 border border-red/20 text-red'
       },
       'reserved': {
         label: 'محجوز',
-        className: 'bg-info/10 border border-info/20 text-info'
+        className: 'bg-blue/10 border border-blue/20 text-blue'
       },
       'current': {
         label: 'حالي',
-        className: 'bg-success/10 border border-success/20 text-success'
+        className: 'bg-green/10 border border-green/20 text-green'
       },
       'due-soon': {
         label: 'يستحق قريباً',
-        className: 'bg-warning/10 border border-warning/20 text-warning'
+        className: 'bg-yellow/10 border border-yellow/20 text-yellow'
       },
       'overdue': {
         label: 'متأخر',
-        className: 'bg-danger/10 border border-danger/20 text-danger'
+        className: 'bg-red/10 border border-red/20 text-red'
       },
       'paid': {
         label: 'مدفوع',
-        className: 'bg-success/10 border border-success/20 text-success'
+        className: 'bg-green/10 border border-green/20 text-green'
       }
     };
     

@@ -6,28 +6,30 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 )
 
 // Service handles supplier business logic
 type Service struct {
 	repo *Repository
+	db   *sqlx.DB
 }
 
 // NewService creates a new supplier service
-func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *Repository, db *sqlx.DB) *Service {
+	return &Service{repo: repo, db: db}
 }
 
 // CreateSupplier creates a new supplier
-func (s *Service) CreateSupplier(ctx context.Context, organizationID uuid.UUID, req *SupplierRequest) (*Supplier, error) {
+func (s *Service) CreateSupplier(ctx context.Context, req *SupplierRequest) (*Supplier, error) {
 	// Check if code already exists
-	_, err := s.repo.GetByCode(ctx, req.Code, organizationID)
+	_, err := s.repo.GetByCode(ctx, req.Code)
 	if err == nil {
 		return nil, ErrSupplierCodeExists
 	}
 
 	// Create supplier
-	supplier := NewSupplier(organizationID, req.Code, req.Name)
+	supplier := NewSupplier(req.Code, req.Name)
 	supplier.Email = req.Email
 	supplier.Phone = req.Phone
 	supplier.Address = req.Address
@@ -47,12 +49,12 @@ func (s *Service) CreateSupplier(ctx context.Context, organizationID uuid.UUID, 
 }
 
 // GetSupplier retrieves a supplier by ID
-func (s *Service) GetSupplier(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) (*Supplier, error) {
-	return s.repo.GetByID(ctx, id, organizationID)
+func (s *Service) GetSupplier(ctx context.Context, id uuid.UUID) (*Supplier, error) {
+	return s.repo.GetByID(ctx, id)
 }
 
 // ListSuppliers retrieves suppliers with pagination and filters
-func (s *Service) ListSuppliers(ctx context.Context, organizationID uuid.UUID, page, perPage int, search string, isActive *bool) ([]Supplier, int, error) {
+func (s *Service) ListSuppliers(ctx context.Context, page, perPage int, search string, isActive *bool) ([]Supplier, int, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -60,19 +62,19 @@ func (s *Service) ListSuppliers(ctx context.Context, organizationID uuid.UUID, p
 		perPage = 20
 	}
 
-	return s.repo.List(ctx, organizationID, page, perPage, search, isActive)
+	return s.repo.List(ctx, page, perPage, search, isActive)
 }
 
 // UpdateSupplier updates a supplier
-func (s *Service) UpdateSupplier(ctx context.Context, id uuid.UUID, organizationID uuid.UUID, req *SupplierRequest) (*Supplier, error) {
-	supplier, err := s.repo.GetByID(ctx, id, organizationID)
+func (s *Service) UpdateSupplier(ctx context.Context, id uuid.UUID, req *SupplierRequest) (*Supplier, error) {
+	supplier, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
 	// Check if new code already exists (if changed)
 	if req.Code != supplier.Code {
-		_, err := s.repo.GetByCode(ctx, req.Code, organizationID)
+		_, err := s.repo.GetByCode(ctx, req.Code)
 		if err == nil {
 			return nil, ErrSupplierCodeExists
 		}
@@ -101,13 +103,13 @@ func (s *Service) UpdateSupplier(ctx context.Context, id uuid.UUID, organization
 }
 
 // DeleteSupplier deletes a supplier
-func (s *Service) DeleteSupplier(ctx context.Context, id uuid.UUID, organizationID uuid.UUID) error {
-	return s.repo.Delete(ctx, id, organizationID)
+func (s *Service) DeleteSupplier(ctx context.Context, id uuid.UUID) error {
+	return s.repo.Delete(ctx, id)
 }
 
 // AddPayment adds a payment to supplier
-func (s *Service) AddPayment(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID, req *PaymentRequest) (*PaymentResponse, error) {
-	_, err := s.repo.GetByID(ctx, supplierID, organizationID)
+func (s *Service) AddPayment(ctx context.Context, supplierID uuid.UUID, req *PaymentRequest) (*PaymentResponse, error) {
+	_, err := s.repo.GetByID(ctx, supplierID)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +143,7 @@ func (s *Service) AddPayment(ctx context.Context, supplierID uuid.UUID, organiza
 	}
 
 	// Update supplier balance
-	if err := s.repo.UpdateBalance(ctx, supplierID, organizationID, -req.Amount); err != nil {
+	if err := s.repo.UpdateBalance(ctx, supplierID, -req.Amount); err != nil {
 		return nil, fmt.Errorf("failed to update supplier balance: %w", err)
 	}
 
@@ -149,13 +151,13 @@ func (s *Service) AddPayment(ctx context.Context, supplierID uuid.UUID, organiza
 }
 
 // GetSupplierLedger retrieves supplier ledger
-func (s *Service) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID) (*SupplierLedgerResponse, error) {
-	supplier, err := s.repo.GetByID(ctx, supplierID, organizationID)
+func (s *Service) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID) (*SupplierLedgerResponse, error) {
+	supplier, err := s.repo.GetByID(ctx, supplierID)
 	if err != nil {
 		return nil, err
 	}
 
-	entries, totalPurchases, totalPayments, currentBalance, err := s.repo.GetSupplierLedger(ctx, supplierID, organizationID)
+	entries, totalPurchases, totalPayments, currentBalance, err := s.repo.GetSupplierLedger(ctx, supplierID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,8 +173,8 @@ func (s *Service) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID, o
 }
 
 // AddDebt adds a debt entry to supplier (when we make a purchase on credit)
-func (s *Service) AddDebt(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID, amount float64, referenceID uuid.UUID, description string) error {
-	supplier, err := s.repo.GetByID(ctx, supplierID, organizationID)
+func (s *Service) AddDebt(ctx context.Context, supplierID uuid.UUID, amount float64, referenceID uuid.UUID, description string) error {
+	supplier, err := s.repo.GetByID(ctx, supplierID)
 	if err != nil {
 		return err
 	}
@@ -189,7 +191,7 @@ func (s *Service) AddDebt(ctx context.Context, supplierID uuid.UUID, organizatio
 	}
 
 	// Update supplier balance
-	if err := s.repo.UpdateBalance(ctx, supplierID, organizationID, amount); err != nil {
+	if err := s.repo.UpdateBalance(ctx, supplierID, amount); err != nil {
 		return fmt.Errorf("failed to update supplier balance: %w", err)
 	}
 
@@ -197,8 +199,8 @@ func (s *Service) AddDebt(ctx context.Context, supplierID uuid.UUID, organizatio
 }
 
 // GetSupplierDebtSummary retrieves debt summary for a supplier
-func (s *Service) GetSupplierDebtSummary(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID) (*DebtSummary, error) {
-	supplier, err := s.repo.GetByID(ctx, supplierID, organizationID)
+func (s *Service) GetSupplierDebtSummary(ctx context.Context, supplierID uuid.UUID) (*DebtSummary, error) {
+	supplier, err := s.repo.GetByID(ctx, supplierID)
 	if err != nil {
 		return nil, err
 	}
@@ -240,8 +242,8 @@ func (s *Service) GetSupplierDebtSummary(ctx context.Context, supplierID uuid.UU
 }
 
 // UpdateCreditLimit updates supplier credit limit
-func (s *Service) UpdateCreditLimit(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID, newLimit float64) error {
-	supplier, err := s.repo.GetByID(ctx, supplierID, organizationID)
+func (s *Service) UpdateCreditLimit(ctx context.Context, supplierID uuid.UUID, newLimit float64) error {
+	supplier, err := s.repo.GetByID(ctx, supplierID)
 	if err != nil {
 		return err
 	}
@@ -262,14 +264,13 @@ func (s *Service) UpdateCreditLimit(ctx context.Context, supplierID uuid.UUID, o
 }
 
 // GetOverdueSuppliers retrieves suppliers with overdue payments
-func (s *Service) GetOverdueSuppliers(ctx context.Context, organizationID uuid.UUID) ([]OverdueSupplier, error) {
+func (s *Service) GetOverdueSuppliers(ctx context.Context) ([]OverdueSupplier, error) {
 	query := `
 		SELECT s.id, s.name, s.code, s.current_balance, s.credit_limit, s.email, s.phone,
 			COALESCE(SUM(CASE WHEN sl.type = 'debit' AND sl.created_at < NOW() - INTERVAL '30 days' THEN sl.amount ELSE 0 END), 0) as overdue_amount
 		FROM suppliers s
 		LEFT JOIN supplier_ledger sl ON s.id = sl.supplier_id
-		WHERE s.organization_id = $1
-		AND s.is_active = true
+		WHERE s.is_active = true
 		AND s.current_balance > 0
 		GROUP BY s.id, s.name, s.code, s.current_balance, s.credit_limit, s.email, s.phone
 		HAVING COALESCE(SUM(CASE WHEN sl.type = 'debit' AND sl.created_at < NOW() - INTERVAL '30 days' THEN sl.amount ELSE 0 END), 0) > 0
@@ -277,7 +278,7 @@ func (s *Service) GetOverdueSuppliers(ctx context.Context, organizationID uuid.U
 	`
 
 	var overdueSuppliers []OverdueSupplier
-	err := s.repo.db.SelectContext(ctx, &overdueSuppliers, query, organizationID)
+	err := s.repo.db.SelectContext(ctx, &overdueSuppliers, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get overdue suppliers: %w", err)
 	}
@@ -306,8 +307,8 @@ func (s *Service) calculateDaysUntilOverdue(ctx context.Context, supplierID uuid
 }
 
 // CreateDebtEntry creates a new debt entry for a supplier
-func (s *Service) CreateDebtEntry(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID, amount float64, referenceID uuid.UUID, referenceType string, dueDate time.Time) error {
-	supplier, err := s.repo.GetByID(ctx, supplierID, organizationID)
+func (s *Service) CreateDebtEntry(ctx context.Context, supplierID uuid.UUID, amount float64, referenceID uuid.UUID, referenceType string, dueDate time.Time) error {
+	supplier, err := s.repo.GetByID(ctx, supplierID)
 	if err != nil {
 		return err
 	}
@@ -339,7 +340,7 @@ func (s *Service) CreateDebtEntry(ctx context.Context, supplierID uuid.UUID, org
 	}
 
 	// Update supplier balance
-	if err := s.repo.UpdateBalance(ctx, supplierID, organizationID, amount); err != nil {
+	if err := s.repo.UpdateBalance(ctx, supplierID, amount); err != nil {
 		return fmt.Errorf("failed to update supplier balance: %w", err)
 	}
 
@@ -347,9 +348,9 @@ func (s *Service) CreateDebtEntry(ctx context.Context, supplierID uuid.UUID, org
 }
 
 // GetDebtEntries retrieves debt entries for a supplier
-func (s *Service) GetDebtEntries(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID) ([]DebtEntry, error) {
+func (s *Service) GetDebtEntries(ctx context.Context, supplierID uuid.UUID) ([]DebtEntry, error) {
 	// Verify supplier exists
-	_, err := s.repo.GetByID(ctx, supplierID, organizationID)
+	_, err := s.repo.GetByID(ctx, supplierID)
 	if err != nil {
 		return nil, err
 	}
@@ -358,9 +359,9 @@ func (s *Service) GetDebtEntries(ctx context.Context, supplierID uuid.UUID, orga
 }
 
 // CreateDebtCollection creates a new debt collection action
-func (s *Service) CreateDebtCollection(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID, collectionType string, scheduledDate time.Time, notes *string) error {
+func (s *Service) CreateDebtCollection(ctx context.Context, supplierID uuid.UUID, collectionType string, scheduledDate time.Time, notes *string) error {
 	// Verify supplier exists
-	_, err := s.repo.GetByID(ctx, supplierID, organizationID)
+	_, err := s.repo.GetByID(ctx, supplierID)
 	if err != nil {
 		return err
 	}
@@ -379,9 +380,9 @@ func (s *Service) CreateDebtCollection(ctx context.Context, supplierID uuid.UUID
 }
 
 // GetDebtCollections retrieves debt collection actions for a supplier
-func (s *Service) GetDebtCollections(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID) ([]DebtCollection, error) {
+func (s *Service) GetDebtCollections(ctx context.Context, supplierID uuid.UUID) ([]DebtCollection, error) {
 	// Verify supplier exists
-	_, err := s.repo.GetByID(ctx, supplierID, organizationID)
+	_, err := s.repo.GetByID(ctx, supplierID)
 	if err != nil {
 		return nil, err
 	}
@@ -389,14 +390,14 @@ func (s *Service) GetDebtCollections(ctx context.Context, supplierID uuid.UUID, 
 	return s.repo.GetDebtCollections(ctx, supplierID)
 }
 
-// GetPendingDebtCollections retrieves pending debt collection actions for the organization
-func (s *Service) GetPendingDebtCollections(ctx context.Context, organizationID uuid.UUID) ([]DebtCollection, error) {
-	return s.repo.GetPendingDebtCollections(ctx, organizationID)
+// GetPendingDebtCollections retrieves pending debt collection actions
+func (s *Service) GetPendingDebtCollections(ctx context.Context) ([]DebtCollection, error) {
+	return s.repo.GetPendingDebtCollections(ctx)
 }
 
 // ProcessDebtPayment processes a payment for specific debts
-func (s *Service) ProcessDebtPayment(ctx context.Context, supplierID uuid.UUID, organizationID uuid.UUID, paymentAmount float64, method string) error {
-	_, err := s.repo.GetByID(ctx, supplierID, organizationID)
+func (s *Service) ProcessDebtPayment(ctx context.Context, supplierID uuid.UUID, paymentAmount float64, method string) error {
+	_, err := s.repo.GetByID(ctx, supplierID)
 	if err != nil {
 		return err
 	}
@@ -441,9 +442,63 @@ func (s *Service) ProcessDebtPayment(ctx context.Context, supplierID uuid.UUID, 
 	}
 
 	// Update supplier balance
-	if err := s.repo.UpdateBalance(ctx, supplierID, organizationID, -paymentAmount); err != nil {
+	if err := s.repo.UpdateBalance(ctx, supplierID, -paymentAmount); err != nil {
 		return fmt.Errorf("failed to update supplier balance: %w", err)
 	}
 
 	return nil
+}
+
+// GetSupplierInventory retrieves inventory items from a specific supplier
+func (s *Service) GetSupplierInventory(ctx context.Context, supplierID uuid.UUID) ([]SupplierInventoryItem, error) {
+	// Verify supplier exists
+	_, err := s.repo.GetByID(ctx, supplierID)
+	if err != nil {
+		return nil, err
+	}
+
+	query := `
+		SELECT
+			p.id as product_id,
+			p.name as product_name,
+			p.sku,
+			COUNT(ii.id) as total_received,
+			COUNT(CASE WHEN ii.status = 'AVAILABLE' THEN 1 END) as available,
+			COUNT(CASE WHEN ii.status = 'SOLD' THEN 1 END) as sold,
+			COUNT(CASE WHEN ii.status = 'RESERVED' THEN 1 END) as reserved,
+			COUNT(CASE WHEN ii.status = 'DAMAGED' THEN 1 END) as damaged,
+			COALESCE(AVG(ii.purchase_cost), 0) as avg_cost,
+			COALESCE(AVG(ii.selling_price), 0) as avg_price,
+			COALESCE(MIN(ii.purchase_date), NOW()) as first_purchase_date,
+			COALESCE(MAX(ii.sold_at), NULL) as last_sale_date
+		FROM inventory_items ii
+		JOIN products p ON ii.product_id = p.id
+		WHERE ii.supplier_id = $1
+		GROUP BY p.id, p.name, p.sku
+		ORDER BY p.name
+	`
+
+	var items []SupplierInventoryItem
+	err = s.db.SelectContext(ctx, &items, query, supplierID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get supplier inventory: %w", err)
+	}
+
+	return items, nil
+}
+
+// SupplierInventoryItem represents inventory item summary for a supplier
+type SupplierInventoryItem struct {
+	ProductID         uuid.UUID  `json:"product_id" db:"product_id"`
+	ProductName        string    `json:"product_name" db:"product_name"`
+	SKU                string    `json:"sku" db:"sku"`
+	TotalReceived      int       `json:"total_received" db:"total_received"`
+	Available          int       `json:"available" db:"available"`
+	Sold               int       `json:"sold" db:"sold"`
+	Reserved           int       `json:"reserved" db:"reserved"`
+	Damaged            int       `json:"damaged" db:"damaged"`
+	AvgCost            float64   `json:"avg_cost" db:"avg_cost"`
+	AvgPrice           float64   `json:"avg_price" db:"avg_price"`
+	FirstPurchaseDate   time.Time `json:"first_purchase_date" db:"first_purchase_date"`
+	LastSaleDate       *time.Time `json:"last_sale_date" db:"last_sale_date"`
 }

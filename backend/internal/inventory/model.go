@@ -41,7 +41,6 @@ const (
 	StatusDamaged      Status = "DAMAGED"
 	StatusInRepair     Status = "IN_REPAIR"
 	StatusReturned     Status = "RETURNED"
-	StatusWarranty     Status = "WARRANTY"
 	StatusForParts     Status = "FOR_PARTS"
 	StatusArchived     Status = "ARCHIVED"
 )
@@ -49,16 +48,16 @@ const (
 // InventoryItem represents an individual inventory item
 type InventoryItem struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
-	ProductID      uuid.UUID  `json:"product_id" db:"product_id"`
+	ProductID      *uuid.UUID `json:"product_id" db:"product_id"`
+	PartTypeID     *uuid.UUID `json:"part_type_id" db:"part_type_id"`
 	ItemCode       string     `json:"item_code" db:"item_code"`
 	Barcode        string     `json:"barcode" db:"barcode"`
 	SerialNumber   string     `json:"serial_number" db:"serial_number"`
-	Condition      Condition  `json:"condition" db:"condition"`
-	Grade          Grade      `json:"grade" db:"grade"`
-	PurchaseCost   int64      `json:"purchase_cost" db:"purchase_cost"` // in minor units
-	SellingPrice   int64      `json:"selling_price" db:"selling_price"` // in minor units
-	Status         Status     `json:"status" db:"status"`
+	Condition      string     `json:"condition" db:"condition"`
+	Grade          *string    `json:"grade" db:"grade"`
+	PurchaseCost   float64    `json:"purchase_cost" db:"purchase_cost"`
+	SellingPrice   float64    `json:"selling_price" db:"selling_price"`
+	Status         string     `json:"status" db:"status"`
 	LocationID     *uuid.UUID `json:"location_id" db:"location_id"`
 	SupplierID     *uuid.UUID `json:"supplier_id" db:"supplier_id"`
 	PurchaseDate   *time.Time `json:"purchase_date" db:"purchase_date"`
@@ -68,10 +67,31 @@ type InventoryItem struct {
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 }
 
+// DBInventoryItem is a simplified struct for database scanning
+type DBInventoryItem struct {
+	ID             string    `db:"id"`
+	ProductID      *string   `db:"product_id"`
+	PartTypeID     *string   `db:"part_type_id"`
+	ItemCode       string    `db:"item_code"`
+	Barcode        string    `db:"barcode"`
+	SerialNumber   string    `db:"serial_number"`
+	Condition      string    `db:"condition"`
+	Grade          *string   `db:"grade"`
+	PurchaseCost   float64   `db:"purchase_cost"`
+	SellingPrice   float64   `db:"selling_price"`
+	Status         string    `db:"status"`
+	LocationID     *string   `db:"location_id"`
+	SupplierID     *string   `db:"supplier_id"`
+	PurchaseDate   *time.Time `db:"purchase_date"`
+	SoldAt         *time.Time `db:"sold_at"`
+	Notes          string    `db:"notes"`
+	CreatedAt      time.Time `db:"created_at"`
+	UpdatedAt      time.Time `db:"updated_at"`
+}
+
 // Location represents a storage location
 type Location struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	Name           string     `json:"name" db:"name"`
 	Type           string     `json:"type" db:"type"` // warehouse, shelf, box, display
 	ParentID       *uuid.UUID `json:"parent_id" db:"parent_id"`
@@ -100,7 +120,6 @@ const (
 // InventoryMovement represents a movement in inventory
 type InventoryMovement struct {
 	ID             uuid.UUID    `json:"id" db:"id"`
-	OrganizationID uuid.UUID    `json:"organization_id" db:"organization_id"`
 	ItemID         *uuid.UUID   `json:"item_id" db:"item_id"`
 	ProductID      *uuid.UUID   `json:"product_id" db:"product_id"`
 	MovementType   MovementType `json:"movement_type" db:"movement_type"`
@@ -117,7 +136,6 @@ type InventoryMovement struct {
 // Reservation represents an item reservation
 type Reservation struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	OrganizationID uuid.UUID  `json:"organization_id" db:"organization_id"`
 	ItemID         uuid.UUID  `json:"item_id" db:"item_id"`
 	CustomerID     *uuid.UUID `json:"customer_id" db:"customer_id"`
 	UserID         uuid.UUID  `json:"user_id" db:"user_id"`
@@ -131,14 +149,16 @@ type Reservation struct {
 
 // InventoryItemRequest represents inventory item creation/update request
 type InventoryItemRequest struct {
-	ProductID    uuid.UUID  `json:"product_id" binding:"required"`
+	ProductID    *uuid.UUID `json:"product_id"`
+	PartTypeID   *uuid.UUID `json:"part_type_id"`
 	ItemCode     string     `json:"item_code"`
 	Barcode      string     `json:"barcode"`
 	SerialNumber string     `json:"serial_number"`
 	Condition    Condition  `json:"condition" binding:"required"`
-	Grade        Grade      `json:"grade"`
-	PurchaseCost int64      `json:"purchase_cost" binding:"required"`
-	SellingPrice int64      `json:"selling_price" binding:"required"`
+	Grade        *Grade     `json:"grade"`
+	PurchaseCost float64    `json:"purchase_cost" binding:"required"`
+	SellingPrice float64    `json:"selling_price" binding:"required"`
+	Status       Status     `json:"status"`
 	LocationID   *uuid.UUID `json:"location_id"`
 	SupplierID   *uuid.UUID `json:"supplier_id"`
 	Notes        string     `json:"notes"`
@@ -168,6 +188,7 @@ type MovementRequest struct {
 type AdjustmentRequest struct {
 	ItemID        uuid.UUID   `json:"item_id" binding:"required"`
 	NewQuantity   int         `json:"new_quantity" binding:"required"`
+	NewStatus     string      `json:"new_status"`
 	Reason        string      `json:"reason" binding:"required"`
 }
 

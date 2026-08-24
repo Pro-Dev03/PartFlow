@@ -1,60 +1,33 @@
-// Organization & User Types
-export interface Organization {
-  id: string;
-  name: string;
-  store_name: string;
-  currency: string;
-  timezone: string;
-  created_at: string;
-  updated_at: string;
-}
-
+// User Types
 export interface User {
   id: string;
-  organization_id: string;
   name: string;
   email: string;
   phone?: string;
-  role_id: string;
   created_at: string;
   updated_at: string;
-}
-
-export interface Role {
-  id: string;
-  name: string;
-  description?: string;
-  permissions: Permission[];
-}
-
-export interface Permission {
-  id: string;
-  name: string;
-  description?: string;
 }
 
 // Product Types
 export interface Product {
   id: string;
-  organization_id: string;
   name: string;
   brand_id?: string;
   category_id?: string;
   model?: string;
-  sku?: string;
+  sku: string;
+  barcode: string;
   description?: string;
-  product_type: 'QUANTITY' | 'INDIVIDUAL';
-  default_cost?: number;
-  default_price?: number;
-  minimum_stock?: number;
-  warranty_policy?: string;
+  track_serial: boolean;
+  track_individual: boolean;
+  min_stock_level: number;
+  warranty_days: number;
   created_at: string;
   updated_at: string;
 }
 
 export interface Category {
   id: string;
-  organization_id: string;
   name: string;
   description?: string;
   created_at: string;
@@ -63,7 +36,6 @@ export interface Category {
 
 export interface Brand {
   id: string;
-  organization_id: string;
   name: string;
   description?: string;
   created_at: string;
@@ -73,27 +45,27 @@ export interface Brand {
 // Inventory Types
 export interface InventoryItem {
   id: string;
-  organization_id: string;
-  product_id: string;
+  product_id?: string;
+  part_type_id?: string;
   item_code: string;
-  barcode?: string;
+  barcode: string;
   serial_number?: string;
   condition: 'NEW' | 'USED' | 'REFURBISHED' | 'DAMAGED' | 'FOR_PARTS';
   grade?: 'EXCELLENT' | 'VERY_GOOD' | 'GOOD' | 'FAIR' | 'POOR';
-  purchase_cost?: number;
-  selling_price?: number;
-  status: 'PURCHASED' | 'RECEIVED' | 'INSPECTION' | 'AVAILABLE' | 'RESERVED' | 'SOLD' | 'DAMAGED' | 'IN_REPAIR' | 'RETURNED' | 'WARRANTY' | 'FOR_PARTS' | 'ARCHIVED';
+  purchase_cost: number;
+  selling_price: number;
+  status: 'PURCHASED' | 'RECEIVED' | 'INSPECTION' | 'AVAILABLE' | 'RESERVED' | 'SOLD' | 'DAMAGED' | 'IN_REPAIR' | 'RETURNED' | 'FOR_PARTS' | 'ARCHIVED';
   location_id?: string;
   supplier_id?: string;
   purchase_date?: string;
   sold_at?: string;
+  notes: string;
   created_at: string;
   updated_at: string;
 }
 
 export interface Location {
   id: string;
-  organization_id: string;
   name: string;
   parent_id?: string;
   type: 'WAREHOUSE' | 'SHELF' | 'BOX' | 'DISPLAY';
@@ -103,7 +75,6 @@ export interface Location {
 
 export interface InventoryMovement {
   id: string;
-  organization_id: string;
   item_id?: string;
   product_id?: string;
   movement_type: 'PURCHASE' | 'SALE' | 'RETURN' | 'ADJUSTMENT' | 'TRANSFER' | 'RESERVATION' | 'RELEASE' | 'DAMAGE' | 'REPAIR';
@@ -120,7 +91,6 @@ export interface InventoryMovement {
 // Customer Types
 export interface Customer {
   id: string;
-  organization_id: string;
   name: string;
   phone?: string;
   email?: string;
@@ -131,7 +101,6 @@ export interface Customer {
 
 export interface CustomerLedger {
   id: string;
-  organization_id: string;
   customer_id: string;
   type: 'SALE' | 'PAYMENT' | 'RETURN' | 'ADJUSTMENT';
   amount: number;
@@ -145,34 +114,42 @@ export interface CustomerLedger {
 // Sales Types
 export interface Sale {
   id: string;
-  organization_id: string;
+  invoice_number: string;
   customer_id?: string;
+  user_id: string;
+  sale_date: string;
   subtotal: number;
-  discount: number;
-  tax: number;
-  total: number;
+  tax_amount: number;
+  discount_amount: number;
+  total_amount: number;
+  cost_amount: number;
+  gross_profit: number;
+  net_profit: number;
   paid_amount: number;
-  debt_amount: number;
-  status: 'PENDING' | 'COMPLETED' | 'CANCELLED' | 'REFUNDED';
-  created_by: string;
+  payment_method?: string;
+  payment_status: string;
+  status: string;
+  notes?: string;
   created_at: string;
+  updated_at: string;
 }
 
 export interface SaleItem {
   id: string;
   sale_id: string;
   product_id: string;
-  inventory_item_id?: string;
   quantity: number;
   unit_price: number;
   unit_cost: number;
-  discount: number;
-  total: number;
+  discount_amount: number;
+  tax_amount: number;
+  total_amount: number;
+  supplier_id?: string;
+  created_at: string;
 }
 
 export interface Payment {
   id: string;
-  organization_id: string;
   reference_type: 'SALE' | 'PURCHASE' | 'CUSTOMER' | 'SUPPLIER';
   reference_id: string;
   amount: number;
@@ -186,7 +163,6 @@ export interface Payment {
 // Supplier Types
 export interface Supplier {
   id: string;
-  organization_id: string;
   name: string;
   phone?: string;
   email?: string;
@@ -197,7 +173,6 @@ export interface Supplier {
 
 export interface SupplierLedger {
   id: string;
-  organization_id: string;
   supplier_id: string;
   type: 'PURCHASE' | 'PAYMENT' | 'RETURN' | 'ADJUSTMENT';
   amount: number;
@@ -211,7 +186,6 @@ export interface SupplierLedger {
 // Purchase Types
 export interface Purchase {
   id: string;
-  organization_id: string;
   supplier_id: string;
   subtotal: number;
   discount: number;
@@ -234,7 +208,6 @@ export interface PurchaseItem {
 // Warranty Types
 export interface Warranty {
   id: string;
-  organization_id: string;
   sale_id: string;
   item_id?: string;
   start_date: string;
@@ -247,7 +220,6 @@ export interface Warranty {
 
 export interface WarrantyClaim {
   id: string;
-  organization_id: string;
   warranty_id: string;
   customer_id?: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED';
@@ -259,7 +231,6 @@ export interface WarrantyClaim {
 // Other Types
 export interface Expense {
   id: string;
-  organization_id: string;
   category_id?: string;
   amount: number;
   description: string;
@@ -271,7 +242,6 @@ export interface Expense {
 
 export interface Notification {
   id: string;
-  organization_id: string;
   user_id?: string;
   type: 'LOW_STOCK' | 'OVERDUE_DEBT' | 'WARRANTY_EXPIRING' | 'INSPECTION_REQUIRED' | 'RESERVATION_EXPIRING' | 'PAYMENT_RECEIVED' | 'PURCHASE_RECEIVED';
   title: string;
@@ -282,7 +252,6 @@ export interface Notification {
 
 export interface AuditLog {
   id: string;
-  organization_id: string;
   user_id: string;
   action: string;
   entity_type: string;

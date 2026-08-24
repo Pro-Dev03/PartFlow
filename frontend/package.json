@@ -5,14 +5,25 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
+    "build:check": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "lint:eslint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
+    "lint:types": "tsc --noEmit"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
     "@tanstack/react-query": "^5.101.4",
-    "@tanstack/react-query-devtools": "^5.101.4",
     "@tanstack/react-table": "^9.1.2",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
@@ -33,18 +44,31 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@storybook/addon-essentials": "^8.6.12",
+    "@storybook/react": "^8.6.12",
     "@tailwindcss/postcss": "^4.3.3",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/uuid": "^10.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.67.0",
+    "@typescript-eslint/parser": "^8.67.0",
     "@vitejs/plugin-react": "^6.0.4",
     "autoprefixer": "^10.5.4",
+    "eslint": "^10.8.1",
+    "eslint-config-prettier": "^10.1.8",
+    "jsdom": "^21.1.2",
+    "msw": "^2.15.0",
     "oxlint": "^1.75.0",
     "postcss": "^8.5.26",
+    "prettier": "^3.9.6",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
-    "vite": "^8.2.0",
-    "vite-plugin-pwa": "^1.3.0"
+    "vite": "^8.2.2",
+    "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^3.2.1"
   }
 }

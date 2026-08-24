@@ -231,20 +231,20 @@ export function BarcodeScanner({ isOpen, onClose, onScanComplete, context = Barc
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => setSoundEnabled(!soundEnabled)}
                 title={soundEnabled ? 'إيقاف الصوت' : 'تشغيل الصوت'}
               >
                 {soundEnabled ? (
-                  <Volume2 className="w-4 h-4" />
+                  <Volume2 className="w-3.5 h-3.5" />
                 ) : (
-                  <VolumeX className="w-4 h-4" />
+                  <VolumeX className="w-3.5 h-3.5" />
                 )}
               </Button>
-              <Button variant="ghost" size="sm" onClick={onClose}>
-                <X className="w-4 h-4" />
+              <Button variant="ghost" size="icon" onClick={onClose}>
+                <X className="w-3.5 h-3.5" />
               </Button>
             </div>
           </div>
@@ -252,19 +252,21 @@ export function BarcodeScanner({ isOpen, onClose, onScanComplete, context = Barc
           {/* Mode Toggle */}
           <div className="flex gap-2 mb-6">
             <Button
-              variant={mode === 'keyboard' ? 'primary' : 'outline'}
-              className="flex-1 gap-2"
+              variant={mode === 'keyboard' ? 'primary' : 'secondary'}
+              size="sm"
+              className="gap-2"
               onClick={() => setMode('keyboard')}
             >
-              <Keyboard className="w-4 h-4" />
+              <Keyboard className="w-3.5 h-3.5" />
               {t('scanner.manualInput')}
             </Button>
             <Button
-              variant={mode === 'camera' ? 'primary' : 'outline'}
-              className="flex-1 gap-2"
+              variant={mode === 'camera' ? 'primary' : 'secondary'}
+              size="sm"
+              className="gap-2"
               onClick={() => setMode('camera')}
             >
-              <Camera className="w-4 h-4" />
+              <Camera className="w-3.5 h-3.5" />
               {t('scanner.cameraScanner')}
             </Button>
           </div>
