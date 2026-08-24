@@ -10,7 +10,8 @@ import {
   Lock,
   FileText,
   Zap,
-  DollarSign
+  DollarSign,
+  Save
 } from 'lucide-react';
 
 // Components

@@ -18,7 +18,8 @@ import {
   Clock,
   X,
   Eye,
-  TrendingUp
+  TrendingUp,
+  Bell
 } from 'lucide-react';
 
 // Custom hooks
