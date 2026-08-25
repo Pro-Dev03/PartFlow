@@ -39,6 +39,40 @@ type DashboardStats struct {
 	ActiveCustomers int     `json:"activeCustomers"`
 	LowStockCount   int     `json:"lowStockCount"`
 	OverdueDebtsCount int   `json:"overdueDebts"`
+	// Trend fields
+	SalesTrend      *string `json:"salesTrend,omitempty"`
+	SalesTrendUp    *bool   `json:"salesTrendUp,omitempty"`
+	ProfitTrend     *string `json:"profitTrend,omitempty"`
+	ProfitTrendUp   *bool   `json:"profitTrendUp,omitempty"`
+	DebtsTrend      *string `json:"debtsTrend,omitempty"`
+	DebtsTrendUp    *bool   `json:"debtsTrendUp,omitempty"`
+	ProfitMargin    *int    `json:"profitMargin,omitempty"`
+	// Chart data fields
+	SalesChart       []SalesChartData `json:"salesChart,omitempty"`
+	InventoryDistribution *InventoryDistributionData `json:"inventoryDistribution,omitempty"`
+}
+
+// SalesChartData represents sales chart data point
+type SalesChartData struct {
+	Name   string  `json:"name"`
+	Sales  float64 `json:"sales"`
+	Profit float64 `json:"profit"`
+}
+
+// InventoryDistributionData represents inventory distribution
+type InventoryDistributionData struct {
+	TotalValue float64                    `json:"totalValue"`
+	TotalItems int                        `json:"totalItems"`
+	Data       []InventoryDistributionItem `json:"data"`
+}
+
+// InventoryDistributionItem represents inventory distribution item
+type InventoryDistributionItem struct {
+	Name   string  `json:"name"`
+	Count  int     `json:"count"`
+	Value  float64 `json:"value"`
+	Color  string  `json:"color"`
+	Status string  `json:"status"`
 }
 
 // Alert represents a dashboard alert
@@ -123,7 +157,7 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 	// Calculate overdue debts count properly
 	var overdueDebtsCount int
 	countQuery := `
-		SELECT COUNT(DISTINCT c.id) 
+		SELECT COUNT(DISTINCT c.id)
 		FROM customers c
 		WHERE c.current_balance > 0
 		AND c.id IN (
@@ -139,8 +173,20 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 	}
 	stats.OverdueDebtsCount = overdueDebtsCount
 
+	// Calculate profit margin if there are sales
+	if stats.TotalSales > 0 {
+		margin := int((stats.TotalProfit / stats.TotalSales) * 100)
+		stats.ProfitMargin = &margin
+	}
+
 	// Alerts disabled for performance
 	stats.Alerts = []Alert{}
+
+	// Trend fields are left as null (no historical data available)
+	// They will be null in the frontend, which is the desired behavior
+
+	// Chart data fields are left as null (no chart data available)
+	// They will be null in the frontend, which will show "no data available" message
 
 	return stats, nil
 }

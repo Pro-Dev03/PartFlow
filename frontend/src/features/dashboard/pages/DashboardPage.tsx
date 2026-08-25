@@ -178,15 +178,15 @@ export function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <SalesChart data={[
-                { name: 'السبت', sales: 4500, profit: 1200 },
-                { name: 'الأحد', sales: 5200, profit: 1500 },
-                { name: 'الاثنين', sales: 4800, profit: 1300 },
-                { name: 'الثلاثاء', sales: 6100, profit: 1800 },
-                { name: 'الأربعاء', sales: 5900, profit: 1700 },
-                { name: 'الخميس', sales: 7200, profit: 2100 },
-                { name: 'الجمعة', sales: 6800, profit: 1900 },
-              ]} />
+              {stats?.salesChart && stats.salesChart.length > 0 ? (
+                <SalesChart data={stats.salesChart} />
+              ) : (
+                <div style={{ padding: '24px', textAlign: 'center' }}>
+                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                    لا توجد بيانات كافية للعرض
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -198,17 +198,19 @@ export function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <InventoryDistribution
-                totalValue={125000}
-                totalItems={342}
-                data={[
-                  { name: 'كروت شاشة', count: 85, value: 45000, color: '#0ea5e9', status: 'good' },
-                  { name: 'معالجات', count: 62, value: 38000, color: '#10b981', status: 'good' },
-                  { name: 'ذاكرة', count: 98, value: 22000, color: '#f59e0b', status: 'low' },
-                  { name: 'تخزين', count: 45, value: 15000, color: '#ef4444', status: 'low' },
-                  { name: 'أخرى', count: 52, value: 5000, color: '#64748b', status: 'critical' },
-                ]}
-              />
+              {stats?.inventoryDistribution ? (
+                <InventoryDistribution
+                  totalValue={stats.inventoryDistribution.totalValue}
+                  totalItems={stats.inventoryDistribution.totalItems}
+                  data={stats.inventoryDistribution.data}
+                />
+              ) : (
+                <div style={{ padding: '24px', textAlign: 'center' }}>
+                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                    لا توجد بيانات كافية للعرض
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

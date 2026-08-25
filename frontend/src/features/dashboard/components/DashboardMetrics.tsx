@@ -19,8 +19,8 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
         title="مبيعات اليوم"
         value={<span className="numeric-metric">₪{(stats?.todaySales as number)?.toLocaleString() || 0}</span>}
         icon={ShoppingCart}
-        trend="+12.4%"
-        trendUp={true}
+        trend={stats?.salesTrend}
+        trendUp={stats?.salesTrendUp}
         subtitle="مقارنة بالأمس"
         variant="featured"
       />
@@ -28,16 +28,16 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
         title="الربح اليوم"
         value={<span className="numeric-metric">₪{(stats?.todayProfit as number)?.toLocaleString() || 0}</span>}
         icon={DollarSign}
-        trend="+15%"
-        trendUp={true}
-        subtitle="هامش الربح: 24%"
+        trend={stats?.profitTrend}
+        trendUp={stats?.profitTrendUp}
+        subtitle={stats?.profitMargin ? `هامش الربح: ${stats.profitMargin}%` : undefined}
       />
       <StatCard
         title="الديون المستحقة"
         value={<span className="numeric-metric">₪{(stats?.outstandingDebts as number)?.toLocaleString() || 0}</span>}
         icon={AlertTriangle}
-        trend="+5%"
-        trendUp={false}
+        trend={stats?.debtsTrend}
+        trendUp={stats?.debtsTrendUp}
         subtitle={<span className="numeric-quantity">{(stats?.activeCustomers as number) || 0} عميل</span>}
         variant="warning"
       />
