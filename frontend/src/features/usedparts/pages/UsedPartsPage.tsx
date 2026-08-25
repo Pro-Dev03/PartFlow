@@ -12,10 +12,10 @@ import { Modal } from '../../../components/ui/modal';
 import { getButtonSize } from '../../../config/button-sizes';
 import { TradeInFormData } from '../../sales/types/pos.types';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
-import { 
-  Plus, 
-  Edit, 
-  Trash2, 
+import {
+  Plus,
+  Edit,
+  Trash2,
   Search,
   Filter,
   Layers,
@@ -25,8 +25,7 @@ import {
   Barcode,
   Type,
   Camera,
-  ShoppingCart,
-  RefreshCw
+  ShoppingCart
 } from 'lucide-react';
 
 export function UsedPartsPage() {
@@ -237,7 +236,7 @@ export function UsedPartsPage() {
               e.currentTarget.style.transform = 'translateY(0) scale(1)';
             }}
           >
-            <RefreshCw className="w-4 h-4" style={{ position: 'relative', zIndex: 1 }} />
+            <Plus className="w-4 h-4" style={{ position: 'relative', zIndex: 1 }} />
             <span style={{ position: 'relative', zIndex: 1 }}>شراء قطعة مستعملة</span>
           </button>
         }
@@ -474,44 +473,7 @@ export function UsedPartsPage() {
         <Card>
           <CardContent className="p-12 text-center">
             <Package className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-            <p className="text-gray-400 mb-4">لا توجد قطع مستعملة متاحة</p>
-            <button
-              onClick={() => setIsTradeInModalOpen(true)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                padding: '10px 16px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)',
-                border: '1px solid var(--primary)',
-                color: 'var(--text-on-primary)',
-                fontSize: '13px',
-                fontWeight: '600',
-                letterSpacing: '0.2px',
-                cursor: 'pointer',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: '0 4px 20px rgba(99, 102, 241, 0.3), 0 1px 3px rgba(99, 102, 241, 0.1)',
-                position: 'relative',
-                overflow: 'hidden'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'linear-gradient(135deg, var(--primary-hover) 0%, var(--primary) 100%)';
-                e.currentTarget.style.borderColor = 'var(--primary-hover)';
-                e.currentTarget.style.boxShadow = '0 8px 30px rgba(99, 102, 241, 0.4), 0 2px 8px rgba(99, 102, 241, 0.2)';
-                e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)';
-                e.currentTarget.style.borderColor = 'var(--primary)';
-                e.currentTarget.style.boxShadow = '0 4px 20px rgba(99, 102, 241, 0.3), 0 1px 3px rgba(99, 102, 241, 0.1)';
-                e.currentTarget.style.transform = 'translateY(0) scale(1)';
-              }}
-            >
-              <RefreshCw className="w-4 h-4" style={{ position: 'relative', zIndex: 1 }} />
-              <span style={{ position: 'relative', zIndex: 1 }}>شراء قطعة مستعملة</span>
-            </button>
+            <p className="text-gray-400">لا توجد قطع مستعملة متاحة</p>
           </CardContent>
         </Card>
       ) : (
