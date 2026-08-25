@@ -77,10 +77,10 @@ export function UsedPartsPage() {
     queryFn: () => productsApi.list({ page: 1, per_page: 100 }),
   });
 
-  const inventoryItems = (inventoryData?.data as any[]) || [];
-  const partTypes = (partTypesData?.data as any[]) || [];
-  const customers = (customersData?.data as unknown) as any[] || [];
-  const products = (productsData?.data?.products as unknown) as any[] || [];
+  const inventoryItems = Array.isArray(inventoryData?.data) ? inventoryData.data : [];
+  const partTypes = Array.isArray(partTypesData?.data) ? partTypesData.data : [];
+  const customers = Array.isArray(customersData?.data) ? customersData.data : [];
+  const products = Array.isArray(productsData?.data?.products) ? productsData.data.products : [];
 
   // Handle part types error gracefully
   if (partTypesError) {
