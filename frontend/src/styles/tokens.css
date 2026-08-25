@@ -13,11 +13,11 @@
 
 :root {
   /* Primitive Colors - لا تعتمد على متغيرات أخرى */
-  --cyan: #22d3ee;
-  --blue: #38bdf8;
-  --green: #34d399;
-  --yellow: #fbbf24;
-  --red: #fb7185;
+  --cyan: #14b8a6;
+  --blue: #0ea5e9;
+  --green: #10b981;
+  --yellow: #f59e0b;
+  --red: #ef4444;
   
   /* Backgrounds */
   --bg-background: #070a12;
@@ -27,7 +27,7 @@
   
   /* Borders */
   --border-default: rgba(148, 163, 184, 0.13);
-  --border-primary: rgba(34, 211, 238, 0.35);
+  --border-primary: rgba(37, 99, 235, 0.35);
   --border-width-thin: 1px;
   --border-width-medium: 2px;
   --border-width-thick: 3px;
@@ -76,10 +76,52 @@
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
   --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
-  --shadow-glow: 0 0 25px rgba(34, 211, 238, 0.07);
-  --shadow-glow-strong: 0 0 30px rgba(34, 211, 238, 0.10);
-  --shadow-glow-soft: 0 0 20px rgba(34, 211, 238, 0.08);
+  --shadow-glow: 0 0 25px rgba(37, 99, 235, 0.07);
+  --shadow-glow-strong: 0 0 30px rgba(37, 99, 235, 0.10);
+  --shadow-glow-soft: 0 0 20px rgba(37, 99, 235, 0.08);
   --shadow-card: 0 15px 50px rgba(0, 0, 0, 0.20);
+
+  /* Component Colors - Dark Theme */
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-05: rgba(37, 99, 235, 0.05);
+  --color-primary-08: rgba(37, 99, 235, 0.08);
+  --color-primary-10: rgba(37, 99, 235, 0.1);
+  --color-primary-12: rgba(37, 99, 235, 0.12);
+  --color-primary-15: rgba(37, 99, 235, 0.15);
+  --color-primary-20: rgba(37, 99, 235, 0.2);
+  --color-primary-25: rgba(37, 99, 235, 0.25);
+  --color-primary-30: rgba(37, 99, 235, 0.3);
+  --color-primary-40: rgba(37, 99, 235, 0.4);
+  --color-primary-50: rgba(37, 99, 235, 0.5);
+  --color-primary-85: rgba(37, 99, 235, 0.85);
+  --color-primary-90: rgba(37, 99, 235, 0.9);
+
+  --color-success: var(--success);
+  --color-success-hover: var(--success-hover);
+  --color-success-10: rgba(16, 185, 129, 0.1);
+  --color-success-20: rgba(16, 185, 129, 0.2);
+  --color-success-30: rgba(16, 185, 129, 0.3);
+
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-10: rgba(239, 68, 68, 0.1);
+  --color-danger-20: rgba(239, 68, 68, 0.2);
+  --color-danger-30: rgba(239, 68, 68, 0.3);
+
+  --color-warning: var(--warning);
+  --color-warning-hover: var(--warning-hover);
+  --color-warning-10: rgba(245, 158, 11, 0.1);
+  --color-warning-20: rgba(245, 158, 11, 0.2);
+  --color-warning-30: rgba(245, 158, 11, 0.3);
+
+  --color-info: var(--info);
+  --color-info-hover: var(--info-hover);
+  --color-info-08: rgba(14, 165, 233, 0.08);
+  --color-info-10: rgba(14, 165, 233, 0.1);
+  --color-info-20: rgba(14, 165, 233, 0.2);
+  --color-info-30: rgba(14, 165, 233, 0.3);
 }
 
 /* ============================================================================
@@ -87,10 +129,10 @@
    ============================================================================ */
 
 :root {
-  /* Primary/Accent - تعتمد على --cyan */
-  --primary: var(--cyan);
-  --primary-hover: #06b6d4;
-  --primary-active: #0891b2;
+  /* Primary/Accent */
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-active: #1e40af;
   
   /* Status - تعتمد على Primitive Colors */
   --success: var(--green);
@@ -98,7 +140,7 @@
   --warning: var(--yellow);
   --warning-hover: #f59e0b;
   --danger: var(--red);
-  --danger-hover: #f43f5e;
+  --danger-hover: #dc2626;
   --info: var(--blue);
   --info-hover: #0ea5e9;
   
@@ -118,8 +160,8 @@
   --light-warning-hover: #B45309;
   --light-danger: #DC2626;
   --light-danger-hover: #B91C1C;
-  --light-info: #0891B2;
-  --light-info-hover: #0E7490;
+  --light-info: #0ea5e9;
+  --light-info-hover: #0284c7;
   
   --light-text-primary: #111827;
   --light-text-secondary: #475569;
@@ -305,4 +347,132 @@
   --icon-size-md: 18px;
   --icon-size-lg: 28px;
   --icon-size-xl: 32px;
+}
+/* ============================================================================
+   LIGHT THEME - الوضع النهاري
+   ============================================================================ */
+
+.light {
+  /* Background Colors - 60% */
+  --bg-background: #f8fafc;
+  --bg-surface: #f8fafc;
+  --bg-surface-elevated: #f8fafc;
+  --bg-surface-3: #e2e8f0;
+  --bg-border: #cbd5e1;
+
+  /* Text Colors - 30% */
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-tertiary: #475569;
+  --text-muted: #64748b;
+  --text-disabled: #94a3b8;
+  --text-on-primary: #ffffff;
+
+  /* Border Colors */
+  --border-default: #e2e8f0;
+  --border-subtle: #f1f5f9;
+  --border-primary: rgba(37, 99, 235, 0.35);
+  
+  /* Primary/Accent */
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-active: #1e40af;
+  
+  /* Status Colors */
+  --success: #059669;
+  --success-hover: #047857;
+  --warning: #d97706;
+  --warning-hover: #b45309;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --info: #2563eb;
+  --info-hover: #1d4ed8;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-glow: 0 0 25px rgba(37, 99, 235, 0.07);
+  --shadow-glow-strong: 0 0 30px rgba(37, 99, 235, 0.10);
+  --shadow-glow-soft: 0 0 20px rgba(37, 99, 235, 0.08);
+  --shadow-card: 0 15px 50px rgba(0, 0, 0, 0.08);
+  
+  /* Component Colors */
+  --card-bg: #f8fafc;
+  --card-border: #e2e8f0;
+  --card-shadow: var(--shadow-md);
+  
+  --input-bg: #f8fafc;
+  --input-border: #cbd5e1;
+  --input-placeholder: #94a3b8;
+  
+  --gradient-primary: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  
+  --button-primary-bg: #2563eb;
+  --button-primary-text: #ffffff;
+  --button-primary-hover: #1d4ed8;
+  
+  --button-secondary-bg: #f1f5f9;
+  --button-secondary-text: #0f172a;
+  --button-secondary-border: #cbd5e1;
+  
+  --table-header-bg: #f8fafc;
+  --table-row-bg: #f8fafc;
+  --table-row-hover: #f1f5f9;
+  --table-border: #e2e8f0;
+  
+  --sidebar-bg: #f8fafc;
+  --sidebar-border: #e2e8f0;
+  --sidebar-item-hover: #f1f5f9;
+  --sidebar-item-active: rgba(37, 99, 235, 0.08);
+  
+  --topbar-bg: rgba(248, 250, 252, 0.9);
+  --topbar-border: #e2e8f0;
+  
+  /* Primary Color - used in components */
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-05: rgba(37, 99, 235, 0.05);
+  --color-primary-08: rgba(37, 99, 235, 0.08);
+  --color-primary-10: rgba(37, 99, 235, 0.1);
+  --color-primary-12: rgba(37, 99, 235, 0.12);
+  --color-primary-15: rgba(37, 99, 235, 0.15);
+  --color-primary-20: rgba(37, 99, 235, 0.2);
+  --color-primary-25: rgba(37, 99, 235, 0.25);
+  --color-primary-30: rgba(37, 99, 235, 0.3);
+  --color-primary-40: rgba(37, 99, 235, 0.4);
+  --color-primary-50: rgba(37, 99, 235, 0.5);
+  --color-primary-85: rgba(37, 99, 235, 0.85);
+  --color-primary-90: rgba(37, 99, 235, 0.9);
+  
+  /* Status Colors with Opacity */
+  --color-success: var(--success);
+  --color-success-hover: var(--success-hover);
+  --color-success-10: rgba(5, 150, 105, 0.1);
+  --color-success-20: rgba(5, 150, 105, 0.2);
+  --color-success-30: rgba(5, 150, 105, 0.3);
+  
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-10: rgba(220, 38, 38, 0.1);
+  --color-danger-20: rgba(220, 38, 38, 0.2);
+  --color-danger-30: rgba(220, 38, 38, 0.3);
+  
+  --color-warning: var(--warning);
+  --color-warning-hover: var(--warning-hover);
+  --color-warning-10: rgba(217, 119, 6, 0.1);
+  --color-warning-20: rgba(217, 119, 6, 0.2);
+  --color-warning-30: rgba(217, 119, 6, 0.3);
+  
+  --color-info: var(--info);
+  --color-info-hover: var(--info-hover);
+  --color-info-08: rgba(37, 99, 235, 0.08);
+  --color-info-10: rgba(37, 99, 235, 0.1);
+  --color-info-20: rgba(37, 99, 235, 0.2);
+  --color-info-30: rgba(37, 99, 235, 0.3);
+  
+  /* Gradients */
+  --bg-gradient-light: #f8fafc;
 }

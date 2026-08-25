@@ -77,10 +77,10 @@ export function CustomerList({
                           {customer.email || '-'}
                         </div>
                       </TableCell>
-                      <TableCell>₪{customer.totalPurchases?.toLocaleString() || 0}</TableCell>
+                      <TableCell><span className="numeric-price">₪{customer.totalPurchases?.toLocaleString() || 0}</span></TableCell>
                       <TableCell>
-                        <span style={{ color: customer.outstanding > 0 ? '#fb7185' : '#34d399', fontWeight: '500' }}>
-                          ₪{customer.outstanding?.toLocaleString() || 0}
+                        <span style={{ color: customer.outstanding > 0 ? '#ef4444' : '#10b981', fontWeight: '500' }}>
+                          <span className="numeric-price">₪{customer.outstanding?.toLocaleString() || 0}</span>
                         </span>
                       </TableCell>
                       <TableCell>
@@ -123,8 +123,8 @@ export function CustomerList({
                     <TableCardItem label="الاسم" value={customer.name} variant="highlight" />
                     <TableCardItem label="الهاتف" value={customer.phone} />
                     <TableCardItem label="البريد" value={customer.email || '-'} />
-                    <TableCardItem label="المشتريات" value={`₪${customer.totalPurchases?.toLocaleString() || 0}`} variant="success" />
-                    <TableCardItem label="الديون" value={`₪${customer.outstanding?.toLocaleString() || 0}`} variant={customer.outstanding > 0 ? 'danger' : 'success'} />
+                    <TableCardItem label="المشتريات" value={<span className="numeric-price">₪{customer.totalPurchases?.toLocaleString() || 0}</span>} variant="success" />
+                    <TableCardItem label="الديون" value={<span className="numeric-price">₪{customer.outstanding?.toLocaleString() || 0}</span>} variant={customer.outstanding > 0 ? 'danger' : 'success'} />
                     <TableCardItem label="الحالة" value={<Badge variant={customer.outstanding > 0 ? 'warning' : 'success'}>{customer.outstanding > 0 ? 'بديون' : 'نشط'}</Badge>} />
                     <TableCardActions>
                       <Button

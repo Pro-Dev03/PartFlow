@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
-import { ItemInputMethod, type ItemInputMethodType } from '../../../components/ui/item-input-method';
+import { ItemInputMethod } from '../../../components/ui/item-input-method';
 import { CameraScanner } from '../../../components/ui/camera-scanner';
 import { Camera } from 'lucide-react';
 import { useTranslation } from '../../../hooks/useTranslation';
@@ -10,11 +10,10 @@ import { useTranslation } from '../../../hooks/useTranslation';
 interface BarcodeScannerProps {
   barcodeInput: string;
   setBarcodeInput: (value: string) => void;
-  inputMethod: ItemInputMethodType;
-  setInputMethod: (method: ItemInputMethodType) => void;
+  inputMethod: 'barcode' | 'camera';
+  setInputMethod: (method: 'barcode' | 'camera') => void;
   onBarcodeScan: (e: React.FormEvent) => void;
   onCameraScan: (barcode: string) => void;
-  onManualAdd: () => void;
   onCameraOpen: () => void;
   isCameraScannerOpen: boolean;
   onCameraClose: () => void;
@@ -27,7 +26,6 @@ export function BarcodeScanner({
   setInputMethod,
   onBarcodeScan,
   onCameraScan,
-  onManualAdd,
   onCameraOpen,
   isCameraScannerOpen,
   onCameraClose,
@@ -152,29 +150,6 @@ export function BarcodeScanner({
               >
                 <Camera className="w-4 h-4 mr-2" />
                 فتح الكاميرا للمسح
-              </Button>
-            </div>
-          )}
-
-          {inputMethod === 'manual' && (
-            <div className="mt-4">
-              <Button
-                variant="primary"
-                onClick={onManualAdd}
-                className="w-full"
-                style={{
-                  height: '42px',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  letterSpacing: '0.3px',
-                  background: 'linear-gradient(135deg, var(--button-primary-bg) 0%, var(--color-primary-85) 100%)',
-                  border: '1px solid var(--color-primary-25)',
-                  boxShadow: '0 2px 8px var(--color-primary-15)',
-                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                  borderRadius: '8px'
-                }}
-              >
-                إضافة قطعة يدوياً
               </Button>
             </div>
           )}

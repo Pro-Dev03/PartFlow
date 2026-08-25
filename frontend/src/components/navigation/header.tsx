@@ -65,8 +65,9 @@ export function Header({ onToggleSidebar }: HeaderProps) {
   return (
     <>
       <header className="h-16 flex items-center justify-between px-lg" style={{
-        background: 'var(--topbar-bg)',
-        borderBottom: '1px solid var(--topbar-border)'
+        background: 'var(--topbar-bg)', // Updated to use design system variable
+        borderBottom: '1px solid var(--topbar-border)', // Updated to use design system variable
+        boxShadow: 'var(--shadow-sm)' // Added subtle shadow from design system
       }}>
         {/* Left side */}
         <div className="flex items-center gap-md">

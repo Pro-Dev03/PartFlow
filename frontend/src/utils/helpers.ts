@@ -187,3 +187,16 @@ export function isTablet(): boolean {
 export function isDesktop(): boolean {
   return window.innerWidth >= 1024;
 }
+
+// Format price with locale and fallback
+export function formatPrice(value: number | string | undefined | null, fallback: string = '₪0'): string {
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (num === undefined || num === null || isNaN(num)) return fallback;
+  return `₪${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// Format price from cents (divides by 100)
+export function formatPriceFromCents(value: number | undefined | null, fallback: string = '₪0'): string {
+  if (value === undefined || value === null || isNaN(value)) return fallback;
+  return `₪${(value / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}

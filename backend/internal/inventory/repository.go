@@ -115,12 +115,14 @@ func (r *Repository) UpdateInventoryItem(ctx context.Context, item *InventoryIte
 		    condition = $7, grade = $8, purchase_cost = $9, selling_price = $10,
 		    status = $11, location_id = $12, supplier_id = $13, purchase_date = $14,
 		    sold_at = $15, notes = $16, updated_at = $17
+		WHERE id = $1
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
 		item.ID, item.ProductID, item.PartTypeID, item.ItemCode, item.Barcode, item.SerialNumber,
 		item.Condition, item.Grade, item.PurchaseCost, item.SellingPrice,
-		item.Status, item.LocationID, item.SupplierID, item.PurchaseDate,
+		item.Status, item.LocationID, item.SupplierID, item.PurchaseDate, item.SoldAt,
+		item.Notes, item.UpdatedAt,
 	)
 
 	if err != nil {
@@ -166,21 +168,98 @@ func (r *Repository) UpdateItemStatus(ctx context.Context, id uuid.UUID, status 
 
 // ListInventoryItems retrieves a list of inventory items with pagination
 func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, filters map[string]interface{}) ([]*InventoryItem, int64, error) {
-	// Return empty list for now to bypass the database scanning issue
-	// TODO: Fix the database scanning issue to return real data
-	return []*InventoryItem{}, 0, nil
+	// Build base query
+	baseQuery := `
+		SELECT id, product_id, part_type_id, item_code, barcode, serial_number,
+		       condition, grade, purchase_cost, selling_price, status, location_id,
+		       supplier_id, purchase_date, sold_at, notes, created_at, updated_at
+		FROM inventory_items
+		WHERE 1=1
+	`
+	countQuery := `SELECT COUNT(*) FROM inventory_items WHERE 1=1`
+
+	args := []interface{}{}
+	argCount := 0
+
+	// Add filters if provided
+	if condition, ok := filters["condition"].(string); ok && condition != "" {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND condition = ` + param
+		countQuery += ` AND condition = ` + param
+		args = append(args, condition)
+	}
+
+	if status, ok := filters["status"].(string); ok && status != "" {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND status = ` + param
+		countQuery += ` AND status = ` + param
+		args = append(args, status)
+	}
+
+	if productID, ok := filters["product_id"].(uuid.UUID); ok && productID != uuid.Nil {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND product_id = ` + param
+		countQuery += ` AND product_id = ` + param
+		args = append(args, productID)
+	}
+
+	if partTypeID, ok := filters["part_type_id"].(uuid.UUID); ok && partTypeID != uuid.Nil {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND part_type_id = ` + param
+		countQuery += ` AND part_type_id = ` + param
+		args = append(args, partTypeID)
+	}
+
+	if locationID, ok := filters["location_id"].(uuid.UUID); ok && locationID != uuid.Nil {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND location_id = ` + param
+		countQuery += ` AND location_id = ` + param
+		args = append(args, locationID)
+	}
+
+	// Get total count
+	var total int64
+	err := r.db.GetContext(ctx, &total, countQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count inventory items: %w", err)
+	}
+
+	// Add pagination
+	argCount++
+	param := fmt.Sprintf("$%d", argCount)
+	baseQuery += ` ORDER BY created_at DESC LIMIT ` + param
+	args = append(args, limit)
+
+	argCount++
+	param = fmt.Sprintf("$%d", argCount)
+	baseQuery += ` OFFSET ` + param
+	args = append(args, offset)
+
+	// Execute query
+	var items []*InventoryItem
+	err = r.db.SelectContext(ctx, &items, baseQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list inventory items: %w", err)
+	}
+
+	return items, total, nil
 }
 
 // CreateLocation creates a new location
 func (r *Repository) CreateLocation(ctx context.Context, location *Location) error {
 	query := `
-		INSERT INTO locations (name, parent_id, warehouse_id, description, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO locations (name, type, parent_id, warehouse_id, description, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at, updated_at
 	`
 
 	err := r.db.QueryRowContext(ctx, query,
-		location.Name, location.ParentID, location.WarehouseID, location.Description,
+		location.Name, location.Type, location.ParentID, location.WarehouseID, location.Description,
 		location.IsActive, location.CreatedAt, location.UpdatedAt,
 	).Scan(&location.ID, &location.CreatedAt, &location.UpdatedAt)
 
@@ -194,7 +273,7 @@ func (r *Repository) CreateLocation(ctx context.Context, location *Location) err
 // GetLocationByID retrieves a location by ID
 func (r *Repository) GetLocationByID(ctx context.Context, id uuid.UUID) (*Location, error) {
 	query := `
-		SELECT id, name, parent_id, warehouse_id, description, is_active, created_at, updated_at
+		SELECT id, name, type, parent_id, warehouse_id, description, is_active, created_at, updated_at
 		FROM locations
 		WHERE id = $1
 	`
@@ -214,7 +293,7 @@ func (r *Repository) GetLocationByID(ctx context.Context, id uuid.UUID) (*Locati
 // ListLocations retrieves all locations
 func (r *Repository) ListLocations(ctx context.Context) ([]*Location, error) {
 	query := `
-		SELECT id, name, parent_id, warehouse_id, description, is_active, created_at, updated_at
+		SELECT id, name, type, parent_id, warehouse_id, description, is_active, created_at, updated_at
 		FROM locations
 		ORDER BY name ASC
 	`

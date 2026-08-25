@@ -108,14 +108,13 @@ type DebtSummary struct {
 
 // OverdueCustomer represents an overdue customer
 type OverdueCustomer struct {
-	ID            uuid.UUID `json:"id"`
-	Name          string    `json:"name"`
-	Code          string    `json:"code"`
-	CurrentBalance float64  `json:"current_balance"`
-	CreditLimit   float64   `json:"credit_limit"`
-	OverdueAmount float64   `json:"overdue_amount"`
-	Email         *string   `json:"email,omitempty"`
-	Phone         *string   `json:"phone,omitempty"`
+	ID             uuid.UUID              `json:"id" db:"id"`
+	Name           string                 `json:"name" db:"name"`
+	Code           string                 `json:"code" db:"code"`
+	CurrentBalance float64                `json:"current_balance" db:"current_balance"`
+	CreditLimit    float64                `json:"credit_limit" db:"credit_limit"`
+	OverdueAmount  float64                `json:"overdue_amount" db:"overdue_amount"`
+	Debts          []map[string]interface{} `json:"debts"`
 }
 
 // UpdateCreditLimitRequest represents request to update credit limit
@@ -142,4 +141,13 @@ type CreateDebtCollectionRequest struct {
 type ProcessDebtPaymentRequest struct {
 	Amount float64 `json:"amount" binding:"required,gt=0"`
 	Method string  `json:"method" binding:"required"`
+}
+
+// PaymentReceiptRequest represents request to generate payment receipt
+type PaymentReceiptRequest struct {
+	Amount       float64 `json:"amount" binding:"required,gt=0"`
+	Method       string  `json:"method" binding:"required"`
+	CustomerName string  `json:"customer_name" binding:"required"`
+	Date         string  `json:"date" binding:"required"`
+	Language     string  `json:"language"` // 'ar' or 'en', defaults to 'ar'
 }

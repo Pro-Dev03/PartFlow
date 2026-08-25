@@ -22,9 +22,12 @@ func NewService(repo *Repository) *Service {
 // CreateCategory creates a new category
 func (s *Service) CreateCategory(ctx context.Context, req *CategoryRequest) (*Category, error) {
 	category := &Category{
-		Name:           req.Name,
-		Description:    req.Description,
-		ParentID:       req.ParentID,
+		Name:        req.Name,
+		Description: req.Description,
+		ParentID:    req.ParentID,
+		Icon:        req.Icon,
+		Color:       req.Color,
+		IsActive:    req.IsActive != nil && *req.IsActive,
 	}
 
 	if err := s.repo.CreateCategory(ctx, category); err != nil {
@@ -54,6 +57,11 @@ func (s *Service) UpdateCategory(ctx context.Context, id uuid.UUID, req *Categor
 	category.Name = req.Name
 	category.Description = req.Description
 	category.ParentID = req.ParentID
+	category.Icon = req.Icon
+	category.Color = req.Color
+	if req.IsActive != nil {
+		category.IsActive = *req.IsActive
+	}
 
 	if err := s.repo.UpdateCategory(ctx, category); err != nil {
 		return nil, err

@@ -24,50 +24,59 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
     ...props
   }, ref) => {
     const getVariantStyle = () => {
-      const baseStyle: Record<string, string> = {
-        border: '1px solid var(--card-border)',
-        borderRadius: '16px',
-        background: 'var(--card-bg)',
-        boxShadow: 'var(--card-shadow)',
-        transition: '200ms ease',
-        padding: noPadding ? '0' : '20px' // worktrack: 20px padding
-      };
+  const baseStyle: Record<string, string> = {
+    border: '1px solid var(--card-border)',
+    borderRadius: 'var(--radius-xl)',
+    background: 'var(--card-bg)',
+    boxShadow: 'var(--card-shadow)',
+    transition: '200ms ease',
+    padding: '16px'
+  };
 
       const variantStyles: Record<string, Record<string, string>> = {
-        default: baseStyle,
+        default: {
+          ...baseStyle,
+          boxShadow: 'var(--shadow-card)'
+        },
         interactive: {
           ...baseStyle,
-          cursor: 'pointer'
+          cursor: 'pointer',
+          boxShadow: 'var(--shadow-card)'
         },
         featured: {
           ...baseStyle,
           borderColor: 'var(--color-primary-30)',
-          boxShadow: '0 15px 50px rgba(0, 0, 0, 0.20), 0 0 25px var(--color-primary-15)'
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)'
         },
         warning: {
           ...baseStyle,
           borderColor: 'var(--color-warning-30)',
-          background: 'var(--color-warning-05)'
+          background: 'var(--color-warning-05)',
+          boxShadow: 'var(--shadow-card)'
         },
         ai: {
           ...baseStyle,
           borderColor: 'var(--color-primary-20)',
-          background: 'linear-gradient(145deg, var(--color-primary-08), var(--card-bg))'
+          background: 'linear-gradient(145deg, var(--color-primary-08), var(--card-bg))',
+          boxShadow: 'var(--shadow-card)'
         },
         danger: {
           ...baseStyle,
           borderColor: 'var(--color-danger-30)',
-          background: 'var(--color-danger-05)'
+          background: 'var(--color-danger-05)',
+          boxShadow: 'var(--shadow-card)'
         },
         success: {
           ...baseStyle,
           borderColor: 'var(--color-success-30)',
-          background: 'var(--color-success-05)'
+          background: 'var(--color-success-05)',
+          boxShadow: 'var(--shadow-card)'
         },
         info: {
           ...baseStyle,
           borderColor: 'var(--color-info-30)',
-          background: 'var(--color-info-05)'
+          background: 'var(--color-info-05)',
+          boxShadow: 'var(--shadow-card)'
         }
       };
 
@@ -111,7 +120,7 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
         onMouseEnter={(e) => {
           if (isInteractive) {
             e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.22)';
-            e.currentTarget.style.transform = 'translateY(-2px)';
+            e.currentTarget.style.transform = 'translateY(-2px)'; // subtle lift فقط
           }
         }}
         onMouseLeave={(e) => {

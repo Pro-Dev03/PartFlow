@@ -33,7 +33,6 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
       if (onClear) {
         onClear();
       }
-      // Also trigger input change if provided
       if (props.onChange) {
         const event = {
           target: { value: '' }
@@ -44,20 +43,16 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
     
     return (
       <div className={cn('w-full', containerClassName)}>
-        {/* Search Icon - Above the input */}
-        <div className="flex items-center gap-2 mb-2">
-          <Search
-            className={cn(
-              'transition-all duration-300',
-              isFocused ? 'text-cyan-400 scale-110' : 'text-text-muted/50 scale-100',
-              size === 'sm' ? 'w-4 h-4' : size === 'md' ? 'w-5 h-5' : 'w-6 h-6'
-            )}
-          />
-          <span className="text-xs text-text-muted/50">{placeholder}</span>
-        </div>
-
-        {/* Input Field */}
         <div className="relative">
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+            <Search
+              className={cn(
+                'h-4 w-4 transition-all duration-300',
+                isFocused ? 'text-primary scale-110' : 'text-text-muted/50',
+                size === 'sm' ? 'h-4 w-4' : size === 'md' ? 'h-5 w-5' : 'h-6 w-6'
+              )}
+            />
+          </div>
           <input
             ref={ref}
             type="text"
@@ -65,28 +60,13 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
             value={value}
             className={cn(
               'search-input-custom',
-              'flex w-full rounded-xl border',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:border-transparent',
-              'transition-all duration-300',
+              'relative w-full text-sm font-medium',
               'disabled:cursor-not-allowed disabled:opacity-50',
               'placeholder:text-text-muted/40',
-              'hover:border-cyan/30 hover:shadow-sm',
               sizes[size],
-              'focus-visible:ring-cyan/30 focus-visible:border-cyan/50 focus-visible:shadow-lg',
-              showClear && hasValue && 'pr-10', // space for clear button
+              showClear && hasValue && 'pe-10',
               className
             )}
-            style={{
-              background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%)',
-              border: isFocused ? '2px solid #6366f1' : '1px solid #6366f1',
-              backdropFilter: 'blur(10px)',
-              color: 'var(--text-primary)',
-              fontSize: '14px',
-              fontWeight: '500',
-              letterSpacing: '0.2px',
-              boxShadow: isFocused ? '0 0 0 3px rgba(99, 102, 241, 0.3), 0 4px 20px rgba(99, 102, 241, 0.4)' : '0 2px 8px rgba(0, 0, 0, 0.1)',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-            }}
             onFocus={(e) => {
               setIsFocused(true);
               if (props.onFocus) props.onFocus(e);
@@ -98,22 +78,15 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
             {...props}
           />
 
-          {/* Clear Button - Right */}
           {showClear && hasValue && (
             <button
               type="button"
               onClick={handleClear}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted/40 hover:text-text-muted/70 transition-colors duration-200 pointer-events-auto z-10"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '4px',
-                borderRadius: '4px'
-              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted/40 hover:text-text-muted/70 transition-colors duration-200 z-10"
             >
               <X
                 className={cn(
+                  'shrink-0',
                   size === 'sm' ? 'w-4 h-4' : size === 'md' ? 'w-5 h-5' : 'w-6 h-6'
                 )}
               />

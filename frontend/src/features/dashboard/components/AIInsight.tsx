@@ -14,14 +14,14 @@ export function AIInsight({ title, description, actionLabel, onAction }: AIInsig
     <Card variant="ai">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5" style={{ color: '#22d3ee' }} />
+          <Sparkles className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
           AI Insight
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="flex gap-3.5">
           <div className="w-5 h-5 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(34, 211, 238, 0.1)' }}>
-            <TrendingUp className="w-3 h-3" style={{ color: '#22d3ee' }} />
+            <TrendingUp className="w-3 h-3" style={{ color: 'var(--color-primary)' }} />
           </div>
           <div>
             <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>

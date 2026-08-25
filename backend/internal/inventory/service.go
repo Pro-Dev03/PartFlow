@@ -33,27 +33,29 @@ func (s *Service) CreateInventoryItem(ctx context.Context, req *InventoryItemReq
 
 	// Generate item code if not provided
 	itemCode := req.ItemCode
-	if itemCode == "" {
-		itemCode = generateItemCode()
+	if itemCode == nil || *itemCode == "" {
+		generatedCode := generateItemCode()
+		itemCode = &generatedCode
 	}
 
 	// Generate barcode if not provided
 	barcode := req.Barcode
-	if barcode == "" {
-		barcode = generateBarcode(req.ProductID, req.PartTypeID)
+	if barcode == nil || *barcode == "" {
+		generatedBarcode := generateBarcode(req.ProductID, req.PartTypeID)
+		barcode = &generatedBarcode
 	}
 
 	// Check if barcode already exists
-	if barcode != "" {
-		_, err := s.repo.GetInventoryItemByBarcode(ctx, barcode)
+	if barcode != nil && *barcode != "" {
+		_, err := s.repo.GetInventoryItemByBarcode(ctx, *barcode)
 		if err == nil {
 			return nil, ErrDuplicateBarcode
 		}
 	}
 
 	// Check if serial number already exists
-	if req.SerialNumber != "" {
-		_, err := s.repo.GetInventoryItemBySerialNumber(ctx, req.SerialNumber)
+	if req.SerialNumber != nil && *req.SerialNumber != "" {
+		_, err := s.repo.GetInventoryItemBySerialNumber(ctx, *req.SerialNumber)
 		if err == nil {
 			return nil, ErrDuplicateSerialNumber
 		}
@@ -66,7 +68,14 @@ func (s *Service) CreateInventoryItem(ctx context.Context, req *InventoryItemReq
 	if status == "" {
 		status = StatusPurchased
 	}
-	
+
+	// Convert Grade pointer
+	var gradePtr *string
+	if req.Grade != nil {
+		gradeStr := string(*req.Grade)
+		gradePtr = &gradeStr
+	}
+
 	item := &InventoryItem{
 		ID:             uuid.New(),
 		ProductID:      req.ProductID,
@@ -75,7 +84,7 @@ func (s *Service) CreateInventoryItem(ctx context.Context, req *InventoryItemReq
 		Barcode:        barcode,
 		SerialNumber:   req.SerialNumber,
 		Condition:      string(req.Condition),
-		Grade:          (*string)(req.Grade),
+		Grade:          gradePtr,
 		PurchaseCost:   req.PurchaseCost,
 		SellingPrice:   req.SellingPrice,
 		Status:         string(status),
@@ -185,6 +194,7 @@ func (s *Service) ReceiveItem(ctx context.Context, id uuid.UUID, locationID *uui
 	var currentQuantity int
 
 	// Create movement record
+	reason := "Item received and made available"
 	movement := &InventoryMovement{
 		ID:             uuid.New(),
 		ItemID:         &id,
@@ -193,7 +203,7 @@ func (s *Service) ReceiveItem(ctx context.Context, id uuid.UUID, locationID *uui
 		Quantity:       1,
 		BeforeQuantity: currentQuantity - 1,
 		AfterQuantity:  currentQuantity,
-		Reason:         "Item received and made available",
+		Reason:         &reason,
 		CreatedBy:      userID,
 		CreatedAt:      time.Now(),
 	}
@@ -316,6 +326,7 @@ func (s *Service) ReleaseReservation(ctx context.Context, reservationID uuid.UUI
 	}
 
 	// Create movement record
+	releaseReason := "Reservation released"
 	movementQuery := `
 		INSERT INTO inventory_movements (id, item_id, movement_type,
 			quantity, before_quantity, after_quantity, reference_type, reference_id,
@@ -324,7 +335,7 @@ func (s *Service) ReleaseReservation(ctx context.Context, reservationID uuid.UUI
 	`
 	_, err = tx.ExecContext(ctx, movementQuery,
 		uuid.New(), reservation.ItemID, "RELEASE",
-		1, 0, 1, "reservation", reservationID, "Reservation released", userID, time.Now())
+		1, 0, 1, "reservation", reservationID, releaseReason, userID, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to create movement: %w", err)
 	}
@@ -385,12 +396,12 @@ func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, u
 	quantityDiff := req.NewQuantity - 1 // Since individual items have quantity of 1
 
 	// Update item status if needed
-	if req.NewStatus != "" {
-		if !isValidStatusTransition(item.Status, req.NewStatus) {
+	if req.NewStatus != nil && *req.NewStatus != "" {
+		if !isValidStatusTransition(item.Status, *req.NewStatus) {
 			return ErrInvalidStatus
 		}
 		updateStatusQuery := `UPDATE inventory_items SET status = $1, updated_at = NOW() WHERE id = $2`
-		_, err = tx.ExecContext(ctx, updateStatusQuery, req.NewStatus, req.ItemID)
+		_, err = tx.ExecContext(ctx, updateStatusQuery, *req.NewStatus, req.ItemID)
 		if err != nil {
 			return fmt.Errorf("failed to update item status: %w", err)
 		}
@@ -422,6 +433,11 @@ func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, u
 	var currentQuantity int
 
 	// Create movement record
+	adjustmentReason := req.Reason
+	if adjustmentReason == nil {
+		defaultReason := "Inventory adjustment"
+		adjustmentReason = &defaultReason
+	}
 	movementQuery := `
 		INSERT INTO inventory_movements (id, item_id, movement_type,
 			quantity, before_quantity, after_quantity, reference_type, reference_id,
@@ -430,7 +446,7 @@ func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, u
 	`
 	_, err = tx.ExecContext(ctx, movementQuery,
 		uuid.New(), req.ItemID, "ADJUSTMENT",
-		quantityDiff, currentQuantity - quantityDiff, currentQuantity, "adjustment", req.ItemID, req.Reason, userID, time.Now())
+		quantityDiff, currentQuantity - quantityDiff, currentQuantity, "adjustment", req.ItemID, adjustmentReason, userID, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to create movement: %w", err)
 	}
@@ -440,7 +456,13 @@ func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, u
 		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
-	changes := fmt.Sprintf("Adjusted item %s, new status: %s, reason: %s", req.ItemID, req.NewStatus, req.Reason)
+	var statusStr string
+	if req.NewStatus != nil {
+		statusStr = *req.NewStatus
+	} else {
+		statusStr = "unchanged"
+	}
+	changes := fmt.Sprintf("Adjusted item %s, new status: %s, reason: %s", req.ItemID, statusStr, adjustmentReason)
 	_, err = tx.ExecContext(ctx, auditQuery,
 		uuid.New(), userID, "ADJUST_INVENTORY", "inventory_item", req.ItemID,
 		changes, time.Now())
@@ -498,6 +520,11 @@ func (s *Service) TransferItem(ctx context.Context, req *TransferRequest, userID
 	}
 
 	// Create movement record
+	transferReason := req.Reason
+	if transferReason == nil {
+		defaultReason := "Item transfer"
+		transferReason = &defaultReason
+	}
 	movementQuery := `
 		INSERT INTO inventory_movements (id, item_id, movement_type,
 			quantity, before_quantity, after_quantity, reference_type, reference_id,
@@ -506,7 +533,7 @@ func (s *Service) TransferItem(ctx context.Context, req *TransferRequest, userID
 	`
 	_, err = tx.ExecContext(ctx, movementQuery,
 		uuid.New(), req.ItemID, "TRANSFER",
-		1, 1, 1, "transfer", req.ItemID, req.Reason, userID, time.Now())
+		1, 1, 1, "transfer", req.ItemID, transferReason, userID, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to create movement: %w", err)
 	}
@@ -516,7 +543,13 @@ func (s *Service) TransferItem(ctx context.Context, req *TransferRequest, userID
 		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
-	changes := fmt.Sprintf("Transferred item %s from location %s to %s", req.ItemID, req.FromLocationID, req.ToLocationID)
+	var reasonStr string
+	if transferReason != nil {
+		reasonStr = *transferReason
+	} else {
+		reasonStr = "no reason"
+	}
+	changes := fmt.Sprintf("Transferred item %s from location %s to %s, reason: %s", req.ItemID, req.FromLocationID, req.ToLocationID, reasonStr)
 	_, err = tx.ExecContext(ctx, auditQuery,
 		uuid.New(), userID, "TRANSFER_ITEM", "inventory_item", req.ItemID,
 		changes, time.Now())

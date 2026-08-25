@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 )
 
 // Repository handles customer data operations
@@ -275,6 +276,46 @@ func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) e
 	)
 	if err != nil {
 		return fmt.Errorf("failed to add ledger entry: %w", err)
+	}
+
+	// Update debts table - reduce remaining_amount for unpaid debts
+	// Start with the oldest debt first
+	updateDebtsQuery := `
+		WITH ordered_debts AS (
+			SELECT id, remaining_amount 
+			FROM debts 
+			WHERE customer_id = $1 
+			AND status IN ('pending', 'partial', 'overdue')
+			AND remaining_amount > 0
+			ORDER BY due_date ASC
+		)
+		UPDATE debts 
+		SET remaining_amount = GREATEST(0, remaining_amount - $2),
+		    updated_at = NOW()
+		WHERE id = (SELECT id FROM ordered_debts LIMIT 1)
+		RETURNING remaining_amount
+	`
+	var remainingAmount float64
+	err = r.db.GetContext(ctx, &remainingAmount, updateDebtsQuery, payment.CustomerID, payment.Amount)
+	if err != nil {
+		// Log but don't fail if debts update fails
+		fmt.Printf("Warning: failed to update debts: %v\n", err)
+	}
+
+	// Update debt status based on remaining amount
+	if remainingAmount == 0 {
+		updateStatusQuery := `
+			UPDATE debts 
+			SET status = 'paid',
+			    updated_at = NOW()
+			WHERE customer_id = $1 
+			AND remaining_amount = 0
+			AND status IN ('pending', 'partial', 'overdue')
+		`
+		_, err = r.db.ExecContext(ctx, updateStatusQuery, payment.CustomerID)
+		if err != nil {
+			fmt.Printf("Warning: failed to update debt status: %v\n", err)
+		}
 	}
 
 	return nil

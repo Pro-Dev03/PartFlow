@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/pkg/logger"
 )
 
 type Handler struct {
@@ -132,7 +133,12 @@ func (h *Handler) ListInventoryItems(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": items,
+		"data": gin.H{
+			"items": items,
+			"total": total,
+			"page":  page,
+			"per_page": perPage,
+		},
 		"meta": gin.H{
 			"total": total,
 			"page":  page,
@@ -368,7 +374,7 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 		PartTypeID      *uuid.UUID `json:"part_type_id"`
 		PurchaseCost    int64      `json:"purchase_cost" binding:"required"`
 		SellingPrice    int64      `json:"selling_price"`
-		Notes           string     `json:"notes"`
+		Notes           *string    `json:"notes"`
 		Specifications  []struct {
 			SpecificationID uuid.UUID  `json:"specification_id"`
 			ValueText       *string    `json:"value_text"`
@@ -408,21 +414,36 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 	} else {
 		// For manual customer, use a nil UUID and store name in notes
 		customerID = uuid.Nil
-		req.Notes = fmt.Sprintf("زبون: %s - %s", req.CustomerName, req.Notes)
+		existingNotes := ""
+		if req.Notes != nil {
+			existingNotes = *req.Notes
+		}
+		customerNote := fmt.Sprintf("زبون: %s - %s", req.CustomerName, existingNotes)
+		req.Notes = &customerNote
 	}
-	
+
 	// Handle product/part type logic
 	if req.ProductID != nil {
 		productID = *req.ProductID
 	} else if req.ProductName != "" {
 		// For manual product, use a nil UUID and store name in notes
 		productID = uuid.Nil
-		req.Notes = fmt.Sprintf("منتج: %s - %s", req.ProductName, req.Notes)
+		existingNotes := ""
+		if req.Notes != nil {
+			existingNotes = *req.Notes
+		}
+		productNote := fmt.Sprintf("منتج: %s - %s", req.ProductName, existingNotes)
+		req.Notes = &productNote
 	} else {
 		// No product, using part type only - add note
 		productID = uuid.Nil
 		if req.PartTypeID != nil {
-			req.Notes = fmt.Sprintf("قطعة بدون منتج - %s", req.Notes)
+			existingNotes := ""
+			if req.Notes != nil {
+				existingNotes = *req.Notes
+			}
+			partNote := fmt.Sprintf("قطعة بدون منتج - %s", existingNotes)
+			req.Notes = &partNote
 		}
 	}
 
@@ -519,5 +540,6 @@ func handleError(c *gin.Context, err error) {
 		message = err.Error()
 	}
 
+	logger.Error("Inventory handler error", err)
 	c.JSON(status, gin.H{"error": message})
 }

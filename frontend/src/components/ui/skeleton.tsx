@@ -52,9 +52,9 @@ export function TableSkeleton({ rows = 5 }: { rows?: number }) {
 
 export function StatCardSkeleton() {
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-4 space-y-3">
       <Skeleton className="h-4 w-1/2" />
-      <Skeleton className="h-8 w-1/3" />
+      <Skeleton className="h-7 w-1/3" />
     </div>
   );
 }

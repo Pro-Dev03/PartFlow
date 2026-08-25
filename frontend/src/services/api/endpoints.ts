@@ -19,12 +19,21 @@ export const dashboardApi = {
 
 // Products endpoints
 export const productsApi = {
-  list: (params?: { page?: number; per_page?: number; search?: string }) => 
+  list: (params?: { page?: number; per_page?: number; search?: string; category_id?: string }) => 
     apiClient.get('/products', params),
   get: (id: string) => apiClient.get(`/products/${id}`),
   create: (data: any) => apiClient.post('/products', data),
   update: (id: string, data: any) => apiClient.put(`/products/${id}`, data),
   delete: (id: string) => apiClient.delete(`/products/${id}`),
+};
+
+// Categories endpoints
+export const categoriesApi = {
+  list: () => apiClient.get('/categories'),
+  get: (id: string) => apiClient.get(`/categories/${id}`),
+  create: (data: any) => apiClient.post('/categories', data),
+  update: (id: string, data: any) => apiClient.put(`/categories/${id}`, data),
+  delete: (id: string) => apiClient.delete(`/categories/${id}`),
 };
 
 // Inventory endpoints
@@ -86,7 +95,10 @@ export const customersApi = {
   create: (data: any) => apiClient.post('/customers', data),
   update: (id: string, data: any) => apiClient.put(`/customers/${id}`, data),
   delete: (id: string) => apiClient.delete(`/customers/${id}`),
-  ledger: (id: string) => apiClient.get(`/customers/${id}/ledger`),
+  ledger: (id: string, params?: { page?: number; per_page?: number }) => 
+    apiClient.get(`/customers/${id}/ledger`, params),
+  ledgerSummary: (id: string) => 
+    apiClient.get(`/customers/${id}/ledger/summary`),
 };
 
 // Debts endpoints - Note: Debts are managed under customers in the backend
@@ -108,7 +120,10 @@ export const suppliersApi = {
   create: (data: any) => apiClient.post('/suppliers', data),
   update: (id: string, data: any) => apiClient.put(`/suppliers/${id}`, data),
   delete: (id: string) => apiClient.delete(`/suppliers/${id}`),
-  ledger: (id: string) => apiClient.get(`/suppliers/${id}/ledger`),
+  ledger: (id: string, params?: { page?: number; per_page?: number }) => 
+    apiClient.get(`/suppliers/${id}/ledger`, params),
+  ledgerSummary: (id: string) => 
+    apiClient.get(`/suppliers/${id}/ledger/summary`),
   getSupplierInventory: (id: string) => apiClient.get(`/suppliers/${id}/inventory`),
 };
 
@@ -144,21 +159,21 @@ export const returnsApi = {
 
 // Reports endpoints
 export const reportsApi = {
-  sales: (params?: { page?: number; per_page?: number }) => 
+  sales: (params?: { start_date?: string; end_date?: string }) => 
     apiClient.get('/reports/sales', params),
-  profit: (params?: { page?: number; per_page?: number }) => 
+  profit: (params?: { start_date?: string; end_date?: string }) => 
     apiClient.get('/reports/profit', params),
-  inventory: (params?: { page?: number; per_page?: number }) => 
-    apiClient.get('/reports/inventory', params),
-  debts: (params?: { page?: number; per_page?: number }) => 
-    apiClient.get('/reports/debts', params),
-  products: (params?: { page?: number; per_page?: number }) => 
-    apiClient.get('/reports/products', params),
-  suppliers: (params?: { page?: number; per_page?: number }) => 
-    apiClient.get('/reports/suppliers', params),
-  expenses: (params?: { page?: number; per_page?: number }) => 
+  inventory: () => 
+    apiClient.get('/reports/inventory'),
+  debts: () => 
+    apiClient.get('/reports/debts'),
+  products: () => 
+    apiClient.get('/reports/products'),
+  suppliers: () => 
+    apiClient.get('/reports/suppliers'),
+  expenses: (params?: { start_date?: string; end_date?: string }) => 
     apiClient.get('/reports/expenses', params),
-  returns: (params?: { page?: number; per_page?: number }) => 
+  returns: (params?: { start_date?: string; end_date?: string }) => 
     apiClient.get('/reports/returns', params),
 };
 

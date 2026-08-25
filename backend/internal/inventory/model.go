@@ -50,9 +50,9 @@ type InventoryItem struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
 	ProductID      *uuid.UUID `json:"product_id" db:"product_id"`
 	PartTypeID     *uuid.UUID `json:"part_type_id" db:"part_type_id"`
-	ItemCode       string     `json:"item_code" db:"item_code"`
-	Barcode        string     `json:"barcode" db:"barcode"`
-	SerialNumber   string     `json:"serial_number" db:"serial_number"`
+	ItemCode       *string    `json:"item_code" db:"item_code"`
+	Barcode        *string    `json:"barcode" db:"barcode"`
+	SerialNumber   *string    `json:"serial_number" db:"serial_number"`
 	Condition      string     `json:"condition" db:"condition"`
 	Grade          *string    `json:"grade" db:"grade"`
 	PurchaseCost   float64    `json:"purchase_cost" db:"purchase_cost"`
@@ -62,7 +62,7 @@ type InventoryItem struct {
 	SupplierID     *uuid.UUID `json:"supplier_id" db:"supplier_id"`
 	PurchaseDate   *time.Time `json:"purchase_date" db:"purchase_date"`
 	SoldAt         *time.Time `json:"sold_at" db:"sold_at"`
-	Notes          string     `json:"notes" db:"notes"`
+	Notes          *string    `json:"notes" db:"notes"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 }
@@ -72,9 +72,9 @@ type DBInventoryItem struct {
 	ID             string    `db:"id"`
 	ProductID      *string   `db:"product_id"`
 	PartTypeID     *string   `db:"part_type_id"`
-	ItemCode       string    `db:"item_code"`
-	Barcode        string    `db:"barcode"`
-	SerialNumber   string    `db:"serial_number"`
+	ItemCode       *string   `db:"item_code"`
+	Barcode        *string   `db:"barcode"`
+	SerialNumber   *string   `db:"serial_number"`
 	Condition      string    `db:"condition"`
 	Grade          *string   `db:"grade"`
 	PurchaseCost   float64   `db:"purchase_cost"`
@@ -84,7 +84,7 @@ type DBInventoryItem struct {
 	SupplierID     *string   `db:"supplier_id"`
 	PurchaseDate   *time.Time `db:"purchase_date"`
 	SoldAt         *time.Time `db:"sold_at"`
-	Notes          string    `db:"notes"`
+	Notes          *string   `db:"notes"`
 	CreatedAt      time.Time `db:"created_at"`
 	UpdatedAt      time.Time `db:"updated_at"`
 }
@@ -96,7 +96,7 @@ type Location struct {
 	Type           string     `json:"type" db:"type"` // warehouse, shelf, box, display
 	ParentID       *uuid.UUID `json:"parent_id" db:"parent_id"`
 	WarehouseID    *uuid.UUID `json:"warehouse_id" db:"warehouse_id"`
-	Description    string     `json:"description" db:"description"`
+	Description    *string    `json:"description" db:"description"`
 	IsActive       bool       `json:"is_active" db:"is_active"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
@@ -128,7 +128,7 @@ type InventoryMovement struct {
 	AfterQuantity  int          `json:"after_quantity" db:"after_quantity"`
 	ReferenceType  string       `json:"reference_type" db:"reference_type"` // sale, purchase, return, etc.
 	ReferenceID    *uuid.UUID   `json:"reference_id" db:"reference_id"`
-	Reason         string       `json:"reason" db:"reason"`
+	Reason         *string      `json:"reason" db:"reason"`
 	CreatedBy      uuid.UUID    `json:"created_by" db:"created_by"`
 	CreatedAt      time.Time    `json:"created_at" db:"created_at"`
 }
@@ -142,7 +142,7 @@ type Reservation struct {
 	ReservedAt     time.Time  `json:"reserved_at" db:"reserved_at"`
 	ExpiresAt      time.Time  `json:"expires_at" db:"expires_at"`
 	Status         string     `json:"status" db:"status"` // active, expired, converted, cancelled
-	Notes          string     `json:"notes" db:"notes"`
+	Notes          *string    `json:"notes" db:"notes"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 }
@@ -151,9 +151,9 @@ type Reservation struct {
 type InventoryItemRequest struct {
 	ProductID    *uuid.UUID `json:"product_id"`
 	PartTypeID   *uuid.UUID `json:"part_type_id"`
-	ItemCode     string     `json:"item_code"`
-	Barcode      string     `json:"barcode"`
-	SerialNumber string     `json:"serial_number"`
+	ItemCode     *string    `json:"item_code"`
+	Barcode      *string    `json:"barcode"`
+	SerialNumber *string    `json:"serial_number"`
 	Condition    Condition  `json:"condition" binding:"required"`
 	Grade        *Grade     `json:"grade"`
 	PurchaseCost float64    `json:"purchase_cost" binding:"required"`
@@ -161,7 +161,7 @@ type InventoryItemRequest struct {
 	Status       Status     `json:"status"`
 	LocationID   *uuid.UUID `json:"location_id"`
 	SupplierID   *uuid.UUID `json:"supplier_id"`
-	Notes        string     `json:"notes"`
+	Notes        *string    `json:"notes"`
 }
 
 // LocationRequest represents location creation/update request
@@ -170,7 +170,7 @@ type LocationRequest struct {
 	Type        string     `json:"type" binding:"required"`
 	ParentID    *uuid.UUID `json:"parent_id"`
 	WarehouseID *uuid.UUID `json:"warehouse_id"`
-	Description string     `json:"description"`
+	Description *string    `json:"description"`
 }
 
 // MovementRequest represents inventory movement request
@@ -181,15 +181,15 @@ type MovementRequest struct {
 	Quantity      int          `json:"quantity" binding:"required"`
 	ReferenceType string       `json:"reference_type"`
 	ReferenceID   *uuid.UUID   `json:"reference_id"`
-	Reason        string       `json:"reason"`
+	Reason        *string      `json:"reason"`
 }
 
 // AdjustmentRequest represents inventory adjustment request
 type AdjustmentRequest struct {
 	ItemID        uuid.UUID   `json:"item_id" binding:"required"`
 	NewQuantity   int         `json:"new_quantity" binding:"required"`
-	NewStatus     string      `json:"new_status"`
-	Reason        string      `json:"reason" binding:"required"`
+	NewStatus     *string     `json:"new_status"`
+	Reason        *string     `json:"reason"`
 }
 
 // TransferRequest represents inventory transfer request
@@ -198,7 +198,7 @@ type TransferRequest struct {
 	FromLocationID uuid.UUID `json:"from_location_id" binding:"required"`
 	ToLocationID   uuid.UUID `json:"to_location_id" binding:"required"`
 	Quantity  int       `json:"quantity" binding:"required"`
-	Reason    string    `json:"reason"`
+	Reason    *string   `json:"reason"`
 }
 
 // ReservationRequest represents reservation request
@@ -206,5 +206,5 @@ type ReservationRequest struct {
 	ItemID     uuid.UUID  `json:"item_id" binding:"required"`
 	CustomerID *uuid.UUID `json:"customer_id"`
 	ExpiresIn  int       `json:"expires_in"` // minutes
-	Notes      string    `json:"notes"`
+	Notes      *string   `json:"notes"`
 }

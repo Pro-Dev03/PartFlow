@@ -13,11 +13,11 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
   ({ className, variant = 'default', size = 'md', dot = false, children, 'aria-label': ariaLabel, ...props }, ref) => {
     const variants = {
       default: 'bg-surface border border-border text-text',
-      success: 'bg-green/8 text-green border border-green/20',
-      warning: 'bg-yellow/8 text-yellow border border-yellow/20',
-      danger: 'bg-red/8 text-red border border-red/20',
-      info: 'bg-cyan/8 text-cyan border border-cyan/20',
-      destructive: 'bg-red text-white border border-red',
+      success: 'bg-success/8 text-success border border-success/20',
+      warning: 'bg-warning/8 text-warning border border-warning/20',
+      danger: 'bg-danger/8 text-danger border border-danger/20',
+      info: 'bg-info/8 text-info border border-info/20',
+      destructive: 'bg-danger text-white border border-danger',
       secondary: 'bg-surface-2 text-text border border-border',
       outline: 'border border-border text-text bg-transparent',
     };
@@ -56,17 +56,16 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
           <span
             className={cn(
               'w-1.5 h-1.5 rounded-full',
-              variant === 'success' && 'bg-green',
-              variant === 'warning' && 'bg-yellow',
-              variant === 'danger' && 'bg-red',
-              variant === 'info' && 'bg-cyan',
+              variant === 'success' && 'bg-success',
+              variant === 'warning' && 'bg-warning',
+              variant === 'danger' && 'bg-danger',
+              variant === 'info' && 'bg-info',
               variant === 'default' && 'bg-text-muted'
             )}
             aria-hidden="true"
           />
         )}
         {children}
-        {/* Screen reader text for color-only status */}
         {!ariaLabel && typeof children !== 'string' && (
           <span className="sr-only" aria-hidden="true">
             {getStatusText()}

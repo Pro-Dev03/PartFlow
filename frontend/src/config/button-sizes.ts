@@ -112,6 +112,13 @@ export const ButtonSizeBySection = {
     headerActions: ButtonSizes.sm,
     tableAction: ButtonSizes.sm,
     modalAction: ButtonSizes.sm
+  },
+
+  // قسم التصنيفات
+  categories: {
+    headerActions: ButtonSizes.sm,
+    tableAction: ButtonSizes.sm,
+    modalAction: ButtonSizes.sm
   }
 } as const;
 

@@ -24,8 +24,8 @@ func NewRepository(db *sqlx.DB) *Repository {
 // CreateCategory creates a new category
 func (r *Repository) CreateCategory(ctx context.Context, category *Category) error {
 	query := `
-		INSERT INTO categories (id, name, description, parent_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO categories (id, name, description, parent_id, icon, color, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at, updated_at
 	`
 	now := time.Now()
@@ -38,6 +38,9 @@ func (r *Repository) CreateCategory(ctx context.Context, category *Category) err
 		category.Name,
 		category.Description,
 		category.ParentID,
+		category.Icon,
+		category.Color,
+		category.IsActive,
 		category.CreatedAt,
 		category.UpdatedAt,
 	).Scan(&category.ID, &category.CreatedAt, &category.UpdatedAt)
@@ -48,6 +51,7 @@ func (r *Repository) CreateCategory(ctx context.Context, category *Category) err
 // GetCategoryByID retrieves a category by ID
 func (r *Repository) GetCategoryByID(ctx context.Context, id uuid.UUID) (*Category, error) {
 	query := `
+		SELECT id, name, description, parent_id, icon, color, is_active, created_at, updated_at
 		FROM categories
 		WHERE id = $1
 	`
@@ -62,6 +66,7 @@ func (r *Repository) GetCategoryByID(ctx context.Context, id uuid.UUID) (*Catego
 // ListCategories retrieves all categories
 func (r *Repository) ListCategories(ctx context.Context, ) ([]Category, error) {
 	query := `
+		SELECT id, name, description, parent_id, icon, color, is_active, created_at, updated_at
 		FROM categories
 		ORDER BY name
 	`
@@ -74,13 +79,17 @@ func (r *Repository) ListCategories(ctx context.Context, ) ([]Category, error) {
 func (r *Repository) UpdateCategory(ctx context.Context, category *Category) error {
 	query := `
 		UPDATE categories
-		SET name = $1, description = $2, parent_id = $3, updated_at = $4
+		SET name = $1, description = $2, parent_id = $3, icon = $4, color = $5, is_active = $6, updated_at = $7
+		WHERE id = $8
 	`
 	category.UpdatedAt = time.Now()
 	result, err := r.db.ExecContext(ctx, query,
 		category.Name,
 		category.Description,
 		category.ParentID,
+		category.Icon,
+		category.Color,
+		category.IsActive,
 		category.UpdatedAt,
 		category.ID,
 	)
@@ -161,6 +170,7 @@ func (r *Repository) CreateBrand(ctx context.Context, brand *Brand) error {
 // GetBrandByID retrieves a brand by ID
 func (r *Repository) GetBrandByID(ctx context.Context, id uuid.UUID) (*Brand, error) {
 	query := `
+		SELECT id, name, description, logo_url, created_at, updated_at
 		FROM brands
 		WHERE id = $1
 	`
@@ -175,6 +185,7 @@ func (r *Repository) GetBrandByID(ctx context.Context, id uuid.UUID) (*Brand, er
 // ListBrands retrieves all brands
 func (r *Repository) ListBrands(ctx context.Context, ) ([]Brand, error) {
 	query := `
+		SELECT id, name, description, logo_url, created_at, updated_at
 		FROM brands
 		ORDER BY name
 	`
@@ -284,6 +295,7 @@ func (r *Repository) CreateProduct(ctx context.Context, product *Product) error 
 // GetProductByID retrieves a product by ID
 func (r *Repository) GetProductByID(ctx context.Context, id uuid.UUID) (*Product, error) {
 	query := `
+		SELECT id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, is_active, created_at, updated_at
 		FROM products
 		WHERE id = $1
 	`
@@ -298,6 +310,7 @@ func (r *Repository) GetProductByID(ctx context.Context, id uuid.UUID) (*Product
 // GetProductByBarcode retrieves a product by barcode
 func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string, ) (*Product, error) {
 	query := `
+		SELECT id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, is_active, created_at, updated_at
 		FROM products
 		WHERE barcode = $1
 	`

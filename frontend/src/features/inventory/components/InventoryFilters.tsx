@@ -97,7 +97,7 @@ export function InventoryFilters({
                 {filters.some(f => f.key === 'condition') && (
                   <span className="text-xs" style={{
                     background: 'rgba(34, 211, 238, 0.2)',
-                    color: '#22d3ee',
+                    color: 'var(--color-primary)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     fontWeight: '600'

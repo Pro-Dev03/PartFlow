@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { authApi } from '../services/api/endpoints';
 import { apiClient } from '../services/api/client';
+import { TokenManager } from '../lib/token-manager';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -31,7 +32,8 @@ export const useAuthStore = create<AuthState>()(
           const data = response.data as any;
           const { user, token } = data;
 
-          // Set token in apiClient
+          // Use TokenManager for consistent token storage
+          TokenManager.setToken(token);
           apiClient.setToken(token);
 
           set({
@@ -52,6 +54,7 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         // Stop auto-refresh
         stopTokenRefresh();
+        TokenManager.clearToken();
         apiClient.logout();
         set({
           isAuthenticated: false,
@@ -61,7 +64,8 @@ export const useAuthStore = create<AuthState>()(
       },
 
       checkAuth: () => {
-        const token = localStorage.getItem('auth_token');
+        // Use TokenManager for consistent token retrieval
+        const token = TokenManager.getToken();
         if (token) {
           apiClient.setToken(token);
           set({

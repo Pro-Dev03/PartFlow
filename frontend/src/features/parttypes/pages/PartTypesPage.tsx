@@ -43,7 +43,7 @@ export function PartTypesPage() {
     name_ar: '',
     name_en: '',
     icon: 'box',
-    color: '#22d3ee',
+    color: '#14b8a6',
     sort_order: 0
   });
 
@@ -59,7 +59,7 @@ export function PartTypesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['part-types'] });
       setIsCreateModalOpen(false);
-      setNewPartType({ name_ar: '', name_en: '', icon: 'box', color: '#22d3ee', sort_order: 0 });
+      setNewPartType({ name_ar: '', name_en: '', icon: 'box', color: '#14b8a6', sort_order: 0 });
       toast.success('تم إضافة نوع القطعة بنجاح');
     },
     onError: () => {
@@ -216,6 +216,7 @@ export function PartTypesPage() {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         title="إضافة نوع قطعة جديد"
+        variant="modern"
         size="sm"
       >
         <div className="space-y-4">
@@ -287,6 +288,7 @@ export function PartTypesPage() {
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         title="تعديل نوع القطعة"
+        variant="modern"
         size="sm"
       >
         {selectedPartType && (
@@ -294,21 +296,21 @@ export function PartTypesPage() {
             <div>
               <label className="block text-sm font-medium text-text mb-2">الاسم بالعربية</label>
               <Input
-                value={selectedPartType.name_ar}
+                value={selectedPartType.name_ar || ''}
                 onChange={(e) => setSelectedPartType({ ...selectedPartType, name_ar: e.target.value })}
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-text mb-2">الاسم بالإنجليزية</label>
               <Input
-                value={selectedPartType.name_en}
+                value={selectedPartType.name_en || ''}
                 onChange={(e) => setSelectedPartType({ ...selectedPartType, name_en: e.target.value })}
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-text mb-2">الأيقونة</label>
               <Select
-                value={selectedPartType.icon}
+                value={selectedPartType.icon || 'box'}
                 onChange={(e) => setSelectedPartType({ ...selectedPartType, icon: e.target.value })}
                 options={[
                   { value: 'box', label: 'صندوق' },
@@ -325,7 +327,7 @@ export function PartTypesPage() {
               <label className="block text-sm font-medium text-text mb-2">اللون</label>
               <Input
                 type="color"
-                value={selectedPartType.color}
+                value={selectedPartType.color || '#3B82F6'}
                 onChange={(e) => setSelectedPartType({ ...selectedPartType, color: e.target.value })}
                 className="h-10"
               />
@@ -345,7 +347,7 @@ export function PartTypesPage() {
               <label className="block text-sm font-medium text-text mb-2">ترتيب العرض</label>
               <Input
                 type="number"
-                value={selectedPartType.sort_order}
+                value={selectedPartType.sort_order || 0}
                 onChange={(e) => setSelectedPartType({ ...selectedPartType, sort_order: parseInt(e.target.value) || 0 })}
               />
             </div>

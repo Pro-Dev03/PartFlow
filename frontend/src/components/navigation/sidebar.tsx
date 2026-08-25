@@ -15,6 +15,7 @@ import {
   Scan,
   BarChart3,
   Layers,
+  Tag,
 } from 'lucide-react';
 import { cn } from '../../utils';
 
@@ -66,6 +67,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         { id: 'purchases', icon: CreditCard, label: t('nav.purchases') || 'المشتريات', path: '/app/purchases' },
         { id: 'expenses', icon: DollarSign, label: t('nav.expenses') || 'المصروفات', path: '/app/expenses' },
         { id: 'returns', icon: RotateCcw, label: t('nav.returns') || 'المرتجعات', path: '/app/returns' },
+        { id: 'categories', icon: Tag, label: 'التصنيفات', path: '/app/categories' },
       ]
     },
     {
@@ -83,7 +85,6 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
   // Update active item based on current location
   useEffect(() => {
     const currentItem = allItems.find(item => {
-      // Handle both /app/path and /path formats
       const itemPath = item.path.replace('/app', '');
       const currentPath = location.pathname.replace('/app', '');
       return currentPath === itemPath || location.pathname === item.path;
@@ -97,43 +98,42 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     <aside
       className={cn(
         'flex flex-col sidebar',
-        'border-r border-[var(--border-default)]',
+        'border-l border-[var(--border-default)]',
         'backdrop-blur-xl',
-        'transition-all duration-[var(--transition-normal)] ease-[var(--transition-timing-default)]',
+        'transition-all duration-[var(--transition-normal)] ease-[var(--ease-out)]',
         'hover:shadow-lg',
         'shrink-0',
         'relative',
-        isCollapsed ? 'w-[var(--sidebar-width-collapsed)]' : 'w-[var(--sidebar-width-expanded)]'
+        isCollapsed ? 'w-[72px]' : 'w-[260px]'
       )}
       style={{
-        background: 'linear-gradient(180deg, rgba(17, 24, 39, 0.95) 0%, rgba(17, 24, 39, 0.85) 100%)',
-        boxShadow: '4px 0 24px rgba(0, 0, 0, 0.15)'
+        background: 'var(--bg-surface)',
+        boxShadow: 'var(--shadow-lg)'
       }}
     >
       {/* Logo */}
-      <div className="flex items-center justify-center px-[var(--spacing-md)] py-[var(--spacing-lg)] border-b border-[var(--border-default)]" style={{
-        background: 'linear-gradient(90deg, rgba(99, 102, 241, 0.05) 0%, transparent 100%)'
+      <div className="flex items-center justify-center px-[var(--spacing-4)] py-[var(--spacing-5)] border-b border-[var(--border-default)]" style={{
+        background: 'var(--bg-surface-elevated)'
       }}>
         {!isCollapsed && (
-          <div className="flex items-center gap-[var(--spacing-sm)]">
+          <div className="flex items-center gap-[var(--spacing-3)]">
             <div
-              className="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center"
+              className="w-10 h-10 rounded-[var(--radius-lg)] flex items-center justify-center"
               style={{
-                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%)',
-                border: '1px solid rgba(99, 102, 241, 0.3)',
-                boxShadow: '0 4px 12px rgba(99, 102, 241, 0.15)'
+                background: 'var(--gradient-primary)',
+                border: '1px solid var(--border-default)',
+                boxShadow: 'var(--shadow-glow)'
               }}
             >
-              <Package className="w-5 h-5" style={{ color: '#818cf8' }} />
+              <Package className="w-5 h-5" style={{ color: 'var(--text-on-primary)' }} />
             </div>
             <div className="brand-text">
               <span className="font-bold text-lg" style={{ 
-                color: '#fff',
-                letterSpacing: '0.5px',
-                textShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+                color: 'var(--text-primary)',
+                letterSpacing: '0.5px'
               }}>PARTFLOW</span>
               <p className="text-xs brand-sub" style={{ 
-                color: 'rgba(148, 163, 184, 0.8)',
+                color: 'var(--text-secondary)',
                 letterSpacing: '0.3px'
               }}>Store Operating System</p>
             </div>
@@ -141,126 +141,125 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         )}
         {isCollapsed && (
           <div
-            className="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center"
+            className="w-10 h-10 rounded-[var(--radius-lg)] flex items-center justify-center"
             style={{
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(139, 92, 246, 0.2) 100%)',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              boxShadow: '0 4px 12px rgba(99, 102, 241, 0.15)'
+              background: 'var(--gradient-primary)',
+              border: '1px solid var(--border-default)',
+              boxShadow: 'var(--shadow-glow)'
             }}
           >
-            <Package className="w-5 h-5" style={{ color: '#818cf8' }} />
+            <Package className="w-5 h-5" style={{ color: 'var(--text-on-primary)' }} />
           </div>
         )}
       </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 px-[var(--spacing-sm)] py-[var(--spacing-md)] space-y-[var(--spacing-lg)] overflow-hidden">
-          {menuGroups.map((group) => (
-            <div key={group.title}>
-              {!isCollapsed && (
-                <div
-                  className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-xs font-semibold uppercase tracking-wider mb-[var(--spacing-sm)]"
-                  style={{ color: 'var(--text-tertiary)' }}
-                >
-                  {group.title}
-                </div>
-              )}
-              <div className="space-y-[var(--spacing-xs)]">
-                {group.items.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeItem === item.id;
+      {/* Navigation */}
+      <nav className="flex-1 px-[var(--spacing-3)] py-[var(--spacing-4)] space-y-[var(--spacing-4)] overflow-hidden">
+        {menuGroups.map((group) => (
+          <div key={group.title}>
+            {!isCollapsed && (
+              <div
+                className="px-[var(--spacing-3)] py-[var(--spacing-2)] text-xs font-semibold uppercase tracking-wider mb-[var(--spacing-2)]"
+                style={{ color: 'var(--text-tertiary)' }}
+              >
+                {group.title}
+              </div>
+            )}
+            <div className="space-y-[var(--spacing-1)]">
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeItem === item.id;
 
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setActiveItem(item.id);
-                        navigate(item.path);
-                      }}
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveItem(item.id);
+                      navigate(item.path);
+                    }}
+                    className={cn(
+                      'w-full flex items-center gap-[var(--spacing-3)] px-[var(--spacing-3)] py-[var(--spacing-2)] rounded-[var(--radius-md)] transition-all duration-[var(--transition-normal)]',
+                      'text-sm font-medium relative overflow-hidden',
+                      isCollapsed && 'justify-center'
+                    )}
+                    style={{
+                      background: isActive
+                        ? 'var(--color-primary-15)'
+                        : 'transparent',
+                      color: isActive ? 'var(--color-primary)' : 'var(--text-secondary)',
+                      border: isActive ? '1px solid var(--color-primary-25)' : '1px solid transparent',
+                      boxShadow: isActive ? 'var(--shadow-glow-soft)' : 'none'
+                    }}
+                    title={isCollapsed ? item.label : undefined}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = 'var(--bg-surface-elevated)';
+                        e.currentTarget.style.color = 'var(--color-primary)';
+                        e.currentTarget.style.transform = 'translateX(-4px)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = 'var(--text-secondary)';
+                        e.currentTarget.style.transform = 'translateX(0)';
+                      }
+                    }}
+                  >
+                    <Icon
                       className={cn(
-                        'w-full flex items-center gap-[var(--spacing-sm)] px-[var(--spacing-sm)] py-[var(--spacing-sm)] rounded-[var(--radius-sm)] transition-all duration-[var(--transition-normal)]',
-                        'text-sm font-medium relative overflow-hidden',
-                        isCollapsed && 'justify-center'
+                        'flex-shrink-0',
+                        'w-5 h-5'
                       )}
                       style={{
-                        background: isActive
-                          ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.25) 0%, rgba(139, 92, 246, 0.25) 100%)'
-                          : 'transparent',
-                        color: isActive ? '#fff' : 'rgba(148, 163, 184, 0.8)',
-                        border: isActive ? '1px solid rgba(99, 102, 241, 0.4)' : '1px solid transparent',
-                        boxShadow: isActive ? '0 4px 12px rgba(99, 102, 241, 0.2)' : 'none'
+                        color: isActive
+                          ? 'var(--color-primary)'
+                          : 'inherit'
                       }}
-                      title={isCollapsed ? item.label : undefined}
-                      onMouseEnter={(e) => {
-                        if (!isActive) {
-                          e.currentTarget.style.background = 'rgba(99, 102, 241, 0.1)';
-                          e.currentTarget.style.color = '#818cf8';
-                          e.currentTarget.style.transform = 'translateX(-4px)';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive) {
-                          e.currentTarget.style.background = 'transparent';
-                          e.currentTarget.style.color = 'rgba(148, 163, 184, 0.8)';
-                          e.currentTarget.style.transform = 'translateX(0)';
-                        }
-                      }}
-                    >
-                      <Icon
-                        className={cn(
-                          'flex-shrink-0',
-                          'w-5 h-5' // worktrack: 20px
-                        )}
-                        style={{
-                          color: isActive
-                            ? '#818cf8'
-                            : 'inherit'
-                        }}
-                      />
-                      {!isCollapsed && (
-                        <span className="truncate nav-label">{item.label}</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+                    />
+                    {!isCollapsed && (
+                      <span className="truncate nav-label">{item.label}</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
-          ))}
-        </nav>
+          </div>
+        ))}
+      </nav>
 
-        {/* Quick Scan Button */}
-        <div className="p-[var(--spacing-md)] border-t border-[var(--border-default)]" style={{
-          background: 'linear-gradient(90deg, rgba(99, 102, 241, 0.05) 0%, transparent 100%)'
-        }}>
-          <button
-            className={cn(
-              'w-full flex items-center gap-[var(--spacing-sm)] px-[var(--spacing-md)] py-[var(--spacing-sm)] rounded-[var(--radius-md)] transition-all duration-[var(--transition-normal)]',
-              'text-sm font-medium text-white relative overflow-hidden',
-              isCollapsed && 'justify-center'
-            )}
-            style={{
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(139, 92, 246, 0.3) 100%)',
-              border: '1px solid rgba(99, 102, 241, 0.4)',
-              boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)'
-            }}
-            title={isCollapsed ? 'مسح الباركود' : undefined}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99, 102, 241, 0.4) 0%, rgba(139, 92, 246, 0.4) 100%)';
-              e.currentTarget.style.boxShadow = '0 6px 16px rgba(99, 102, 241, 0.3)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(139, 92, 246, 0.3) 100%)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(99, 102, 241, 0.2)';
-              e.currentTarget.style.transform = 'translateY(0)';
-            }}
-          >
-            <Scan className="w-5 h-5 flex-shrink-0" style={{ color: '#818cf8' }} />
-            {!isCollapsed && (
-              <span className="nav-label" style={{ color: '#fff' }}>مسح الباركود</span>
-            )}
-          </button>
-        </div>
-      </aside>
+      {/* Quick Scan Button */}
+      <div className="p-[var(--spacing-4)] border-t border-[var(--border-default)]" style={{
+        background: 'var(--bg-surface-elevated)'
+      }}>
+        <button
+          className={cn(
+            'w-full flex items-center gap-[var(--spacing-3)] px-[var(--spacing-4)] py-[var(--spacing-3)] rounded-[var(--radius-lg)] transition-all duration-[var(--transition-normal)]',
+            'text-sm font-medium relative overflow-hidden',
+            isCollapsed && 'justify-center'
+          )}
+          style={{
+            background: 'var(--gradient-primary)',
+            border: '1px solid var(--border-default)',
+            boxShadow: 'var(--shadow-glow)',
+            color: 'var(--text-on-primary)'
+          }}
+          title={isCollapsed ? 'مسح الباركود' : undefined}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-1px)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-glow-strong)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-glow)';
+          }}
+        >
+          <Scan className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--text-on-primary)' }} />
+          {!isCollapsed && (
+            <span className="nav-label" style={{ color: 'var(--text-on-primary)' }}>مسح الباركود</span>
+          )}
+        </button>
+      </div>
+    </aside>
   );
 }

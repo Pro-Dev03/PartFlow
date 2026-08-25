@@ -10,6 +10,7 @@ export interface Product {
   stock: number;
   condition: string;
   category?: string;
+  category_id?: string;
   price?: number;
   barcode?: string;
 }
@@ -22,6 +23,8 @@ export interface InventoryItem {
   };
   condition: string;
   selling_price: number;
+  price?: number;
+  stock?: number;
   location?: string;
   status: string;
   created_at: string;

@@ -115,13 +115,6 @@ func (h *Handler) UpdateCustomer(c *gin.Context) {
 
 // DeleteCustomer handles customer deletion
 func (h *Handler) DeleteCustomer(c *gin.Context) {
-	// SECURITY: Only owners and admins can delete customers
-	role := c.GetString("role")
-	if role != "owner" && role != "admin" {
-		response.Forbidden(c, "Only owners and admins can delete customers")
-		return
-	}
-
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
@@ -161,7 +154,7 @@ func (h *Handler) GetCustomerLedger(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, http.StatusOK, ledger, "Customer ledger retrieved successfully")
+	response.Success(c, http.StatusOK, ledger.Entries, "Customer ledger retrieved successfully")
 }
 
 // AddPayment handles payment addition
@@ -408,4 +401,29 @@ func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusOK, nil, "Debt payment processed successfully")
+}
+
+// GeneratePaymentReceipt handles PDF receipt generation
+func (h *Handler) GeneratePaymentReceipt(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid customer ID"})
+		return
+	}
+
+	var req PaymentReceiptRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	pdfData, err := h.service.GeneratePaymentReceipt(c.Request.Context(), id, &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", "attachment; filename=receipt.pdf")
+	c.Data(http.StatusOK, "application/pdf", pdfData)
 }

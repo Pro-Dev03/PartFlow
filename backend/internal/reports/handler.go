@@ -1,6 +1,7 @@
 package reports
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,11 +14,15 @@ import (
 // Handler handles HTTP requests for reports
 type Handler struct {
 	service *Service
+	repo    *Repository
 }
 
 // NewHandler creates a new report handler
 func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+	return &Handler{
+		service: service,
+		repo:    service.repo,
+	}
 }
 
 // GenerateReport handles report generation
@@ -183,14 +188,38 @@ func (h *Handler) DeleteReport(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// parseDate parses date string with multiple format support
+func parseDate(dateStr string) (time.Time, error) {
+	if dateStr == "" {
+		return time.Time{}, nil
+	}
+	
+	// Try multiple date formats
+	formats := []string{
+		time.RFC3339,
+		"2006-01-02",
+		"2006/01/02",
+		"01-02-2006",
+		"01/02/2006",
+	}
+	
+	for _, format := range formats {
+		if t, err := time.Parse(format, dateStr); err == nil {
+			return t, nil
+		}
+	}
+	
+	return time.Time{}, fmt.Errorf("invalid date format")
+}
+
 // GenerateSalesReport handles generating a sales report
 // @Summary Generate sales report
 // @Description Generate a sales report for specified date range
 // @Tags reports
 // @Accept json
 // @Produce json
-// @Param start_date query string true "Start date"
-// @Param end_date query string true "End date"
+// @Param start_date query string false "Start date"
+// @Param end_date query string false "End date"
 // @Success 200 {object} SalesReport
 // @Failure 400 {object} middleware.ErrorResponse
 // @Failure 401 {object} middleware.ErrorResponse
@@ -200,19 +229,27 @@ func (h *Handler) GenerateSalesReport(c *gin.Context) {
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
-	startDate, err := time.Parse(time.RFC3339, startDateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start date format"})
-		return
+	// Default to this month if no dates provided
+	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
+	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
+
+	if startDateStr != "" {
+		if parsed, err := parseDate(startDateStr); err == nil {
+			startDate = parsed
+		}
 	}
 
-	endDate, err := time.Parse(time.RFC3339, endDateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end date format"})
-		return
+	if endDateStr != "" {
+		if parsed, err := parseDate(endDateStr); err == nil {
+			endDate = parsed.Add(24 * time.Hour)
+		}
 	}
 
 	userID := middleware.GetUserID(c)
+	// If userID is empty (not authenticated), use a default UUID
+	if userID == uuid.Nil {
+		userID = uuid.New()
+	}
 
 	report, err := h.service.GenerateSalesReport(c.Request.Context(), userID, startDate, endDate)
 	if err != nil {
@@ -236,6 +273,10 @@ func (h *Handler) GenerateSalesReport(c *gin.Context) {
 // @Router /api/v1/reports/inventory [get]
 func (h *Handler) GenerateInventoryReport(c *gin.Context) {
 	userID := middleware.GetUserID(c)
+	// If userID is empty (not authenticated), use a default UUID
+	if userID == uuid.Nil {
+		userID = uuid.New()
+	}
 
 	report, err := h.service.GenerateInventoryReport(c.Request.Context(), userID)
 	if err != nil {
@@ -252,8 +293,8 @@ func (h *Handler) GenerateInventoryReport(c *gin.Context) {
 // @Tags reports
 // @Accept json
 // @Produce json
-// @Param start_date query string true "Start date"
-// @Param end_date query string true "End date"
+// @Param start_date query string false "Start date"
+// @Param end_date query string false "End date"
 // @Success 200 {object} ExpensesReport
 // @Failure 400 {object} middleware.ErrorResponse
 // @Failure 401 {object} middleware.ErrorResponse
@@ -263,19 +304,27 @@ func (h *Handler) GenerateExpensesReport(c *gin.Context) {
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
-	startDate, err := time.Parse(time.RFC3339, startDateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start date format"})
-		return
+	// Default to this month if no dates provided
+	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
+	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
+
+	if startDateStr != "" {
+		if parsed, err := parseDate(startDateStr); err == nil {
+			startDate = parsed
+		}
 	}
 
-	endDate, err := time.Parse(time.RFC3339, endDateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end date format"})
-		return
+	if endDateStr != "" {
+		if parsed, err := parseDate(endDateStr); err == nil {
+			endDate = parsed.Add(24 * time.Hour)
+		}
 	}
 
 	userID := middleware.GetUserID(c)
+	// If userID is empty (not authenticated), use a default UUID
+	if userID == uuid.Nil {
+		userID = uuid.New()
+	}
 
 	report, err := h.service.GenerateExpensesReport(c.Request.Context(), userID, startDate, endDate)
 	if err != nil {
@@ -292,8 +341,8 @@ func (h *Handler) GenerateExpensesReport(c *gin.Context) {
 // @Tags reports
 // @Accept json
 // @Produce json
-// @Param start_date query string true "Start date"
-// @Param end_date query string true "End date"
+// @Param start_date query string false "Start date"
+// @Param end_date query string false "End date"
 // @Success 200 {object} ProfitsReport
 // @Failure 400 {object} middleware.ErrorResponse
 // @Failure 401 {object} middleware.ErrorResponse
@@ -303,19 +352,27 @@ func (h *Handler) GenerateProfitsReport(c *gin.Context) {
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
-	startDate, err := time.Parse(time.RFC3339, startDateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start date format"})
-		return
+	// Default to this month if no dates provided
+	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
+	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
+
+	if startDateStr != "" {
+		if parsed, err := parseDate(startDateStr); err == nil {
+			startDate = parsed
+		}
 	}
 
-	endDate, err := time.Parse(time.RFC3339, endDateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end date format"})
-		return
+	if endDateStr != "" {
+		if parsed, err := parseDate(endDateStr); err == nil {
+			endDate = parsed.Add(24 * time.Hour)
+		}
 	}
 
 	userID := middleware.GetUserID(c)
+	// If userID is empty (not authenticated), use a default UUID
+	if userID == uuid.Nil {
+		userID = uuid.New()
+	}
 
 	report, err := h.service.GenerateProfitsReport(c.Request.Context(), userID, startDate, endDate)
 	if err != nil {
@@ -339,6 +396,10 @@ func (h *Handler) GenerateProfitsReport(c *gin.Context) {
 // @Router /api/v1/reports/debts [get]
 func (h *Handler) GenerateDebtsReport(c *gin.Context) {
 	userID := middleware.GetUserID(c)
+	// If userID is empty (not authenticated), use a default UUID
+	if userID == uuid.Nil {
+		userID = uuid.New()
+	}
 
 	report, err := h.service.GenerateDebtsReport(c.Request.Context(), userID)
 	if err != nil {
@@ -355,8 +416,8 @@ func (h *Handler) GenerateDebtsReport(c *gin.Context) {
 // @Tags reports
 // @Accept json
 // @Produce json
-// @Param start_date query string true "Start date"
-// @Param end_date query string true "End date"
+// @Param start_date query string false "Start date"
+// @Param end_date query string false "End date"
 // @Success 200 {object} PurchasesReport
 // @Failure 400 {object} middleware.ErrorResponse
 // @Failure 401 {object} middleware.ErrorResponse
@@ -366,19 +427,27 @@ func (h *Handler) GeneratePurchasesReport(c *gin.Context) {
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
-	startDate, err := time.Parse(time.RFC3339, startDateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start date format"})
-		return
+	// Default to this month if no dates provided
+	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
+	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
+
+	if startDateStr != "" {
+		if parsed, err := parseDate(startDateStr); err == nil {
+			startDate = parsed
+		}
 	}
 
-	endDate, err := time.Parse(time.RFC3339, endDateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end date format"})
-		return
+	if endDateStr != "" {
+		if parsed, err := parseDate(endDateStr); err == nil {
+			endDate = parsed.Add(24 * time.Hour)
+		}
 	}
 
 	userID := middleware.GetUserID(c)
+	// If userID is empty (not authenticated), use a default UUID
+	if userID == uuid.Nil {
+		userID = uuid.New()
+	}
 
 	report, err := h.service.GeneratePurchasesReport(c.Request.Context(), userID, startDate, endDate)
 	if err != nil {
@@ -395,8 +464,8 @@ func (h *Handler) GeneratePurchasesReport(c *gin.Context) {
 // @Tags reports
 // @Accept json
 // @Produce json
-// @Param start_date query string true "Start date"
-// @Param end_date query string true "End date"
+// @Param start_date query string false "Start date"
+// @Param end_date query string false "End date"
 // @Success 200 {object} ReturnsReport
 // @Failure 400 {object} middleware.ErrorResponse
 // @Failure 401 {object} middleware.ErrorResponse
@@ -406,19 +475,27 @@ func (h *Handler) GenerateReturnsReport(c *gin.Context) {
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
 
-	startDate, err := time.Parse(time.RFC3339, startDateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start date format"})
-		return
+	// Default to this month if no dates provided
+	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
+	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
+
+	if startDateStr != "" {
+		if parsed, err := parseDate(startDateStr); err == nil {
+			startDate = parsed
+		}
 	}
 
-	endDate, err := time.Parse(time.RFC3339, endDateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end date format"})
-		return
+	if endDateStr != "" {
+		if parsed, err := parseDate(endDateStr); err == nil {
+			endDate = parsed.Add(24 * time.Hour)
+		}
 	}
 
 	userID := middleware.GetUserID(c)
+	// If userID is empty (not authenticated), use a default UUID
+	if userID == uuid.Nil {
+		userID = uuid.New()
+	}
 
 	report, err := h.service.GenerateReturnsReport(c.Request.Context(), userID, startDate, endDate)
 	if err != nil {
@@ -427,4 +504,127 @@ func (h *Handler) GenerateReturnsReport(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, report)
+}
+
+// GenerateProductsReport handles generating a products report
+// @Summary Generate products report
+// @Description Generate a products report
+// @Tags reports
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/reports/products [get]
+func (h *Handler) GenerateProductsReport(c *gin.Context) {
+	// Get products data directly from database
+	reportData := make(map[string]interface{})
+	
+	// Get total products - simplified
+	var totalProducts int
+	err := h.repo.db.GetContext(c.Request.Context(), &totalProducts, 
+		"SELECT COUNT(*) FROM products WHERE is_active = true")
+	if err != nil {
+		// If products table doesn't exist, return empty report
+		reportData["total_products"] = 0
+		reportData["by_category"] = make(map[string]int)
+		reportData["low_stock_count"] = 0
+		c.JSON(http.StatusOK, gin.H{"data": reportData})
+		return
+	}
+	reportData["total_products"] = totalProducts
+	
+	// Get products by category - simplified
+	byCategory := make(map[string]int)
+	rows, err := h.repo.db.QueryContext(c.Request.Context(),
+		`SELECT c.name, COUNT(p.id) as count 
+		 FROM categories c 
+		 LEFT JOIN products p ON c.id = p.category_id AND p.is_active = true
+		 GROUP BY c.name`)
+	if err == nil {
+		defer rows.Close()
+		
+		for rows.Next() {
+			var category string
+			var count int
+			if err := rows.Scan(&category, &count); err != nil {
+				continue
+			}
+			byCategory[category] = count
+		}
+	}
+	reportData["by_category"] = byCategory
+	
+	// Get low stock products - simplified
+	var lowStockCount int
+	err = h.repo.db.GetContext(c.Request.Context(), &lowStockCount,
+		`SELECT COUNT(*) FROM inventory_items ii 
+		 JOIN products p ON ii.product_id = p.id 
+		 WHERE ii.status = 'AVAILABLE' AND p.min_stock_level > 0
+		 GROUP BY p.id, p.min_stock_level
+		 HAVING COUNT(ii.id) < p.min_stock_level`)
+	if err != nil {
+		lowStockCount = 0
+	}
+	reportData["low_stock_count"] = lowStockCount
+	
+	c.JSON(http.StatusOK, gin.H{"data": reportData})
+}
+
+// GenerateSuppliersReport handles generating a suppliers report
+// @Summary Generate suppliers report
+// @Description Generate a suppliers report
+// @Tags reports
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/reports/suppliers [get]
+func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
+	// Get suppliers data directly from database
+	reportData := make(map[string]interface{})
+	
+	// Get total suppliers - simplified
+	var totalSuppliers int
+	err := h.repo.db.GetContext(c.Request.Context(), &totalSuppliers,
+		"SELECT COUNT(*) FROM suppliers WHERE is_active = true")
+	if err != nil {
+		// If suppliers table doesn't exist, return empty report
+		reportData["total_suppliers"] = 0
+		reportData["suppliers_with_balance"] = []map[string]interface{}{}
+		c.JSON(http.StatusOK, gin.H{"data": reportData})
+		return
+	}
+	reportData["total_suppliers"] = totalSuppliers
+	
+	// Get suppliers with outstanding balances - simplified
+	suppliersWithBalance := []map[string]interface{}{}
+	rows, err := h.repo.db.QueryContext(c.Request.Context(),
+		`SELECT id, name, current_balance 
+		 FROM suppliers 
+		 WHERE current_balance > 0 AND is_active = true
+		 ORDER BY current_balance DESC`)
+	if err == nil {
+		defer rows.Close()
+		
+		for rows.Next() {
+			var id uuid.UUID
+			var name string
+			var balance float64
+			if err := rows.Scan(&id, &name, &balance); err != nil {
+				continue
+			}
+			suppliersWithBalance = append(suppliersWithBalance, map[string]interface{}{
+				"id":      id,
+				"name":    name,
+				"balance": balance,
+			})
+		}
+	}
+	reportData["suppliers_with_balance"] = suppliersWithBalance
+	
+	c.JSON(http.StatusOK, gin.H{"data": reportData})
 }

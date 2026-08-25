@@ -23,6 +23,8 @@ import (
 	"github.com/partflow/smart-store/internal/audit"
 	"github.com/partflow/smart-store/internal/parttypes"
 	"github.com/partflow/smart-store/internal/settings"
+	"github.com/partflow/smart-store/internal/barcodes"
+	"github.com/partflow/smart-store/internal/ledgers"
 	"github.com/partflow/smart-store/pkg/middleware"
 )
 
@@ -39,7 +41,6 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	expenseRepo := expenses.NewRepository(db)
 	returnRepo := returns.NewRepository(db)
 	inspectionRepo := inspections.NewRepository(db)
-	reportRepo := reports.NewRepository(db)
 	notificationRepo := notifications.NewRepository(db)
 	partTypesRepo := parttypes.NewRepository(db)
 
@@ -54,10 +55,9 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	expenseService := expenses.NewService(expenseRepo)
 	returnService := returns.NewService(returnRepo)
 	inspectionService := inspections.NewService(inspectionRepo)
-	reportService := reports.NewService(reportRepo)
 	notificationService := notifications.NewService(notificationRepo)
-	dashboardService := dashboard.NewService(db)
 	partTypesService := parttypes.NewService(partTypesRepo)
+	ledgerService := ledgers.NewService(db)
 
 	// Initialize all handlers
 	authHandler := auth.NewHandler(authService, db)
@@ -66,16 +66,22 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	customerHandler := customers.NewHandler(customerService)
 	salesHandler := sales.NewHandler(salesService)
 	paymentHandler := payments.NewHandler(paymentService)
-	supplierHandler := suppliers.NewHandler(supplierService, db)
+	supplierHandler := suppliers.NewHandler(supplierService)
 	purchaseHandler := purchases.NewHandler(purchaseService)
-	expenseHandler := expenses.NewHandler(expenseRepo)
+	expenseHandler := expenses.NewHandler(expenseService)
 	returnHandler := returns.NewHandler(returnService)
 	inspectionHandler := inspections.NewHandler(inspectionService)
-	reportHandler := reports.NewHandler(reportRepo)
-	notificationHandler := notifications.NewHandler(notificationRepo)
-	dashboardHandler := dashboard.NewHandler(db)
+	notificationHandler := notifications.NewHandler(notificationService)
+	cachedDashboardService := dashboard.NewCachedService(db)
+	dashboardHandler := dashboard.NewHandler(cachedDashboardService)
 	partTypesHandler := parttypes.NewHandler(partTypesService)
 	settingsHandler := settings.NewHandler(db.DB)
+	ledgerHandler := ledgers.NewHandler(ledgerService)
+
+	// Barcode handler
+	barcodeRepo := barcodes.NewRepository(db)
+	barcodeService := barcodes.NewService(barcodeRepo)
+	barcodeHandler := barcodes.NewHandler(barcodeService)
 
 	// API v1 routes
 	v1 := router.Group("/api/v1")
@@ -156,9 +162,11 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				customers.DELETE("/:id", customerHandler.DeleteCustomer)
 				customers.GET("/:id/ledger", customerHandler.GetCustomerLedger)
 				customers.POST("/:id/payments", customerHandler.AddPayment)
+				customers.POST("/:id/debt-payments", customerHandler.AddPayment)
 				customers.GET("/:id/debt-summary", customerHandler.GetCustomerDebtSummary)
 				customers.PUT("/:id/credit-limit", customerHandler.UpdateCreditLimit)
 				customers.GET("/overdue", customerHandler.GetOverdueCustomers)
+				customers.POST("/:id/receipt", customerHandler.GeneratePaymentReceipt)
 			}
 
 			// Sales routes
@@ -259,16 +267,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			}
 
 			// Reports routes
-			reports := protected.Group("/reports")
-			{
-				reports.POST("", reportHandler.GenerateReport)
-				reports.GET("/:id", reportHandler.GetReport)
-				reports.GET("", reportHandler.ListReports)
-				reports.DELETE("/:id", reportHandler.DeleteReport)
-			}
-
-			// Register specific report routes
-			// reports.RegisterRoutes(protected, db)
+			reports.RegisterRoutes(protected, db)
 
 			// Notifications routes
 			notifications := protected.Group("/notifications")
@@ -279,16 +278,22 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				notifications.PUT("/:id/read", notificationHandler.MarkAsRead)
 				notifications.PUT("/read-all", notificationHandler.MarkAllAsRead)
 				notifications.DELETE("/:id", notificationHandler.DeleteNotification)
+				notifications.GET("/unread-count", notificationHandler.GetUnreadCount)
+				notifications.GET("/preferences", notificationHandler.GetNotificationPreferences)
+				notifications.PUT("/preferences", notificationHandler.UpdateNotificationPreferences)
 			}
 
 			// Barcodes routes
-			// barcodes.RegisterRoutes(protected, db)
+			barcodeHandler.RegisterRoutes(protected)
 
 			// Search routes
 			search.RegisterRoutes(protected, db)
 
 			// Audit routes
 			audit.RegisterRoutes(protected, db)
+
+			// Ledger routes
+			ledgers.RegisterRoutes(protected, ledgerHandler)
 
 			// Settings routes
 			settings := protected.Group("/settings")

@@ -25,19 +25,19 @@ export function SmartAlerts({ alerts, onDismiss }: SmartAlertsProps) {
   const getAlertIcon = (type: SmartAlert['type']) => {
     switch (type) {
       case 'predictive':
-        return <TrendingUp className="w-4 h-4" style={{ color: '#6366F1' }} />;
+        return <TrendingUp className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />;
       case 'recommendation':
-        return <Sparkles className="w-4 h-4" style={{ color: '#EC4899' }} />;
+        return <Sparkles className="w-4 h-4" style={{ color: 'var(--color-accent)' }} />;
       case 'insight':
-        return <CheckCircle className="w-4 h-4" style={{ color: '#22C55E' }} />;
+        return <CheckCircle className="w-4 h-4" style={{ color: 'var(--color-success)' }} />;
       case 'opportunity':
-        return <Package className="w-4 h-4" style={{ color: '#F59E0B' }} />;
+        return <Package className="w-4 h-4" style={{ color: 'var(--color-warning)' }} />;
       case 'warning':
-        return <AlertTriangle className="w-4 h-4" style={{ color: '#EF4444' }} />;
+        return <AlertTriangle className="w-4 h-4" style={{ color: 'var(--color-danger)' }} />;
       case 'info':
-        return <Bell className="w-4 h-4" style={{ color: '#06B6D4' }} />;
+        return <Bell className="w-4 h-4" style={{ color: 'var(--color-info)' }} />;
       default:
-        return <Bell className="w-4 h-4" style={{ color: '#06B6D4' }} />;
+        return <Bell className="w-4 h-4" style={{ color: 'var(--color-info)' }} />;
     }
   };
 
@@ -101,12 +101,9 @@ export function SmartAlerts({ alerts, onDismiss }: SmartAlertsProps) {
         border: '1px solid rgba(34, 197, 94, 0.2)'
       }}>
         <CardContent style={{ padding: '24px', textAlign: 'center' }}>
-          <CheckCircle className="w-8 h-8 mx-auto mb-3" style={{ color: '#22C55E' }} />
-          <p style={{ fontSize: '14px', fontWeight: '600', color: '#22C55E', marginBottom: '4px' }}>
-            كل شيء يعمل بشكل ممتاز!
-          </p>
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            النظام يدير متجرك بدلاً من أنت
+          <CheckCircle className="w-8 h-8 mx-auto mb-3" style={{ color: 'var(--color-success)' }} />
+          <p style={{ fontSize: '14px', fontWeight: '600', color: 'var(--color-success)', marginBottom: '4px' }}>
+            قيد التطوير
           </p>
         </CardContent>
       </Card>

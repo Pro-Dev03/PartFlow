@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { cn } from '../../utils';
-import { Barcode, Type, Camera, Keyboard } from 'lucide-react';
+import { Barcode, Camera, Keyboard } from 'lucide-react';
 
 interface ItemInputMethodProps {
-  onMethodChange: (method: 'barcode' | 'manual' | 'camera') => void;
-  defaultMethod?: 'barcode' | 'manual' | 'camera';
+  onMethodChange: (method: 'barcode' | 'camera') => void;
+  defaultMethod?: 'barcode' | 'camera';
   disabled?: boolean;
 }
 
@@ -24,13 +24,6 @@ export function ItemInputMethod({
       color: 'text-cyan-400'
     },
     {
-      id: 'manual' as const,
-      label: 'إضافة يدوية',
-      icon: Type,
-      description: 'إدخال البيانات يدوياً',
-      color: 'text-purple-400'
-    },
-    {
       id: 'camera' as const,
       label: 'كاميرا',
       icon: Camera,
@@ -39,7 +32,7 @@ export function ItemInputMethod({
     }
   ];
 
-  const handleMethodChange = (method: 'barcode' | 'manual' | 'camera') => {
+  const handleMethodChange = (method: 'barcode' | 'camera') => {
     setActiveMethod(method);
     onMethodChange(method);
   };
@@ -53,7 +46,7 @@ export function ItemInputMethod({
         </span>
       </div>
       
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {methods.map((method) => {
           const Icon = method.icon;
           const isActive = activeMethod === method.id;
@@ -114,4 +107,4 @@ export function ItemInputMethod({
   );
 }
 
-export type ItemInputMethodType = 'barcode' | 'manual' | 'camera';
+export type ItemInputMethodType = 'barcode' | 'camera';

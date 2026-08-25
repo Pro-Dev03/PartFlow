@@ -2,9 +2,10 @@ import { Modal } from '../../../components/ui/modal';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { CustomerForm, type CustomerFormData } from '../../../components/forms/CustomerForm';
-import { FinancialTimeline } from '../../../components/ui/financial-timeline';
+import { FinancialTimeline, LedgerEntry } from '../../../components/ui/financial-timeline';
 import { getButtonSize } from '../../../config/button-sizes';
 import { Customer } from '../types/customers.types';
+import { User, Sparkles } from 'lucide-react';
 
 interface CustomerModalsProps {
   isModalOpen: boolean;
@@ -16,6 +17,8 @@ interface CustomerModalsProps {
   selectedCustomer: Customer | null;
   setSelectedCustomer: (customer: Customer | null) => void;
   onSubmit: (data: CustomerFormData) => void;
+  ledgerEntries?: LedgerEntry[];
+  loadingLedger?: boolean;
 }
 
 export function CustomerModals({
@@ -28,6 +31,8 @@ export function CustomerModals({
   selectedCustomer,
   setSelectedCustomer,
   onSubmit,
+  ledgerEntries = [],
+  loadingLedger = false,
 }: CustomerModalsProps) {
   return (
     <>
@@ -39,6 +44,8 @@ export function CustomerModals({
           setEditingCustomer(null);
         }}
         title={editingCustomer ? 'تعديل العميل' : 'إضافة عميل جديد'}
+        variant="modern"
+        size="lg"
       >
         <CustomerForm
           initialData={editingCustomer}
@@ -55,7 +62,8 @@ export function CustomerModals({
         isOpen={isViewModalOpen}
         onClose={() => setIsViewModalOpen(false)}
         title="تفاصيل العميل"
-        size="lg"
+        variant="modern"
+        size="xl"
       >
         {selectedCustomer && (
           <div className="space-y-md">
@@ -63,11 +71,11 @@ export function CustomerModals({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">الاسم</label>
-                <Input value={selectedCustomer.name} disabled />
+                <Input value={selectedCustomer.name || ''} disabled />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">الهاتف</label>
-                <Input value={selectedCustomer.phone} disabled />
+                <Input value={selectedCustomer.phone || ''} disabled />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">البريد الإلكتروني</label>
@@ -85,9 +93,9 @@ export function CustomerModals({
 
             {/* Financial Timeline */}
             <FinancialTimeline
-              title="السجل المالي"
-              currentBalance={selectedCustomer.outstanding}
-              items={selectedCustomer.financial_timeline || []}
+              entries={ledgerEntries}
+              loading={loadingLedger}
+              showBalance={true}
             />
 
             <div className="flex gap-sm justify-end">

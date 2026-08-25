@@ -125,29 +125,30 @@ export default {
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
         arabic: ['var(--font-family-arabic)', 'system-ui', 'sans-serif'],
+        technical: ['var(--font-family-technical)', 'monospace'],
       },
       fontSize: {
-        // PartFlow Design System Font Sizes
-        'h1': ['30px', { lineHeight: '1.2', letterSpacing: '-1px', fontWeight: '800' }],
-        'h2': ['24px', { lineHeight: '1.3', letterSpacing: '-0.5px', fontWeight: '700' }],
-        'h3': ['18px', { lineHeight: '1.4', letterSpacing: '-0.3px', fontWeight: '650' }],
-        'body': ['13px', { lineHeight: '1.6' }],
-        'small': ['11px', { lineHeight: '1.5' }],
-        'tiny': ['9px', { lineHeight: '1.4', letterSpacing: '1.4px' }],
-        'metric': ['27px', { lineHeight: '1.2', fontWeight: '750' }],
+        // PartFlow Design System Font Sizes (حسب التقرير النهائي)
+        'h1': ['30px', { lineHeight: '1.2', letterSpacing: '-0.5px', fontWeight: '700' }], // Page Title: 28-32px / 700
+        'h2': ['20px', { lineHeight: '1.3', letterSpacing: '-0.3px', fontWeight: '600' }], // Section Title: 18-22px / 600
+        'h3': ['16px', { lineHeight: '1.4', letterSpacing: '-0.2px', fontWeight: '600' }], // Card Title: 15-17px / 600
+        'metric': ['34px', { lineHeight: '1.2', fontWeight: '700' }], // Metric: 28-40px / 700
+        'body': ['15px', { lineHeight: '1.5' }], // Body: 14-16px
+        'small': ['13px', { lineHeight: '1.5' }], // Secondary: 13-14px
+        'tiny': ['11px', { lineHeight: '1.4', letterSpacing: '0.5px' }], // Caption: 11-12px
         'eyebrow': ['10px', { lineHeight: '1.4', letterSpacing: '2px', textTransform: 'uppercase' }],
         'section-title': ['10px', { lineHeight: '1.4', letterSpacing: '1.7px', textTransform: 'uppercase' }],
       },
       spacing: {
-        // PartFlow Design System Spacing - تطابق tokens.css
+        // PartFlow Design System Spacing - تطابق tokens.css (حسب التقرير النهائي)
         'xs': '4px',
-        'sm': '9px',
-        'md': '14px',
-        'lg': '18px',
-        'xl': '22px',
-        '2xl': '28px',
-        '3xl': '32px',
-        '4xl': '50px',
+        'sm': '8px',
+        'md': '12px',
+        'lg': '16px',
+        'xl': '24px',
+        '2xl': '32px',
+        '3xl': '48px',
+        '4xl': '64px',
         // Spacing Numeric - لدعم الـcomponents القديمة
         '1': '4px',
         '2': '8px',
@@ -161,55 +162,56 @@ export default {
         '16': '64px',
       },
       padding: {
-        // PartFlow Design System Padding - تطابق tokens.css
+        // PartFlow Design System Padding - تطابق tokens.css (حسب التقرير النهائي)
         'xs': '4px',
-        'sm': '9px',
-        'md': '14px',
-        'lg': '18px',
-        'xl': '22px',
-        '2xl': '28px',
-        '3xl': '32px',
-        '4xl': '50px',
+        'sm': '8px',
+        'md': '12px',
+        'lg': '16px',
+        'xl': '24px',
+        '2xl': '32px',
+        '3xl': '48px',
+        '4xl': '64px',
       },
       gap: {
-        // Tailwind gap utilities - تطابق tokens.css
+        // Tailwind gap utilities - تطابق tokens.css (حسب التقرير النهائي)
         'xs': '4px',
-        'sm': '9px',
-        'md': '14px',
-        'lg': '18px',
-        'xl': '22px',
-        '2xl': '28px',
-        '3xl': '32px',
-        '4xl': '50px',
+        'sm': '8px',
+        'md': '12px',
+        'lg': '16px',
+        'xl': '24px',
+        '2xl': '32px',
+        '3xl': '48px',
+        '4xl': '64px',
       },
       space: {
-        // Tailwind space utilities - تطابق tokens.css
+        // Tailwind space utilities - تطابق tokens.css (حسب التقرير النهائي)
         'xs': '4px',
-        'sm': '9px',
-        'md': '14px',
-        'lg': '18px',
-        'xl': '22px',
-        '2xl': '28px',
-        '3xl': '32px',
-        '4xl': '50px',
+        'sm': '8px',
+        'md': '12px',
+        'lg': '16px',
+        'xl': '24px',
+        '2xl': '32px',
+        '3xl': '48px',
+        '4xl': '64px',
       },
       borderRadius: {
-        // PartFlow Design System Radius
-        'sm': '10px',
-        'md': '16px',
-        'lg': '999px',
-        'full': '999px',
+        // PartFlow Design System Radius (حسب التقرير النهائي)
+        'sm': '8px',
+        'md': '12px',
+        'lg': '16px',
+        'xl': '20px',
+        'full': '9999px',
       },
       boxShadow: {
-        // PartFlow Design System Shadows - تطابق tokens.css
-        'sm': '0 1px 2px rgba(0, 0, 0, 0.05)',
-        'md': '0 4px 6px rgba(0, 0, 0, 0.1)',
-        'lg': '0 10px 15px rgba(0, 0, 0, 0.1)',
-        'xl': '0 20px 25px rgba(0, 0, 0, 0.15)',
+        // PartFlow Design System Shadows - تطابق tokens.css (حسب التقرير النهائي)
+        'sm': '0 1px 2px rgba(0, 0, 0, 0.20)',
+        'md': '0 8px 24px rgba(0, 0, 0, 0.20)',
+        'lg': '0 16px 40px rgba(0, 0, 0, 0.25)',
+        'xl': '0 20px 25px rgba(0, 0, 0, 0.25)',
         'card': '0 15px 50px rgba(0, 0, 0, 0.20)',
-        'glow': '0 0 25px rgba(34, 211, 238, 0.07)',
-        'glow-strong': '0 0 30px rgba(34, 211, 238, 0.10)',
-        'glow-soft': '0 0 20px rgba(34, 211, 238, 0.08)',
+        'glow': '0 0 24px rgba(34, 211, 238, 0.08)', // Subtle glow فقط
+        'glow-strong': '0 0 30px rgba(34, 211, 238, 0.10)', // Stronger glow نادر
+        'glow-soft': '0 0 20px rgba(34, 211, 238, 0.06)', // Soft glow
         'nav-active': 'inset 2px 0 0 #22d3ee, 0 0 20px rgba(34, 211, 238, 0.04)',
       },
       transitionDuration: {
@@ -234,8 +236,8 @@ export default {
         'tooltip': '200',
       },
       backgroundImage: {
-        // PartFlow Design System Gradients
-        'background-gradient': 'radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.10), transparent 30%), radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.08), transparent 30%), #070a12',
+        // PartFlow Design System Gradients (حسب التقرير النهائي - خفيفة جدًا ومحدودة)
+        'background-gradient': 'radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.10), transparent 30%), radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.08), transparent 30%), #090d12',
         'sidebar-gradient': 'linear-gradient(180deg, rgba(12, 17, 28, 0.92), rgba(7, 10, 18, 0.86))',
         'card-gradient': 'linear-gradient(145deg, rgba(17, 24, 39, 0.92), rgba(9, 14, 24, 0.92))',
         'card-ai-gradient': 'linear-gradient(145deg, rgba(34, 211, 238, 0.07), rgba(17, 24, 39, 0.92))',
@@ -243,6 +245,9 @@ export default {
         'button-primary-gradient': 'linear-gradient(135deg, rgba(34, 211, 238, 0.17), rgba(59, 130, 246, 0.12))',
         'nav-active-gradient': 'linear-gradient(90deg, rgba(34, 211, 238, 0.13), rgba(59, 130, 246, 0.03))',
         'chart-bar-gradient': 'linear-gradient(180deg, rgba(34, 211, 238, 0.90), rgba(59, 130, 246, 0.12))',
+        // Gradients الجديدة حسب التقرير النهائي
+        'gradient-subtle': 'linear-gradient(135deg, rgba(34, 211, 238, 0.10), rgba(52, 211, 153, 0.04))',
+        'gradient-metric': 'linear-gradient(135deg, rgba(34, 211, 238, 0.15), rgba(59, 130, 246, 0.08))',
       },
       animation: {
         // PartFlow Design System Animations (kebab-case only)

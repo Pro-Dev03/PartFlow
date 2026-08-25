@@ -19,7 +19,20 @@ interface InventoryStatsProps {
 }
 
 export function InventoryStats({ inventoryItems, onRecommendationClick, isMobile }: InventoryStatsProps) {
+  // Calculate real statistics from actual data
   const usedItemsCount = inventoryItems.filter((item: InventoryItem) => item.condition === 'USED').length;
+  const newItemsCount = inventoryItems.filter((item: InventoryItem) => item.condition === 'NEW').length;
+  const lowStockItems = inventoryItems.filter((item: InventoryItem) => item.stock < 10).length;
+  
+  // Calculate total inventory value
+  const totalInventoryValue = inventoryItems.reduce((total, item) => {
+    const price = (item.selling_price || item.price || 0) / 100;
+    const stock = item.stock || 1;
+    return total + (price * stock);
+  }, 0);
+  
+  // Format the value
+  const formattedValue = `₪${totalInventoryValue.toLocaleString('en-US')}`;
 
   return (
     <>
@@ -37,34 +50,16 @@ export function InventoryStats({ inventoryItems, onRecommendationClick, isMobile
               <TrendingUp className="w-3 h-3 text-primary" />
             </div>
             <div>
-              <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>فرصة شراء معالجات Intel</p>
+              <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>قيد التطوير</p>
               <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                الأسعار الحالية أقل من المتوسط بنسبة 15%. هناك طلب متزايد من 3 عملاء رئيسيين.
+                هذه الميزة قيد التطوير حالياً. ستوفر تحليلات ذكية للمخزون وتوصيات لتحسين إدارة القطع والطلبات.
               </p>
               <Button 
                 variant="secondary" 
                 size={getButtonSize('inventory', 'recommendation')} 
-                onClick={() => onRecommendationClick('search_intel')}
+                disabled
               >
-                عرض التوصية ←
-              </Button>
-            </div>
-          </div>
-          <div className="flex gap-3.5">
-            <div className="w-5 h-5 rounded-lg flex items-center justify-center bg-warning/10 flex-shrink-0">
-              <Clock className="w-3 h-3 text-warning" />
-            </div>
-            <div>
-              <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>تنبيه انخفاض المخزون</p>
-              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                5 منتجات وصلت للحد الأدنى. كروت الشاشة Samsung 27" الأكثر طلباً تبقى 3 قطع فقط.
-              </p>
-              <Button 
-                variant="secondary" 
-                size={getButtonSize('inventory', 'recommendation')} 
-                onClick={() => onRecommendationClick('filter_used')}
-              >
-                عرض المنتجات ←
+                قيد التطوير
               </Button>
             </div>
           </div>
@@ -80,26 +75,20 @@ export function InventoryStats({ inventoryItems, onRecommendationClick, isMobile
           icon={Package}
           subtitle="إجمالي العناصر"
           variant="featured"
-          trend="+8.3%"
-          trendUp={true}
         />
         <StatCard 
           title="قيمة المخزون" 
-          value="₪185,400" 
+          value={formattedValue} 
           icon={Package}
           subtitle="قيمة المخزون"
           variant="default"
-          trend="+12.1%"
-          trendUp={true}
         />
         <StatCard 
           title="يحتاج طلب" 
-          value="12" 
+          value={lowStockItems} 
           icon={AlertTriangle}
-          subtitle="يحتاج طلب"
-          variant="warning"
-          trend="-2"
-          trendUp={false}
+          subtitle="منخفض المخزون"
+          variant={lowStockItems > 0 ? 'warning' : 'success'}
         />
         <StatCard 
           title="قطع مستعملة" 
@@ -107,8 +96,6 @@ export function InventoryStats({ inventoryItems, onRecommendationClick, isMobile
           icon={Layers}
           subtitle="متاحة للبيع"
           variant="info"
-          trend={usedItemsCount > 0 ? "+" + usedItemsCount.toString() : "0"}
-          trendUp={true}
         />
       </div>
     </>

@@ -24,11 +24,11 @@ export const colors = {
   muted: '#8290a7',
 
   // Accent Colors
-  blue: '#38bdf8',
-  cyan: '#22d3ee',
-  green: '#34d399',
-  yellow: '#fbbf24',
-  red: '#fb7185',
+  blue: '#0ea5e9',
+  cyan: '#14b8a6',
+  green: '#10b981',
+  yellow: '#f59e0b',
+  red: '#ef4444',
 
   // Special
   white: '#ffffff',
@@ -118,7 +118,7 @@ export const shadows = {
   glow: '0 0 25px rgba(34, 211, 238, 0.07)',
   glowStrong: '0 0 30px rgba(34, 211, 238, 0.10)',
   glowSoft: '0 0 20px rgba(34, 211, 238, 0.08)',
-  navActive: 'inset 2px 0 0 #22d3ee, 0 0 20px rgba(34, 211, 238, 0.04)',
+  navActive: 'inset 2px 0 0 #14b8a6, 0 0 20px rgba(20, 184, 166, 0.04)',
 } as const;
 
 // =========================

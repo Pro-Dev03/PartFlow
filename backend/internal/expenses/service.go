@@ -79,12 +79,20 @@ func (s *Service) ListExpenses(ctx context.Context, req ExpenseListRequest) ([]m
 	// Convert to list items with category names
 	var result []map[string]interface{}
 	for _, expense := range expenses {
-		category, err := s.repo.GetExpenseCategoryByID(ctx, expense.CategoryID)
-		if err != nil {
-			continue
+		var categoryName string
+		if expense.CategoryID != uuid.Nil {
+			category, err := s.repo.GetExpenseCategoryByID(ctx, expense.CategoryID)
+			if err != nil {
+				// If category not found, use empty string
+				categoryName = ""
+			} else {
+				categoryName = category.Name
+			}
+		} else {
+			categoryName = ""
 		}
 
-		result = append(result, expense.ToExpenseListItem(category.Name))
+		result = append(result, expense.ToExpenseListItem(categoryName))
 	}
 
 	return result, total, nil

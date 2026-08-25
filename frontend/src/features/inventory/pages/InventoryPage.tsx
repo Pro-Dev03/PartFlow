@@ -241,7 +241,7 @@ export function InventoryPage() {
       />
 
       {/* View Toggle */}
-      <div className="flex gap-2">
+      <div className="flex gap-2" style={{ marginBottom: '16px' }}>
         <Button
           variant={viewMode === 'products' ? 'primary' : 'secondary'}
           onClick={() => setViewMode('products')}

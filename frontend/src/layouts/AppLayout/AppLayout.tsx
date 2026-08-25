@@ -4,6 +4,7 @@ import { Sidebar } from '../../components/navigation/sidebar';
 import { ScrollIndicator, ScrollProgress } from '../../components/ui/scroll-indicator';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useUIStore } from '../../stores/uiStore';
+import { useLayout } from '../../contexts/LayoutContext';
 import { cn } from '../../utils';
 import { ChevronUp } from 'lucide-react';
 
@@ -14,6 +15,7 @@ interface AppLayoutProps {
 export function AppLayout({ children }: AppLayoutProps) {
   const { direction } = useTranslation();
   const { sidebarCollapsed, toggleSidebar, theme } = useUIStore();
+  const { fullWidth } = useLayout();
   const [showScrollTop, setShowScrollTop] = useState(false);
   const mainRef = useRef<HTMLDivElement | null>(null);
 
@@ -74,8 +76,8 @@ export function AppLayout({ children }: AppLayoutProps) {
             style={{
               flex: 1,
               minWidth: 0,
-              maxWidth: '1500px',
-              margin: 'auto',
+              maxWidth: fullWidth ? '100%' : '1500px',
+              margin: fullWidth ? '0' : '0 auto',
               width: '100%',
               padding: '24px 28px'
             }}

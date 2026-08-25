@@ -152,25 +152,23 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       return sizes[size] || sizes.sm;
     };
     
-    const responsive = fullWidth ? 'width: 100%' : '';
-
     return (
       <button
         ref={ref}
         style={{
           ...getVariantStyle(),
           ...getSizeStyle(),
-          ...responsive ? { width: '100%' } : {}
+          ...(fullWidth ? { width: '100%' } : {})
         }}
-        className={cn('inline-flex items-center justify-center', className)}
+        className={cn('inline-flex items-center justify-center gap-2', className)}
         disabled={isDisabled}
         aria-disabled={isDisabled}
         aria-busy={isLoading}
         onMouseEnter={(e) => {
           if (!isDisabled && variant === 'primary') {
             e.currentTarget.style.transform = 'translateY(-1px)';
-            e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.3)';
-            e.currentTarget.style.boxShadow = '0 0 25px rgba(99, 102, 241, 0.07)';
+            e.currentTarget.style.borderColor = 'var(--color-primary-30)';
+            e.currentTarget.style.boxShadow = 'var(--shadow-glow)';
           } else if (!isDisabled && variant !== 'primary' && variant !== 'ghost') {
             e.currentTarget.style.transform = 'translateY(-1px)';
             e.currentTarget.style.borderColor = 'var(--primary)';
@@ -195,7 +193,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       >
         {isLoading && (
           <svg
-            style={{ animation: 'spin 1s linear infinite', marginRight: '8px', width: '16px', height: '16px' }}
+            className="animate-spin w-4 h-4"
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
             viewBox="0 0 24 24"
@@ -216,7 +214,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
             />
           </svg>
         )}
-        <span style={{ opacity: isLoading ? 0.5 : 1 }}>{children}</span>
+        <span className={cn('transition-opacity', isLoading && 'opacity-50')}>{children}</span>
       </button>
     );
   }

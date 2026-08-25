@@ -116,7 +116,7 @@ interface ScrollProgressProps {
   scrollContainer?: React.RefObject<HTMLDivElement | null>; // Custom scroll container
 }
 
-export function ScrollProgress({ className, color = '#22d3ee', scrollContainer }: ScrollProgressProps) {
+export function ScrollProgress({ className, color = '#14b8a6', scrollContainer }: ScrollProgressProps) {
   const [scrollProgress, setScrollProgress] = useState(0);
 
   useEffect(() => {

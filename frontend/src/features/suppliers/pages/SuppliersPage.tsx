@@ -6,15 +6,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { PageHeader } from '../../../components/ui/page-header';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Badge } from '../../../components/ui/badge';
 import { LoadingSpinner } from '../../../components/ui/loading-spinner';
+import { DataTable, Column } from '../../../components/tables/data-table';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { getButtonSize } from '../../../config/button-sizes';
-import { 
-  Truck, 
-  Search, 
-  Plus, 
+import {
+  Truck,
+  Search,
+  Plus,
   Filter,
   Eye,
   Edit,
@@ -29,7 +29,10 @@ import {
   Printer,
   Package,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  MoreHorizontal,
+  EyeOff,
+  RefreshCw
 } from 'lucide-react';
 
 export function SuppliersPage() {
@@ -37,7 +40,7 @@ export function SuppliersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedSupplierId, setExpandedSupplierId] = useState<string | null>(null);
 
-  const { data: suppliersData, isLoading } = useQuery({
+  const { data: suppliersData, isLoading, refetch } = useQuery({
     queryKey: ['suppliers'],
     queryFn: () => suppliersApi.list({ page: 1, per_page: 100 }),
   });
@@ -56,9 +59,9 @@ export function SuppliersPage() {
   );
 
   const totalSuppliers = suppliers.length;
-  const totalPurchases = suppliers.reduce((sum: number, s: any) => sum + s.totalPurchases, 0);
-  const totalPaid = suppliers.reduce((sum: number, s: any) => sum + s.paidAmount, 0);
-  const totalOutstanding = suppliers.reduce((sum: number, s: any) => sum + s.outstanding, 0);
+  const totalPurchases = suppliers.reduce((sum: number, s: any) => sum + (s.totalPurchases || 0), 0);
+  const totalPaid = suppliers.reduce((sum: number, s: any) => sum + (s.paidAmount || 0), 0);
+  const totalOutstanding = suppliers.reduce((sum: number, s: any) => sum + (s.outstanding || 0), 0);
 
   const handleExport = () => {
     const dataToExport = filteredSuppliers.map((supplier: any) => ({
@@ -82,6 +85,131 @@ export function SuppliersPage() {
       'المستحق': supplier.outstanding
     }));
     printTable(dataToPrint, ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'المستحق'], 'تقرير الموردين');
+  };
+
+  const columns: Column<any>[] = [
+    {
+      key: 'name',
+      title: 'الاسم',
+      width: '20%',
+      sortable: true,
+      render: (supplier) => <span className="font-medium">{supplier.name}</span>
+    },
+    {
+      key: 'phone',
+      title: 'الهاتف',
+      width: '18%',
+      sortable: true,
+      render: (supplier) => (
+        <div className="flex items-center gap-2">
+          <Phone className="w-4 h-4 text-text-muted" />
+          {supplier.phone}
+        </div>
+      )
+    },
+    {
+      key: 'email',
+      title: 'البريد الإلكتروني',
+      width: '22%',
+      sortable: true,
+      render: (supplier) => (
+        supplier.email ? (
+          <div className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-text-muted" />
+            {supplier.email}
+          </div>
+        ) : '-'
+      )
+    },
+    {
+      key: 'totalPurchases',
+      title: 'إجمالي المشتريات',
+      width: '14%',
+      sortable: true,
+      render: (supplier) => `₪${(supplier.totalPurchases || 0).toLocaleString()}`
+    },
+    {
+      key: 'paidAmount',
+      title: 'المدفوع',
+      width: '12%',
+      sortable: true,
+      render: (supplier) => <span className="text-green">₪{(supplier.paidAmount || 0).toLocaleString()}</span>
+    },
+    {
+      key: 'outstanding',
+      title: 'المستحق',
+      width: '12%',
+      sortable: true,
+      render: (supplier) => (
+        <Badge variant={supplier.outstanding > 0 ? 'danger' : 'default'}>
+          ₪{(supplier.outstanding || 0).toLocaleString()}
+        </Badge>
+      )
+    },
+    {
+      key: 'lastPurchase',
+      title: 'آخر شراء',
+      width: '12%',
+      sortable: true,
+      render: (supplier) => supplier.lastPurchase
+        ? new Date(supplier.lastPurchase).toLocaleDateString('ar-SA')
+        : '-'
+    },
+    {
+      key: 'actions',
+      title: 'الإجراءات',
+      width: '10%',
+      render: (supplier) => (
+        <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+          <Button
+            variant="ghost"
+            size={getButtonSize('suppliers', 'iconAction')}
+            onClick={() => setExpandedSupplierId(expandedSupplierId === supplier.id ? null : supplier.id)}
+          >
+            {expandedSupplierId === supplier.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </Button>
+          <Button variant="ghost" size={getButtonSize('suppliers', 'iconAction')}>
+            <Eye className="w-3.5 h-3.5" />
+          </Button>
+          <Button variant="ghost" size={getButtonSize('suppliers', 'iconAction')}>
+            <Edit className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      )
+    }
+  ];
+
+  const renderExpanded = (supplier: any) => {
+    const currentInventory = expandedSupplierId === supplier.id ? supplierInventory : null;
+
+    return (
+      <div className="p-4 bg-surface/30">
+        <div className="flex items-center gap-2 mb-4">
+          <Package className="w-4 h-4 text-cyan" />
+          <h4 className="font-semibold text-text">بضاعة المورد - {supplier.name}</h4>
+        </div>
+        {currentInventory && currentInventory.data && currentInventory.data.length > 0 ? (
+          <DataTable
+            data={currentInventory.data}
+            columns={[
+              { key: 'product_name', title: 'المنتج', sortable: true, render: (item) => <span className="font-medium">{item.product_name}</span> },
+              { key: 'total_received', title: 'المستلمة', sortable: true },
+              { key: 'available', title: 'المتاحة', sortable: true, render: (item) => <span className="text-green-600">{item.available}</span> },
+              { key: 'sold', title: 'المباعة', sortable: true, render: (item) => <span className="text-red-600">{item.sold}</span> },
+              { key: 'reserved', title: 'المحجوزة', sortable: true, render: (item) => <span className="text-yellow-600">{item.reserved}</span> },
+              { key: 'damaged', title: 'التالفة', sortable: true, render: (item) => <span className="text-orange-600">{item.damaged}</span> },
+              { key: 'avg_cost', title: 'متوسط التكلفة', sortable: true, render: (item) => `₪${(item.avg_cost || 0).toFixed(2)}` },
+              { key: 'avg_price', title: 'متوسط السعر', sortable: true, render: (item) => `₪${(item.avg_price || 0).toFixed(2)}` }
+            ]}
+            expandable={false}
+          />
+        ) : (
+          <div className="text-center py-8 text-text-muted">
+            لا توجد بضاعة من هذا المورد
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -112,17 +240,65 @@ export function SuppliersPage() {
       {/* Stats Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px' }}
            className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="إجمالي الموردين" value={totalSuppliers} icon={Truck} />
-        <StatCard title="إجمالي المشتريات" value={`₪${totalPurchases.toLocaleString()}`} icon={DollarSign} />
-        <StatCard title="المدفوع" value={`₪${totalPaid.toLocaleString()}`} icon={DollarSign} />
-        <StatCard title="المستحق" value={`₪${totalOutstanding.toLocaleString()}`} icon={DollarSign} />
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-small text-text-muted">إجمالي الموردين</p>
+                <p className="text-h2 font-bold text-text mt-1">
+                  {totalSuppliers}
+                </p>
+              </div>
+              <Truck className="w-5 h-5 text-text-muted" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-small text-text-muted">إجمالي المشتريات</p>
+                <p className="text-h2 font-bold text-text mt-1">
+                  ₪{totalPurchases.toLocaleString()}
+                </p>
+              </div>
+              <DollarSign className="w-5 h-5 text-text-muted" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-small text-text-muted">المدفوع</p>
+                <p className="text-h2 font-bold text-text mt-1">
+                  ₪{totalPaid.toLocaleString()}
+                </p>
+              </div>
+              <DollarSign className="w-5 h-5 text-text-muted" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-small text-text-muted">المستحق</p>
+                <p className="text-h2 font-bold text-text mt-1">
+                  ₪{totalOutstanding.toLocaleString()}
+                </p>
+              </div>
+              <DollarSign className="w-5 h-5 text-text-muted" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* AI Insights */}
       <Card variant="ai">
         <CardHeader>
           <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Sparkles style={{ width: '20px', height: '20px', color: '#22d3ee' }} />
+            <Sparkles style={{ width: '20px', height: '20px', color: 'var(--color-primary)' }} />
             AI Insights - الموردين
           </CardTitle>
         </CardHeader>
@@ -139,11 +315,11 @@ export function SuppliersPage() {
                 background: 'rgba(34, 211, 238, 0.1)',
                 flexShrink: 0
               }}>
-                <Target style={{ width: '16px', height: '16px', color: '#22d3ee' }} />
+                <Target style={{ width: '16px', height: '16px', color: 'var(--color-primary)' }} />
               </div>
               <div>
-                <p style={{ fontSize: '13px', fontWeight: '600', color: '#f1f7ff' }}>فرصة تحسين التوريد</p>
-                <p style={{ fontSize: '11px', color: '#8290a7', marginTop: '4px' }}>
+                <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>فرصة تحسين التوريد</p>
+                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                   المورد "إلكترونيات المتقدمة" يقدم أسعاراً أقل 15% من المنافسين مع جودة مماثلة. يُنصح بزيادة حجم التعامل.
                 </p>
               </div>
@@ -159,11 +335,11 @@ export function SuppliersPage() {
                 background: 'rgba(251, 191, 36, 0.1)',
                 flexShrink: 0
               }}>
-                <AlertTriangle style={{ width: '16px', height: '16px', color: '#fbbf24' }} />
+                <AlertTriangle style={{ width: '16px', height: '16px', color: 'var(--color-warning)' }} />
               </div>
               <div>
-                <p style={{ fontSize: '13px', fontWeight: '600', color: '#f1f7ff' }}>تنبيه تأخير التوريد</p>
-                <p style={{ fontSize: '11px', color: '#8290a7', marginTop: '4px' }}>
+                <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>تنبيه تأخير التوريد</p>
+                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                   المورد "شاشات المستقبل" تأخر 3 مرات هذا الشهر. يُنصح بالبحث عن بدائل أو تقييم العقد.
                 </p>
               </div>
@@ -179,11 +355,11 @@ export function SuppliersPage() {
                 background: 'rgba(52, 211, 153, 0.1)',
                 flexShrink: 0
               }}>
-                <TrendingUp style={{ width: '16px', height: '16px', color: '#34d399' }} />
+                <TrendingUp style={{ width: '16px', height: '16px', color: 'var(--color-success)' }} />
               </div>
               <div>
-                <p style={{ fontSize: '13px', fontWeight: '600', color: '#f1f7ff' }}>أداء ممتاز</p>
-                <p style={{ fontSize: '11px', color: '#8290a7', marginTop: '4px' }}>
+                <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>أداء ممتاز</p>
+                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                   المورد "بطاريات القوة" حقق 100% من مواعيد التسليم هذا الربع. يُنصح بتجديد العقد تلقائياً.
                 </p>
               </div>
@@ -226,148 +402,24 @@ export function SuppliersPage() {
               <LoadingSpinner size="md" color="cyan" />
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>الاسم</TableHead>
-                  <TableHead>الهاتف</TableHead>
-                  <TableHead>البريد الإلكتروني</TableHead>
-                  <TableHead>إجمالي المشتريات</TableHead>
-                  <TableHead>المدفوع</TableHead>
-                  <TableHead>المستحق</TableHead>
-                  <TableHead>آخر شراء</TableHead>
-                  <TableHead className="text-left">الإجراءات</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredSuppliers.map((supplier: any) => (
-                  <>
-                    <TableRow key={supplier.id}>
-                      <TableCell className="font-medium">{supplier.name}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Phone className="w-4 h-4 text-text-muted" />
-                          {supplier.phone}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {supplier.email ? (
-                          <div className="flex items-center gap-2">
-                            <Mail className="w-4 h-4 text-text-muted" />
-                            {supplier.email}
-                          </div>
-                        ) : (
-                          '-'
-                        )}
-                      </TableCell>
-                      <TableCell>₪{supplier.totalPurchases?.toLocaleString() || 0}</TableCell>
-                      <TableCell className="text-green">₪{supplier.paidAmount?.toLocaleString() || 0}</TableCell>
-                      <TableCell>
-                        <Badge variant={supplier.outstanding > 0 ? 'danger' : 'default'}>
-                          ₪{supplier.outstanding?.toLocaleString() || 0}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {supplier.lastPurchase
-                          ? new Date(supplier.lastPurchase).toLocaleDateString('ar-SA')
-                          : '-'
-                        }
-                      </TableCell>
-                      <TableCell className="text-left">
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size={getButtonSize('suppliers', 'iconAction')}
-                            onClick={() => setExpandedSupplierId(expandedSupplierId === supplier.id ? null : supplier.id)}
-                          >
-                            {expandedSupplierId === supplier.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                          </Button>
-                          <Button variant="ghost" size={getButtonSize('suppliers', 'iconAction')}>
-                            <Eye className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button variant="ghost" size={getButtonSize('suppliers', 'iconAction')}>
-                            <Edit className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                    {expandedSupplierId === supplier.id && (
-                      <TableRow>
-                        <TableCell colSpan={8} className="p-0">
-                          <div className="p-4 bg-surface/30">
-                            <div className="flex items-center gap-2 mb-4">
-                              <Package className="w-4 h-4 text-cyan" />
-                              <h4 className="font-semibold text-text">بضاعة المورد - {supplier.name}</h4>
-                            </div>
-                            {supplierInventory && supplierInventory.data && supplierInventory.data.length > 0 ? (
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead>المنتج</TableHead>
-                                    <TableHead>المستلمة</TableHead>
-                                    <TableHead>المتاحة</TableHead>
-                                    <TableHead>المباعة</TableHead>
-                                    <TableHead>المحجوزة</TableHead>
-                                    <TableHead>التالفة</TableHead>
-                                    <TableHead>متوسط التكلفة</TableHead>
-                                    <TableHead>متوسط السعر</TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {supplierInventory.data.map((item: any) => (
-                                    <TableRow key={item.product_id}>
-                                      <TableCell className="font-medium">{item.product_name}</TableCell>
-                                      <TableCell>{item.total_received}</TableCell>
-                                      <TableCell className="text-green-600">{item.available}</TableCell>
-                                      <TableCell className="text-red-600">{item.sold}</TableCell>
-                                      <TableCell className="text-yellow-600">{item.reserved}</TableCell>
-                                      <TableCell className="text-orange-600">{item.damaged}</TableCell>
-                                      <TableCell>₪{item.avg_cost?.toFixed(2) || 0}</TableCell>
-                                      <TableCell>₪{item.avg_price?.toFixed(2) || 0}</TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            ) : (
-                              <div className="text-center py-8 text-text-muted">
-                                لا توجد بضاعة من هذا المورد
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </>
-                ))}
-              </TableBody>
-            </Table>
+            <DataTable
+              data={filteredSuppliers}
+              columns={columns}
+              loading={isLoading}
+              refreshable
+              onRefresh={() => refetch()}
+              onExport={handleExport}
+              expandable
+              renderExpanded={renderExpanded}
+              empty={
+                <div className="text-center py-8 text-text-muted">
+                  لا يوجد موردين
+                </div>
+              }
+            />
           )}
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-interface StatCardProps {
-  title: string;
-  value: number | string;
-  icon: any;
-}
-
-function StatCard({ title, value, icon: Icon }: StatCardProps) {
-  return (
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-small text-text-muted">{title}</p>
-            <p className="text-h2 font-bold text-text mt-1">
-              {value}
-            </p>
-          </div>
-          <Icon className="w-5 h-5 text-text-muted" />
-        </div>
-      </CardContent>
-    </Card>
   );
 }

@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { useTranslation } from '../../../hooks/useTranslation';
+import { useState, useEffect } from 'react';
+import { useTranslation as useTranslationHook } from '../../../hooks/useTranslation';
+import { useAuthStore } from '../../../stores/authStore';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
-import { SearchInput } from '../../../components/ui/search-input';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Badge } from '../../../components/ui/badge';
@@ -12,6 +12,7 @@ import { getButtonSize } from '../../../config/button-sizes';
 import { 
   DollarSign, 
   AlertTriangle,
+  AlertCircle,
   Calendar,
   Sparkles,
   Zap,
@@ -19,25 +20,34 @@ import {
   X,
   Eye,
   TrendingUp,
-  Bell
+  Bell,
+  CheckCircle,
+  ChevronRight,
+  Printer
 } from 'lucide-react';
+import '../styles/success-modal.css';
+import { printPaymentReceipt } from '../../../lib/export-utils';
 
 // Custom hooks
 import { useDebts } from '../hooks/useDebts';
 
 // Components
 import { DebtStats } from '../components/DebtStats';
+import { AdvancedSearch, SearchFilters } from '../components/AdvancedSearch';
 
 // Types
 import { Debt } from '../types/debts.types';
 
 export function DebtsPage() {
-  const { t } = useTranslation();
+  const { t } = useTranslationHook();
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('cash');
   const [selectedDebt, setSelectedDebt] = useState<any>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [successModalOpen, setSuccessModalOpen] = useState(false);
+  const [lastPayment, setLastPayment] = useState<any>(null);
 
   const handleClearSearch = () => {
     // Will be handled by the custom hook
@@ -51,28 +61,66 @@ export function DebtsPage() {
     isLoading,
     searchQuery,
     setSearchQuery,
+    searchFilters,
+    setSearchFilters,
     recordPaymentMutation,
   } = useDebts();
 
+  // Use auth store for reactive token access
+  const { token } = useAuthStore();
+  
+  // Get current language for receipt
+  const { currentLanguage } = useTranslationHook();
+
   const handleRecordPayment = (customerId: string, customerName: string) => {
+    console.log('handleRecordPayment called', { customerId, customerName });
     setSelectedCustomer({ id: customerId, name: customerName });
     setPaymentAmount('');
+    setPaymentMethod('cash');
     setPaymentModalOpen(true);
   };
 
   const handlePaymentSubmit = () => {
+    console.log('handlePaymentSubmit called', { paymentAmount, selectedCustomer, paymentMethod });
     if (paymentAmount && !isNaN(parseFloat(paymentAmount))) {
-      recordPaymentMutation.mutate({
+      const paymentData = {
         customerId: selectedCustomer.id,
         amount: parseFloat(paymentAmount),
+        method: paymentMethod,
+      };
+      
+      recordPaymentMutation.mutate(paymentData, {
+        onSuccess: () => {
+          const now = new Date();
+          const day = String(now.getDate()).padStart(2, '0');
+          const month = String(now.getMonth() + 1).padStart(2, '0');
+          const year = now.getFullYear();
+          
+          setLastPayment({
+            ...paymentData,
+            customerId: selectedCustomer.id,
+            customerName: selectedCustomer.name,
+            date: `${day}/${month}/${year}`,
+          });
+          setSuccessModalOpen(true);
+        },
       });
+      
       setPaymentModalOpen(false);
     }
   };
 
+  const handleSearchAdvanced = (query: string, filters: SearchFilters) => {
+    setSearchQuery(query);
+    setSearchFilters(filters);
+  };
+
   const handleViewDebt = (debt: Debt) => {
+    console.log('handleViewDebt called', debt);
     setSelectedDebt(debt);
+    console.log('Setting isViewModalOpen to true');
     setIsViewModalOpen(true);
+    console.log('isViewModalOpen after set:', true);
   };
 
   const handleReversePayment = (paymentId: string) => {
@@ -82,10 +130,32 @@ export function DebtsPage() {
     }
   };
 
+  const handlePrintReceipt = () => {
+    if (!lastPayment) {
+      alert('لا توجد بيانات للدفعة');
+      return;
+    }
+
+    // استخدام الدالة الجديدة لطباعة الإيصال
+    printPaymentReceipt({
+      amount: lastPayment.amount,
+      method: lastPayment.method,
+      customerName: lastPayment.customerName,
+      date: lastPayment.date,
+      language: currentLanguage,
+    });
+  };
+
   // Debt Aging System - تصنيف ديون حسب العمر
   const getDebtAging = (dueDate: string, status: string) => {
     const today = new Date();
     const due = new Date(dueDate);
+    
+    // Handle invalid dates
+    if (isNaN(due.getTime())) {
+      return { category: 'FUTURE', label: 'غير محدد', variant: 'secondary' as const, days: 0 };
+    }
+    
     const diffTime = due.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -153,79 +223,67 @@ export function DebtsPage() {
       />
 
       {/* AI Debt Insight */}
-      <Card variant="ai">
+      <Card variant="ai" style={{ marginBottom: '12px' }}>
         <CardHeader>
-          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Sparkles style={{ width: '20px', height: '20px', color: '#22d3ee' }} />
+          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+            <Sparkles style={{ width: '16px', height: '16px', color: 'var(--color-primary)' }} />
             AI Debt Insight
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div style={{ display: 'flex', gap: '14px' }}>
+          <div style={{ display: 'flex', gap: '12px' }}>
             <div style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '8px',
+              width: '28px',
+              height: '28px',
+              borderRadius: '6px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               background: 'rgba(34, 211, 238, 0.1)',
               flexShrink: 0
             }}>
-              <AlertCircle style={{ width: '16px', height: '16px', color: '#22d3ee' }} />
+              <AlertCircle style={{ width: '14px', height: '14px', color: 'var(--color-primary)' }} />
             </div>
             <div>
-              <p style={{ fontSize: '13px', fontWeight: '600', color: '#f1f7ff' }}>خطر إفلاس محتمل</p>
-              <p style={{ fontSize: '11px', color: '#8290a7', marginTop: '4px' }}>
-                3 عملاء لديهم ديون متأخرة أكثر من 60 يوم. يُنصح باتخاذ إجراءات قانونية فورية.
-              </p>
-              <Button variant="secondary" size={getButtonSize('debts', 'recommendation')}>
-                عرض التوصية ←
+              <p style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '6px' }}>قيد التطوير</p>
+              <Button variant="secondary" size={getButtonSize('debts', 'recommendation')} disabled>
+                قيد التطوير
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Stats Cards */}
-      <DebtStats stats={stats} />
-
-      {/* Search */}
-      <Card>
-        <CardContent>
-          <div style={{ padding: '18px' }}>
-            <SearchInput
-              placeholder="ابحث بالاسم أو الكود..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onClear={handleClearSearch}
-              size="sm"
-              className="w-full md:w-[500px] lg:w-[600px]"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Stats Cards + Advanced Search - side by side on desktop */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+        <DebtStats stats={stats} />
+        <AdvancedSearch
+          onSearch={handleSearchAdvanced}
+          customers={debts.map(debt => debt.customer).filter(Boolean)}
+          loading={isLoading}
+        />
+      </div>
 
       {/* Debts Table */}
       <Card>
         <CardHeader>
           <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <AlertTriangle style={{ width: '20px', height: '20px', color: '#22d3ee' }} />
+            <AlertTriangle style={{ width: '20px', height: '20px', color: 'var(--color-primary)' }} />
             قائمة الديون
           </CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '256px' }}>
-              <div style={{ animation: 'spin 1s linear infinite', borderRadius: '50%', height: '32px', width: '32px', borderBottom: '2px solid #22d3ee' }} />
+              <div style={{ animation: 'spin 1s linear infinite', borderRadius: '50%', height: '32px', width: '32px', borderBottom: '2px solid var(--color-primary)' }} />
             </div>
           ) : filteredDebts.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-              <DollarSign style={{ width: '48px', height: '48px', color: '#8290a7', margin: '0 auto 16px' }} />
-              <p style={{ fontSize: '13px', color: '#8290a7' }}>
+              <DollarSign style={{ width: '48px', height: '48px', color: 'var(--text-secondary)', margin: '0 auto 16px' }} />
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                 لا توجد ديون
               </p>
-              <p style={{ fontSize: '11px', color: '#56647a', marginTop: '4px' }}>
+              <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
                 جميع الديون مدفوعة
               </p>
             </div>
@@ -247,18 +305,25 @@ export function DebtsPage() {
                   const aging = getDebtAging(debt.dueDate, debt.status);
                   
                   return (
-                    <TableRow key={debt.id}>
+                    <TableRow 
+                      key={debt.id}
+                      onClick={() => {
+                        console.log('Row clicked', debt);
+                        handleViewDebt(debt);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <TableCell style={{ fontWeight: '500' }}>{debt.customer?.name}</TableCell>
-                      <TableCell>₪{debt.amount?.toLocaleString()}</TableCell>
+                      <TableCell><span className="numeric-price">₪{debt.amount?.toLocaleString()}</span></TableCell>
                       <TableCell>
-                        <span style={{ color: '#fb7185', fontWeight: '500' }}>
-                          ₪{debt.remainingAmount?.toLocaleString()}
+                        <span style={{ color: 'var(--color-danger)', fontWeight: '500' }}>
+                          <span className="numeric-price">₪{debt.remainingAmount?.toLocaleString() || '0'}</span>
                         </span>
                       </TableCell>
                       <TableCell>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <Calendar style={{ width: '14px', height: '14px', color: '#8290a7' }} />
-                          {new Date(debt.dueDate).toLocaleDateString('ar-SA')}
+                          <Calendar style={{ width: '14px', height: '14px', color: 'var(--text-secondary)' }} />
+                          {debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('en-GB') : 'غير محدد'}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -268,8 +333,8 @@ export function DebtsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={debt.status === 'overdue' ? 'danger' : 'warning'}>
-                          {debt.status === 'overdue' ? 'متأخر' : 'معلق'}
+                        <Badge variant={debt.status === 'overdue' ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'}>
+                          {debt.status === 'overdue' ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
                         </Badge>
                       </TableCell>
                       <TableCell style={{ textAlign: 'right' }}>
@@ -277,14 +342,22 @@ export function DebtsPage() {
                           <Button
                             variant="ghost"
                             size={getButtonSize('debts', 'iconAction')}
-                            onClick={() => handleViewDebt(debt)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              console.log('View button clicked', debt);
+                              handleViewDebt(debt);
+                            }}
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
                             size={getButtonSize('debts', 'iconAction')}
-                            onClick={() => handleRecordPayment(debt.customer?.id, debt.customer?.name)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              console.log('Payment button clicked', debt.customer);
+                              handleRecordPayment(debt.customer?.id, debt.customer?.name);
+                            }}
                           >
                             <DollarSign className="w-3.5 h-3.5" />
                           </Button>
@@ -300,84 +373,415 @@ export function DebtsPage() {
       </Card>
 
       {/* Payment Modal */}
-      <Modal
-        isOpen={paymentModalOpen}
-        onClose={() => setPaymentModalOpen(false)}
-        title="تسجيل دفعة"
-      >
-        <div className="space-y-md">
-          <div>
-            <label className="text-small font-medium text-text mb-sm block">
-              العميل
-            </label>
-            <Input
-              value={selectedCustomer?.name || ''}
-              disabled
-            />
-          </div>
-          <div>
-            <label className="text-small font-medium text-text mb-sm block">
-              مبلغ الدفعة
-            </label>
-            <Input
-              type="number"
-              placeholder="أدخل المبلغ..."
-              value={paymentAmount}
-              onChange={(e) => setPaymentAmount(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-sm justify-end">
-            <Button
-              variant="secondary"
-              size={getButtonSize('debts', 'modalAction')}
-              onClick={() => setPaymentModalOpen(false)}
-            >
-              إلغاء
-            </Button>
-            <Button
-              variant="primary"
-              size={getButtonSize('debts', 'modalAction')}
-              onClick={handlePaymentSubmit}
-              disabled={!paymentAmount || isNaN(parseFloat(paymentAmount))}
-            >
-              تسجيل الدفعة
-            </Button>
+      {paymentModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface)',
+            padding: '24px',
+            borderRadius: '16px',
+            maxWidth: '500px',
+            width: '100%',
+            margin: '16px',
+            border: '1px solid var(--border-primary)',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>تسجيل دفعة</h3>
+              <button 
+                onClick={() => setPaymentModalOpen(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '24px', color: 'var(--text-secondary)' }}
+              >
+                ×
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">
+                  العميل
+                </label>
+                <Input
+                  value={selectedCustomer?.name || ''}
+                  disabled
+                />
+              </div>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">
+                  مبلغ الدفعة
+                </label>
+                <Input
+                  type="number"
+                  placeholder="أدخل المبلغ..."
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">
+                  طريقة الدفع
+                </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-primary)',
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-primary)',
+                    fontSize: '14px',
+                  }}
+                >
+                  <option value="cash">نقدي</option>
+                  <option value="credit">بطاقة ائتمان</option>
+                  <option value="bank_transfer">تحويل بنكي</option>
+                  <option value="check">شيك</option>
+                </select>
+              </div>
+              <div className="flex gap-sm justify-end">
+                <Button
+                  variant="secondary"
+                  size={getButtonSize('debts', 'modalAction')}
+                  onClick={() => setPaymentModalOpen(false)}
+                >
+                  إلغاء
+                </Button>
+                <Button
+                  variant="primary"
+                  size={getButtonSize('debts', 'modalAction')}
+                  onClick={handlePaymentSubmit}
+                  disabled={!paymentAmount || isNaN(parseFloat(paymentAmount))}
+                >
+                  تسجيل الدفعة
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
-      </Modal>
+      )}
 
       {/* View Debt Modal */}
-      <Modal
-        isOpen={isViewModalOpen}
-        onClose={() => setIsViewModalOpen(false)}
-        title="تفاصيل الدين"
-      >
-        {selectedDebt && (
-          <div className="space-y-md">
-            <div>
-              <label className="text-small font-medium text-text mb-sm block">العميل</label>
-              <Input value={selectedDebt.customer?.name || ''} disabled />
+      {isViewModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface)',
+            padding: '24px',
+            borderRadius: '16px',
+            maxWidth: '500px',
+            width: '100%',
+            margin: '16px',
+            border: '1px solid var(--border-primary)',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>تفاصيل الدين</h3>
+              <button 
+                onClick={() => setIsViewModalOpen(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '24px', color: 'var(--text-secondary)' }}
+              >
+                ×
+              </button>
             </div>
-            <div>
-              <label className="text-small font-medium text-text mb-sm block">مبلغ الدين</label>
-              <Input value={`₪${selectedDebt.amount?.toLocaleString() || 0}`} disabled />
+            {selectedDebt && (
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                gap: '16px' 
+              }}>
+                <div>
+                  <label className="text-small font-medium text-text mb-sm block">العميل</label>
+                  <Input value={selectedDebt.customer?.name || ''} disabled />
+                </div>
+                <div>
+                  <label className="text-small font-medium text-text mb-sm block">مبلغ الدين</label>
+                  <div className="numeric-price" style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text-primary)' }}>
+                    ₪{selectedDebt.amount?.toLocaleString() || 0}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-small font-medium text-text mb-sm block">تاريخ الاستحقاق</label>
+                  <Input value={selectedDebt.dueDate ? new Date(selectedDebt.dueDate).toLocaleDateString('en-GB') : 'غير محدد'} disabled />
+                </div>
+                <div>
+                  <label className="text-small font-medium text-text mb-sm block">الحالة</label>
+                  <Input value={selectedDebt.status === 'overdue' ? 'متأخر' : selectedDebt.status === 'partial' ? 'جزئي' : 'معلق'} disabled />
+                </div>
+                <div className="flex gap-sm justify-end" style={{ gridColumn: '1 / -1' }}>
+                  <Button variant="secondary" size={getButtonSize('debts', 'modalAction')} onClick={() => setIsViewModalOpen(false)}>
+                    إغلاق
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal */}
+      {successModalOpen && lastPayment && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          animation: 'fadeIn 0.3s ease-in-out',
+          backdropFilter: 'blur(4px)',
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface)',
+            padding: '32px',
+            borderRadius: '16px',
+            maxWidth: '440px',
+            width: '100%',
+            margin: '16px',
+            border: '1px solid var(--border-primary)',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05)',
+            animation: 'slideUp 0.3s ease-out',
+          }}>
+            {/* Success Icon */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              marginBottom: '20px',
+            }}>
+              <div style={{
+                width: '72px',
+                height: '72px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                animation: 'scaleIn 0.5s ease-out',
+                boxShadow: '0 4px 12px rgba(34, 197, 94, 0.2)',
+              }}>
+                <CheckCircle style={{ width: '40px', height: '40px', color: 'var(--color-success)' }} />
+              </div>
             </div>
-            <div>
-              <label className="text-small font-medium text-text mb-sm block">تاريخ الاستحقاق</label>
-              <Input value={new Date(selectedDebt.dueDate).toLocaleDateString('ar-SA')} disabled />
+
+            {/* Success Message */}
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <h2 style={{
+                fontSize: '22px',
+                fontWeight: '700',
+                color: 'var(--text-primary)',
+                marginBottom: '6px',
+                letterSpacing: '-0.5px',
+              }}>
+                تم تسجيل الدفعة بنجاح!
+              </h2>
+              <p style={{
+                fontSize: '13px',
+                color: 'var(--text-secondary)',
+                marginBottom: '20px',
+                lineHeight: '1.5',
+              }}>
+                تم تحديث بيانات الدين ورصيد العميل
+              </p>
             </div>
-            <div>
-              <label className="text-small font-medium text-text mb-sm block">الحالة</label>
-              <Input value={selectedDebt.status === 'overdue' ? 'متأخر' : 'معلق'} disabled />
+
+            {/* Payment Details */}
+            <div style={{
+              backgroundColor: 'var(--bg-secondary)',
+              borderRadius: '12px',
+              padding: '18px',
+              marginBottom: '20px',
+              border: '1px solid var(--border-primary)',
+            }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: '14px',
+              }}>
+                <div>
+                  <label style={{
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    color: 'var(--text-secondary)',
+                    marginBottom: '4px',
+                    display: 'block',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}>
+                    العميل
+                  </label>
+                  <div style={{
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: 'var(--text-primary)',
+                  }}>
+                    {lastPayment.customerName}
+                  </div>
+                </div>
+                <div>
+                  <label style={{
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    color: 'var(--text-secondary)',
+                    marginBottom: '4px',
+                    display: 'block',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}>
+                    المبلغ
+                  </label>
+                  <div style={{
+                    fontSize: '17px',
+                    fontWeight: '700',
+                    color: '#22c55e',
+                  }}>
+                    ₪{lastPayment.amount.toLocaleString()}
+                  </div>
+                </div>
+                <div>
+                  <label style={{
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    color: 'var(--text-secondary)',
+                    marginBottom: '4px',
+                    display: 'block',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}>
+                    طريقة الدفع
+                  </label>
+                  <div style={{
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: 'var(--text-primary)',
+                  }}>
+                    {lastPayment.method === 'cash' ? 'نقدي' : 
+                     lastPayment.method === 'credit' ? 'بطاقة ائتمان' : 
+                     lastPayment.method === 'bank_transfer' ? 'تحويل بنكي' : 'شيك'}
+                  </div>
+                </div>
+                <div>
+                  <label style={{
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    color: 'var(--text-secondary)',
+                    marginBottom: '4px',
+                    display: 'block',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                  }}>
+                    التاريخ
+                  </label>
+                  <div style={{
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: 'var(--text-primary)',
+                  }}>
+                    {lastPayment.date}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="flex gap-sm justify-end">
-              <Button variant="secondary" size={getButtonSize('debts', 'modalAction')} onClick={() => setIsViewModalOpen(false)}>
+
+            {/* Action Buttons */}
+            <div style={{
+              display: 'flex',
+              gap: '10px',
+              justifyContent: 'center',
+              marginTop: '8px',
+            }}>
+              <button
+                onClick={() => setSuccessModalOpen(false)}
+                style={{
+                  flex: 1,
+                  minWidth: '0',
+                  padding: '10px 16px',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  color: '#f1f5f9',
+                  backgroundColor: '#151d26',
+                  border: '1px solid #24303b',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: '40px',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.borderColor = '#10b981';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.borderColor = '#24303b';
+                }}
+              >
                 إغلاق
-              </Button>
+              </button>
+              <button
+                onClick={handlePrintReceipt}
+                style={{
+                  flex: 1,
+                  minWidth: '0',
+                  padding: '10px 16px',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#FFFFFF',
+                  backgroundColor: '#14b8a6',
+                  border: '1px solid #14b8a6',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  minHeight: '40px',
+                  boxShadow: '0 0 24px rgba(34, 211, 238, 0.08)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.borderColor = '#06b6d4';
+                  e.currentTarget.style.boxShadow = '0 0 30px rgba(34, 211, 238, 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.borderColor = '#14b8a6';
+                  e.currentTarget.style.boxShadow = '0 0 24px rgba(34, 211, 238, 0.08)';
+                }}
+              >
+                <Printer style={{ width: '16px', height: '16px' }} />
+                طباعة الإيصال
+              </button>
             </div>
           </div>
-        )}
-      </Modal>
+        </div>
+      )}
     </div>
   );
 }

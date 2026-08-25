@@ -13,11 +13,11 @@ interface DashboardMetricsProps {
 
 export function DashboardMetrics({ stats }: DashboardMetricsProps) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px' }}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}
          className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard
         title="مبيعات اليوم"
-        value={`₪${(stats?.todaySales as number)?.toLocaleString() || 0}`}
+        value={<span className="numeric-metric">₪{(stats?.todaySales as number)?.toLocaleString() || 0}</span>}
         icon={ShoppingCart}
         trend="+12.4%"
         trendUp={true}
@@ -26,7 +26,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
       />
       <StatCard
         title="الربح اليوم"
-        value={`₪${(stats?.todayProfit as number)?.toLocaleString() || 0}`}
+        value={<span className="numeric-metric">₪{(stats?.todayProfit as number)?.toLocaleString() || 0}</span>}
         icon={DollarSign}
         trend="+15%"
         trendUp={true}
@@ -34,16 +34,16 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
       />
       <StatCard
         title="الديون المستحقة"
-        value={`₪${(stats?.outstandingDebts as number)?.toLocaleString() || 0}`}
+        value={<span className="numeric-metric">₪{(stats?.outstandingDebts as number)?.toLocaleString() || 0}</span>}
         icon={AlertTriangle}
         trend="+5%"
         trendUp={false}
-        subtitle={`${(stats?.activeCustomers as number) || 0} عميل`}
+        subtitle={<span className="numeric-quantity">{(stats?.activeCustomers as number) || 0} عميل</span>}
         variant="warning"
       />
       <StatCard
         title="المخزون المنخفض"
-        value={(stats?.lowStockCount as number) || 0}
+        value={<span className="numeric-quantity">{(stats?.lowStockCount as number) || 0}</span>}
         icon={Package}
         trend={null}
         trendUp={null}

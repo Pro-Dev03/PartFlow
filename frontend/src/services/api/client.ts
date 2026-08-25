@@ -1,5 +1,6 @@
 import { getArabicErrorMessage, isRetryableError } from '../../lib/error-messages';
 import { appConfig } from '../../lib/config/app';
+import { TokenManager } from '../../lib/token-manager';
 
 const API_BASE_URL = appConfig.apiUrl;
 
@@ -24,17 +25,20 @@ class ApiClient {
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
-    this.token = localStorage.getItem('auth_token');
+    // Use TokenManager for consistent token retrieval
+    this.token = TokenManager.getToken();
   }
 
   setToken(token: string) {
     this.token = token;
-    localStorage.setItem('auth_token', token);
+    // Use TokenManager for consistent token storage
+    TokenManager.setToken(token);
   }
 
   clearToken() {
     this.token = null;
-    localStorage.removeItem('auth_token');
+    // Use TokenManager for consistent token clearing
+    TokenManager.clearToken();
   }
 
   logout() {

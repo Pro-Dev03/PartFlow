@@ -10,12 +10,12 @@ import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { StatCardSkeleton } from '../../../components/ui/skeleton';
 import { SalesChart } from '../../../components/charts/SalesChart';
-import { CategoryChart } from '../../../components/charts/CategoryChart';
 import { DashboardMetrics } from '../components/DashboardMetrics';
 import { AttentionSection } from '../components/AttentionSection';
 import { SmartActions } from '../components/SmartActions';
 import { AIInsight } from '../components/AIInsight';
 import { SmartAlerts } from '../../../components/notifications/smart-alerts';
+import { InventoryDistribution } from '../../../components/dashboard/InventoryDistribution';
 import { getButtonSize } from '../../../config/button-sizes';
 import {
   ShoppingCart,
@@ -60,22 +60,22 @@ export function DashboardPage() {
   const { data: dashboardData, isLoading, error } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => dashboardApi.getStats(),
-    refetchInterval: 120000, // Reduced from 30s to 2min
-    staleTime: 60000, // Increased from 10s to 1min
+    refetchInterval: 120000,
+    staleTime: 60000,
   });
 
   const { data: notificationsData } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => notificationsApi.list({ page: 1, per_page: 20 }),
-    refetchInterval: 180000, // Reduced from 60s to 3min
-    staleTime: 120000, // Increased from 30s to 2min
+    refetchInterval: 180000,
+    staleTime: 120000,
   });
 
   const { data: unreadCountData } = useQuery({
     queryKey: ['notifications-unread'],
     queryFn: () => notificationsApi.getUnreadCount(),
-    refetchInterval: 120000, // Reduced from 30s to 2min
-    staleTime: 60000, // Increased from 15s to 1min
+    refetchInterval: 120000,
+    staleTime: 60000,
   });
 
   if (isLoading) {
@@ -86,7 +86,7 @@ export function DashboardPage() {
           title={t('dashboard.welcome')}
           description={t('dashboard.subtitle')}
         />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
           <StatCardSkeleton />
           <StatCardSkeleton />
           <StatCardSkeleton />
@@ -145,7 +145,7 @@ export function DashboardPage() {
         }
       />
 
-      {/* "يحتاج انتباهك" Section - أهم قسم في Dashboard */}
+      {/* Attention Section - لما يحتاج انتباهك */}
       <div style={{ marginTop: '16px' }}>
         <AttentionSection
           lowStockCount={stats?.lowStockCount as number}
@@ -153,93 +153,74 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* Smart Actions - العمليات اليومية الأكثر استخداماً */}
+      {/* Smart Actions - العمليات اليومية */}
       <div style={{ marginTop: '16px' }}>
         <SmartActions />
       </div>
 
-      {/* Key Metrics Cards */}
-      <DashboardMetrics stats={stats} />
-
-      {/* Content Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.65fr) minmax(0, 0.9fr)', gap: '16px' }}
-           className="grid-cols-1 md:grid-cols-2">
-        {/* Sales Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5" style={{ color: 'var(--color-success)' }} />
-              {t('dashboard.performance')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SalesChart data={[
-              { name: 'السبت', sales: 4500, profit: 1200 },
-              { name: 'الأحد', sales: 5200, profit: 1500 },
-              { name: 'الاثنين', sales: 4800, profit: 1300 },
-              { name: 'الثلاثاء', sales: 6100, profit: 1800 },
-              { name: 'الأربعاء', sales: 5900, profit: 1700 },
-              { name: 'الخميس', sales: 7200, profit: 2100 },
-              { name: 'الجمعة', sales: 6800, profit: 1900 },
-            ]} />
-          </CardContent>
-        </Card>
-
-        {/* Category Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Package className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
-              {t('dashboard.trends')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <CategoryChart data={[
-              { name: 'كروت شاشة', value: 35, color: '#38bdf8' },
-              { name: 'معالجات', value: 25, color: '#34d399' },
-              { name: 'ذاكرة', value: 20, color: '#fbbf24' },
-              { name: 'تخزين', value: 15, color: '#fb7185' },
-              { name: 'أخرى', value: 5, color: '#a78bfa' },
-            ]} />
-          </CardContent>
-        </Card>
+      {/* Key Metrics Cards - المؤشرات الرئيسية */}
+      <div style={{ marginTop: '16px' }}>
+        <DashboardMetrics stats={stats} />
       </div>
 
-      {/* AI Insights Card */}
-      {dashboardData?.data?.insights && dashboardData.data.insights.length > 0 && (
-        <div style={{ marginTop: '16px' }}>
-          {dashboardData.data.insights.map((insight: any, index: number) => (
-            <AIInsight
-              key={index}
-              title={insight.title}
-              description={insight.description}
-              actionLabel={t('dashboard.viewDetails')}
-              onAction={() => navigate(insight.link || '/app/inventory')}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Smart Alerts Section - التنبيهات الذكية */}
-      <div style={{ marginTop: '16px' }}>
-        <Card style={{
-          background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(236, 72, 153, 0.05) 100%)',
-          border: '1px solid rgba(99, 102, 241, 0.2)'
+        {/* Charts Grid - الأداء والتوزيع */}
+        <div style={{ 
+          marginTop: '16px',
+          display: 'grid', 
+          gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.65fr) minmax(0, 0.9fr)', 
+          gap: '16px' 
         }}>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
-              {t('notifications.smartAlerts')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SmartAlerts alerts={[]} />
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5" style={{ color: 'var(--color-success)' }} />
+                {t('dashboard.performance')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <SalesChart data={[
+                { name: 'السبت', sales: 4500, profit: 1200 },
+                { name: 'الأحد', sales: 5200, profit: 1500 },
+                { name: 'الاثنين', sales: 4800, profit: 1300 },
+                { name: 'الثلاثاء', sales: 6100, profit: 1800 },
+                { name: 'الأربعاء', sales: 5900, profit: 1700 },
+                { name: 'الخميس', sales: 7200, profit: 2100 },
+                { name: 'الجمعة', sales: 6800, profit: 1900 },
+              ]} />
+            </CardContent>
+          </Card>
 
-      {/* Recent Activity Section */}
-      <div style={{ marginTop: '16px' }}>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
+                {t('dashboard.trends')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <InventoryDistribution
+                totalValue={125000}
+                totalItems={342}
+                data={[
+                  { name: 'كروت شاشة', count: 85, value: 45000, color: '#0ea5e9', status: 'good' },
+                  { name: 'معالجات', count: 62, value: 38000, color: '#10b981', status: 'good' },
+                  { name: 'ذاكرة', count: 98, value: 22000, color: '#f59e0b', status: 'low' },
+                  { name: 'تخزين', count: 45, value: 15000, color: '#ef4444', status: 'low' },
+                  { name: 'أخرى', count: 52, value: 5000, color: '#64748b', status: 'critical' },
+                ]}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+      {/* Activity & Notifications - النشاط الأخير */}
+      <div style={{ 
+        marginTop: '16px',
+        display: 'grid', 
+        gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)', 
+        gap: '16px' 
+      }}>
+        {/* Recent Activity */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -269,63 +250,54 @@ export function DashboardPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
 
-      {/* Recent Notifications Section */}
-      <div style={{ marginTop: '16px' }}>
+        {/* Notifications */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Bell className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
               {t('notifications.title')}
-              {unreadCountData && typeof unreadCountData === 'object' && 'data' in unreadCountData && (unreadCountData as any).data > 0 && (
-                <Badge variant="danger" className="text-xs">
-                  {(unreadCountData as any).data}
-                </Badge>
-              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {(notificationsData?.data as any[])?.slice(0, 5).map((notification: any, index: number) => (
-                <div
-                  key={index}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '14px',
-                    padding: '18px',
-                    borderRadius: '10px',
-                    border: notification.is_read
-                      ? '1px solid var(--border-default)'
-                      : '1px solid var(--border-primary)',
-                    background: notification.is_read
-                      ? 'var(--bg-surface)'
-                      : 'rgba(99, 102, 241, 0.05)'
-                  }}
-                >
-                  <div style={{ flexShrink: 0 }}>
-                    {getNotificationIcon(notification.type)}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <p style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)' }}>
-                      {notification.title}
-                    </p>
-                    <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                      {notification.message}
-                    </p>
-                    <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                      {new Date(notification.created_at).toLocaleString('ar-SA')}
-                    </p>
-                  </div>
-                </div>
-              ))}
-              {(!notificationsData?.data || (notificationsData.data as any[]).length === 0) && (
-                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center', padding: '16px' }}>
-                  {t('notifications.noNotifications')}
-                </p>
-              )}
+            <div style={{ padding: '24px', textAlign: 'center' }}>
+              <p style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)' }}>
+                قيد التطوير
+              </p>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* AI Insights */}
+      {dashboardData?.data?.insights && dashboardData.data.insights.length > 0 && (
+        <div style={{ marginTop: '16px' }}>
+          {dashboardData.data.insights.map((insight: any, index: number) => (
+            <AIInsight
+              key={index}
+              title={insight.title}
+              description={insight.description}
+              actionLabel={t('dashboard.viewDetails')}
+              onAction={() => navigate(insight.link || '/app/inventory')}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Smart Alerts */}
+      <div style={{ marginTop: '16px' }}>
+        <Card style={{
+          background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(236, 72, 153, 0.05) 100%)',
+          border: '1px solid rgba(99, 102, 241, 0.2)'
+        }}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
+              {t('notifications.smartAlerts')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SmartAlerts alerts={[]} />
           </CardContent>
         </Card>
       </div>
@@ -364,7 +336,7 @@ function ActivityItem({ type, title, description, amount, time, status }: any) {
       e.currentTarget.style.background = 'transparent';
     }}
     >
-      <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(99, 102, 241, 0.1)' }}>
+      <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-primary-10)' }}>
         <Icon className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
       </div>
       <div style={{ flex: 1 }}>
@@ -381,17 +353,3 @@ function ActivityItem({ type, title, description, amount, time, status }: any) {
     </div>
   );
 }
-
-// Notification Icon Helper
-function getNotificationIcon(type: string) {
-  switch (type) {
-    case 'debt':
-      return <AlertTriangle className="w-5 h-5" style={{ color: 'var(--color-warning)' }} />;
-    case 'inventory':
-      return <Package className="w-5 h-5" style={{ color: 'var(--color-info)' }} />;
-    default:
-      return <Bell className="w-5 h-5" style={{ color: 'var(--color-info)' }} />;
-  }
-}
-
-

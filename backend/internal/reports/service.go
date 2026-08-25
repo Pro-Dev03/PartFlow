@@ -18,6 +18,11 @@ func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
+// GetRepository returns the repository (needed for direct DB access in handlers)
+func (s *Service) GetRepository() *Repository {
+	return s.repo
+}
+
 // GenerateReport generates a new report
 func (s *Service) GenerateReport(ctx context.Context, userID uuid.UUID, req *ReportRequest) (*Report, error) {
 	// Validate request

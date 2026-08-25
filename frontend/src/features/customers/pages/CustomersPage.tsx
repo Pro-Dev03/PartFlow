@@ -5,6 +5,8 @@ import { Button } from '../../../components/ui/button';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { Plus, Download, Printer } from 'lucide-react';
+import { FinancialTimeline, LedgerEntry } from '../../../components/ui/financial-timeline';
+import { customersApi } from '../../../services/api/endpoints';
 
 // Custom hooks
 import { useCustomers } from '../hooks/useCustomers';
@@ -25,6 +27,8 @@ export function CustomersPage() {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
+  const [loadingLedger, setLoadingLedger] = useState(false);
 
   // Custom hook
   const {
@@ -59,6 +63,36 @@ export function CustomersPage() {
   const handleViewCustomer = (customer: Customer) => {
     setSelectedCustomer(customer);
     setIsViewModalOpen(true);
+    // Load ledger entries for this customer
+    loadCustomerLedger(customer.id);
+  };
+
+  const loadCustomerLedger = async (customerId: string) => {
+    setLoadingLedger(true);
+    try {
+      const response = await customersApi.ledger(customerId, { page: 1, per_page: 50 });
+      if (response && response.data) {
+        const formattedEntries = response.data.map((entry: any) => ({
+          id: entry.id,
+          transaction_type: entry.transaction_type,
+          amount: entry.amount,
+          balance: entry.balance,
+          previous_balance: entry.previous_balance,
+          description: entry.description,
+          created_at: entry.created_at,
+          reference_id: entry.reference_id,
+          reference_type: entry.reference_type,
+        }));
+        setLedgerEntries(formattedEntries);
+      } else {
+        setLedgerEntries([]);
+      }
+    } catch (error) {
+      console.error('Failed to load ledger entries:', error);
+      setLedgerEntries([]);
+    } finally {
+      setLoadingLedger(false);
+    }
   };
 
   const handleDeleteCustomer = (customerId: string) => {
@@ -179,6 +213,8 @@ export function CustomersPage() {
         selectedCustomer={selectedCustomer}
         setSelectedCustomer={setSelectedCustomer}
         onSubmit={handleSubmit}
+        ledgerEntries={ledgerEntries}
+        loadingLedger={loadingLedger}
       />
     </div>
   );

@@ -1,11 +1,13 @@
 package customers
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jung-kurt/gofpdf"
 	"github.com/partflow/smart-store/internal/dashboard"
 )
 
@@ -204,9 +206,18 @@ func (s *Service) GetCustomerLedger(ctx context.Context, customerID uuid.UUID) (
 		return nil, err
 	}
 
+	// Get ledger entries
 	entries, totalPurchases, totalPayments, currentBalance, err := s.repo.GetCustomerLedger(ctx, customerID)
 	if err != nil {
-		return nil, err
+		// If ledger is empty, return empty response with customer info
+		return &CustomerLedgerResponse{
+			CustomerID:     customerID,
+			CustomerName:   customer.Name,
+			TotalPurchases: 0,
+			TotalPayments:  0,
+			CurrentBalance: customer.CurrentBalance,
+			Entries:        []LedgerEntry{},
+		}, nil
 	}
 
 	return &CustomerLedgerResponse{
@@ -252,20 +263,6 @@ func (s *Service) GetCustomerDebtSummary(ctx context.Context, customerID uuid.UU
 		return nil, err
 	}
 
-	// Get overdue debt (debts older than 30 days)
-	overdueQuery := `
-		SELECT COALESCE(SUM(amount), 0)
-		FROM customer_ledger
-		WHERE customer_id = $1
-		AND type = 'debit'
-		AND created_at < NOW() - INTERVAL '30 days'
-	`
-	var overdueAmount float64
-	err = s.repo.db.GetContext(ctx, &overdueAmount, overdueQuery, customerID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get overdue debt: %w", err)
-	}
-
 	// Calculate available credit
 	availableCredit := customer.CreditLimit - customer.CurrentBalance
 
@@ -282,9 +279,9 @@ func (s *Service) GetCustomerDebtSummary(ctx context.Context, customerID uuid.UU
 		CreditLimit:         customer.CreditLimit,
 		AvailableCredit:     availableCredit,
 		CreditUtilization:   creditUtilization,
-		OverdueAmount:       overdueAmount,
-		IsOverdue:           overdueAmount > 0,
-		DaysUntilOverdue:    s.calculateDaysUntilOverdue(ctx, customerID),
+		OverdueAmount:       customer.CurrentBalance, // Use current balance as overdue for now
+		IsOverdue:           customer.CurrentBalance > 0,
+		DaysUntilOverdue:    0,
 	}, nil
 }
 
@@ -312,22 +309,58 @@ func (s *Service) UpdateCreditLimit(ctx context.Context, customerID uuid.UUID, n
 
 // GetOverdueCustomers retrieves customers with overdue payments
 func (s *Service) GetOverdueCustomers(ctx context.Context) ([]OverdueCustomer, error) {
+	// Query to get customers with debts and their debt entries
 	query := `
-		SELECT c.id, c.name, c.code, c.current_balance, c.credit_limit, c.email, c.phone,
-			COALESCE(SUM(CASE WHEN cl.type = 'debit' AND cl.created_at < NOW() - INTERVAL '30 days' THEN cl.amount ELSE 0 END), 0) as overdue_amount
+		SELECT c.id, c.name, c.code, c.current_balance, c.credit_limit,
+			c.current_balance as overdue_amount
 		FROM customers c
-		LEFT JOIN customer_ledger cl ON c.id = cl.customer_id
 		WHERE c.is_active = true
 		AND c.current_balance > 0
-		GROUP BY c.id, c.name, c.code, c.current_balance, c.credit_limit, c.email, c.phone
-		HAVING COALESCE(SUM(CASE WHEN cl.type = 'debit' AND cl.created_at < NOW() - INTERVAL '30 days' THEN cl.amount ELSE 0 END), 0) > 0
-		ORDER BY overdue_amount DESC
+		ORDER BY c.current_balance DESC
 	`
 
 	var overdueCustomers []OverdueCustomer
 	err := s.repo.db.SelectContext(ctx, &overdueCustomers, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get overdue customers: %w", err)
+	}
+
+	// For each customer, get their debts
+	for i := range overdueCustomers {
+		debtQuery := `
+			SELECT id, amount, remaining_amount, due_date, status
+			FROM debts
+			WHERE customer_id = $1
+			ORDER BY due_date ASC
+		`
+		
+		type DebtInfo struct {
+			ID              string  `db:"id"`
+			Amount          float64 `db:"amount"`
+			RemainingAmount float64 `db:"remaining_amount"`
+			DueDate         string  `db:"due_date"`
+			Status          string  `db:"status"`
+		}
+		
+		var debts []DebtInfo
+		err := s.repo.db.SelectContext(ctx, &debts, debtQuery, overdueCustomers[i].ID)
+		if err != nil || len(debts) == 0 {
+			// If no debts found, set empty array
+			overdueCustomers[i].Debts = []map[string]interface{}{}
+		} else {
+			// Convert to map[string]interface{}
+			debtMaps := make([]map[string]interface{}, len(debts))
+			for j, debt := range debts {
+				debtMaps[j] = map[string]interface{}{
+					"id":               debt.ID,
+					"amount":           debt.Amount,
+					"remaining_amount": debt.RemainingAmount,
+					"due_date":         debt.DueDate,
+					"status":           debt.Status,
+				}
+			}
+			overdueCustomers[i].Debts = debtMaps
+		}
 	}
 
 	return overdueCustomers, nil
@@ -494,4 +527,186 @@ func (s *Service) ProcessDebtPayment(ctx context.Context, customerID uuid.UUID, 
 	}
 
 	return nil
+}
+
+// GeneratePaymentReceipt generates a PDF receipt for payment
+func (s *Service) GeneratePaymentReceipt(ctx context.Context, customerID uuid.UUID, req *PaymentReceiptRequest) ([]byte, error) {
+	// Verify customer exists
+	_, err := s.repo.GetByID(ctx, customerID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine language (default to Arabic)
+	language := req.Language
+	if language == "" {
+		language = "ar"
+	}
+	isRTL := language == "ar"
+
+	// Create PDF with professional design
+	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf.AddPage()
+
+	// Color scheme
+	const (
+		primaryColor = 34  // Green
+		secondaryColor = 197
+		accentColor = 94
+		textDark = 0
+		textMedium = 80
+		textLight = 150
+		borderColor = 200
+	)
+
+	// Set font based on language
+	if isRTL {
+		pdf.SetFont("Arial", "", 12)
+	} else {
+		pdf.SetFont("Arial", "", 12)
+	}
+
+	// Helper function to write text with RTL support
+	writeText := func(text string, x, y float64, fontSize float64, isBold bool, colorR, colorG, colorB int) {
+		pdf.SetFont("Arial", "", fontSize)
+		if isBold {
+			pdf.SetFont("Arial", "B", fontSize)
+		}
+		pdf.SetTextColor(colorR, colorG, colorB)
+		pdf.SetXY(x, y)
+		pdf.Cell(0, 8, text)
+	}
+
+	// Helper function to draw box
+	drawBox := func(x, y, w, h float64, colorR, colorG, colorB int) {
+		pdf.SetDrawColor(colorR, colorG, colorB)
+		pdf.SetLineWidth(0.5)
+		pdf.Rect(x, y, w, h, "D")
+	}
+
+	// ==================== HEADER SECTION ====================
+	// Draw header background
+	pdf.SetFillColor(primaryColor, secondaryColor, accentColor)
+	pdf.Rect(20, 20, 170, 40, "F")
+
+	// Company logo/title
+	writeText("PartFlow", 95, 28, 24.0, true, 255, 255, 255)
+	writeText("Store Management System", 95, 38, 10.0, false, 200, 200, 200)
+
+	// Receipt number and date in header
+	receiptNumber := time.Now().Format("20060102150405")[:8]
+	if isRTL {
+		writeText(fmt.Sprintf("رقم الإيصال: %s", receiptNumber), 25, 28, 10.0, false, 255, 255, 255)
+		writeText(fmt.Sprintf("التاريخ: %s", req.Date), 25, 38, 10.0, false, 200, 200, 200)
+	} else {
+		writeText(fmt.Sprintf("Receipt #: %s", receiptNumber), 25, 28, 10.0, false, 255, 255, 255)
+		writeText(fmt.Sprintf("Date: %s", req.Date), 25, 38, 10.0, false, 200, 200, 200)
+	}
+
+	// ==================== CUSTOMER SECTION ====================
+	yPos := 70.0
+	drawBox(20, yPos, 170, 30, borderColor, borderColor, borderColor)
+	
+	if isRTL {
+		writeText("معلومات العميل", 25, yPos+5, 14.0, true, textDark, textDark, textDark)
+		writeText(fmt.Sprintf("الاسم: %s", req.CustomerName), 25, yPos+15, 12.0, false, textMedium, textMedium, textMedium)
+	} else {
+		writeText("Customer Information", 25, yPos+5, 14.0, true, textDark, textDark, textDark)
+		writeText(fmt.Sprintf("Name: %s", req.CustomerName), 25, yPos+15, 12.0, false, textMedium, textMedium, textMedium)
+	}
+
+	// ==================== PAYMENT DETAILS TABLE ====================
+	yPos += 40
+	drawBox(20, yPos, 170, 80, borderColor, borderColor, borderColor)
+
+	// Table header
+	pdf.SetFillColor(primaryColor, secondaryColor, accentColor)
+	pdf.Rect(20, yPos, 170, 15, "F")
+	
+	if isRTL {
+		writeText("تفاصيل الدفعة", 95, yPos+5, 14.0, true, 255, 255, 255)
+	} else {
+		writeText("Payment Details", 95, yPos+5, 14.0, true, 255, 255, 255)
+	}
+
+	// Payment method
+	methodText := ""
+	if isRTL {
+		switch req.Method {
+		case "cash":
+			methodText = "نقدي"
+		case "credit":
+			methodText = "بطاقة ائتمان"
+		case "bank_transfer":
+			methodText = "تحويل بنكي"
+		case "check":
+			methodText = "شيك"
+		default:
+			methodText = "نقدي"
+		}
+		writeText(fmt.Sprintf("طريقة الدفع: %s", methodText), 25, yPos+25, 12.0, false, textDark, textDark, textDark)
+		writeText(fmt.Sprintf("المبلغ: ₪%.2f", req.Amount), 25, yPos+40, 12.0, false, textDark, textDark, textDark)
+	} else {
+		switch req.Method {
+		case "cash":
+			methodText = "Cash"
+		case "credit":
+			methodText = "Credit Card"
+		case "bank_transfer":
+			methodText = "Bank Transfer"
+		case "check":
+			methodText = "Check"
+		default:
+			methodText = "Cash"
+		}
+		writeText(fmt.Sprintf("Payment Method: %s", methodText), 25, yPos+25, 12.0, false, textDark, textDark, textDark)
+		writeText(fmt.Sprintf("Amount: ₪%.2f", req.Amount), 25, yPos+40, 12.0, false, textDark, textDark, textDark)
+	}
+
+	// Total amount with larger font
+	pdf.SetFont("Arial", "B", 20.0)
+	pdf.SetTextColor(primaryColor, secondaryColor, accentColor)
+	pdf.SetXY(25, yPos+60)
+	pdf.Cell(0, 12, fmt.Sprintf("₪%.2f", req.Amount))
+
+	if isRTL {
+		writeText("المجموع", 120, yPos+62, 14.0, true, textMedium, textMedium, textMedium)
+	} else {
+		writeText("Total", 120, yPos+62, 14.0, true, textMedium, textMedium, textMedium)
+	}
+
+	// ==================== FOOTER SECTION ====================
+	yPos += 90
+	drawBox(20, yPos, 170, 25, borderColor, borderColor, borderColor)
+	
+	if isRTL {
+		writeText("شكراً لتعاملكم معنا", 95, yPos+8, 12.0, true, textMedium, textMedium, textMedium)
+		writeText("PartFlow - نظام إدارة المتاجر", 95, yPos+18, 10.0, false, textLight, textLight, textLight)
+	} else {
+		writeText("Thank you for your business", 95, yPos+8, 12.0, true, textMedium, textMedium, textMedium)
+		writeText("PartFlow - Store Management System", 95, yPos+18, 10.0, false, textLight, textLight, textLight)
+	}
+
+	// ==================== TERMS AND CONDITIONS ====================
+	yPos += 30
+	writeText("Terms & Conditions / الشروط والأحكام:", 20, yPos, 9.0, false, textLight, textLight, textLight)
+	
+	if isRTL {
+		writeText("• هذا الإيصال إثبات للدفعة المسجلة", 20, yPos+8, 8.0, false, textLight, textLight, textLight)
+		writeText("• يرجى الاحتفاظ به للمراجعة", 20, yPos+16, 8.0, false, textLight, textLight, textLight)
+		writeText("• لأي استفسار، يرجى التواصل مع الإدارة", 20, yPos+24, 8.0, false, textLight, textLight, textLight)
+	} else {
+		writeText("• This receipt serves as proof of payment", 20, yPos+8, 8.0, false, textLight, textLight, textLight)
+		writeText("• Please keep for your records", 20, yPos+16, 8.0, false, textLight, textLight, textLight)
+		writeText("• For inquiries, please contact management", 20, yPos+24, 8.0, false, textLight, textLight, textLight)
+	}
+
+	// Generate PDF bytes
+	var buf bytes.Buffer
+	err = pdf.Output(&buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate PDF: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }

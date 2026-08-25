@@ -134,8 +134,8 @@ export function ReportsPage() {
               <Target className="w-4 h-4 text-cyan-400" />
             </div>
             <div>
-              <p style={{ fontSize: '13px', fontWeight: '600', color: '#f1f7ff' }}>فرصة نمو محتملة</p>
-              <p style={{ fontSize: '11px', color: '#8290a7', marginTop: '4px' }}>
+              <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>فرصة نمو محتملة</p>
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 المبيعات من كروت الشاشة زادت 23% هذا الشهر. يُنصح بزيادة المخزون من هذه الفئة.
               </p>
               <Button variant="secondary" size={getButtonSize('reports', 'recommendation')}>
@@ -161,10 +161,10 @@ export function ReportsPage() {
       />
 
       {/* Stats Cards */}
-      <ReportStats />
+      <ReportStats data={reportData} loading={reportLoading} />
 
       {/* Charts Section */}
-      <ReportCharts />
+      <ReportCharts data={reportData} loading={reportLoading} />
 
       {/* Report Content */}
       <Card>
@@ -177,41 +177,41 @@ export function ReportsPage() {
         <CardContent>
           {reportLoading ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 20px' }}>
-              <div style={{ animation: 'spin 1s linear infinite', borderRadius: '50%', height: '32px', width: '32px', borderBottom: '2px solid #22d3ee' }} />
+              <div style={{ animation: 'spin 1s linear infinite', borderRadius: '50%', height: '32px', width: '32px', borderBottom: '2px solid #14b8a6' }} />
             </div>
           ) : selectedReport === 'used-items' ? (
             // تقرير القطع المستعملة - عرض خاص
             <div className="horizontal-scroll">
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.13)' }}>
-                    <th style={{ padding: '12px', textAlign: 'right', color: '#8290a7', fontSize: '12px', fontWeight: '600' }}>المنتج</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: '#8290a7', fontSize: '12px', fontWeight: '600' }}>اشتريت بـ</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: '#8290a7', fontSize: '12px', fontWeight: '600' }}>بعت بـ</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: '#8290a7', fontSize: '12px', fontWeight: '600' }}>الربح</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: '#8290a7', fontSize: '12px', fontWeight: '600' }}>الكمية المباعة</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: '#8290a7', fontSize: '12px', fontWeight: '600' }}>الحالة</th>
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المنتج</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>اشتريت بـ</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>بعت بـ</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الربح</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الكمية المباعة</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الحالة</th>
                   </tr>
                 </thead>
                 <tbody>
                   {reportData?.data && reportData.data.length > 0 ? (
                     reportData.data.map((item: any, index: number) => {
-                      const profit = (item.selling_price || 0) - (item.purchase_cost || 0);
+                      const profit = ((item.selling_price || 0) - (item.purchase_cost || 0)) / 100;
                       return (
-                        <tr key={index} style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.08)' }}>
-                          <td style={{ padding: '12px', color: '#f1f7ff', fontSize: '13px' }}>
+                        <tr key={index} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>
                             {item.product_name || item.name || '-'}
                           </td>
-                          <td style={{ padding: '12px', color: '#94a3b8', fontSize: '13px' }}>
+                          <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
                             ₪{((item.purchase_cost || 0) / 100).toFixed(2)}
                           </td>
-                          <td style={{ padding: '12px', color: '#34d399', fontSize: '13px', fontWeight: '600' }}>
+                          <td style={{ padding: '12px', color: 'var(--color-success)', fontSize: '13px', fontWeight: '600' }}>
                             ₪{((item.selling_price || 0) / 100).toFixed(2)}
                           </td>
-                          <td style={{ padding: '12px', color: profit > 0 ? '#34d399' : '#fb7185', fontSize: '13px', fontWeight: '600' }}>
+                          <td style={{ padding: '12px', color: profit > 0 ? 'var(--color-success)' : 'var(--color-error)', fontSize: '13px', fontWeight: '600' }}>
                             ₪{(profit / 100).toFixed(2)}
                           </td>
-                          <td style={{ padding: '12px', color: '#f1f7ff', fontSize: '13px' }}>
+                          <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>
                             {item.status === 'SOLD' ? '1' : '0'}
                           </td>
                           <td style={{ padding: '12px' }}>
@@ -224,7 +224,7 @@ export function ReportsPage() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>
+                      <td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                         لا توجد قطع مستعملة
                       </td>
                     </tr>
@@ -236,23 +236,23 @@ export function ReportsPage() {
             <div className="horizontal-scroll">
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.13)' }}>
-                    <th style={{ padding: '12px', textAlign: 'right', color: '#8290a7', fontSize: '12px', fontWeight: '600' }}>التاريخ</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: '#8290a7', fontSize: '12px', fontWeight: '600' }}>القيمة</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: '#8290a7', fontSize: '12px', fontWeight: '600' }}>الوصف</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: '#8290a7', fontSize: '12px', fontWeight: '600' }}>الحالة</th>
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>التاريخ</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>القيمة</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الوصف</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الحالة</th>
                   </tr>
                 </thead>
                 <tbody>
                   {reportData.data.map((item: any, index: number) => (
-                    <tr key={index} style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.08)' }}>
-                      <td style={{ padding: '12px', color: '#f1f7ff', fontSize: '13px' }}>
+                    <tr key={index} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>
                         {item.date || new Date().toLocaleDateString('ar-SA')}
                       </td>
-                      <td style={{ padding: '12px', color: '#22d3ee', fontSize: '13px', fontWeight: '600' }}>
+                      <td style={{ padding: '12px', color: 'var(--color-primary)', fontSize: '13px', fontWeight: '600' }}>
                         ₪{(item.value || item.amount || 0).toLocaleString()}
                       </td>
-                      <td style={{ padding: '12px', color: '#94a3b8', fontSize: '13px' }}>
+                      <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
                         {item.description || item.name || '-'}
                       </td>
                       <td style={{ padding: '12px' }}>
@@ -268,10 +268,10 @@ export function ReportsPage() {
           ) : (
             <div style={{ textAlign: 'center', padding: '60px 20px' }}>
               <BarChart3 className="w-16 h-16 text-slate-500 mx-auto mb-5" />
-              <p style={{ fontSize: '16px', fontWeight: '600', color: '#f1f7ff', marginBottom: '8px' }}>
+              <p style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
                 لا توجد بيانات
               </p>
-              <p style={{ fontSize: '13px', color: '#8290a7' }}>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                 لم يتم العثور على بيانات لهذا التقرير في الفترة المحددة
               </p>
             </div>

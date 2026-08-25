@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Modal } from '../../../components/ui/modal';
-import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Select } from '../../../components/ui/select';
 import { TradeInFormData } from '../types/pos.types';
+import { ShoppingCart, Recycle } from 'lucide-react';
 
 interface TradeInModalProps {
   isOpen: boolean;
@@ -92,28 +92,46 @@ export function TradeInModal({
       isOpen={isOpen}
       onClose={handleCancel}
       title="شراء قطع مستعملة"
-      size="sm"
+      variant="modern"
+      size="lg"
+      style={{
+        borderRadius: '24px',
+        overflow: 'hidden',
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border-primary)',
+        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 0 40px rgba(99, 102, 241, 0.1)'
+      }}
     >
-      <div className="space-y-4">
+      <div className="space-y-5">
         {/* الزبون */}
         <div>
-          <label className="block text-sm font-medium text-text mb-2">الزبون</label>
-          <div className="flex gap-2 mb-2">
-            <label className="flex items-center gap-2 text-sm">
+          <label style={{ 
+            fontSize: '12px', 
+            fontWeight: '600', 
+            color: 'var(--text-secondary)',
+            marginBottom: '8px',
+            display: 'block',
+            letterSpacing: '0.2px'
+          }}>
+            الزبون
+            <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
+          </label>
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer' }}>
               <input
                 type="radio"
                 checked={!isCustomerManual}
                 onChange={() => setIsCustomerManual(false)}
-                className="w-4 h-4"
+                style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
               />
               <span>اختر من القائمة</span>
             </label>
-            <label className="flex items-center gap-2 text-sm">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer' }}>
               <input
                 type="radio"
                 checked={isCustomerManual}
                 onChange={() => setIsCustomerManual(true)}
-                className="w-4 h-4"
+                style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
               />
               <span>اكتب يدوياً</span>
             </label>
@@ -128,6 +146,7 @@ export function TradeInModal({
                 ...customers.map((c) => ({ value: c.id, label: c.name })),
               ]}
               emptyMessage="لا يوجد عملاء"
+              style={{ borderRadius: '10px' }}
             />
           ) : (
             <Input
@@ -135,33 +154,43 @@ export function TradeInModal({
               value={tradeInCustomerManual}
               onChange={(e) => setTradeInCustomerManual(e.target.value)}
               placeholder="أدخل اسم الزبون..."
+              style={{ borderRadius: '10px' }}
             />
           )}
         </div>
 
         {/* المنتج */}
         <div>
-          <label className="block text-sm font-medium text-text mb-2">المنتج (اختياري إذا اخترت نوع القطعة)</label>
-          <div className="flex gap-2 mb-2">
-            <label className="flex items-center gap-2 text-sm">
+          <label style={{ 
+            fontSize: '12px', 
+            fontWeight: '600', 
+            color: 'var(--text-secondary)',
+            marginBottom: '8px',
+            display: 'block',
+            letterSpacing: '0.2px'
+          }}>
+            المنتج (اختياري إذا اخترت نوع القطعة)
+          </label>
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer' }}>
               <input
                 type="radio"
                 checked={!isProductManual}
                 onChange={() => setIsProductManual(false)}
-                className="w-4 h-4"
+                style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
               />
               <span>اختر من القائمة</span>
             </label>
-            <label className="flex items-center gap-2 text-sm">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer' }}>
               <input
                 type="radio"
                 checked={isProductManual}
                 onChange={() => setIsProductManual(true)}
-                className="w-4 h-4"
+                style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
               />
               <span>اكتب يدوياً</span>
             </label>
-            <label className="flex items-center gap-2 text-sm">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer' }}>
               <input
                 type="radio"
                 checked={tradeInProduct === '' && tradeInProductManual === ''}
@@ -170,7 +199,7 @@ export function TradeInModal({
                   setTradeInProduct('');
                   setTradeInProductManual('');
                 }}
-                className="w-4 h-4"
+                style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
               />
               <span>بدون منتج</span>
             </label>
@@ -185,6 +214,7 @@ export function TradeInModal({
                 ...products.map((p) => ({ value: p.id, label: p.name })),
               ]}
               emptyMessage="لا يوجد منتجات"
+              style={{ borderRadius: '10px' }}
             />
           ) : (
             <Input
@@ -192,13 +222,24 @@ export function TradeInModal({
               value={tradeInProductManual}
               onChange={(e) => setTradeInProductManual(e.target.value)}
               placeholder="أدخل اسم المنتج..."
+              style={{ borderRadius: '10px' }}
             />
           )}
         </div>
 
         {/* نوع القطعة */}
         <div>
-          <label className="block text-sm font-medium text-text mb-2">نوع القطعة *</label>
+          <label style={{ 
+            fontSize: '12px', 
+            fontWeight: '600', 
+            color: 'var(--text-secondary)',
+            marginBottom: '8px',
+            display: 'block',
+            letterSpacing: '0.2px'
+          }}>
+            نوع القطعة
+            <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
+          </label>
           <Select
             value={tradeInPartType}
             onChange={(e) => {
@@ -212,35 +253,128 @@ export function TradeInModal({
               ...partTypes.map((pt: any) => ({ value: pt.id, label: pt.name_ar })),
             ]}
             emptyMessage="لا يوجد أنواع قطع"
+            style={{ borderRadius: '10px' }}
           />
         </div>
 
         {/* السعر */}
         <div>
-          <label className="block text-sm font-medium text-text mb-2">السعر (كم دفعت للزبون) *</label>
+          <label style={{ 
+            fontSize: '12px', 
+            fontWeight: '600', 
+            color: 'var(--text-secondary)',
+            marginBottom: '8px',
+            display: 'block',
+            letterSpacing: '0.2px'
+          }}>
+            السعر (كم دفعت للزبون)
+            <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
+          </label>
           <Input
             type="number"
             value={tradeInPrice}
             onChange={(e) => setTradeInPrice(e.target.value)}
             placeholder="أدخل السعر..."
+            style={{ borderRadius: '10px' }}
           />
         </div>
 
         {/* مواصفات إضافية (سيتم تطويرها لاحقاً) */}
         {tradeInPartType && (
-          <div className="p-3 bg-gray-800 rounded-lg">
-            <p className="text-sm text-gray-400">المواصفات التفصيلية (قريباً)</p>
-            <p className="text-xs text-gray-500">سيتم إضافة المواصفات التفصيلية لكل نوع قطعة قريباً</p>
+          <div style={{ 
+            padding: '12px 16px', 
+            background: 'var(--bg-surface-elevated)', 
+            borderRadius: '12px',
+            border: '1px solid var(--border-subtle)'
+          }}>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>المواصفات التفصيلية (قريباً)</p>
+            <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>سيتم إضافة المواصفات التفصيلية لكل نوع قطعة قريباً</p>
           </div>
         )}
 
-        <div className="flex justify-end gap-3 pt-4">
-          <Button variant="secondary" onClick={handleCancel}>
+        <div style={{ 
+          display: 'flex', 
+          gap: '12px', 
+          justifyContent: 'flex-end',
+          paddingTop: '24px',
+          borderTop: '1px solid var(--border-subtle)',
+          marginTop: '16px'
+        }}>
+          <button
+            onClick={handleCancel}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              minWidth: '100px',
+              padding: '10px 20px',
+              borderRadius: '12px',
+              background: 'var(--bg-surface-elevated)',
+              border: '1px solid var(--border-default)',
+              color: 'var(--text-primary)',
+              fontSize: '13px',
+              fontWeight: '600',
+              letterSpacing: '0.3px',
+              cursor: 'pointer',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.05)',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-surface-elevated)';
+              e.currentTarget.style.borderColor = 'var(--primary)';
+              e.currentTarget.style.boxShadow = '0 8px 30px rgba(99, 102, 241, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1)';
+              e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--bg-surface-elevated)';
+              e.currentTarget.style.borderColor = 'var(--border-default)';
+              e.currentTarget.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.05)';
+              e.currentTarget.style.transform = 'translateY(0) scale(1)';
+            }}
+          >
             إلغاء
-          </Button>
-          <Button variant="primary" onClick={handleSubmit}>
-            شراء
-          </Button>
+          </button>
+          <button
+            onClick={handleSubmit}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              minWidth: '120px',
+              padding: '10px 20px',
+              borderRadius: '12px',
+              background: 'var(--primary)',
+              border: '1px solid var(--primary)',
+              color: 'var(--text-on-primary)',
+              fontSize: '13px',
+              fontWeight: '600',
+              letterSpacing: '0.3px',
+              cursor: 'pointer',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: '0 4px 20px rgba(99, 102, 241, 0.3), 0 1px 3px rgba(99, 102, 241, 0.1)',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--primary-hover)';
+              e.currentTarget.style.borderColor = 'var(--primary-hover)';
+              e.currentTarget.style.boxShadow = '0 8px 30px rgba(99, 102, 241, 0.4), 0 2px 8px rgba(99, 102, 241, 0.2)';
+              e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'var(--primary)';
+              e.currentTarget.style.borderColor = 'var(--primary)';
+              e.currentTarget.style.boxShadow = '0 4px 20px rgba(99, 102, 241, 0.3), 0 1px 3px rgba(99, 102, 241, 0.1)';
+              e.currentTarget.style.transform = 'translateY(0) scale(1)';
+            }}
+          >
+            <ShoppingCart className="w-4 h-4" style={{ position: 'relative', zIndex: 1 }} />
+            <span style={{ position: 'relative', zIndex: 1 }}>شراء</span>
+          </button>
         </div>
       </div>
     </Modal>

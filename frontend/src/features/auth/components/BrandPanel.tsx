@@ -28,7 +28,7 @@ export function BrandPanel({ isDark }: BrandPanelProps) {
             display: 'grid',
             placeItems: 'center',
             borderRadius: '13px',
-            color: isDark ? '#22d3ee' : '#2563EB',
+            color: isDark ? '#14b8a6' : '#2563EB',
             border: isDark ? '1px solid rgba(34, 211, 238, 0.25)' : '1px solid rgba(37, 99, 235, 0.25)',
             background: isDark
               ? 'linear-gradient(145deg, rgba(34, 211, 238, 0.13), rgba(59, 130, 246, 0.06))'
@@ -68,7 +68,7 @@ export function BrandPanel({ isDark }: BrandPanelProps) {
         <div
           style={{
             marginBottom: '14px',
-            color: isDark ? '#22d3ee' : '#2563EB',
+            color: isDark ? '#14b8a6' : '#2563EB',
             fontSize: '10px',
             fontWeight: '700',
             textTransform: 'uppercase',
@@ -90,7 +90,7 @@ export function BrandPanel({ isDark }: BrandPanelProps) {
           <br />
           <span
             style={{
-              color: isDark ? '#22d3ee' : '#2563EB',
+              color: isDark ? '#14b8a6' : '#2563EB',
               textShadow: isDark ? '0 0 25px rgba(34, 211, 238, 0.15)' : 'none',
             }}
           >

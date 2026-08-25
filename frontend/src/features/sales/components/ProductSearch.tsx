@@ -1,8 +1,12 @@
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { useState } from 'react';
 import { SearchInput } from '../../../components/ui/search-input';
 import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../components/ui/button';
+import { ProductCard } from '../../../components/ui/product-card';
+import { FilterDropdown } from '../../../components/ui/filter-dropdown';
 import { Package } from 'lucide-react';
 import { useTranslation } from '../../../hooks/useTranslation';
+import { cn } from '../../../utils';
 
 interface ProductSearchProps {
   products: any[];
@@ -11,6 +15,8 @@ interface ProductSearchProps {
   onClearSearch: () => void;
   quickAddMode: boolean;
   onProductClick: (product: any) => void;
+  selectedCategory: string | null;
+  categories: any[];
 }
 
 export function ProductSearch({
@@ -20,184 +26,163 @@ export function ProductSearch({
   onClearSearch,
   quickAddMode,
   onProductClick,
+  selectedCategory,
+  categories,
 }: ProductSearchProps) {
   const { t } = useTranslation();
 
-  const filteredProducts = (products || []).filter((product: any) =>
-    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.sku.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const [displayedCount, setDisplayedCount] = useState(16);
+  const [priceRange, setPriceRange] = useState<'all' | 'low' | 'medium' | 'high'>('all');
+
+  const PRODUCTS_PER_PAGE = 16;
+
+  const getPriceValue = (product: any): number => {
+    if (product.sellingPrice !== undefined && product.sellingPrice !== null) {
+      const val = product.sellingPrice;
+      return val > 1000 ? val / 100 : val;
+    }
+    if (product.selling_price !== undefined && product.selling_price !== null) {
+      const val = product.selling_price;
+      return val > 1000 ? val / 100 : val;
+    }
+    if (product.price !== undefined && product.price !== null) {
+      const val = product.price;
+      return val > 1000 ? val / 100 : val;
+    }
+    return 0;
+  };
+
+  const filteredProducts = (products || [])
+    .filter((product: any) => {
+      const matchesSearch =
+        product.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        product.sku?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        product.barcode?.toLowerCase().includes(searchQuery.toLowerCase());
+
+      const matchesCategory = !selectedCategory || product.category_id === selectedCategory;
+
+      let matchesPrice = true;
+      if (priceRange !== 'all') {
+        const price = getPriceValue(product);
+        if (priceRange === 'low') matchesPrice = price < 100;
+        else if (priceRange === 'medium') matchesPrice = price >= 100 && price < 500;
+        else if (priceRange === 'high') matchesPrice = price >= 500;
+      }
+
+      return matchesSearch && matchesCategory && matchesPrice;
+    })
+    .sort((a: any, b: any) => {
+      const aSales = a.sales_count || 0;
+      const bSales = b.sales_count || 0;
+      return bSales - aSales;
+    });
+
+  const displayedProducts = filteredProducts.slice(0, displayedCount);
+  const hasMoreProducts = filteredProducts.length > displayedCount;
+
+  const handleLoadMore = () => {
+    setDisplayedCount(prev => prev + PRODUCTS_PER_PAGE);
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    setDisplayedCount(PRODUCTS_PER_PAGE);
+  };
+
+  const sectionTitle = selectedCategory
+    ? `منتجات ${categories?.find((c: any) => c.id === selectedCategory)?.name || 'الفئة المحددة'}`
+    : t('sales.recentProducts');
 
   return (
-    <Card style={{
-      background: 'linear-gradient(135deg, var(--color-info-05) 0%, rgba(168, 85, 247, 0.05) 100%)',
-      border: '1px solid var(--color-info-10)',
-      backdropFilter: 'blur(10px)',
-      transition: 'all 0.3s ease'
-    }}
-    onMouseEnter={(e) => {
-      e.currentTarget.style.background = 'linear-gradient(135deg, var(--color-info-08) 0%, rgba(168, 85, 247, 0.08) 100%)';
-      e.currentTarget.style.borderColor = 'var(--color-info-20)';
-      e.currentTarget.style.transform = 'translateY(-2px)';
-      e.currentTarget.style.boxShadow = '0 8px 25px var(--color-info-10)';
-    }}
-    onMouseLeave={(e) => {
-      e.currentTarget.style.background = 'linear-gradient(135deg, var(--color-info-05) 0%, rgba(168, 85, 247, 0.05) 100%)';
-      e.currentTarget.style.borderColor = 'var(--color-info-10)';
-      e.currentTarget.style.transform = 'translateY(0)';
-      e.currentTarget.style.boxShadow = 'none';
-    }}>
-      <CardHeader>
-        <CardTitle style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '10px',
-          fontSize: '15px',
-          fontWeight: '600',
-          color: 'var(--text-primary)'
-        }}>
-          {t('sales.recentProducts')}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="mb-sm">
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-text-primary">
+          {sectionTitle}
+        </h3>
+        <Badge variant="outline" size="sm" className="text-xs">
+          عرض {displayedProducts.length} من {filteredProducts.length}
+          {filteredProducts.length > 0 && ' ⭐'}
+        </Badge>
+      </div>
+
+      {selectedCategory && (
+        <div className="text-xs font-medium text-text-tertiary">
+          ⭐ مرتبة حسب الأكثر مبيعاً
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <div className="flex-1">
           <SearchInput
-            placeholder={t('common.search')}
+            placeholder="بحث بالاسم، الباركود، SKU..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             onClear={onClearSearch}
             size="sm"
-            className="w-full md:w-[500px] lg:w-[600px]"
+            className="w-full"
           />
         </div>
-        
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: quickAddMode ? 'repeat(auto-fill, minmax(120px, 1fr))' : 'repeat(auto-fill, minmax(180px, 1fr))',
-          gap: '14px'
-        }}>
-          {filteredProducts.map((product: any) => (
-            <div
+
+        <FilterDropdown
+          label="فلتر"
+          groups={[
+            {
+              key: 'price',
+              label: 'نطاق السعر',
+              value: priceRange,
+              onChange: (v) => {
+                setPriceRange(v as any);
+                setDisplayedCount(PRODUCTS_PER_PAGE);
+              },
+              options: [
+                { id: 'all', label: 'الكل' },
+                { id: 'low', label: 'أقل من 100' },
+                { id: 'medium', label: '100–500' },
+                { id: 'high', label: '500+' },
+              ],
+            },
+          ]}
+        />
+      </div>
+
+      {displayedProducts.length > 0 ? (
+        <div
+          className={cn(
+            'grid gap-3',
+            quickAddMode
+              ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4'
+              : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5'
+          )}
+        >
+          {displayedProducts.map((product: any) => (
+            <ProductCard
               key={product.id}
-              onClick={() => onProductClick({
-                id: product.id,
-                name: product.name,
-                barcode: product.barcode || product.sku,
-                price: product.sellingPrice,
-                stock: product.stock
-              })}
-              style={{
-                padding: quickAddMode ? '12px' : '16px',
-                borderRadius: '12px',
-                border: '1px solid var(--color-info-15)',
-                background: 'linear-gradient(135deg, var(--bg-surface-elevated) 0%, var(--bg-surface) 100%)',
-                cursor: 'pointer',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                backdropFilter: 'blur(10px)'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = 'var(--color-info-40)';
-                e.currentTarget.style.transform = 'translateY(-4px) scale(1.02)';
-                e.currentTarget.style.boxShadow = '0 12px 30px var(--color-info-15)';
-                e.currentTarget.style.background = 'linear-gradient(135deg, var(--color-info-10) 0%, rgba(168, 85, 247, 0.1) 100%)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'var(--color-info-15)';
-                e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                e.currentTarget.style.boxShadow = 'none';
-                e.currentTarget.style.background = 'linear-gradient(135deg, var(--bg-surface-elevated) 0%, var(--bg-surface) 100%)';
-              }}
-            >
-              {quickAddMode ? (
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    color: 'var(--text-primary)',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    marginBottom: '6px',
-                    letterSpacing: '0.2px'
-                  }}>
-                    {product.name}
-                  </div>
-                  <div style={{
-                    fontSize: '14px',
-                    fontWeight: '700',
-                    color: 'var(--color-info)',
-                    textShadow: '0 0 20px var(--color-info-30)'
-                  }}>
-                    ₪{product.sellingPrice}
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
-                    <div style={{
-                      width: '44px',
-                      height: '44px',
-                      borderRadius: '10px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      background: 'linear-gradient(135deg, var(--color-info-15) 0%, rgba(168, 85, 247, 0.15) 100%)',
-                      border: '1px solid var(--color-info-25)',
-                      boxShadow: '0 4px 15px var(--color-info-10)'
-                    }}>
-                      <Package className="w-5 h-5 text-cyan-400" />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        color: 'var(--text-primary)',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        letterSpacing: '0.2px'
-                      }}>
-                        {product.name}
-                      </div>
-                      <div style={{
-                        fontSize: '11px',
-                        color: 'var(--text-secondary)',
-                        fontWeight: '500'
-                      }}>
-                        {product.sku}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{
-                      fontSize: '15px',
-                      fontWeight: '700',
-                      color: 'var(--color-info)',
-                      textShadow: '0 0 20px var(--color-info-30)'
-                    }}>
-                      ₪{product.sellingPrice}
-                    </div>
-                    <Badge
-                      variant={product.stock > 10 ? 'success' : 'warning'}
-                      style={{
-                        fontSize: '10px',
-                        fontWeight: '600',
-                        padding: '4px 8px',
-                        borderRadius: '6px',
-                        boxShadow: product.stock > 10
-                          ? '0 2px 10px var(--color-success-20)'
-                          : '0 2px 10px var(--color-warning-20)'
-                      }}
-                    >
-                      {product.stock > 10 ? 'متوفر' : `${product.stock}`}
-                    </Badge>
-                  </div>
-                </>
-              )}
-            </div>
+              product={product}
+              quickAdd={quickAddMode}
+              onClick={onProductClick}
+            />
           ))}
         </div>
-      </CardContent>
-    </Card>
+      ) : (
+        <div className="py-12 text-center">
+          <Package className="mx-auto mb-4 h-12 w-12 text-text-tertiary/30" />
+          <p className="mb-1 text-sm text-text-secondary">لا توجد منتجات مطابقة</p>
+          <p className="text-xs text-text-tertiary">جرب تغيير معايير البحث أو الفلتر</p>
+        </div>
+      )}
+
+      {hasMoreProducts && (
+        <div className="flex justify-center">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleLoadMore}
+            className="rounded-lg px-6 text-sm font-semibold"
+          >
+            تحميل المزيد ({Math.min(PRODUCTS_PER_PAGE, filteredProducts.length - displayedCount)})
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

@@ -4,12 +4,11 @@ import { useTranslation } from '../../../hooks/useTranslation';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Modal } from '../../../components/ui/modal';
 import { Button } from '../../../components/ui/button';
-import { getButtonSize } from '../../../config/button-sizes';
-import { productsApi, salesApi, customersApi, barcodeApi, inventoryApi, partTypesApi } from '../../../services/api/endpoints';
+import { productsApi, salesApi, customersApi, barcodeApi, inventoryApi, partTypesApi, categoriesApi } from '../../../services/api/endpoints';
 import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
 import { ItemInputMethodType } from '../../../components/ui/item-input-method';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
-import { RefreshCw, Zap, Printer } from 'lucide-react';
+import { Zap, Printer } from 'lucide-react';
 
 // Custom hooks
 import { useCart } from '../hooks/useCart';
@@ -22,10 +21,10 @@ import { CustomerSelector } from '../components/CustomerSelector';
 import { TradeInItemsSection } from '../components/TradeInItemsSection';
 import { CartSection } from '../components/CartSection';
 import { PaymentSection } from '../components/PaymentSection';
-import { TradeInModal } from '../components/TradeInModal';
+import { CategoryFilter } from '../components/CategoryFilter';
 
 // Types
-import { InvoiceData, TradeInFormData } from '../types/pos.types';
+import { InvoiceData } from '../types/pos.types';
 
 export function POSPage() {
   const { t } = useTranslation();
@@ -59,11 +58,11 @@ export function POSPage() {
   const [barcodeInput, setBarcodeInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [quickAddMode, setQuickAddMode] = useState(false);
-  const [inputMethod, setInputMethod] = useState<ItemInputMethodType>('barcode');
+  const [inputMethod, setInputMethod] = useState<'barcode' | 'camera'>('barcode');
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
-  const [isTradeInModalOpen, setIsTradeInModalOpen] = useState(false);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [lastSaleData, setLastSaleData] = useState<InvoiceData | null>(null);
 
@@ -88,10 +87,16 @@ export function POSPage() {
     queryFn: () => partTypesApi.list(),
   });
 
+  const { data: categoriesData, isLoading: categoriesLoading } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => categoriesApi.list(),
+  });
+
   const products = (productsData?.data?.products as unknown) as any[] || [];
   const customers = (customersData?.data as unknown) as any[] || [];
   const inventoryItems = (inventoryData?.data?.items as unknown) as any[] || [];
   const partTypes = (partTypesData?.data as unknown) as any[] || [];
+  const categories = (categoriesData?.data as unknown) as any[] || [];
 
   // Create sale mutation
   const createSaleMutation = useMutation({
@@ -178,7 +183,7 @@ export function POSPage() {
   };
 
   const handleManualAdd = () => {
-    setIsTradeInModalOpen(true);
+    // Manual add is now handled through the barcode scanner input
   };
 
   const addTradeInToCart = (inventoryItem: any) => {
@@ -196,17 +201,6 @@ export function POSPage() {
       partTypeColor: partType?.color,
       grade: inventoryItem.grade,
     });
-  };
-
-  const handleTradeIn = async (data: TradeInFormData) => {
-    try {
-      await inventoryApi.createTradeIn(data);
-      alert('تم شراء القطعة المستعملة بنجاح!');
-      queryClient.invalidateQueries({ queryKey: ['inventory'] });
-    } catch (error) {
-      console.error('Trade-in failed:', error);
-      alert('فشل شراء القطعة المستعملة');
-    }
   };
 
   const handleCheckout = useCallback(() => {
@@ -266,41 +260,34 @@ export function POSPage() {
         title={t('sales.posTitle')}
         description={t('sales.posTitle')}
         actions={
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <Button
-              variant="primary"
-              size={getButtonSize('sales', 'headerActions')}
-              onClick={() => setIsTradeInModalOpen(true)}
-            >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              شراء قطع مستعملة
-            </Button>
+          <div className="flex items-center gap-2">
             <Button
               variant="secondary"
-              size={getButtonSize('sales', 'headerActions')}
+              size="sm"
               onClick={() => setQuickAddMode(!quickAddMode)}
+              className="gap-2"
             >
-              <Zap className="w-4 h-4 mr-2" />
-              {t('sales.quickAdd')}
+              <Zap className="w-4 h-4" />
+              <span>{t('sales.quickAdd')}</span>
             </Button>
-            <Button 
-              variant="secondary" 
-              size={getButtonSize('sales', 'headerActions')}
+
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => lastSaleData && setIsInvoiceModalOpen(true)}
               disabled={!lastSaleData}
+              className="gap-2"
             >
-              <Printer className="w-4 h-4 mr-2" />
-              {t('sales.printInvoice')}
+              <Printer className="w-4 h-4" />
+              <span>{t('sales.printInvoice')}</span>
             </Button>
           </div>
         }
       />
 
       {/* POS Layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.2fr) minmax(0, 0.8fr)', gap: '14px' }}
-           className="grid-cols-1 lg:grid-cols-2">
-        {/* Left Side - Products */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-4">
+        <div className="flex flex-col gap-4">
           <BarcodeScanner
             barcodeInput={barcodeInput}
             setBarcodeInput={setBarcodeInput}
@@ -308,10 +295,15 @@ export function POSPage() {
             setInputMethod={setInputMethod}
             onBarcodeScan={handleBarcodeScan}
             onCameraScan={handleCameraScan}
-            onManualAdd={handleManualAdd}
             onCameraOpen={() => setIsCameraScannerOpen(true)}
             isCameraScannerOpen={isCameraScannerOpen}
             onCameraClose={() => setIsCameraScannerOpen(false)}
+          />
+
+          <CategoryFilter
+            categories={categories}
+            selectedCategory={selectedCategory}
+            onCategorySelect={setSelectedCategory}
           />
 
           <ProductSearch
@@ -321,11 +313,12 @@ export function POSPage() {
             onClearSearch={handleClearSearch}
             quickAddMode={quickAddMode}
             onProductClick={addToCart}
+            selectedCategory={selectedCategory}
+            categories={categories}
           />
         </div>
 
-        {/* Right Side - Cart */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div className="flex flex-col gap-4">
           <CustomerSelector
             selectedCustomer={selectedCustomer}
             setSelectedCustomer={setSelectedCustomer}
@@ -359,24 +352,12 @@ export function POSPage() {
         </div>
       </div>
 
-      {/* Trade-in Modal */}
-      <TradeInModal
-        isOpen={isTradeInModalOpen}
-        onClose={() => setIsTradeInModalOpen(false)}
-        customers={customers}
-        products={products}
-        partTypes={partTypes}
-        customersLoading={customersLoading}
-        productsLoading={productsLoading}
-        partTypesLoading={partTypesLoading}
-        onSubmit={handleTradeIn}
-      />
-
       {/* Invoice Modal */}
       <Modal
         isOpen={isInvoiceModalOpen}
         onClose={() => setIsInvoiceModalOpen(false)}
         title="فاتورة البيع"
+        variant="modern"
         size="xl"
       >
         {lastSaleData && (

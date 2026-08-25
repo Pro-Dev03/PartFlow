@@ -297,13 +297,13 @@ export function PaymentSection({
           >
             {isProcessing ? (
               <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" style={{ color: '#fff' }} />
-                <span style={{ color: '#fff' }}>جاري المعالجة...</span>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" style={{ color: 'var(--text-on-primary)' }} />
+                <span style={{ color: 'var(--text-on-primary)' }}>جاري المعالجة...</span>
               </>
             ) : (
               <>
-                <Send className="w-4 h-4 mr-2" style={{ color: '#fff' }} />
-                <span style={{ color: '#fff' }}>إتمام البيع</span>
+                <Send className="w-4 h-4 mr-2" style={{ color: 'var(--text-on-primary)' }} />
+                <span style={{ color: 'var(--text-on-primary)' }}>إتمام البيع</span>
               </>
             )}
           </Button>

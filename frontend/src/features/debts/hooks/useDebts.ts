@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { debtsApi } from '../../../services/api/endpoints';
 import { Debt, DebtStats } from '../types/debts.types';
+import { SearchFilters } from '../components/AdvancedSearch';
 
 export function useDebts() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
 
   const { data: overdueCustomersData, isLoading } = useQuery({
     queryKey: ['debts'],
@@ -13,10 +15,11 @@ export function useDebts() {
   });
 
   const recordPaymentMutation = useMutation({
-    mutationFn: ({ customerId, amount }: { customerId: string; amount: number }) =>
-      debtsApi.recordPayment(customerId, { amount }),
+    mutationFn: ({ customerId, amount, method }: { customerId: string; amount: number; method: string }) =>
+      debtsApi.recordPayment(customerId, { amount, method }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['debts'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
   });
 
@@ -26,10 +29,13 @@ export function useDebts() {
   const debts = overdueCustomers.flatMap((customer: any) => {
     return (customer.debts || []).map((debt: any) => ({
       ...debt,
+      dueDate: debt.due_date, // Map due_date to dueDate for consistency
+      remainingAmount: debt.remaining_amount, // Map remaining_amount to remainingAmount
       customer: {
         id: customer.id,
         name: customer.name,
         code: customer.code,
+        phone: customer.phone,
       },
     }));
   });
@@ -43,14 +49,86 @@ export function useDebts() {
     customerCount: overdueCustomers.length,
   };
 
-  // Filter debts
+  // Helper function to check date range
+  const isInDateRange = (dateString: string, range: string) => {
+    if (!dateString) return false;
+    const date = new Date(dateString);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const diffTime = date.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    switch (range) {
+      case 'today':
+        return diffDays === 0;
+      case 'week':
+        return diffDays >= 0 && diffDays <= 7;
+      case 'month':
+        return diffDays >= 0 && diffDays <= 30;
+      default:
+        return true;
+    }
+  };
+
+  // Filter debts with advanced filters
   const filteredDebts = debts.filter((debt: Debt) => {
     const customerName = debt.customer?.name || '';
     const customerCode = debt.customer?.code || '';
-    return (
-      customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      customerCode.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const customerPhone = debt.customer?.phone || '';
+    const debtAmount = debt.amount || 0;
+    const debtStatus = debt.status || '';
+    const debtDueDate = debt.dueDate || '';
+
+    // Apply search query based on search type
+    let matchesQuery = true;
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      switch (searchFilters.searchType) {
+        case 'name':
+          matchesQuery = customerName.toLowerCase().includes(query);
+          break;
+        case 'code':
+          matchesQuery = customerCode.toLowerCase().includes(query);
+          break;
+        case 'phone':
+          matchesQuery = customerPhone.includes(query);
+          break;
+        case 'amount':
+          matchesQuery = debtAmount.toString().includes(query);
+          break;
+        default:
+          matchesQuery = 
+            customerName.toLowerCase().includes(query) ||
+            customerCode.toLowerCase().includes(query) ||
+            customerPhone.includes(query);
+      }
+    }
+
+    // Apply status filter
+    let matchesStatus = true;
+    if (searchFilters.status && searchFilters.status !== 'all') {
+      matchesStatus = debtStatus === searchFilters.status;
+    }
+
+    // Apply date range filter
+    let matchesDateRange = true;
+    if (searchFilters.dateRange && searchFilters.dateRange !== 'all') {
+      matchesDateRange = isInDateRange(debtDueDate, searchFilters.dateRange);
+    }
+
+    // Apply amount range filter
+    let matchesAmountRange = true;
+    if (searchFilters.amountRange) {
+      if (searchFilters.amountRange.min !== undefined) {
+        matchesAmountRange = matchesAmountRange && debtAmount >= searchFilters.amountRange.min;
+      }
+      if (searchFilters.amountRange.max !== undefined) {
+        matchesAmountRange = matchesAmountRange && debtAmount <= searchFilters.amountRange.max;
+      }
+    }
+
+    return matchesQuery && matchesStatus && matchesDateRange && matchesAmountRange;
   });
 
   return {
@@ -60,6 +138,8 @@ export function useDebts() {
     isLoading,
     searchQuery,
     setSearchQuery,
+    searchFilters,
+    setSearchFilters,
     recordPaymentMutation,
   };
 }

@@ -36,12 +36,12 @@ export function CustomerStats({ stats, onRecommendationClick }: CustomerStatsPro
               <Heart style={{ width: '16px', height: '16px', color: 'var(--primary)' }} />
             </div>
             <div>
-              <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>فرصة استعادة العملاء</p>
+              <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>قيد التطوير</p>
               <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                5 عملاء نشطين لم يقوموا بشراء منذ 30 يوم. أرسل لهم عروض خاصة لزيادة المبيعات.
+                هذه الميزة قيد التطوير حالياً. ستوفر تحليلات ذكية للعملاء وتوصيات لتحسين العلاقات وزيادة المبيعات.
               </p>
-              <Button variant="secondary" size={getButtonSize('customers', 'recommendation')} onClick={onRecommendationClick}>
-                عرض التوصية ←
+              <Button variant="secondary" size={getButtonSize('customers', 'recommendation')} disabled>
+                قيد التطوير
               </Button>
             </div>
           </div>

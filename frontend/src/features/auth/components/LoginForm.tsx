@@ -83,12 +83,12 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
             border: '1px solid rgba(251, 113, 133, 0.3)',
             borderRadius: '10px',
             background: 'rgba(251, 113, 133, 0.1)',
-            color: '#fb7185',
+            color: 'var(--color-danger)',
             fontSize: '10px',
             lineHeight: '1.5',
           }}
         >
-          <span style={{ color: '#fb7185', flexShrink: 0 }}>
+          <span style={{ color: 'var(--color-danger)', flexShrink: 0 }}>
             <AlertCircle style={{ width: '12px', height: '12px' }} />
           </span>
           <span>{error}</span>
@@ -188,14 +188,14 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
-              style={{ accentColor: isDark ? '#22d3ee' : '#2563EB' }}
+              style={{ accentColor: isDark ? '#14b8a6' : '#2563EB' }}
             />
             {t('auth.rememberMe')}
           </label>
           <button
             type="button"
             style={{
-              color: isDark ? '#22d3ee' : '#2563EB',
+              color: isDark ? '#14b8a6' : '#2563EB',
               fontSize: '11px',
               background: 'none',
               border: 'none',
@@ -221,7 +221,7 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
             fontWeight: '700',
             cursor: isLoading ? 'not-allowed' : 'pointer',
             background: isDark
-              ? 'linear-gradient(135deg, #22d3ee 0%, #3b82f6 100%)'
+              ? 'linear-gradient(135deg, #14b8a6 0%, #2563eb 100%)'
               : 'linear-gradient(135deg, #2563EB 0%, #1d4ed8 100%)',
             boxShadow: isDark
               ? '0 4px 20px rgba(34, 211, 238, 0.3), 0 0 30px rgba(34, 211, 238, 0.15)'

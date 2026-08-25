@@ -12,6 +12,9 @@ type Category struct {
 	Name           string     `json:"name" db:"name"`
 	Description    string     `json:"description" db:"description"`
 	ParentID       *uuid.UUID `json:"parent_id" db:"parent_id"`
+	Icon           *string    `json:"icon" db:"icon"`
+	Color          *string    `json:"color" db:"color"`
+	IsActive       bool       `json:"is_active" db:"is_active"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 }
@@ -50,6 +53,9 @@ type CategoryRequest struct {
 	Name        string     `json:"name" binding:"required"`
 	Description string     `json:"description"`
 	ParentID    *uuid.UUID `json:"parent_id"`
+	Icon        *string    `json:"icon"`
+	Color       *string    `json:"color"`
+	IsActive    *bool      `json:"is_active"`
 }
 
 // BrandRequest represents brand creation/update request

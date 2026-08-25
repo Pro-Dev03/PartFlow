@@ -321,7 +321,8 @@ export function PurchasesPage() {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         title="إنشاء شراء جديد"
-        size="xl"
+        variant="modern"
+        size="2xl"
       >
         <div className="space-y-6">
           {/* Supplier Selection */}

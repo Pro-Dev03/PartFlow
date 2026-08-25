@@ -6,6 +6,7 @@ import { useAuthStore } from './stores/authStore';
 import { ErrorBoundary } from './components/ui/error-boundary';
 import { ToastContainer } from './components/ui/ToastContainer';
 import { appRoutes, PageLoader } from './app/router';
+import { LayoutProvider } from './contexts/LayoutContext';
 
 // Lazy load login page separately
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -68,11 +69,13 @@ function App() {
               path="/app/*"
               element={
                 <ProtectedRoute>
-                  <AppLayout>
-                    <Suspense fallback={<PageLoader />}>
-                      {appRoutes}
-                    </Suspense>
-                  </AppLayout>
+                  <LayoutProvider>
+                    <AppLayout>
+                      <Suspense fallback={<PageLoader />}>
+                        {appRoutes}
+                      </Suspense>
+                    </AppLayout>
+                  </LayoutProvider>
                 </ProtectedRoute>
               }
             />

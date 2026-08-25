@@ -20,7 +20,7 @@ const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         hoverShadow: '0 2px 4px rgba(99, 102, 241, 0.1)',
       },
       primary: {
-        base: '#818cf8',
+        base: '#60a5fa',
         bg: 'rgba(99, 102, 241, 0.12)',
         border: 'rgba(99, 102, 241, 0.25)',
         shadow: '0 2px 4px rgba(99, 102, 241, 0.1)',

@@ -595,46 +595,102 @@ aside.sidebar nav {
   overflow: hidden !important;
 }
 
-/* Custom Enhanced Input Styles - Override Theme CSS */
-.search-input-custom {
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%) !important;
-  border: 1px solid #6366f1 !important;
+/* ==========================================================================
+   Input Styles
+   ========================================================================== */
+.input-base {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-default) !important;
   color: var(--text-primary) !important;
   font-size: 14px !important;
   font-weight: 500 !important;
   letter-spacing: 0.2px !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border-radius: var(--radius-lg) !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-/* Override inline styles on search input */
-.search-input-custom[style*="background"] {
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%) !important;
+.input-base:hover {
+  border-color: var(--primary-hover) !important;
+  box-shadow: var(--shadow-glow-soft) !important;
 }
 
-.search-input-custom[style*="border"] {
-  border: 1px solid #6366f1 !important;
+.input-base:focus-visible {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px var(--color-primary-30), 0 4px 20px var(--color-primary-30) !important;
 }
 
-.search-input-custom:focus {
-  border: 2px solid #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3), 0 4px 20px rgba(99, 102, 241, 0.4) !important;
+.input-error {
+  border-color: var(--danger) !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
+.input-error:focus-visible {
+  border-color: var(--danger) !important;
+  box-shadow: 0 0 0 3px var(--color-danger-30) !important;
+}
+
+.input-success {
+  border-color: var(--success) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.input-success:focus-visible {
+  border-color: var(--success) !important;
+  box-shadow: 0 0 0 3px var(--color-success-30) !important;
+}
+
+.input-default:focus-visible {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px var(--color-primary-30), 0 4px 20px var(--color-primary-30) !important;
+}
+
+/* Select Styles */
 .select-custom {
-  background: linear-gradient(135deg, rgba(30, 41, 59, 0.9) 0%, rgba(30, 41, 59, 0.7) 100%) !important;
-  border: 1px solid #6366f1 !important;
+  width: 100%;
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-default) !important;
   color: var(--text-primary) !important;
   font-size: 14px !important;
   font-weight: 500 !important;
   letter-spacing: 0.2px !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border-radius: var(--radius-lg) !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.select-custom:hover {
+  border-color: var(--primary-hover) !important;
+  box-shadow: var(--shadow-glow-soft) !important;
 }
 
 .select-custom:focus {
-  border: 2px solid #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3), 0 4px 20px rgba(99, 102, 241, 0.4) !important;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px var(--color-primary-30), 0 4px 20px var(--color-primary-30) !important;
+}
+
+.select-custom option {
+  background: var(--bg-surface-elevated) !important;
+  color: var(--text-primary) !important;
+  padding: 10px 14px !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.2px !important;
+}
+
+/* Search Input (uses input-base styles) */
+.search-input-custom {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-default) !important;
+  color: var(--text-primary) !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.2px !important;
+  border-radius: var(--radius-lg) !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.search-input-custom:focus-visible {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px var(--color-primary-30) !important;
 }
 
 /* Cart Section Styles - Performance Optimized */

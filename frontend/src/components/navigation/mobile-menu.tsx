@@ -85,14 +85,14 @@ export function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
               borderRadius: '8px',
               display: 'grid',
               placeItems: 'center',
-              color: '#22d3ee',
+              color: 'var(--color-primary)',
               border: '1px solid rgba(34, 211, 238, 0.35)',
               background: 'linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(59, 130, 246, 0.04))'
             }}>
               <span style={{ fontSize: '16px' }}>◈</span>
             </div>
             <div>
-              <div style={{ color: '#f1f7ff', fontWeight: '700', fontSize: '14px' }}>PARTFLOW</div>
+              <div style={{ color: 'var(--text-primary)', fontWeight: '700', fontSize: '14px' }}>PARTFLOW</div>
             </div>
           </div>
           <button
@@ -122,13 +122,13 @@ export function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
                     className={cn(
                       'flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200',
                       'hover:bg-surface-elevated',
-                      isActive && 'bg-cyan/10 border border-cyan/20'
+                      isActive && 'bg-[var(--color-accent)]/10 border border-[var(--color-accent)]/20'
                     )}
                     style={{
-                      color: isActive ? '#22d3ee' : '#94a3b8'
+                      color: isActive ? '#14b8a6' : '#94a3b8'
                     }}
                   >
-                    <Icon className="w-5 h-5" style={{ color: isActive ? '#22d3ee' : '#65748c' }} />
+                    <Icon className="w-5 h-5" style={{ color: isActive ? '#14b8a6' : '#65748c' }} />
                     <span className="flex-1 text-sm font-medium">{item.label}</span>
                     {isActive && <ChevronRight className="w-4 h-4 text-cyan" />}
                   </Link>
@@ -153,13 +153,13 @@ export function MobileMenu({ isOpen, onClose }: MobileMenuProps) {
                     className={cn(
                       'flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200',
                       'hover:bg-surface-elevated',
-                      isActive && 'bg-cyan/10 border border-cyan/20'
+                      isActive && 'bg-[var(--color-accent)]/10 border border-[var(--color-accent)]/20'
                     )}
                     style={{
-                      color: isActive ? '#22d3ee' : '#94a3b8'
+                      color: isActive ? '#14b8a6' : '#94a3b8'
                     }}
                   >
-                    <Icon className="w-5 h-5" style={{ color: isActive ? '#22d3ee' : '#65748c' }} />
+                    <Icon className="w-5 h-5" style={{ color: isActive ? '#14b8a6' : '#65748c' }} />
                     <span className="flex-1 text-sm font-medium">{item.label}</span>
                     {isActive && <ChevronRight className="w-4 h-4 text-cyan" />}
                   </Link>
