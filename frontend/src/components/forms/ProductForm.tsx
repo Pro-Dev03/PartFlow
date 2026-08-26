@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Select } from '../ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { suppliersApi } from '../../services/api/endpoints';
 
 interface ProductFormProps {
   onSubmit: (data: ProductFormData) => void;
@@ -15,10 +17,11 @@ export interface ProductFormData {
   sku: string;
   category: string;
   description?: string;
-  buyingPrice: number;
-  sellingPrice: number;
+  cost_price: number;
+  selling_price: number;
   condition: 'new' | 'used' | 'refurbished' | 'parts_only';
   warrantyPeriod?: number;
+  preferredSupplierId?: string;
 }
 
 export function ProductForm({ onSubmit, onCancel, initialData }: ProductFormProps) {
@@ -27,11 +30,20 @@ export function ProductForm({ onSubmit, onCancel, initialData }: ProductFormProp
     sku: initialData?.sku || '',
     category: initialData?.category || '',
     description: initialData?.description || '',
-    buyingPrice: initialData?.buyingPrice || 0,
-    sellingPrice: initialData?.sellingPrice || 0,
+    cost_price: initialData?.cost_price || 0,
+    selling_price: initialData?.selling_price || 0,
     condition: initialData?.condition || 'new',
     warrantyPeriod: initialData?.warrantyPeriod || 12,
+    preferredSupplierId: initialData?.preferredSupplierId ?? '',
   });
+
+  // Fetch suppliers for the dropdown
+  const { data: suppliersData, isLoading: suppliersLoading } = useQuery({
+    queryKey: ['suppliers'],
+    queryFn: () => suppliersApi.list({ page: 1, per_page: 100 }),
+  });
+
+  const suppliers = suppliersData?.data || [];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,6 +88,20 @@ export function ProductForm({ onSubmit, onCancel, initialData }: ProductFormProp
             required
           />
 
+          <Select
+            label="المورد المفضل"
+            value={formData.preferredSupplierId}
+            onChange={(e) => setFormData({ ...formData, preferredSupplierId: e.target.value })}
+            options={[
+              { value: '', label: 'اختر المورد...' },
+              ...suppliers.map((supplier: any) => ({
+                value: supplier.id,
+                label: supplier.name,
+              })),
+            ]}
+            disabled={suppliersLoading}
+          />
+
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               الوصف
@@ -92,16 +118,16 @@ export function ProductForm({ onSubmit, onCancel, initialData }: ProductFormProp
             <Input
               label="سعر الشراء"
               type="number"
-              value={formData.buyingPrice}
-              onChange={(e) => setFormData({ ...formData, buyingPrice: parseFloat(e.target.value) || 0 })}
+              value={formData.cost_price}
+              onChange={(e) => setFormData({ ...formData, cost_price: parseFloat(e.target.value) || 0 })}
               required
             />
 
             <Input
               label="سعر البيع"
               type="number"
-              value={formData.sellingPrice}
-              onChange={(e) => setFormData({ ...formData, sellingPrice: parseFloat(e.target.value) || 0 })}
+              value={formData.selling_price}
+              onChange={(e) => setFormData({ ...formData, selling_price: parseFloat(e.target.value) || 0 })}
               required
             />
           </div>

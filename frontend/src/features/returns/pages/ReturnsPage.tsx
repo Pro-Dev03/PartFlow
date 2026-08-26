@@ -1,223 +1,391 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
+import { useNavigate } from 'react-router-dom';
 import { returnsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { SearchInput } from '../../../components/ui/search-input';
 import { PageHeader } from '../../../components/ui/page-header';
-import { StatCard } from '../../../components/ui/stat-card';
 import { Select } from '../../../components/ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Badge } from '../../../components/ui/badge';
-import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { getButtonSize } from '../../../config/button-sizes';
 import { 
   RotateCcw, 
   Plus, 
   Eye,
-  ShoppingCart,
   AlertTriangle,
   CheckCircle,
+  DollarSign,
+  TrendingDown,
+  Filter,
   XCircle,
-  Package,
-  Download,
-  Printer
+  RefreshCw
 } from 'lucide-react';
+
+interface ReturnItem {
+  id: string;
+  product_name: string;
+  quantity_returned: number;
+  unit_price: number;
+  total_refund_amount: number;
+  returned_condition: string;
+  resolution: string;
+  inspection_required: boolean;
+}
+
+interface Return {
+  id: string;
+  return_number: string;
+  reference_number: string;
+  sale_id?: string;
+  customer_id?: string;
+  customer_name?: string;
+  return_date: string;
+  return_type: string;
+  status: string;
+  total_refund_amount: number;
+  refund_method: string;
+  reason: string;
+  item_condition_after_return: string;
+  items?: ReturnItem[];
+  created_at: string;
+  updated_at: string;
+}
 
 export function ReturnsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [returnTypeFilter, setReturnTypeFilter] = useState('');
+  const [refundMethodFilter, setRefundMethodFilter] = useState('');
+
+
+  const { data: returnsData, isLoading } = useQuery({
+    queryKey: ['returns', statusFilter, returnTypeFilter, refundMethodFilter],
+    queryFn: () => returnsApi.list({ 
+      page: 1, 
+      per_page: 100,
+      status: statusFilter,
+      return_type: returnTypeFilter,
+      refund_method: refundMethodFilter,
+      search: searchQuery
+    }),
+  });
+
+  const returns = (returnsData?.data as Return[]) || [];
+
+  const { data: monthlyAnalysis } = useQuery({
+    queryKey: ['returns-monthly-analysis'],
+    queryFn: () => returnsApi.getMonthlyAnalysis(),
+  });
+
+  const { data: salesReturnsAnalysis } = useQuery({
+    queryKey: ['sales-returns-analysis'],
+    queryFn: () => returnsApi.getSalesReturnsAnalysis(),
+  });
+
+  const { data: statistics } = useQuery({
+    queryKey: ['returns-statistics'],
+    queryFn: () => returnsApi.getStatistics(),
+  });
 
   const handleClearSearch = () => {
     setSearchQuery('');
+    setStatusFilter('');
+    setReturnTypeFilter('');
+    setRefundMethodFilter('');
   };
-
-  const { data: returnsData, isLoading } = useQuery({
-    queryKey: ['returns'],
-    queryFn: () => returnsApi.list({ page: 1, per_page: 100 }),
-  });
-
-  const returns = (returnsData?.data as any[]) || [];
-
-  const filteredReturns = returns.filter((returnItem: any) => {
-    const matchesSearch = 
-      returnItem.sale?.invoiceNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      returnItem.customer?.name?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = !statusFilter || returnItem.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
 
   const getStatusBadge = (status: string) => {
-    const variants: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: any }> = {
-      pending: { label: 'قيد الانتظار', variant: 'secondary', icon: AlertTriangle },
-      approved: { label: 'موافق عليه', variant: 'default', icon: CheckCircle },
-      rejected: { label: 'مرفوض', variant: 'destructive', icon: XCircle },
-      completed: { label: 'مكتمل', variant: 'outline', icon: CheckCircle },
+    const variants: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'secondary' | 'info'; icon: any }> = {
+      PENDING: { label: 'قيد الانتظار', variant: 'warning', icon: AlertTriangle },
+      APPROVED: { label: 'موافق عليه', variant: 'success', icon: CheckCircle },
+      PROCESSING: { label: 'قيد المعالجة', variant: 'info', icon: RefreshCw },
+      COMPLETED: { label: 'مكتمل', variant: 'success', icon: CheckCircle },
+      REJECTED: { label: 'مرفوض', variant: 'danger', icon: XCircle },
+      CANCELLED: { label: 'ملغي', variant: 'secondary', icon: XCircle },
     };
-    return variants[status] || { label: status, variant: 'default', icon: AlertTriangle };
+    return variants[status] || { label: status, variant: 'secondary', icon: AlertTriangle };
   };
 
-  const handleExport = () => {
-    const dataToExport = returns.map((returnItem: any) => ({
-      'التاريخ': returnItem.date,
-      'العميل': returnItem.customer,
-      'المنتج': returnItem.product,
-      'الحالة': getStatusBadge(returnItem.status).label,
-      'السبب': returnItem.reason
-    }));
-    exportToCSV(dataToExport, `returns-${new Date().toISOString().split('T')[0]}`);
+  const getReturnTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      FULL: 'مرتجع كامل',
+      PARTIAL: 'مرتجع جزئي',
+      QUANTITY_PARTIAL: 'مرتجع كمية جزئية',
+    };
+    return labels[type] || type;
   };
 
-  const handlePrint = () => {
-    const dataToPrint = returns.map((returnItem: any) => ({
-      'التاريخ': returnItem.date,
-      'العميل': returnItem.customer,
-      'المنتج': returnItem.product,
-      'الحالة': getStatusBadge(returnItem.status).label,
-      'السبب': returnItem.reason
-    }));
-    printTable(dataToPrint, ['التاريخ', 'العميل', 'المنتج', 'الحالة', 'السبب'], 'تقرير المرتجعات');
+  const getRefundMethodLabel = (method: string) => {
+    const labels: Record<string, string> = {
+      CASH: 'نقدي',
+      CREDIT: 'رصيد عميل',
+      DEBT_ADJUSTMENT: 'تعديل دين',
+      EXCHANGE: 'استبدال',
+      BANK_TRANSFER: 'تحويل بنكي',
+      STORE_CREDIT: 'رصيد المتجر',
+    };
+    return labels[method] || method;
   };
+
+  const getConditionLabel = (condition: string) => {
+    const labels: Record<string, string> = {
+      SELLABLE: 'قابل للبيع',
+      NEEDS_INSPECTION: 'يحتاج فحص',
+      NEEDS_REPAIR: 'يحتاج إصلاح',
+      DAMAGED: 'تالف',
+      USED: 'مستعمل',
+      REFURBISHED: 'مجدّد',
+      SUPPLIER_RETURN: 'إرجاع للمورد',
+      WRITE_OFF: 'شطب',
+      PARTS: 'قطع غيار',
+    };
+    return labels[condition] || condition;
+  };
+
+  const handleViewDetails = (returnItem: Return) => {
+    navigate(`/app/returns/${returnItem.id}`);
+  };
+
+  const completeReturnMutation = useMutation({
+    mutationFn: (id: string) => returnsApi.complete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['returns'] });
+      alert('تم إكمال المرتجع بنجاح!');
+    },
+    onError: (error) => {
+      console.error('Failed to complete return:', error);
+      alert('فشل إكمال المرتجع');
+    },
+  });
 
   return (
     <div>
       {/* Page Header */}
       <PageHeader
         eyebrow="Returns Management"
-        title={t('returns.title')}
-        description="إدارة المرتجعات والاسترجاع"
+        title={t('returns.title') || 'المرتجعات'}
+        description="إدارة المرتجعات والاسترجاع مع تتبع كامل للمنتجات والماليات"
         actions={
-          <div className="flex gap-sm">
-            <Button variant="primary" size={getButtonSize('returns', 'headerActions')} className="gap-2">
+          <div className="flex gap-2">
+            <Button variant="primary" className="gap-2">
               <Plus className="w-4 h-4" />
-              {t('returns.newReturn')}
-            </Button>
-            <Button variant="secondary" size={getButtonSize('returns', 'headerActions')} onClick={handleExport} className="gap-2">
-              <Download className="w-4 h-4" />
-              تصدير
-            </Button>
-            <Button variant="secondary" size={getButtonSize('returns', 'headerActions')} onClick={handlePrint} className="gap-2">
-              <Printer className="w-4 h-4" />
-              طباعة
+              مرتجع جديد
             </Button>
           </div>
         }
       />
 
-      {/* Stats Cards - Futuristic + Clean */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
-        <StatCard title="إجمالي المرتجعات" value={returns.length} icon={RotateCcw} variant="featured" />
-        <StatCard title="قيد الانتظار" value={returns.filter((r: any) => r.status === 'pending').length} icon={AlertTriangle} variant="warning" />
-        <StatCard title="موافق عليه" value={returns.filter((r: any) => r.status === 'approved').length} icon={CheckCircle} variant="success" />
-        <StatCard title="مكتمل" value={returns.filter((r: any) => r.status === 'completed').length} icon={Package} variant="default" />
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-cyan/10">
+                <RotateCcw className="w-5 h-5 text-cyan" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-400">إجمالي المرتجعات</p>
+                <p className="text-2xl font-bold">{statistics?.total_returns || returns.length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-yellow/10">
+                <AlertTriangle className="w-5 h-5 text-yellow" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-400">قيد الانتظار</p>
+                <p className="text-2xl font-bold">
+                  {statistics?.pending_returns || returns.filter((r) => r.status === 'PENDING').length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-green/10">
+                <DollarSign className="w-5 h-5 text-green" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-400">قيمة المرتجعات</p>
+                <p className="text-2xl font-bold">
+                  ₪{statistics?.total_refunded ? (statistics.total_refunded / 100).toLocaleString() : returns.reduce((sum, r) => sum + r.total_refund_amount, 0).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue/10">
+                <TrendingDown className="w-5 h-5 text-blue" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-400">صافي المبيعات</p>
+                <p className="text-2xl font-bold">
+                  ₪{(salesReturnsAnalysis?.data?.[0]?.net_sales || 0).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Search and Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-medium">البحث والتصفية</CardTitle>
-        </CardHeader>
-        <CardContent className="p-lg pt-0">
-          <div className="flex flex-col md:flex-row gap-md items-start md:items-center">
+      <Card className="mb-4">
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row gap-3 items-start md:items-center">
             <div className="flex-1 w-full">
               <SearchInput
-                placeholder="بحث برقم الفاتورة أو العميل..."
+                placeholder="بحث برقم المرتجع أو العميل..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onClear={handleClearSearch}
-                size="md"
+                size="sm"
                 className="w-full"
               />
             </div>
-            <div className="w-full md:w-auto min-w-[200px]">
+            <div className="flex gap-2 w-full md:w-auto">
               <Select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                size="md"
+                size="sm"
                 options={[
                   { value: '', label: 'كل الحالات' },
-                  { value: 'pending', label: 'قيد الانتظار' },
-                  { value: 'approved', label: 'موافق عليه' },
-                  { value: 'rejected', label: 'مرفوض' },
-                  { value: 'completed', label: 'مكتمل' },
+                  { value: 'PENDING', label: 'قيد الانتظار' },
+                  { value: 'APPROVED', label: 'موافق عليه' },
+                  { value: 'PROCESSING', label: 'قيد المعالجة' },
+                  { value: 'COMPLETED', label: 'مكتمل' },
+                  { value: 'REJECTED', label: 'مرفوض' },
                 ]}
+                className="w-40"
               />
+              <Select
+                value={returnTypeFilter}
+                onChange={(e) => setReturnTypeFilter(e.target.value)}
+                size="sm"
+                options={[
+                  { value: '', label: 'كل الأنواع' },
+                  { value: 'FULL', label: 'مرتجع كامل' },
+                  { value: 'PARTIAL', label: 'مرتجع جزئي' },
+                  { value: 'QUANTITY_PARTIAL', label: 'كمية جزئية' },
+                ]}
+                className="w-40"
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleClearSearch}
+                className="h-10 px-4"
+              >
+                <Filter className="w-4 h-4 mr-1" />
+                مسح
+              </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Returns Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>سجل المرتجعات</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan" />
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>رقم الفاتورة</TableHead>
-                  <TableHead>العميل</TableHead>
-                  <TableHead>القطعة</TableHead>
-                  <TableHead>السبب</TableHead>
-                  <TableHead>مبلغ الاسترجاع</TableHead>
-                  <TableHead>يتطلب فحص</TableHead>
-                  <TableHead>الحالة</TableHead>
-                  <TableHead>التاريخ</TableHead>
-                  <TableHead className="text-start">الإجراءات</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredReturns.map((returnItem: any) => {
-                  const statusBadge = getStatusBadge(returnItem.status);
-                  const StatusIcon = statusBadge.icon;
-                  return (
-                    <TableRow key={returnItem.id}>
-                      <TableCell className="font-medium">
-                        {returnItem.sale?.invoiceNumber}
-                      </TableCell>
-                      <TableCell>{returnItem.customer?.name}</TableCell>
-                      <TableCell>{returnItem.item?.product?.name}</TableCell>
-                      <TableCell>{returnItem.reason}</TableCell>
-                      <TableCell className="font-bold">
-                        ₪{returnItem.refundAmount?.toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        {returnItem.inspectionRequired ? (
-                          <Badge variant="danger">نعم</Badge>
-                        ) : (
-                          <Badge variant="default">لا</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusBadge.variant} className="gap-1">
-                          <StatusIcon className="w-3 h-3" />
-                          {statusBadge.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {new Date(returnItem.createdAt).toLocaleDateString('ar-SA')}
-                      </TableCell>
-                      <TableCell className="text-start">
-                        <Button variant="ghost" size={getButtonSize('returns', 'tableAction')}>
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      {/* Returns Grid */}
+      {isLoading ? (
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      ) : returns.length === 0 ? (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <RotateCcw className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+            <p className="text-gray-400">لا توجد مرتجعات</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {returns.map((returnItem) => {
+            const statusBadge = getStatusBadge(returnItem.status);
+            const StatusIcon = statusBadge.icon;
+            return (
+              <Card key={returnItem.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <h3 className="font-semibold text-lg mb-1">{returnItem.return_number}</h3>
+                      <p className="text-xs text-gray-400">{returnItem.reference_number}</p>
+                    </div>
+                    <Badge variant={statusBadge.variant} className="gap-1">
+                      <StatusIcon className="w-3 h-3" />
+                      {statusBadge.label}
+                    </Badge>
+                  </div>
+
+                  <div className="space-y-2 mb-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">العميل:</span>
+                      <span className="font-medium">{returnItem.customer_name || '-'}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">التاريخ:</span>
+                      <span>{new Date(returnItem.return_date).toLocaleDateString('ar-SA')}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">النوع:</span>
+                      <span>{getReturnTypeLabel(returnItem.return_type)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">طريقة الاسترجاع:</span>
+                      <span>{getRefundMethodLabel(returnItem.refund_method)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">السبب:</span>
+                      <span>{returnItem.reason}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">حالة القطعة:</span>
+                      <span>{getConditionLabel(returnItem.item_condition_after_return)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">قيمة الاسترجاع:</span>
+                      <span className="font-bold text-green">₪{returnItem.total_refund_amount.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => handleViewDetails(returnItem)}
+                    >
+                      <Eye className="w-4 h-4 mr-1" />
+                      التفاصيل
+                    </Button>
+                    {returnItem.status === 'APPROVED' && (
+                      <Button
+                        variant="success"
+                        size="sm"
+                        onClick={() => completeReturnMutation.mutate(returnItem.id)}
+                        disabled={completeReturnMutation.isPending}
+                      >
+                        <CheckCircle className="w-4 h-4 mr-1" />
+                        إكمال
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

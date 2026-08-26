@@ -95,11 +95,11 @@ export function InventoryScanner({
                   type="submit" 
                   variant="primary"
                   style={{
-                    minWidth: '70px',
-                    height: '42px',
-                    fontSize: '13px',
+                    minWidth: '56px',
+                    height: '36px',
+                    fontSize: '12px',
                     fontWeight: '600',
-                    letterSpacing: '0.3px',
+                    letterSpacing: '0.2px',
                     background: 'linear-gradient(135deg, var(--button-primary-bg) 0%, var(--color-primary-85) 100%)',
                     border: '1px solid var(--color-primary-25)',
                     boxShadow: '0 2px 8px var(--color-primary-15)',

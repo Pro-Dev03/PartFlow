@@ -44,13 +44,13 @@
   
   /* Spacing */
   --spacing-xs: 4px;
-  --spacing-sm: 9px;
-  --spacing-md: 14px;
-  --spacing-lg: 18px;
-  --spacing-xl: 22px;
-  --spacing-2xl: 28px;
-  --spacing-3xl: 32px;
-  --spacing-4xl: 50px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+  --spacing-3xl: 48px;
+  --spacing-4xl: 64px;
   
   /* Spacing Numeric (للاستخدام في component-specific tokens) */
   --spacing-1: 4px;
@@ -65,10 +65,10 @@
   --spacing-16: 64px;
   
   /* Radius */
-  --radius-sm: 10px;
-  --radius-md: 16px;
-  --radius-lg: 999px;
-  --radius-xl: 999px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
   --radius-full: 9999px;
   
   /* Shadows */
@@ -349,14 +349,67 @@
   --icon-size-xl: 32px;
 }
 /* ============================================================================
+   COMPONENT SEMANTIC VARIABLES - الوضع الداكن (الافتراضي)
+   هذه المتغيرات كانت معرّفة سابقاً في .light فقط، مما كان يكسر المظهر
+   في الوضع الداكن. نعرّفها هنا لتكون المصدر الوحيد للحقيقة.
+   ============================================================================ */
+
+:root {
+  /* Border default (used globally by globals.css) */
+  --bg-border: var(--border-default);
+  --border-subtle: rgba(148, 163, 184, 0.08);
+
+  /* Card */
+  --card-bg: var(--bg-surface);
+  --card-border: var(--border-default);
+  --card-shadow: var(--shadow-card);
+
+  /* Input */
+  --input-bg: var(--bg-surface);
+  --input-border: var(--border-default);
+  --input-placeholder: var(--text-tertiary);
+
+  /* Primary gradient & button */
+  --gradient-primary: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  --button-primary-bg: #2563eb;
+  --button-primary-text: #ffffff;
+  --button-primary-hover: #1d4ed8;
+  --button-secondary-bg: var(--bg-surface-elevated);
+  --button-secondary-text: var(--text-primary);
+  --button-secondary-border: var(--border-default);
+
+  /* Table */
+  --table-header-bg: var(--bg-surface);
+  --table-row-bg: var(--bg-surface);
+  --table-row-hover: var(--bg-surface-elevated);
+  --table-border: var(--border-default);
+
+  /* Sidebar */
+  --sidebar-bg: var(--bg-surface);
+  --sidebar-border: var(--border-default);
+  --sidebar-item-hover: var(--bg-surface-elevated);
+  --sidebar-item-active: var(--color-primary-10);
+
+  /* Topbar */
+  --topbar-bg: rgba(7, 10, 18, 0.9);
+  --topbar-border: var(--border-default);
+
+  /* Text on primary */
+  --text-on-primary: #ffffff;
+
+  /* Background gradient (dark default) */
+  --bg-gradient-light: var(--bg-background);
+}
+
+/* ============================================================================
    LIGHT THEME - الوضع النهاري
    ============================================================================ */
 
 .light {
   /* Background Colors - 60% */
-  --bg-background: #f8fafc;
-  --bg-surface: #f8fafc;
-  --bg-surface-elevated: #f8fafc;
+  --bg-background: #f1f5f9;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #ffffff;
   --bg-surface-3: #e2e8f0;
   --bg-border: #cbd5e1;
 
@@ -399,11 +452,11 @@
   --shadow-card: 0 15px 50px rgba(0, 0, 0, 0.08);
   
   /* Component Colors */
-  --card-bg: #f8fafc;
+  --card-bg: #ffffff;
   --card-border: #e2e8f0;
   --card-shadow: var(--shadow-md);
   
-  --input-bg: #f8fafc;
+  --input-bg: #ffffff;
   --input-border: #cbd5e1;
   --input-placeholder: #94a3b8;
   

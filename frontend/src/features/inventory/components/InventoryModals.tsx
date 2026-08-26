@@ -40,6 +40,8 @@ export function InventoryModals({
         title="تفاصيل المنتج"
         variant="modern"
         size="lg"
+        autoFocus={false}
+        enableEnterNavigation={false}
       >
         {selectedProduct && (
           <div className="space-y-md">
@@ -57,7 +59,11 @@ export function InventoryModals({
                 <Input value={selectedProduct.sku || ''} disabled />
               </div>
               <div>
-                <label className="text-small font-medium text-text mb-sm block">السعر</label>
+                <label className="text-small font-medium text-text mb-sm block">سعر التكلفة</label>
+                <Input value={`₪${selectedProduct.costPrice || 0}`} disabled />
+              </div>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">سعر البيع</label>
                 <Input value={`₪${selectedProduct.sellingPrice || 0}`} disabled />
               </div>
               <div>
@@ -118,6 +124,8 @@ export function InventoryModals({
         title={selectedProduct ? "تعديل المنتج" : "إضافة منتج جديد"}
         variant="modern"
         size="lg"
+        autoFocus={true}
+        enableEnterNavigation={true}
         className="modal-custom-style"
         style={{
           borderRadius: '24px',
@@ -328,6 +336,31 @@ export function InventoryModals({
                 gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', 
                 gap: '16px' 
               }}>
+                <div>
+                  <label style={{ 
+                    fontSize: '12px', 
+                    fontWeight: '600', 
+                    color: 'var(--text-secondary)',
+                    marginBottom: '8px',
+                    display: 'block',
+                    letterSpacing: '0.2px'
+                  }}>
+                    سعر التكلفة (₪)
+                  </label>
+                  <Input 
+                    type="number"
+                    value={selectedProduct.costPrice || ''}
+                    onChange={(e) => setSelectedProduct({ ...selectedProduct, costPrice: Number(e.target.value) })}
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                    style={{
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      borderRadius: '10px'
+                    }}
+                  />
+                </div>
                 <div>
                   <label style={{ 
                     fontSize: '12px', 

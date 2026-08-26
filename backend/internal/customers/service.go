@@ -23,14 +23,21 @@ func NewService(repo *Repository) *Service {
 
 // CreateCustomer creates a new customer
 func (s *Service) CreateCustomer(ctx context.Context, req *CustomerRequest) (*Customer, error) {
+	code := ""
+	if req.Code != nil && *req.Code != "" {
+		code = *req.Code
+	} else {
+		code = uuid.New().String()[:8]
+	}
+
 	// Check if code already exists
-	_, err := s.repo.GetByCode(ctx, req.Code)
+	_, err := s.repo.GetByCode(ctx, code)
 	if err == nil {
 		return nil, ErrCustomerCodeExists
 	}
 
 	// Create customer
-	customer := NewCustomer(req.Code, req.Name)
+	customer := NewCustomer(code, req.Name)
 	customer.Email = req.Email
 	customer.Phone = req.Phone
 	customer.Address = req.Address
@@ -69,32 +76,40 @@ func (s *Service) ListCustomers(ctx context.Context, page, perPage int, search s
 }
 
 // UpdateCustomer updates a customer
-func (s *Service) UpdateCustomer(ctx context.Context, id uuid.UUID, req *CustomerRequest) (*Customer, error) {
+func (s *Service) UpdateCustomer(ctx context.Context, id uuid.UUID, req *UpdateCustomerRequest) (*Customer, error) {
 	customer, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check if new code already exists (if changed)
-	if req.Code != customer.Code {
-		_, err := s.repo.GetByCode(ctx, req.Code)
-		if err == nil {
-			return nil, ErrCustomerCodeExists
-		}
-	}
-
-	// Update customer
-	customer.Code = req.Code
 	customer.Name = req.Name
-	customer.Email = req.Email
-	customer.Phone = req.Phone
-	customer.Address = req.Address
-	customer.City = req.City
-	customer.Country = req.Country
-	customer.TaxID = req.TaxID
-	customer.CreditLimit = req.CreditLimit
-	customer.Notes = req.Notes
-	customer.IsActive = req.IsActive
+	if req.Email != nil {
+		customer.Email = req.Email
+	}
+	if req.Phone != nil {
+		customer.Phone = req.Phone
+	}
+	if req.Address != nil {
+		customer.Address = req.Address
+	}
+	if req.City != nil {
+		customer.City = req.City
+	}
+	if req.Country != nil {
+		customer.Country = req.Country
+	}
+	if req.TaxID != nil {
+		customer.TaxID = req.TaxID
+	}
+	if req.CreditLimit != nil {
+		customer.CreditLimit = *req.CreditLimit
+	}
+	if req.Notes != nil {
+		customer.Notes = req.Notes
+	}
+	if req.IsActive != nil {
+		customer.IsActive = *req.IsActive
+	}
 	customer.UpdatedAt = time.Now()
 
 	if err := s.repo.Update(ctx, customer); err != nil {

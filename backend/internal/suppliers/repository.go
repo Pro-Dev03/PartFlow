@@ -164,6 +164,28 @@ func (r *Repository) Update(ctx context.Context, supplier *Supplier) error {
 
 // Delete deletes a supplier
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
+	// Safety check: Get supplier first
+	supplier, err := r.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// CRITICAL: Check if supplier has outstanding balance
+	if supplier.CurrentBalance > 0 {
+		return fmt.Errorf("cannot delete supplier with outstanding balance")
+	}
+
+	// Check for active purchases
+	hasActivePurchases, err := r.HasActivePurchases(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to check for active purchases: %w", err)
+	}
+
+	if hasActivePurchases {
+		return fmt.Errorf("cannot delete supplier with active purchases")
+	}
+
+	// Safe to delete
 	query := `DELETE FROM suppliers WHERE id = $1`
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
@@ -176,6 +198,30 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 
 	return nil
+}
+
+// HasActivePurchases checks if supplier has active purchases
+func (r *Repository) HasActivePurchases(ctx context.Context, supplierID uuid.UUID) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM purchases 
+			WHERE supplier_id = $1 
+			AND status != 'cancelled'
+			AND created_at > NOW() - INTERVAL '1 year'
+		)
+	`
+	
+	var hasPurchases bool
+	err := r.db.GetContext(ctx, &hasPurchases, query, supplierID)
+	if err != nil {
+		// If table doesn't exist, treat as no purchases
+		if err.Error() == `pq: relation "purchases" does not exist` {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to check active purchases: %w", err)
+	}
+	
+	return hasPurchases, nil
 }
 
 // UpdateBalance updates supplier balance
@@ -210,6 +256,10 @@ func (r *Repository) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID
 	var entries []LedgerEntry
 	err := r.db.SelectContext(ctx, &entries, query, supplierID)
 	if err != nil {
+		// If table doesn't exist, return empty ledger
+		if err.Error() == `pq: relation "supplier_ledger" does not exist` {
+			return []LedgerEntry{}, 0, 0, 0, nil
+		}
 		return nil, 0, 0, 0, fmt.Errorf("failed to get supplier ledger: %w", err)
 	}
 
@@ -225,6 +275,10 @@ func (r *Repository) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID
 	`
 	err = r.db.QueryRowContext(ctx, query, supplierID).Scan(&totalPurchases, &totalPayments, &currentBalance)
 	if err != nil {
+		// If table doesn't exist, return empty totals
+		if err.Error() == `pq: relation "supplier_ledger" does not exist` {
+			return entries, 0, 0, 0, nil
+		}
 		return nil, 0, 0, 0, fmt.Errorf("failed to get supplier totals: %w", err)
 	}
 

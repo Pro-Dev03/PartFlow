@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../../stores/authStore';
+import { Sun, Moon, Globe } from 'lucide-react';
 
 // Components
 import { LoginBackground } from '../components/LoginBackground';
@@ -11,6 +12,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const { login, isLoading } = useAuthStore();
   const [isDark, setIsDark] = useState(true);
+  const [language, setLanguage] = useState('ar');
 
   // Check theme on mount and listen for changes
   useEffect(() => {
@@ -29,6 +31,26 @@ export function LoginPage() {
     return () => observer.disconnect();
   }, []);
 
+  const toggleTheme = () => {
+    const html = document.documentElement;
+    if (isDark) {
+      html.classList.add('light');
+      html.classList.remove('dark');
+    } else {
+      html.classList.add('dark');
+      html.classList.remove('light');
+    }
+    setIsDark(!isDark);
+  };
+
+  const toggleLanguage = () => {
+    const newLang = language === 'ar' ? 'en' : 'ar';
+    setLanguage(newLang);
+    document.documentElement.setAttribute('dir', newLang === 'ar' ? 'rtl' : 'ltr');
+    // Store preference
+    localStorage.setItem('language', newLang);
+  };
+
   const handleSubmit = async (email: string, password: string) => {
     try {
       await login(email, password);
@@ -41,6 +63,50 @@ export function LoginPage() {
   return (
     <div dir="rtl" className="min-h-screen grid place-items-center relative overflow-hidden" style={{ background: 'var(--bg-background)' }}>
       <LoginBackground isDark={isDark} />
+      
+      {/* Theme and Language Toggles */}
+      <div style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 100, display: 'flex', gap: '12px' }}>
+        <button
+          onClick={toggleLanguage}
+          style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: isDark ? 'rgba(17, 24, 39, 0.8)' : 'rgba(255, 255, 255, 0.9)',
+            border: isDark ? '1px solid rgba(148, 163, 184, 0.13)' : '1px solid rgba(0, 0, 0, 0.08)',
+            color: isDark ? '#8290a7' : '#6B7280',
+            cursor: 'pointer',
+            transition: 'all 180ms ease',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.1)',
+          }}
+          title={language === 'ar' ? 'English' : 'العربية'}
+        >
+          <Globe style={{ width: '18px', height: '18px' }} />
+        </button>
+        <button
+          onClick={toggleTheme}
+          style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: isDark ? 'rgba(17, 24, 39, 0.8)' : 'rgba(255, 255, 255, 0.9)',
+            border: isDark ? '1px solid rgba(148, 163, 184, 0.13)' : '1px solid rgba(0, 0, 0, 0.08)',
+            color: isDark ? '#8290a7' : '#6B7280',
+            cursor: 'pointer',
+            transition: 'all 180ms ease',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.1)',
+          }}
+          title={isDark ? 'الوضع الفاتح' : 'الوضع الليلي'}
+        >
+          {isDark ? <Sun style={{ width: '18px', height: '18px' }} /> : <Moon style={{ width: '18px', height: '18px' }} />}
+        </button>
+      </div>
       
       {/* Main Container - Split Layout */}
       <div style={{ position: 'relative', zIndex: 2, width: 'min(920px, calc(100% - 32px))' }}>

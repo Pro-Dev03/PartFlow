@@ -191,7 +191,7 @@ func (h *Handler) UpdatePurchase(c *gin.Context) {
 
 // DeletePurchase handles deleting a purchase
 // @Summary Delete a purchase
-// @Description Delete a purchase by ID
+// @Description Delete a purchase by ID (only for draft/pending status - use reverse for received purchases)
 // @Tags purchases
 // @Accept json
 // @Produce json
@@ -271,6 +271,46 @@ func (h *Handler) CancelPurchase(c *gin.Context) {
 
 
 	response, err := h.service.CancelPurchase(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// ReversePurchase handles reversing a received purchase
+// @Summary Reverse a purchase
+// @Description Reverse a received purchase with inventory reversal and audit trail
+// @Tags purchases
+// @Accept json
+// @Produce json
+// @Param id path string true "Purchase ID"
+// @Param request body object {reason:string} true "Reversal reason"
+// @Success 200 {object} PurchaseResponse
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 404 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/purchases/{id}/reverse [post]
+func (h *Handler) ReversePurchase(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid purchase ID"})
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+
+	response, err := h.service.ReversePurchase(c.Request.Context(), id, userID, req.Reason)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

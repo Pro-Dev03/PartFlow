@@ -556,3 +556,152 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 
 	return &report, nil
 }
+
+// GetNetSalesData retrieves net sales data for report (gross sales minus returns)
+func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate time.Time) (*NetSalesReport, error) {
+	var report NetSalesReport
+	report.StartDate = startDate
+	report.EndDate = endDate
+
+	// Get gross sales data
+	var grossSales, grossRevenue float64
+	err := r.db.GetContext(ctx, &grossSales,
+		`SELECT COUNT(*) FROM sales WHERE sale_date >= $1 AND sale_date <= $2`,
+		startDate, endDate)
+	if err != nil {
+		// If sales table doesn't exist, return empty report
+		report.GrossSales = 0
+		report.GrossRevenue = 0
+		report.TotalReturns = 0
+		report.TotalRefunded = 0
+		report.NetSales = 0
+		report.NetRevenue = 0
+		report.ReturnRate = 0
+		return &report, nil
+	}
+	report.GrossSales = int(grossSales)
+
+	err = r.db.GetContext(ctx, &grossRevenue,
+		`SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE sale_date >= $1 AND sale_date <= $2`,
+		startDate, endDate)
+	if err != nil {
+		grossRevenue = 0
+	}
+	report.GrossRevenue = grossRevenue
+
+	// Get returns data
+	var totalReturns, totalRefunded float64
+	err = r.db.GetContext(ctx, &totalReturns,
+		`SELECT COUNT(*) FROM returns WHERE return_date >= $1 AND return_date <= $2`,
+		startDate, endDate)
+	if err != nil {
+		totalReturns = 0
+	}
+	report.TotalReturns = int(totalReturns)
+
+	err = r.db.GetContext(ctx, &totalRefunded,
+		`SELECT COALESCE(SUM(refund_amount), 0) FROM returns WHERE return_date >= $1 AND return_date <= $2`,
+		startDate, endDate)
+	if err != nil {
+		totalRefunded = 0
+	}
+	report.TotalRefunded = totalRefunded
+
+	// Calculate net sales
+	report.NetSales = report.GrossSales - report.TotalReturns
+	report.NetRevenue = report.GrossRevenue - report.TotalRefunded
+
+	// Calculate return rate
+	if report.GrossSales > 0 {
+		report.ReturnRate = (float64(report.TotalReturns) / float64(report.GrossSales)) * 100
+	} else {
+		report.ReturnRate = 0
+	}
+
+	// Get daily net sales data
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT 
+			DATE(sale_date) as date,
+			COUNT(*) as gross_sales,
+			COALESCE(SUM(total_amount), 0) as gross_revenue,
+			COALESCE((SELECT COUNT(*) FROM returns r WHERE DATE(r.return_date) = DATE(s.sale_date) AND r.return_date >= $1 AND r.return_date <= $2), 0) as returns,
+			COALESCE((SELECT SUM(refund_amount) FROM returns r WHERE DATE(r.return_date) = DATE(s.sale_date) AND r.return_date >= $1 AND r.return_date <= $2), 0) as refunded
+		 FROM sales s
+		 WHERE s.sale_date >= $1 AND s.sale_date <= $2
+		 GROUP BY DATE(s.sale_date)
+		 ORDER BY date`,
+		startDate, endDate)
+	if err == nil {
+		defer rows.Close()
+
+		for rows.Next() {
+			var daily DailyNetSales
+			if err := rows.Scan(&daily.Date, &daily.GrossSales, &daily.GrossRevenue, &daily.Returns, &daily.Refunded); err != nil {
+				continue
+			}
+			daily.NetSales = daily.GrossSales - daily.Returns
+			daily.NetRevenue = daily.GrossRevenue - daily.Refunded
+			report.ByDay = append(report.ByDay, daily)
+		}
+	}
+
+	// Get payment method breakdown for gross sales
+	report.ByPaymentMethod = make(map[string]float64)
+	rows, err = r.db.QueryContext(ctx,
+		`SELECT payment_method, COALESCE(SUM(total_amount), 0) as total
+		 FROM sales
+		 WHERE sale_date >= $1 AND sale_date <= $2
+		 GROUP BY payment_method`,
+		startDate, endDate)
+	if err == nil {
+		defer rows.Close()
+
+		for rows.Next() {
+			var method string
+			var total float64
+			if err := rows.Scan(&method, &total); err != nil {
+				continue
+			}
+			report.ByPaymentMethod[method] = total
+		}
+	}
+
+	// Get top returned products with net sales analysis
+	report.TopReturnedProducts = []ProductNetSales{}
+	rows, err = r.db.QueryContext(ctx,
+		`SELECT 
+			p.id as product_id,
+			p.name as product_name,
+			COALESCE(SUM(si.quantity), 0) as gross_quantity,
+			COALESCE(SUM(si.quantity * si.unit_price), 0) as gross_revenue,
+			COALESCE((SELECT SUM(ri.quantity) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE return_date >= $1 AND return_date <= $2)), 0) as returned_quantity,
+			COALESCE((SELECT SUM(ri.quantity * ri.refund_amount) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE return_date >= $1 AND return_date <= $2)), 0) as refunded_amount
+		 FROM products p
+		 LEFT JOIN sale_items si ON p.id = si.product_id AND si.sale_id IN (SELECT id FROM sales WHERE sale_date >= $1 AND sale_date <= $2)
+		 WHERE p.is_active = true
+		 GROUP BY p.id, p.name
+		 HAVING COALESCE(SUM(si.quantity), 0) > 0 OR COALESCE((SELECT SUM(ri.quantity) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE return_date >= $1 AND return_date <= $2)), 0) > 0
+		 ORDER BY returned_quantity DESC
+		 LIMIT 10`,
+		startDate, endDate)
+	if err == nil {
+		defer rows.Close()
+
+		for rows.Next() {
+			var product ProductNetSales
+			if err := rows.Scan(&product.ProductID, &product.ProductName, &product.GrossQuantity, &product.GrossRevenue, &product.ReturnedQuantity, &product.RefundedAmount); err != nil {
+				continue
+			}
+			product.NetQuantity = product.GrossQuantity - product.ReturnedQuantity
+			product.NetRevenue = product.GrossRevenue - product.RefundedAmount
+			if product.GrossQuantity > 0 {
+				product.ReturnRate = (float64(product.ReturnedQuantity) / float64(product.GrossQuantity)) * 100
+			} else {
+				product.ReturnRate = 0
+			}
+			report.TopReturnedProducts = append(report.TopReturnedProducts, product)
+		}
+	}
+
+	return &report, nil
+}

@@ -111,11 +111,21 @@ func ensureDefaultCategories(db *sqlx.DB) error {
 	categories := []struct {
 		Name        string
 		Description string
+		Icon        string
+		Color       string
 	}{
-		{"إلكترونيات", "Electronic devices and accessories"},
-		{"قطع غيار", "Spare parts and components"},
-		{"إكسسوارات", "Accessories and add-ons"},
-		{"أدوات", "Tools and equipment"},
+		{"هواتف", "هواتف ذكية وأجهزة لوحية", "smartphone", "#3b82f6"},
+		{"لابتوب", "أجهزة الكمبيوتر المحمولة", "laptop", "#8b5cf6"},
+		{"كمبيوتر مكتبي", "أجهزة الكمبيوتر المكتبي", "monitor", "#10b981"},
+		{"قطع الكمبيوتر", "معالجات، رام، كروت شاشة، لوحات أم", "cpu", "#f59e0b"},
+		{"تخزين", "هارد ديسك، SSD، فلاشات", "hard-drive", "#ef4444"},
+		{"شاشات", "شاشات الكمبيوتر والتلفزيون", "monitor", "#06b6d4"},
+		{"كاميرات", "كاميرات رقمية وكاميرات أمنية", "camera", "#ec4899"},
+		{"طابعات", "طابعات وماسحات ضوئية", "printer", "#6366f1"},
+		{"شبكات", "راوترات، مودمات، كابلات", "wifi", "#14b8a6"},
+		{"إكسسوارات", "سماعات، كيبورد، ماوس، شواحن", "headphones", "#f97316"},
+		{"صوتيات", "مكبرات صوت وأنظمة صوتية", "speaker", "#a855f7"},
+		{"كيبلات", "كابلات ووصلات متنوعة", "cable", "#64748b"},
 	}
 
 	for _, cat := range categories {
@@ -128,11 +138,15 @@ func ensureDefaultCategories(db *sqlx.DB) error {
 
 		if count == 0 {
 			query := `
-				INSERT INTO categories (id, name, description, created_at, updated_at)
-				VALUES (gen_random_uuid(), $1, $2, NOW(), NOW())
-				ON CONFLICT (name) DO NOTHING
+				INSERT INTO categories (id, name, description, icon, color, created_at, updated_at)
+				VALUES (gen_random_uuid(), $1, $2, $3, $4, NOW(), NOW())
+				ON CONFLICT (name) DO UPDATE SET
+					description = EXCLUDED.description,
+					icon = EXCLUDED.icon,
+					color = EXCLUDED.color,
+					updated_at = NOW()
 			`
-			_, err = db.Exec(query, cat.Name, cat.Description)
+			_, err = db.Exec(query, cat.Name, cat.Description, cat.Icon, cat.Color)
 			if err != nil {
 				fmt.Printf("     ⚠️  Warning: Could not create category '%s': %v\n", cat.Name, err)
 			} else {

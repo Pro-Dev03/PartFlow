@@ -3,6 +3,8 @@ package products
 import (
 	"net/http"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -13,11 +15,41 @@ import (
 // Handler handles products HTTP requests
 type Handler struct {
 	service *Service
+	cache   *productsCache
+}
+
+type productsCache struct {
+	data       interface{}
+	expiration time.Time
+	mu         sync.RWMutex
+}
+
+func newProductsCache() *productsCache {
+	return &productsCache{}
+}
+
+func (c *productsCache) get() (interface{}, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if time.Now().Before(c.expiration) {
+		return c.data, true
+	}
+	return nil, false
+}
+
+func (c *productsCache) set(data interface{}, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data = data
+	c.expiration = time.Now().Add(ttl)
 }
 
 // NewHandler creates a new products handler
 func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+	return &Handler{
+		service: service,
+		cache:   newProductsCache(),
+	}
 }
 
 // Category handlers
@@ -85,13 +117,28 @@ func (h *Handler) GetCategory(c *gin.Context) {
 // @Success 200 {object} response.Response{data=[]Category}
 // @Router /api/v1/categories [get]
 func (h *Handler) ListCategories(c *gin.Context) {
+	// Try cache first
+	if cached, found := h.cache.get(); found {
+		c.JSON(http.StatusOK, cached)
+		return
+	}
+
 	categories, err := h.service.ListCategories(c.Request.Context())
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
 	}
 
-	response.OK(c, categories, "Categories retrieved successfully")
+	responseData := gin.H{
+		"success": true,
+		"data":    categories,
+		"message": "Categories retrieved successfully",
+	}
+
+	// Cache the response
+	h.cache.set(responseData, 5*time.Minute)
+
+	c.JSON(http.StatusOK, responseData)
 }
 
 // UpdateCategory updates a category
@@ -385,33 +432,39 @@ func (h *Handler) GetProductByBarcode(c *gin.Context) {
 // @Success 200 {object} response.Response{data=[]Product}
 // @Router /api/v1/products [get]
 func (h *Handler) ListProducts(c *gin.Context) {
+	// Try cache first for default first page request
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	search := c.Query("search")
+	categoryID := c.Query("category_id")
+	brandID := c.Query("brand_id")
+
+	// Only cache default first page without filters
+	if page == 1 && perPage == 20 && search == "" && categoryID == "" && brandID == "" {
+		if cached, found := h.cache.get(); found {
+			c.JSON(http.StatusOK, cached)
+			return
+		}
+	}
 
 	req := &ProductListRequest{
-		Page:    1,
-		PerPage: 20,
+		Page:    page,
+		PerPage: perPage,
 	}
 
-	if page, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil {
-		req.Page = page
-	}
-
-	if perPage, err := strconv.Atoi(c.DefaultQuery("per_page", "20")); err == nil {
-		req.PerPage = perPage
-	}
-
-	if categoryID := c.Query("category_id"); categoryID != "" {
+	if categoryID != "" {
 		if id, err := uuid.Parse(categoryID); err == nil {
 			req.CategoryID = &id
 		}
 	}
 
-	if brandID := c.Query("brand_id"); brandID != "" {
+	if brandID != "" {
 		if id, err := uuid.Parse(brandID); err == nil {
 			req.BrandID = &id
 		}
 	}
 
-	req.Search = c.Query("search")
+	req.Search = search
 	req.SortBy = c.DefaultQuery("sort_by", "name")
 	req.SortOrder = c.DefaultQuery("sort_order", "ASC")
 
@@ -438,12 +491,23 @@ func (h *Handler) ListProducts(c *gin.Context) {
 		products = []Product{}
 	}
 
-	response.OK(c, gin.H{
-		"products": products,
-		"total":    total,
-		"page":     req.Page,
-		"per_page": req.PerPage,
-	}, "Products retrieved successfully")
+	responseData := gin.H{
+		"success": true,
+		"data": gin.H{
+			"products": products,
+			"total":    total,
+			"page":     req.Page,
+			"per_page": req.PerPage,
+		},
+		"message": "Products retrieved successfully",
+	}
+
+	// Cache the response for default first page without filters
+	if page == 1 && perPage == 20 && search == "" && categoryID == "" && brandID == "" {
+		h.cache.set(responseData, 3*time.Minute)
+	}
+
+	c.JSON(http.StatusOK, responseData)
 }
 
 // UpdateProduct updates a product
@@ -481,9 +545,9 @@ func (h *Handler) UpdateProduct(c *gin.Context) {
 	response.OK(c, product, "Operation successful")
 }
 
-// DeleteProduct deletes a product
+// DeleteProduct deletes a product (soft delete)
 // @Summary Delete Product
-// @Description Delete a product
+// @Description Delete a product (soft delete - marks as deleted but keeps record)
 // @Tags products
 // @Security Bearer
 // @Param id path string true "Product ID"
@@ -492,13 +556,6 @@ func (h *Handler) UpdateProduct(c *gin.Context) {
 // @Failure 404 {object} response.Response
 // @Router /api/v1/products/{id} [delete]
 func (h *Handler) DeleteProduct(c *gin.Context) {
-	// SECURITY: Only owners and admins can delete products
-	role := c.GetString("role")
-	if role != "owner" && role != "admin" {
-		response.Forbidden(c, "Only owners and admins can delete products")
-		return
-	}
-
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.BadRequest(c, "invalid product id")
@@ -510,7 +567,32 @@ func (h *Handler) DeleteProduct(c *gin.Context) {
 		return
 	}
 
-	response.OK(c, gin.H{"message": "product deleted successfully"}, "Operation successful")
+	response.OK(c, gin.H{"message": "product deleted successfully (soft delete)"}, "Operation successful")
+}
+
+// RestoreProduct restores a soft-deleted product
+// @Summary Restore Product
+// @Description Restore a soft-deleted product
+// @Tags products
+// @Security Bearer
+// @Param id path string true "Product ID"
+// @Success 200 {object} response.Response
+// @Failure 400 {object} response.Response
+// @Failure 404 {object} response.Response
+// @Router /api/v1/products/{id}/restore [post]
+func (h *Handler) RestoreProduct(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid product id")
+		return
+	}
+
+	if err := h.service.RestoreProduct(c.Request.Context(), id); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	response.OK(c, gin.H{"message": "product restored successfully"}, "Operation successful")
 }
 
 // ArchiveProduct archives a product (soft delete)

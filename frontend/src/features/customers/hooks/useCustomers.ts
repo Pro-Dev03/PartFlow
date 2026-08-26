@@ -24,9 +24,19 @@ export function useCustomers() {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       toast.success('تم إضافة العميل بنجاح');
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Create customer failed:', error);
-      toast.error('فشل إضافة العميل');
+      
+      // Show specific error message based on error type
+      if (error.arabicMessage) {
+        toast.error(error.arabicMessage);
+      } else if (error.response?.error?.message) {
+        toast.error(error.response.error.message);
+      } else if (error.message) {
+        toast.error(error.message);
+      } else {
+        toast.error('فشل إضافة العميل');
+      }
     },
   });
 
@@ -37,9 +47,19 @@ export function useCustomers() {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       toast.success('تم تحديث العميل بنجاح');
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Update customer failed:', error);
-      toast.error('فشل تحديث العميل');
+      
+      // Show specific error message based on error type
+      if (error.arabicMessage) {
+        toast.error(error.arabicMessage);
+      } else if (error.response?.error?.message) {
+        toast.error(error.response.error.message);
+      } else if (error.message) {
+        toast.error(error.message);
+      } else {
+        toast.error('فشل تحديث العميل');
+      }
     },
   });
 
@@ -49,9 +69,19 @@ export function useCustomers() {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       toast.success('تم حذف العميل بنجاح');
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Delete customer failed:', error);
-      toast.error('فشل حذف العميل');
+      
+      // Show specific error message based on error type
+      if (error.arabicMessage) {
+        toast.error(error.arabicMessage);
+      } else if (error.response?.error?.message) {
+        toast.error(error.response.error.message);
+      } else if (error.message) {
+        toast.error(error.message);
+      } else {
+        toast.error('فشل حذف العميل');
+      }
     },
   });
 
@@ -63,7 +93,8 @@ export function useCustomers() {
     if (searchQuery) {
       result = result.filter((customer: Customer) =>
         customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        customer.phone.includes(searchQuery)
+        customer.phone.includes(searchQuery) ||
+        customer.code.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
 
@@ -86,9 +117,9 @@ export function useCustomers() {
   // Stats
   const stats = useMemo(() => ({
     totalCustomers: customers.length,
-    activeCustomers: customers.filter((c: Customer) => c.totalPurchases > 0).length,
-    customersWithDebt: customers.filter((c: Customer) => c.outstanding > 0).length,
-    totalOutstanding: customers.reduce((sum: number, c: Customer) => sum + c.outstanding, 0),
+    activeCustomers: customers.filter((c: Customer) => (c.totalPurchases || 0) > 0).length,
+    customersWithDebt: customers.filter((c: Customer) => (c.outstanding || 0) > 0).length,
+    totalOutstanding: customers.reduce((sum: number, c: Customer) => sum + (c.outstanding || 0), 0),
   }), [customers]);
 
   const handleSort = (key: string) => {

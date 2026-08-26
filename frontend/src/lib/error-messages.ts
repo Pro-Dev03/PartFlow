@@ -139,21 +139,31 @@ export function getArabicErrorMessage(error: any): string {
 
 export function isRetryableError(error: any): boolean {
   if (!error) return false;
-  
+
   const retryableStatuses = [408, 429, 500, 502, 503, 504];
   const retryableTypes = ['NETWORK_ERROR', 'TIMEOUT_ERROR', 'CONNECTION_FAILED'];
-  
+
+  // Don't retry 400 Bad Request (client errors) - these won't succeed on retry
+  if (error?.status === 400) {
+    return false;
+  }
+
+  // Don't retry if error message indicates resource not found (already deleted)
+  if (error?.message === 'category not found' || error?.message === 'not found') {
+    return false;
+  }
+
   if (error?.status && retryableStatuses.includes(error.status)) {
     return true;
   }
-  
+
   if (error?.type && retryableTypes.includes(error.type)) {
     return true;
   }
-  
+
   if (error?.code === 'NETWORK_ERROR' || error?.code === 'TIMEOUT') {
     return true;
   }
-  
+
   return false;
 }

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, Fragment } from 'react';
 import { cn } from '../../utils';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -366,7 +366,7 @@ export function DataTable<T extends Record<string, any>>({
               const isExpanded = expandedRows.has(rowId);
               
               return (
-                <>
+                <Fragment key={rowId}>
                   <TableRow
                     key={rowId}
                     className={cn(
@@ -418,7 +418,7 @@ export function DataTable<T extends Record<string, any>>({
                       </TableCell>
                     </TableRow>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </TableBody>

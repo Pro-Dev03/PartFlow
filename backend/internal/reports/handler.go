@@ -506,6 +506,54 @@ func (h *Handler) GenerateReturnsReport(c *gin.Context) {
 	c.JSON(http.StatusOK, report)
 }
 
+// GenerateNetSalesReport handles generating a net sales report
+// @Summary Generate net sales report
+// @Description Generate a net sales report (gross sales minus returns) for specified date range
+// @Tags reports
+// @Accept json
+// @Produce json
+// @Param start_date query string false "Start date"
+// @Param end_date query string false "End date"
+// @Success 200 {object} NetSalesReport
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/reports/net-sales [get]
+func (h *Handler) GenerateNetSalesReport(c *gin.Context) {
+	startDateStr := c.Query("start_date")
+	endDateStr := c.Query("end_date")
+
+	// Default to this month if no dates provided
+	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
+	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
+
+	if startDateStr != "" {
+		if parsed, err := parseDate(startDateStr); err == nil {
+			startDate = parsed
+		}
+	}
+
+	if endDateStr != "" {
+		if parsed, err := parseDate(endDateStr); err == nil {
+			endDate = parsed.Add(24 * time.Hour)
+		}
+	}
+
+	userID := middleware.GetUserID(c)
+	// If userID is empty (not authenticated), use a default UUID
+	if userID == uuid.Nil {
+		userID = uuid.New()
+	}
+
+	report, err := h.service.GenerateNetSalesReport(c.Request.Context(), userID, startDate, endDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, report)
+}
+
 // GenerateProductsReport handles generating a products report
 // @Summary Generate products report
 // @Description Generate a products report

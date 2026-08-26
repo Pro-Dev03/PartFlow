@@ -157,7 +157,10 @@ export function ProductSearch({
           {displayedProducts.map((product: any) => (
             <ProductCard
               key={product.id}
-              product={product}
+              product={{
+                ...product,
+                costPrice: product.cost_price || product.costPrice || 0,
+              }}
               quickAdd={quickAddMode}
               onClick={onProductClick}
             />

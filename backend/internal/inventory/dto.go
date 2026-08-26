@@ -26,6 +26,10 @@ type InventoryItemResponse struct {
 	ProductName    string    `json:"product_name,omitempty"`
 	LocationName   string    `json:"location_name,omitempty"`
 	SupplierName   string    `json:"supplier_name,omitempty"`
+	
+	// Supplier and purchase details
+	SupplierPhone  string    `json:"supplier_phone,omitempty"`
+	PurchaseInvoiceNumber string `json:"purchase_invoice_number,omitempty"`
 }
 
 // LocationResponse represents location response
@@ -129,4 +133,11 @@ type InventoryListRequest struct {
 	Search         string   `form:"search"`
 	SortBy         string   `form:"sort_by"`
 	SortOrder      string   `form:"sort_order"`
+	
+	// New filters for supplier and purchase
+	SupplierID     *string  `form:"supplier_id"`
+	PurchaseDateFrom *string `form:"purchase_date_from"`
+	PurchaseDateTo   *string `form:"purchase_date_to"`
+	MinPurchaseCost  *int64  `form:"min_purchase_cost"`
+	MaxPurchaseCost  *int64  `form:"max_purchase_cost"`
 }

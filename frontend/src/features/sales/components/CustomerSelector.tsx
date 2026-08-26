@@ -50,7 +50,6 @@ export function CustomerSelector({
         onChange={(e) => setSelectedCustomer(e.target.value)}
         loading={customersLoading}
         options={[
-          { value: '', label: 'عميل نقدي' },
           ...customers.map((c: any) => ({ value: c.id, label: c.name })),
         ]}
         emptyMessage="لا يوجد عملاء"

@@ -77,6 +77,11 @@ export function CartSection({
                     <div className="cart-section-item-price">
                       ₪{item.price} × {item.quantity}
                     </div>
+                    {item.purchaseCost && (
+                      <div className="cart-section-item-cost">
+                        ت: ₪{item.purchaseCost}
+                      </div>
+                    )}
                   </div>
                   <div className="cart-section-item-total">
                     <div className="cart-section-item-total-text">

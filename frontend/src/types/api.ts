@@ -363,3 +363,141 @@ export interface SearchResult {
   subtitle?: string;
   url: string;
 }
+
+// SmartDelete Types (ARCHITECTURE-PRINCIPLES.md)
+export interface SmartDeleteResult {
+  action: 'deleted' | 'reversed' | 'blocked';
+  message: string;
+  can_proceed: boolean;
+  details?: SmartDeleteDetails;
+}
+
+export interface SmartDeleteDetails {
+  reason: string;
+  used_items?: UsedItemInfo[];
+  suggested_action: string;
+}
+
+export interface UsedItemInfo {
+  item_id: string;
+  product_id: string;
+  original_quantity: number;
+  sold_quantity: number;
+  transferred_quantity: number;
+  damaged_quantity: number;
+  repair_quantity: number;
+}
+
+// Aggregation Types (ARCHITECTURE-PRINCIPLES.md)
+export interface DailySalesSummary {
+  date: string;
+  total_sales: number;
+  total_revenue: number;
+  total_profit: number;
+  total_customers: number;
+  average_order_value: number;
+  total_items_sold: number;
+  cash_sales: number;
+  card_sales: number;
+  debt_sales: number;
+  updated_at: string;
+}
+
+export interface MonthlySalesSummary {
+  year: number;
+  month: number;
+  total_sales: number;
+  total_revenue: number;
+  total_profit: number;
+  total_customers: number;
+  average_order_value: number;
+  total_items_sold: number;
+  cash_sales: number;
+  card_sales: number;
+  debt_sales: number;
+  updated_at: string;
+}
+
+export interface DailyInventorySummary {
+  date: string;
+  total_items: number;
+  total_value: number;
+  low_stock_count: number;
+  out_of_stock_count: number;
+  new_items_added: number;
+  items_sold: number;
+  items_returned: number;
+  items_damaged: number;
+  updated_at: string;
+}
+
+export interface MonthlyInventorySummary {
+  year: number;
+  month: number;
+  total_items: number;
+  total_value: number;
+  low_stock_count: number;
+  out_of_stock_count: number;
+  new_items_added: number;
+  items_sold: number;
+  items_returned: number;
+  items_damaged: number;
+  updated_at: string;
+}
+
+export interface DailyDebtSummary {
+  date: string;
+  total_debt: number;
+  new_debt: number;
+  payments_received: number;
+  overdue_debt: number;
+  overdue_count: number;
+  paid_debt: number;
+  updated_at: string;
+}
+
+export interface MonthlyDebtSummary {
+  year: number;
+  month: number;
+  total_debt: number;
+  new_debt: number;
+  payments_received: number;
+  overdue_debt: number;
+  overdue_count: number;
+  paid_debt: number;
+  updated_at: string;
+}
+
+export interface DailyProfitSummary {
+  date: string;
+  gross_profit: number;
+  net_profit: number;
+  total_revenue: number;
+  total_cost: number;
+  profit_margin: number;
+  updated_at: string;
+}
+
+export interface MonthlyProfitSummary {
+  year: number;
+  month: number;
+  gross_profit: number;
+  net_profit: number;
+  total_revenue: number;
+  total_cost: number;
+  profit_margin: number;
+  updated_at: string;
+}
+
+export interface AggregationStatus {
+  last_daily_sales_update: string;
+  last_monthly_sales_update: string;
+  last_daily_inventory_update: string;
+  last_monthly_inventory_update: string;
+  last_daily_debt_update: string;
+  last_monthly_debt_update: string;
+  last_daily_profit_update: string;
+  last_monthly_profit_update: string;
+  is_processing: boolean;
+  processing_since: string;
+}

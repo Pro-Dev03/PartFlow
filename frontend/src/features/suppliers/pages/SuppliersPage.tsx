@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
+import { useToast } from '../../../hooks/useToast';
 import { suppliersApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { PageHeader } from '../../../components/ui/page-header';
-import { Badge } from '../../../components/ui/badge';
 import { LoadingSpinner } from '../../../components/ui/loading-spinner';
-import { DataTable, Column } from '../../../components/tables/data-table';
+import { SupplierCard } from '../../../components/ui/supplier-card';
+import { SupplierModals } from '../components/SupplierModals';
+import type { SupplierFormData } from '../../../components/forms/SupplierForm';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { getButtonSize } from '../../../config/button-sizes';
 import {
@@ -16,10 +18,6 @@ import {
   Search,
   Plus,
   Filter,
-  Eye,
-  Edit,
-  Phone,
-  Mail,
   DollarSign,
   Sparkles,
   Target,
@@ -27,25 +25,25 @@ import {
   AlertTriangle,
   Download,
   Printer,
-  Package,
-  ChevronDown,
-  ChevronUp,
-  MoreHorizontal,
-  EyeOff,
   RefreshCw
 } from 'lucide-react';
 
 export function SuppliersPage() {
   const { t } = useTranslation();
+  const { success: showSuccess, error: showError } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedSupplierId, setExpandedSupplierId] = useState<string | null>(null);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<any | null>(null);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [viewingSupplier, setViewingSupplier] = useState<any | null>(null);
 
   const { data: suppliersData, isLoading, refetch } = useQuery({
     queryKey: ['suppliers'],
     queryFn: () => suppliersApi.list({ page: 1, per_page: 100 }),
   });
 
-  const { data: supplierInventory } = useQuery({
+  const { data: supplierInventory, isLoading: inventoryLoading } = useQuery({
     queryKey: ['supplier-inventory', expandedSupplierId],
     queryFn: () => suppliersApi.getSupplierInventory(expandedSupplierId!),
     enabled: !!expandedSupplierId,
@@ -55,7 +53,8 @@ export function SuppliersPage() {
 
   const filteredSuppliers = suppliers.filter((supplier: any) =>
     supplier.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    supplier.phone.includes(searchQuery)
+    supplier.phone.includes(searchQuery) ||
+    supplier.code.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const totalSuppliers = suppliers.length;
@@ -87,129 +86,33 @@ export function SuppliersPage() {
     printTable(dataToPrint, ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'المستحق'], 'تقرير الموردين');
   };
 
-  const columns: Column<any>[] = [
-    {
-      key: 'name',
-      title: 'الاسم',
-      width: '20%',
-      sortable: true,
-      render: (supplier) => <span className="font-medium">{supplier.name}</span>
-    },
-    {
-      key: 'phone',
-      title: 'الهاتف',
-      width: '18%',
-      sortable: true,
-      render: (supplier) => (
-        <div className="flex items-center gap-2">
-          <Phone className="w-4 h-4 text-text-muted" />
-          {supplier.phone}
-        </div>
-      )
-    },
-    {
-      key: 'email',
-      title: 'البريد الإلكتروني',
-      width: '22%',
-      sortable: true,
-      render: (supplier) => (
-        supplier.email ? (
-          <div className="flex items-center gap-2">
-            <Mail className="w-4 h-4 text-text-muted" />
-            {supplier.email}
-          </div>
-        ) : '-'
-      )
-    },
-    {
-      key: 'totalPurchases',
-      title: 'إجمالي المشتريات',
-      width: '14%',
-      sortable: true,
-      render: (supplier) => `₪${(supplier.totalPurchases || 0).toLocaleString()}`
-    },
-    {
-      key: 'paidAmount',
-      title: 'المدفوع',
-      width: '12%',
-      sortable: true,
-      render: (supplier) => <span className="text-green">₪{(supplier.paidAmount || 0).toLocaleString()}</span>
-    },
-    {
-      key: 'outstanding',
-      title: 'المستحق',
-      width: '12%',
-      sortable: true,
-      render: (supplier) => (
-        <Badge variant={supplier.outstanding > 0 ? 'danger' : 'default'}>
-          ₪{(supplier.outstanding || 0).toLocaleString()}
-        </Badge>
-      )
-    },
-    {
-      key: 'lastPurchase',
-      title: 'آخر شراء',
-      width: '12%',
-      sortable: true,
-      render: (supplier) => supplier.lastPurchase
-        ? new Date(supplier.lastPurchase).toLocaleDateString('ar-SA')
-        : '-'
-    },
-    {
-      key: 'actions',
-      title: 'الإجراءات',
-      width: '10%',
-      render: (supplier) => (
-        <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="ghost"
-            size={getButtonSize('suppliers', 'iconAction')}
-            onClick={() => setExpandedSupplierId(expandedSupplierId === supplier.id ? null : supplier.id)}
-          >
-            {expandedSupplierId === supplier.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          </Button>
-          <Button variant="ghost" size={getButtonSize('suppliers', 'iconAction')}>
-            <Eye className="w-3.5 h-3.5" />
-          </Button>
-          <Button variant="ghost" size={getButtonSize('suppliers', 'iconAction')}>
-            <Edit className="w-3.5 h-3.5" />
-          </Button>
-        </div>
-      )
+  const handleSubmitSupplier = async (data: SupplierFormData) => {
+    try {
+      if (editingSupplier) {
+        await suppliersApi.update(editingSupplier.id, data);
+        showSuccess('تم تحديث المورد بنجاح');
+      } else {
+        await suppliersApi.create(data);
+        showSuccess('تمت إضافة المورد بنجاح');
+      }
+      setIsAddModalOpen(false);
+      setEditingSupplier(null);
+      refetch();
+    } catch (err) {
+      showError('حدث خطأ أثناء حفظ المورد');
     }
-  ];
+  };
 
-  const renderExpanded = (supplier: any) => {
-    const currentInventory = expandedSupplierId === supplier.id ? supplierInventory : null;
-
-    return (
-      <div className="p-4 bg-surface/30">
-        <div className="flex items-center gap-2 mb-4">
-          <Package className="w-4 h-4 text-cyan" />
-          <h4 className="font-semibold text-text">بضاعة المورد - {supplier.name}</h4>
-        </div>
-        {currentInventory && currentInventory.data && currentInventory.data.length > 0 ? (
-          <DataTable
-            data={currentInventory.data}
-            columns={[
-              { key: 'product_name', title: 'المنتج', sortable: true, render: (item) => <span className="font-medium">{item.product_name}</span> },
-              { key: 'total_received', title: 'المستلمة', sortable: true },
-              { key: 'available', title: 'المتاحة', sortable: true, render: (item) => <span className="text-green-600">{item.available}</span> },
-              { key: 'sold', title: 'المباعة', sortable: true, render: (item) => <span className="text-red-600">{item.sold}</span> },
-              { key: 'reserved', title: 'المحجوزة', sortable: true, render: (item) => <span className="text-yellow-600">{item.reserved}</span> },
-              { key: 'damaged', title: 'التالفة', sortable: true, render: (item) => <span className="text-orange-600">{item.damaged}</span> },
-              { key: 'avg_cost', title: 'متوسط التكلفة', sortable: true, render: (item) => `₪${(item.avg_cost || 0).toFixed(2)}` },
-              { key: 'avg_price', title: 'متوسط السعر', sortable: true, render: (item) => `₪${(item.avg_price || 0).toFixed(2)}` }
-            ]}
-            expandable={false}
-          />
-        ) : (
-          <div className="text-center py-8 text-text-muted">
-            لا توجد بضاعة من هذا المورد
-          </div>
-        )}
-      </div>
-    );
+  const handleDeleteSupplier = async (supplier: any) => {
+    if (window.confirm('هل أنت متأكد من حذف هذا المورد؟')) {
+      try {
+        await suppliersApi.delete(supplier.id);
+        showSuccess('تم حذف المورد بنجاح');
+        refetch();
+      } catch (err) {
+        showError('حدث خطأ أثناء حذف المورد');
+      }
+    }
   };
 
   return (
@@ -221,7 +124,7 @@ export function SuppliersPage() {
         description="إدارة الموردين والمشتريات مع رؤى ذكية"
         actions={
           <div style={{ display: 'flex', gap: '10px' }}>
-            <Button variant="primary" size={getButtonSize('suppliers', 'headerActions')} className="gap-2">
+            <Button variant="primary" size={getButtonSize('suppliers', 'headerActions')} onClick={() => setIsAddModalOpen(true)} className="gap-2">
               <Plus className="w-4 h-4" />
               {t('suppliers.addSupplier')}
             </Button>
@@ -391,35 +294,69 @@ export function SuppliersPage() {
         </CardContent>
       </Card>
 
-      {/* Suppliers Table */}
+      {/* Suppliers Grid */}
       <Card>
         <CardHeader>
-          <CardTitle>قائمة الموردين</CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>قائمة الموردين ({filteredSuppliers.length})</CardTitle>
+            <Button
+              variant="outline"
+              size={getButtonSize('suppliers', 'headerActions')}
+              onClick={() => refetch()}
+              className="gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              تحديث
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
               <LoadingSpinner size="md" color="cyan" />
             </div>
+          ) : filteredSuppliers.length === 0 ? (
+            <div className="text-center py-8 text-text-muted">
+              لا يوجد موردين
+            </div>
           ) : (
-            <DataTable
-              data={filteredSuppliers}
-              columns={columns}
-              loading={isLoading}
-              refreshable
-              onRefresh={() => refetch()}
-              onExport={handleExport}
-              expandable
-              renderExpanded={renderExpanded}
-              empty={
-                <div className="text-center py-8 text-text-muted">
-                  لا يوجد موردين
-                </div>
-              }
-            />
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {filteredSuppliers.map((supplier: any) => (
+                <SupplierCard
+                  key={supplier.id}
+                  supplier={supplier}
+                  expanded={expandedSupplierId === supplier.id}
+                  inventory={expandedSupplierId === supplier.id ? supplierInventory : undefined}
+                  inventoryLoading={inventoryLoading && expandedSupplierId === supplier.id}
+                  onToggle={(id) =>
+                    setExpandedSupplierId(expandedSupplierId === id ? null : (id as string))
+                  }
+                  onEdit={(s) => {
+                    setEditingSupplier(s);
+                    setIsAddModalOpen(true);
+                  }}
+                  onView={(s) => {
+                    setViewingSupplier(s);
+                    setIsViewModalOpen(true);
+                  }}
+                  onDelete={handleDeleteSupplier}
+                />
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>
+
+      <SupplierModals
+        isOpen={isAddModalOpen}
+        setIsOpen={setIsAddModalOpen}
+        editingSupplier={editingSupplier}
+        setEditingSupplier={setEditingSupplier}
+        onSubmit={handleSubmitSupplier}
+        isViewModalOpen={isViewModalOpen}
+        setIsViewModalOpen={setIsViewModalOpen}
+        viewingSupplier={viewingSupplier}
+      />
     </div>
   );
 }

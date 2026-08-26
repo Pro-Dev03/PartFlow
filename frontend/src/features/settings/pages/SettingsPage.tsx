@@ -11,7 +11,8 @@ import {
   FileText,
   Zap,
   DollarSign,
-  Save
+  Save,
+  Trash2
 } from 'lucide-react';
 
 // Components
@@ -21,6 +22,7 @@ import { AppearanceSettings } from '../components/AppearanceSettings';
 import { SecuritySettings } from '../components/SecuritySettings';
 import { FinancialSettings } from '../components/FinancialSettings';
 import { AuditSettings } from '../components/AuditSettings';
+import { DatabaseSettings } from '../components/DatabaseSettings';
 
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -33,6 +35,7 @@ export function SettingsPage() {
     { id: 'notifications', label: t('settings.notifications'), icon: Bell },
     { id: 'security', label: t('settings.security'), icon: Lock },
     { id: 'audit', label: t('settings.audit'), icon: FileText },
+    { id: 'database', label: 'قاعدة البيانات', icon: Trash2 },
   ];
 
   return (
@@ -83,6 +86,7 @@ export function SettingsPage() {
           {activeTab === 'notifications' && <NotificationSettings />}
           {activeTab === 'security' && <SecuritySettings />}
           {activeTab === 'audit' && <AuditSettings />}
+          {activeTab === 'database' && <DatabaseSettings />}
         </div>
       </div>
     </div>

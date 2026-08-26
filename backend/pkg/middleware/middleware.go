@@ -13,19 +13,29 @@ import (
 var jwtSecret = []byte("your-secret-key-change-in-production")
 
 var db *sqlx.DB
+var disableAuth = false
 
 // SetDatabase sets the database connection for middleware
 func SetDatabase(database *sqlx.DB) {
 	db = database
 }
 
+// SetDisableAuth sets the disable auth flag for development
+func SetDisableAuth(disable bool) {
+	disableAuth = disable
+}
+
 // CORS middleware
 func CORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		origin := c.Request.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+		c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
+		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
@@ -39,6 +49,15 @@ func CORS() gin.HandlerFunc {
 // Auth middleware for JWT authentication (based on worktrack)
 func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Skip authentication if disabled (development mode)
+		if disableAuth {
+			// Set a default user ID for development
+			c.Set("user_id", uuid.New())
+			c.Set("user_id_string", "00000000-0000-0000-0000-000000000000")
+			c.Next()
+			return
+		}
+
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})

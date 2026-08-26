@@ -3,6 +3,18 @@
 ## نظرة عامة على المشروع
 PartFlow هو نظام إدارة مخزون ومبيعات شامل مصمم للمتاجر الصغيرة والمتوسطة. يوفر المشروع واجهة مستخدم حديثة مع دعم كامل للغة العربية، إدارة المخزون، نقاط البيع، إدارة الديون، والتقارير.
 
+## الفلسفة الأساسية (PRODUCT-PHILOSOPHY.md)
+القاعدة الذهبية التي تحكم PartFlow:
+
+> **النظام يعمل من أجل صاحب المتجر، وليس صاحب المتجر يعمل من أجل النظام.**
+
+المبادئ الأساسية:
+- **التعقيد يجب أن يكون داخل النظام**: Backend معقد لكن الواجهة بسيطة
+- **لا تسأل المستخدم ما يعرفه النظام**: النظام يحسب تلقائياً
+- **لغة صاحب المتجر**: استخدم مصطلحات العمل اليومية بدلاً من المصطلحات التقنية
+- **خطوة واحدة بدل ثلاث**: النظام ينفذ العمليات المرتبطة تلقائياً
+- **الأخطاء ليست مسؤولية المستخدم**: النظام يساعد على التصحيح
+
 ## البنية المعمارية المحسّنة
 تم تحسين البنية المعمارية بناءً على مبادئ ناجحة من مشروع Fynexa، مع الحفاظ على هوية PartFlow الخاصة بالمتاجر.
 
@@ -10,11 +22,16 @@ PartFlow هو نظام إدارة مخزون ومبيعات شامل مصمم ل
 1. **Centralized Routing Pattern**: ملف router مركزي لإدارة جميع المسارات
 2. **Integration Management System**: إطار عمل منظم لإدارة التكاملات الخارجية
 3. **Service-Based Architecture**: فصل واضح بين business logic والتكاملات
+4. **Current State + Immutable History**: فصل الحالة الحالية عن السجل التاريخي (ARCHITECTURE-PRINCIPLES.md)
+5. **Reverse instead of Delete**: عكس العمليات بدلاً من الحذف للحفاظ على التاريخ (ARCHITECTURE-PRINCIPLES.md)
+6. **Aggregation Tables**: جداول تجميع لتسريع Dashboard (ARCHITECTURE-PRINCIPLES.md)
 
 ### الملفات المعمارية الجديدة
 - `backend/internal/api/router.go`: المسار المركزي (جاهز للتفعيل)
 - `backend/internal/integrations/`: نظام إدارة التكاملات الخارجية
 - `ARCHITECTURE_ANALYSIS.md`: تحليل شامل للتحسينات المعمارية
+- `ARCHITECTURE-PRINCIPLES.md`: مبادئ التصميم المعماري الجديدة (2026-08-26)
+- `backend/migrations/002_architecture_principles.sql`: ترحيل قاعدة البيانات للمبادئ الجديدة
 
 ## المميزات الرئيسية
 
@@ -211,6 +228,24 @@ JWT_SECRET=your_jwt_secret
   - العمليات: بيع جديد، إضافة قطعة، إضافة عميل، تسجيل دفعة، إضافة مصروف
   - تصميم يسهل النقر السريع
 - **الملف**: `frontend/src/features/dashboard/pages/DashboardPage.tsx`
+
+#### ح. Modal Navigation Enhancements (2026-08-26)
+- **الهدف**: تحسين التنقل في النوافذ المنبثقة (Modals) باستخدام لوحة المفاتيح
+- **التحسينات**:
+  - **Auto Focus**: التركيز التلقائي على أول حقل إدخال عند فتح النافذة
+  - **Enter Navigation**: الضغط على Enter للانتقال للحقل التالي تلقائياً
+  - **Enhanced TAB Navigation**: تحسين التنقل بـ TAB و Shift+TAB
+  - **Modern Design Update**: تحديث تصميم variant "modern" ليطابق المعايير الحديثة
+  - **Configurable Props**: إضافة `autoFocus` و `enableEnterNavigation` للتحكم بالميزات
+- **الملفات**:
+  - `frontend/src/components/ui/modal.tsx` (مُحدّث)
+  - `frontend/src/features/inventory/components/InventoryModals.tsx` (مُحدّث)
+  - `frontend/MODAL-ENHANCEMENTS.md` (جديد - التوثيق)
+- **اختصارات لوحة المفاتيح**:
+  - `ESC`: إغلاق النافذة
+  - `TAB`: الانتقال للحقل التالي
+  - `Shift + TAB`: الرجوع للحقل السابق
+  - `Enter`: الانتقال للحقل التالي (في حقول الإدخال)
 
 ## اختبار المشروع
 
@@ -414,6 +449,121 @@ Visual Polish
 - ✅ Smart Actions للوصول السريع للعمليات اليومية
 - ✅ Responsive Design محسّن للموبايل (Mobile drawer, Touch targets, Responsive grids)
 - ✅ **النظام يعمل لصالح صاحب المحل**: 9/10 (تحسن من 5/10)
+
+## المبادئ المعمارية الجديدة (2026-08-26)
+
+تم تطبيق مبادئ معمارية جديدة لضمان استدامة النظام وقابلية التوسع للسنوات الطويلة. تم توثيق هذه المبادئ في `ARCHITECTURE-PRINCIPLES.md`.
+
+### المبدأ الأساسي: لا تحذف السجل التجاري
+الحذف المباشر للسجلات التجارية (شراء، بيع، دفع، إرجاع) يؤدي إلى فقدان التاريخ التجاري وتعقيد المحاسبة. الحل هو فصل **"السجل التاريخي"** عن **"البيانات التشغيلية الحالية"**.
+
+### 1. Current State + Immutable History
+#### التطبيق على المخزون
+- **الحالة الحالية**: احتفظ بحقول `current_quantity`, `reserved_quantity`, `available_quantity`, `current_cost`, `current_value` في جدول `inventory_items`
+- **السجل التاريخي**: احتفظ بكل الحركات في جدول `inventory_movements` مع تفاصيل كاملة (قبل/بعد، سبب، من قام بالعملية)
+- **الفوائد**: لا حاجة لإعادة حساب المخزون من كل التاريخ في كل مرة، سجل واضح لكل حركة
+
+#### الملفات المُحدّثة
+- `backend/internal/inventory/model.go`: إضافة حقول Current State و enhanced InventoryMovement
+- `backend/migrations/002_architecture_principles.sql`: الترحيب الجديد للحقول
+
+### 2. Reverse بدلاً من Delete (آلية داخلية فقط)
+#### النهج العملي للمستخدم
+المستخدم يرى فقط **"حذف العملية"** والنظام يقرر داخلياً ماذا يفعل:
+
+#### الحالة 1 — مسودة (Draft)
+```
+حذف → DELETE فعلي
+```
+
+#### الحالة 2 — مستلمة ولم يحدث عليها شيء
+```
+حذف → Delete with inventory adjustment
+```
+النظام يقول: "سيتم حذف عملية الشراء وإزالة الكمية المرتبطة بها من المخزون."
+
+#### الحالة 3 — هناك عمليات لاحقة
+```
+حذف → Block Delete مع رسالة واضحة
+```
+النظام يقول: "لا يمكن حذف عملية الشراء لأنها مرتبطة بعمليات بيع. يمكنك عرض التفاصيل أو معالجة الإرجاع."
+
+#### القاعدة الذهبية
+> **النظام يجب أن يكون معقدًا من الداخل حتى لا يكون معقدًا على صاحب المحل.**
+
+صاحب المحل لا يحتاج فهم:
+- Reverse / Ledger / Transaction / Inventory Movement
+
+هو يفكر فقط:
+- شراء → استلام → مخزون → بيع
+
+#### قواعد الحذف والعكس (داخلياً)
+- **يُسمح بالحذف (DELETE)**: Draft purchases, Draft sales (المسودات فقط)
+- **يُستخدم العكس (REVERSE)**: Confirmed purchases, Received purchases, Confirmed sales, Payments, Returns, Inventory adjustments
+
+#### التطبيق
+- **Purchases**: إضافة حقول `reversed_at`, `reversed_by`, `reversal_reason` + جدول `purchase_reversals`
+- **Payments**: إضافة حقول `is_reversed`, `reversed_at`, `reversed_by`, `reversal_reason` + جدول `payment_reversals`
+- **Sales**: إضافة حقول `reversed_at`, `reversed_by`, `reversal_reason` + جدول `sale_reversals`
+
+#### الملفات المُحدّثة
+- `backend/internal/purchases/model.go`: إضافة حقول Reversal و PurchaseReversal struct
+- `backend/internal/purchases/reversal.go`: ReversalService للشراء (آلية داخلية)
+- `backend/internal/purchases/smart_delete.go`: SmartDeleteService - واجهة بسيطة للمستخدم
+- `backend/internal/payments/model.go`: إضافة حقول Reversal و PaymentReversal struct
+- `backend/internal/payments/reversal.go`: ReversalService للدفعات (آلية داخلية)
+- `backend/internal/payments/smart_delete.go`: SmartDeleteService - واجهة بسيطة للمستخدم
+- `backend/internal/sales/model.go`: إضافة حقول Reversal و SaleReversal struct
+- `backend/internal/sales/reversal.go`: ReversalService للمبيعات (آلية داخلية)
+- `backend/internal/sales/smart_delete.go`: SmartDeleteService - واجهة بسيطة للمستخدم
+
+### 3. Aggregation Tables للـ Dashboard
+#### المشكلة
+إذا كان لديك 10 سنوات من البيانات (ملايين السجلات)، لا تجعل Dashboard يقرأ كل شيء في كل مرة.
+
+#### الحل
+استخدم نظام التجميع (Aggregations):
+```
+Transactions → Aggregations → Daily/Monthly Statistics → Dashboard
+```
+
+#### الجداول المضافة
+- `daily_sales_summary`: ملخص المبيعات اليومي
+- `monthly_sales_summary`: ملخص المبيعات الشهري
+- `daily_inventory_summary`: ملخص المخزون اليومي
+- `monthly_inventory_summary`: ملخص المخزون الشهري
+- `daily_debt_summary`: ملخص الديون اليومي
+- `monthly_debt_summary`: ملخص الديون الشهري
+- `daily_profit_summary`: ملخص الأرباح اليومي
+- `monthly_profit_summary`: ملخص الأرباح الشهري
+
+#### الملفات المُحدّثة
+- `backend/internal/aggregations/model.go`: نماذج جداول التجميع
+- `backend/migrations/002_architecture_principles.sql`: إنشاء الجداول والفهارس والدوال
+
+### 4. Archive Layer (Future-Ready)
+تصميم النظام بحيث يمكن تطبيق Archiving لاحقاً دون إعادة البنية بالكامل:
+- **0-2 years**: Active Database
+- **2-5 years**: Archive (أبطأ لكن رخيص)
+- **5+ years**: Long-term Archive / Cold Storage
+
+#### الملفات المُحدّثة
+- `backend/migrations/002_architecture_principles.sql`: جدول `archive_status` للتتبع المستقبلي
+
+### 5. Database Triggers & Functions
+#### التلقائية (Triggers)
+- `update_inventory_current_state()`: تحديث تلقائي للحالة الحالية عند إضافة حركة مخزون
+
+#### دوال التجميع (Functions)
+- `update_daily_sales_summary()`: تحديث ملخص المبيعات اليومي
+- `update_monthly_sales_summary()`: تحديث ملخص المبيعات الشهري
+
+### الفوائد الإجمالية
+- ✅ نظام يستطيع العمل لسنوات طويلة بدون حذف التاريخ التجاري المهم
+- ✅ Dashboard سريع جداً حتى مع ملايين السجلات
+- ✅ سجل واضح للتدقيق والمحاسبة
+- ✅ أداء أفضل للعمليات اليومية
+- ✅ قابلية التوسع بدون إعادة البنية
 
 ## المستقبل
 

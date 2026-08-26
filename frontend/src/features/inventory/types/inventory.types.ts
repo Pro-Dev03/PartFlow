@@ -7,6 +7,7 @@ export interface Product {
   name: string;
   sku: string;
   sellingPrice: number;
+  costPrice?: number;
   stock: number;
   condition: string;
   category?: string;
@@ -23,11 +24,15 @@ export interface InventoryItem {
   };
   condition: string;
   selling_price: number;
+  purchase_cost?: number;
   price?: number;
   stock?: number;
   location?: string;
   status: string;
   created_at: string;
+  purchase_date?: string;
+  supplier_name?: string;
+  supplier_phone?: string;
 }
 
 export interface InventoryStats {

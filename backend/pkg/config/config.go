@@ -52,6 +52,9 @@ type Config struct {
 	RateLimitRPS       int // requests per second
 	RateLimitBurst     int
 
+	// Auth
+	DisableAuth       bool // Disable authentication for development
+
 	// File Upload
 	MaxUploadSize      int64
 	AllowedFileTypes   []string
@@ -109,6 +112,9 @@ func Load() (*Config, error) {
 		RateLimitEnabled:   getBoolEnv("RATE_LIMIT_ENABLED", false),
 		RateLimitRPS:       getIntEnv("RATE_LIMIT_RPS", 100),
 		RateLimitBurst:     getIntEnv("RATE_LIMIT_BURST", 10),
+
+		// Auth
+		DisableAuth:       getBoolEnv("DISABLE_AUTH", false),
 
 		// File Upload
 		MaxUploadSize:      getInt64Env("MAX_UPLOAD_SIZE", 10*1024*1024), // 10MB

@@ -130,17 +130,20 @@ func (s *Service) DeleteBrand(ctx context.Context, id uuid.UUID) error {
 // CreateProduct creates a new product
 func (s *Service) CreateProduct(ctx context.Context, req *ProductRequest) (*Product, error) {
 	product := &Product{
-		CategoryID:      req.CategoryID,
-		BrandID:         req.BrandID,
-		Name:            req.Name,
-		Description:     req.Description,
-		Model:           req.Model,
-		SKU:             req.SKU,
-		Barcode:         req.Barcode,
-		TrackSerial:     req.TrackSerial,
-		TrackIndividual: req.TrackIndividual,
-		MinStockLevel:   req.MinStockLevel,
-		WarrantyDays:    req.WarrantyDays,
+		CategoryID:        req.CategoryID,
+		BrandID:           req.BrandID,
+		PreferredSupplierID: req.PreferredSupplierID,
+		Name:              req.Name,
+		Description:       req.Description,
+		Model:             req.Model,
+		SKU:               req.SKU,
+		Barcode:           req.Barcode,
+		CostPrice:         req.CostPrice,
+		SellingPrice:      req.SellingPrice,
+		TrackSerial:       req.TrackSerial,
+		TrackIndividual:   req.TrackIndividual,
+		MinStockLevel:     req.MinStockLevel,
+		WarrantyDays:      req.WarrantyDays,
 	}
 
 	if err := s.repo.CreateProduct(ctx, product); err != nil {
@@ -221,11 +224,14 @@ func (s *Service) UpdateProduct(ctx context.Context, id uuid.UUID, req *ProductR
 
 	product.CategoryID = req.CategoryID
 	product.BrandID = req.BrandID
+	product.PreferredSupplierID = req.PreferredSupplierID
 	product.Name = req.Name
 	product.Description = req.Description
 	product.Model = req.Model
 	product.SKU = req.SKU
 	product.Barcode = req.Barcode
+	product.CostPrice = req.CostPrice
+	product.SellingPrice = req.SellingPrice
 	product.TrackSerial = req.TrackSerial
 	product.TrackIndividual = req.TrackIndividual
 	product.MinStockLevel = req.MinStockLevel
@@ -241,9 +247,18 @@ func (s *Service) UpdateProduct(ctx context.Context, id uuid.UUID, req *ProductR
 	return product, nil
 }
 
-// DeleteProduct deletes a product
+// DeleteProduct deletes a product (soft delete)
 func (s *Service) DeleteProduct(ctx context.Context, id uuid.UUID) error {
+	// Invalidate dashboard cache since products data changed
+	dashboard.InvalidateDashboardCacheWithReason("product_deleted")
 	return s.repo.DeleteProduct(ctx, id)
+}
+
+// RestoreProduct restores a soft-deleted product
+func (s *Service) RestoreProduct(ctx context.Context, id uuid.UUID) error {
+	// Invalidate dashboard cache since products data changed
+	dashboard.InvalidateDashboardCacheWithReason("product_restored")
+	return s.repo.RestoreProduct(ctx, id)
 }
 
 // ArchiveProduct archives a product (soft delete)

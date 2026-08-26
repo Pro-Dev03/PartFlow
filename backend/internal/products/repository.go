@@ -111,18 +111,14 @@ func (r *Repository) UpdateCategory(ctx context.Context, category *Category) err
 
 // DeleteCategory deletes a category
 func (r *Repository) DeleteCategory(ctx context.Context, id uuid.UUID, ) error {
-	// Check if category has products
-	var count int
-	checkQuery := `SELECT COUNT(*) FROM products WHERE category_id = $1`
-	err := r.db.GetContext(ctx, &count, checkQuery, id)
+	// First, set category_id to NULL for all products in this category
+	updateQuery := `UPDATE products SET category_id = NULL WHERE category_id = $1`
+	_, err := r.db.ExecContext(ctx, updateQuery, id)
 	if err != nil {
 		return err
 	}
 
-	if count > 0 {
-		return ErrCategoryHasProducts
-	}
-
+	// Now delete the category
 	query := `DELETE FROM categories WHERE id = $1`
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
@@ -261,8 +257,8 @@ func (r *Repository) DeleteBrand(ctx context.Context, id uuid.UUID, ) error {
 // CreateProduct creates a new product
 func (r *Repository) CreateProduct(ctx context.Context, product *Product) error {
 	query := `
-		INSERT INTO products (id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		INSERT INTO products (id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING id, created_at, updated_at
 	`
 	now := time.Now()
@@ -275,11 +271,14 @@ func (r *Repository) CreateProduct(ctx context.Context, product *Product) error 
 		product.ID,
 		product.CategoryID,
 		product.BrandID,
+		product.PreferredSupplierID,
 		product.Name,
 		product.Description,
 		product.Model,
 		product.SKU,
 		product.Barcode,
+		product.CostPrice,
+		product.SellingPrice,
 		product.TrackSerial,
 		product.TrackIndividual,
 		product.MinStockLevel,
@@ -295,9 +294,9 @@ func (r *Repository) CreateProduct(ctx context.Context, product *Product) error 
 // GetProductByID retrieves a product by ID
 func (r *Repository) GetProductByID(ctx context.Context, id uuid.UUID) (*Product, error) {
 	query := `
-		SELECT id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, is_active, created_at, updated_at
+		SELECT id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
 		FROM products
-		WHERE id = $1
+		WHERE id = $1 AND deleted_at IS NULL
 	`
 	var product Product
 	err := r.db.GetContext(ctx, &product, query, id)
@@ -310,9 +309,9 @@ func (r *Repository) GetProductByID(ctx context.Context, id uuid.UUID) (*Product
 // GetProductByBarcode retrieves a product by barcode
 func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string, ) (*Product, error) {
 	query := `
-		SELECT id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, is_active, created_at, updated_at
+		SELECT id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
 		FROM products
-		WHERE barcode = $1
+		WHERE barcode = $1 AND deleted_at IS NULL
 	`
 	var product Product
 	err := r.db.GetContext(ctx, &product, query, barcode)
@@ -326,11 +325,11 @@ func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string, ) 
 func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) ([]Product, int, error) {
 	// Build base query
 	baseQuery := `
-		SELECT id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, is_active, created_at, updated_at
+		SELECT id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
 		FROM products
-		WHERE 1=1
+		WHERE deleted_at IS NULL
 	`
-	countQuery := `SELECT COUNT(*) FROM products WHERE 1=1`
+	countQuery := `SELECT COUNT(*) FROM products WHERE deleted_at IS NULL`
 
 	args := []interface{}{}
 	argCount := 0
@@ -408,18 +407,21 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 func (r *Repository) UpdateProduct(ctx context.Context, product *Product) error {
 	query := `
 		UPDATE products
-		SET category_id = $1, brand_id = $2, name = $3, description = $4, model = $5, sku = $6, barcode = $7, track_serial = $8, track_individual = $9, min_stock_level = $10, warranty_days = $11, updated_at = $12
-		WHERE id = $13
+		SET category_id = $1, brand_id = $2, preferred_supplier_id = $3, name = $4, description = $5, model = $6, sku = $7, barcode = $8, cost_price = $9, selling_price = $10, track_serial = $11, track_individual = $12, min_stock_level = $13, warranty_days = $14, updated_at = $15
+		WHERE id = $16
 	`
 	product.UpdatedAt = time.Now()
 	result, err := r.db.ExecContext(ctx, query,
 		product.CategoryID,
 		product.BrandID,
+		product.PreferredSupplierID,
 		product.Name,
 		product.Description,
 		product.Model,
 		product.SKU,
 		product.Barcode,
+		product.CostPrice,
+		product.SellingPrice,
 		product.TrackSerial,
 		product.TrackIndividual,
 		product.MinStockLevel,
@@ -443,10 +445,32 @@ func (r *Repository) UpdateProduct(ctx context.Context, product *Product) error 
 	return nil
 }
 
-// DeleteProduct deletes a product
+// DeleteProduct deletes a product (soft delete)
 func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
-	query := `DELETE FROM products WHERE id = $1`
-	result, err := r.db.ExecContext(ctx, query, id)
+	query := `UPDATE products SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`
+	now := time.Now()
+	result, err := r.db.ExecContext(ctx, query, now, now, id)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rows == 0 {
+		return ErrProductNotFound
+	}
+
+	return nil
+}
+
+// RestoreProduct restores a soft-deleted product
+func (r *Repository) RestoreProduct(ctx context.Context, id uuid.UUID) error {
+	query := `UPDATE products SET deleted_at = NULL, updated_at = $1 WHERE id = $2 AND deleted_at IS NOT NULL`
+	now := time.Now()
+	result, err := r.db.ExecContext(ctx, query, now, id)
 	if err != nil {
 		return err
 	}
@@ -475,9 +499,9 @@ func (r *Repository) GetProductStockCount(ctx context.Context, productID uuid.UU
 	return count, err
 }
 
-// ArchiveProduct archives a product (soft delete)
+// ArchiveProduct archives a product (sets is_active to false)
 func (r *Repository) ArchiveProduct(ctx context.Context, id uuid.UUID) error {
-	query := `UPDATE products SET is_active = false, updated_at = $1 WHERE id = $2`
+	query := `UPDATE products SET is_active = false, updated_at = $1 WHERE id = $2 AND deleted_at IS NULL`
 	result, err := r.db.ExecContext(ctx, query, time.Now(), id)
 	if err != nil {
 		return err
@@ -522,10 +546,11 @@ func (r *Repository) GetReservedItemCount(ctx context.Context, productID uuid.UU
 // SearchProducts searches products by name, SKU, or barcode
 func (r *Repository) SearchProducts(ctx context.Context, query string, limit int) ([]Product, error) {
 	searchQuery := `
-		SELECT id, category_id, brand_id, name, description, model, sku, barcode, track_serial, track_individual, min_stock_level, warranty_days, is_active, created_at, updated_at
+		SELECT id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
 		FROM products
 		WHERE (name ILIKE $1 OR model ILIKE $1 OR sku ILIKE $1 OR barcode ILIKE $1)
 		AND is_active = true
+		AND deleted_at IS NULL
 		ORDER BY name
 		LIMIT $2
 	`

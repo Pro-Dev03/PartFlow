@@ -25,6 +25,8 @@ import (
 	"github.com/partflow/smart-store/internal/settings"
 	"github.com/partflow/smart-store/internal/barcodes"
 	"github.com/partflow/smart-store/internal/ledgers"
+	"github.com/partflow/smart-store/internal/acquisitions"
+	"github.com/partflow/smart-store/internal/debts"
 	"github.com/partflow/smart-store/pkg/middleware"
 )
 
@@ -58,10 +60,12 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	notificationService := notifications.NewService(notificationRepo)
 	partTypesService := parttypes.NewService(partTypesRepo)
 	ledgerService := ledgers.NewService(db)
+	acquisitionService := acquisitions.NewService(db)
 
 	// Initialize all handlers
 	authHandler := auth.NewHandler(authService, db)
 	inventoryHandler := inventory.NewHandler(inventoryService, db)
+	inventoryMainHandler := inventory.NewMainHandler(db)
 	productHandler := products.NewHandler(productService)
 	customerHandler := customers.NewHandler(customerService)
 	salesHandler := sales.NewHandler(salesService)
@@ -76,7 +80,16 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	dashboardHandler := dashboard.NewHandler(cachedDashboardService)
 	partTypesHandler := parttypes.NewHandler(partTypesService)
 	settingsHandler := settings.NewHandler(db.DB)
+	databaseHandler := settings.NewDatabaseHandler(db)
 	ledgerHandler := ledgers.NewHandler(ledgerService)
+	acquisitionHandler := acquisitions.NewHandler(acquisitionService)
+	debtsHandler := debts.NewHandler(db)
+	
+	// Aggregation handler (ARCHITECTURE-PRINCIPLES.md)
+	aggregationHandler := NewAggregationHandler()
+	
+	// SmartDelete handler (PRODUCT-PHILOSOPHY.md)
+	purchaseSmartDeleteHandler := NewPurchaseSmartDeleteHandler(db)
 
 	// Barcode handler
 	barcodeRepo := barcodes.NewRepository(db)
@@ -100,6 +113,21 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 		{
 			// Dashboard routes
 			protected.GET("/dashboard/stats", dashboardHandler.GetDashboardStats)
+			
+			// Aggregation routes (ARCHITECTURE-PRINCIPLES.md)
+			aggregations := protected.Group("/aggregations")
+			{
+				aggregations.GET("/daily-sales", aggregationHandler.GetDailySalesSummary)
+				aggregations.GET("/monthly-sales", aggregationHandler.GetMonthlySalesSummary)
+				aggregations.GET("/daily-inventory", aggregationHandler.GetDailyInventorySummary)
+				aggregations.GET("/monthly-inventory", aggregationHandler.GetMonthlyInventorySummary)
+				aggregations.GET("/daily-debt", aggregationHandler.GetDailyDebtSummary)
+				aggregations.GET("/monthly-debt", aggregationHandler.GetMonthlyDebtSummary)
+				aggregations.GET("/daily-profit", aggregationHandler.GetDailyProfitSummary)
+				aggregations.GET("/monthly-profit", aggregationHandler.GetMonthlyProfitSummary)
+				aggregations.GET("/status", aggregationHandler.GetAggregationStatus)
+				aggregations.POST("/update", aggregationHandler.UpdateAggregations)
+			}
 
 			// Auth routes
 			auth := protected.Group("/auth")
@@ -112,6 +140,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 
 			// Inventory routes
 			inventoryHandler.RegisterRoutes(protected)
+			inventoryMainHandler.RegisterMainRoutes(protected)
 
 			// Part Types routes
 			partTypesHandler.RegisterRoutes(protected)
@@ -217,9 +246,12 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				purchases.GET("/:id", purchaseHandler.GetPurchase)
 				purchases.GET("", purchaseHandler.ListPurchases)
 				purchases.PUT("/:id", purchaseHandler.UpdatePurchase)
-				purchases.DELETE("/:id", purchaseHandler.DeletePurchase)
+				// SmartDelete - now returns SmartDeleteResult (PRODUCT-PHILOSOPHY.md)
+				purchases.DELETE("/:id", purchaseSmartDeleteHandler.SmartDelete)
+				purchases.GET("/:id/used-items", purchaseSmartDeleteHandler.GetUsedItemsInfo)
 				purchases.POST("/:id/receive", purchaseHandler.ReceivePurchase)
 				purchases.POST("/:id/cancel", purchaseHandler.CancelPurchase)
+				purchases.POST("/:id/reverse", purchaseHandler.ReversePurchase)
 				purchases.POST("/:id/payment", purchaseHandler.AddPayment)
 				purchases.POST("/:id/items", purchaseHandler.AddPurchaseItem)
 				purchases.PUT("/items/:item_id", purchaseHandler.UpdatePurchaseItem)
@@ -251,9 +283,21 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				returns.POST("/:id/approve", returnHandler.ApproveReturn)
 				returns.POST("/:id/reject", returnHandler.RejectReturn)
 				returns.POST("/:id/refund", returnHandler.ProcessRefund)
+				returns.POST("/:id/complete", returnHandler.CompleteReturn)
+				returns.GET("/sale/:sale_id", returnHandler.GetReturnsBySale)
+				returns.GET("/customer/:customer_id", returnHandler.GetReturnsByCustomer)
+				returns.GET("/pending", returnHandler.GetPendingReturns)
+				returns.GET("/statistics", returnHandler.GetReturnStatistics)
+				returns.GET("/:id/with-items", returnHandler.GetReturnWithItems)
+				returns.GET("/analysis/monthly", returnHandler.GetMonthlyReturnsAnalysis)
+				returns.GET("/analysis/sales-returns", returnHandler.GetSalesReturnsAnalysis)
 				returns.POST("/:id/items", returnHandler.AddReturnItem)
-				returns.PUT("/items/:item_id", returnHandler.UpdateReturnItem)
-				returns.DELETE("/items/:item_id", returnHandler.DeleteReturnItem)
+				returns.PUT("/:id/items/:item_id", returnHandler.UpdateReturnItem)
+				returns.DELETE("/:id/items/:item_id", returnHandler.DeleteReturnItem)
+				returns.POST("/items/:item_id/inspection", returnHandler.ProcessReturnItemInspection)
+				returns.GET("/validate/:sale_item_id", returnHandler.ValidateReturnQuantity)
+				returns.GET("/summary", returnHandler.GetReturnSummary)
+				returns.POST("/:id/reverse", returnHandler.ReverseReturn)
 			}
 
 			// Inspections routes
@@ -295,6 +339,12 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			// Ledger routes
 			ledgers.RegisterRoutes(protected, ledgerHandler)
 
+			// Acquisitions routes (USED-PARTS-ACQUISITION.md)
+			acquisitions.RegisterRoutes(protected, acquisitionHandler)
+
+			// Debts routes
+			debtsHandler.RegisterRoutes(protected)
+
 			// Settings routes
 			settings := protected.Group("/settings")
 			{
@@ -303,6 +353,8 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				settings.PUT("/:key", settingsHandler.UpdateSetting)
 				settings.GET("/tax-rate", settingsHandler.GetTaxRate)
 				settings.PUT("/tax-rate", settingsHandler.UpdateTaxRate)
+				settings.DELETE("/database", databaseHandler.DeleteAllData)
+				settings.POST("/migrate", databaseHandler.ApplyMigration)
 			}
 		}
 	}

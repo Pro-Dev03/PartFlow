@@ -140,6 +140,10 @@ func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) (
 	// Get total count
 	err := r.db.GetContext(ctx, &count, countQuery, args...)
 	if err != nil {
+		// If table doesn't exist, return empty results
+		if err.Error() == `pq: relation "expenses" does not exist` {
+			return []Expense{}, 0, nil
+		}
 		return nil, 0, fmt.Errorf("failed to count expenses: %w", err)
 	}
 	
@@ -162,6 +166,10 @@ func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) (
 	
 	err = r.db.SelectContext(ctx, &expenses, baseQuery, args...)
 	if err != nil {
+		// If table doesn't exist, return empty results
+		if err.Error() == `pq: relation "expenses" does not exist` {
+			return []Expense{}, 0, nil
+		}
 		return nil, 0, fmt.Errorf("failed to list expenses: %w", err)
 	}
 	
@@ -382,6 +390,18 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 	err := r.db.GetContext(ctx, &summary.TotalExpenses, 
 		`SELECT COALESCE(SUM(amount), 0) FROM expenses`)
 	if err != nil {
+		// If table doesn't exist, return empty summary
+		if err.Error() == `pq: relation "expenses" does not exist` {
+			return &ExpenseSummary{
+				TotalExpenses: 0,
+				PendingExpenses: 0,
+				ApprovedExpenses: 0,
+				ThisMonth: 0,
+				LastMonth: 0,
+				ByCategory: make(map[string]float64),
+				ByPaymentMethod: make(map[string]float64),
+			}, nil
+		}
 		return nil, fmt.Errorf("failed to get total expenses: %w", err)
 	}
 	
@@ -389,14 +409,22 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 	err = r.db.GetContext(ctx, &summary.PendingExpenses, 
 		`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE status = 'pending'`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pending expenses: %w", err)
+		if err.Error() == `pq: relation "expenses" does not exist` {
+			summary.PendingExpenses = 0
+		} else {
+			return nil, fmt.Errorf("failed to get pending expenses: %w", err)
+		}
 	}
 	
 	// Approved expenses
 	err = r.db.GetContext(ctx, &summary.ApprovedExpenses, 
 		`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE status = 'approved'`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get approved expenses: %w", err)
+		if err.Error() == `pq: relation "expenses" does not exist` {
+			summary.ApprovedExpenses = 0
+		} else {
+			return nil, fmt.Errorf("failed to get approved expenses: %w", err)
+		}
 	}
 	
 	// This month expenses
@@ -404,7 +432,11 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 		`SELECT COALESCE(SUM(amount), 0) FROM expenses 
 		 WHERE DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE)`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get this month expenses: %w", err)
+		if err.Error() == `pq: relation "expenses" does not exist` {
+			summary.ThisMonth = 0
+		} else {
+			return nil, fmt.Errorf("failed to get this month expenses: %w", err)
+		}
 	}
 	
 	// Last month expenses
@@ -412,7 +444,11 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 		`SELECT COALESCE(SUM(amount), 0) FROM expenses 
 		 WHERE DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get last month expenses: %w", err)
+		if err.Error() == `pq: relation "expenses" does not exist` {
+			summary.LastMonth = 0
+		} else {
+			return nil, fmt.Errorf("failed to get last month expenses: %w", err)
+		}
 	}
 	
 	// By category
@@ -423,17 +459,21 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 		 LEFT JOIN expenses e ON ec.id = e.category_id
 		 GROUP BY ec.name`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get expenses by category: %w", err)
-	}
-	defer rows.Close()
-	
-	for rows.Next() {
-		var name string
-		var amount float64
-		if err := rows.Scan(&name, &amount); err != nil {
-			continue
+		// If table doesn't exist, skip this part
+		if err.Error() != `pq: relation "expense_categories" does not exist` {
+			return nil, fmt.Errorf("failed to get expenses by category: %w", err)
 		}
-		summary.ByCategory[name] = amount
+	} else {
+		defer rows.Close()
+		
+		for rows.Next() {
+			var name string
+			var amount float64
+			if err := rows.Scan(&name, &amount); err != nil {
+				continue
+			}
+			summary.ByCategory[name] = amount
+		}
 	}
 	
 	// By payment method
@@ -443,17 +483,21 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 		 FROM expenses 
 		 GROUP BY payment_method`)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get expenses by payment method: %w", err)
-	}
-	defer rows.Close()
-	
-	for rows.Next() {
-		var method string
-		var amount float64
-		if err := rows.Scan(&method, &amount); err != nil {
-			continue
+		// If table doesn't exist, skip this part
+		if err.Error() != `pq: relation "expenses" does not exist` {
+			return nil, fmt.Errorf("failed to get expenses by payment method: %w", err)
 		}
-		summary.ByPaymentMethod[method] = amount
+	} else {
+		defer rows.Close()
+		
+		for rows.Next() {
+			var method string
+			var amount float64
+			if err := rows.Scan(&method, &amount); err != nil {
+				continue
+			}
+			summary.ByPaymentMethod[method] = amount
+		}
 	}
 	
 	return &summary, nil

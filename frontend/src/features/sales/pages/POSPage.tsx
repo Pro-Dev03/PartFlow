@@ -4,6 +4,7 @@ import { useTranslation } from '../../../hooks/useTranslation';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Modal } from '../../../components/ui/modal';
 import { Button } from '../../../components/ui/button';
+import { Input } from '../../../components/ui/input';
 import { productsApi, salesApi, customersApi, barcodeApi, inventoryApi, partTypesApi, categoriesApi } from '../../../services/api/endpoints';
 import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
 import { ItemInputMethodType } from '../../../components/ui/item-input-method';
@@ -65,6 +66,11 @@ export function POSPage() {
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [lastSaleData, setLastSaleData] = useState<InvoiceData | null>(null);
+  
+  // Quick customer creation modal (SALES-PHILOSOPHY.md)
+  const [isQuickCustomerModalOpen, setIsQuickCustomerModalOpen] = useState(false);
+  const [customerBalance, setCustomerBalance] = useState(0);
+  const [customerCreditLimit, setCustomerCreditLimit] = useState<number | undefined>();
 
   // Fetch data
   const { data: productsData, isLoading: productsLoading } = useQuery({
@@ -146,7 +152,7 @@ export function POSPage() {
             price: product.sellingPrice,
             stock: product.stock,
             condition: product.condition,
-            purchaseCost: product.costPrice,
+            purchaseCost: product.costPrice || product.cost_price || 0,
           });
         } else {
           if (soundEnabled) {
@@ -170,7 +176,7 @@ export function POSPage() {
             price: product.sellingPrice,
             stock: product.stock,
             condition: product.condition,
-            purchaseCost: product.cost_price,
+            purchaseCost: product.cost_price || product.costPrice || 0,
           });
         }
       }
@@ -225,8 +231,8 @@ export function POSPage() {
     const invoiceData: InvoiceData = {
       id: 'pending',
       customerName: selectedCustomer 
-        ? customers.find((c: any) => c.id === selectedCustomer)?.name || 'عميل نقدي'
-        : 'عميل نقدي',
+        ? customers.find((c: any) => c.id === selectedCustomer)?.name 
+        : '',
       customerPhone: selectedCustomer 
         ? customers.find((c: any) => c.id === selectedCustomer)?.phone 
         : undefined,
@@ -251,6 +257,26 @@ export function POSPage() {
     setLastSaleData(invoiceData);
     createSaleMutation.mutate(saleData);
   }, [cart, selectedCustomer, paymentMethod, paidAmount, total, customers, calculateRemaining, setProcessing, createSaleMutation]);
+
+  // Quick customer creation handler (SALES-PHILOSOPHY.md)
+  const handleQuickCustomerCreate = () => {
+    setIsQuickCustomerModalOpen(true);
+  };
+
+  // Handle customer selection to load balance info (SALES-PHILOSOPHY.md)
+  const handleCustomerChange = (customerId: string) => {
+    setSelectedCustomer(customerId);
+    if (customerId) {
+      const customer = customers.find((c: any) => c.id === customerId);
+      if (customer) {
+        setCustomerBalance(customer.balance || 0);
+        setCustomerCreditLimit(customer.credit_limit);
+      }
+    } else {
+      setCustomerBalance(0);
+      setCustomerCreditLimit(undefined);
+    }
+  };
 
   return (
     <div>
@@ -321,7 +347,7 @@ export function POSPage() {
         <div className="flex flex-col gap-4">
           <CustomerSelector
             selectedCustomer={selectedCustomer}
-            setSelectedCustomer={setSelectedCustomer}
+            setSelectedCustomer={handleCustomerChange}
             customers={customers}
             customersLoading={customersLoading}
           />
@@ -348,6 +374,10 @@ export function POSPage() {
             total={total}
             isProcessing={isProcessing}
             onCheckout={handleCheckout}
+            selectedCustomer={selectedCustomer}
+            customerBalance={customerBalance}
+            customerCreditLimit={customerCreditLimit}
+            onQuickCustomerCreate={handleQuickCustomerCreate}
           />
         </div>
       </div>
@@ -367,6 +397,65 @@ export function POSPage() {
             onClose={() => setIsInvoiceModalOpen(false)}
           />
         )}
+      </Modal>
+
+      {/* Quick Customer Creation Modal (SALES-PHILOSOPHY.md) */}
+      <Modal
+        isOpen={isQuickCustomerModalOpen}
+        onClose={() => setIsQuickCustomerModalOpen(false)}
+        title="إضافة عميل سريع"
+        variant="modern"
+        size="md"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label className="text-small font-medium text-text mb-sm block">
+              الاسم *
+            </label>
+            <Input
+              placeholder="أدخل اسم العميل..."
+              autoFocus
+              enableEnterNavigation={true}
+            />
+          </div>
+          <div>
+            <label className="text-small font-medium text-text mb-sm block">
+              رقم الهاتف
+            </label>
+            <Input
+              type="tel"
+              placeholder="05xxxxxxxx"
+              enableEnterNavigation={true}
+            />
+          </div>
+          <div>
+            <label className="text-small font-medium text-text mb-sm block">
+              حد الدين
+            </label>
+            <Input
+              type="number"
+              placeholder="₪0"
+              enableEnterNavigation={true}
+            />
+          </div>
+          <div className="flex gap-sm justify-end mt-4">
+            <Button
+              variant="secondary"
+              onClick={() => setIsQuickCustomerModalOpen(false)}
+            >
+              إلغاء
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                // TODO: Implement customer creation logic
+                setIsQuickCustomerModalOpen(false);
+              }}
+            >
+              حفظ ومتابعة البيع
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

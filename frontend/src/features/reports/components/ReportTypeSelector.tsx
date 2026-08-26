@@ -34,13 +34,13 @@ export function ReportTypeSelector({ reportTypes, selectedReport, onSelectReport
                   borderRadius: '10px',
                   border: selectedReport === report.id 
                     ? '1px solid rgba(34, 211, 238, 0.35)' 
-                    : '1px solid rgba(148, 163, 184, 0.13)',
+                    : '1px solid var(--border-default)',
                   background: selectedReport === report.id
                     ? 'linear-gradient(135deg, rgba(34, 211, 238, 0.17), rgba(59, 130, 246, 0.12))'
-                    : 'rgba(17, 24, 39, 0.75)',
+                    : 'var(--bg-surface-elevated)',
                   cursor: 'pointer',
                   transition: '180ms ease',
-                  color: selectedReport === report.id ? '#eaffff' : '#94a3b8'
+                  color: selectedReport === report.id ? 'var(--primary)' : 'var(--text-primary)'
                 }}
                 className="report-type-button"
               >

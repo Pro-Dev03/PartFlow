@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { CustomerFormData } from '../../features/customers/types/customers.types';
 
 interface CustomerFormProps {
   onSubmit: (data: CustomerFormData) => void;
@@ -9,21 +10,16 @@ interface CustomerFormProps {
   initialData?: Partial<CustomerFormData>;
 }
 
-export interface CustomerFormData {
-  name: string;
-  phone: string;
-  email?: string;
-  address?: string;
-  notes?: string;
-}
-
 export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormProps) {
   const [formData, setFormData] = useState<CustomerFormData>({
+    code: initialData?.code || '',
     name: initialData?.name || '',
     phone: initialData?.phone || '',
     email: initialData?.email || '',
     address: initialData?.address || '',
     notes: initialData?.notes || '',
+    credit_limit: initialData?.credit_limit || 0,
+    is_active: initialData?.is_active !== undefined ? initialData.is_active : true,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -38,6 +34,12 @@ export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormPr
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <Input
+            label="كود العميل"
+            value={formData.code}
+            onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+            required
+          />
           <Input
             label="الاسم الكامل"
             value={formData.name}
@@ -66,6 +68,12 @@ export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormPr
             onChange={(e) => setFormData({ ...formData, address: e.target.value })}
           />
 
+          <Input
+            label="حد الائتمان"
+            type="number"
+            value={formData.credit_limit || 0}
+            onChange={(e) => setFormData({ ...formData, credit_limit: parseFloat(e.target.value) || 0 })}
+          />
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               ملاحظات

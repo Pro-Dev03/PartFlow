@@ -32,6 +32,12 @@ type DashboardStats struct {
 	PendingReturns  int     `json:"pending_returns"`
 	PendingClaims   int     `json:"pending_claims"`
 	Alerts          []Alert `json:"alerts"`
+	// Net sales fields
+	TotalReturns    float64 `json:"total_returns"`
+	TotalRefunded   float64 `json:"total_refunded"`
+	NetSales        float64 `json:"net_sales"`
+	NetRevenue      float64 `json:"net_revenue"`
+	ReturnRate      float64 `json:"return_rate"`
 	// Fields for frontend compatibility
 	TodaySales      float64 `json:"todaySales"`
 	TodayProfit     float64 `json:"todayProfit"`
@@ -87,11 +93,11 @@ type Alert struct {
 }
 
 // GetDashboardStats retrieves dashboard statistics
-// OPTIMIZED: Single query with subqueries instead of multiple round trips
+// OPTIMIZED: Using aggregation tables for much better performance
 func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error) {
 	stats := &DashboardStats{}
 
-	// OPTIMIZED: Single query to get all statistics at once
+	// OPTIMIZED: Using aggregation tables for instant stats
 	query := `
 		SELECT
 			(SELECT COUNT(*) FROM products p
@@ -101,14 +107,17 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 			(SELECT COALESCE(SUM(current_balance), 0) FROM customers
 			 WHERE current_balance > 0) as overdue_debts,
 			(SELECT COUNT(*) FROM sales WHERE status = 'pending') as pending_orders,
-			(SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE status = 'completed') as total_sales,
+			(SELECT COALESCE(total_sales, 0) FROM daily_sales_summary 
+			 WHERE summary_date = CURRENT_DATE) as total_sales,
 			(SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE status = 'received') as total_purchases,
 			(SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE status = 'approved') as total_expenses,
 			(SELECT COUNT(*) FROM products WHERE is_active = true) as total_products,
 			(SELECT COUNT(*) FROM customers) as total_customers,
 			(SELECT COUNT(*) FROM suppliers) as total_suppliers,
 			(SELECT COUNT(*) FROM returns WHERE status = 'pending') as pending_returns,
-			(SELECT COUNT(*) FROM warranty_claims WHERE status = 'pending') as pending_claims
+			(SELECT COUNT(*) FROM warranty_claims WHERE status = 'pending') as pending_claims,
+			(SELECT COALESCE(SUM(refund_amount), 0) FROM returns WHERE status = 'completed') as total_refunded,
+			(SELECT COUNT(*) FROM returns WHERE status = 'completed') as total_returns
 	`
 
 	var result struct {
@@ -123,6 +132,8 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 		OverdueDebts   float64 `db:"overdue_debts"`
 		PendingReturns int     `db:"pending_returns"`
 		PendingClaims  int     `db:"pending_claims"`
+		TotalRefunded  float64 `db:"total_refunded"`
+		TotalReturns  int     `db:"total_returns"`
 	}
 
 	err := s.db.GetContext(ctx, &result, query)
@@ -142,10 +153,23 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 	stats.OverdueDebts = result.OverdueDebts
 	stats.PendingReturns = result.PendingReturns
 	stats.PendingClaims = result.PendingClaims
+	stats.TotalReturns = float64(result.TotalReturns)
+	stats.TotalRefunded = result.TotalRefunded
+
+	// Calculate net sales
+	stats.NetSales = stats.TotalSales - stats.TotalReturns
+	stats.NetRevenue = stats.TotalSales - stats.TotalRefunded
+
+	// Calculate return rate
+	if stats.TotalSales > 0 {
+		stats.ReturnRate = (stats.TotalReturns / stats.TotalSales) * 100
+	} else {
+		stats.ReturnRate = 0
+	}
 
 	// Calculate totals
-	stats.TotalRevenue = stats.TotalSales
-	stats.TotalProfit = stats.TotalSales - stats.TotalPurchases - stats.TotalExpenses
+	stats.TotalRevenue = stats.NetRevenue
+	stats.TotalProfit = stats.NetRevenue - stats.TotalPurchases - stats.TotalExpenses
 
 	// Populate frontend-compatible fields
 	stats.TodaySales = result.TotalSales // Using total sales as today's sales for now

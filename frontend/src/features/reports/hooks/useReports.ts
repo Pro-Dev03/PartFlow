@@ -47,6 +47,8 @@ export function useReports(selectedReport: string, dateRange: string) {
       switch (selectedReport) {
         case 'sales':
           return reportsApi.sales(dateParams);
+        case 'net-sales':
+          return reportsApi.netSales(dateParams);
         case 'profit':
           return reportsApi.profit(dateParams);
         case 'inventory':

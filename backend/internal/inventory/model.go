@@ -65,6 +65,15 @@ type InventoryItem struct {
 	Notes          *string    `json:"notes" db:"notes"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+
+	// Current State fields (جديدة - للعمليات اليومية - ARCHITECTURE-PRINCIPLES.md)
+	// هذه الحالات تُحفظ لتجنب إعادة الحساب من كل التاريخ
+	CurrentQuantity    int        `json:"current_quantity" db:"current_quantity"`             // الكمية الحالية (للمنتجات)
+	ReservedQuantity   int        `json:"reserved_quantity" db:"reserved_quantity"`           // المحجوز
+	AvailableQuantity  int        `json:"available_quantity" db:"available_quantity"`         // المتاح = Current - Reserved
+	CurrentCost        float64    `json:"current_cost" db:"current_cost"`                     // التكلفة الحالية
+	CurrentValue       float64    `json:"current_value" db:"current_value"`                   // القيمة الحالية = Quantity * Cost
+	LastMovementID     *uuid.UUID `json:"last_movement_id" db:"last_movement_id"`             // آخر حركة
 }
 
 // DBInventoryItem is a simplified struct for database scanning
@@ -115,6 +124,11 @@ const (
 	MovementRelease     MovementType = "RELEASE"
 	MovementDamage      MovementType = "DAMAGE"
 	MovementRepair      MovementType = "REPAIR"
+
+	// Reverse movements (للعمليات العكسية - ARCHITECTURE-PRINCIPLES.md)
+	MovementReversePurchase MovementType = "REVERSE_PURCHASE"
+	MovementReverseSale     MovementType = "REVERSE_SALE"
+	MovementReverseReturn   MovementType = "REVERSE_RETURN"
 )
 
 // InventoryMovement represents a movement in inventory
@@ -131,6 +145,16 @@ type InventoryMovement struct {
 	Reason         *string      `json:"reason" db:"reason"`
 	CreatedBy      uuid.UUID    `json:"created_by" db:"created_by"`
 	CreatedAt      time.Time    `json:"created_at" db:"created_at"`
+
+	// Enhanced fields for Immutable History (ARCHITECTURE-PRINCIPLES.md)
+	CostBefore     float64    `json:"cost_before" db:"cost_before"`               // التكلفة قبل الحركة
+	CostAfter      float64    `json:"cost_after" db:"cost_after"`                 // التكلفة بعد الحركة
+	ValueBefore    float64    `json:"value_before" db:"value_before"`             // القيمة قبل الحركة
+	ValueAfter     float64    `json:"value_after" db:"value_after"`               // القيمة بعد الحركة
+	IsReversed     bool       `json:"is_reversed" db:"is_reversed"`             // هل تم عكس هذه الحركة؟
+	ReversedBy     *uuid.UUID  `json:"reversed_by" db:"reversed_by"`             // من قام بالعكس
+	ReversedAt     *time.Time  `json:"reversed_at" db:"reversed_at"`             // متى تم العكس
+	ReversalReason *string     `json:"reversal_reason" db:"reversal_reason"`     // سبب العكس
 }
 
 // Reservation represents an item reservation
@@ -207,4 +231,29 @@ type ReservationRequest struct {
 	CustomerID *uuid.UUID `json:"customer_id"`
 	ExpiresIn  int       `json:"expires_in"` // minutes
 	Notes      *string   `json:"notes"`
+}
+
+// InventoryItemWithSupplier represents an inventory item with supplier and product join info
+type InventoryItemWithSupplier struct {
+	ID           uuid.UUID  `json:"id" db:"id"`
+	ProductID    *uuid.UUID `json:"product_id" db:"product_id"`
+	PartTypeID   *uuid.UUID `json:"part_type_id" db:"part_type_id"`
+	ItemCode     *string    `json:"item_code" db:"item_code"`
+	Barcode      *string    `json:"barcode" db:"barcode"`
+	SerialNumber *string    `json:"serial_number" db:"serial_number"`
+	Condition    string     `json:"condition" db:"condition"`
+	Grade        *string    `json:"grade" db:"grade"`
+	PurchaseCost float64    `json:"purchase_cost" db:"purchase_cost"`
+	SellingPrice float64    `json:"selling_price" db:"selling_price"`
+	Status       string     `json:"status" db:"status"`
+	LocationID   *uuid.UUID `json:"location_id" db:"location_id"`
+	SupplierID   *uuid.UUID `json:"supplier_id" db:"supplier_id"`
+	PurchaseDate *time.Time `json:"purchase_date" db:"purchase_date"`
+	SoldAt       *time.Time `json:"sold_at" db:"sold_at"`
+	Notes        *string    `json:"notes" db:"notes"`
+	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at" db:"updated_at"`
+	ProductName  *string    `json:"product_name" db:"product_name"`
+	SupplierName *string    `json:"supplier_name" db:"supplier_name"`
+	SupplierPhone *string   `json:"supplier_phone" db:"supplier_phone"`
 }

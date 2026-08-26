@@ -244,13 +244,14 @@
 }
 
 .skeleton {
-  background: linear-gradient(to right, #f0f0f0 8%, #e0e0e0 18%, #f0f0f0 33%);
+  /* الوضع الداكن هو الافتراضي (لا يوجد كلاس .dark) */
+  background: linear-gradient(to right, #374151 8%, #4b5563 18%, #374151 33%);
   background-size: 1000px 100%;
   animation: shimmer 2s infinite linear;
 }
 
-.dark .skeleton {
-  background: linear-gradient(to right, #374151 8%, #4b5563 18%, #374151 33%);
+.light .skeleton {
+  background: linear-gradient(to right, #f0f0f0 8%, #e0e0e0 18%, #f0f0f0 33%);
   background-size: 1000px 100%;
   animation: shimmer 2s infinite linear;
 }
@@ -361,14 +362,14 @@ aside,
 }
 
 #main-content::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(99, 102, 241, 0.6) 0%, rgba(139, 92, 246, 0.6) 100%);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.6) 0%, rgba(59, 130, 246, 0.6) 100%);
   border-radius: 6px;
   border: 3px solid transparent;
   background-clip: padding-box;
 }
 
 #main-content::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(99, 102, 241, 0.8) 0%, rgba(139, 92, 246, 0.8) 100%);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.8) 0%, rgba(59, 130, 246, 0.8) 100%);
 }
 
 /* Light theme scrollbar adjustments */
@@ -424,7 +425,7 @@ html {
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.8) 0%, rgba(139, 92, 246, 0.8) 100%);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.8) 0%, rgba(59, 130, 246, 0.8) 100%);
   color: white;
   border: none;
   cursor: pointer;
@@ -435,7 +436,7 @@ html {
   visibility: hidden;
   transition: all 0.3s ease;
   z-index: 1000;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
 }
 
 /* RTL support for scroll-to-top button */
@@ -451,7 +452,7 @@ html {
 
 .scroll-to-top:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
 }
 
 .scroll-to-top:active {
@@ -865,6 +866,6 @@ aside.sidebar nav {
 }
 
 .report-type-button:hover {
-  border-color: rgba(34, 211, 238, 0.3);
+  border-color: rgba(37, 99, 235, 0.3);
   transform: translateY(-2px);
 }

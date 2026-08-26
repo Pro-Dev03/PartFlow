@@ -11,6 +11,8 @@ export interface ModalProps extends HTMLAttributes<HTMLDivElement> {
   variant?: 'default' | 'elegant' | 'modern' | 'glass';
   showHeader?: boolean;
   showCloseButton?: boolean;
+  autoFocus?: boolean; // Auto-focus on first input when modal opens
+  enableEnterNavigation?: boolean; // Enable Enter key to move to next field
 }
 
 export const Modal = forwardRef<HTMLDivElement, ModalProps>(
@@ -23,12 +25,15 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
     variant = 'modern',
     showHeader = true,
     showCloseButton = true,
+    autoFocus = true,
+    enableEnterNavigation = true,
     children, 
     ...props 
   }, ref) => {
     const modalRef = useRef<HTMLDivElement>(null);
     const previousActiveElement = useRef<HTMLElement | null>(null);
     const onCloseRef = useRef(onClose);
+    const autoFocusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     onCloseRef.current = onClose;
 
     useEffect(() => {
@@ -36,22 +41,80 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
 
       previousActiveElement.current = document.activeElement as HTMLElement;
 
+      // Auto-focus on first input/select after a small delay
+      if (autoFocus) {
+        autoFocusTimeoutRef.current = setTimeout(() => {
+          const focusableElements = modalRef.current?.querySelectorAll(
+            'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])'
+          );
+          if (focusableElements && focusableElements.length > 0) {
+            const firstInput = Array.from(focusableElements).find(
+              el => el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA'
+            ) as HTMLElement;
+            if (firstInput) {
+              firstInput.focus();
+            }
+          }
+        }, 100);
+      }
+    }, [isOpen, autoFocus]);
+
+    useEffect(() => {
+      if (!isOpen) return;
+
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'Escape') {
           onCloseRef.current();
         }
+        
+        // Enhanced TAB navigation
         if (e.key === 'Tab') {
-          e.preventDefault();
           const focusableElements = modalRef.current?.querySelectorAll(
             'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
           );
           if (focusableElements && focusableElements.length > 0) {
             const firstElement = focusableElements[0] as HTMLElement;
             const lastElement = focusableElements[focusableElements.length - 1] as HTMLElement;
+            
             if (e.shiftKey) {
-              if (document.activeElement === firstElement) lastElement.focus();
+              if (document.activeElement === firstElement) {
+                e.preventDefault();
+                lastElement.focus();
+              }
             } else {
-              if (document.activeElement === lastElement) firstElement.focus();
+              if (document.activeElement === lastElement) {
+                e.preventDefault();
+                firstElement.focus();
+              }
+            }
+          }
+        }
+
+        // Enter key navigation for inputs
+        if (enableEnterNavigation && e.key === 'Enter' && !e.shiftKey) {
+          const activeElement = document.activeElement;
+          if (activeElement && (
+            activeElement.tagName === 'INPUT' || 
+            activeElement.tagName === 'SELECT'
+          )) {
+            const focusableElements = modalRef.current?.querySelectorAll(
+              'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])'
+            );
+            if (focusableElements && focusableElements.length > 0) {
+              const elementsArray = Array.from(focusableElements);
+              const currentIndex = elementsArray.indexOf(activeElement);
+              
+              // Find next input/select (skip buttons)
+              for (let i = currentIndex + 1; i < elementsArray.length; i++) {
+                const nextElement = elementsArray[i];
+                if (nextElement.tagName === 'INPUT' || 
+                    nextElement.tagName === 'SELECT' || 
+                    nextElement.tagName === 'TEXTAREA') {
+                  e.preventDefault();
+                  (nextElement as HTMLElement).focus();
+                  break;
+                }
+              }
             }
           }
         }
@@ -61,13 +124,16 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
       document.body.style.overflow = 'hidden';
 
       return () => {
+        if (autoFocusTimeoutRef.current) {
+          clearTimeout(autoFocusTimeoutRef.current);
+        }
         document.removeEventListener('keydown', handleKeyDown);
         document.body.style.overflow = '';
         if (previousActiveElement.current) {
           previousActiveElement.current.focus();
         }
       };
-    }, [isOpen]);
+    }, [isOpen, autoFocus, enableEnterNavigation]);
 
     if (!isOpen) {
       return null;
@@ -96,7 +162,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
       modern: {
         background: 'var(--bg-surface)',
         border: '1px solid var(--border-primary)',
-        shadow: '0 20px 60px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) inset, 0 0 40px rgba(99, 102, 241, 0.1)',
+        shadow: 'rgba(0, 0, 0, 0.3) 0px 20px 60px, rgba(255, 255, 255, 0.1) 0px 0px 0px 1px inset, rgba(99, 102, 241, 0.1) 0px 0px 40px',
       },
       glass: {
         background: 'rgba(255, 255, 255, 0.7)',
@@ -136,7 +202,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
           }}
           className={cn(
             'relative w-full rounded-2xl overflow-hidden',
-            'max-h-[calc(100vh-2rem)] overflow-y-auto',
+            'max-h-[calc(100vh-2rem)]',
             sizes[size],
             className
           )}
@@ -166,7 +232,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
           {showHeader && title && (
             <div 
               className={cn(
-                "flex items-center justify-between px-6 py-5 sticky top-0 z-10",
+                "flex items-center justify-between px-6 py-5",
                 variant === 'elegant' ? "border-b border-white/10" : "border-b border-gray-200"
               )}
               style={{
@@ -222,10 +288,11 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
           )}
 
           <div 
-            className="p-6"
+            className="p-6 overflow-y-auto"
             style={{ 
               color: variant === 'elegant' ? '#e2e8f0' : 'var(--text-primary)',
-              background: 'transparent'
+              background: 'transparent',
+              maxHeight: 'calc(80vh - 150px)'
             }}
           >
             {children}

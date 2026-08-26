@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
-import { CreditCard, Banknote, Send, Loader2 } from 'lucide-react';
+import { CreditCard, Banknote, Send, Loader2, User, AlertTriangle } from 'lucide-react';
 import { PaymentMethod } from '../types/pos.types';
 
 interface PaymentSectionProps {
@@ -12,6 +12,10 @@ interface PaymentSectionProps {
   total: number;
   isProcessing: boolean;
   onCheckout: () => void;
+  selectedCustomer?: string;
+  customerBalance?: number;
+  customerCreditLimit?: number;
+  onQuickCustomerCreate?: () => void;
 }
 
 export function PaymentSection({
@@ -22,9 +26,21 @@ export function PaymentSection({
   total,
   isProcessing,
   onCheckout,
+  selectedCustomer,
+  customerBalance = 0,
+  customerCreditLimit,
+  onQuickCustomerCreate,
 }: PaymentSectionProps) {
   const paid = parseFloat(paidAmount) || 0;
   const remaining = total - paid;
+  
+  // Check if customer will exceed credit limit (SALES-PHILOSOPHY.md)
+  const projectedDebt = customerBalance + remaining;
+  const willExceedCreditLimit = customerCreditLimit && projectedDebt > customerCreditLimit;
+  const isCreditSale = paymentMethod === 'credit';
+  
+  // For credit sales, customer is required (SALES-PHILOSOPHY.md)
+  const isCreditSaleWithoutCustomer = isCreditSale && !selectedCustomer;
 
   return (
     <Card style={{
@@ -177,8 +193,124 @@ export function PaymentSection({
                 <CreditCard className="w-3.5 h-3.5 mr-1.5" style={{ color: paymentMethod === 'card' ? '#fff' : 'var(--color-info)' }} />
                 <span style={{ color: paymentMethod === 'card' ? '#fff' : 'var(--text-primary)' }}>بطاقة</span>
               </Button>
+              <Button
+                variant={paymentMethod === 'credit' ? 'primary' : 'secondary'}
+                onClick={() => setPaymentMethod('credit')}
+                style={{
+                  flex: 1,
+                  height: '40px',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  letterSpacing: '0.2px',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                  borderRadius: '8px',
+                  background: paymentMethod === 'credit'
+                    ? 'linear-gradient(135deg, var(--button-primary-bg) 0%, var(--color-primary-85) 100%)'
+                    : 'linear-gradient(135deg, var(--bg-surface-elevated) 0%, var(--bg-surface) 100%)',
+                  border: paymentMethod === 'credit'
+                    ? '1px solid var(--color-primary-30)'
+                    : '1px solid var(--color-primary-20)',
+                  boxShadow: paymentMethod === 'credit'
+                    ? '0 4px 12px var(--color-primary-20)'
+                    : 'none',
+                  backdropFilter: 'blur(10px)'
+                }}
+                onMouseEnter={(e) => {
+                  if (paymentMethod !== 'credit') {
+                    e.currentTarget.style.borderColor = 'var(--color-primary-40)';
+                    e.currentTarget.style.background = 'linear-gradient(135deg, var(--color-primary-10) 0%, var(--color-info-10) 100%)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (paymentMethod !== 'credit') {
+                    e.currentTarget.style.borderColor = 'var(--color-primary-20)';
+                    e.currentTarget.style.background = 'linear-gradient(135deg, var(--bg-surface-elevated) 0%, var(--bg-surface) 100%)';
+                  }
+                }}
+              >
+                <User className="w-3.5 h-3.5 mr-1.5" style={{ color: paymentMethod === 'credit' ? '#fff' : 'var(--color-info)' }} />
+                <span style={{ color: paymentMethod === 'credit' ? '#fff' : 'var(--text-primary)' }}>آجل</span>
+              </Button>
             </div>
           </div>
+
+          {/* Credit Sale Warning - Customer Required (SALES-PHILOSOPHY.md) */}
+          {isCreditSaleWithoutCustomer && (
+            <div style={{
+              marginTop: '12px',
+              padding: '10px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <AlertTriangle className="w-4 h-4" style={{ color: 'var(--color-danger)' }} />
+              <span style={{
+                fontSize: '12px',
+                color: 'var(--color-danger)',
+                fontWeight: '500'
+              }}>
+                البيع بالدين يتطلب تحديد العميل
+              </span>
+            </div>
+          )}
+
+          {/* Credit Limit Warning (SALES-PHILOSOPHY.md) */}
+          {isCreditSale && selectedCustomer && willExceedCreditLimit && (
+            <div style={{
+              marginTop: '12px',
+              padding: '10px',
+              background: 'rgba(251, 191, 36, 0.1)',
+              border: '1px solid rgba(251, 191, 36, 0.3)',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <AlertTriangle className="w-4 h-4" style={{ color: 'var(--color-warning)' }} />
+              <span style={{
+                fontSize: '12px',
+                color: 'var(--color-warning)',
+                fontWeight: '500'
+              }}>
+                تنبيه: هذا البيع سيتجاوز حد الدين المحدد
+              </span>
+            </div>
+          )}
+
+          {/* Quick Customer Creation for Credit Sales (SALES-PHILOSOPHY.md) */}
+          {isCreditSale && !selectedCustomer && onQuickCustomerCreate && (
+            <Button
+              variant="secondary"
+              onClick={onQuickCustomerCreate}
+              style={{
+                width: '100%',
+                marginTop: '12px',
+                height: '36px',
+                fontSize: '13px',
+                fontWeight: '600',
+                letterSpacing: '0.2px',
+                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                borderRadius: '8px',
+                background: 'linear-gradient(135deg, var(--bg-surface-elevated) 0%, var(--bg-surface) 100%)',
+                border: '1px solid var(--color-primary-20)',
+                backdropFilter: 'blur(10px)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-primary-40)';
+                e.currentTarget.style.background = 'linear-gradient(135deg, var(--color-primary-10) 0%, var(--color-info-10) 100%)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-primary-20)';
+                e.currentTarget.style.background = 'linear-gradient(135deg, var(--bg-surface-elevated) 0%, var(--bg-surface) 100%)';
+              }}
+            >
+              <User className="w-3.5 h-3.5 mr-1.5" style={{ color: 'var(--color-info)' }} />
+              <span style={{ color: 'var(--text-primary)' }}>+ إنشاء عميل سريع</span>
+            </Button>
+          )}
 
           {/* Amount Paid */}
           {paymentMethod === 'cash' && (
@@ -248,7 +380,7 @@ export function PaymentSection({
           <Button
             variant="primary"
             onClick={onCheckout}
-            disabled={isProcessing || (paymentMethod === 'cash' && paid < total)}
+            disabled={isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer}
             style={{
               width: '100%',
               marginTop: '16px',
@@ -256,41 +388,41 @@ export function PaymentSection({
               fontSize: '15px',
               fontWeight: '700',
               letterSpacing: '0.3px',
-              background: isProcessing || (paymentMethod === 'cash' && paid < total)
+              background: isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer
                 ? 'linear-gradient(135deg, rgba(100, 116, 139, 0.3) 0%, rgba(75, 85, 99, 0.3) 100%)'
                 : 'linear-gradient(135deg, var(--button-primary-bg) 0%, var(--color-primary-90) 100%)',
-              border: isProcessing || (paymentMethod === 'cash' && paid < total)
+              border: isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer
                 ? '1px solid rgba(100, 116, 139, 0.3)'
                 : '1px solid var(--color-primary-30)',
-              boxShadow: isProcessing || (paymentMethod === 'cash' && paid < total)
+              boxShadow: isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer
                 ? 'none'
                 : '0 4px 20px var(--color-primary-30)',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               borderRadius: '10px',
               backdropFilter: 'blur(10px)',
-              cursor: isProcessing || (paymentMethod === 'cash' && paid < total)
+              cursor: isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer
                 ? 'not-allowed'
                 : 'pointer'
             }}
             onMouseEnter={(e) => {
-              if (!(isProcessing || (paymentMethod === 'cash' && paid < total))) {
+              if (!(isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer)) {
                 e.currentTarget.style.transform = 'translateY(-2px) scale(1.01)';
                 e.currentTarget.style.boxShadow = '0 8px 30px var(--color-primary-40)';
               }
             }}
             onMouseLeave={(e) => {
-              if (!(isProcessing || (paymentMethod === 'cash' && paid < total))) {
+              if (!(isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer)) {
                 e.currentTarget.style.transform = 'translateY(0) scale(1)';
                 e.currentTarget.style.boxShadow = '0 4px 20px var(--color-primary-30)';
               }
             }}
             onMouseDown={(e) => {
-              if (!(isProcessing || (paymentMethod === 'cash' && paid < total))) {
+              if (!(isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer)) {
                 e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
               }
             }}
             onMouseUp={(e) => {
-              if (!(isProcessing || (paymentMethod === 'cash' && paid < total))) {
+              if (!(isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer)) {
                 e.currentTarget.style.transform = 'translateY(-2px) scale(1.01)';
               }
             }}

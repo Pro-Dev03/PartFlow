@@ -209,10 +209,10 @@ export default {
         'lg': '0 16px 40px rgba(0, 0, 0, 0.25)',
         'xl': '0 20px 25px rgba(0, 0, 0, 0.25)',
         'card': '0 15px 50px rgba(0, 0, 0, 0.20)',
-        'glow': '0 0 24px rgba(34, 211, 238, 0.08)', // Subtle glow فقط
-        'glow-strong': '0 0 30px rgba(34, 211, 238, 0.10)', // Stronger glow نادر
-        'glow-soft': '0 0 20px rgba(34, 211, 238, 0.06)', // Soft glow
-        'nav-active': 'inset 2px 0 0 #22d3ee, 0 0 20px rgba(34, 211, 238, 0.04)',
+        'glow': '0 0 24px rgba(37, 99, 235, 0.08)', // Subtle glow فقط (أزرق موحّد)
+        'glow-strong': '0 0 30px rgba(37, 99, 235, 0.10)', // Stronger glow نادر
+        'glow-soft': '0 0 20px rgba(37, 99, 235, 0.06)', // Soft glow
+        'nav-active': 'inset 2px 0 0 #2563eb, 0 0 20px rgba(37, 99, 235, 0.04)',
       },
       transitionDuration: {
         // PartFlow Design System Transitions - تطابق tokens.css
@@ -237,17 +237,17 @@ export default {
       },
       backgroundImage: {
         // PartFlow Design System Gradients (حسب التقرير النهائي - خفيفة جدًا ومحدودة)
-        'background-gradient': 'radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.10), transparent 30%), radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.08), transparent 30%), #090d12',
+        'background-gradient': 'radial-gradient(circle at 80% 0%, rgba(37, 99, 235, 0.12), transparent 30%), radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.08), transparent 30%), #090d12',
         'sidebar-gradient': 'linear-gradient(180deg, rgba(12, 17, 28, 0.92), rgba(7, 10, 18, 0.86))',
         'card-gradient': 'linear-gradient(145deg, rgba(17, 24, 39, 0.92), rgba(9, 14, 24, 0.92))',
-        'card-ai-gradient': 'linear-gradient(145deg, rgba(34, 211, 238, 0.07), rgba(17, 24, 39, 0.92))',
-        'logo-gradient': 'linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(59, 130, 246, 0.04))',
-        'button-primary-gradient': 'linear-gradient(135deg, rgba(34, 211, 238, 0.17), rgba(59, 130, 246, 0.12))',
-        'nav-active-gradient': 'linear-gradient(90deg, rgba(34, 211, 238, 0.13), rgba(59, 130, 246, 0.03))',
-        'chart-bar-gradient': 'linear-gradient(180deg, rgba(34, 211, 238, 0.90), rgba(59, 130, 246, 0.12))',
+        'card-ai-gradient': 'linear-gradient(145deg, rgba(37, 99, 235, 0.08), rgba(17, 24, 39, 0.92))',
+        'logo-gradient': 'linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(59, 130, 246, 0.04))',
+        'button-primary-gradient': 'linear-gradient(135deg, rgba(37, 99, 235, 0.18), rgba(59, 130, 246, 0.12))',
+        'nav-active-gradient': 'linear-gradient(90deg, rgba(37, 99, 235, 0.13), rgba(59, 130, 246, 0.03))',
+        'chart-bar-gradient': 'linear-gradient(180deg, rgba(37, 99, 235, 0.90), rgba(59, 130, 246, 0.12))',
         // Gradients الجديدة حسب التقرير النهائي
-        'gradient-subtle': 'linear-gradient(135deg, rgba(34, 211, 238, 0.10), rgba(52, 211, 153, 0.04))',
-        'gradient-metric': 'linear-gradient(135deg, rgba(34, 211, 238, 0.15), rgba(59, 130, 246, 0.08))',
+        'gradient-subtle': 'linear-gradient(135deg, rgba(37, 99, 235, 0.10), rgba(52, 211, 153, 0.04))',
+        'gradient-metric': 'linear-gradient(135deg, rgba(37, 99, 235, 0.15), rgba(59, 130, 246, 0.08))',
       },
       animation: {
         // PartFlow Design System Animations (kebab-case only)
@@ -325,8 +325,8 @@ export default {
           '100%': { transform: 'translateX(0)', opacity: '1' },
         },
         glowPulse: {
-          '0%, 100%': { boxShadow: '0 0 25px rgba(34, 211, 238, 0.07)' },
-          '50%': { boxShadow: '0 0 35px rgba(34, 211, 238, 0.12)' },
+          '0%, 100%': { boxShadow: '0 0 25px rgba(37, 99, 235, 0.07)' },
+          '50%': { boxShadow: '0 0 35px rgba(37, 99, 235, 0.12)' },
         },
         float: {
           '0%, 100%': { transform: 'translateY(0)' },

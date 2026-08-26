@@ -1,19 +1,26 @@
 export interface Customer {
   id: string;
+  code: string;
   name: string;
   phone: string;
   email?: string;
+  address?: string;
   totalPurchases: number;
   outstanding: number;
+  credit_limit?: number;
+  is_active?: boolean;
   financial_timeline?: any[];
 }
 
 export interface CustomerFormData {
+  code: string;
   name: string;
   phone: string;
   email?: string;
   address?: string;
   notes?: string;
+  credit_limit?: number;
+  is_active?: boolean;
 }
 
 export interface CustomerStats {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -22,16 +23,23 @@ func NewRepository(db *sqlx.DB) *Repository {
 // CreateReturn creates a new return
 func (r *Repository) CreateReturn(ctx context.Context, returnRecord *Return) error {
 	query := `
-			return_date, reason, condition, status, refund_amount, refund_method, refund_date, 
-			notes, processed_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		INSERT INTO returns (return_number, reference_number, sale_id, purchase_id, customer_id, 
+			return_date, return_type, status, total_refund_amount, refund_method, refund_date, refund_reference,
+			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
+			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
+			notes, internal_notes, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
 		RETURNING id, created_at, updated_at
 	`
 	
 	err := r.db.QueryRowContext(ctx, query,
-		returnRecord.ReturnNumber, returnRecord.ReturnDate, returnRecord.Reason, returnRecord.Condition,
-		returnRecord.Status, returnRecord.RefundAmount, returnRecord.RefundMethod, returnRecord.RefundDate,
-		returnRecord.Notes, returnRecord.ProcessedBy, returnRecord.CreatedAt, returnRecord.UpdatedAt,
+		returnRecord.ReturnNumber, returnRecord.ReferenceNumber, returnRecord.SaleID, returnRecord.PurchaseID, returnRecord.CustomerID,
+		returnRecord.ReturnDate, returnRecord.ReturnType, returnRecord.Status, returnRecord.TotalRefundAmount, returnRecord.RefundMethod, 
+		returnRecord.RefundDate, returnRecord.RefundReference, returnRecord.DebtID, returnRecord.DebtAdjustment, returnRecord.CustomerCredit,
+		returnRecord.Reason, returnRecord.ReasonDetail, returnRecord.ItemConditionAfterReturn, returnRecord.IsWarrantyClaim,
+		returnRecord.WarrantyID, returnRecord.WarrantyValidUntil, returnRecord.CreatedBy, returnRecord.ProcessedBy, 
+		returnRecord.ApprovedBy, returnRecord.ApprovedAt, returnRecord.Notes, returnRecord.InternalNotes,
+		returnRecord.CreatedAt, returnRecord.UpdatedAt,
 	).Scan(&returnRecord.ID, &returnRecord.CreatedAt, &returnRecord.UpdatedAt)
 	
 	if err != nil {
@@ -44,7 +52,11 @@ func (r *Repository) CreateReturn(ctx context.Context, returnRecord *Return) err
 func (r *Repository) GetReturnByID(ctx context.Context, id uuid.UUID) (*Return, error) {
 	var returnRecord Return
 	query := `
-		SELECT id, return_number, sale_id, customer_id, return_date, reason, condition, status, refund_amount, refund_method, refund_date, notes, processed_by, created_at, updated_at
+		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+			return_date, return_type, status, total_refund_amount, refund_method, refund_date, refund_reference,
+			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
+			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
+			notes, internal_notes, created_at, updated_at
 		FROM returns
 		WHERE id = $1
 	`
@@ -66,7 +78,11 @@ func (r *Repository) ListReturns(ctx context.Context, req ReturnListRequest) ([]
 
 	// Build base query
 	baseQuery := `
-		SELECT id, return_number, sale_id, customer_id, return_date, reason, condition, status, refund_amount, refund_method, refund_date, notes, processed_by, created_at, updated_at
+		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+			return_date, return_type, status, total_refund_amount, refund_method, refund_date, refund_reference,
+			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
+			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
+			notes, internal_notes, created_at, updated_at
 		FROM returns
 		WHERE 1=1
 	`
@@ -116,10 +132,24 @@ func (r *Repository) ListReturns(ctx context.Context, req ReturnListRequest) ([]
 	
 	if req.Search != "" {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND (return_number ILIKE $%d OR reason ILIKE $%d OR notes ILIKE $%d)", argCount, argCount, argCount)
-		countQuery += fmt.Sprintf(" AND (return_number ILIKE $%d OR reason ILIKE $%d OR notes ILIKE $%d)", argCount, argCount, argCount)
+		baseQuery += fmt.Sprintf(" AND (return_number ILIKE $%d OR reference_number ILIKE $%d OR reason ILIKE $%d OR notes ILIKE $%d)", argCount, argCount, argCount, argCount)
+		countQuery += fmt.Sprintf(" AND (return_number ILIKE $%d OR reference_number ILIKE $%d OR reason ILIKE $%d OR notes ILIKE $%d)", argCount, argCount, argCount, argCount)
 		searchPattern := "%" + req.Search + "%"
-		args = append(args, searchPattern, searchPattern, searchPattern)
+		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
+	}
+	
+	if req.ReturnType != "" {
+		argCount++
+		baseQuery += fmt.Sprintf(" AND return_type = $%d", argCount)
+		countQuery += fmt.Sprintf(" AND return_type = $%d", argCount)
+		args = append(args, req.ReturnType)
+	}
+	
+	if req.RefundMethod != "" {
+		argCount++
+		baseQuery += fmt.Sprintf(" AND refund_method = $%d", argCount)
+		countQuery += fmt.Sprintf(" AND refund_method = $%d", argCount)
+		args = append(args, req.RefundMethod)
 	}
 	
 	// Get total count
@@ -157,14 +187,21 @@ func (r *Repository) ListReturns(ctx context.Context, req ReturnListRequest) ([]
 func (r *Repository) UpdateReturn(ctx context.Context, returnRecord *Return) error {
 	query := `
 		UPDATE returns
-		SET return_date = $2, reason = $3, condition = $4, status = $5, 
-			refund_amount = $6, refund_method = $7, refund_date = $8, notes = $9, updated_at = $10
+		SET return_date = $2, return_type = $3, status = $4, total_refund_amount = $5, 
+			refund_method = $6, refund_date = $7, refund_reference = $8, debt_id = $9, debt_adjustment = $10,
+			customer_credit = $11, reason = $12, reason_detail = $13, item_condition_after_return = $14,
+			is_warranty_claim = $15, warranty_id = $16, warranty_valid_until = $17, processed_by = $18,
+			approved_by = $19, approved_at = $20, notes = $21, internal_notes = $22, updated_at = $23
+		WHERE id = $1
 		RETURNING updated_at
 	`
 	
 	err := r.db.QueryRowContext(ctx, query,
-		returnRecord.ID, returnRecord.ReturnDate, returnRecord.Reason, returnRecord.Condition,
-		returnRecord.Status, returnRecord.RefundAmount, returnRecord.RefundMethod, returnRecord.RefundDate,
+		returnRecord.ID, returnRecord.ReturnDate, returnRecord.ReturnType, returnRecord.Status, returnRecord.TotalRefundAmount,
+		returnRecord.RefundMethod, returnRecord.RefundDate, returnRecord.RefundReference, returnRecord.DebtID, returnRecord.DebtAdjustment,
+		returnRecord.CustomerCredit, returnRecord.Reason, returnRecord.ReasonDetail, returnRecord.ItemConditionAfterReturn,
+		returnRecord.IsWarrantyClaim, returnRecord.WarrantyID, returnRecord.WarrantyValidUntil, returnRecord.ProcessedBy,
+		returnRecord.ApprovedBy, returnRecord.ApprovedAt, returnRecord.Notes, returnRecord.InternalNotes, time.Now(),
 	).Scan(&returnRecord.UpdatedAt)
 	
 	if err != nil {
@@ -196,16 +233,21 @@ func (r *Repository) DeleteReturn(ctx context.Context, id uuid.UUID) error {
 // CreateReturnItem creates a new return item
 func (r *Repository) CreateReturnItem(ctx context.Context, item *ReturnItem) error {
 	query := `
-		INSERT INTO return_items (id, return_id, sale_item_id, product_id, quantity, 
-			unit_price, total_price, reason, condition, is_resellable, location_id, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		INSERT INTO return_items (return_id, sale_item_id, product_id, inventory_item_id, serial_number, barcode,
+			quantity_returned, original_quantity, unit_price, total_refund_amount,
+			original_condition, returned_condition, condition_notes, resolution, inventory_status,
+			inspection_required, inspection_date, inspection_result, inspection_notes,
+			original_cost, repair_cost, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
 		RETURNING id, created_at, updated_at
 	`
 	
 	err := r.db.QueryRowContext(ctx, query,
-		item.ID, item.ReturnID, item.SaleItemID, item.ProductID, item.Quantity,
-		item.UnitPrice, item.TotalPrice, item.Reason, item.Condition, item.IsResellable,
-		item.LocationID, item.Notes, item.CreatedAt, item.UpdatedAt,
+		item.ReturnID, item.SaleItemID, item.ProductID, item.InventoryItemID, item.SerialNumber, item.Barcode,
+		item.QuantityReturned, item.OriginalQuantity, item.UnitPrice, item.TotalRefundAmount,
+		item.OriginalCondition, item.ReturnedCondition, item.ConditionNotes, item.Resolution, item.InventoryStatus,
+		item.InspectionRequired, item.InspectionDate, item.InspectionResult, item.InspectionNotes,
+		item.OriginalCost, item.RepairCost, time.Now(), time.Now(),
 	).Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt)
 	
 	if err != nil {
@@ -218,8 +260,11 @@ func (r *Repository) CreateReturnItem(ctx context.Context, item *ReturnItem) err
 func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]ReturnItem, error) {
 	var items []ReturnItem
 	query := `
-		SELECT id, return_id, sale_item_id, product_id, quantity, unit_price, total_price, 
-			reason, condition, is_resellable, location_id, notes, created_at, updated_at
+		SELECT id, return_id, sale_item_id, product_id, inventory_item_id, serial_number, barcode,
+			quantity_returned, original_quantity, unit_price, total_refund_amount,
+			original_condition, returned_condition, condition_notes, resolution, inventory_status,
+			inspection_required, inspection_date, inspection_result, inspection_notes,
+			original_cost, repair_cost, created_at, updated_at
 		FROM return_items
 		WHERE return_id = $1
 		ORDER BY created_at
@@ -236,15 +281,19 @@ func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]
 func (r *Repository) UpdateReturnItem(ctx context.Context, item *ReturnItem) error {
 	query := `
 		UPDATE return_items
-		SET quantity = $2, reason = $3, condition = $4, is_resellable = $5, 
-			location_id = $6, notes = $7, updated_at = $8
+		SET quantity_returned = $2, original_quantity = $3, unit_price = $4, total_refund_amount = $5,
+			original_condition = $6, returned_condition = $7, condition_notes = $8, resolution = $9, inventory_status = $10,
+			inspection_required = $11, inspection_date = $12, inspection_result = $13, inspection_notes = $14,
+			original_cost = $15, repair_cost = $16, updated_at = $17
 		WHERE id = $1
 		RETURNING updated_at
 	`
 	
 	err := r.db.QueryRowContext(ctx, query,
-		item.ID, item.Quantity, item.Reason, item.Condition, item.IsResellable,
-		item.LocationID, item.Notes, item.UpdatedAt,
+		item.ID, item.QuantityReturned, item.OriginalQuantity, item.UnitPrice, item.TotalRefundAmount,
+		item.OriginalCondition, item.ReturnedCondition, item.ConditionNotes, item.Resolution, item.InventoryStatus,
+		item.InspectionRequired, item.InspectionDate, item.InspectionResult, item.InspectionNotes,
+		item.OriginalCost, item.RepairCost, time.Now(),
 	).Scan(&item.UpdatedAt)
 	
 	if err != nil {
@@ -333,7 +382,11 @@ func (r *Repository) GetSaleItemInfo(ctx context.Context, saleItemID uuid.UUID) 
 func (r *Repository) GetReturnByReturnNumber(ctx context.Context, returnNumber string) (*Return, error) {
 	var returnRecord Return
 	query := `
-		SELECT id, return_number, sale_id, customer_id, return_date, reason, condition, status, refund_amount, refund_method, refund_date, notes, processed_by, created_at, updated_at
+		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+			return_date, return_type, status, total_refund_amount, refund_method, refund_date, refund_reference,
+			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
+			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
+			notes, internal_notes, created_at, updated_at
 		FROM returns
 		WHERE return_number = $1
 	`
@@ -346,4 +399,303 @@ func (r *Repository) GetReturnByReturnNumber(ctx context.Context, returnNumber s
 		return nil, fmt.Errorf("failed to get return by return number: %w", err)
 	}
 	return &returnRecord, nil
+}
+
+// GetReturnsBySaleID retrieves returns for a specific sale
+func (r *Repository) GetReturnsBySaleID(ctx context.Context, saleID uuid.UUID) ([]Return, error) {
+	var returns []Return
+	query := `
+		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+			return_date, return_type, status, total_refund_amount, refund_method, refund_date, refund_reference,
+			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
+			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
+			notes, internal_notes, created_at, updated_at
+		FROM returns
+		WHERE sale_id = $1
+		ORDER BY return_date DESC
+	`
+
+	err := r.db.SelectContext(ctx, &returns, query, saleID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get returns by sale: %w", err)
+	}
+	return returns, nil
+}
+
+// GetReturnItemByID retrieves a return item by ID
+func (r *Repository) GetReturnItemByID(ctx context.Context, itemID uuid.UUID) (*ReturnItem, error) {
+	var item ReturnItem
+	query := `
+		SELECT id, return_id, sale_item_id, product_id, inventory_item_id, serial_number, barcode,
+			quantity_returned, original_quantity, unit_price, total_refund_amount,
+			original_condition, returned_condition, condition_notes, resolution, inventory_status,
+			inspection_required, inspection_date, inspection_result, inspection_notes,
+			original_cost, repair_cost, created_at, updated_at
+		FROM return_items
+		WHERE id = $1
+	`
+
+	err := r.db.GetContext(ctx, &item, query, itemID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrReturnItemNotFound
+		}
+		return nil, fmt.Errorf("failed to get return item: %w", err)
+	}
+	return &item, nil
+}
+
+// GetReturnedQuantity gets the total returned quantity for a sale item
+func (r *Repository) GetReturnedQuantity(ctx context.Context, saleItemID uuid.UUID) (int, error) {
+	var returnedQty int
+	query := `
+		SELECT COALESCE(SUM(quantity_returned), 0)
+		FROM return_items
+		WHERE sale_item_id = $1
+	`
+
+	err := r.db.GetContext(ctx, &returnedQty, query, saleItemID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get returned quantity: %w", err)
+	}
+	return returnedQty, nil
+}
+
+// GetReturnSummary gets summary of returns with related data
+func (r *Repository) GetReturnSummary(ctx context.Context) ([]map[string]interface{}, error) {
+	var summary []map[string]interface{}
+	query := `
+		SELECT * FROM returns_summary
+		ORDER BY return_date DESC
+		LIMIT 100
+	`
+
+	err := r.db.SelectContext(ctx, &summary, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get return summary: %w", err)
+	}
+	return summary, nil
+}
+
+// ReverseReturn reverses a return (instead of deleting it)
+func (r *Repository) ReverseReturn(ctx context.Context, id uuid.UUID, reversedBy uuid.UUID) error {
+	query := `
+		UPDATE returns 
+		SET status = 'REVERSED', 
+		    processed_by = $2, 
+		    updated_at = NOW() 
+		WHERE id = $1
+		RETURNING updated_at
+	`
+
+	err := r.db.QueryRowContext(ctx, query, id, reversedBy).Scan(new(time.Time))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrReturnNotFound
+		}
+		return fmt.Errorf("failed to reverse return: %w", err)
+	}
+	return nil
+}
+
+// GetReturnsByCustomer retrieves returns for a specific customer
+func (r *Repository) GetReturnsByCustomer(ctx context.Context, customerID uuid.UUID) ([]Return, error) {
+	var returns []Return
+	query := `
+		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+			return_date, return_type, status, total_refund_amount, refund_method, refund_date, refund_reference,
+			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
+			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
+			notes, internal_notes, created_at, updated_at
+		FROM returns
+		WHERE customer_id = $1
+		ORDER BY return_date DESC
+	`
+
+	err := r.db.SelectContext(ctx, &returns, query, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get returns by customer: %w", err)
+	}
+	return returns, nil
+}
+
+// GetReturnBySale retrieves a return for a specific sale (for validation)
+func (r *Repository) GetReturnBySale(ctx context.Context, saleID uuid.UUID) (*Return, error) {
+	var returnRecord Return
+	query := `
+		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+			return_date, return_type, status, total_refund_amount, refund_method, refund_date, refund_reference,
+			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
+			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
+			notes, internal_notes, created_at, updated_at
+		FROM returns
+		WHERE sale_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+
+	err := r.db.GetContext(ctx, &returnRecord, query, saleID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrReturnNotFound
+		}
+		return nil, fmt.Errorf("failed to get return by sale: %w", err)
+	}
+	return &returnRecord, nil
+}
+
+// GetReturnStatistics returns statistics about returns
+func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interface{}, error) {
+	var stats map[string]interface{}
+	query := `
+		SELECT 
+			COUNT(*) as total_returns,
+			COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed_returns,
+			COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending_returns,
+			COUNT(CASE WHEN return_type = 'FULL' THEN 1 END) as full_returns,
+			COUNT(CASE WHEN return_type = 'PARTIAL' THEN 1 END) as partial_returns,
+			COALESCE(SUM(total_refund_amount), 0) as total_refunded,
+			COUNT(CASE WHEN reason = 'DEFECTIVE' THEN 1 END) as defective_returns,
+			COUNT(CASE WHEN reason = 'WARRANTY' THEN 1 END) as warranty_returns
+		FROM returns
+		WHERE return_date >= CURRENT_DATE - INTERVAL '30 days'
+	`
+
+	err := r.db.GetContext(ctx, &stats, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get return statistics: %w", err)
+	}
+	return stats, nil
+}
+
+// GetMonthlyReturnsAnalysis gets monthly returns analysis
+func (r *Repository) GetMonthlyReturnsAnalysis(ctx context.Context) ([]MonthlyReturnsAnalysis, error) {
+	var analysis []MonthlyReturnsAnalysis
+	query := `
+		SELECT 
+			month,
+			total_returns,
+			unique_customers,
+			total_refund_amount,
+			avg_refund_amount,
+			full_returns,
+			partial_returns,
+			quantity_partial_returns,
+			defective_returns,
+			warranty_returns,
+			warranty_claims,
+			sellable_items,
+			repair_needed,
+			written_off
+		FROM monthly_returns_analysis
+		ORDER BY month DESC
+		LIMIT 12
+	`
+
+	err := r.db.SelectContext(ctx, &analysis, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get monthly returns analysis: %w", err)
+	}
+	return analysis, nil
+}
+
+// GetSalesReturnsAnalysis gets sales vs returns analysis
+func (r *Repository) GetSalesReturnsAnalysis(ctx context.Context) ([]SalesReturnsAnalysis, error) {
+	var analysis []SalesReturnsAnalysis
+	query := `
+		SELECT 
+			month,
+			total_sales,
+			gross_sales,
+			total_cost,
+			gross_profit,
+			returns_amount,
+			return_count,
+			net_sales
+		FROM sales_returns_analysis
+		ORDER BY month DESC
+		LIMIT 12
+	`
+
+	err := r.db.SelectContext(ctx, &analysis, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sales returns analysis: %w", err)
+	}
+	return analysis, nil
+}
+
+// GetPendingReturns retrieves returns that are pending approval
+func (r *Repository) GetPendingReturns(ctx context.Context) ([]Return, error) {
+	var returns []Return
+	query := `
+		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+			return_date, return_type, status, total_refund_amount, refund_method, refund_date, refund_reference,
+			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
+			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
+			notes, internal_notes, created_at, updated_at
+		FROM returns
+		WHERE status = 'PENDING'
+		ORDER BY return_date ASC
+	`
+
+	err := r.db.SelectContext(ctx, &returns, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pending returns: %w", err)
+	}
+	return returns, nil
+}
+
+// GetReturnWithItems retrieves a return with all its items
+func (r *Repository) GetReturnWithItems(ctx context.Context, returnID uuid.UUID) (*Return, []ReturnItem, error) {
+	returnRecord, err := r.GetReturnByID(ctx, returnID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	items, err := r.GetReturnItems(ctx, returnID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get return items: %w", err)
+	}
+
+	return returnRecord, items, nil
+}
+
+// ProcessReturnStatusChange handles status changes and their effects
+func (r *Repository) ProcessReturnStatusChange(ctx context.Context, returnID uuid.UUID, newStatus string, processedBy uuid.UUID) error {
+	query := `
+		UPDATE returns 
+		SET status = $2, 
+		    processed_by = $3, 
+		    updated_at = NOW() 
+		WHERE id = $1
+		RETURNING updated_at
+	`
+
+	err := r.db.QueryRowContext(ctx, query, returnID, newStatus, processedBy).Scan(new(time.Time))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrReturnNotFound
+		}
+		return fmt.Errorf("failed to process return status change: %w", err)
+	}
+	return nil
+}
+
+// UpdateReturnItemStatus updates the inventory status of a return item
+func (r *Repository) UpdateReturnItemStatus(ctx context.Context, itemID uuid.UUID, newStatus string) error {
+	query := `
+		UPDATE return_items
+		SET inventory_status = $2, updated_at = NOW()
+		WHERE id = $1
+		RETURNING updated_at
+	`
+
+	err := r.db.QueryRowContext(ctx, query, itemID, newStatus).Scan(new(time.Time))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrReturnItemNotFound
+		}
+		return fmt.Errorf("failed to update return item status: %w", err)
+	}
+	return nil
 }

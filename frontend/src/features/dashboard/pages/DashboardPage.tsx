@@ -64,6 +64,35 @@ export function DashboardPage() {
     staleTime: 60000,
   });
 
+  // Use aggregation tables for faster dashboard (ARCHITECTURE-PRINCIPLES.md)
+  const { data: dailySalesData } = useQuery({
+    queryKey: ['daily-sales-summary'],
+    queryFn: () => dashboardApi.getDailySalesSummary(),
+    refetchInterval: 300000, // 5 minutes
+    staleTime: 180000, // 3 minutes
+  });
+
+  const { data: dailyInventoryData } = useQuery({
+    queryKey: ['daily-inventory-summary'],
+    queryFn: () => dashboardApi.getDailyInventorySummary(),
+    refetchInterval: 300000,
+    staleTime: 180000,
+  });
+
+  const { data: dailyDebtData } = useQuery({
+    queryKey: ['daily-debt-summary'],
+    queryFn: () => dashboardApi.getDailyDebtSummary(),
+    refetchInterval: 300000,
+    staleTime: 180000,
+  });
+
+  const { data: dailyProfitData } = useQuery({
+    queryKey: ['daily-profit-summary'],
+    queryFn: () => dashboardApi.getDailyProfitSummary(),
+    refetchInterval: 300000,
+    staleTime: 180000,
+  });
+
   const { data: notificationsData } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => notificationsApi.list({ page: 1, per_page: 20 }),
@@ -160,7 +189,13 @@ export function DashboardPage() {
 
       {/* Key Metrics Cards - المؤشرات الرئيسية */}
       <div style={{ marginTop: '16px' }}>
-        <DashboardMetrics stats={stats} />
+        <DashboardMetrics 
+          stats={stats}
+          dailySales={dailySalesData?.data}
+          dailyInventory={dailyInventoryData?.data}
+          dailyDebt={dailyDebtData?.data}
+          dailyProfit={dailyProfitData?.data}
+        />
       </div>
 
         {/* Charts Grid - الأداء والتوزيع */}

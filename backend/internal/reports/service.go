@@ -68,6 +68,8 @@ func (s *Service) GenerateReport(ctx context.Context, userID uuid.UUID, req *Rep
 		data, err = s.repo.GetPurchasesData(ctx, start, end)
 	case "returns":
 		data, err = s.repo.GetReturnsData(ctx, start, end)
+	case "net-sales":
+		data, err = s.repo.GetNetSalesData(ctx, start, end)
 	default:
 		err = ErrInvalidReportType
 	}
@@ -334,4 +336,34 @@ func (s *Service) GenerateReturnsReport(ctx context.Context, userID uuid.UUID, s
 	}
 
 	return returnsReport, nil
+}
+
+// GenerateNetSalesReport generates a net sales report (gross sales minus returns)
+func (s *Service) GenerateNetSalesReport(ctx context.Context, userID uuid.UUID, startDate, endDate time.Time) (*NetSalesReport, error) {
+	req := &ReportRequest{
+		Type:        "net-sales",
+		Title:       "Net Sales Report",
+		Description: fmt.Sprintf("Net sales report from %s to %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")),
+		Parameters: map[string]interface{}{
+			"start_date": startDate.Format(time.RFC3339),
+			"end_date":   endDate.Format(time.RFC3339),
+		},
+	}
+
+	report, err := s.GenerateReport(ctx, userID, req)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := report.ParseData()
+	if err != nil {
+		return nil, err
+	}
+
+	netSalesReport, ok := data.(*NetSalesReport)
+	if !ok {
+		return nil, ErrReportGenerationFailed
+	}
+
+	return netSalesReport, nil
 }

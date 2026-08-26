@@ -11,7 +11,7 @@ type Sale struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
 	InvoiceNumber  string     `json:"invoice_number" db:"invoice_number"`
 	CustomerID     *uuid.UUID `json:"customer_id,omitempty" db:"customer_id"`
-	UserID         uuid.UUID  `json:"user_id" db:"user_id"`
+	UserID         *uuid.UUID `json:"user_id,omitempty" db:"user_id"`
 	SaleDate       time.Time  `json:"sale_date" db:"sale_date"`
 	Subtotal       float64    `json:"subtotal" db:"subtotal"`
 	TaxAmount      float64    `json:"tax_amount" db:"tax_amount"`
@@ -27,6 +27,11 @@ type Sale struct {
 	Notes          *string    `json:"notes,omitempty" db:"notes"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+
+	// Reversal tracking (ARCHITECTURE-PRINCIPLES.md - Reverse instead of Delete)
+	ReversedAt         *time.Time `json:"reversed_at" db:"reversed_at"`         // متى تم عكس البيع
+	ReversedBy         *uuid.UUID `json:"reversed_by" db:"reversed_by"`         // من قام بالعكس
+	ReversalReason     *string    `json:"reversal_reason" db:"reversal_reason"` // سبب العكس
 }
 
 // SaleItem represents an item in a sale
@@ -55,7 +60,7 @@ func (SaleItem) TableName() string {
 }
 
 // NewSale creates a new Sale instance
-func NewSale(organizationID uuid.UUID, invoiceNumber string, userID uuid.UUID) *Sale {
+func NewSale(organizationID uuid.UUID, invoiceNumber string, userID *uuid.UUID) *Sale {
 	return &Sale{
 		ID:             uuid.New(),
 		InvoiceNumber:  invoiceNumber,
@@ -112,4 +117,22 @@ func (Transaction) TableName() string {
 // TableName returns the table name for the ProfitEntry model
 func (ProfitEntry) TableName() string {
 	return "profit_entries"
+}
+
+// SaleReversal represents a reversal of a sale (ARCHITECTURE-PRINCIPLES.md)
+type SaleReversal struct {
+	ID              uuid.UUID  `json:"id" db:"id"`
+	SaleID          uuid.UUID  `json:"sale_id" db:"sale_id"`
+	Reason          string     `json:"reason" db:"reason"`           // سبب العكس
+	ReversedBy      uuid.UUID  `json:"reversed_by" db:"reversed_by"` // من قام بالعكس
+	ReversedAt      time.Time  `json:"reversed_at" db:"reversed_at"` // متى تم العكس
+	OriginalTotal   float64    `json:"original_total" db:"original_total"` // المبلغ الأصلي
+	InventoryAdjustmentIDs []uuid.UUID `json:"inventory_adjustment_ids" db:"inventory_adjustment_ids"` // تعديلات المخزون المرتبطة
+	PaymentReversalIDs []uuid.UUID `json:"payment_reversal_ids" db:"payment_reversal_ids"` // عكس الدفعات المرتبطة
+	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+}
+
+// SaleReversalRequest represents a request to reverse a sale
+type SaleReversalRequest struct {
+	Reason string `json:"reason" binding:"required"` // سبب العكس (مثلاً: Wrong sale, Customer cancellation, Duplicate invoice)
 }

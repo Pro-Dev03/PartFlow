@@ -65,6 +65,7 @@ export const ar = {
   // Auth
   auth: {
     login: 'تسجيل الدخول',
+    signIn: 'تسجيل الدخول',
     register: 'إنشاء حساب',
     logout: 'تسجيل الخروج',
     email: 'البريد الإلكتروني',
@@ -78,6 +79,8 @@ export const ar = {
     logoutSuccess: 'تم تسجيل الخروج بنجاح',
     invalidCredentials: 'بيانات الدخول غير صحيحة',
     passwordMismatch: 'كلمات المرور غير متطابقة',
+    welcomeBack: 'مرحباً بعودتك',
+    signInToAccount: 'سجل الدخول إلى حسابك',
   },
 
   // Dashboard

@@ -120,12 +120,17 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	grossProfit := subtotal - totalCost
 	netProfit := grossProfit - totalTax - discountAmount
 	
-	// Create sale
+	// Create sale - allow nil user_id for testing
+	var userIDPtr *uuid.UUID
+	if userID != uuid.Nil {
+		userIDPtr = &userID
+	}
+	
 	sale := &Sale{
 		ID:             uuid.New(),
 		InvoiceNumber:  invoiceNumber,
 		CustomerID:     req.CustomerID,
-		UserID:         userID,
+		UserID:         userIDPtr,
 		SaleDate:       time.Now(),
 		Subtotal:       subtotal,
 		TaxAmount:      totalTax,
@@ -266,7 +271,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		}
 	}
 	
-	// Update customer ledger if customer exists
+	// Update customer ledger if customer exists (SALES-PHILOSOPHY.md - automatic debt calculation)
 	if req.CustomerID != nil {
 		// Get current balance
 		var currentBalance float64
@@ -280,9 +285,11 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			currentBalance = 0
 		}
 
-		// Calculate new balance
-		newBalance := currentBalance + totalAmount
+		// Calculate debt amount (SALES-PHILOSOPHY.md)
+		debtAmount := totalAmount - req.PaymentAmount
+		newBalance := currentBalance + debtAmount
 
+		// Create ledger entry for the sale (SALES-PHILOSOPHY.md)
 		ledgerQuery := `
 			INSERT INTO customer_ledger (id, customer_id, transaction_type,
 				amount, balance, reference_type, reference_id, description, created_by, created_at)
@@ -290,12 +297,12 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		`
 		_, ledgerErr := tx.ExecContext(ctx, ledgerQuery,
 			uuid.New(), *req.CustomerID, "SALE",
-			totalAmount, newBalance, "sale", sale.ID, "Sale: "+invoiceNumber, userID, time.Now())
+			debtAmount, newBalance, "sale", sale.ID, "Sale: "+invoiceNumber, userID, time.Now())
 		if ledgerErr != nil {
 			return nil, fmt.Errorf("failed to update customer ledger: %w", ledgerErr)
 		}
 		
-		// Update customer current balance
+		// Update customer current balance (SALES-PHILOSOPHY.md)
 		updateCustomerQuery := `
 			UPDATE customers
 			SET current_balance = $1, updated_at = NOW()
@@ -304,6 +311,18 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		_, customerErr := tx.ExecContext(ctx, updateCustomerQuery, newBalance, *req.CustomerID)
 		if customerErr != nil {
 			return nil, fmt.Errorf("failed to update customer balance: %w", customerErr)
+		}
+		
+		// Check credit limit (SALES-PHILOSOPHY.md)
+		var creditLimit *float64
+		limitQuery := `SELECT credit_limit FROM customers WHERE id = $1`
+		limitErr := tx.GetContext(ctx, &creditLimit, limitQuery, *req.CustomerID)
+		if limitErr == nil && creditLimit != nil && *creditLimit > 0 {
+			if newBalance > *creditLimit {
+				// Log warning but don't fail the sale (store owner's decision)
+				fmt.Printf("Warning: Customer %s will exceed credit limit. Current: %.2f, Limit: %.2f, New: %.2f\n", 
+					*req.CustomerID, currentBalance, *creditLimit, newBalance)
+			}
 		}
 	}
 

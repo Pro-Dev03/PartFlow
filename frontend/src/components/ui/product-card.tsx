@@ -13,6 +13,8 @@ export interface ProductCardProps extends HTMLAttributes<HTMLDivElement> {
     sellingPrice?: number;
     selling_price?: number;
     price?: number;
+    costPrice?: number;
+    cost_price?: number;
     stock?: number;
     stock_quantity?: number;
     quantity?: number;
@@ -45,6 +47,18 @@ const getPriceValue = (p: ProductCardProps['product']): number => {
   return 0;
 };
 
+const getCostPriceValue = (p: ProductCardProps['product']): number | undefined => {
+  if (p.costPrice !== undefined && p.costPrice !== null) {
+    const val = p.costPrice;
+    return val > 1000 ? val / 100 : val;
+  }
+  if (p.cost_price !== undefined && p.cost_price !== null) {
+    const val = p.cost_price;
+    return val > 1000 ? val / 100 : val;
+  }
+  return undefined;
+};
+
 function ProductCard({
   product,
   quickAdd = false,
@@ -54,6 +68,7 @@ function ProductCard({
 }: ProductCardProps) {
   const stock = getStockValue(product);
   const price = getPriceValue(product);
+  const costPrice = getCostPriceValue(product);
   const sku = product.sku ?? product.barcode ?? '';
 
   const getStockStatus = () => {
@@ -116,8 +131,15 @@ function ProductCard({
             </div>
 
             <div className="mt-3 flex items-center justify-between">
-              <div className="text-lg font-bold text-primary">
-                {formatPrice(price)}
+              <div>
+                <div className="text-lg font-bold text-primary">
+                  {formatPrice(price)}
+                </div>
+                {costPrice !== undefined && costPrice > 0 && (
+                  <div className="text-xs text-text-tertiary">
+                    ت: {formatPrice(costPrice)}
+                  </div>
+                )}
               </div>
               {getStockStatus()}
             </div>

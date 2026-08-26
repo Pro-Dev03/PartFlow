@@ -69,6 +69,9 @@ func main() {
 	// Set JWT secret
 	middleware.SetJWTSecret(cfg.JWTSecret)
 
+	// Set disable auth flag for development
+	middleware.SetDisableAuth(cfg.DisableAuth)
+
 	// Initialize services
 	db := database.GetDB()
 

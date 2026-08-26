@@ -571,6 +571,12 @@ func (s *Service) ListInventoryItems(ctx context.Context, page, perPage int, fil
 	return s.repo.ListInventoryItems(ctx, perPage, offset, filters)
 }
 
+// ListInventoryItemsWithSupplierInfo lists inventory items with supplier information
+func (s *Service) ListInventoryItemsWithSupplierInfo(ctx context.Context, page, perPage int, filters map[string]interface{}) ([]*InventoryItemWithSupplier, int64, error) {
+	offset := (page - 1) * perPage
+	return s.repo.ListInventoryItemsWithSupplierInfo(ctx, perPage, offset, filters)
+}
+
 // GetItemHistory retrieves movement history for an item
 func (s *Service) GetItemHistory(ctx context.Context, itemID uuid.UUID, page, perPage int) ([]*InventoryMovement, int64, error) {
 	offset := (page - 1) * perPage

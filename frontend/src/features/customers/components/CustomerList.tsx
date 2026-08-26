@@ -52,6 +52,7 @@ export function CustomerList({
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>الكود</TableHead>
                     <TableHead>الاسم</TableHead>
                     <TableHead>الهاتف</TableHead>
                     <TableHead>البريد</TableHead>
@@ -64,6 +65,7 @@ export function CustomerList({
                 <TableBody>
                   {filteredCustomers.map((customer: Customer) => (
                     <TableRow key={customer.id}>
+                      <TableCell style={{ fontWeight: '500' }}>{customer.code}</TableCell>
                       <TableCell style={{ fontWeight: '500' }}>{customer.name}</TableCell>
                       <TableCell>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -120,7 +122,8 @@ export function CustomerList({
               <div className="grid gap-3">
                 {filteredCustomers.map((customer: Customer) => (
                   <TableCard key={customer.id}>
-                    <TableCardItem label="الاسم" value={customer.name} variant="highlight" />
+                    <TableCardItem label="الكود" value={customer.code} variant="highlight" />
+                    <TableCardItem label="الاسم" value={customer.name} />
                     <TableCardItem label="الهاتف" value={customer.phone} />
                     <TableCardItem label="البريد" value={customer.email || '-'} />
                     <TableCardItem label="المشتريات" value={<span className="numeric-price">₪{customer.totalPurchases?.toLocaleString() || 0}</span>} variant="success" />

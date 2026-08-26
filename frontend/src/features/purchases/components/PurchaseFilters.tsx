@@ -36,10 +36,13 @@ export function PurchaseFilters({
               onChange={(e) => setStatusFilter(e.target.value)}
               options={[
                 { value: '', label: 'كل الحالات' },
+                { value: 'draft', label: 'مسودة' },
                 { value: 'pending', label: 'قيد الانتظار' },
                 { value: 'ordered', label: 'تم الطلب' },
                 { value: 'received', label: 'تم الاستلام' },
+                { value: 'partially_received', label: 'استلام جزئي' },
                 { value: 'cancelled', label: 'ملغي' },
+                { value: 'reversed', label: 'تم العكس' },
               ]}
               emptyMessage="لا توجد حالات"
             />

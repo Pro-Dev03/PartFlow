@@ -2,6 +2,9 @@ package customers
 
 import (
 	"net/http"
+	"strconv"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -12,11 +15,41 @@ import (
 // Handler handles HTTP requests for customers
 type Handler struct {
 	service *Service
+	cache   *customersCache
+}
+
+type customersCache struct {
+	data       interface{}
+	expiration time.Time
+	mu         sync.RWMutex
+}
+
+func newCustomersCache() *customersCache {
+	return &customersCache{}
+}
+
+func (c *customersCache) get() (interface{}, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if time.Now().Before(c.expiration) {
+		return c.data, true
+	}
+	return nil, false
+}
+
+func (c *customersCache) set(data interface{}, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data = data
+	c.expiration = time.Now().Add(ttl)
 }
 
 // NewHandler creates a new customer handler
 func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+	return &Handler{
+		service: service,
+		cache:   newCustomersCache(),
+	}
 }
 
 // CreateCustomer handles customer creation
@@ -65,17 +98,47 @@ func (h *Handler) GetCustomer(c *gin.Context) {
 
 // ListCustomers handles customer listing
 func (h *Handler) ListCustomers(c *gin.Context) {
+	// Try cache first for default first page request
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	search := c.Query("search")
+	isActive := c.Query("is_active")
+
+	// Only cache default first page without filters
+	if page == 1 && perPage == 20 && search == "" && isActive == "" {
+		if cached, found := h.cache.get(); found {
+			c.JSON(http.StatusOK, cached)
+			return
+		}
+	}
+
 	var req CustomerListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid query parameters", err.Error())
 		return
 	}
 
+	// Override with our parsed values for caching consistency
+	req.Page = page
+	req.PerPage = perPage
 
 	customers, total, err := h.service.ListCustomers(c.Request.Context(), req.Page, req.PerPage, req.Search, req.IsActive)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve customers", err.Error())
 		return
+	}
+
+	// Cache the response for default first page without filters
+	if page == 1 && perPage == 20 && search == "" && isActive == "" {
+		responseData := gin.H{
+			"success": true,
+			"data":    customers,
+			"total":   total,
+			"page":    req.Page,
+			"per_page": req.PerPage,
+			"message": "Customers retrieved successfully",
+		}
+		h.cache.set(responseData, 3*time.Minute)
 	}
 
 	response.SuccessWithPagination(c, http.StatusOK, customers, total, req.Page, req.PerPage, "Customers retrieved successfully")
@@ -89,7 +152,7 @@ func (h *Handler) UpdateCustomer(c *gin.Context) {
 		return
 	}
 
-	var req CustomerRequest
+	var req UpdateCustomerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errors.HandleError(c, errors.ValidateRequest(err))
 		return
@@ -100,10 +163,6 @@ func (h *Handler) UpdateCustomer(c *gin.Context) {
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
-			return
-		}
-		if err == ErrCustomerCodeExists {
-			errors.HandleError(c, errors.NewConflictError("Customer code already exists", err))
 			return
 		}
 		errors.HandleError(c, errors.WrapError(err, "Failed to update customer"))
@@ -126,6 +185,18 @@ func (h *Handler) DeleteCustomer(c *gin.Context) {
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
+			return
+		}
+		if err == ErrCustomerHasOutstandingDebt {
+			errors.HandleError(c, errors.NewConflictError("Cannot delete customer with outstanding debt", err))
+			return
+		}
+		if err == ErrCustomerHasActiveTransactions {
+			errors.HandleError(c, errors.NewConflictError("Cannot delete customer with active transactions", err))
+			return
+		}
+		if err == ErrCustomerHasActiveWarranties {
+			errors.HandleError(c, errors.NewConflictError("Cannot delete customer with active warranties", err))
 			return
 		}
 		errors.HandleError(c, errors.WrapError(err, "Failed to delete customer"))

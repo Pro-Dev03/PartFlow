@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -14,10 +16,37 @@ import (
 type Handler struct {
 	service *Service
 	db      *sqlx.DB
+	cache   *inventoryCache
+}
+
+type inventoryCache struct {
+	data       interface{}
+	expiration time.Time
+	mu         sync.RWMutex
+}
+
+func newInventoryCache() *inventoryCache {
+	return &inventoryCache{}
+}
+
+func (c *inventoryCache) get() (interface{}, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if time.Now().Before(c.expiration) {
+		return c.data, true
+	}
+	return nil, false
+}
+
+func (c *inventoryCache) set(data interface{}, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data = data
+	c.expiration = time.Now().Add(ttl)
 }
 
 func NewHandler(service *Service, db *sqlx.DB) *Handler {
-	return &Handler{service, db}
+	return &Handler{service, db, newInventoryCache()}
 }
 
 // RegisterRoutes registers inventory routes
@@ -25,8 +54,9 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	inventory := router.Group("/inventory")
 	{
 		inventory.POST("/items", h.CreateInventoryItem)
-		inventory.GET("/items/:id", h.GetInventoryItem)
+		inventory.GET("/items-with-supplier", h.ListInventoryItemsWithSupplierInfo)
 		inventory.GET("/items", h.ListInventoryItems)
+		inventory.GET("/items/:id", h.GetInventoryItem)
 		inventory.PATCH("/items/:id/status", h.UpdateItemStatus)
 		inventory.POST("/items/:id/receive", h.ReceiveItem)
 		inventory.POST("/items/:id/adjust", h.AdjustInventory)
@@ -48,7 +78,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		reservations.POST("/:id/release", h.ReleaseReservation)
 	}
 
-	tradeIns := router.Group("/trade-ins")
+	tradeIns := inventory.Group("/trade-ins")
 	{
 		tradeIns.POST("", h.CreateTradeIn)
 	}
@@ -95,7 +125,81 @@ func (h *Handler) GetInventoryItem(c *gin.Context) {
 func (h *Handler) ListInventoryItems(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "10"))
+	status := c.Query("status")
+	condition := c.Query("condition")
+	locationID := c.Query("location_id")
+	productID := c.Query("product_id")
+	partTypeID := c.Query("part_type_id")
 
+	// Try cache first for default first page request without filters
+	if page == 1 && perPage == 10 && status == "" && condition == "" && locationID == "" && productID == "" && partTypeID == "" {
+		if cached, found := h.cache.get(); found {
+			c.JSON(http.StatusOK, cached)
+			return
+		}
+	}
+
+	filters := make(map[string]interface{})
+	if status != "" {
+		filters["status"] = status
+	}
+	if condition != "" {
+		filters["condition"] = condition
+	}
+	if locationID != "" {
+		if id, err := uuid.Parse(locationID); err == nil {
+			filters["location_id"] = id
+		}
+	}
+	if productID != "" {
+		if id, err := uuid.Parse(productID); err == nil {
+			filters["product_id"] = id
+		}
+	}
+	if partTypeID != "" {
+		if id, err := uuid.Parse(partTypeID); err == nil {
+			filters["part_type_id"] = id
+		}
+	}
+
+	items, total, err := h.service.ListInventoryItems(c.Request.Context(), page, perPage, filters)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+
+	// Ensure items is never null
+	if items == nil {
+		items = []*InventoryItem{}
+	}
+
+	responseData := gin.H{
+		"success": true,
+		"data": gin.H{
+			"items": items,
+			"total": total,
+			"page":  page,
+			"per_page": perPage,
+		},
+		"meta": gin.H{
+			"total": total,
+			"page":  page,
+			"per_page": perPage,
+		},
+	}
+
+	// Cache the response for default first page without filters
+	if page == 1 && perPage == 10 && status == "" && condition == "" && locationID == "" && productID == "" && partTypeID == "" {
+		h.cache.set(responseData, 2*time.Minute)
+	}
+
+	c.JSON(http.StatusOK, responseData)
+}
+
+// ListInventoryItemsWithSupplierInfo lists inventory items with supplier information
+func (h *Handler) ListInventoryItemsWithSupplierInfo(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "10"))
 
 	filters := make(map[string]interface{})
 	if status := c.Query("status"); status != "" {
@@ -119,8 +223,30 @@ func (h *Handler) ListInventoryItems(c *gin.Context) {
 			filters["part_type_id"] = id
 		}
 	}
+	// New filters for supplier and purchase
+	if supplierID := c.Query("supplier_id"); supplierID != "" {
+		if id, err := uuid.Parse(supplierID); err == nil {
+			filters["supplier_id"] = id
+		}
+	}
+	if purchaseDateFrom := c.Query("purchase_date_from"); purchaseDateFrom != "" {
+		filters["purchase_date_from"] = purchaseDateFrom
+	}
+	if purchaseDateTo := c.Query("purchase_date_to"); purchaseDateTo != "" {
+		filters["purchase_date_to"] = purchaseDateTo
+	}
+	if minPurchaseCost := c.Query("min_purchase_cost"); minPurchaseCost != "" {
+		if cost, err := strconv.ParseFloat(minPurchaseCost, 64); err == nil {
+			filters["min_purchase_cost"] = cost
+		}
+	}
+	if maxPurchaseCost := c.Query("max_purchase_cost"); maxPurchaseCost != "" {
+		if cost, err := strconv.ParseFloat(maxPurchaseCost, 64); err == nil {
+			filters["max_purchase_cost"] = cost
+		}
+	}
 
-	items, total, err := h.service.ListInventoryItems(c.Request.Context(), page, perPage, filters)
+	items, total, err := h.service.ListInventoryItemsWithSupplierInfo(c.Request.Context(), page, perPage, filters)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -128,7 +254,7 @@ func (h *Handler) ListInventoryItems(c *gin.Context) {
 
 	// Ensure items is never null
 	if items == nil {
-		items = []*InventoryItem{}
+		items = []*InventoryItemWithSupplier{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

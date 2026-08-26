@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { inventoryApi, partTypesApi, customersApi, productsApi, barcodeApi } from '../../../services/api/endpoints';
+import { useNavigate } from 'react-router-dom';
+import { inventoryApi, partTypesApi, customersApi, productsApi, barcodeApi, acquisitionsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -10,7 +11,6 @@ import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
 import { getButtonSize } from '../../../config/button-sizes';
-import { TradeInFormData } from '../../sales/types/pos.types';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
 import {
   Plus,
@@ -25,26 +25,38 @@ import {
   Barcode,
   Type,
   Camera,
-  ShoppingCart
+  ShoppingCart,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Clock
 } from 'lucide-react';
 
 export function UsedPartsPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPartType, setSelectedPartType] = useState<string>('');
   
-  // Trade-in modal state
-  const [isTradeInModalOpen, setIsTradeInModalOpen] = useState(false);
+  // Acquisition modal state
+  const [isAcquisitionModalOpen, setIsAcquisitionModalOpen] = useState(false);
   const [isCustomerManual, setIsCustomerManual] = useState(false);
-  const [tradeInCustomer, setTradeInCustomer] = useState('');
-  const [tradeInCustomerManual, setTradeInCustomerManual] = useState('');
-  const [isProductManual, setIsProductManual] = useState(false);
-  const [tradeInProduct, setTradeInProduct] = useState('');
-  const [tradeInProductManual, setTradeInProductManual] = useState('');
-  const [tradeInPartType, setTradeInPartType] = useState('');
-  const [tradeInPrice, setTradeInPrice] = useState('');
-  const [tradeInSpecifications, setTradeInSpecifications] = useState<any[]>([]);
-  
+  const [acquisitionCustomer, setAcquisitionCustomer] = useState('');
+  const [acquisitionCustomerManual, setAcquisitionCustomerManual] = useState('');
+  const [acquisitionProduct, setAcquisitionProduct] = useState('');
+  const [acquisitionCondition, setAcquisitionCondition] = useState('used');
+  const [acquisitionGrade, setAcquisitionGrade] = useState('good');
+  const [acquisitionPrice, setAcquisitionPrice] = useState('');
+  const [acquisitionSerialNumber, setAcquisitionSerialNumber] = useState('');
+  const [acquisitionNotes, setAcquisitionNotes] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState('payable');
+
+  // Inspection modal state
+  const [isInspectionModalOpen, setIsInspectionModalOpen] = useState(false);
+  const [selectedItemForInspection, setSelectedItemForInspection] = useState<any>(null);
+  const [inspectionChecks, setInspectionChecks] = useState<any[]>([]);
+  const [inspectionNotes, setInspectionNotes] = useState('');
+
   // Barcode scanner state
   const [barcodeInput, setBarcodeInput] = useState('');
   const [inputMethod, setInputMethod] = useState<'barcode' | 'manual' | 'camera'>('barcode');
@@ -86,17 +98,18 @@ export function UsedPartsPage() {
     console.warn('Failed to load part types:', partTypesError);
   }
 
-  // Trade-in mutation
-  const createTradeInMutation = useMutation({
-    mutationFn: (data: TradeInFormData) => inventoryApi.createTradeIn(data),
+  // Acquisition mutation
+  const createAcquisitionMutation = useMutation({
+    mutationFn: (data: any) => acquisitionsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['acquisitions'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       alert('تم شراء القطعة المستعملة بنجاح!');
-      handleCancelTradeIn();
+      handleCancelAcquisition();
     },
     onError: (error) => {
-      console.error('Trade-in failed:', error);
+      console.error('Acquisition failed:', error);
       alert('فشل شراء القطعة المستعملة');
     },
   });
@@ -110,10 +123,9 @@ export function UsedPartsPage() {
         const product = response as any;
         
         if (product && product.id) {
-          // Open trade-in modal with product pre-filled
-          setTradeInProduct(product.id);
-          setIsProductManual(false);
-          setIsTradeInModalOpen(true);
+          // Open acquisition modal with product pre-filled
+          setAcquisitionProduct(product.id);
+          setIsAcquisitionModalOpen(true);
         } else {
           if (soundEnabled) {
             playScanSound(false);
@@ -134,40 +146,90 @@ export function UsedPartsPage() {
     handleBarcodeScan(new Event('submit') as any);
   };
 
-  // Trade-in handlers
-  const handleSubmitTradeIn = async () => {
-    const customerValue = isCustomerManual ? tradeInCustomerManual : tradeInCustomer;
-    const productValue = isProductManual ? tradeInProductManual : tradeInProduct;
+  // Acquisition handlers
+  const handleSubmitAcquisition = async () => {
+    const customerValue = isCustomerManual ? acquisitionCustomerManual : acquisitionCustomer;
 
-    if (!customerValue || !tradeInPrice || !tradeInPartType) {
+    if (!customerValue || !acquisitionProduct || !acquisitionPrice) {
       alert('يرجى ملء جميع الحقول المطلوبة');
       return;
     }
 
-    const data: TradeInFormData = {
-      customerId: isCustomerManual ? undefined : tradeInCustomer,
-      customerName: isCustomerManual ? tradeInCustomerManual : undefined,
-      productId: (isProductManual || !productValue) ? undefined : tradeInProduct,
-      productName: isProductManual ? tradeInProductManual : undefined,
-      partTypeId: tradeInPartType,
-      purchaseCost: parseFloat(tradeInPrice) * 100,
-      specifications: tradeInSpecifications,
+    const data = {
+      type: 'CUSTOMER',
+      acquisition_date: new Date().toISOString().split('T')[0],
+      customer_id: isCustomerManual ? undefined : acquisitionCustomer,
+      customer_name: isCustomerManual ? acquisitionCustomerManual : undefined,
+      items: [{
+        product_id: acquisitionProduct,
+        serial_number: acquisitionSerialNumber,
+        condition: acquisitionCondition,
+        grade: acquisitionGrade,
+        unit_cost: parseFloat(acquisitionPrice),
+        notes: acquisitionNotes,
+      }],
+      payment_status: paymentStatus,
+      notes: acquisitionNotes,
     };
 
-    createTradeInMutation.mutate(data);
+    createAcquisitionMutation.mutate(data);
   };
 
-  const handleCancelTradeIn = () => {
-    setTradeInCustomer('');
-    setTradeInCustomerManual('');
+  const handleCancelAcquisition = () => {
+    setAcquisitionCustomer('');
+    setAcquisitionCustomerManual('');
     setIsCustomerManual(false);
-    setTradeInProduct('');
-    setTradeInProductManual('');
-    setIsProductManual(false);
-    setTradeInPrice('');
-    setTradeInPartType('');
-    setTradeInSpecifications([]);
-    setIsTradeInModalOpen(false);
+    setAcquisitionProduct('');
+    setAcquisitionCondition('used');
+    setAcquisitionGrade('good');
+    setAcquisitionPrice('');
+    setAcquisitionSerialNumber('');
+    setAcquisitionNotes('');
+    setPaymentStatus('payable');
+    setIsAcquisitionModalOpen(false);
+  };
+
+  // Inspection handlers
+  const handleStartInspection = (item: any) => {
+    setSelectedItemForInspection(item);
+    setInspectionChecks([]);
+    setInspectionNotes('');
+    setIsInspectionModalOpen(true);
+  };
+
+  const handleCompleteInspection = async (passed: boolean) => {
+    if (!selectedItemForInspection) return;
+
+    const data = {
+      inspection_status: passed ? 'PASSED' : 'FAILED',
+      checks: inspectionChecks,
+      notes: inspectionNotes,
+    };
+
+    try {
+      await acquisitionsApi.updateStatus(selectedItemForInspection.id, data.inspection_status);
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['acquisitions'] });
+      queryClient.invalidateQueries({ queryKey: ['inspections'] });
+      alert(passed ? 'اجتازت القطعة الفحص بنجاح!' : 'فشلت القطعة في الفحص');
+      setIsInspectionModalOpen(false);
+      setSelectedItemForInspection(null);
+    } catch (error) {
+      console.error('Inspection failed:', error);
+      alert('فشل تحديث حالة الفحص');
+    }
+  };
+
+  const toggleInspectionCheck = (checkName: string) => {
+    setInspectionChecks(prev =>
+      prev.includes(checkName)
+        ? prev.filter(c => c !== checkName)
+        : [...prev, checkName]
+    );
+  };
+
+  const allRequiredChecksPassed = () => {
+    return inspectionChecks.length >= 3; // At least 3 checks required
   };
 
   // Filter used parts only
@@ -203,7 +265,7 @@ export function UsedPartsPage() {
         description="إدارة القطع المستعملة ومواصفاتها"
         actions={
           <button
-            onClick={() => setIsTradeInModalOpen(true)}
+            onClick={() => setIsAcquisitionModalOpen(true)}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -398,13 +460,9 @@ export function UsedPartsPage() {
       </Card>
 
       {/* Search and Filters */}
-      <Card className="mb-4" style={{
-        background: 'linear-gradient(135deg, rgba(17, 24, 39, 0.6) 0%, rgba(17, 24, 39, 0.4) 100%)',
-        border: '1px solid rgba(99, 102, 241, 0.15)',
-        backdropFilter: 'blur(10px)'
-      }}>
+      <Card className="mb-4 border border-[var(--border-default)] bg-[var(--card-bg)] shadow-sm">
         <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-3">
+          <div className="flex flex-col md:flex-row gap-3 items-stretch">
             <div className="flex-1">
               <SearchInput
                 placeholder="بحث عن قطعة..."
@@ -425,6 +483,8 @@ export function UsedPartsPage() {
                   ...partTypes.map((pt: any) => ({ value: pt.id, label: pt.name_ar })),
                 ]}
                 emptyMessage="لا يوجد أنواع"
+                size="sm"
+                className="w-48"
               />
               <Button
                 variant="secondary"
@@ -433,31 +493,14 @@ export function UsedPartsPage() {
                   setSearchQuery('');
                   setSelectedPartType('');
                 }}
-                style={{
-                  height: '48px',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  letterSpacing: '0.3px',
-                  borderRadius: '8px',
-                  background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(34, 211, 238, 0.2) 100%)',
-                  border: '1px solid rgba(99, 102, 241, 0.3)',
-                  color: 'var(--text-primary)',
-                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99, 102, 241, 0.3) 0%, rgba(34, 211, 238, 0.3) 100%)';
-                  e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.5)';
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(99, 102, 241, 0.2)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(34, 211, 238, 0.2) 100%)';
-                  e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.3)';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }}
+                className="h-10 px-4"
               >
-                مسح
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1.5">
+                  <path d="M3 6h18"></path>
+                  <path d="M7 12h10"></path>
+                  <path d="M10 18h4"></path>
+                </svg>
+                <span>مسح</span>
               </Button>
             </div>
           </div>
@@ -531,9 +574,23 @@ export function UsedPartsPage() {
                   )}
                   
                   <div className="flex gap-2 mt-4">
-                    <Button variant="secondary" size="sm" className="flex-1">
-                      <Edit className="w-3 h-3 mr-1" />
-                      تعديل
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => handleStartInspection(item)}
+                    >
+                      <AlertTriangle className="w-3 h-3 mr-1" />
+                      فحص
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => navigate(`/item-history/${item.id}`)}
+                    >
+                      <Clock className="w-3 h-3 mr-1" />
+                      السجل
                     </Button>
                     <Button variant="primary" size="sm" className="flex-1">
                       بيع
@@ -546,11 +603,11 @@ export function UsedPartsPage() {
         </div>
       )}
 
-      {/* Trade-in Modal */}
+      {/* Acquisition Modal */}
       <Modal
-        isOpen={isTradeInModalOpen}
-        onClose={handleCancelTradeIn}
-        title="شراء قطع مستعملة"
+        isOpen={isAcquisitionModalOpen}
+        onClose={handleCancelAcquisition}
+        title="شراء قطعة مستعملة"
         variant="modern"
         size="lg"
         style={{
@@ -561,217 +618,295 @@ export function UsedPartsPage() {
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 0 40px rgba(99, 102, 241, 0.1)'
         }}
       >
-        <div className="space-y-5">
-          {/* الزبون */}
-          <div>
-            <label style={{ 
-              fontSize: '12px', 
-              fontWeight: '600', 
-              color: 'var(--text-secondary)',
-              marginBottom: '8px',
+        <div className="space-y-6">
+          {/* Customer Section */}
+          <div style={{
+            padding: '20px',
+            background: 'var(--bg-surface-elevated)',
+            borderRadius: '16px',
+            border: '1px solid var(--border-subtle)'
+          }}>
+            <label style={{
+              fontSize: '14px',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '12px',
               display: 'block',
               letterSpacing: '0.2px'
             }}>
-              الزبون
+              البائع (الزبون)
               <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
             </label>
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer' }}>
+            <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: 'var(--text-primary)', cursor: 'pointer', padding: '10px 20px', borderRadius: '10px', background: !isCustomerManual ? 'var(--color-primary-10)' : 'transparent', border: !isCustomerManual ? '1px solid var(--color-primary-20)' : '1px solid var(--border-subtle)', transition: 'all 0.2s ease' }}>
                 <input
                   type="radio"
                   checked={!isCustomerManual}
                   onChange={() => setIsCustomerManual(false)}
-                  style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
+                  style={{ width: '18px', height: '18px', accentColor: 'var(--primary)' }}
                 />
                 <span>اختر من القائمة</span>
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: 'var(--text-primary)', cursor: 'pointer', padding: '10px 20px', borderRadius: '10px', background: isCustomerManual ? 'var(--color-primary-10)' : 'transparent', border: isCustomerManual ? '1px solid var(--color-primary-20)' : '1px solid var(--border-subtle)', transition: 'all 0.2s ease' }}>
                 <input
                   type="radio"
                   checked={isCustomerManual}
                   onChange={() => setIsCustomerManual(true)}
-                  style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
+                  style={{ width: '18px', height: '18px', accentColor: 'var(--primary)' }}
                 />
                 <span>اكتب يدوياً</span>
               </label>
             </div>
             {!isCustomerManual ? (
               <Select
-                value={tradeInCustomer}
-                onChange={(e) => setTradeInCustomer(e.target.value)}
+                value={acquisitionCustomer}
+                onChange={(e) => setAcquisitionCustomer(e.target.value)}
                 loading={customersLoading}
                 options={[
-                  { value: '', label: 'اختر الزبون...' },
+                  { value: '', label: 'اختر البائع...' },
                   ...customers.map((c) => ({ value: c.id, label: c.name })),
                 ]}
                 emptyMessage="لا يوجد عملاء"
-                style={{ borderRadius: '10px' }}
+                style={{ borderRadius: '12px', height: '48px' }}
               />
             ) : (
               <Input
                 type="text"
-                value={tradeInCustomerManual}
-                onChange={(e) => setTradeInCustomerManual(e.target.value)}
-                placeholder="أدخل اسم الزبون..."
-                style={{ borderRadius: '10px' }}
+                value={acquisitionCustomerManual}
+                onChange={(e) => setAcquisitionCustomerManual(e.target.value)}
+                placeholder="أدخل اسم البائع..."
+                style={{ borderRadius: '12px', height: '48px' }}
               />
             )}
           </div>
 
-          {/* المنتج */}
-          <div>
-            <label style={{ 
-              fontSize: '12px', 
-              fontWeight: '600', 
-              color: 'var(--text-secondary)',
-              marginBottom: '8px',
+          {/* Product Section */}
+          <div style={{
+            padding: '20px',
+            background: 'var(--bg-surface-elevated)',
+            borderRadius: '16px',
+            border: '1px solid var(--border-subtle)'
+          }}>
+            <label style={{
+              fontSize: '14px',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '12px',
               display: 'block',
               letterSpacing: '0.2px'
             }}>
-              المنتج (اختياري إذا اخترت نوع القطعة)
-            </label>
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  checked={!isProductManual}
-                  onChange={() => setIsProductManual(false)}
-                  style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
-                />
-                <span>اختر من القائمة</span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  checked={isProductManual}
-                  onChange={() => setIsProductManual(true)}
-                  style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
-                />
-                <span>اكتب يدوياً</span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  checked={tradeInProduct === '' && tradeInProductManual === ''}
-                  onChange={() => {
-                    setIsProductManual(false);
-                    setTradeInProduct('');
-                    setTradeInProductManual('');
-                  }}
-                  style={{ width: '16px', height: '16px', accentColor: 'var(--primary)' }}
-                />
-                <span>بدون منتج</span>
-              </label>
-            </div>
-            {!isProductManual ? (
-              <Select
-                value={tradeInProduct}
-                onChange={(e) => setTradeInProduct(e.target.value)}
-                loading={productsLoading}
-                options={[
-                  { value: '', label: 'اختر المنتج...' },
-                  ...products.map((p) => ({ value: p.id, label: p.name })),
-                ]}
-                emptyMessage="لا يوجد منتجات"
-                style={{ borderRadius: '10px' }}
-              />
-            ) : (
-              <Input
-                type="text"
-                value={tradeInProductManual}
-                onChange={(e) => setTradeInProductManual(e.target.value)}
-                placeholder="أدخل اسم المنتج..."
-                style={{ borderRadius: '10px' }}
-              />
-            )}
-          </div>
-
-          {/* نوع القطعة */}
-          <div>
-            <label style={{ 
-              fontSize: '12px', 
-              fontWeight: '600', 
-              color: 'var(--text-secondary)',
-              marginBottom: '8px',
-              display: 'block',
-              letterSpacing: '0.2px'
-            }}>
-              نوع القطعة
+              المنتج
               <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
             </label>
             <Select
-              value={tradeInPartType}
-              onChange={(e) => {
-                setTradeInPartType(e.target.value);
-                setTradeInSpecifications([]);
-              }}
-              loading={partTypesLoading}
+              value={acquisitionProduct}
+              onChange={(e) => setAcquisitionProduct(e.target.value)}
+              loading={productsLoading}
               options={[
-                { value: '', label: 'اختر نوع القطعة...' },
-                ...partTypes.map((pt: any) => ({ value: pt.id, label: pt.name_ar })),
+                { value: '', label: 'اختر المنتج...' },
+                ...products.map((p) => ({ value: p.id, label: p.name })),
               ]}
-              emptyMessage="لا يوجد أنواع قطع"
-              style={{ borderRadius: '10px' }}
+              emptyMessage="لا يوجد منتجات"
+              style={{ borderRadius: '12px', height: '48px' }}
             />
           </div>
 
-          {/* السعر */}
-          <div>
-            <label style={{ 
-              fontSize: '12px', 
-              fontWeight: '600', 
-              color: 'var(--text-secondary)',
-              marginBottom: '8px',
+          {/* Item Details in Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            {/* Condition */}
+            <div style={{
+              padding: '20px',
+              background: 'var(--bg-surface-elevated)',
+              borderRadius: '16px',
+              border: '1px solid var(--border-subtle)'
+            }}>
+              <label style={{
+                fontSize: '14px',
+                fontWeight: '600',
+                color: 'var(--text-primary)',
+                marginBottom: '12px',
+                display: 'block',
+                letterSpacing: '0.2px'
+              }}>
+                الحالة
+              </label>
+              <Select
+                value={acquisitionCondition}
+                onChange={(e) => setAcquisitionCondition(e.target.value)}
+                options={[
+                  { value: 'new', label: 'جديد' },
+                  { value: 'used', label: 'مستعمل' },
+                  { value: 'refurbished', label: 'مجدّد' },
+                ]}
+                style={{ borderRadius: '12px', height: '48px' }}
+              />
+            </div>
+
+            {/* Grade */}
+            <div style={{
+              padding: '20px',
+              background: 'var(--bg-surface-elevated)',
+              borderRadius: '16px',
+              border: '1px solid var(--border-subtle)'
+            }}>
+              <label style={{
+                fontSize: '14px',
+                fontWeight: '600',
+                color: 'var(--text-primary)',
+                marginBottom: '12px',
+                display: 'block',
+                letterSpacing: '0.2px'
+              }}>
+                التقييم
+              </label>
+              <Select
+                value={acquisitionGrade}
+                onChange={(e) => setAcquisitionGrade(e.target.value)}
+                options={[
+                  { value: 'excellent', label: 'ممتاز' },
+                  { value: 'very_good', label: 'جيد جداً' },
+                  { value: 'good', label: 'جيد' },
+                  { value: 'fair', label: 'متوسط' },
+                  { value: 'poor', label: 'ضعيف' },
+                ]}
+                style={{ borderRadius: '12px', height: '48px' }}
+              />
+            </div>
+          </div>
+
+          {/* Serial Number & Price in Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            {/* Serial Number */}
+            <div style={{
+              padding: '20px',
+              background: 'var(--bg-surface-elevated)',
+              borderRadius: '16px',
+              border: '1px solid var(--border-subtle)'
+            }}>
+              <label style={{
+                fontSize: '14px',
+                fontWeight: '600',
+                color: 'var(--text-primary)',
+                marginBottom: '12px',
+                display: 'block',
+                letterSpacing: '0.2px'
+              }}>
+                الرقم التسلسلي (اختياري)
+              </label>
+              <Input
+                type="text"
+                value={acquisitionSerialNumber}
+                onChange={(e) => setAcquisitionSerialNumber(e.target.value)}
+                placeholder="أدخل الرقم التسلسلي..."
+                style={{ borderRadius: '12px', height: '48px' }}
+              />
+            </div>
+
+            {/* Price */}
+            <div style={{
+              padding: '20px',
+              background: 'var(--bg-surface-elevated)',
+              borderRadius: '16px',
+              border: '1px solid var(--border-subtle)'
+            }}>
+              <label style={{
+                fontSize: '14px',
+                fontWeight: '600',
+                color: 'var(--text-primary)',
+                marginBottom: '12px',
+                display: 'block',
+                letterSpacing: '0.2px'
+              }}>
+                سعر الشراء
+                <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
+              </label>
+              <Input
+                type="number"
+                value={acquisitionPrice}
+                onChange={(e) => setAcquisitionPrice(e.target.value)}
+                placeholder="أدخل السعر..."
+                style={{ borderRadius: '12px', height: '48px' }}
+              />
+            </div>
+          </div>
+
+          {/* Payment Status */}
+          <div style={{
+            padding: '20px',
+            background: 'var(--bg-surface-elevated)',
+            borderRadius: '16px',
+            border: '1px solid var(--border-subtle)'
+          }}>
+            <label style={{
+              fontSize: '14px',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '12px',
               display: 'block',
               letterSpacing: '0.2px'
             }}>
-              السعر (كم دفعت للزبون)
-              <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
+              حالة الدفع
             </label>
-            <Input
-              type="number"
-              value={tradeInPrice}
-              onChange={(e) => setTradeInPrice(e.target.value)}
-              placeholder="أدخل السعر..."
-              style={{ borderRadius: '10px' }}
+            <Select
+              value={paymentStatus}
+              onChange={(e) => setPaymentStatus(e.target.value)}
+              options={[
+                { value: 'paid', label: 'مدفوع' },
+                { value: 'payable', label: 'مستحق الدفع' },
+                { value: 'partial', label: 'دفع جزئي' },
+              ]}
+              style={{ borderRadius: '12px', height: '48px' }}
             />
           </div>
 
-          {/* مواصفات إضافية */}
-          {tradeInPartType && (
-            <div style={{ 
-              padding: '12px 16px', 
-              background: 'var(--bg-surface-elevated)', 
-              borderRadius: '12px',
-              border: '1px solid var(--border-subtle)'
+          {/* Notes */}
+          <div style={{
+            padding: '20px',
+            background: 'var(--bg-surface-elevated)',
+            borderRadius: '16px',
+            border: '1px solid var(--border-subtle)'
+          }}>
+            <label style={{
+              fontSize: '14px',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '12px',
+              display: 'block',
+              letterSpacing: '0.2px'
             }}>
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '4px' }}>المواصفات التفصيلية (قريباً)</p>
-              <p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>سيتم إضافة المواصفات التفصيلية لكل نوع قطعة قريباً</p>
-            </div>
-          )}
+              ملاحظات
+            </label>
+            <Input
+              type="text"
+              value={acquisitionNotes}
+              onChange={(e) => setAcquisitionNotes(e.target.value)}
+              placeholder="أدخل ملاحظات..."
+              style={{ borderRadius: '12px', height: '48px' }}
+            />
+          </div>
 
-          <div style={{ 
-            display: 'flex', 
-            gap: '12px', 
+          <div style={{
+            display: 'flex',
+            gap: '16px',
             justifyContent: 'flex-end',
-            paddingTop: '24px',
+            paddingTop: '32px',
             borderTop: '1px solid var(--border-subtle)',
-            marginTop: '16px'
+            marginTop: '24px'
           }}>
             <button
-              onClick={handleCancelTradeIn}
+              onClick={handleCancelAcquisition}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '8px',
-                minWidth: '100px',
-                padding: '10px 20px',
+                gap: '10px',
+                minWidth: '120px',
+                padding: '12px 24px',
                 borderRadius: '12px',
                 background: 'var(--bg-surface-elevated)',
                 border: '1px solid var(--border-default)',
                 color: 'var(--text-primary)',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: '600',
                 letterSpacing: '0.3px',
                 cursor: 'pointer',
@@ -796,19 +931,19 @@ export function UsedPartsPage() {
               إلغاء
             </button>
             <button
-              onClick={handleSubmitTradeIn}
+              onClick={handleSubmitAcquisition}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '8px',
-                minWidth: '120px',
-                padding: '10px 20px',
+                gap: '10px',
+                minWidth: '140px',
+                padding: '12px 24px',
                 borderRadius: '12px',
                 background: 'var(--primary)',
                 border: '1px solid var(--primary)',
                 color: 'var(--text-on-primary)',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: '600',
                 letterSpacing: '0.3px',
                 cursor: 'pointer',
@@ -830,9 +965,218 @@ export function UsedPartsPage() {
                 e.currentTarget.style.transform = 'translateY(0) scale(1)';
               }}
             >
-              <ShoppingCart className="w-4 h-4" style={{ position: 'relative', zIndex: 1 }} />
+              <ShoppingCart className="w-5 h-5" style={{ position: 'relative', zIndex: 1 }} />
               <span style={{ position: 'relative', zIndex: 1 }}>شراء</span>
             </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Inspection Modal */}
+      <Modal
+        isOpen={isInspectionModalOpen}
+        onClose={() => setIsInspectionModalOpen(false)}
+        title="فحص القطعة"
+        variant="modern"
+        size="lg"
+        style={{
+          borderRadius: '24px',
+          overflow: 'hidden',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-primary)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 0 40px rgba(99, 102, 241, 0.1)'
+        }}
+      >
+        <div className="space-y-6">
+          {/* Item Info */}
+          {selectedItemForInspection && (
+            <div style={{
+              padding: '20px',
+              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(34, 211, 238, 0.05) 100%)',
+              borderRadius: '16px',
+              border: '1px solid rgba(99, 102, 241, 0.2)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(99, 102, 241, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Package className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
+                </div>
+                <div>
+                  <p style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '2px' }}>
+                    {selectedItemForInspection.product_name || selectedItemForInspection.product?.name}
+                  </p>
+                  {selectedItemForInspection.serial_number && (
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      SN: {selectedItemForInspection.serial_number}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Inspection Checks */}
+          <div style={{
+            padding: '20px',
+            background: 'var(--bg-surface-elevated)',
+            borderRadius: '16px',
+            border: '1px solid var(--border-subtle)'
+          }}>
+            <label style={{
+              fontSize: '14px',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '16px',
+              display: 'block',
+              letterSpacing: '0.2px'
+            }}>
+              فحص القطعة
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              {[
+                'التشغيل يعمل',
+                'الحالة الخارجية جيدة',
+                'الحرارة طبيعية',
+                'لا توجد أضرار واضحة',
+                'المكونات سليمة',
+                'الأداء جيد'
+              ].map((check) => (
+                <button
+                  key={check}
+                  onClick={() => toggleInspectionCheck(check)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '12px 16px',
+                    borderRadius: '12px',
+                    background: inspectionChecks.includes(check)
+                      ? 'rgba(34, 197, 94, 0.1)'
+                      : 'var(--bg-surface)',
+                    border: inspectionChecks.includes(check)
+                      ? '1px solid rgba(34, 197, 94, 0.3)'
+                      : '1px solid var(--border-subtle)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    textAlign: 'right'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!inspectionChecks.includes(check)) {
+                      e.currentTarget.style.borderColor = 'var(--color-primary-20)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!inspectionChecks.includes(check)) {
+                      e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                    }
+                  }}
+                >
+                  <div style={{
+                    width: '20px',
+                    height: '20px',
+                    borderRadius: '6px',
+                    background: inspectionChecks.includes(check)
+                      ? 'rgba(34, 197, 94, 0.2)'
+                      : 'var(--bg-surface-elevated)',
+                    border: inspectionChecks.includes(check)
+                      ? '2px solid rgba(34, 197, 94, 0.5)'
+                      : '2px solid var(--border-default)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    {inspectionChecks.includes(check) && (
+                      <CheckCircle className="w-3 h-3" style={{ color: 'rgba(34, 197, 94, 0.8)' }} />
+                    )}
+                  </div>
+                  <span style={{
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: inspectionChecks.includes(check)
+                      ? 'rgba(34, 197, 94, 0.9)'
+                      : 'var(--text-primary)'
+                  }}>
+                    {check}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div style={{
+            padding: '20px',
+            background: 'var(--bg-surface-elevated)',
+            borderRadius: '16px',
+            border: '1px solid var(--border-subtle)'
+          }}>
+            <label style={{
+              fontSize: '14px',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '12px',
+              display: 'block',
+              letterSpacing: '0.2px'
+            }}>
+              ملاحظات الفحص
+            </label>
+            <textarea
+              value={inspectionNotes}
+              onChange={(e) => setInspectionNotes(e.target.value)}
+              placeholder="أدخل ملاحظات الفحص..."
+              rows={3}
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                borderRadius: '12px',
+                border: '1px solid var(--border-default)',
+                background: 'var(--bg-surface)',
+                color: 'var(--text-primary)',
+                fontSize: '14px',
+                resize: 'vertical',
+                outline: 'none',
+                transition: 'all 0.2s ease'
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = 'var(--color-primary)';
+                e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99, 102, 241, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-default)';
+                e.currentTarget.style.boxShadow = 'none';
+              }}
+            />
+          </div>
+
+          {/* Actions */}
+          <div style={{
+            display: 'flex',
+            gap: '12px',
+            justifyContent: 'flex-end',
+            paddingTop: '32px',
+            borderTop: '1px solid var(--border-subtle)',
+            marginTop: '24px'
+          }}>
+            <Button
+              variant="secondary"
+              onClick={() => setIsInspectionModalOpen(false)}
+            >
+              إلغاء
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => handleCompleteInspection(false)}
+            >
+              <XCircle className="w-4 h-4 mr-1" />
+              فشل الفحص
+            </Button>
+            <Button
+              variant="success"
+              onClick={() => handleCompleteInspection(true)}
+              disabled={!allRequiredChecksPassed()}
+            >
+              <CheckCircle className="w-4 h-4 mr-1" />
+              اجتاز الفحص
+            </Button>
           </div>
         </div>
       </Modal>

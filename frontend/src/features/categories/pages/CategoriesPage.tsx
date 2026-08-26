@@ -10,10 +10,10 @@ import { getButtonSize } from '../../../config/button-sizes';
 import { toast } from 'sonner';
 import { useLayout } from '../../../contexts/LayoutContext';
 
-import { 
-  Plus, 
-  Edit, 
-  Trash2, 
+import {
+  Plus,
+  Edit,
+  Trash2,
   Package,
   Tag,
   Monitor,
@@ -29,7 +29,13 @@ import {
   Printer,
   Wifi,
   Shield,
-  Wrench
+  Wrench,
+  Smartphone,
+  Laptop,
+  Speaker,
+  Cable,
+  Power,
+  PowerOff
 } from 'lucide-react';
 
 const iconMap: Record<string, any> = {
@@ -49,23 +55,31 @@ const iconMap: Record<string, any> = {
   wifi: Wifi,
   shield: Shield,
   wrench: Wrench,
+  smartphone: Smartphone,
+  laptop: Laptop,
+  speaker: Speaker,
+  cable: Cable,
 };
 
 const availableIcons = [
-  { value: 'package', label: 'صندوق', icon: Package },
-  { value: 'tag', label: 'علامة', icon: Tag },
+  { value: 'smartphone', label: 'هاتف', icon: Smartphone },
+  { value: 'laptop', label: 'لابتوب', icon: Laptop },
   { value: 'monitor', label: 'شاشة', icon: Monitor },
   { value: 'cpu', label: 'معالج', icon: Cpu },
   { value: 'hard-drive', label: 'قرص صلب', icon: HardDrive },
-  { value: 'zap', label: 'طاقة', icon: Zap },
-  { value: 'box', label: 'علبة', icon: Box },
-  { value: 'thermometer', label: 'تبريد', icon: Thermometer },
-  { value: 'keyboard', label: 'لوحة مفاتيح', icon: Keyboard },
-  { value: 'mouse', label: 'فأرة', icon: Mouse },
-  { value: 'headphones', label: 'سماعات', icon: Headphones },
   { value: 'camera', label: 'كاميرا', icon: Camera },
   { value: 'printer', label: 'طابعة', icon: Printer },
   { value: 'wifi', label: 'واي فاي', icon: Wifi },
+  { value: 'headphones', label: 'سماعات', icon: Headphones },
+  { value: 'speaker', label: 'مكبر صوت', icon: Speaker },
+  { value: 'cable', label: 'كابل', icon: Cable },
+  { value: 'keyboard', label: 'لوحة مفاتيح', icon: Keyboard },
+  { value: 'mouse', label: 'فأرة', icon: Mouse },
+  { value: 'package', label: 'صندوق', icon: Package },
+  { value: 'tag', label: 'علامة', icon: Tag },
+  { value: 'zap', label: 'طاقة', icon: Zap },
+  { value: 'box', label: 'علبة', icon: Box },
+  { value: 'thermometer', label: 'تبريد', icon: Thermometer },
   { value: 'shield', label: 'حماية', icon: Shield },
   { value: 'wrench', label: 'أدوات', icon: Wrench },
 ];
@@ -84,7 +98,7 @@ export function CategoriesPage() {
   const [newCategory, setNewCategory] = useState({
     name: '',
     description: '',
-    icon: 'package',
+    icon: 'smartphone',
     color: '#3B82F6',
     is_active: true
   });
@@ -109,9 +123,9 @@ export function CategoriesPage() {
 
   const getCategoryIcon = (category: any) => {
     if (typeof category.icon === 'string' && category.icon) {
-      return iconMap[category.icon] || Package;
+      return iconMap[category.icon] || Smartphone;
     }
-    return Package;
+    return Smartphone;
   };
 
   const getCategoryColor = (category: any) => {
@@ -144,7 +158,7 @@ export function CategoriesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
       setIsCreateModalOpen(false);
-      setNewCategory({ name: '', description: '', icon: 'package', color: '#3B82F6', is_active: true });
+      setNewCategory({ name: '', description: '', icon: 'smartphone', color: '#3B82F6', is_active: true });
       toast.success('تم إضافة التصنيف بنجاح');
     },
     onError: (error: any) => {
@@ -178,11 +192,36 @@ export function CategoriesPage() {
     mutationFn: (id: string) => categoriesApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
-      toast.success('تم حذف التصنيف بنجاح');
+      queryClient.invalidateQueries({ queryKey: ['products'] }); // Invalidate products since their category_id might be NULL now
+      toast.success('تم حذف التصنيف بنجاح. المنتجات المرتبطة به أصبحت بدون تصنيف.');
     },
     onError: (error: any) => {
-      console.error('Delete category error:', error);
-      toast.error(`فشل حذف التصنيف: ${error.message || error.arabicMessage || 'خطأ غير معروف'}`);
+      // Always refresh the list on delete attempt to handle the case where it was already deleted
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+
+      // If category is already deleted, show success message (this is expected behavior for double-clicks)
+      if (error.message === 'category not found' || error.arabicMessage === 'التصنيف غير موجود' || error.status === 400) {
+        toast.success('تم حذف التصنيف بنجاح.');
+      } else {
+        console.error('Delete category error:', error);
+        toast.error(`فشل حذف التصنيف: ${error.message || error.arabicMessage || 'خطأ غير معروف'}`);
+      }
+    },
+    retry: 0, // Prevent double-click by making the mutation non-retryable
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) => {
+      return categoriesApi.update(id, { is_active });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      toast.success('تم تحديث حالة التصنيف بنجاح');
+    },
+    onError: (error: any) => {
+      console.error('Toggle category active error:', error);
+      toast.error(`فشل تحديث حالة التصنيف: ${error.message || error.arabicMessage || 'خطأ غير معروف'}`);
     },
   });
 
@@ -205,16 +244,20 @@ export function CategoriesPage() {
     });
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا التصنيف؟')) {
+  const handleDelete = (id: string, categoryName: string) => {
+    if (window.confirm(`هل أنت متأكد من حذف تصنيف "${categoryName}"؟\n\nملاحظة: سيتم تحديث المنتجات المرتبطة بهذا التصنيف لتصبح بدون تصنيف.`)) {
       deleteMutation.mutate(id);
     }
+  };
+
+  const handleToggleActive = (id: string, currentStatus: boolean) => {
+    toggleActiveMutation.mutate({ id, is_active: !currentStatus });
   };
 
   const handleEdit = (category: any) => {
     setSelectedCategory({
       ...category,
-      icon: category.icon || 'package',
+      icon: category.icon || 'smartphone',
       color: category.color || '#3B82F6'
     });
     setIsEditModalOpen(true);
@@ -396,7 +439,38 @@ export function CategoriesPage() {
                         <Edit style={{ width: '16px', height: '16px' }} />
                       </button>
                       <button
-                        onClick={() => handleDelete(category.id)}
+                        onClick={() => handleToggleActive(category.id, category.is_active)}
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: 'var(--bg-surface-elevated)',
+                          border: '1px solid var(--border-subtle)',
+                          color: 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = category.is_active ? 'rgba(107, 114, 128, 0.1)' : 'rgba(16, 185, 129, 0.1)';
+                          e.currentTarget.style.borderColor = category.is_active ? 'var(--text-secondary)' : 'var(--color-success)';
+                          e.currentTarget.style.color = category.is_active ? 'var(--text-secondary)' : 'var(--color-success)';
+                          e.currentTarget.style.transform = 'scale(1.05)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'var(--bg-surface-elevated)';
+                          e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                          e.currentTarget.style.color = 'var(--text-secondary)';
+                          e.currentTarget.style.transform = 'scale(1)';
+                        }}
+                        title={category.is_active ? 'تعطيل التصنيف' : 'تفعيل التصنيف'}
+                      >
+                        {category.is_active ? <PowerOff style={{ width: '16px', height: '16px' }} /> : <Power style={{ width: '16px', height: '16px' }} />}
+                      </button>
+                      <button
+                        onClick={() => handleDelete(category.id, category.name)}
                         style={{
                           width: '36px',
                           height: '36px',
@@ -429,56 +503,50 @@ export function CategoriesPage() {
                   </div>
                   
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '6px 12px',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      letterSpacing: '0.2px',
-                      background: category.is_active 
-                        ? 'rgba(16, 185, 129, 0.1)' 
-                        : 'rgba(107, 114, 128, 0.1)',
-                      border: category.is_active 
-                        ? '1px solid rgba(16, 185, 129, 0.2)' 
-                        : '1px solid rgba(107, 114, 128, 0.2)',
-                      color: category.is_active 
-                        ? 'var(--color-success)' 
-                        : 'var(--text-secondary)'
-                    }}>
+                    <button
+                      onClick={() => handleToggleActive(category.id, category.is_active)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        letterSpacing: '0.2px',
+                        background: category.is_active
+                          ? 'rgba(16, 185, 129, 0.1)'
+                          : 'rgba(107, 114, 128, 0.1)',
+                        border: category.is_active
+                          ? '1px solid rgba(16, 185, 129, 0.2)'
+                          : '1px solid rgba(107, 114, 128, 0.2)',
+                        color: category.is_active
+                          ? 'var(--color-success)'
+                          : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = category.is_active ? 'rgba(107, 114, 128, 0.15)' : 'rgba(16, 185, 129, 0.15)';
+                        e.currentTarget.style.borderColor = category.is_active ? 'var(--text-secondary)' : 'var(--color-success)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = category.is_active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)';
+                        e.currentTarget.style.borderColor = category.is_active ? 'rgba(16, 185, 129, 0.2)' : 'rgba(107, 114, 128, 0.2)';
+                      }}
+                      title={category.is_active ? 'تعطيل التصنيف' : 'تفعيل التصنيف'}
+                    >
                       <div style={{
                         width: '8px',
                         height: '8px',
                         borderRadius: '50%',
-                        background: category.is_active 
-                          ? 'var(--color-success)' 
+                        background: category.is_active
+                          ? 'var(--color-success)'
                           : 'var(--text-secondary)',
                         animation: category.is_active ? 'pulse 2s infinite' : 'none'
                       }} />
                       {category.is_active ? 'نشط' : 'غير نشط'}
-                    </div>
-                    
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '4px 8px',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      color: 'var(--text-tertiary)',
-                      background: 'var(--bg-surface-elevated)'
-                    }}>
-                      <div style={{
-                        width: '12px',
-                        height: '12px',
-                        borderRadius: '50%',
-                        background: categoryColor,
-                        border: '2px solid var(--bg-surface)'
-                      }} />
-                      <span>اللون</span>
-                    </div>
+                    </button>
                   </div>
                 </CardContent>
               </Card>

@@ -250,6 +250,140 @@ func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, 
 	return items, total, nil
 }
 
+// ListInventoryItemsWithSupplierInfo retrieves inventory items with supplier information
+func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, limit, offset int, filters map[string]interface{}) ([]*InventoryItemWithSupplier, int64, error) {
+	// Build base query with JOIN to suppliers
+	baseQuery := `
+		SELECT 
+			ii.id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
+			ii.condition, ii.grade, ii.purchase_cost, ii.selling_price, ii.status, ii.location_id,
+			ii.supplier_id, ii.purchase_date, ii.sold_at, ii.notes, ii.created_at, ii.updated_at,
+			p.name as product_name,
+			s.name as supplier_name,
+			s.phone as supplier_phone
+		FROM inventory_items ii
+		LEFT JOIN products p ON ii.product_id = p.id
+		LEFT JOIN suppliers s ON ii.supplier_id = s.id
+		WHERE 1=1
+	`
+	countQuery := `
+		SELECT COUNT(*) FROM inventory_items ii
+		WHERE 1=1
+	`
+
+	args := []interface{}{}
+	argCount := 0
+
+	// Add filters if provided
+	if condition, ok := filters["condition"].(string); ok && condition != "" {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND ii.condition = ` + param
+		countQuery += ` AND ii.condition = ` + param
+		args = append(args, condition)
+	}
+
+	if status, ok := filters["status"].(string); ok && status != "" {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND ii.status = ` + param
+		countQuery += ` AND ii.status = ` + param
+		args = append(args, status)
+	}
+
+	if productID, ok := filters["product_id"].(uuid.UUID); ok && productID != uuid.Nil {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND ii.product_id = ` + param
+		countQuery += ` AND ii.product_id = ` + param
+		args = append(args, productID)
+	}
+
+	if partTypeID, ok := filters["part_type_id"].(uuid.UUID); ok && partTypeID != uuid.Nil {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND ii.part_type_id = ` + param
+		countQuery += ` AND ii.part_type_id = ` + param
+		args = append(args, partTypeID)
+	}
+
+	if locationID, ok := filters["location_id"].(uuid.UUID); ok && locationID != uuid.Nil {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND ii.location_id = ` + param
+		countQuery += ` AND ii.location_id = ` + param
+		args = append(args, locationID)
+	}
+
+	// New filters for supplier and purchase
+	if supplierID, ok := filters["supplier_id"].(uuid.UUID); ok && supplierID != uuid.Nil {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND ii.supplier_id = ` + param
+		countQuery += ` AND ii.supplier_id = ` + param
+		args = append(args, supplierID)
+	}
+
+	if purchaseDateFrom, ok := filters["purchase_date_from"].(string); ok && purchaseDateFrom != "" {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND ii.purchase_date >= ` + param
+		countQuery += ` AND ii.purchase_date >= ` + param
+		args = append(args, purchaseDateFrom)
+	}
+
+	if purchaseDateTo, ok := filters["purchase_date_to"].(string); ok && purchaseDateTo != "" {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND ii.purchase_date <= ` + param
+		countQuery += ` AND ii.purchase_date <= ` + param
+		args = append(args, purchaseDateTo)
+	}
+
+	if minPurchaseCost, ok := filters["min_purchase_cost"].(float64); ok && minPurchaseCost > 0 {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND ii.purchase_cost >= ` + param
+		countQuery += ` AND ii.purchase_cost >= ` + param
+		args = append(args, minPurchaseCost)
+	}
+
+	if maxPurchaseCost, ok := filters["max_purchase_cost"].(float64); ok && maxPurchaseCost > 0 {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND ii.purchase_cost <= ` + param
+		countQuery += ` AND ii.purchase_cost <= ` + param
+		args = append(args, maxPurchaseCost)
+	}
+
+	// Get total count
+	var total int64
+	err := r.db.GetContext(ctx, &total, countQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count inventory items: %w", err)
+	}
+
+	// Add pagination
+	argCount++
+	param := fmt.Sprintf("$%d", argCount)
+	baseQuery += ` ORDER BY ii.created_at DESC LIMIT ` + param
+	args = append(args, limit)
+
+	argCount++
+	param = fmt.Sprintf("$%d", argCount)
+	baseQuery += ` OFFSET ` + param
+	args = append(args, offset)
+
+	// Execute query
+	var items []*InventoryItemWithSupplier
+	err = r.db.SelectContext(ctx, &items, baseQuery, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list inventory items with supplier info: %w", err)
+	}
+
+	return items, total, nil
+}
+
 // CreateLocation creates a new location
 func (r *Repository) CreateLocation(ctx context.Context, location *Location) error {
 	query := `

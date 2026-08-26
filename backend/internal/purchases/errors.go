@@ -38,4 +38,16 @@ var (
 
 	// ErrInvalidCondition is returned when condition is invalid
 	ErrInvalidCondition = errors.New("invalid condition")
+
+	// ErrPurchaseAlreadyReversed is returned when purchase is already reversed
+	ErrPurchaseAlreadyReversed = errors.New("purchase is already reversed")
+
+	// ErrCannotDeleteReceivedPurchase is returned when trying to delete a received purchase
+	ErrCannotDeleteReceivedPurchase = errors.New("cannot delete received purchase - use reverse instead")
+
+	// ErrItemsAlreadySold is returned when purchase items have been sold
+	ErrItemsAlreadySold = errors.New("cannot reverse purchase - some items have been sold")
+
+	// ErrInvalidStatusTransition is returned when attempting invalid status transition
+	ErrInvalidStatusTransition = errors.New("invalid status transition")
 )

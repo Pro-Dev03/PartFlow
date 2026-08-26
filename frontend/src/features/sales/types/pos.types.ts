@@ -14,7 +14,7 @@ export interface CartItem {
   grade?: string;
 }
 
-export type PaymentMethod = 'cash' | 'card' | 'bank_transfer' | 'credit';
+export type PaymentMethod = 'cash' | 'card' | 'credit'; // Simplified for POS (SALES-PHILOSOPHY.md)
 
 export type ItemInputMethodType = 'barcode' | 'camera' | 'manual';
 

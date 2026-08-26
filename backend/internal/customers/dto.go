@@ -6,9 +6,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// CustomerRequest represents customer creation/update request
+// CustomerRequest represents customer creation request
 type CustomerRequest struct {
-	Code        string   `json:"code" binding:"required"`
+	Code        *string  `json:"code,omitempty"`
 	Name        string   `json:"name" binding:"required"`
 	Email       *string  `json:"email,omitempty"`
 	Phone       *string  `json:"phone,omitempty"`
@@ -19,6 +19,20 @@ type CustomerRequest struct {
 	CreditLimit float64  `json:"credit_limit"`
 	Notes       *string  `json:"notes,omitempty"`
 	IsActive    bool     `json:"is_active"`
+}
+
+// UpdateCustomerRequest represents customer update request (code is not updatable via this endpoint)
+type UpdateCustomerRequest struct {
+	Name        string   `json:"name" binding:"required"`
+	Email       *string  `json:"email,omitempty"`
+	Phone       *string  `json:"phone,omitempty"`
+	Address     *string  `json:"address,omitempty"`
+	City        *string  `json:"city,omitempty"`
+	Country     *string  `json:"country,omitempty"`
+	TaxID       *string  `json:"tax_id,omitempty"`
+	CreditLimit *float64 `json:"credit_limit,omitempty"`
+	Notes       *string  `json:"notes,omitempty"`
+	IsActive    *bool    `json:"is_active,omitempty"`
 }
 
 // CustomerResponse represents customer response

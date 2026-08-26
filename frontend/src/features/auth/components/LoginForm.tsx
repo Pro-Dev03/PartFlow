@@ -214,18 +214,14 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
           style={{
             width: '100%',
             padding: '13px',
-            color: isDark ? '#0f172a' : '#ffffff',
+            color: 'var(--text-on-primary)',
             border: 'none',
             borderRadius: '10px',
             fontSize: '13px',
             fontWeight: '700',
             cursor: isLoading ? 'not-allowed' : 'pointer',
-            background: isDark
-              ? 'linear-gradient(135deg, #14b8a6 0%, #2563eb 100%)'
-              : 'linear-gradient(135deg, #2563EB 0%, #1d4ed8 100%)',
-            boxShadow: isDark
-              ? '0 4px 20px rgba(34, 211, 238, 0.3), 0 0 30px rgba(34, 211, 238, 0.15)'
-              : '0 4px 20px rgba(37, 99, 235, 0.3), 0 0 30px rgba(37, 99, 235, 0.15)',
+            background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)',
+            boxShadow: '0 4px 20px rgba(37, 99, 235, 0.3), 0 0 30px rgba(37, 99, 235, 0.15)',
             transition: 'all 200ms ease',
             opacity: isLoading ? 0.7 : 1,
           }}

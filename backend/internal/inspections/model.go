@@ -19,6 +19,14 @@ type Inspection struct {
 	Notes          string     `json:"notes" db:"notes"`
 	Photos         []string   `json:"photos" db:"photos"`
 	TestResults    TestResults `json:"test_results" db:"test_results"`
+	
+	// Template-based inspection (USED-PARTS-ACQUISITION.md)
+	TemplateType   string     `json:"template_type" db:"template_type"` // gpu, cpu, laptop, etc.
+	CheckpointResults string   `json:"checkpoint_results" db:"checkpoint_results"` // JSON of CheckpointResult
+	
+	// Link to acquisition item (for customer acquisitions)
+	AcquisitionItemID *uuid.UUID `json:"acquisition_item_id" db:"acquisition_item_id"`
+	
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 }

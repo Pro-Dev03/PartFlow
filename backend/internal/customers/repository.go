@@ -170,6 +170,10 @@ func (r *Repository) HasActiveTransactions(ctx context.Context, customerID uuid.
 	var hasTransactions bool
 	err := r.db.GetContext(ctx, &hasTransactions, query, customerID)
 	if err != nil {
+		// If table doesn't exist, treat as no transactions
+		if err.Error() == `pq: relation "sales" does not exist` {
+			return false, nil
+		}
 		return false, fmt.Errorf("failed to check active transactions: %w", err)
 	}
 	
@@ -190,6 +194,10 @@ func (r *Repository) HasActiveWarranties(ctx context.Context, customerID uuid.UU
 	var hasWarranties bool
 	err := r.db.GetContext(ctx, &hasWarranties, query, customerID)
 	if err != nil {
+		// If table doesn't exist, treat as no warranties
+		if err.Error() == `pq: relation "warranties" does not exist` {
+			return false, nil
+		}
 		return false, fmt.Errorf("failed to check active warranties: %w", err)
 	}
 	

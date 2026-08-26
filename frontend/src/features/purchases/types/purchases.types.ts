@@ -7,12 +7,16 @@ export interface Purchase {
   };
   invoice_number: string;
   purchase_date: string;
-  expected_date?: string;
-  status: 'pending' | 'ordered' | 'received' | 'cancelled';
+  expected_delivery_date?: string;
+  status: 'draft' | 'pending' | 'ordered' | 'received' | 'cancelled' | 'reversed' | 'partially_received';
   items: PurchaseItem[];
-  total_cost: number;
+  total_amount: number;
   paid_amount: number;
-  remaining_amount: number;
+  remaining: number;
+  total_items?: number;
+  supplier_name?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface PurchaseItem {
@@ -20,13 +24,15 @@ export interface PurchaseItem {
   product_name: string;
   quantity: number;
   unit_cost: number;
-  condition: 'new' | 'used';
+  condition: 'new' | 'used' | 'refurbished';
 }
 
 export interface PurchaseFormData {
   supplier_id: string;
   invoice_number: string;
   purchase_date: string;
+  expected_delivery_date?: string;
+  notes?: string;
   items: PurchaseItem[];
 }
 
@@ -34,5 +40,6 @@ export interface PurchaseStats {
   totalPurchases: number;
   pendingCount: number;
   receivedCount: number;
+  reversedCount: number;
   totalCost: number;
 }

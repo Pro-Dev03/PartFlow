@@ -57,8 +57,6 @@ export function CustomerStats({ stats, onRecommendationClick }: CustomerStatsPro
           icon={Users}
           subtitle="العملاء المسجلين"
           variant="featured"
-          trend="+12.5%"
-          trendUp={true}
         />
         <StatCard 
           title="العملاء النشطين" 
@@ -66,8 +64,6 @@ export function CustomerStats({ stats, onRecommendationClick }: CustomerStatsPro
           icon={UserPlus}
           subtitle="قاموا بشراء"
           variant="default"
-          trend="+8.2%"
-          trendUp={true}
         />
         <StatCard 
           title="عملاء بديون" 
@@ -75,17 +71,13 @@ export function CustomerStats({ stats, onRecommendationClick }: CustomerStatsPro
           icon={DollarSign}
           subtitle="ديون مستحقة"
           variant="warning"
-          trend="+3"
-          trendUp={false}
         />
         <StatCard 
           title="إجمالي الديون" 
-          value={`₪${stats.totalOutstanding.toLocaleString()}`} 
+          value={`₪${(stats.totalOutstanding || 0).toLocaleString()}`} 
           icon={Shield}
           subtitle="المبالغ المستحقة"
           variant="danger"
-          trend="+15.3%"
-          trendUp={false}
         />
       </div>
     </>

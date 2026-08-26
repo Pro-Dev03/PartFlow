@@ -1,8 +1,11 @@
 import { Badge } from '../../../components/ui/badge';
 import { EmptyState } from '../../../components/ui/empty-state';
-import { Package, PackageOpen, Eye, Edit, Trash2, Inbox } from 'lucide-react';
+import { Button } from '../../../components/ui/button';
+import { Package, PackageOpen, Eye, Edit, Trash2, Inbox, RefreshCw, FileText } from 'lucide-react';
 import { Product, InventoryItem, ViewMode } from '../types/inventory.types';
 import { formatPrice, formatPriceFromCents } from '../../../utils';
+import { useNavigate } from 'react-router-dom';
+import { cn } from '../../../utils';
 
 interface InventoryListProps {
   viewMode: ViewMode;
@@ -15,6 +18,9 @@ interface InventoryListProps {
   onEditProduct: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
   onClearSearch: () => void;
+  onReorderFromSupplier?: (supplierId: string, productName: string) => void;
+  onViewInvoice?: (invoiceNumber: string) => void;
+  onViewInventoryLedger?: (productId: string) => void;
 }
 
 interface ActionButtonProps {
@@ -25,20 +31,20 @@ interface ActionButtonProps {
 }
 
 function ActionButton({ icon, label, onClick, variant = 'default' }: ActionButtonProps) {
-  const baseClasses = 'flex h-8 w-8 items-center justify-center rounded-lg text-text-secondary opacity-60 hover:opacity-100 hover:bg-surface-elevated hover:text-text-primary transition-all duration-150';
-  const variantClasses = variant === 'danger'
-    ? 'hover:text-red hover:bg-red/8'
-    : baseClasses;
-
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon"
       onClick={onClick}
-      className={variant === 'danger' ? variantClasses : baseClasses}
+      className={cn(
+        "text-text-secondary hover:text-text-primary",
+        variant === 'danger' && "hover:text-red hover:bg-red/8"
+      )}
       aria-label={label}
     >
       {icon}
-    </button>
+    </Button>
   );
 }
 
@@ -90,7 +96,11 @@ export function InventoryList({
   onEditProduct,
   onDeleteProduct,
   onClearSearch,
+  onReorderFromSupplier,
+  onViewInvoice,
+  onViewInventoryLedger,
 }: InventoryListProps) {
+  const navigate = useNavigate();
   const getConditionBadge = (condition: string) => {
     const variants: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'secondary' | 'outline' }> = {
       new: { label: 'جديد', variant: 'success' },
@@ -144,7 +154,7 @@ export function InventoryList({
                       <tr className="border-b border-border bg-surface-elevated/50">
                         <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">الاسم</th>
                         <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">SKU</th>
-                        <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">الفئة</th>
+                        <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">التصنيف</th>
                         <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">الحالة</th>
                         <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">المخزون</th>
                         <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">السعر</th>
@@ -166,7 +176,7 @@ export function InventoryList({
                             </td>
                             <td className="p-4 align-middle text-text-secondary">{product.sku || '-'}</td>
                             <td className="p-4 align-middle text-text-secondary">
-                              {product.category || product.category_name || product.categoryName || '-'}
+                              {product.category_name || product.category || product.categoryName || '-'}
                             </td>
                             <td className="p-4 align-middle">
                               <Badge variant={getConditionBadge(product.condition || '').variant}>
@@ -196,6 +206,13 @@ export function InventoryList({
                                   label="تعديل"
                                   onClick={() => onEditProduct(product)}
                                 />
+                                {onViewInventoryLedger && (
+                                  <ActionButton
+                                    icon={<FileText className="h-4 w-4" />}
+                                    label="سجل الحركات"
+                                    onClick={() => onViewInventoryLedger(product.id)}
+                                  />
+                                )}
                                 <ActionButton
                                   icon={<Trash2 className="h-4 w-4" />}
                                   label="حذف"
@@ -235,9 +252,9 @@ export function InventoryList({
                           </div>
                           <div className="grid grid-cols-2 gap-y-2">
                             <div>
-                              <span className="text-xs text-text-tertiary">الفئة</span>
+                              <span className="text-xs text-text-tertiary">التصنيف</span>
                               <span className="block text-sm text-text-secondary">
-                                {product.category || product.category_name || product.categoryName || '-'}
+                                {product.category_name || product.category || product.categoryName || '-'}
                               </span>
                             </div>
                             <div>
@@ -309,10 +326,12 @@ export function InventoryList({
                     <tr className="border-b border-border bg-surface-elevated/50">
                       <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">المنتج</th>
                       <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">الحالة</th>
-                      <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">السعر</th>
+                      <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">المورد</th>
+                      <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">تاريخ الشراء</th>
+                      <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">سعر الشراء</th>
+                      <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">سعر البيع</th>
                       <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">الموقع</th>
                       <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">الحالة</th>
-                      <th className="h-12 px-4 text-start text-xs font-medium text-text-tertiary uppercase tracking-wider">تاريخ الإضافة</th>
                       <th className="h-12 px-4 text-end text-xs font-medium text-text-tertiary uppercase tracking-wider">الإجراءات</th>
                     </tr>
                   </thead>
@@ -332,6 +351,17 @@ export function InventoryList({
                               {condBadge.label}
                             </Badge>
                           </td>
+                          <td className="p-4 align-middle text-text-secondary">
+                            {item.supplier_name || '-'}
+                          </td>
+                          <td className="p-4 align-middle text-text-secondary">
+                            {item.purchase_date ? new Date(item.purchase_date).toLocaleDateString('ar-SA') : '-'}
+                          </td>
+                          <td className="p-4 align-middle">
+                            <span className="font-medium text-text-secondary">
+                              {formatPriceFromCents(item.purchase_cost)}
+                            </span>
+                          </td>
                           <td className="p-4 align-middle">
                             <span className="font-medium text-cyan">
                               {formatPriceFromCents(item.selling_price)}
@@ -343,9 +373,6 @@ export function InventoryList({
                               {item.status === 'AVAILABLE' ? 'متوفر' : item.status}
                             </Badge>
                           </td>
-                          <td className="p-4 align-middle text-text-secondary">
-                            {new Date(item.created_at).toLocaleDateString('ar-SA')}
-                          </td>
                           <td className="p-4 align-middle">
                             <div className="flex items-center justify-end gap-1">
                               <ActionButton
@@ -353,11 +380,32 @@ export function InventoryList({
                                 label="عرض"
                                 onClick={() => {}}
                               />
+                              {onViewInventoryLedger && (
+                                <ActionButton
+                                  icon={<FileText className="h-4 w-4" />}
+                                  label="سجل الحركات"
+                                  onClick={() => onViewInventoryLedger(item.id)}
+                                />
+                              )}
                               <ActionButton
                                 icon={<Edit className="h-4 w-4" />}
                                 label="تعديل"
                                 onClick={() => {}}
                               />
+                              {item.supplier_name && onReorderFromSupplier && (
+                                <ActionButton
+                                  icon={<RefreshCw className="h-4 w-4" />}
+                                  label="إعادة الشراء"
+                                  onClick={() => onReorderFromSupplier(item.supplier_id || '', item.product_name || '')}
+                                />
+                              )}
+                              {onViewInvoice && (
+                                <ActionButton
+                                  icon={<FileText className="h-4 w-4" />}
+                                  label="عرض الفاتورة"
+                                  onClick={() => onViewInvoice(item.supplier_id || '')}
+                                />
+                              )}
                             </div>
                           </td>
                         </tr>

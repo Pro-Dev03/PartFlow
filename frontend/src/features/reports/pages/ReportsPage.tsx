@@ -14,7 +14,8 @@ import {
   Target,
   Zap,
   FileText,
-  Calendar
+  Calendar,
+  RotateCcw
 } from 'lucide-react';
 
 // Custom hooks
@@ -65,6 +66,7 @@ export function ReportsPage() {
 
   const reportTypes: ReportType[] = [
     { id: 'sales', label: t('reports.salesReport'), icon: BarChart3 },
+    { id: 'net-sales', label: 'المبيعات الصافية', icon: Target },
     { id: 'profit', label: t('reports.profitReport'), icon: Target },
     { id: 'inventory', label: t('reports.inventoryReport'), icon: BarChart3 },
     { id: 'used-items', label: 'تقرير القطع المستعملة', icon: Zap },
@@ -72,7 +74,8 @@ export function ReportsPage() {
     { id: 'products', label: t('reports.productsReport'), icon: BarChart3 },
     { id: 'suppliers', label: t('reports.suppliersReport'), icon: BarChart3 },
     { id: 'expenses', label: t('reports.expensesReport'), icon: BarChart3 },
-    { id: 'returns', label: t('reports.returnReport'), icon: BarChart3 },
+    { id: 'returns', label: 'تقرير المرتجعات المحسّن', icon: RotateCcw },
+    { id: 'returns-analysis', label: 'تحليل المرتجعات', icon: BarChart3 },
   ];
 
   const dateRanges: DateRange[] = [

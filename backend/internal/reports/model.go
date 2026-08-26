@@ -235,11 +235,50 @@ type MonthlyReturns struct {
 	Amount float64   `json:"amount"`
 }
 
+// NetSalesReport represents net sales report data (gross sales minus returns)
+type NetSalesReport struct {
+	Period           string           `json:"period"`
+	StartDate        time.Time        `json:"start_date"`
+	EndDate          time.Time        `json:"end_date"`
+	GrossSales       int              `json:"gross_sales"`
+	GrossRevenue     float64          `json:"gross_revenue"`
+	TotalReturns     int              `json:"total_returns"`
+	TotalRefunded    float64          `json:"total_refunded"`
+	NetSales         int              `json:"net_sales"`
+	NetRevenue       float64          `json:"net_revenue"`
+	ReturnRate       float64          `json:"return_rate"`
+	ByDay            []DailyNetSales  `json:"by_day"`
+	ByPaymentMethod  map[string]float64 `json:"by_payment_method"`
+	TopReturnedProducts []ProductNetSales `json:"top_returned_products"`
+}
 
+// DailyNetSales represents daily net sales data
+type DailyNetSales struct {
+	Date       time.Time `json:"date"`
+	GrossSales int       `json:"gross_sales"`
+	GrossRevenue float64 `json:"gross_revenue"`
+	Returns    int       `json:"returns"`
+	Refunded   float64   `json:"refunded"`
+	NetSales   int       `json:"net_sales"`
+	NetRevenue float64   `json:"net_revenue"`
+}
+
+// ProductNetSales represents product net sales data
+type ProductNetSales struct {
+	ProductID      uuid.UUID `json:"product_id"`
+	ProductName    string    `json:"product_name"`
+	GrossQuantity  int       `json:"gross_quantity"`
+	ReturnedQuantity int     `json:"returned_quantity"`
+	NetQuantity    int       `json:"net_quantity"`
+	GrossRevenue   float64   `json:"gross_revenue"`
+	RefundedAmount float64   `json:"refunded_amount"`
+	NetRevenue     float64   `json:"net_revenue"`
+	ReturnRate     float64   `json:"return_rate"`
+}
 
 // ReportRequest represents report generation request
 type ReportRequest struct {
-	Type        string                 `json:"type" binding:"required,oneof=sales inventory expenses profits debts purchases returns"`
+	Type        string                 `json:"type" binding:"required,oneof=sales inventory expenses profits debts purchases returns net-sales"`
 	Title       string                 `json:"title" binding:"required"`
 	Description string                 `json:"description"`
 	Parameters  map[string]interface{} `json:"parameters"`
@@ -249,7 +288,7 @@ type ReportRequest struct {
 type ReportListRequest struct {
 	Page         int        `form:"page" binding:"min=1"`
 	PerPage      int        `form:"per_page" binding:"min=1,max=100"`
-	Type         string     `form:"type" binding:"omitempty,oneof=sales inventory expenses profits debts purchases returns warranties"`
+	Type         string     `form:"type" binding:"omitempty,oneof=sales inventory expenses profits debts purchases returns net-sales warranties"`
 	Status       string     `form:"status" binding:"omitempty,oneof=pending completed failed"`
 	StartDate    *time.Time `form:"start_date"`
 	EndDate      *time.Time `form:"end_date"`

@@ -89,10 +89,12 @@ func (h *Handler) GetReturn(c *gin.Context) {
 // @Param per_page query int false "Items per page" default(20)
 // @Param customer_id query string false "Customer ID filter"
 // @Param sale_id query string false "Sale ID filter"
-// @Param status query string false "Status filter" Enums(pending, approved, rejected, completed)
+// @Param status query string false "Status filter" Enums(PENDING, APPROVED, PROCESSING, COMPLETED, REJECTED, CANCELLED)
+// @Param return_type query string false "Return type filter" Enums(FULL, PARTIAL, QUANTITY_PARTIAL)
+// @Param refund_method query string false "Refund method filter" Enums(CASH, CREDIT, DEBT_ADJUSTMENT, EXCHANGE, BANK_TRANSFER, STORE_CREDIT)
 // @Param start_date query string false "Start date filter"
 // @Param end_date query string false "End date filter"
-// @Param search query string false "Search in return number, reason, notes"
+// @Param search query string false "Search in return number, reference number, reason, notes"
 // @Param sort_by query string false "Sort by field" default(return_date)
 // @Param sort_order query string false "Sort order" default(DESC)
 // @Success 200 {object} middleware.PaginatedResponse
@@ -124,6 +126,8 @@ func (h *Handler) ListReturns(c *gin.Context) {
 	}
 	
 	req.Status = c.Query("status")
+	req.ReturnType = c.Query("return_type")
+	req.RefundMethod = c.Query("refund_method")
 	req.Search = c.Query("search")
 	req.SortBy = c.DefaultQuery("sort_by", "return_date")
 	req.SortOrder = c.DefaultQuery("sort_order", "DESC")
@@ -414,4 +418,325 @@ func (h *Handler) DeleteReturnItem(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+// ProcessReturnItemInspection handles processing inspection for a return item
+// @Summary Process return item inspection
+// @Description Process inspection for a return item
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Param item_id path string true "Return Item ID"
+// @Param request body ReturnInspectionRequest true "Inspection request"
+// @Success 200 {object} ReturnItem
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 404 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/items/{item_id}/inspection [post]
+func (h *Handler) ProcessReturnItemInspection(c *gin.Context) {
+	itemID, err := uuid.Parse(c.Param("item_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid item ID"})
+		return
+	}
+
+	var req ReturnInspectionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	item, err := h.service.ProcessReturnItemInspection(c.Request.Context(), itemID, &req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, item)
+}
+
+// CompleteReturn handles completing a return
+// @Summary Complete a return
+// @Description Complete a return and process financial effects
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Param id path string true "Return ID"
+// @Success 200 {object} ReturnResponse
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 404 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/{id}/complete [post]
+func (h *Handler) CompleteReturn(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+
+	response, err := h.service.CompleteReturn(c.Request.Context(), id, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetReturnsBySale handles getting returns for a specific sale
+// @Summary Get returns by sale
+// @Description Get all returns for a specific sale
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Param sale_id path string true "Sale ID"
+// @Success 200 {array} Return
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/sale/{sale_id} [get]
+func (h *Handler) GetReturnsBySale(c *gin.Context) {
+	saleID, err := uuid.Parse(c.Param("sale_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sale ID"})
+		return
+	}
+
+	returns, err := h.service.GetReturnBySale(c.Request.Context(), saleID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, returns)
+}
+
+// GetMonthlyReturnsAnalysis handles getting monthly returns analysis
+// @Summary Get monthly returns analysis
+// @Description Get monthly returns analysis data
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Success 200 {array} MonthlyReturnsAnalysis
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/analysis/monthly [get]
+func (h *Handler) GetMonthlyReturnsAnalysis(c *gin.Context) {
+	analysis, err := h.service.GetMonthlyReturnsAnalysis(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": analysis})
+}
+
+// GetSalesReturnsAnalysis handles getting sales vs returns analysis
+// @Summary Get sales vs returns analysis
+// @Description Get sales vs returns analysis data
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Success 200 {array} SalesReturnsAnalysis
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/analysis/sales-returns [get]
+func (h *Handler) GetSalesReturnsAnalysis(c *gin.Context) {
+	analysis, err := h.service.GetSalesReturnsAnalysis(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": analysis})
+}
+
+// ValidateReturnQuantity handles validating return quantity against original sale
+// @Summary Validate return quantity
+// @Description Validate return quantity against original sale
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Param sale_item_id path string true "Sale Item ID"
+// @Param quantity query int true "Quantity to return"
+// @Success 200 {object} map[string]bool
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/validate/{sale_item_id} [get]
+func (h *Handler) ValidateReturnQuantity(c *gin.Context) {
+	saleItemID, err := uuid.Parse(c.Param("sale_item_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sale item ID"})
+		return
+	}
+
+	quantity, err := strconv.Atoi(c.Query("quantity"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid quantity"})
+		return
+	}
+
+	err = h.service.ValidateReturnQuantity(c.Request.Context(), saleItemID, quantity)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"valid": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"valid": true})
+}
+
+// GetReturnSummary handles getting return summary
+// @Summary Get return summary
+// @Description Get summary of returns with related data
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Success 200 {array} map[string]interface{}
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/summary [get]
+func (h *Handler) GetReturnSummary(c *gin.Context) {
+	summary, err := h.service.GetReturnSummary(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": summary})
+}
+
+// ReverseReturn handles reversing a return (instead of deleting)
+// @Summary Reverse a return
+// @Description Reverse a return instead of deleting it
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Param id path string true "Return ID"
+// @Success 200 {object} ReturnResponse
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 404 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/{id}/reverse [post]
+func (h *Handler) ReverseReturn(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+
+	response, err := h.service.ReverseReturn(c.Request.Context(), id, userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// GetReturnsByCustomer handles getting returns for a specific customer
+// @Summary Get returns by customer
+// @Description Get all returns for a specific customer
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Param customer_id path string true "Customer ID"
+// @Success 200 {array} Return
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/customer/{customer_id} [get]
+func (h *Handler) GetReturnsByCustomer(c *gin.Context) {
+	customerID, err := uuid.Parse(c.Param("customer_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid customer ID"})
+		return
+	}
+
+	returns, err := h.service.GetReturnsByCustomer(c.Request.Context(), customerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, returns)
+}
+
+// GetPendingReturns handles getting returns that are pending approval
+// @Summary Get pending returns
+// @Description Get all returns that are pending approval
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Success 200 {array} Return
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/pending [get]
+func (h *Handler) GetPendingReturns(c *gin.Context) {
+	returns, err := h.service.GetPendingReturns(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, returns)
+}
+
+// GetReturnStatistics handles getting return statistics
+// @Summary Get return statistics
+// @Description Get statistics about returns for the last 30 days
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/statistics [get]
+func (h *Handler) GetReturnStatistics(c *gin.Context) {
+	stats, err := h.service.GetReturnStatistics(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// GetReturnWithItems handles getting a return with all its items
+// @Summary Get return with items
+// @Description Get a return with all its items
+// @Tags returns
+// @Accept json
+// @Produce json
+// @Param id path string true "Return ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} middleware.ErrorResponse
+// @Failure 401 {object} middleware.ErrorResponse
+// @Failure 404 {object} middleware.ErrorResponse
+// @Failure 500 {object} middleware.ErrorResponse
+// @Router /api/v1/returns/{id}/with-items [get]
+func (h *Handler) GetReturnWithItems(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		return
+	}
+
+	returnRecord, items, err := h.service.GetReturnWithItems(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"return": returnRecord,
+		"items":  items,
+	})
 }

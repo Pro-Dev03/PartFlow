@@ -16,6 +16,9 @@ import {
   BarChart3,
   Layers,
   Tag,
+  CheckCircle,
+  Clock,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '../../utils';
 
@@ -56,8 +59,17 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         { id: 'sales', icon: ShoppingCart, label: t('nav.pos') || 'نقطة البيع', path: '/app/sales' },
         { id: 'inventory', icon: Package, label: t('nav.inventory') || 'المخزون', path: '/app/inventory' },
         { id: 'used-parts', icon: Layers, label: 'القطع المستعملة', path: '/app/usedparts' },
+        { id: 'inspections', icon: CheckCircle, label: 'الفحص', path: '/app/inspections' },
         { id: 'customers', icon: Users, label: t('nav.customers') || 'العملاء', path: '/app/customers' },
         { id: 'debts', icon: DollarSign, label: t('nav.debts') || 'الديون', path: '/app/debts' },
+      ]
+    },
+    {
+      title: 'القطع المستعملة',
+      items: [
+        { id: 'item-history', icon: Clock, label: 'تاريخ القطع', path: '/app/item-history' },
+        { id: 'aging', icon: AlertTriangle, label: 'تقادم القطع', path: '/app/aging' },
+        { id: 'seller-balances', icon: DollarSign, label: 'رصيد البائعين', path: '/app/seller-balances' },
       ]
     },
     {

@@ -23,18 +23,18 @@ func NewRepository(db *sqlx.DB) *Repository {
 // Create creates a new purchase
 func (r *Repository) Create(ctx context.Context, purchase *Purchase) error {
 	query := `
-		INSERT INTO purchases (id, supplier_id, invoice_number, purchase_date,
-			total_amount, paid_amount, status, notes, created_by, created_at, updated_at)
+		INSERT INTO purchases (id, supplier_id, invoice_number, purchase_date, expected_delivery_date,
+			total_amount, paid_amount, status, notes, user_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at, updated_at
 	`
 
 	err := r.db.QueryRowContext(ctx, query,
 		purchase.ID, purchase.SupplierID, purchase.InvoiceNumber, purchase.PurchaseDate,
-		purchase.TotalAmount, purchase.PaidAmount, purchase.Status,
-		purchase.Notes, purchase.CreatedBy, purchase.CreatedAt, purchase.UpdatedAt,
+		purchase.ExpectedDeliveryDate, purchase.TotalAmount, purchase.PaidAmount, purchase.Status,
+		purchase.Notes, purchase.UserID, purchase.CreatedAt, purchase.UpdatedAt,
 	).Scan(&purchase.ID, &purchase.CreatedAt, &purchase.UpdatedAt)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to create purchase: %w", err)
 	}
@@ -45,8 +45,8 @@ func (r *Repository) Create(ctx context.Context, purchase *Purchase) error {
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Purchase, error) {
 	var purchase Purchase
 	query := `
-		SELECT id, supplier_id, invoice_number, purchase_date,
-			total_amount, paid_amount, status, notes, created_by, created_at, updated_at
+		SELECT id, supplier_id, invoice_number, purchase_date, expected_delivery_date,
+			total_amount, paid_amount, status, notes, user_id, created_at, updated_at
 		FROM purchases
 		WHERE id = $1
 	`
@@ -68,8 +68,8 @@ func (r *Repository) List(ctx context.Context, req PurchaseListRequest) ([]Purch
 
 	// Build base query
 	baseQuery := `
-		SELECT id, supplier_id, invoice_number, purchase_date,
-			total_amount, paid_amount, status, notes, created_by, created_at, updated_at
+		SELECT id, supplier_id, invoice_number, purchase_date, expected_delivery_date,
+			total_amount, paid_amount, status, notes, user_id, created_at, updated_at
 		FROM purchases
 		WHERE 1=1
 	`
@@ -115,11 +115,12 @@ func (r *Repository) List(ctx context.Context, req PurchaseListRequest) ([]Purch
 		baseQuery += fmt.Sprintf(" AND (invoice_number ILIKE $%d OR notes ILIKE $%d)", argCount, argCount)
 		countQuery += fmt.Sprintf(" AND (invoice_number ILIKE $%d OR notes ILIKE $%d)", argCount, argCount)
 		searchPattern := "%" + req.Search + "%"
-		args = append(args, searchPattern, searchPattern)
+		args = append(args, searchPattern)
 	}
 	
 	// Get total count
-	err := r.db.GetContext(ctx, &count, countQuery, args...)
+	countArgs := append([]interface{}{}, args...)
+	err := r.db.GetContext(ctx, &count, countQuery, countArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count purchases: %w", err)
 	}
@@ -192,18 +193,17 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 // CreatePurchaseItem creates a new purchase item
 func (r *Repository) CreatePurchaseItem(ctx context.Context, item *PurchaseItem) error {
 	query := `
-		INSERT INTO purchase_items (id, purchase_id, product_id, quantity, unit_cost, 
-			total_cost, serial_number, condition, location_id, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		RETURNING id, created_at, updated_at
+		INSERT INTO purchase_items (id, purchase_id, product_id, quantity, unit_price,
+			total_amount, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, created_at
 	`
-	
+
 	err := r.db.QueryRowContext(ctx, query,
 		item.ID, item.PurchaseID, item.ProductID, item.Quantity, item.UnitCost,
-		item.TotalCost, item.SerialNumber, item.Condition, item.LocationID,
-		item.Notes, item.CreatedAt, item.UpdatedAt,
-	).Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt)
-	
+		item.TotalCost, item.CreatedAt,
+	).Scan(&item.ID, &item.CreatedAt)
+
 	if err != nil {
 		return fmt.Errorf("failed to create purchase item: %w", err)
 	}
@@ -214,13 +214,13 @@ func (r *Repository) CreatePurchaseItem(ctx context.Context, item *PurchaseItem)
 func (r *Repository) GetPurchaseItems(ctx context.Context, purchaseID uuid.UUID) ([]PurchaseItem, error) {
 	var items []PurchaseItem
 	query := `
-		SELECT id, purchase_id, product_id, quantity, unit_cost, total_cost, 
-			serial_number, condition, location_id, notes, created_at, updated_at
+		SELECT id, purchase_id, product_id, quantity, unit_price as unit_cost, total_amount as total_cost,
+			created_at
 		FROM purchase_items
 		WHERE purchase_id = $1
 		ORDER BY created_at
 	`
-	
+
 	err := r.db.SelectContext(ctx, &items, query, purchaseID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get purchase items: %w", err)
@@ -306,7 +306,7 @@ func (r *Repository) GetPurchaseByInvoiceNumber(ctx context.Context, invoiceNumb
 	var purchase Purchase
 	query := `
 		SELECT id, supplier_id, invoice_number, purchase_date,
-			total_amount, paid_amount, status, notes, created_by, created_at, updated_at
+			total_amount, paid_amount, status, notes, user_id, created_at, updated_at
 		FROM purchases
 		WHERE invoice_number = $1
 	`
