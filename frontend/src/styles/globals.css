@@ -310,7 +310,9 @@
   }
 
   .pf-search-row > .pf-search-input,
-  .pf-search-row > .relative:has(.pf-search-input) {
+  .pf-search-row > .relative:has(.pf-search-input),
+  .pf-search-row > .min-w-0,
+  .pf-search-row > .flex-1 {
     flex: 1 1 18rem;
   }
 

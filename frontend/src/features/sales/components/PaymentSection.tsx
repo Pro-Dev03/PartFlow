@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
-import { CreditCard, Banknote, Send, Loader2, User, AlertTriangle } from 'lucide-react';
+import { CreditCard, Banknote, Send, Loader2, User, AlertTriangle, Wallet } from 'lucide-react';
 import { PaymentMethod } from '../types/pos.types';
 
 interface PaymentSectionProps {
@@ -43,7 +43,7 @@ export function PaymentSection({
   const isCreditSaleWithoutCustomer = isCreditSale && !selectedCustomer;
   const isCheckoutDisabled =
     isProcessing ||
-    (paymentMethod === 'cash' && paid < total) ||
+    (['cash', 'card', 'other'].includes(paymentMethod) && paid < total) ||
     isCreditSaleWithoutCustomer ||
     isCreditAdvanceMissing;
 
@@ -124,7 +124,7 @@ export function PaymentSection({
             <div style={{ display: 'flex', gap: '10px' }}>
               <Button
                 variant={paymentMethod === 'cash' ? 'primary' : 'secondary'}
-                onClick={() => setPaymentMethod('cash')}
+                onClick={() => { setPaymentMethod('cash'); setPaidAmount(total.toFixed(2)); }}
                 style={{
                   flex: 1,
                   height: '40px',
@@ -161,8 +161,15 @@ export function PaymentSection({
                 <span style={{ color: paymentMethod === 'cash' ? '#fff' : 'var(--text-primary)' }}>نقداً</span>
               </Button>
               <Button
+                variant={paymentMethod === 'other' ? 'primary' : 'secondary'}
+                onClick={() => { setPaymentMethod('other'); setPaidAmount(total.toFixed(2)); }}
+              >
+                <Wallet className="w-3.5 h-3.5 mr-1.5" />
+                أخرى
+              </Button>
+              <Button
                 variant={paymentMethod === 'card' ? 'primary' : 'secondary'}
-                onClick={() => setPaymentMethod('card')}
+                onClick={() => { setPaymentMethod('card'); setPaidAmount(total.toFixed(2)); }}
                 style={{
                   flex: 1,
                   height: '40px',
@@ -200,7 +207,7 @@ export function PaymentSection({
               </Button>
               <Button
                 variant={paymentMethod === 'credit' ? 'primary' : 'secondary'}
-                onClick={() => setPaymentMethod('credit')}
+                onClick={() => { setPaymentMethod('credit'); setPaidAmount(''); }}
                 style={{
                   flex: 1,
                   height: '40px',
@@ -396,6 +403,7 @@ export function PaymentSection({
           {/* Checkout Button */}
           <Button
             variant="primary"
+            className="pos-checkout-button"
             onClick={onCheckout}
             disabled={isCheckoutDisabled}
             style={{

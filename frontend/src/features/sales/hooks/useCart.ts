@@ -2,6 +2,24 @@ import { useState, useCallback } from 'react';
 import { CartItem } from '../types/pos.types';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
 
+export interface PosCartProduct {
+  id: string | number;
+  name: string;
+  barcode?: string;
+  sku?: string;
+  price?: number;
+  sellingPrice?: number;
+  selling_price?: number;
+  costPrice?: number;
+  cost_price?: number;
+  stock?: number;
+  isTradeIn?: boolean;
+  condition?: string;
+  partType?: string;
+  partTypeColor?: string;
+  grade?: string;
+}
+
 export function normalizePosPrice(...values: unknown[]): number {
   const value = values.find((candidate) => candidate !== undefined && candidate !== null && candidate !== '');
   const numericValue = typeof value === 'number' ? value : Number(value);
@@ -16,7 +34,8 @@ export function normalizePosPrice(...values: unknown[]): number {
 export function useCart(soundEnabled: boolean = true) {
   const [cart, setCart] = useState<CartItem[]>([]);
 
-  const addToCart = useCallback((item: any) => {
+  const addToCart = useCallback((item: PosCartProduct, requestedQuantity = 1) => {
+    const quantityToAdd = Math.max(1, requestedQuantity);
     const price = normalizePosPrice(item.price, item.sellingPrice, item.selling_price);
     const purchaseCost = normalizePosPrice(item.purchaseCost, item.costPrice, item.cost_price);
     setCart((currentCart) => {
@@ -24,7 +43,7 @@ export function useCart(soundEnabled: boolean = true) {
       if (existingItem) {
         return currentCart.map((c) =>
           c.barcode === item.barcode
-            ? { ...c, quantity: c.quantity + 1, total: (c.quantity + 1) * c.price }
+            ? { ...c, quantity: c.quantity + quantityToAdd, total: (c.quantity + quantityToAdd) * c.price }
             : c
         );
       }
@@ -33,8 +52,8 @@ export function useCart(soundEnabled: boolean = true) {
         name: item.name,
         barcode: item.barcode,
         price,
-        quantity: 1,
-        total: price,
+        quantity: quantityToAdd,
+        total: quantityToAdd * price,
         stock: item.stock,
         isTradeIn: item.isTradeIn || item.condition === 'USED' || false,
         purchaseCost,
@@ -61,7 +80,7 @@ export function useCart(soundEnabled: boolean = true) {
         ? { ...item, quantity, total: quantity * item.price }
         : item
     ));
-  }, [cart, removeFromCart]);
+  }, [removeFromCart]);
 
   const clearCart = useCallback(() => {
     setCart([]);

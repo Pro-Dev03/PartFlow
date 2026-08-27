@@ -350,233 +350,167 @@ npm run preview
   - `frontend/src/styles/mobile.css` (جديد)
   - `frontend/src/index.css`
   - `frontend/src/features/dashboard/pages/DashboardPage.tsx`
-  - `frontend/src/features/dashboard/components/DashboardMetrics.tsx`
-  - `frontend/src/features/dashboard/components/SmartActions.tsx`
-  - `frontend/src/features/dashboard/components/AttentionSection.tsx`
-  - `frontend/src/features/sales/pages/POSPage.tsx`
-  - `frontend/src/features/inventory/pages/InventoryPage.tsx`
   - `frontend/src/features/customers/pages/CustomersPage.tsx`
-  - `frontend/src/features/debts/pages/DebtsPage.tsx`
-  - `frontend/src/features/reports/pages/ReportsPage.tsx`
-  - `frontend/src/features/warranties/pages/WarrantiesPage.tsx`
-  - `frontend/src/features/suppliers/pages/SuppliersPage.tsx`
-- **النتائج**:
-  - ✅ Mobile drawer متحرك مع backdrop
-  - ✅ Touch targets محسنة (44px)
-  - ✅ Responsive grids في جميع الصفحات الرئيسية (Dashboard, POS, Inventory, Customers, Debts, Reports, Warranties, Suppliers)
-  - ✅ Typography محسنة للموبايل
-  - ✅ Landscape mode optimizations
-  - ✅ Build ناجح بدون أخطاء
+  - `frontend/src/features/inventory/pages/InventoryPage.tsx`
+  - `frontend/src/features/sales/pages/POSPage.tsx`
 
----
+## الميزات الجديدة (2026-08-27)
 
-## نهج العمل الجديد
+### 1. Held Sales System
+- **الهدف**: حفظ عملية البيع مؤقتاً واستكمالها لاحقاً
+- **التحسينات**:
+  - إضافة functionality لحفظ البيع مؤقتاً
+  - عرض قائمة المبيعات المحفوظة
+  - استعادة وحذف المبيعات المحفوظة
+  - دعم إدارة المبيعات المحفوظة في POS
+- **الملفات**:
+  - `backend/internal/sales/held_sales.go` (جديد)
+  - `backend/migrations/038_held_sales.sql` (جديد)
+  - تحديثات في مكونات POS
 
-### التشخيص المحدث
-بعد فحص معماري دقيق، تبين أن **PartFlow لديه Architecture ممتازة**:
-- Feature Architecture موجودة بالفعل
-- UI Components موجودة وممتازة
-- Specialized Components منظمة بشكل جيد
-- فصل واضح بين UI, Hooks, Services, Types
+### 2. E2E Testing with Playwright
+- **الهدف**: اختبار المسارات الحرجة للمستخدم
+- **التحسينات**:
+  - إعداد Playwright للاختبار
+  - اختبارات critical-path.spec.ts
+  - اختبارات dashboard.spec.ts
+  - اختبارات مبيعات الكاش المباشرة
+- **الملفات**:
+  - `frontend/e2e/critical-path.spec.ts` (جديد)
+  - `frontend/e2e/dashboard.spec.ts` (جديد)
+  - `frontend/playwright.config.ts` (جديد)
+  - `frontend/pos-cash-sale-test.mjs` (جديد)
 
-### المشكلة الحقيقية
-> **المشكلة ليست في Architecture، بل في Visual System Consistency**
+### 3. Purchase Details Page
+- **الهدف**: عرض تفاصيل المشتريات بشكل واضح
+- **التحسينات**:
+  - صفحة جديدة لعرض تفاصيل المشتريات
+  - عرض معلومات البائع والمشتريات
+  - واجهة واضحة وسهلة الاستخدام
+- **الملفات**:
+  - `frontend/src/features/purchases/pages/PurchaseDetailsPage.tsx` (جديد)
 
-المكونات موجودة لكن الصفحة النهائية لا تستفيد منها بطريقة تجعل المنتج يبدو كمنظومة واحدة قوية.
+### 4. Used Parts Stock Page
+- **الهدف**: إدارة مخزون القطع المستعملة
+- **التحسينات**:
+  - صفحة جديدة لإدارة القطع المستعملة
+  - عرض وتتبع القطع المستعملة
+  - واجهة متكاملة لإدارة المخزون
+- **الملفات**:
+  - `frontend/src/features/usedparts/pages/UsedPartsStockPage.tsx` (جديد)
 
-### الاستراتيجية الجديدة
-```
-Current Architecture
-        ↓
-KEEP (Architecture ممتاز)
-        ↓
-Design System Audit
-        ↓
-Component Consistency
-        ↓
-Page Composition
-        ↓
-Visual Polish
-```
+### 5. Performance Optimizations
+- **الهدف**: تحسين أداء قاعدة البيانات والاستعلامات
+- **التحسينات**:
+  - إضافة فهرسة لتحسين الاستعلامات
+  - تحسينات في migrations
+  - تحسينات في API client
+- **الملفات**:
+  - `backend/migrations/037_performance_indexes.sql` (جديد)
+  - تحديثات في `frontend/src/services/api/client.ts`
 
-### التقييم المحدث (بعد التحسينات الجديدة)
-| المجال                 | تقييمي (قبل) | تقييمي (بعد) |
-| ---------------------- | ------------ | ------------- |
-| React/TypeScript       |   9/10       |     9/10      |
-| Feature Architecture   | 8.5/10       |    8.5/10     |
-| Separation             |   8/10       |     8/10      |
-| Specialized Components |   9/10       |     9/10      |
-| Reusability foundation |   8/10       |     8/10      |
-| Design System          | 7.5/10       |     9/10      |
-| Visual consistency     | 6.5/10       |     9/10      |
-| Page composition       | 6.5/10       |     9/10      |
-| Product visual polish  | 6.5/10       |     9/10      |
-| Responsive Design      |   8/10       |     9/10      |
-| قابلية التطوير         |   8/10       |     9/10      |
-| **"النظام يعمل لصاحب المحل"** |   5/10 |     9/10      |
+### 6. New UI Components
+- **الهدف**: توسيع مكتبة المكونات
+- **التحسينات**:
+  - confirm-dialog component
+  - form-group component
+  - loading-state component
+- **الملفات**:
+  - `frontend/src/components/ui/confirm-dialog.tsx` (جديد)
+  - `frontend/src/components/ui/form-group.tsx` (جديد)
+  - `frontend/src/components/ui/loading-state.tsx` (جديد)
 
-### الخطوات التالية المكتملة
-1. ✅ إنشاء FRONTEND-DESIGN-SYSTEM.md
-2. ✅ فحص Components الموجودة
-3. ✅ تحديث Modal component
-4. ✅ إنشاء Business Table System
-5. ✅ تطبيق Design System على جميع الصفحات الرئيسية
-6. ✅ مقارنة الصفحات مع Fynexa بصرياً
-7. ✅ تطوير Business Table System المتقدم
-8. ✅ تحسين Animation System
-9. ✅ حل مشكلة الوضع الفاتح
-10. ✅ تحويل Dashboard إلى "ماذا يحدث الآن؟"
-11. ✅ إضافة Customer Financial Timeline
-12. ✅ تفعيل Debt Aging System
-13. ✅ إضافة Inventory Movements Ledger
-14. ✅ تفعيل Financial Immutability
-15. ✅ إضافة Smart Actions في Dashboard
-16. ✅ تحسين Responsive Design للموبايل
+### 7. Custom Hooks
+- **الهدف**: إعادة استخدام منطق مشترك
+- **التحسينات**:
+  - useDebounce hook للتحسين في البحث
+  - useIsMobile hook للتحقق من حجم الشاشة
+- **الملفات**:
+  - `frontend/src/hooks/useDebounce.ts` (جديد)
+  - `frontend/src/hooks/useIsMobile.ts` (جديد)
 
-### النتائج النهائية
-- ✅ جميع الصفحات الرئيسية مُحدّثة (Dashboard, Inventory, POS, Customers, Debts, Reports)
-- ✅ Design System موحد على جميع الصفحات
-- ✅ Business Table System مع features متقدمة (Bulk Actions, Export, Refresh, Column Visibility, Expandable Rows)
-- ✅ Animation System شامل (animations.ts library + CSS keyframes)
-- ✅ الجودة البصرية: 9/10 (تضاهي Fynexa)
-- ✅ التوافق مع Fynexa: 100%
-- ✅ حل مشكلة الوضع الفاتح
-- ✅ Dashboard يعمل كـ "ماذا يحدث الآن؟" بدلاً من مجرد charts
-- ✅ Customer Financial Timeline لكل عميل
-- ✅ Debt Aging System مع تصنيف واضح
-- ✅ Inventory Movements Ledger لتتبع حركات المخزون
-- ✅ Financial Immutability (Reverse بدلاً من Delete)
-- ✅ Smart Actions للوصول السريع للعمليات اليومية
-- ✅ Responsive Design محسّن للموبايل (Mobile drawer, Touch targets, Responsive grids)
-- ✅ **النظام يعمل لصالح صاحب المحل**: 9/10 (تحسن من 5/10)
+## اختبار المشروع
 
-## المبادئ المعمارية الجديدة (2026-08-26)
-
-تم تطبيق مبادئ معمارية جديدة لضمان استدامة النظام وقابلية التوسع للسنوات الطويلة. تم توثيق هذه المبادئ في `ARCHITECTURE-PRINCIPLES.md`.
-
-### المبدأ الأساسي: لا تحذف السجل التجاري
-الحذف المباشر للسجلات التجارية (شراء، بيع، دفع، إرجاع) يؤدي إلى فقدان التاريخ التجاري وتعقيد المحاسبة. الحل هو فصل **"السجل التاريخي"** عن **"البيانات التشغيلية الحالية"**.
-
-### 1. Current State + Immutable History
-#### التطبيق على المخزون
-- **الحالة الحالية**: احتفظ بحقول `current_quantity`, `reserved_quantity`, `available_quantity`, `current_cost`, `current_value` في جدول `inventory_items`
-- **السجل التاريخي**: احتفظ بكل الحركات في جدول `inventory_movements` مع تفاصيل كاملة (قبل/بعد، سبب، من قام بالعملية)
-- **الفوائد**: لا حاجة لإعادة حساب المخزون من كل التاريخ في كل مرة، سجل واضح لكل حركة
-
-#### الملفات المُحدّثة
-- `backend/internal/inventory/model.go`: إضافة حقول Current State و enhanced InventoryMovement
-- `backend/migrations/002_architecture_principles.sql`: الترحيب الجديد للحقول
-
-### 2. Reverse بدلاً من Delete (آلية داخلية فقط)
-#### النهج العملي للمستخدم
-المستخدم يرى فقط **"حذف العملية"** والنظام يقرر داخلياً ماذا يفعل:
-
-#### الحالة 1 — مسودة (Draft)
-```
-حذف → DELETE فعلي
+### اختبار البناء
+```bash
+cd frontend
+npm run build
 ```
 
-#### الحالة 2 — مستلمة ولم يحدث عليها شيء
-```
-حذف → Delete with inventory adjustment
-```
-النظام يقول: "سيتم حذف عملية الشراء وإزالة الكمية المرتبطة بها من المخزون."
-
-#### الحالة 3 — هناك عمليات لاحقة
-```
-حذف → Block Delete مع رسالة واضحة
-```
-النظام يقول: "لا يمكن حذف عملية الشراء لأنها مرتبطة بعمليات بيع. يمكنك عرض التفاصيل أو معالجة الإرجاع."
-
-#### القاعدة الذهبية
-> **النظام يجب أن يكون معقدًا من الداخل حتى لا يكون معقدًا على صاحب المحل.**
-
-صاحب المحل لا يحتاج فهم:
-- Reverse / Ledger / Transaction / Inventory Movement
-
-هو يفكر فقط:
-- شراء → استلام → مخزون → بيع
-
-#### قواعد الحذف والعكس (داخلياً)
-- **يُسمح بالحذف (DELETE)**: Draft purchases, Draft sales (المسودات فقط)
-- **يُستخدم العكس (REVERSE)**: Confirmed purchases, Received purchases, Confirmed sales, Payments, Returns, Inventory adjustments
-
-#### التطبيق
-- **Purchases**: إضافة حقول `reversed_at`, `reversed_by`, `reversal_reason` + جدول `purchase_reversals`
-- **Payments**: إضافة حقول `is_reversed`, `reversed_at`, `reversed_by`, `reversal_reason` + جدول `payment_reversals`
-- **Sales**: إضافة حقول `reversed_at`, `reversed_by`, `reversal_reason` + جدول `sale_reversals`
-
-#### الملفات المُحدّثة
-- `backend/internal/purchases/model.go`: إضافة حقول Reversal و PurchaseReversal struct
-- `backend/internal/purchases/reversal.go`: ReversalService للشراء (آلية داخلية)
-- `backend/internal/purchases/smart_delete.go`: SmartDeleteService - واجهة بسيطة للمستخدم
-- `backend/internal/payments/model.go`: إضافة حقول Reversal و PaymentReversal struct
-- `backend/internal/payments/reversal.go`: ReversalService للدفعات (آلية داخلية)
-- `backend/internal/payments/smart_delete.go`: SmartDeleteService - واجهة بسيطة للمستخدم
-- `backend/internal/sales/model.go`: إضافة حقول Reversal و SaleReversal struct
-- `backend/internal/sales/reversal.go`: ReversalService للمبيعات (آلية داخلية)
-- `backend/internal/sales/smart_delete.go`: SmartDeleteService - واجهة بسيطة للمستخدم
-
-### 3. Aggregation Tables للـ Dashboard
-#### المشكلة
-إذا كان لديك 10 سنوات من البيانات (ملايين السجلات)، لا تجعل Dashboard يقرأ كل شيء في كل مرة.
-
-#### الحل
-استخدم نظام التجميع (Aggregations):
-```
-Transactions → Aggregations → Daily/Monthly Statistics → Dashboard
+### اختبار التطوير
+```bash
+cd frontend
+npm run dev
 ```
 
-#### الجداول المضافة
-- `daily_sales_summary`: ملخص المبيعات اليومي
-- `monthly_sales_summary`: ملخص المبيعات الشهري
-- `daily_inventory_summary`: ملخص المخزون اليومي
-- `monthly_inventory_summary`: ملخص المخزون الشهري
-- `daily_debt_summary`: ملخص الديون اليومي
-- `monthly_debt_summary`: ملخص الديون الشهري
-- `daily_profit_summary`: ملخص الأرباح اليومي
-- `monthly_profit_summary`: ملخص الأرباح الشهري
+### اختبار E2E
+```bash
+cd frontend
+npx playwright test
+```
 
-#### الملفات المُحدّثة
-- `backend/internal/aggregations/model.go`: نماذج جداول التجميع
-- `backend/migrations/002_architecture_principles.sql`: إنشاء الجداول والفهارس والدوال
+### اختبار PWA
+```bash
+cd frontend
+npm run build
+npm run preview
+```
 
-### 4. Archive Layer (Future-Ready)
-تصميم النظام بحيث يمكن تطبيق Archiving لاحقاً دون إعادة البنية بالكامل:
-- **0-2 years**: Active Database
-- **2-5 years**: Archive (أبطأ لكن رخيص)
-- **5+ years**: Long-term Archive / Cold Storage
+## البيئة المطلوبة
 
-#### الملفات المُحدّثة
-- `backend/migrations/002_architecture_principles.sql`: جدول `archive_status` للتتبع المستقبلي
+### المتطلبات الأساسية
+- Node.js 18+
+- Go 1.21+
+- PostgreSQL 14+
+- نظام تشغيل يدعم Docker (اختياري)
+- Playwright للاختبار (اختياري)
 
-### 5. Database Triggers & Functions
-#### التلقائية (Triggers)
-- `update_inventory_current_state()`: تحديث تلقائي للحالة الحالية عند إضافة حركة مخزون
+### متغيرات البيئة
+```env
+# Frontend
+VITE_API_BASE_URL=http://localhost:8080/api/v1
 
-#### دوال التجميع (Functions)
-- `update_daily_sales_summary()`: تحديث ملخص المبيعات اليومي
-- `update_monthly_sales_summary()`: تحديث ملخص المبيعات الشهري
+# Backend
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=partflow
+DB_USER=postgres
+DB_PASSWORD=your_password
+JWT_SECRET=your_jwt_secret
+```
 
-### الفوائد الإجمالية
-- ✅ نظام يستطيع العمل لسنوات طويلة بدون حذف التاريخ التجاري المهم
-- ✅ Dashboard سريع جداً حتى مع ملايين السجلات
-- ✅ سجل واضح للتدقيق والمحاسبة
-- ✅ أداء أفضل للعمليات اليومية
-- ✅ قابلية التوسع بدون إعادة البنية
+## التوثيق الإضافي
 
-## المستقبل
+### ملفات التوثيق المتاحة
+- `PRODUCT-PHILOSOPHY.md`: الفلسفة الأساسية للمشروع
+- `ARCHITECTURE_ANALYSIS.md`: تحليل معماري شامل
+- `ARCHITECTURE-PRINCIPLES.md`: مبادئ التصميم المعماري
+- `FRONTEND-DESIGN-SYSTEM.md`: القانون البصري للواجهة الأمامية
+- `COMPONENT-AUDIT.md`: تقرير فحص المكونات
+- `MODAL-ENHANCEMENTS.md`: تحسينات النوافذ المنبثقة
+- `IMPROVEMENTS-SUMMARY.md`: ملخص التحسينات
+- `FRONTEND-IMPROVEMENTS-REPORT.md`: تقرير تحسينات الواجهة الأمامية
+- `FRONTEND-OPTIMIZATION-REPORT.md`: تقرير تحسينات الأداء
+- `FRONTEND-QA-REPORT.md`: تقرير الجودة
+- `PERFORMANCE-TEST-REPORT.md`: تقرير اختبار الأداء
+- `USER-TESTING-LOG.md`: سجل اختبار المستخدم
 
-### الميزات المخطط لها
-1. تطبيق موبايل (React Native)
-2. تكامل مع بوابات الدفع
-3. تقارير متقدمة
-4. نظام نقاط الولاء
-5. تكامل مع منصات التجارة الإلكترونية
+## السياسات والإرشادات
 
-## الدعم
+### التطوير
+- اتبع مبادئ الفلسفة الأساسية دائماً
+- استخدم المكونات الموجودة قدر الإمكان
+- اتبع معايير التصميم المعمارية
+- احتفظ بالتوثيق محدثاً
 
-للدعم والاستفسارات، يرجى مراجعة:
-- وثائق API
-- كود المشروع
-- فريق التطوير
+### الاختبار
+- اختبار المسارات الحرجة دائماً
+- التحقق من الأداء قبل الرفع
+- التأكد من التوافق مع الموبايل
+- اختبار الإشعارات والتنبيهات
+
+### الرفع
+- إنشاء commits واضحة ومفصلة
+- عدم رفع الأسرار والمفاتيح
+- مراجعة التغييرات قبل الرفع
+- التأكد من عدم كسر الوظائف الموجودة

@@ -1,10 +1,16 @@
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Layers } from 'lucide-react';
+import type { InventoryItem } from '../../../types/models';
 
+interface PartTypeOption {
+  id: string;
+  name_ar?: string;
+  color?: string;
+}
 interface TradeInItemsSectionProps {
-  inventoryItems: any[];
-  partTypes: any[];
-  onTradeInClick: (item: any) => void;
+  inventoryItems: InventoryItem[];
+  partTypes: PartTypeOption[];
+  onTradeInClick: (item: InventoryItem) => void;
 }
 
 export function TradeInItemsSection({
@@ -12,7 +18,7 @@ export function TradeInItemsSection({
   partTypes,
   onTradeInClick,
 }: TradeInItemsSectionProps) {
-  const availableItems = inventoryItems?.filter((item: any) => 
+  const availableItems = inventoryItems?.filter((item) =>
     item.condition === 'USED' && item.status === 'AVAILABLE'
   ) || [];
 
@@ -62,8 +68,8 @@ export function TradeInItemsSection({
       <CardContent>
         {availableItems.length > 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {availableItems.slice(0, 5).map((item: any) => {
-              const partType = partTypes.find((pt: any) => pt.id === item.part_type_id);
+            {availableItems.slice(0, 5).map((item) => {
+              const partType = partTypes.find((pt) => pt.id === item.part_type_id);
               return (
                 <div
                   key={item.id}

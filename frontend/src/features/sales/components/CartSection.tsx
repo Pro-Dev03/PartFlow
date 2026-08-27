@@ -4,11 +4,18 @@ import { Badge } from '../../../components/ui/badge';
 import { ShoppingCart, Plus, Minus, Trash2 } from 'lucide-react';
 import { CartItem } from '../types/pos.types';
 import { cn } from '../../../utils';
+import type { InventoryItem } from '../../../types/models';
+
+interface PartTypeOption {
+  id: string;
+  name_ar?: string;
+  color?: string;
+}
 
 interface CartSectionProps {
   cart: CartItem[];
-  inventoryItems: any[];
-  partTypes: any[];
+  inventoryItems: InventoryItem[];
+  partTypes: PartTypeOption[];
   onUpdateQuantity: (barcode: string, quantity: number) => void;
   onRemoveFromCart: (barcode: string) => void;
 }
@@ -47,8 +54,8 @@ export function CartSection({
         ) : (
           <div className="scrollable-card-sm cart-section-items">
             {cart.map((item) => {
-              const inventoryItem = inventoryItems.find((inv: any) => inv.id === item.id);
-              const partType = inventoryItem ? partTypes.find((pt: any) => pt.id === inventoryItem.part_type_id) : null;
+              const inventoryItem = inventoryItems.find((inv) => inv.id === item.id);
+              const partType = inventoryItem ? partTypes.find((pt) => pt.id === inventoryItem.part_type_id) : null;
               return (
                 <div
                   key={item.barcode}

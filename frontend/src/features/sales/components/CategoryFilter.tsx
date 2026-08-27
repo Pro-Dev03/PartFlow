@@ -1,8 +1,15 @@
 import { cn } from '../../../utils';
 import { Tag, Smartphone, Laptop, Monitor, Cpu, HardDrive, Camera, Printer, Wifi, Headphones, Speaker, Cable } from 'lucide-react';
+import type { ComponentType } from 'react';
 
+interface CategoryOption {
+  id: string;
+  name: string;
+  icon?: string;
+  color?: string;
+}
 interface CategoryFilterProps {
-  categories: any[];
+  categories: CategoryOption[];
   selectedCategory: string | null;
   onCategorySelect: (categoryId: string | null) => void;
 }
@@ -12,7 +19,7 @@ export function CategoryFilter({
   selectedCategory,
   onCategorySelect,
 }: CategoryFilterProps) {
-  const iconMap: Record<string, any> = {
+  const iconMap: Record<string, ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
     smartphone: Smartphone,
     laptop: Laptop,
     monitor: Monitor,
@@ -66,7 +73,7 @@ export function CategoryFilter({
         <span>الكل</span>
       </button>
 
-      {categories.map((category: any) => {
+      {categories.map((category) => {
         const IconComponent = iconMap[category.icon] || Tag;
         const isSelected = selectedCategory === category.id;
         const color = category.color || '#2563eb';

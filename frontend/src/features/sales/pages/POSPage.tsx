@@ -89,7 +89,8 @@ export function POSPage() {
     cart: typeof held.items === 'string' ? JSON.parse(held.items) : held.items,
   }));
   const [isManualProductOpen, setIsManualProductOpen] = useState(false);
-  const [manualProduct, setManualProduct] = useState({ name: '', price: '', barcode: '' });
+  const [manualProduct, setManualProduct] = useState({ name: '', price: '', quantity: '1', barcode: '' });
+  const [unknownBarcode, setUnknownBarcode] = useState('');
 
   // Debounce search queries for better performance
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -99,6 +100,29 @@ export function POSPage() {
   useEffect(() => {
     setProductPage(1);
   }, [debouncedSearchQuery, selectedCategory]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'F4') {
+        event.preventDefault();
+        handleHoldSale();
+      } else if (event.key === 'F2') {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>('input[placeholder*="بحث"]')?.focus();
+      } else if (event.key === 'F8') {
+        event.preventDefault();
+        document.querySelector<HTMLButtonElement>('.pos-checkout-button:not(:disabled)')?.click();
+      } else if (event.key === 'Escape') {
+        setUnknownBarcode('');
+        setIsManualProductOpen(false);
+      } else if (event.key === 'Delete' && cart.length > 0 &&
+        !(event.target as HTMLElement).matches('input, textarea, select')) {
+        removeFromCart(cart[cart.length - 1].barcode);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [cart, removeFromCart]);
 
   const { data: productsData } = useQuery({
     queryKey: ['products', debouncedSearchQuery, selectedCategory, productPage],
@@ -222,13 +246,16 @@ export function POSPage() {
       selling_price: Number(manualProduct.price) || 0,
       barcode: manualProduct.barcode.trim() || undefined,
       condition: 'new',
-      stock: 1,
+      stock: Number(manualProduct.quantity) || 1,
     }),
     onSuccess: (response) => {
       const product = (response?.data as any)?.product ?? response?.data;
-      if (product?.id) addToCart({ ...product, barcode: product.barcode || product.id });
+      if (product?.id) {
+        const barcode = product.barcode || product.id;
+        addToCart({ ...product, barcode }, Number(manualProduct.quantity) || 1);
+      }
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      setManualProduct({ name: '', price: '', barcode: '' });
+      setManualProduct({ name: '', price: '', quantity: '1', barcode: '' });
       setIsManualProductOpen(false);
     },
   });
@@ -318,6 +345,7 @@ export function POSPage() {
           if (soundEnabled) {
             playScanSound(false);
           }
+          setUnknownBarcode(barcodeInput.trim());
         }
       } catch (error) {
         console.error('Barcode lookup failed:', error);
@@ -342,6 +370,8 @@ export function POSPage() {
             condition: product.condition,
             purchaseCost: product.cost_price || product.costPrice || 0,
           });
+        } else {
+          setUnknownBarcode(barcodeInput.trim());
         }
       }
     }
@@ -605,11 +635,35 @@ export function POSPage() {
               onChange={(e) => setManualProduct((current) => ({ ...current, price: e.target.value }))} />
             <Input placeholder="الباركود (اختياري)" value={manualProduct.barcode}
               onChange={(e) => setManualProduct((current) => ({ ...current, barcode: e.target.value }))} />
+          <Input type="number" min={1} placeholder="الكمية" value={manualProduct.quantity}
+            onChange={(e) => setManualProduct((current) => ({ ...current, quantity: e.target.value }))} />
             {createProductMutation.isError && <p className="text-sm text-red-500">تعذر إنشاء المنتج، تحقق من البيانات.</p>}
             <Button variant="primary" disabled={!manualProduct.name.trim() || createProductMutation.isPending}
               onClick={() => createProductMutation.mutate()}>
               {createProductMutation.isPending ? 'جارٍ الحفظ...' : 'حفظ وإضافة للسلة'}
             </Button>
+          </div>
+        </Modal>
+
+        <Modal
+          isOpen={Boolean(unknownBarcode)}
+          onClose={() => setUnknownBarcode('')}
+          title="المنتج غير موجود"
+          variant="modern"
+          size="sm"
+        >
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-text-secondary">الباركود: <strong>{unknownBarcode}</strong></p>
+            <Button variant="secondary" onClick={() => {
+              setSearchQuery(unknownBarcode);
+              setUnknownBarcode('');
+            }}>البحث يدويًا</Button>
+            <Button variant="primary" onClick={() => {
+              setManualProduct((current) => ({ ...current, barcode: unknownBarcode }));
+              setUnknownBarcode('');
+              setIsManualProductOpen(true);
+            }}>إضافة منتج جديد</Button>
+            <Button variant="ghost" onClick={() => setUnknownBarcode('')}>إلغاء</Button>
           </div>
         </Modal>
       </div>
