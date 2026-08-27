@@ -1,6 +1,6 @@
 import { cn } from '../../../utils';
 import { Tag, Smartphone, Laptop, Monitor, Cpu, HardDrive, Camera, Printer, Wifi, Headphones, Speaker, Cable } from 'lucide-react';
-import type { ComponentType } from 'react';
+import type { ComponentType, CSSProperties } from 'react';
 
 interface CategoryOption {
   id: string;
@@ -19,7 +19,7 @@ export function CategoryFilter({
   selectedCategory,
   onCategorySelect,
 }: CategoryFilterProps) {
-  const iconMap: Record<string, ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+  const iconMap: Record<string, ComponentType<{ className?: string; style?: CSSProperties }>> = {
     smartphone: Smartphone,
     laptop: Laptop,
     monitor: Monitor,

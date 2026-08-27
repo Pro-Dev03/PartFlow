@@ -29,6 +29,13 @@ import { CategoryFilter } from '../components/CategoryFilter';
 import { InvoiceData } from '../types/pos.types';
 import { Product, InventoryItem, PartType } from '../../../types/models';
 import type { CustomerCreateRequest } from '../../../services/api/types';
+import type { PosCartProduct } from '../hooks/useCart';
+
+interface HeldSale {
+  id: string;
+  items: PosCartProduct[];
+  created_at?: string;
+}
 
 export function POSPage() {
   const { t } = useTranslation();
@@ -84,13 +91,21 @@ export function POSPage() {
     queryKey: ['held-sales'],
     queryFn: () => salesApi.listHeld(),
   });
-  const heldSales = ((heldSalesData?.data as any[]) || []).map((held: any) => ({
-    ...held,
-    cart: typeof held.items === 'string' ? JSON.parse(held.items) : held.items,
-  }));
+  const heldSales = (((heldSalesData?.data as unknown) as Array<Record<string, unknown>> | undefined) || [])
+    .map((held): HeldSale | null => {
+      const items = typeof held.items === 'string' ? JSON.parse(held.items) : held.items;
+      if (!held.id || !Array.isArray(items)) return null;
+      return {
+        id: String(held.id),
+        items: items as PosCartProduct[],
+        created_at: typeof held.created_at === 'string' ? held.created_at : undefined,
+      };
+    })
+    .filter((held): held is HeldSale => held !== null);
   const [isManualProductOpen, setIsManualProductOpen] = useState(false);
   const [manualProduct, setManualProduct] = useState({ name: '', price: '', quantity: '1', barcode: '' });
   const [unknownBarcode, setUnknownBarcode] = useState('');
+  const [isHeldSalesOpen, setIsHeldSalesOpen] = useState(false);
 
   // Debounce search queries for better performance
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -222,6 +237,7 @@ export function POSPage() {
     },
     onError: (error) => {
       console.error('Customer creation failed:', error);
+      toast.error('تعذر إنشاء العميل. تحقق من البيانات وحاول مرة أخرى.', 'فشل إنشاء العميل', 4000);
     },
   });
 
@@ -312,12 +328,12 @@ export function POSPage() {
     holdSaleMutation.mutate();
   };
 
-  const handleResumeSale = () => {
-    const held = heldSales[0];
+  const handleResumeSale = (held: HeldSale) => {
     if (!held) return;
     clearCart();
-    held.cart.forEach(addToCart);
+    held.items.forEach((item) => addToCart(item, item.quantity));
     deleteHeldSaleMutation.mutate(held.id);
+    setIsHeldSalesOpen(false);
   };
 
   const handleBarcodeScan = async (e: React.FormEvent) => {
@@ -615,11 +631,28 @@ export function POSPage() {
             <Trash2 className="h-4 w-4" /> مسح السلة
           </Button>
           {heldSales.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={handleResumeSale}>
+            <Button variant="ghost" size="sm" onClick={() => setIsHeldSalesOpen(true)}>
               استكمال بيع معلّق ({heldSales.length})
             </Button>
           )}
         </div>
+
+        <Modal
+          isOpen={isHeldSalesOpen}
+          onClose={() => setIsHeldSalesOpen(false)}
+          title="المبيعات المعلّقة"
+          variant="modern"
+          size="md"
+        >
+          <div className="flex flex-col gap-3">
+            {heldSales.map((held, index) => (
+              <Button key={held.id} variant="secondary" className="justify-between" onClick={() => handleResumeSale(held)}>
+                <span>بيع معلّق #{index + 1}</span>
+                <span>{held.items.length} منتجات</span>
+              </Button>
+            ))}
+          </div>
+        </Modal>
 
         <Modal
           isOpen={isManualProductOpen}
