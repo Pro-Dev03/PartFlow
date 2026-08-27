@@ -2,13 +2,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui
 import { StatCard } from '../../../components/ui/stat-card';
 import { Button } from '../../../components/ui/button';
 import { getButtonSize } from '../../../config/button-sizes';
+import { formatPrice, normalizeCurrencyValue } from '../../../utils';
 import { 
   Package, 
   Sparkles, 
   TrendingUp, 
-  Clock, 
-  AlertTriangle, 
-  Layers 
+  AlertTriangle 
 } from 'lucide-react';
 import { InventoryItem } from '../types/inventory.types';
 
@@ -18,21 +17,47 @@ interface InventoryStatsProps {
   isMobile: boolean;
 }
 
-export function InventoryStats({ inventoryItems, onRecommendationClick, isMobile }: InventoryStatsProps) {
-  // Calculate real statistics from actual data
-  const usedItemsCount = inventoryItems.filter((item: InventoryItem) => item.condition === 'USED').length;
-  const newItemsCount = inventoryItems.filter((item: InventoryItem) => item.condition === 'NEW').length;
-  const lowStockItems = inventoryItems.filter((item: InventoryItem) => item.stock < 10).length;
-  
-  // Calculate total inventory value
-  const totalInventoryValue = inventoryItems.reduce((total, item) => {
-    const price = (item.selling_price || item.price || 0) / 100;
-    const stock = item.stock || 1;
-    return total + (price * stock);
-  }, 0);
-  
-  // Format the value
-  const formattedValue = `₪${totalInventoryValue.toLocaleString('en-US')}`;
+export function InventoryStats({ inventoryItems, isMobile }: InventoryStatsProps) {
+  const inactiveStatuses = new Set(['SOLD', 'RETURNED', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
+
+  const normalizedItems = inventoryItems.reduce((acc: Map<string, { stock: number; unitPrice: number; condition: string }>, item: InventoryItem) => {
+    const status = String((item as any).status || '').trim().toUpperCase();
+    const productId = String((item as any).product_id || (item as any).product?.id || '').trim();
+
+    if (inactiveStatuses.has(status) || !productId) {
+      return acc;
+    }
+
+    if (acc.has(productId)) {
+      return acc;
+    }
+
+    const explicitStock = Number((item as any).available_quantity ?? (item as any).current_quantity ?? (item as any).stock ?? (item as any).quantity ?? 0);
+    const fallbackStock = status === 'AVAILABLE' ? 1 : 0;
+    const stock = Number.isFinite(explicitStock) && explicitStock > 0 ? explicitStock : fallbackStock;
+
+    if (stock <= 0) {
+      return acc;
+    }
+
+    const nextCondition = String(item.condition || '').toUpperCase();
+    const unitPrice = normalizeCurrencyValue((item as any).purchase_cost ?? (item as any).selling_price ?? item.price ?? 0);
+
+    acc.set(productId, {
+      stock,
+      unitPrice,
+      condition: nextCondition,
+    });
+
+    return acc;
+  }, new Map());
+
+  const summaryItems = Array.from(normalizedItems.values()).filter((item) => item.condition !== 'USED');
+
+  const lowStockItems = summaryItems.filter((item) => item.stock > 0 && item.stock < 10).length;
+
+  const totalInventoryValue = summaryItems.reduce((total, item) => total + (item.stock * item.unitPrice), 0);
+  const formattedValue = formatPrice(totalInventoryValue);
 
   return (
     <>
@@ -71,7 +96,7 @@ export function InventoryStats({ inventoryItems, onRecommendationClick, isMobile
            className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard 
           title="إجمالي العناصر" 
-          value={inventoryItems.length} 
+          value={summaryItems.length} 
           icon={Package}
           subtitle="إجمالي العناصر"
           variant="featured"
@@ -89,13 +114,6 @@ export function InventoryStats({ inventoryItems, onRecommendationClick, isMobile
           icon={AlertTriangle}
           subtitle="منخفض المخزون"
           variant={lowStockItems > 0 ? 'warning' : 'success'}
-        />
-        <StatCard 
-          title="قطع مستعملة" 
-          value={usedItemsCount} 
-          icon={Layers}
-          subtitle="متاحة للبيع"
-          variant="info"
         />
       </div>
     </>

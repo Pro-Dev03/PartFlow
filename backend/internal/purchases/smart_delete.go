@@ -205,10 +205,10 @@ func (s *SmartDeleteService) checkDependencies(ctx context.Context, purchaseID u
 	}
 	check.HasReturns = returnCount > 0
 
-	// Check for supplier payments
+	// Check recorded purchase payments without depending on the optional ledger table.
 	var paymentCount int
 	err = s.db.GetContext(ctx, &paymentCount,
-		"SELECT COUNT(*) FROM supplier_ledger WHERE reference_id = $1 AND reference_type = 'PURCHASE'", purchaseID)
+		"SELECT COUNT(*) FROM purchases WHERE id = $1 AND COALESCE(paid_amount, 0) > 0", purchaseID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check payments: %w", err)
 	}

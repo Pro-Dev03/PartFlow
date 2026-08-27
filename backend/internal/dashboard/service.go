@@ -220,3 +220,84 @@ func (s *Service) getAlerts(ctx context.Context) ([]Alert, error) {
 	var alerts []Alert
 	return alerts, nil
 }
+
+// LowStockItem represents a low stock item with details
+type LowStockItem struct {
+	ID              string  `json:"id" db:"id"`
+	ProductName     string  `json:"product_name" db:"product_name"`
+	Quantity        int     `json:"quantity" db:"quantity"`
+	MinStockLevel   int     `json:"min_stock_level" db:"min_stock_level"`
+	CostPrice       float64 `json:"cost_price" db:"cost_price"`
+	SellingPrice    float64 `json:"selling_price" db:"selling_price"`
+	PreferredSupplierID *string `json:"preferred_supplier_id,omitempty" db:"preferred_supplier_id"`
+}
+
+// OverdueDebtItem represents an overdue debt with details
+type OverdueDebtItem struct {
+	ID              string  `json:"id" db:"id"`
+	CustomerID      string  `json:"customer_id" db:"customer_id"`
+	CustomerName    string  `json:"customer_name" db:"customer_name"`
+	RemainingAmount float64 `json:"remaining_amount" db:"remaining_amount"`
+	DueDate         string  `json:"due_date" db:"due_date"`
+	DaysOverdue     int     `json:"days_overdue" db:"days_overdue"`
+	Phone           string  `json:"phone" db:"phone"`
+}
+
+// GetLowStockItems retrieves low stock items with details
+func (s *Service) GetLowStockItems(ctx context.Context) ([]LowStockItem, error) {
+	query := `
+		SELECT 
+			p.id,
+			p.name as product_name,
+			COALESCE(SUM(i.quantity), 0) as quantity,
+			p.min_stock_level,
+			p.cost_price,
+			p.selling_price,
+			p.preferred_supplier_id
+		FROM products p
+		LEFT JOIN inventory i ON p.id = i.product_id
+		WHERE p.is_active = true
+		AND p.min_stock_level > 0
+		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
+		HAVING COALESCE(SUM(i.quantity), 0) < p.min_stock_level
+		ORDER BY (p.min_stock_level - COALESCE(SUM(i.quantity), 0)) DESC
+		LIMIT 10
+	`
+
+	var items []LowStockItem
+	err := s.db.SelectContext(ctx, &items, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get low stock items: %w", err)
+	}
+
+	return items, nil
+}
+
+// GetOverdueDebts retrieves overdue debts with details
+func (s *Service) GetOverdueDebts(ctx context.Context) ([]OverdueDebtItem, error) {
+	query := `
+		SELECT 
+			d.id,
+			d.customer_id,
+			c.name as customer_name,
+			d.remaining_amount,
+			d.due_date,
+			EXTRACT(DAY FROM NOW() - d.due_date)::int as days_overdue,
+			COALESCE(c.phone, '') as phone
+		FROM debts d
+		JOIN customers c ON d.customer_id = c.id
+		WHERE d.remaining_amount > 0
+		AND d.due_date < NOW()
+		AND d.status = 'pending'
+		ORDER BY d.due_date ASC
+		LIMIT 10
+	`
+
+	var debts []OverdueDebtItem
+	err := s.db.SelectContext(ctx, &debts, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get overdue debts: %w", err)
+	}
+
+	return debts, nil
+}

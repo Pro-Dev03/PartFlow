@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { reportsApi, inventoryApi } from '../../../services/api/endpoints';
-import { ReportData } from '../types/reports.types';
 
 export function useReports(selectedReport: string, dateRange: string) {
   // Calculate date range based on selection

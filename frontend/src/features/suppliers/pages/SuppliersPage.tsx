@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useToast } from '../../../hooks/useToast';
+import { useDebounce } from '../../../hooks/useDebounce';
 import { suppliersApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
@@ -10,7 +11,9 @@ import { PageHeader } from '../../../components/ui/page-header';
 import { LoadingSpinner } from '../../../components/ui/loading-spinner';
 import { SupplierCard } from '../../../components/ui/supplier-card';
 import { SupplierModals } from '../components/SupplierModals';
+import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import type { SupplierFormData } from '../../../components/forms/SupplierForm';
+import { Supplier } from '../../../types/models';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { getButtonSize } from '../../../config/button-sizes';
 import {
@@ -32,15 +35,29 @@ export function SuppliersPage() {
   const { t } = useTranslation();
   const { success: showSuccess, error: showError } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [expandedSupplierId, setExpandedSupplierId] = useState<string | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<any | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [viewingSupplier, setViewingSupplier] = useState<any | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [supplierToDelete, setSupplierToDelete] = useState<any | null>(null);
 
   const { data: suppliersData, isLoading, refetch } = useQuery({
-    queryKey: ['suppliers'],
-    queryFn: () => suppliersApi.list({ page: 1, per_page: 100 }),
+    queryKey: ['suppliers', debouncedSearchQuery],
+    queryFn: () => {
+      if (debouncedSearchQuery) {
+        return suppliersApi.list({
+          page: 1,
+          per_page: 50,
+          search: debouncedSearchQuery
+        });
+      } else {
+        return suppliersApi.list({ page: 1, per_page: 50 });
+      }
+    },
+    enabled: true,
   });
 
   const { data: supplierInventory, isLoading: inventoryLoading } = useQuery({
@@ -49,18 +66,18 @@ export function SuppliersPage() {
     enabled: !!expandedSupplierId,
   });
 
-  const suppliers = (suppliersData?.data as any[]) || [];
+  const suppliers = (suppliersData?.data as Supplier[]) || [];
 
-  const filteredSuppliers = suppliers.filter((supplier: any) =>
+  const filteredSuppliers = suppliers.filter((supplier: Supplier) =>
     supplier.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     supplier.phone.includes(searchQuery) ||
     supplier.code.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const totalSuppliers = suppliers.length;
-  const totalPurchases = suppliers.reduce((sum: number, s: any) => sum + (s.totalPurchases || 0), 0);
-  const totalPaid = suppliers.reduce((sum: number, s: any) => sum + (s.paidAmount || 0), 0);
-  const totalOutstanding = suppliers.reduce((sum: number, s: any) => sum + (s.outstanding || 0), 0);
+  const totalPurchases = suppliers.reduce((sum: number, s: Supplier) => sum + ('totalPurchases' in s ? (s as Record<string, unknown>).totalPurchases as number : 0), 0);
+  const totalPaid = suppliers.reduce((sum: number, s: Supplier) => sum + ('paidAmount' in s ? (s as Record<string, unknown>).paidAmount as number : 0), 0);
+  const totalOutstanding = suppliers.reduce((sum: number, s: Supplier) => sum + ('outstanding' in s ? (s as Record<string, unknown>).outstanding as number : 0), 0);
 
   const handleExport = () => {
     const dataToExport = filteredSuppliers.map((supplier: any) => ({
@@ -104,10 +121,17 @@ export function SuppliersPage() {
   };
 
   const handleDeleteSupplier = async (supplier: any) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا المورد؟')) {
+    setSupplierToDelete(supplier);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (supplierToDelete) {
       try {
-        await suppliersApi.delete(supplier.id);
+        await suppliersApi.delete(supplierToDelete.id);
         showSuccess('تم حذف المورد بنجاح');
+        setDeleteDialogOpen(false);
+        setSupplierToDelete(null);
         refetch();
       } catch (err) {
         showError('حدث خطأ أثناء حذف المورد');
@@ -356,6 +380,21 @@ export function SuppliersPage() {
         isViewModalOpen={isViewModalOpen}
         setIsViewModalOpen={setIsViewModalOpen}
         viewingSupplier={viewingSupplier}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteDialogOpen}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setSupplierToDelete(null);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="حذف المورد"
+        message="هل أنت متأكد من حذف هذا المورد؟ هذا الإجراء لا يمكن التراجع عنه."
+        confirmText="حذف المورد"
+        cancelText="إلغاء"
+        variant="danger"
       />
     </div>
   );

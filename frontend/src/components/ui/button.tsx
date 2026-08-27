@@ -1,16 +1,16 @@
 import type { ButtonHTMLAttributes } from 'react';
-import { forwardRef, useState, useEffect } from 'react';
+import { forwardRef } from 'react';
 import { cn } from '../../utils';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'outline' | 'default' | 'warning' | 'info';
-  size?: 'sm' | 'md' | 'lg' | 'icon';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'icon';
   isLoading?: boolean;
+  loading?: boolean;
   fullWidth?: boolean;
 }
 
-// القيمة الافتراضية للحجم هي sm مثل زر التوصية
-const DEFAULT_SIZE: 'sm' = 'sm';
+const DEFAULT_SIZE: 'md' = 'md';
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({
@@ -18,182 +18,142 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     variant = 'primary',
     size = DEFAULT_SIZE,
     isLoading = false,
+    loading = false,
     disabled = false,
     fullWidth = false,
     children,
+    'aria-label': ariaLabel,
+    'aria-describedby': ariaDescribedby,
     ...props
   }, ref) => {
-    const [isMobile, setIsMobile] = useState(false);
+    const isDisabled = disabled || isLoading || loading;
+    const isActuallyLoading = isLoading || loading;
     
-    useEffect(() => {
-      const checkMobile = () => {
-        setIsMobile(window.innerWidth < 768);
-      };
-      
-      checkMobile();
-      window.addEventListener('resize', checkMobile);
-      return () => window.removeEventListener('resize', checkMobile);
-    }, []);
-    
-    const isDisabled = disabled || isLoading;
-    
-    const getVariantStyle = () => {
-      // تصميم احترافي للوضع الفاتح والداكن
-      const baseStyle: Record<string, string | number> = {
-        borderColor: 'var(--color-primary-20)',
-        background: 'var(--color-primary-08)',
-        color: 'var(--text-primary)',
-        borderRadius: '8px',
-        padding: '6px 10px',
-        cursor: isDisabled ? 'not-allowed' : 'pointer',
-        transition: 'all 0.15s ease',
-        fontSize: '12px',
-        fontWeight: '500',
-        opacity: isDisabled ? 0.5 : 1,
-        transform: 'translateY(0px)',
-        boxShadow: 'none',
-        lineHeight: '1.4',
-        minHeight: '32px'
-      };
+    const baseClasses = [
+      'inline-flex',
+      'items-center',
+      'justify-center',
+      'gap-2',
+      'font-semibold',
+      'rounded-[10px]',
+      'transition-all',
+      'duration-150',
+      'ease-out',
+      'focus:outline-none',
+      'focus:ring-2',
+      'focus:ring-offset-2',
+      'focus-visible:ring-primary',
+      'focus-visible:ring-offset-2',
+      'disabled:opacity-50',
+      'disabled:cursor-not-allowed',
+    ];
 
-      const variantStyles: Record<string, Record<string, string | number>> = {
-        primary: {
-          ...baseStyle,
-          borderColor: 'var(--color-primary-30)',
-          background: 'var(--button-primary-bg)',
-          color: 'var(--button-primary-text)',
-          fontWeight: '600',
-          boxShadow: '0 2px 8px var(--color-primary-20)'
-        },
-        secondary: {
-          ...baseStyle,
-          borderColor: 'var(--border-default)',
-          background: 'var(--button-secondary-bg)',
-          color: 'var(--button-secondary-text)',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
-        },
-        ghost: {
-          ...baseStyle,
-          borderColor: 'transparent',
-          background: 'transparent',
-          color: 'var(--text-primary)',
-          boxShadow: 'none'
-        },
-        danger: {
-          ...baseStyle,
-          borderColor: 'var(--color-danger-30)',
-          background: 'var(--color-danger-08)',
-          color: 'var(--color-danger)',
-          boxShadow: '0 1px 3px var(--color-danger-10)'
-        },
-        success: {
-          ...baseStyle,
-          borderColor: 'var(--color-success-30)',
-          background: 'var(--color-success-08)',
-          color: 'var(--color-success)',
-          boxShadow: '0 1px 3px var(--color-success-10)'
-        },
-        outline: {
-          ...baseStyle,
-          background: 'transparent',
-          color: 'var(--text-primary)',
-          borderColor: 'var(--color-primary-20)'
-        },
-        default: baseStyle,
-        warning: {
-          ...baseStyle,
-          borderColor: 'var(--color-warning-30)',
-          background: 'var(--color-warning-08)',
-          color: 'var(--color-warning)',
-          boxShadow: '0 1px 3px var(--color-warning-10)'
-        },
-        info: {
-          ...baseStyle,
-          borderColor: 'var(--color-info-30)',
-          background: 'var(--color-info-08)',
-          color: 'var(--color-info)',
-          boxShadow: '0 1px 3px var(--color-info-10)'
-        }
-      };
+    const variantClasses: Record<string, string> = {
+      primary: [
+        'bg-primary',
+        'text-white',
+        'border',
+        'border-primary/20',
+        'hover:bg-primary/90',
+        'focus:ring-primary',
+      ].join(' '),
+      secondary: [
+        'bg-surface-elevated',
+        'text-text-primary',
+        'border',
+        'border-border',
+        'hover:bg-surface',
+        'hover:text-text-primary',
+        'focus:ring-primary',
+      ].join(' '),
+      ghost: [
+        'bg-transparent',
+        'text-text-primary',
+        'hover:bg-surface',
+        'hover:text-text-primary',
+        'border-transparent',
+      ].join(' '),
+      danger: [
+        'bg-danger/10',
+        'text-danger',
+        'border',
+        'border-danger/20',
+        'hover:bg-danger/20',
+        'focus:ring-danger',
+      ].join(' '),
+      success: [
+        'bg-success/10',
+        'text-success',
+        'border',
+        'border-success/20',
+        'hover:bg-success/20',
+        'focus:ring-success',
+      ].join(' '),
+      outline: [
+        'bg-transparent',
+        'text-text-primary',
+        'border',
+        'border-primary/20',
+        'hover:bg-primary/5',
+        'focus:ring-primary',
+      ].join(' '),
+      default: [
+        'bg-surface',
+        'text-text-primary',
+        'border',
+        'border-border',
+        'hover:bg-surface/80',
+      ].join(' '),
+      warning: [
+        'bg-warning/10',
+        'text-warning',
+        'border',
+        'border-warning/20',
+        'hover:bg-warning/20',
+        'focus:ring-warning',
+      ].join(' '),
+      info: [
+        'bg-info/10',
+        'text-info',
+        'border',
+        'border-info/20',
+        'hover:bg-info/20',
+        'focus:ring-info',
+      ].join(' '),
+    };
 
-      return variantStyles[variant] || variantStyles.default;
+    const sizeClasses: Record<string, string> = {
+      xs: 'h-[var(--button-height-xs)] px-[var(--button-padding-xs)] text-[var(--button-font-size-xs)]',
+      sm: 'h-[var(--button-height-sm)] px-[var(--button-padding-sm)] text-[var(--button-font-size-sm)]',
+      md: 'h-[var(--button-height-md)] px-[var(--button-padding-md)] text-[var(--button-font-size-md)]',
+      lg: 'h-[var(--button-height-lg)] px-[var(--button-padding-lg)] text-[var(--button-font-size-lg)]',
+      xl: 'h-[var(--button-height-xl)] px-[var(--button-padding-xl)] text-[var(--button-font-size-xl)]',
+      icon: 'h-10 w-10 p-0',
     };
-  
-    const getSizeStyle = () => {
-      // تصميم احترافي مثل زر التوصية - نفس الحجم لجميع الأزرار
-      const sizes = {
-        sm: {
-          padding: isMobile ? '8px 12px' : '6px 10px',
-          fontSize: isMobile ? '13px' : '12px',
-          lineHeight: '1.4',
-          minHeight: isMobile ? '36px' : '32px'
-        },
-        md: {
-          padding: isMobile ? '10px 16px' : '8px 14px',
-          fontSize: isMobile ? '14px' : '13px',
-          lineHeight: '1.4',
-          minHeight: isMobile ? '40px' : '36px'
-        },
-        lg: {
-          padding: isMobile ? '12px 20px' : '10px 18px',
-          fontSize: isMobile ? '15px' : '14px',
-          lineHeight: '1.4',
-          minHeight: isMobile ? '44px' : '40px'
-        },
-        icon: {
-          padding: isMobile ? '8px' : '6px',
-          fontSize: isMobile ? '15px' : '14px',
-          width: isMobile ? '36px' : '32px',
-          height: isMobile ? '36px' : '32px',
-          lineHeight: '1',
-          minHeight: isMobile ? '36px' : '32px'
-        }
-      };
-      return sizes[size] || sizes.sm;
-    };
-    
+
     return (
       <button
         ref={ref}
-        style={{
-          ...getVariantStyle(),
-          ...getSizeStyle(),
-          ...(fullWidth ? { width: '100%' } : {})
-        }}
-        className={cn('inline-flex items-center justify-center gap-2', className)}
+        className={cn(
+          ...baseClasses,
+          variantClasses[variant] || variantClasses.default,
+          sizeClasses[size] || sizeClasses.sm,
+          'select-none',
+          'pf-button',
+          `pf-button-${variant}`,
+          fullWidth && 'w-full',
+          className
+        )}
         disabled={isDisabled}
         aria-disabled={isDisabled}
-        aria-busy={isLoading}
-        onMouseEnter={(e) => {
-          if (!isDisabled && variant === 'primary') {
-            e.currentTarget.style.transform = 'translateY(-1px)';
-            e.currentTarget.style.borderColor = 'var(--color-primary-30)';
-            e.currentTarget.style.boxShadow = 'var(--shadow-glow)';
-          } else if (!isDisabled && variant !== 'primary' && variant !== 'ghost') {
-            e.currentTarget.style.transform = 'translateY(-1px)';
-            e.currentTarget.style.borderColor = 'var(--primary)';
-          } else if (!isDisabled && variant === 'ghost') {
-            e.currentTarget.style.transform = 'translateY(-1px)';
-            e.currentTarget.style.background = 'var(--bg-surface-elevated)';
-          }
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = 'translateY(0)';
-          const baseStyle = getVariantStyle();
-          e.currentTarget.style.borderColor = baseStyle.borderColor as string;
-          e.currentTarget.style.boxShadow = (baseStyle.boxShadow as string) || 'none';
-          if (variant === 'ghost') {
-            e.currentTarget.style.background = 'transparent';
-          }
-        }}
-        onMouseDown={(e) => {
-          e.currentTarget.style.transform = 'translateY(0)';
-        }}
+        aria-busy={isActuallyLoading}
+        aria-label={ariaLabel || (typeof children === 'string' ? children : undefined)}
+        aria-describedby={ariaDescribedby}
         {...props}
       >
-        {isLoading && (
+        {isActuallyLoading && (
           <svg
-            className="animate-spin w-4 h-4"
+            className="animate-spin h-4 w-4"
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
             viewBox="0 0 24 24"
@@ -214,7 +174,11 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
             />
           </svg>
         )}
-        <span className={cn('transition-opacity', isLoading && 'opacity-50')}>{children}</span>
+        {isActuallyLoading ? (
+          <span className="transition-opacity opacity-50">{children}</span>
+        ) : (
+          children
+        )}
       </button>
     );
   }
@@ -223,3 +187,4 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 Button.displayName = 'Button';
 
 export { Button };
+export default Button;

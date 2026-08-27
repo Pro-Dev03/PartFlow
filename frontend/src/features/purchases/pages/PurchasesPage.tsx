@@ -1,7 +1,10 @@
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
+import { Input } from '../../../components/ui/input';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
@@ -20,6 +23,7 @@ import {
 
 // Custom hooks
 import { usePurchases } from '../hooks/usePurchases';
+import { purchasesApi } from '../../../services/api/endpoints';
 
 // Components
 import { PurchaseStats } from '../components/PurchaseStats';
@@ -30,6 +34,9 @@ import { Purchase } from '../types/purchases.types';
 
 // SmartDelete utility (ARCHITECTURE-PRINCIPLES.md)
 import { handleSmartDelete } from '../../../utils/smartDelete';
+import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { Modal } from '../../../components/ui/modal';
+import { toast } from 'sonner';
 
 export function PurchasesPage() {
   const { t } = useTranslation();
@@ -49,12 +56,21 @@ export function PurchasesPage() {
     deletePurchaseMutation,
     reversePurchaseMutation,
   } = usePurchases();
+  const [purchaseToReceive, setPurchaseToReceive] = useState<string | null>(null);
+  const [purchaseToReverse, setPurchaseToReverse] = useState<string | null>(null);
+  const [reversalReason, setReversalReason] = useState('');
+  const [purchaseToView, setPurchaseToView] = useState<string | null>(null);
+  const { data: purchaseDetailsData, isLoading: purchaseDetailsLoading } = useQuery({
+    queryKey: ['purchase', purchaseToView],
+    queryFn: () => purchasesApi.get(purchaseToView || ''),
+    enabled: Boolean(purchaseToView),
+  });
+  const purchaseDetails = purchaseDetailsData?.data?.purchase || purchaseDetailsData?.purchase;
+  const purchaseItems = purchaseDetailsData?.data?.items || purchaseDetailsData?.items || [];
 
   // Handle receive purchase
   const handleReceivePurchase = (purchaseId: string) => {
-    if (confirm('هل أنت متأكد من استلام البضاعة؟ سيتم إنشاء عناصر المخزون تلقائياً.')) {
-      receivePurchaseMutation.mutate(purchaseId);
-    }
+    setPurchaseToReceive(purchaseId);
   };
 
   // Handle delete purchase with SmartDelete (ARCHITECTURE-PRINCIPLES.md)
@@ -82,11 +98,22 @@ export function PurchasesPage() {
   };
 
   // Handle reverse purchase
-  const handleReversePurchase = (purchaseId: string) => {
-    const reason = prompt('يرجى توضيح سبب عكس العملية:');
-    if (reason) {
-      reversePurchaseMutation.mutate({ purchaseId, reason });
+  const handleReversePurchase = async (purchaseId: string) => {
+    try {
+      const response = await purchasesApi.getUsedItemsInfo(purchaseId);
+      const usedItems = Array.isArray(response?.data) ? response.data : [];
+      const soldItems = usedItems.filter((item: any) => Number(item.sold_quantity || 0) > 0);
+      if (soldItems.length > 0) {
+        toast.error('لا يمكن عكس العملية لأن القطعة قد تم بيعها بالفعل.');
+        return;
+      }
+    } catch (error) {
+      console.error('Failed to check purchase items before reversal:', error);
+      toast.error('تعذر التحقق من حالة القطعة. حاول مرة أخرى.');
+      return;
     }
+    setReversalReason('');
+    setPurchaseToReverse(purchaseId);
   };
 
   const getStatusBadge = (status: string) => {
@@ -217,6 +244,7 @@ export function PurchasesPage() {
                               <Check className="w-4 h-4" />
                             </Button>
                           )}
+
                           {(purchase.status === 'pending' || purchase.status === 'draft') && (
                             <>
                               <Button
@@ -242,7 +270,10 @@ export function PurchasesPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => handleReversePurchase(purchase.id)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleReversePurchase(purchase.id);
+                                }}
                                 className="text-orange-600 hover:text-orange-700"
                                 title="عكس العملية"
                               >
@@ -250,7 +281,15 @@ export function PurchasesPage() {
                               </Button>
                             </>
                           )}
-                          <Button variant="ghost" size="sm">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setPurchaseToView(purchase.id);
+                            }}
+                            title="عرض التفاصيل"
+                          >
                             <Eye className="w-4 h-4" />
                           </Button>
                         </div>
@@ -263,6 +302,83 @@ export function PurchasesPage() {
           )}
         </CardContent>
       </Card>
+      <ConfirmDialog
+        isOpen={purchaseToReceive !== null}
+        onClose={() => setPurchaseToReceive(null)}
+        onConfirm={() => {
+          if (purchaseToReceive) {
+            receivePurchaseMutation.mutate(purchaseToReceive);
+          }
+          setPurchaseToReceive(null);
+        }}
+        title="تأكيد استلام البضاعة"
+        message="سيتم إنشاء عناصر المخزون تلقائياً عند الاستلام. هل تريد المتابعة؟"
+        confirmText="استلام البضاعة"
+        isLoading={receivePurchaseMutation.isPending}
+        variant="warning"
+      />
+      <Modal
+        isOpen={purchaseToView !== null}
+        onClose={() => setPurchaseToView(null)}
+        title="تفاصيل عملية الشراء"
+        size="xl"
+      >
+        {purchaseDetailsLoading ? (
+          <div className="p-10 text-center">جاري تحميل التفاصيل...</div>
+        ) : purchaseDetails ? (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div><span className="text-sm text-text-muted">رقم الطلب</span><p>{purchaseDetails.invoice_number || '-'}</p></div>
+              <div><span className="text-sm text-text-muted">المورد</span><p>{purchaseDetails.supplier?.name || purchaseDetails.supplier_name || '-'}</p></div>
+              <div><span className="text-sm text-text-muted">الحالة</span><p><Badge>{purchaseDetails.status}</Badge></p></div>
+              <div><span className="text-sm text-text-muted">التاريخ</span><p>{purchaseDetails.purchase_date ? new Date(purchaseDetails.purchase_date).toLocaleDateString('en-US') : '-'}</p></div>
+              <div><span className="text-sm text-text-muted">الإجمالي</span><p>₪{Number(purchaseDetails.total_amount || 0).toLocaleString('en-US')}</p></div>
+              <div><span className="text-sm text-text-muted">المدفوع</span><p>₪{Number(purchaseDetails.paid_amount || 0).toLocaleString('en-US')}</p></div>
+              <div><span className="text-sm text-text-muted">المتبقي</span><p>₪{Number(purchaseDetails.remaining || 0).toLocaleString('en-US')}</p></div>
+            </div>
+            <div>
+              <h2 className="font-semibold mb-3">القطع</h2>
+              <div className="space-y-2">
+                {purchaseItems.map((item: any) => (
+                  <div key={item.id} className="flex justify-between border-b border-border py-2">
+                    <span>{item.product_name || item.product?.name || 'قطعة'}</span>
+                    <span>{item.quantity} × ₪{Number(item.unit_cost || 0).toLocaleString('en-US')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-10 text-center text-red-500">تعذر تحميل تفاصيل الشراء</div>
+        )}
+      </Modal>
+      <ConfirmDialog
+        isOpen={purchaseToReverse !== null}
+        onClose={() => setPurchaseToReverse(null)}
+        onConfirm={() => {
+          const finalReason = reversalReason.trim() || 'بدون سبب';
+          if (purchaseToReverse) {
+            reversePurchaseMutation.mutate({
+              purchaseId: purchaseToReverse,
+              reason: finalReason,
+            });
+          }
+          setReversalReason('');
+          setPurchaseToReverse(null);
+        }}
+        title="عكس عملية الشراء"
+        message="أدخل سبب العكس في الحقل التالي ثم اضغط تأكيد."
+        confirmText="تأكيد العكس"
+        isLoading={reversePurchaseMutation.isPending}
+        variant="danger"
+      >
+        <Input
+          autoFocus
+          value={reversalReason}
+          onChange={(event) => setReversalReason(event.target.value)}
+          placeholder="سبب عكس العملية"
+        />
+      </ConfirmDialog>
     </div>
   );
 }

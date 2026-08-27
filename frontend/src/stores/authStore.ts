@@ -3,10 +3,11 @@ import { persist } from 'zustand/middleware';
 import { authApi } from '../services/api/endpoints';
 import { apiClient } from '../services/api/client';
 import { TokenManager } from '../lib/token-manager';
+import { User } from '../types/models';
 
 interface AuthState {
   isAuthenticated: boolean;
-  user: any;
+  user: User | null;
   token: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -29,7 +30,7 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true });
         try {
           const response = await authApi.login(email, password);
-          const data = response.data as any;
+          const data = response.data as { user: User; token: string };
           const { user, token } = data;
 
           // Use TokenManager for consistent token storage
@@ -81,7 +82,7 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: async () => {
         try {
           const response = await authApi.refreshToken();
-          const data = response.data as any;
+          const data = response.data as { user: User; token: string };
           const { user, token } = data;
 
           apiClient.setToken(token);

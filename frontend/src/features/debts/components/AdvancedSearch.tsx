@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, X, ChevronDown, ChevronUp, Clock, Filter, History } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Filter, History } from 'lucide-react';
 import { SearchInput } from '../../../components/ui/search-input';
 
 interface AdvancedSearchProps {
@@ -15,7 +15,7 @@ export interface SearchFilters {
   searchType?: 'name' | 'code' | 'phone' | 'amount' | 'all';
 }
 
-export function AdvancedSearch({ onSearch, customers = [], loading = false }: AdvancedSearchProps) {
+export function AdvancedSearch({ onSearch, customers = [] }: AdvancedSearchProps) {
   const [query, setQuery] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [filters, setFilters] = useState<SearchFilters>({});

@@ -13,6 +13,8 @@ export interface ModalProps extends HTMLAttributes<HTMLDivElement> {
   showCloseButton?: boolean;
   autoFocus?: boolean; // Auto-focus on first input when modal opens
   enableEnterNavigation?: boolean; // Enable Enter key to move to next field
+  'aria-label'?: string;
+  'aria-describedby'?: string;
 }
 
 export const Modal = forwardRef<HTMLDivElement, ModalProps>(
@@ -27,6 +29,8 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
     showCloseButton = true,
     autoFocus = true,
     enableEnterNavigation = true,
+    'aria-label': ariaLabel,
+    'aria-describedby': ariaDescribedby,
     children, 
     ...props 
   }, ref) => {
@@ -47,6 +51,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
           const focusableElements = modalRef.current?.querySelectorAll(
             'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])'
           );
+
           if (focusableElements && focusableElements.length > 0) {
             const firstInput = Array.from(focusableElements).find(
               el => el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA'
@@ -180,6 +185,8 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? 'modal-title' : undefined}
+        aria-label={ariaLabel || title}
+        aria-describedby={ariaDescribedby}
         style={{ 
           zIndex: 9999,
           position: 'fixed',
@@ -315,3 +322,5 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
 );
 
 Modal.displayName = 'Modal';
+
+export default Modal;

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { X, LayoutDashboard, Package, ShoppingCart, Users, DollarSign, Truck, FileText, Settings, HelpCircle, ChevronRight } from 'lucide-react';
+import { X, LayoutDashboard, Package, ShoppingCart, Users, DollarSign, Truck, FileText, Settings, ChevronRight } from 'lucide-react';
 import { cn } from '../../utils';
 
 interface MobileMenuProps {

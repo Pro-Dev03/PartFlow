@@ -3,7 +3,8 @@ import { Modal } from '../../../components/ui/modal';
 import { Input } from '../../../components/ui/input';
 import { Select } from '../../../components/ui/select';
 import { TradeInFormData } from '../types/pos.types';
-import { ShoppingCart, Recycle } from 'lucide-react';
+import { ShoppingCart } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface TradeInModalProps {
   isOpen: boolean;
@@ -45,7 +46,7 @@ export function TradeInModal({
     const productValue = isProductManual ? tradeInProductManual : tradeInProduct;
 
     if (!customerValue || !tradeInPrice || !tradeInPartType) {
-      alert('يرجى ملء جميع الحقول المطلوبة');
+      toast.error('يرجى ملء جميع الحقول المطلوبة');
       return;
     }
 

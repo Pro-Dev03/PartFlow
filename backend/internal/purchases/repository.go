@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -80,7 +81,7 @@ func (r *Repository) List(ctx context.Context, req PurchaseListRequest) ([]Purch
 
 	args := []interface{}{}
 	argCount := 0
-	
+
 	// Add filters
 	if req.SupplierID != nil {
 		argCount++
@@ -117,14 +118,14 @@ func (r *Repository) List(ctx context.Context, req PurchaseListRequest) ([]Purch
 		searchPattern := "%" + req.Search + "%"
 		args = append(args, searchPattern)
 	}
-	
+
 	// Get total count
 	countArgs := append([]interface{}{}, args...)
 	err := r.db.GetContext(ctx, &count, countQuery, countArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count purchases: %w", err)
 	}
-	
+
 	// Add sorting
 	sortBy := "purchase_date"
 	if req.SortBy != "" {
@@ -135,19 +136,109 @@ func (r *Repository) List(ctx context.Context, req PurchaseListRequest) ([]Purch
 		sortOrder = req.SortOrder
 	}
 	baseQuery += fmt.Sprintf(" ORDER BY %s %s", sortBy, sortOrder)
-	
+
 	// Add pagination
 	offset := (req.Page - 1) * req.PerPage
 	argCount++
 	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argCount, argCount+1)
 	args = append(args, req.PerPage, offset)
-	
+
 	err = r.db.SelectContext(ctx, &purchases, baseQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list purchases: %w", err)
 	}
-	
+
 	return purchases, count, nil
+}
+
+// ListSummaries returns the complete list projection in one database query.
+// Keeping related data in this query avoids one supplier and one item query per purchase.
+func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest) ([]PurchaseListItem, int, error) {
+	if req.Page <= 0 {
+		req.Page = 1
+	}
+	if req.PerPage <= 0 || req.PerPage > 100 {
+		req.PerPage = 20
+	}
+
+	query := `
+		SELECT
+			p.id::text AS id,
+			p.invoice_number,
+			p.purchase_date,
+			p.total_amount,
+			p.paid_amount,
+			p.total_amount - p.paid_amount AS remaining,
+			p.status,
+			COALESCE(s.name, '') AS supplier_name,
+			COUNT(pi.id)::int AS total_items,
+			p.created_at,
+			COUNT(*) OVER()::int AS total_count
+		FROM purchases p
+		LEFT JOIN suppliers s ON s.id = p.supplier_id
+		LEFT JOIN purchase_items pi ON pi.purchase_id = p.id
+		WHERE 1=1
+	`
+	args := make([]interface{}, 0, 7)
+	argCount := 0
+
+	addFilter := func(condition string, value interface{}) {
+		argCount++
+		query += fmt.Sprintf(" AND %s $%d", condition, argCount)
+		args = append(args, value)
+	}
+	if req.SupplierID != nil {
+		addFilter("p.supplier_id =", *req.SupplierID)
+	}
+	if req.Status != "" {
+		addFilter("p.status =", req.Status)
+	}
+	if req.StartDate != nil {
+		addFilter("p.purchase_date >=", *req.StartDate)
+	}
+	if req.EndDate != nil {
+		addFilter("p.purchase_date <=", *req.EndDate)
+	}
+	if req.Search != "" {
+		argCount++
+		query += fmt.Sprintf(" AND (p.invoice_number ILIKE $%d OR p.notes ILIKE $%d)", argCount, argCount)
+		args = append(args, "%"+req.Search+"%")
+	}
+
+	query += `
+		GROUP BY p.id, p.invoice_number, p.purchase_date, p.total_amount,
+			p.paid_amount, p.status, p.created_at, s.name
+	`
+
+	sortColumns := map[string]string{
+		"purchase_date": "p.purchase_date",
+		"created_at":    "p.created_at",
+		"total_amount":  "p.total_amount",
+		"status":        "p.status",
+	}
+	sortColumn := sortColumns[req.SortBy]
+	if sortColumn == "" {
+		sortColumn = "p.purchase_date"
+	}
+	sortOrder := "DESC"
+	if strings.EqualFold(req.SortOrder, "asc") {
+		sortOrder = "ASC"
+	}
+	query += fmt.Sprintf(" ORDER BY %s %s, p.id DESC", sortColumn, sortOrder)
+
+	argCount++
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argCount, argCount+1)
+	args = append(args, req.PerPage, (req.Page-1)*req.PerPage)
+
+	var summaries []PurchaseListItem
+	if err := r.db.SelectContext(ctx, &summaries, query, args...); err != nil {
+		return nil, 0, fmt.Errorf("failed to list purchase summaries: %w", err)
+	}
+	total := 0
+	if len(summaries) > 0 {
+		total = summaries[0].TotalCount
+	}
+	return summaries, total, nil
 }
 
 // Update updates a purchase
@@ -163,7 +254,7 @@ func (r *Repository) Update(ctx context.Context, purchase *Purchase) error {
 		purchase.ID, purchase.InvoiceNumber, purchase.PurchaseDate, purchase.Status,
 		purchase.Notes, purchase.UpdatedAt,
 	).Scan(&purchase.UpdatedAt)
-	
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return ErrPurchaseNotFound
@@ -181,12 +272,12 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete purchase: %w", err)
 	}
-	
+
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		return ErrPurchaseNotFound
 	}
-	
+
 	return nil
 }
 
@@ -237,12 +328,12 @@ func (r *Repository) UpdatePurchaseItem(ctx context.Context, item *PurchaseItem)
 		WHERE id = $1
 		RETURNING updated_at
 	`
-	
+
 	err := r.db.QueryRowContext(ctx, query,
 		item.ID, item.Quantity, item.UnitCost, item.TotalCost, item.SerialNumber,
 		item.Condition, item.LocationID, item.Notes, item.UpdatedAt,
 	).Scan(&item.UpdatedAt)
-	
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return ErrPurchaseItemNotFound
@@ -255,17 +346,17 @@ func (r *Repository) UpdatePurchaseItem(ctx context.Context, item *PurchaseItem)
 // DeletePurchaseItem deletes a purchase item
 func (r *Repository) DeletePurchaseItem(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM purchase_items WHERE id = $1`
-	
+
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete purchase item: %w", err)
 	}
-	
+
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		return ErrPurchaseItemNotFound
 	}
-	
+
 	return nil
 }
 
@@ -273,7 +364,7 @@ func (r *Repository) DeletePurchaseItem(ctx context.Context, id uuid.UUID) error
 func (r *Repository) GetSupplierInfo(ctx context.Context, supplierID uuid.UUID) (*SupplierInfo, error) {
 	var supplier SupplierInfo
 	query := `SELECT id, name, phone FROM suppliers WHERE id = $1`
-	
+
 	err := r.db.GetContext(ctx, &supplier, query, supplierID)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -292,7 +383,7 @@ func (r *Repository) UpdatePaidAmount(ctx context.Context, purchaseID uuid.UUID,
 		WHERE id = $1
 		RETURNING updated_at
 	`
-	
+
 	var updatedAt time.Time
 	err := r.db.QueryRowContext(ctx, query, purchaseID, amount, time.Now()).Scan(&updatedAt)
 	if err != nil {

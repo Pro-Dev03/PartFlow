@@ -1,12 +1,12 @@
-import { useState, useMemo, useEffect, Fragment } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import { cn } from '../../utils';
+import { useIsMobile } from '../../hooks/useIsMobile';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import {
   Table,
   TableHeader,
   TableBody,
-  TableFooter,
   TableHead,
   TableRow,
   TableCell,
@@ -16,7 +16,6 @@ import {
   ChevronUp, 
   MoreHorizontal, 
   Download, 
-  Filter,
   Eye,
   EyeOff,
   RefreshCw
@@ -74,7 +73,7 @@ export function DataTable<T extends Record<string, any>>({
   expandable = false,
   renderExpanded,
 }: DataTableProps<T>) {
-  const [isMobile, setIsMobile] = useState(false);
+  const isMobile = useIsMobile();
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -83,17 +82,6 @@ export function DataTable<T extends Record<string, any>>({
     new Set(columns.map(col => col.key))
   );
   const [showColumnMenu, setShowColumnMenu] = useState(false);
-  const [showFilterMenu, setShowFilterMenu] = useState(false);
-  
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   const visibleColumns = useMemo(() => 
     columns.filter(col => columnVisibility.has(col.key)),
@@ -360,7 +348,7 @@ export function DataTable<T extends Record<string, any>>({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedData.map((row, index) => {
+            {sortedData.map((row) => {
               const rowId = row.id || row._id || JSON.stringify(row);
               const isSelected = selectedRows.has(rowId);
               const isExpanded = expandedRows.has(rowId);

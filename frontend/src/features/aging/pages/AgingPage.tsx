@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { acquisitionsApi } from '../../../services/api/endpoints';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
 import { SearchInput } from '../../../components/ui/search-input';
 import { Select } from '../../../components/ui/select';
 import { PageHeader } from '../../../components/ui/page-header';
@@ -12,9 +11,6 @@ import {
   AlertTriangle,
   Clock,
   TrendingDown,
-  Package,
-  Search,
-  Filter,
   Layers
 } from 'lucide-react';
 
@@ -64,16 +60,6 @@ export function AgingPage() {
       default:
         return <Badge variant="secondary">{level}</Badge>;
     }
-  };
-
-  const getAlertLevelLabel = (level: string) => {
-    const labels: Record<string, string> = {
-      'CRITICAL': 'حرج',
-      'WARNING': 'تحذير',
-      'INFO': 'معلومة',
-      'OK': 'جيد',
-    };
-    return labels[level] || level;
   };
 
   const getConditionLabel = (condition: string) => {
@@ -185,8 +171,8 @@ export function AgingPage() {
       {/* Search and Filters */}
       <Card className="mb-4 border border-[var(--border-default)] bg-[var(--card-bg)] shadow-sm">
         <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-3 items-stretch">
-            <div className="flex-1">
+          <div className="pf-search-row flex flex-col md:flex-row gap-3 items-stretch">
+            <div className="min-w-0 flex-1">
               <SearchInput
                 placeholder="بحث عن قطعة..."
                 value={searchQuery}

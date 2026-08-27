@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
 import { returnsApi } from '../../../services/api/endpoints';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { SearchInput } from '../../../components/ui/search-input';
 import { PageHeader } from '../../../components/ui/page-header';
@@ -21,6 +21,7 @@ import {
   XCircle,
   RefreshCw
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface ReturnItem {
   id: string;
@@ -63,7 +64,7 @@ export function ReturnsPage() {
 
 
   const { data: returnsData, isLoading } = useQuery({
-    queryKey: ['returns', statusFilter, returnTypeFilter, refundMethodFilter],
+    queryKey: ['returns', statusFilter, returnTypeFilter, refundMethodFilter, searchQuery],
     queryFn: () => returnsApi.list({ 
       page: 1, 
       per_page: 100,
@@ -75,11 +76,6 @@ export function ReturnsPage() {
   });
 
   const returns = (returnsData?.data as Return[]) || [];
-
-  const { data: monthlyAnalysis } = useQuery({
-    queryKey: ['returns-monthly-analysis'],
-    queryFn: () => returnsApi.getMonthlyAnalysis(),
-  });
 
   const { data: salesReturnsAnalysis } = useQuery({
     queryKey: ['sales-returns-analysis'],
@@ -154,11 +150,11 @@ export function ReturnsPage() {
     mutationFn: (id: string) => returnsApi.complete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['returns'] });
-      alert('تم إكمال المرتجع بنجاح!');
+      toast.success('تم إكمال المرتجع بنجاح!');
     },
     onError: (error) => {
       console.error('Failed to complete return:', error);
-      alert('فشل إكمال المرتجع');
+      toast.error('فشل إكمال المرتجع');
     },
   });
 

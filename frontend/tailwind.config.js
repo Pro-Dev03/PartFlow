@@ -32,11 +32,21 @@ export default {
           disabled: 'var(--text-disabled)',
           'on-primary': 'var(--text-on-primary)',
         },
+        foreground: 'var(--text-primary)',
         // Primary/Accent colors - use CSS variables
         primary: {
           DEFAULT: 'var(--primary)',
           hover: 'var(--primary-hover)',
           active: 'var(--primary-active)',
+          foreground: 'var(--text-on-primary)',
+        },
+        secondary: {
+          DEFAULT: 'var(--bg-surface-elevated)',
+          foreground: 'var(--text-primary)',
+        },
+        accent: {
+          DEFAULT: 'var(--bg-surface-elevated)',
+          foreground: 'var(--text-primary)',
         },
         // Status colors - use CSS variables
         success: {

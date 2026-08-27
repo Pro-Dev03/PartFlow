@@ -64,15 +64,15 @@ func (s *Service) GetCustomer(ctx context.Context, id uuid.UUID) (*Customer, err
 }
 
 // ListCustomers retrieves customers with pagination and filters
-func (s *Service) ListCustomers(ctx context.Context, page, perPage int, search string, isActive *bool) ([]Customer, int, error) {
-	if page <= 0 {
-		page = 1
+func (s *Service) ListCustomers(ctx context.Context, req *CustomerListRequest) ([]Customer, int, error) {
+	if req.Page <= 0 {
+		req.Page = 1
 	}
-	if perPage <= 0 || perPage > 100 {
-		perPage = 20
+	if req.PerPage <= 0 || req.PerPage > 100 {
+		req.PerPage = 20
 	}
 
-	return s.repo.List(ctx, page, perPage, search, isActive)
+	return s.repo.List(ctx, req)
 }
 
 // UpdateCustomer updates a customer
@@ -245,6 +245,31 @@ func (s *Service) GetCustomerLedger(ctx context.Context, customerID uuid.UUID) (
 	}, nil
 }
 
+// GetFinancialTimeline retrieves a comprehensive financial timeline for a customer
+func (s *Service) GetFinancialTimeline(ctx context.Context, customerID uuid.UUID) ([]FinancialTransaction, error) {
+	// Get comprehensive financial timeline from repository
+	timeline, err := s.repo.GetFinancialTimeline(ctx, customerID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to response format
+	transactions := make([]FinancialTransaction, len(timeline))
+	for i, entry := range timeline {
+		transactions[i] = FinancialTransaction{
+			ID:           entry.ID.String(),
+			Type:         entry.Type,
+			Amount:       entry.Amount,
+			BalanceAfter: entry.Balance,
+			Date:         entry.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			Description:  entry.Description,
+			Status:       "completed",
+		}
+	}
+
+	return transactions, nil
+}
+
 // AddDebt adds a debt entry to customer (when they make a purchase on credit)
 func (s *Service) AddDebt(ctx context.Context, customerID uuid.UUID, amount float64, referenceID uuid.UUID, description string) error {
 	customer, err := s.repo.GetByID(ctx, customerID)
@@ -288,15 +313,15 @@ func (s *Service) GetCustomerDebtSummary(ctx context.Context, customerID uuid.UU
 	}
 
 	return &DebtSummary{
-		CustomerID:          customerID,
-		CustomerName:        customer.Name,
-		CurrentBalance:      customer.CurrentBalance,
-		CreditLimit:         customer.CreditLimit,
-		AvailableCredit:     availableCredit,
-		CreditUtilization:   creditUtilization,
-		OverdueAmount:       customer.CurrentBalance, // Use current balance as overdue for now
-		IsOverdue:           customer.CurrentBalance > 0,
-		DaysUntilOverdue:    0,
+		CustomerID:        customerID,
+		CustomerName:      customer.Name,
+		CurrentBalance:    customer.CurrentBalance,
+		CreditLimit:       customer.CreditLimit,
+		AvailableCredit:   availableCredit,
+		CreditUtilization: creditUtilization,
+		OverdueAmount:     customer.CurrentBalance, // Use current balance as overdue for now
+		IsOverdue:         customer.CurrentBalance > 0,
+		DaysUntilOverdue:  0,
 	}, nil
 }
 
@@ -327,7 +352,8 @@ func (s *Service) GetOverdueCustomers(ctx context.Context) ([]OverdueCustomer, e
 	// Query to get customers with debts and their debt entries
 	query := `
 		SELECT c.id, c.name, c.code, c.current_balance, c.credit_limit,
-			c.current_balance as overdue_amount
+			c.current_balance as overdue_amount,
+			COALESCE((SELECT SUM(cp.amount) FROM customer_payments cp WHERE cp.customer_id = c.id), 0) as paid_amount
 		FROM customers c
 		WHERE c.is_active = true
 		AND c.current_balance > 0
@@ -348,7 +374,7 @@ func (s *Service) GetOverdueCustomers(ctx context.Context) ([]OverdueCustomer, e
 			WHERE customer_id = $1
 			ORDER BY due_date ASC
 		`
-		
+
 		type DebtInfo struct {
 			ID              string  `db:"id"`
 			Amount          float64 `db:"amount"`
@@ -356,7 +382,7 @@ func (s *Service) GetOverdueCustomers(ctx context.Context) ([]OverdueCustomer, e
 			DueDate         string  `db:"due_date"`
 			Status          string  `db:"status"`
 		}
-		
+
 		var debts []DebtInfo
 		err := s.repo.db.SelectContext(ctx, &debts, debtQuery, overdueCustomers[i].ID)
 		if err != nil || len(debts) == 0 {
@@ -565,13 +591,13 @@ func (s *Service) GeneratePaymentReceipt(ctx context.Context, customerID uuid.UU
 
 	// Color scheme
 	const (
-		primaryColor = 34  // Green
+		primaryColor   = 34 // Green
 		secondaryColor = 197
-		accentColor = 94
-		textDark = 0
-		textMedium = 80
-		textLight = 150
-		borderColor = 200
+		accentColor    = 94
+		textDark       = 0
+		textMedium     = 80
+		textLight      = 150
+		borderColor    = 200
 	)
 
 	// Set font based on language
@@ -621,7 +647,7 @@ func (s *Service) GeneratePaymentReceipt(ctx context.Context, customerID uuid.UU
 	// ==================== CUSTOMER SECTION ====================
 	yPos := 70.0
 	drawBox(20, yPos, 170, 30, borderColor, borderColor, borderColor)
-	
+
 	if isRTL {
 		writeText("معلومات العميل", 25, yPos+5, 14.0, true, textDark, textDark, textDark)
 		writeText(fmt.Sprintf("الاسم: %s", req.CustomerName), 25, yPos+15, 12.0, false, textMedium, textMedium, textMedium)
@@ -637,7 +663,7 @@ func (s *Service) GeneratePaymentReceipt(ctx context.Context, customerID uuid.UU
 	// Table header
 	pdf.SetFillColor(primaryColor, secondaryColor, accentColor)
 	pdf.Rect(20, yPos, 170, 15, "F")
-	
+
 	if isRTL {
 		writeText("تفاصيل الدفعة", 95, yPos+5, 14.0, true, 255, 255, 255)
 	} else {
@@ -693,7 +719,7 @@ func (s *Service) GeneratePaymentReceipt(ctx context.Context, customerID uuid.UU
 	// ==================== FOOTER SECTION ====================
 	yPos += 90
 	drawBox(20, yPos, 170, 25, borderColor, borderColor, borderColor)
-	
+
 	if isRTL {
 		writeText("شكراً لتعاملكم معنا", 95, yPos+8, 12.0, true, textMedium, textMedium, textMedium)
 		writeText("PartFlow - نظام إدارة المتاجر", 95, yPos+18, 10.0, false, textLight, textLight, textLight)
@@ -705,7 +731,7 @@ func (s *Service) GeneratePaymentReceipt(ctx context.Context, customerID uuid.UU
 	// ==================== TERMS AND CONDITIONS ====================
 	yPos += 30
 	writeText("Terms & Conditions / الشروط والأحكام:", 20, yPos, 9.0, false, textLight, textLight, textLight)
-	
+
 	if isRTL {
 		writeText("• هذا الإيصال إثبات للدفعة المسجلة", 20, yPos+8, 8.0, false, textLight, textLight, textLight)
 		writeText("• يرجى الاحتفاظ به للمراجعة", 20, yPos+16, 8.0, false, textLight, textLight, textLight)

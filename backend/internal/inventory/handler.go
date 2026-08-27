@@ -498,8 +498,8 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 		ProductID       *uuid.UUID `json:"product_id"`
 		ProductName     string     `json:"product_name"`
 		PartTypeID      *uuid.UUID `json:"part_type_id"`
-		PurchaseCost    int64      `json:"purchase_cost" binding:"required"`
-		SellingPrice    int64      `json:"selling_price"`
+		PurchaseCost    float64    `json:"purchase_cost" binding:"required"`
+		SellingPrice    float64    `json:"selling_price"`
 		Notes           *string    `json:"notes"`
 		Specifications  []struct {
 			SpecificationID uuid.UUID  `json:"specification_id"`
@@ -575,7 +575,7 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 
 	// Default selling price if not provided (50% markup)
 	if req.SellingPrice == 0 {
-		req.SellingPrice = req.PurchaseCost * 150 / 100
+		req.SellingPrice = req.PurchaseCost * 1.5
 	}
 
 	// Create inventory item request
@@ -591,8 +591,8 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 		PartTypeID:   req.PartTypeID,
 		Condition:    ConditionUsed,
 		Grade:        &grade,
-		PurchaseCost: float64(req.PurchaseCost),
-		SellingPrice: float64(req.SellingPrice),
+		PurchaseCost: req.PurchaseCost,
+		SellingPrice: req.SellingPrice,
 		Status:       StatusAvailable,
 		Notes:        req.Notes,
 	}

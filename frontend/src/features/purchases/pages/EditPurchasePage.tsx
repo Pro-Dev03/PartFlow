@@ -8,23 +8,19 @@ import { Badge } from '../../../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Modal } from '../../../components/ui/modal';
+import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { Product, Supplier, Category } from '../../../types/models';
 import {
   Search,
-  Plus,
   Scan,
   Trash2,
   ShoppingCart,
-  Calendar,
   Truck,
   CheckCircle2,
-  AlertCircle,
   Package,
-  Barcode,
   FileText,
-  ArrowRight,
   Save,
   Sparkles,
-  Tag,
   DollarSign,
   Box,
   Edit,
@@ -32,6 +28,7 @@ import {
 import { purchasesApi, suppliersApi, productsApi, categoriesApi } from '../../../services/api/endpoints';
 import { usePurchases } from '../hooks/usePurchases';
 import { PurchaseItem } from '../types/purchases.types';
+import { toast } from 'sonner';
 
 interface LineItem extends PurchaseItem {
   key: string;
@@ -51,6 +48,7 @@ export function EditPurchasePage() {
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
   const [receiveImmediately, setReceiveImmediately] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   
   // Manual product addition states
   const [isManualProductModalOpen, setIsManualProductModalOpen] = useState(false);
@@ -126,17 +124,17 @@ export function EditPurchasePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      alert('تم حذف المنتج بنجاح');
+      toast.success('تم حذف المنتج بنجاح');
     },
     onError: (error) => {
       console.error('Error deleting product:', error);
-      alert('حدث خطأ أثناء حذف المنتج');
+      toast.error('حدث خطأ أثناء حذف المنتج');
     },
   });
 
-  const searchedProducts = (productsData?.data?.products as any[]) || [];
-  const suppliers = (suppliersData?.data as any[]) || [];
-  const categories = (categoriesData?.data as any[]) || [];
+  const searchedProducts = (productsData?.data?.products as Product[]) || [];
+  const suppliers = (suppliersData?.data as Supplier[]) || [];
+  const categories = (categoriesData?.data as Category[]) || [];
 
   const { updatePurchaseMutation, receivePurchaseMutation } = usePurchases();
 
@@ -155,9 +153,9 @@ export function EditPurchasePage() {
         setItems(purchase.items.map((item: any, index: number) => ({
           key: `${item.product_id}-${index}`,
           product_id: item.product_id,
-          product_name: item.product_name || item.product?.name,
-          quantity: item.quantity,
-          unit_cost: item.unit_cost,
+          product_name: item.product_name || item.product?.name || '',
+          quantity: Number(item.quantity) || 0,
+          unit_cost: Number(item.unit_cost) || 0,
           condition: item.condition || 'new',
         })));
       }
@@ -259,17 +257,17 @@ export function EditPurchasePage() {
 
   const handleManualProductCreate = useCallback(async () => {
     if (!manualProductData.name.trim()) {
-      alert('يرجى إدخال اسم المنتج');
+      toast.error('يرجى إدخال اسم المنتج');
       return;
     }
     const costPrice = parseFloat(manualProductData.cost_price.toString());
     if (!costPrice || costPrice <= 0) {
-      alert('يرجى إدخال سعر التكلفة');
+      toast.error('يرجى إدخال سعر التكلفة');
       return;
     }
     const sellingPrice = parseFloat(manualProductData.selling_price.toString());
     if (!sellingPrice || sellingPrice <= 0) {
-      alert('يرجى إدخال سعر البيع');
+      toast.error('يرجى إدخال سعر البيع');
       return;
     }
 
@@ -289,11 +287,11 @@ export function EditPurchasePage() {
 
   const handleUpdatePurchase = useCallback(async () => {
     if (!selectedSupplier) {
-      alert('يرجى اختيار المورد');
+      toast.error('يرجى اختيار المورد');
       return;
     }
     if (items.length === 0) {
-      alert('يرجى إضافة عناصر للشراء');
+      toast.error('يرجى إضافة عناصر للشراء');
       return;
     }
 
@@ -462,15 +460,15 @@ export function EditPurchasePage() {
 
               {/* Scan Tab */}
               {activeTab === 'scan' ? (
-                <form onSubmit={handleBarcodeScan} className="flex gap-2">
+                <form onSubmit={handleBarcodeScan} className="pf-barcode-row">
                   <Input
                     placeholder="امسح الباركود أو اكتب الرقم..."
                     value={barcodeInput}
                     onChange={(e) => setBarcodeInput(e.target.value)}
-                    className="flex-1"
+                    className="min-w-0 flex-1"
                     autoFocus
                   />
-                  <Button type="submit" variant="primary">
+                  <Button type="submit" variant="primary" className="pf-barcode-submit">
                     <Scan className="w-4 h-4" />
                   </Button>
                 </form>
@@ -523,12 +521,10 @@ export function EditPurchasePage() {
                                 size="sm"
                                 onClick={() => {
                                   if (product.sales_count > 0) {
-                                    alert('لا يمكن حذف هذا المنتج لأنه تم بيعه مسبقاً. يمكن حذف المنتجات التي لم يتم بيعها فقط.');
+                                    toast.error('لا يمكن حذف هذا المنتج لأنه تم بيعه مسبقاً. يمكن حذف المنتجات التي لم يتم بيعها فقط.');
                                     return;
                                   }
-                                  if (confirm('هل أنت متأكد من حذف هذا المنتج نهائياً؟ هذا الإجراء لا يمكن التراجع عنه.')) {
-                                    deleteProductMutation.mutate(product.id);
-                                  }
+                                  setProductToDelete(product);
                                 }}
                                 className={product.sales_count > 0 ? "text-gray-400 cursor-not-allowed" : "text-red-600 hover:text-red-700"}
                                 title={product.sales_count > 0 ? "لا يمكن حذف منتج تم بيعه" : "حذف المنتج نهائياً"}
@@ -620,7 +616,7 @@ export function EditPurchasePage() {
                                 size="sm"
                                 onClick={() => {
                                   // Edit functionality - could open a modal to edit item details
-                                  alert('تعديل العنصر - يمكن إضافة modal لتعديل التفاصيل');
+                                  toast.info('تعديل العنصر - يمكن إضافة modal لتعديل التفاصيل');
                                 }}
                                 className="text-blue-600 hover:text-blue-700"
                               >
@@ -1092,6 +1088,21 @@ export function EditPurchasePage() {
           </div>
         </div>
       </Modal>
+      <ConfirmDialog
+        isOpen={productToDelete !== null}
+        onClose={() => setProductToDelete(null)}
+        onConfirm={() => {
+          if (productToDelete) {
+            deleteProductMutation.mutate(productToDelete.id);
+          }
+          setProductToDelete(null);
+        }}
+        title="حذف المنتج"
+        message="هل أنت متأكد من حذف هذا المنتج نهائياً؟ هذا الإجراء لا يمكن التراجع عنه."
+        confirmText="حذف المنتج"
+        isLoading={deleteProductMutation.isPending}
+        variant="danger"
+      />
     </div>
   );
 }

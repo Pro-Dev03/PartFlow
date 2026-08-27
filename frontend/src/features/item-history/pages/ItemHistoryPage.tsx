@@ -10,12 +10,9 @@ import {
   Package,
   ShoppingCart,
   CheckCircle,
-  XCircle,
   AlertTriangle,
   ArrowRight,
-  Calendar,
   DollarSign,
-  User,
   Barcode,
   TrendingUp,
   Clock,
@@ -44,7 +41,7 @@ export function ItemHistoryPage() {
     enabled: !!itemId,
   });
 
-  const history = historyData as any;
+  const history = (historyData as any)?.data ?? historyData;
 
   if (isLoading) {
     return (

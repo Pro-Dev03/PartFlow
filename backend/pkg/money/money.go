@@ -14,33 +14,31 @@ const (
 	EUR Currency = "EUR"
 )
 
-// Money represents a monetary amount using integer minor units
+// Money represents a monetary amount in shekels (float64)
 type Money struct {
-	Amount   int64   // Amount in minor units (e.g., cents/agarot)
+	Amount   float64  // Amount in shekels
 	Currency Currency
 }
 
 // NewMoney creates a new Money instance
-func NewMoney(amount int64, currency Currency) Money {
+func NewMoney(amount float64, currency Currency) Money {
 	return Money{
 		Amount:   amount,
 		Currency: currency,
 	}
 }
 
-// NewFromFloat creates Money from float (for compatibility, not recommended)
+// NewFromFloat creates Money from float (shekels)
 func NewFromFloat(amount float64, currency Currency) Money {
-	// Convert to minor units (multiply by 100 for 2 decimal places)
-	minorUnits := int64(amount * 100)
 	return Money{
-		Amount:   minorUnits,
+		Amount:   amount,
 		Currency: currency,
 	}
 }
 
-// ToFloat converts Money to float (for display purposes)
+// ToFloat converts Money to float (shekels)
 func (m Money) ToFloat() float64 {
-	return float64(m.Amount) / 100
+	return m.Amount
 }
 
 // ToDecimal converts Money to decimal string
@@ -72,18 +70,16 @@ func (m Money) Sub(other Money) (Money, error) {
 
 // Mul multiplies Money by a factor
 func (m Money) Mul(factor float64) Money {
-	result := int64(float64(m.Amount) * factor)
 	return Money{
-		Amount:   result,
+		Amount:   m.Amount * factor,
 		Currency: m.Currency,
 	}
 }
 
 // Div divides Money by a divisor
 func (m Money) Div(divisor float64) Money {
-	result := int64(float64(m.Amount) / divisor)
 	return Money{
-		Amount:   result,
+		Amount:   m.Amount / divisor,
 		Currency: m.Currency,
 	}
 }
@@ -144,15 +140,15 @@ func (m Money) LessThan(other Money) (bool, error) {
 	return cmp == -1, nil
 }
 
-// ToBigInt converts Amount to big.Int for precise calculations
+// ToBigInt converts Amount to big.Int for precise calculations (in agorot for compatibility)
 func (m Money) ToBigInt() *big.Int {
-	return big.NewInt(m.Amount)
+	return big.NewInt(int64(m.Amount * 100))
 }
 
-// FromBigInt creates Money from big.Int
+// FromBigInt creates Money from big.Int (in agorot)
 func FromBigInt(amount *big.Int, currency Currency) Money {
 	return Money{
-		Amount:   amount.Int64(),
+		Amount:   float64(amount.Int64()) / 100,
 		Currency: currency,
 	}
 }

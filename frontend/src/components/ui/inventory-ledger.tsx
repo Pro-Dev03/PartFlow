@@ -1,11 +1,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { Badge } from './badge';
-import { cn } from '../../utils';
 
-interface Movement {
+export interface InventoryMovement {
   id: string;
   date: string;
-  type: 'PURCHASE' | 'SALE' | 'RETURN' | 'ADJUSTMENT' | 'TRANSFER' | 'DAMAGE' | 'REPAIR' | 'RESERVATION' | 'RELEASE';
+  type: 'PURCHASE' | 'SALE' | 'RETURN' | 'ADJUSTMENT' | 'TRANSFER' | 'DAMAGE' | 'REPAIR' | 'RESERVATION' | 'RELEASE' |
+    'REVERSE_PURCHASE' | 'REVERSE_SALE' | 'REVERSE_RETURN';
   quantity: number;
   beforeQuantity: number;
   afterQuantity: number;
@@ -16,13 +16,21 @@ interface Movement {
 }
 
 interface InventoryLedgerProps {
-  movements: Movement[];
+  movements: InventoryMovement[];
   title?: string;
   currentStock?: number;
+  isLoading?: boolean;
+  error?: string | null;
 }
 
-export function InventoryLedger({ movements, title = 'سجل حركات المخزون', currentStock }: InventoryLedgerProps) {
-  const getMovementIcon = (type: Movement['type']) => {
+export function InventoryLedger({
+  movements,
+  title = 'سجل حركات المخزون',
+  currentStock,
+  isLoading = false,
+  error = null,
+}: InventoryLedgerProps) {
+  const getMovementIcon = (type: InventoryMovement['type']) => {
     switch (type) {
       case 'PURCHASE':
         return '📥';
@@ -47,28 +55,7 @@ export function InventoryLedger({ movements, title = 'سجل حركات المخ
     }
   };
 
-  const getMovementColor = (type: Movement['type']) => {
-    switch (type) {
-      case 'PURCHASE':
-      case 'RETURN':
-        return 'text-green';
-      case 'SALE':
-      case 'DAMAGE':
-        return 'text-red';
-      case 'ADJUSTMENT':
-      case 'TRANSFER':
-        return 'text-yellow';
-      case 'REPAIR':
-        return 'text-blue';
-      case 'RESERVATION':
-      case 'RELEASE':
-        return 'text-purple';
-      default:
-        return 'text-text';
-    }
-  };
-
-  const getMovementBadge = (type: Movement['type']) => {
+  const getMovementBadge = (type: InventoryMovement['type']) => {
     switch (type) {
       case 'PURCHASE':
         return { label: 'شراء', variant: 'success' as const };
@@ -111,6 +98,22 @@ export function InventoryLedger({ movements, title = 'سجل حركات المخ
         </div>
       </CardHeader>
       <CardContent>
+        {isLoading && (
+          <div className="py-8 text-center text-sm text-text-muted" role="status">
+            جار تحميل حركات المخزون...
+          </div>
+        )}
+        {!isLoading && error && (
+          <div className="py-8 text-center text-sm text-danger" role="alert">
+            {error}
+          </div>
+        )}
+        {!isLoading && !error && movements.length === 0 && (
+          <div className="py-8 text-center text-sm text-text-muted">
+            لا توجد حركات مخزون لهذا المنتج حتى الآن.
+          </div>
+        )}
+        {!isLoading && !error && movements.length > 0 && (
         <div style={{ position: 'relative', paddingLeft: '24px' }}>
           {/* Timeline Line */}
           <div style={{
@@ -125,7 +128,7 @@ export function InventoryLedger({ movements, title = 'سجل حركات المخ
 
           {/* Timeline Items */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {movements.map((movement, index) => {
+            {movements.map((movement) => {
               const badge = getMovementBadge(movement.type);
               return (
                 <div key={movement.id} style={{ position: 'relative' }}>
@@ -198,6 +201,7 @@ export function InventoryLedger({ movements, title = 'سجل حركات المخ
             })}
           </div>
         </div>
+        )}
       </CardContent>
     </Card>
   );

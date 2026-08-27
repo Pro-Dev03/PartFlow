@@ -1,7 +1,6 @@
 import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { SearchInput } from '../../../components/ui/search-input';
-import { getButtonSize } from '../../../config/button-sizes';
 import { ArrowUpDown, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface CustomerFiltersProps {
@@ -27,8 +26,8 @@ export function CustomerFilters({
     <Card>
       <CardContent>
         <div style={{ padding: '18px' }}>
-          <div className="flex flex-col md:flex-row gap-md">
-            <div className="flex-1">
+          <div className="pf-search-row flex-col md:flex-row">
+            <div className="min-w-0 flex-1">
               <SearchInput
                 placeholder="ابحث بالاسم أو رقم الهاتف..."
                 value={searchQuery}
@@ -38,7 +37,7 @@ export function CustomerFilters({
                 className="w-full md:w-[500px] lg:w-[600px]"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="pf-search-controls flex flex-wrap gap-2">
               <Button 
                 variant="secondary"
                 onClick={onSortName}

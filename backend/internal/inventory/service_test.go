@@ -137,11 +137,17 @@ func TestIsValidStatusTransition(t *testing.T) {
 			newStatus:     StatusPurchased,
 			want:         false,
 		},
+		{
+			name:         "same status is allowed as no-op",
+			currentStatus: StatusAvailable,
+			newStatus:     StatusAvailable,
+			want:         true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isValidStatusTransition(tt.currentStatus, tt.newStatus); got != tt.want {
+			if got := isValidStatusTransition(string(tt.currentStatus), string(tt.newStatus)); got != tt.want {
 				t.Errorf("isValidStatusTransition() = %v, want %v", got, tt.want)
 			}
 		})
@@ -161,7 +167,7 @@ func TestGenerateItemCode(t *testing.T) {
 
 func TestGenerateBarcode(t *testing.T) {
 	productID := uuid.New()
-	barcode := generateBarcode(productID)
+	barcode := generateBarcode(&productID, nil)
 
 	if barcode == "" {
 		t.Error("generateBarcode() returned empty string")
@@ -176,22 +182,27 @@ func TestInventoryItemRequest(t *testing.T) {
 	productID := uuid.New()
 	locationID := uuid.New()
 	supplierID := uuid.New()
+	itemCode := "ITEM-001"
+	barcode := "BAR-001"
+	serialNumber := "SN-001"
+	notes := "Test item"
+	grade := GradeExcellent
 
 	req := InventoryItemRequest{
-		ProductID:     productID,
-		ItemCode:      "ITEM-001",
-		Barcode:       "BAR-001",
-		SerialNumber:  "SN-001",
+		ProductID:     &productID,
+		ItemCode:      &itemCode,
+		Barcode:       &barcode,
+		SerialNumber:  &serialNumber,
 		Condition:     ConditionNew,
-		Grade:         GradeExcellent,
+		Grade:         &grade,
 		PurchaseCost:  100.0,
 		SellingPrice:  150.0,
 		LocationID:    &locationID,
 		SupplierID:    &supplierID,
-		Notes:         "Test item",
+		Notes:         &notes,
 	}
 
-	if req.ProductID != productID {
+	if req.ProductID == nil || *req.ProductID != productID {
 		t.Errorf("InventoryItemRequest.ProductID = %v, want %v", req.ProductID, productID)
 	}
 
@@ -199,7 +210,7 @@ func TestInventoryItemRequest(t *testing.T) {
 		t.Errorf("InventoryItemRequest.Condition = %v, want %v", req.Condition, ConditionNew)
 	}
 
-	if req.Grade != GradeExcellent {
+	if req.Grade == nil || *req.Grade != GradeExcellent {
 		t.Errorf("InventoryItemRequest.Grade = %v, want %v", req.Grade, GradeExcellent)
 	}
 }
@@ -207,19 +218,20 @@ func TestInventoryItemRequest(t *testing.T) {
 func TestReservationRequest(t *testing.T) {
 	itemID := uuid.New()
 	customerID := uuid.New()
+	notes := "Test reservation"
 
 	req := ReservationRequest{
 		ItemID:      itemID,
-		CustomerID:  customerID,
+		CustomerID:  &customerID,
 		ExpiresIn:   60,
-		Notes:       "Test reservation",
+		Notes:       &notes,
 	}
 
 	if req.ItemID != itemID {
 		t.Errorf("ReservationRequest.ItemID = %v, want %v", req.ItemID, itemID)
 	}
 
-	if req.CustomerID != customerID {
+	if req.CustomerID == nil || *req.CustomerID != customerID {
 		t.Errorf("ReservationRequest.CustomerID = %v, want %v", req.CustomerID, customerID)
 	}
 
@@ -230,12 +242,14 @@ func TestReservationRequest(t *testing.T) {
 
 func TestAdjustmentRequest(t *testing.T) {
 	itemID := uuid.New()
+	newStatus := "AVAILABLE"
+	reason := "Stock adjustment"
 
 	req := AdjustmentRequest{
 		ItemID:     itemID,
 		NewQuantity: 5,
-		NewStatus:  "AVAILABLE",
-		Reason:     "Stock adjustment",
+		NewStatus:  &newStatus,
+		Reason:     &reason,
 	}
 
 	if req.ItemID != itemID {
@@ -246,7 +260,7 @@ func TestAdjustmentRequest(t *testing.T) {
 		t.Errorf("AdjustmentRequest.NewQuantity = %v, want 5", req.NewQuantity)
 	}
 
-	if req.Reason != "Stock adjustment" {
+	if req.Reason == nil || *req.Reason != "Stock adjustment" {
 		t.Errorf("AdjustmentRequest.Reason = %v, want 'Stock adjustment'", req.Reason)
 	}
 }
@@ -255,12 +269,13 @@ func TestTransferRequest(t *testing.T) {
 	itemID := uuid.New()
 	fromLocationID := uuid.New()
 	toLocationID := uuid.New()
+	reason := "Stock transfer"
 
 	req := TransferRequest{
 		ItemID:        itemID,
 		FromLocationID: fromLocationID,
 		ToLocationID:  toLocationID,
-		Reason:        "Stock transfer",
+		Reason:        &reason,
 	}
 
 	if req.ItemID != itemID {

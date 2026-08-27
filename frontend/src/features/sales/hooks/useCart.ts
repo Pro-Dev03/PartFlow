@@ -2,54 +2,61 @@ import { useState, useCallback } from 'react';
 import { CartItem } from '../types/pos.types';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
 
+export function normalizePosPrice(...values: unknown[]): number {
+  const value = values.find((candidate) => candidate !== undefined && candidate !== null && candidate !== '');
+  const numericValue = typeof value === 'number' ? value : Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return 0;
+  }
+
+  return numericValue;
+}
+
 export function useCart(soundEnabled: boolean = true) {
   const [cart, setCart] = useState<CartItem[]>([]);
 
   const addToCart = useCallback((item: any) => {
-    const existingItem = cart.find((c) => c.barcode === item.barcode);
-    if (existingItem) {
-      setCart(cart.map((c) => 
-        c.barcode === item.barcode 
-          ? { ...c, quantity: c.quantity + 1, total: (c.quantity + 1) * c.price }
-          : c
-      ));
-      // Play sound for quantity increase
-      if (soundEnabled) {
-        playScanSound(true);
+    const price = normalizePosPrice(item.price, item.sellingPrice, item.selling_price);
+    const purchaseCost = normalizePosPrice(item.purchaseCost, item.costPrice, item.cost_price);
+    setCart((currentCart) => {
+      const existingItem = currentCart.find((c) => c.barcode === item.barcode);
+      if (existingItem) {
+        return currentCart.map((c) =>
+          c.barcode === item.barcode
+            ? { ...c, quantity: c.quantity + 1, total: (c.quantity + 1) * c.price }
+            : c
+        );
       }
-    } else {
-      setCart([...cart, {
+      return [...currentCart, {
         id: item.id,
         name: item.name,
         barcode: item.barcode,
-        price: item.price,
+        price,
         quantity: 1,
-        total: item.price,
+        total: price,
         stock: item.stock,
         isTradeIn: item.isTradeIn || item.condition === 'USED' || false,
-        purchaseCost: item.purchaseCost || 0,
+        purchaseCost,
         partType: item.partType,
         partTypeColor: item.partTypeColor,
         condition: item.condition,
         grade: item.grade,
-      }]);
-      // Play sound for new item
-      if (soundEnabled) {
-        playScanSound(true);
-      }
-    }
-  }, [cart, soundEnabled]);
+      }];
+    });
+    if (soundEnabled) playScanSound(true);
+  }, [soundEnabled]);
 
   const removeFromCart = useCallback((barcode: string) => {
-    setCart(cart.filter((item) => item.barcode !== barcode));
-  }, [cart]);
+    setCart((currentCart) => currentCart.filter((item) => item.barcode !== barcode));
+  }, []);
 
   const updateQuantity = useCallback((barcode: string, quantity: number) => {
     if (quantity <= 0) {
       removeFromCart(barcode);
       return;
     }
-    setCart(cart.map((item) =>
+    setCart((currentCart) => currentCart.map((item) =>
       item.barcode === barcode
         ? { ...item, quantity, total: quantity * item.price }
         : item

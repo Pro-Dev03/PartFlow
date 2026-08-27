@@ -19,7 +19,6 @@ import {
   Edit,
   Trash2,
   Calendar,
-  TrendingUp,
   Download,
   Printer
 } from 'lucide-react';

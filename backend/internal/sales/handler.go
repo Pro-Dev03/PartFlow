@@ -1,6 +1,7 @@
 package sales
 
 import (
+	stderrors "errors"
 	"strconv"
 	"time"
 
@@ -16,6 +17,57 @@ type Handler struct {
 
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
+}
+
+func (h *Handler) ListHeldSales(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		errors.HandleError(c, errors.NewUnauthorizedError("User not authenticated", nil))
+		return
+	}
+	held, err := h.service.ListHeldSales(c.Request.Context(), userID.(uuid.UUID))
+	if err != nil {
+		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve held sales"))
+		return
+	}
+	response.OK(c, held, "Held sales retrieved successfully")
+}
+
+func (h *Handler) HoldSale(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		errors.HandleError(c, errors.NewUnauthorizedError("User not authenticated", nil))
+		return
+	}
+	var req HoldSaleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errors.HandleError(c, errors.ValidateRequest(err))
+		return
+	}
+	held, err := h.service.HoldSale(c.Request.Context(), userID.(uuid.UUID), req.Items)
+	if err != nil {
+		errors.HandleError(c, errors.WrapError(err, "Failed to hold sale"))
+		return
+	}
+	response.Created(c, held, "Sale held successfully")
+}
+
+func (h *Handler) DeleteHeldSale(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		errors.HandleError(c, errors.NewUnauthorizedError("User not authenticated", nil))
+		return
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("invalid held sale id", err))
+		return
+	}
+	if err := h.service.DeleteHeldSale(c.Request.Context(), userID.(uuid.UUID), id); err != nil {
+		errors.HandleError(c, errors.WrapError(err, "Failed to delete held sale"))
+		return
+	}
+	response.OK(c, nil, "Held sale deleted successfully")
 }
 
 // CreateSale creates a new sale
@@ -45,6 +97,16 @@ func (h *Handler) CreateSale(c *gin.Context) {
 
 	sale, err := h.service.CreateSale(c.Request.Context(), userID.(uuid.UUID), &req)
 	if err != nil {
+		var stockErr *InsufficientStockError
+		if stderrors.As(err, &stockErr) {
+			message := "هذا النوع قد نفذ من المخزون"
+			if stockErr.ProductName != "" {
+				message = "هذا النوع قد نفذ من المخزون: " + stockErr.ProductName
+			}
+			errors.HandleError(c, errors.NewBusinessError(message, err))
+			return
+		}
+
 		switch err {
 		case ErrInsufficientStock:
 			errors.HandleError(c, errors.NewBusinessError("Insufficient stock for one or more products", err))
@@ -154,10 +216,10 @@ func (h *Handler) ListSales(c *gin.Context) {
 	}
 
 	response.OK(c, map[string]interface{}{
-		"sales":     sales,
-		"total":     total,
-		"page":      req.Page,
-		"per_page":  req.PerPage,
+		"sales":    sales,
+		"total":    total,
+		"page":     req.Page,
+		"per_page": req.PerPage,
 	}, "Sales retrieved successfully")
 }
 
@@ -401,9 +463,9 @@ func (h *Handler) ListTransactions(c *gin.Context) {
 
 	response.OK(c, map[string]interface{}{
 		"transactions": transactions,
-		"total":       total,
-		"page":        page,
-		"per_page":    perPage,
+		"total":        total,
+		"page":         page,
+		"per_page":     perPage,
 	}, "Transactions retrieved successfully")
 }
 

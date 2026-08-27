@@ -23,11 +23,36 @@ export function useDebts() {
     },
   });
 
-  const overdueCustomers = (overdueCustomersData?.data as any[]) || [];
+  const rawDebts = (overdueCustomersData?.data as any[]) || [];
+  const isFlatDebtResponse = rawDebts.some((entry) => entry?.customer_id && !entry?.debts);
+  const overdueCustomers = isFlatDebtResponse
+    ? rawDebts.map((debt: any) => ({
+        id: debt.customer_id,
+        name: debt.customer_name,
+        code: debt.customer_code || '',
+        phone: debt.customer_phone || '',
+        debts: [debt],
+      }))
+    : rawDebts;
 
   // Transform customer data to debt entries for display
   const debts = overdueCustomers.flatMap((customer: any) => {
-    return (customer.debts || []).map((debt: any) => ({
+    const customerDebts = customer.debts?.length
+      ? customer.debts
+      : customer.current_balance > 0
+        ? [{
+            id: `customer-balance-${customer.id}`,
+            customer_id: customer.id,
+            amount: customer.current_balance + (customer.paid_amount || 0),
+            paid_amount: customer.paid_amount || 0,
+            remaining_amount: customer.current_balance,
+            due_date: new Date().toISOString(),
+            status: 'overdue',
+            created_at: new Date().toISOString(),
+          }]
+        : [];
+
+    return customerDebts.map((debt: any) => ({
       ...debt,
       dueDate: debt.due_date, // Map due_date to dueDate for consistency
       remainingAmount: debt.remaining_amount, // Map remaining_amount to remainingAmount
@@ -43,7 +68,7 @@ export function useDebts() {
   // Calculate stats
   const stats: DebtStats = {
     totalDebt: debts.reduce((sum, debt) => sum + (debt.amount || 0), 0),
-    paidAmount: debts.reduce((sum, debt) => sum + ((debt.amount || 0) - (debt.remaining_amount || 0)), 0),
+    paidAmount: overdueCustomers.reduce((sum, customer) => sum + (customer.paid_amount || 0), 0),
     remainingAmount: debts.reduce((sum, debt) => sum + (debt.remaining_amount || 0), 0),
     overdueCount: debts.filter((debt) => debt.status === 'overdue').length,
     customerCount: overdueCustomers.length,

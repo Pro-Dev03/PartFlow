@@ -174,6 +174,7 @@ export function getFileNameFromUrl(url: string): string {
 }
 
 // Check if device is mobile
+// Note: These functions are kept for backward compatibility but use useIsMobile hook in components
 export function isMobile(): boolean {
   return window.innerWidth < 768;
 }
@@ -195,8 +196,14 @@ export function formatPrice(value: number | string | undefined | null, fallback:
   return `₪${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-// Format price from cents (divides by 100)
+export function normalizeCurrencyValue(value: number | string | undefined | null): number {
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (num === undefined || num === null || Number.isNaN(num)) return 0;
+  return num;
+}
+
+// Format price from cents (safe fallback for mixed legacy data)
 export function formatPriceFromCents(value: number | undefined | null, fallback: string = '₪0'): string {
   if (value === undefined || value === null || isNaN(value)) return fallback;
-  return `₪${(value / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatPrice(normalizeCurrencyValue(value), fallback);
 }

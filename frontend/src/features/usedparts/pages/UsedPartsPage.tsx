@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { inventoryApi, partTypesApi, customersApi, productsApi, barcodeApi, acquisitionsApi } from '../../../services/api/endpoints';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { inventoryApi, partTypesApi, customersApi, productsApi, barcodeApi, acquisitionsApi, inspectionsApi } from '../../../services/api/endpoints';
+import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { SearchInput } from '../../../components/ui/search-input';
@@ -10,14 +10,10 @@ import { Select } from '../../../components/ui/select';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
-import { getButtonSize } from '../../../config/button-sizes';
+import { toast } from 'sonner';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
 import {
   Plus,
-  Edit,
-  Trash2,
-  Search,
-  Filter,
   Layers,
   Package,
   Cpu,
@@ -60,8 +56,7 @@ export function UsedPartsPage() {
   // Barcode scanner state
   const [barcodeInput, setBarcodeInput] = useState('');
   const [inputMethod, setInputMethod] = useState<'barcode' | 'manual' | 'camera'>('barcode');
-  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundEnabled] = useState(true);
 
   const handleClearSearch = () => {
     setSearchQuery('');
@@ -70,6 +65,11 @@ export function UsedPartsPage() {
   const { data: inventoryData, isLoading } = useQuery({
     queryKey: ['inventory'],
     queryFn: () => inventoryApi.list({ page: 1, per_page: 100 }),
+  });
+
+  const { data: inspectionsData } = useQuery({
+    queryKey: ['inspections'],
+    queryFn: () => inspectionsApi.list({ page: 1, per_page: 100 }),
   });
 
   const { data: partTypesData, error: partTypesError, isLoading: partTypesLoading } = useQuery({
@@ -88,10 +88,19 @@ export function UsedPartsPage() {
     queryFn: () => productsApi.list({ page: 1, per_page: 100 }),
   });
 
-  const inventoryItems = Array.isArray(inventoryData?.data) ? inventoryData.data : [];
+  const inventoryItems = Array.isArray(inventoryData?.data)
+    ? inventoryData.data
+    : Array.isArray(inventoryData?.data?.items)
+      ? inventoryData.data.items
+      : [];
   const partTypes = Array.isArray(partTypesData?.data) ? partTypesData.data : [];
   const customers = Array.isArray(customersData?.data) ? customersData.data : [];
   const products = Array.isArray(productsData?.data?.products) ? productsData.data.products : [];
+  const inspections = Array.isArray(inspectionsData?.data?.items)
+    ? inspectionsData.data.items
+    : Array.isArray(inspectionsData?.data)
+      ? inspectionsData.data
+      : [];
 
   // Handle part types error gracefully
   if (partTypesError) {
@@ -105,12 +114,12 @@ export function UsedPartsPage() {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['acquisitions'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      alert('تم شراء القطعة المستعملة بنجاح!');
+      toast.success('تم شراء القطعة المستعملة بنجاح!');
       handleCancelAcquisition();
     },
     onError: (error) => {
       console.error('Acquisition failed:', error);
-      alert('فشل شراء القطعة المستعملة');
+      toast.error('فشل شراء القطعة المستعملة');
     },
   });
 
@@ -141,17 +150,12 @@ export function UsedPartsPage() {
     }
   };
 
-  const handleCameraScan = (barcode: string) => {
-    setBarcodeInput(barcode);
-    handleBarcodeScan(new Event('submit') as any);
-  };
-
   // Acquisition handlers
   const handleSubmitAcquisition = async () => {
     const customerValue = isCustomerManual ? acquisitionCustomerManual : acquisitionCustomer;
 
     if (!customerValue || !acquisitionProduct || !acquisitionPrice) {
-      alert('يرجى ملء جميع الحقول المطلوبة');
+      toast.error('يرجى ملء جميع الحقول المطلوبة');
       return;
     }
 
@@ -200,24 +204,67 @@ export function UsedPartsPage() {
   const handleCompleteInspection = async (passed: boolean) => {
     if (!selectedItemForInspection) return;
 
-    const data = {
-      inspection_status: passed ? 'PASSED' : 'FAILED',
-      checks: inspectionChecks,
-      notes: inspectionNotes,
-    };
-
     try {
-      await acquisitionsApi.updateStatus(selectedItemForInspection.id, data.inspection_status);
+      const productExists = selectedItemForInspection.product_id
+        && products.some((product: any) => product.id === selectedItemForInspection.product_id);
+
+      {
+        const inspectionResponse = await inspectionsApi.create({
+          ...(productExists ? { product_id: selectedItemForInspection.product_id } : {}),
+          inventory_item_id: selectedItemForInspection.id,
+          serial_number: selectedItemForInspection.serial_number || '',
+          inspection_date: new Date().toISOString(),
+          condition: 'good',
+          grade: ['A', 'B', 'C', 'D', 'F'].includes(selectedItemForInspection.grade)
+            ? selectedItemForInspection.grade
+            : 'C',
+          notes: inspectionNotes,
+          test_results: {
+            power_test: inspectionChecks.includes('التشغيل يعمل'),
+            temperature_test: inspectionChecks.includes('الحرارة طبيعية'),
+            performance_test: inspectionChecks.includes('الأداء جيد'),
+            visual_test: inspectionChecks.includes('الحالة الخارجية جيدة'),
+            ports_test: inspectionChecks.includes('المكونات سليمة'),
+            storage_test: inspectionChecks.includes('لا توجد أضرار واضحة'),
+          },
+        });
+        const inspectionId = inspectionResponse?.data?.inspection?.id || inspectionResponse?.inspection?.id;
+        if (!inspectionId) throw new Error('لم يتم إنشاء سجل الفحص');
+        await (passed ? inspectionsApi.pass(inspectionId) : inspectionsApi.fail(inspectionId));
+      }
+
+      await inventoryApi.updateStatus(
+        selectedItemForInspection.id,
+        passed ? 'AVAILABLE' : 'DAMAGED'
+      );
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['acquisitions'] });
       queryClient.invalidateQueries({ queryKey: ['inspections'] });
-      alert(passed ? 'اجتازت القطعة الفحص بنجاح!' : 'فشلت القطعة في الفحص');
+      toast.success(passed ? 'اجتازت القطعة الفحص بنجاح!' : 'فشلت القطعة في الفحص');
       setIsInspectionModalOpen(false);
       setSelectedItemForInspection(null);
+      if (passed) navigate('/app/usedparts/stock');
     } catch (error) {
       console.error('Inspection failed:', error);
-      alert('فشل تحديث حالة الفحص');
+      toast.error('فشل تحديث حالة الفحص');
     }
+  };
+
+  const handleSellItem = (item: any) => {
+    navigate('/app/sales', {
+      state: {
+        usedPart: {
+          id: item.id,
+          name: item.product_name || item.product?.name || 'قطعة مستعملة',
+          barcode: item.serial_number || item.barcode || item.id,
+          price: item.selling_price,
+          stock: 1,
+          condition: item.condition,
+          purchaseCost: item.purchase_cost,
+          isTradeIn: true,
+        },
+      },
+    });
   };
 
   const toggleInspectionCheck = (checkName: string) => {
@@ -233,8 +280,9 @@ export function UsedPartsPage() {
   };
 
   // Filter used parts only
-  const usedParts = inventoryItems.filter((item: any) => 
-    item.condition === 'USED' && item.status === 'AVAILABLE'
+  const usedParts = inventoryItems.filter((item: any) =>
+    String(item.condition || '').toUpperCase() === 'USED' &&
+    String(item.status || '').toUpperCase() === 'AVAILABLE'
   );
 
   // Filter by search and part type
@@ -248,7 +296,24 @@ export function UsedPartsPage() {
     return matchesSearch && matchesType;
   });
 
-  const getIconComponent = (iconName: string) => {
+  const formatCurrency = (value: number) => `₪${new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value)}`;
+
+  const totalPurchaseValue = usedParts.reduce((sum: number, item: any) => {
+    const cost = Number(item.purchase_cost ?? item.unit_cost ?? item.cost_price ?? item.cost ?? 0);
+    return sum + cost;
+  }, 0);
+
+  const totalSellingValue = usedParts.reduce((sum: number, item: any) => {
+    const price = Number(item.selling_price ?? item.price ?? item.sale_price ?? 0);
+    return sum + price;
+  }, 0);
+
+  const estimatedProfit = totalSellingValue - totalPurchaseValue;
+
+  const getIconComponent = (_iconName: string) => {
     return <Layers className="w-4 h-4" />;
   };
 
@@ -264,48 +329,24 @@ export function UsedPartsPage() {
         title="القطع المستعملة"
         description="إدارة القطع المستعملة ومواصفاتها"
         actions={
-          <button
-            onClick={() => setIsAcquisitionModalOpen(true)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              padding: '10px 16px',
-              borderRadius: '12px',
-              background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)',
-              border: '1px solid var(--primary)',
-              color: 'var(--text-on-primary)',
-              fontSize: '13px',
-              fontWeight: '600',
-              letterSpacing: '0.2px',
-              cursor: 'pointer',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              boxShadow: '0 4px 20px rgba(99, 102, 241, 0.3), 0 1px 3px rgba(99, 102, 241, 0.1)',
-              position: 'relative',
-              overflow: 'hidden'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'linear-gradient(135deg, var(--primary-hover) 0%, var(--primary) 100%)';
-              e.currentTarget.style.borderColor = 'var(--primary-hover)';
-              e.currentTarget.style.boxShadow = '0 8px 30px rgba(99, 102, 241, 0.4), 0 2px 8px rgba(99, 102, 241, 0.2)';
-              e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)';
-              e.currentTarget.style.borderColor = 'var(--primary)';
-              e.currentTarget.style.boxShadow = '0 4px 20px rgba(99, 102, 241, 0.3), 0 1px 3px rgba(99, 102, 241, 0.1)';
-              e.currentTarget.style.transform = 'translateY(0) scale(1)';
-            }}
-          >
-            <Plus className="w-4 h-4" style={{ position: 'relative', zIndex: 1 }} />
-            <span style={{ position: 'relative', zIndex: 1 }}>شراء قطعة مستعملة</span>
-          </button>
+          <div className="flex flex-col gap-2">
+            <Button variant="primary" onClick={() => setIsAcquisitionModalOpen(true)}>
+              <Plus className="w-4 h-4" />
+              شراء قطعة مستعملة
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => navigate('/app/usedparts/stock')}
+            >
+              <Layers className="w-4 h-4" />
+              مخزون القطع المستعملة
+            </Button>
+          </div>
         }
       />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -326,10 +367,21 @@ export function UsedPartsPage() {
                 <Package className="w-5 h-5 text-green" />
               </div>
               <div>
-                <p className="text-sm text-gray-400">قيمة المخزون</p>
-                <p className="text-2xl font-bold">
-                  ₪{usedParts.reduce((sum: number, item: any) => sum + (item.selling_price / 100), 0).toFixed(0)}
-                </p>
+                <p className="text-sm text-gray-400">قيمة البيع</p>
+                <p className="text-2xl font-bold">{formatCurrency(totalSellingValue)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-orange/10">
+                <ShoppingCart className="w-5 h-5 text-orange" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-400">قيمة الشراء</p>
+                <p className="text-2xl font-bold">{formatCurrency(totalPurchaseValue)}</p>
               </div>
             </div>
           </CardContent>
@@ -341,8 +393,8 @@ export function UsedPartsPage() {
                 <Cpu className="w-5 h-5 text-purple" />
               </div>
               <div>
-                <p className="text-sm text-gray-400">أنواع القطع</p>
-                <p className="text-2xl font-bold">{partTypes.length}</p>
+                <p className="text-sm text-gray-400">الربح المتوقع</p>
+                <p className="text-2xl font-bold text-green-500">{formatCurrency(estimatedProfit)}</p>
               </div>
             </div>
           </CardContent>
@@ -438,8 +490,8 @@ export function UsedPartsPage() {
             </div>
             
             <form onSubmit={handleBarcodeScan} className="mt-3">
-              <div className="flex gap-2 items-stretch">
-                <div className="flex-1 relative flex items-center">
+              <div className="pf-search-row flex gap-2 items-stretch">
+                <div className="min-w-0 flex-1 relative flex items-center">
                   <div className="w-full">
                     <Input
                       id="barcode-input"
@@ -450,7 +502,7 @@ export function UsedPartsPage() {
                     />
                   </div>
                 </div>
-                <Button type="submit" size="sm" className="px-4">
+                <Button type="submit" size="sm" className="shrink-0 px-4">
                   إضافة
                 </Button>
               </div>
@@ -462,8 +514,8 @@ export function UsedPartsPage() {
       {/* Search and Filters */}
       <Card className="mb-4 border border-[var(--border-default)] bg-[var(--card-bg)] shadow-sm">
         <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-3 items-stretch">
-            <div className="flex-1">
+          <div className="pf-search-row flex flex-col md:flex-row gap-3 items-stretch">
+            <div className="min-w-0 flex-1">
               <SearchInput
                 placeholder="بحث عن قطعة..."
                 value={searchQuery}
@@ -507,7 +559,7 @@ export function UsedPartsPage() {
         </CardContent>
       </Card>
 
-      {/* Parts Grid */}
+      {/* Dedicated used-parts stock */}
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -520,7 +572,7 @@ export function UsedPartsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div id="used-parts-stock" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredParts.map((item: any) => {
             const partType = getPartType(item.part_type_id);
             return (
@@ -555,16 +607,16 @@ export function UsedPartsPage() {
                   <div className="space-y-2 mb-3">
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-400">اشتريت بـ:</span>
-                      <span>₪{(item.purchase_cost / 100).toFixed(2)}</span>
+                      <span>₪{item.purchase_cost.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-sm font-semibold">
                       <span className="text-gray-400">سعر البيع:</span>
-                      <span className="text-cyan">₪{(item.selling_price / 100).toFixed(2)}</span>
+                       <span className="text-cyan">₪{item.selling_price.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-400">الربح:</span>
                       <span className={item.selling_price > item.purchase_cost ? 'text-green' : 'text-red'}>
-                        ₪{((item.selling_price - item.purchase_cost) / 100).toFixed(2)}
+                         ₪{(item.selling_price - item.purchase_cost).toFixed(2)}
                       </span>
                     </div>
                   </div>
@@ -587,12 +639,17 @@ export function UsedPartsPage() {
                       variant="secondary"
                       size="sm"
                       className="flex-1"
-                      onClick={() => navigate(`/item-history/${item.id}`)}
+                      onClick={() => navigate(`/app/item-history/${item.id}`)}
                     >
                       <Clock className="w-3 h-3 mr-1" />
                       السجل
                     </Button>
-                    <Button variant="primary" size="sm" className="flex-1">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => handleSellItem(item)}
+                    >
                       بيع
                     </Button>
                   </div>

@@ -1,239 +1,239 @@
-import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
-import { Badge } from './badge';
-import { Button } from './button';
-import { 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  DollarSign, 
-  ShoppingCart, 
-  RotateCcw,
-  Calendar,
-  Filter
-} from 'lucide-react';
+import { ShoppingCart, DollarSign, RotateCcw, RefreshCw, AlertCircle } from 'lucide-react';
 
 export interface LedgerEntry {
   id: string;
-  transaction_type: string;
+  transaction_type?: string;
+  type?: string;
+  amount?: number;
+  balance?: number;
+  previous_balance?: number;
+  balance_after?: number;
+  description?: string;
+  created_at?: string;
+  date?: string;
+  status?: string;
+}
+
+export interface FinancialTransaction {
+  id: string;
+  type: string;
   amount: number;
-  balance: number;
-  previous_balance: number;
+  balance_after: number;
+  date: string;
   description: string;
-  created_at: string;
-  reference_id?: string;
-  reference_type?: string;
+  status: string;
 }
 
 interface FinancialTimelineProps {
-  entries: LedgerEntry[];
+  transactions?: FinancialTransaction[];
+  entries?: LedgerEntry[];
   loading?: boolean;
-  onLoadMore?: () => void;
   showBalance?: boolean;
+  currency?: string;
 }
 
-export function FinancialTimeline({ 
-  entries, 
-  loading = false, 
-  onLoadMore,
-  showBalance = true 
+export function FinancialTimeline({
+  transactions,
+  entries,
+  loading,
+  showBalance = true,
+  currency = '₪',
 }: FinancialTimelineProps) {
-  const [filter, setFilter] = useState<string>('all');
-
+  const normalizedTransactions = ((transactions && transactions.length > 0 ? transactions : (entries || []).map((entry) => {
+    const type = entry.transaction_type || entry.type || 'other';
+    const amount = Number(entry.amount ?? 0);
+    const balanceAfter = Number(entry.balance_after ?? entry.balance ?? entry.previous_balance ?? 0);
+    const dateValue = entry.date || entry.created_at || new Date().toISOString();
+    return {
+      id: String(entry.id || `${type}-${dateValue}`),
+      type,
+      amount,
+      balance_after: balanceAfter,
+      date: dateValue,
+      description: entry.description || 'حركة مالية',
+      status: entry.status || 'completed',
+    } satisfies FinancialTransaction;
+  })) || []) as FinancialTransaction[];
   const getTransactionIcon = (type: string) => {
     switch (type) {
-      case 'SALE':
-        return <ShoppingCart className="w-4 h-4" />;
-      case 'PAYMENT':
-        return <DollarSign className="w-4 h-4" />;
-      case 'RETURN':
-      case 'REFUND':
-        return <RotateCcw className="w-4 h-4" />;
+      case 'sale':
+      case 'debit':
+        return ShoppingCart;
+      case 'payment':
+      case 'credit':
+        return DollarSign;
+      case 'return':
+        return RotateCcw;
+      case 'refund':
+        return RefreshCw;
       default:
-        return <DollarSign className="w-4 h-4" />;
+        return AlertCircle;
     }
   };
 
-  const getTransactionLabel = (type: string) => {
+  const getTransactionColor = (type: string) => {
     switch (type) {
-      case 'SALE':
-        return 'بيع';
-      case 'PAYMENT':
-        return 'دفعة';
-      case 'RETURN':
-        return 'مرتجع';
-      case 'REFUND':
-        return 'استرجاع';
-      case 'ADJUSTMENT':
-        return 'تعديل';
+      case 'sale':
+      case 'debit':
+        return 'var(--color-info)';
+      case 'payment':
+      case 'credit':
+        return 'var(--color-success)';
+      case 'return':
+      case 'refund':
+        return 'var(--color-warning)';
       default:
-        return type;
+        return 'var(--color-text-secondary)';
     }
   };
 
-  const getTransactionVariant = (type: string): 'success' | 'danger' | 'warning' | 'secondary' => {
+  const getTransactionBackground = (type: string) => {
     switch (type) {
-      case 'SALE':
-        return 'danger'; // Customer owes money
-      case 'PAYMENT':
-        return 'success'; // Payment received
-      case 'RETURN':
-      case 'REFUND':
-        return 'warning';
+      case 'sale':
+      case 'debit':
+        return 'var(--color-info-10)';
+      case 'payment':
+      case 'credit':
+        return 'var(--color-success-10)';
+      case 'return':
+      case 'refund':
+        return 'var(--color-warning-10)';
       default:
-        return 'secondary';
+        return 'var(--color-surface-elevated)';
     }
   };
 
-  const filteredEntries = filter === 'all' 
-    ? entries 
-    : entries.filter(entry => entry.transaction_type === filter);
+  const formatAmount = (amount: number, type: string) => {
+    const isCredit = type === 'payment' || type === 'credit' || type === 'refund';
+    return `${isCredit ? '+' : '-'}${currency}${amount.toLocaleString()}`;
+  };
 
-  const transactionTypes = ['all', ...Array.from(new Set(entries.map(e => e.transaction_type)))];
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ar-EG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>السجل المالي</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div style={{
+            padding: 'var(--spacing-6)',
+            textAlign: 'center',
+            color: 'var(--text-secondary)',
+            minHeight: '120px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <p>جاري تحميل السجل المالي...</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (normalizedTransactions.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>السجل المالي</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div style={{ 
+            padding: 'var(--spacing-6)', 
+            textAlign: 'center',
+            color: 'var(--text-secondary)'
+          }}>
+            <p>لا توجد حركات مالية مسجلة</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
       <CardHeader>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Calendar className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
-            السجل المالي
-          </CardTitle>
-          
-          {transactionTypes.length > 1 && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <Filter className="w-4 h-4" style={{ color: 'var(--text-secondary)' }} />
-              <select
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid var(--border-default)',
-                  background: 'var(--bg-surface)',
-                  color: 'var(--text-primary)',
-                  fontSize: '13px'
-                }}
-              >
-                {transactionTypes.map(type => (
-                  <option key={type} value={type}>
-                    {type === 'all' ? 'الكل' : getTransactionLabel(type)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
+        <CardTitle>السجل المالي</CardTitle>
       </CardHeader>
       <CardContent>
-        {loading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
-            <div style={{ 
-              animation: 'spin 1s linear infinite', 
-              borderRadius: '50%', 
-              height: '32px', 
-              width: '32px', 
-              borderBottom: '2px solid var(--color-primary)' 
-            }} />
-          </div>
-        ) : filteredEntries.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-            <DollarSign className="w-12 h-12 mx-auto mb-2" style={{ color: 'var(--text-secondary)' }} />
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-              لا توجد حركات مالية
-            </p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {filteredEntries.map((entry, index) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+          {normalizedTransactions.map((transaction, index) => {
+            const Icon = getTransactionIcon(transaction.type);
+            const color = getTransactionColor(transaction.type);
+            const background = getTransactionBackground(transaction.type);
+            
+            return (
               <div
-                key={entry.id}
+                key={transaction.id}
                 style={{
                   display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '14px',
-                  padding: '16px',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border-default)',
-                  background: 'var(--bg-surface)',
+                  alignItems: 'center',
+                  gap: 'var(--spacing-3)',
+                  padding: 'var(--spacing-4)',
+                  borderRadius: 'var(--radius-md)',
+                  background: index === 0 ? 'var(--color-primary-08)' : 'var(--bg-surface-elevated)',
+                  border: index === 0 ? '1px solid var(--color-primary-20)' : '1px solid var(--border-default)',
                   transition: '180ms ease'
                 }}
               >
-                <div style={{
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: entry.amount > 0 
-                    ? 'rgba(251, 113, 133, 0.1)' 
-                    : 'rgba(52, 211, 153, 0.1)',
-                  flexShrink: 0
-                }}>
-                  <div style={{ 
-                    color: entry.amount > 0 
-                      ? 'var(--color-danger)' 
-                      : 'var(--color-success)' 
-                  }}>
-                    {getTransactionIcon(entry.transaction_type)}
-                  </div>
+                <div
+                  className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background }}
+                >
+                  <Icon className="w-5 h-5" style={{ color }} />
                 </div>
                 
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Badge variant={getTransactionVariant(entry.transaction_type)} style={{ fontSize: '11px' }}>
-                        {getTransactionLabel(entry.transaction_type)}
-                      </Badge>
-                      <span style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)' }}>
-                        {entry.description}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                      {new Date(entry.created_at).toLocaleDateString('ar-SA')}
-                    </span>
-                  </div>
-                  
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      {entry.amount > 0 ? (
-                        <ArrowUpRight className="w-3.5 h-3.5" style={{ color: 'var(--color-danger)' }} />
-                      ) : (
-                        <ArrowDownRight className="w-3.5 h-3.5" style={{ color: 'var(--color-success)' }} />
-                      )}
-                      <span 
-                        className="numeric-price"
-                        style={{ 
-                          fontSize: '14px', 
-                          fontWeight: '600',
-                          color: entry.amount > 0 
-                            ? 'var(--color-danger)' 
-                            : 'var(--color-success)' 
-                        }}
-                      >
-                        {entry.amount > 0 ? '+' : ''}₪{Math.abs(entry.amount).toLocaleString()}
-                      </span>
-                    </div>
-                    
-                    {showBalance && (
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        الرصيد: <span className="numeric-price" style={{ fontWeight: '500' }}>₪{entry.balance.toLocaleString()}</span>
-                      </div>
-                    )}
-                  </div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ 
+                    fontSize: 'var(--font-size-secondary)', 
+                    fontWeight: 'var(--font-weight-medium)', 
+                    color: 'var(--text-primary)' 
+                  }}>
+                    {transaction.description}
+                  </p>
+                  <p style={{ 
+                    fontSize: 'var(--font-size-caption)', 
+                    color: 'var(--text-secondary)',
+                    marginTop: '2px'
+                  }}>
+                    {formatDate(transaction.date)}
+                  </p>
+                </div>
+                
+                <div style={{ textAlign: 'right' }}>
+                  <p style={{ 
+                    fontSize: 'var(--font-size-secondary)', 
+                    fontWeight: 'var(--font-weight-semibold)', 
+                    color 
+                  }}>
+                    {formatAmount(transaction.amount, transaction.type)}
+                  </p>
+                  {showBalance && (
+                    <p style={{ 
+                      fontSize: 'var(--font-size-caption)', 
+                      color: 'var(--text-secondary)',
+                      marginTop: '2px'
+                    }}>
+                      الرصيد: {currency}{Number(transaction.balance_after ?? 0).toLocaleString()}
+                    </p>
+                  )}
                 </div>
               </div>
-            ))}
-            
-            {onLoadMore && (
-              <div style={{ textAlign: 'center', marginTop: '8px' }}>
-                <Button variant="secondary" onClick={onLoadMore}>
-                  تحميل المزيد
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
+            );
+          })}
+        </div>
       </CardContent>
     </Card>
   );

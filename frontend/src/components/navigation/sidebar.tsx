@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from '../../hooks/useTranslation';
-import { useUIStore } from '../../stores/uiStore';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -19,17 +18,19 @@ import {
   CheckCircle,
   Clock,
   AlertTriangle,
+  FileText,
+  UserCheck,
 } from 'lucide-react';
 import { cn } from '../../utils';
+import type { LucideIcon } from 'lucide-react';
 
 interface SidebarProps {
   isCollapsed: boolean;
-  onToggle: () => void;
 }
 
 interface MenuItem {
   id: string;
-  icon: any;
+  icon: LucideIcon;
   label: string;
   path: string;
 }
@@ -39,53 +40,59 @@ interface MenuGroup {
   items: MenuItem[];
 }
 
-export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
+export function Sidebar({ isCollapsed }: SidebarProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const { theme } = useUIStore();
   const [activeItem, setActiveItem] = useState('dashboard');
 
   const menuGroups: MenuGroup[] = [
     {
-      title: t('nav.main') || 'القائمة الرئيسية',
+      title: t('nav.main') || 'الرئيسية',
       items: [
         { id: 'dashboard', icon: LayoutDashboard, label: t('nav.dashboard') || 'لوحة التحكم', path: '/app/dashboard' },
       ]
     },
     {
-      title: t('nav.operations') || 'العمليات اليومية',
+      title: 'البيع',
       items: [
         { id: 'sales', icon: ShoppingCart, label: t('nav.pos') || 'نقطة البيع', path: '/app/sales' },
-        { id: 'inventory', icon: Package, label: t('nav.inventory') || 'المخزون', path: '/app/inventory' },
-        { id: 'used-parts', icon: Layers, label: 'القطع المستعملة', path: '/app/usedparts' },
-        { id: 'inspections', icon: CheckCircle, label: 'الفحص', path: '/app/inspections' },
         { id: 'customers', icon: Users, label: t('nav.customers') || 'العملاء', path: '/app/customers' },
         { id: 'debts', icon: DollarSign, label: t('nav.debts') || 'الديون', path: '/app/debts' },
       ]
     },
     {
-      title: 'القطع المستعملة',
+      title: 'المخزون',
       items: [
+        { id: 'inventory', icon: Package, label: t('nav.inventory') || 'المنتجات', path: '/app/inventory' },
+        { id: 'used-parts', icon: Layers, label: 'مخزون القطع المستعملة', path: '/app/usedparts' },
+        { id: 'inspections', icon: CheckCircle, label: 'الفحص', path: '/app/inspections' },
         { id: 'item-history', icon: Clock, label: 'تاريخ القطع', path: '/app/item-history' },
         { id: 'aging', icon: AlertTriangle, label: 'تقادم القطع', path: '/app/aging' },
-        { id: 'seller-balances', icon: DollarSign, label: 'رصيد البائعين', path: '/app/seller-balances' },
+        { id: 'seller-balances', icon: UserCheck, label: 'رصيد البائعين', path: '/app/seller-balances' },
       ]
     },
     {
-      title: t('nav.management') || 'الإدارة',
+      title: 'المشتريات',
       items: [
-        { id: 'suppliers', icon: Truck, label: t('nav.suppliers') || 'الموردون', path: '/app/suppliers' },
         { id: 'purchases', icon: CreditCard, label: t('nav.purchases') || 'المشتريات', path: '/app/purchases' },
+        { id: 'suppliers', icon: Truck, label: t('nav.suppliers') || 'الموردون', path: '/app/suppliers' },
+      ]
+    },
+    {
+      title: 'المال',
+      items: [
         { id: 'expenses', icon: DollarSign, label: t('nav.expenses') || 'المصروفات', path: '/app/expenses' },
         { id: 'returns', icon: RotateCcw, label: t('nav.returns') || 'المرتجعات', path: '/app/returns' },
-        { id: 'categories', icon: Tag, label: 'التصنيفات', path: '/app/categories' },
+        { id: 'return-details', icon: FileText, label: 'تفاصيل المرتجعات', path: '/app/return-details' },
+        { id: 'reports', icon: BarChart3, label: t('nav.reports') || 'التقارير', path: '/app/reports' },
       ]
     },
     {
       title: t('nav.system') || 'النظام',
       items: [
-        { id: 'reports', icon: BarChart3, label: t('nav.reports') || 'التقارير', path: '/app/reports' },
+        { id: 'categories', icon: Tag, label: 'التصنيفات', path: '/app/categories' },
+        { id: 'part-types', icon: FileText, label: 'أنواع القطع', path: '/app/part-types' },
         { id: 'settings', icon: Settings, label: t('nav.settings') || 'الإعدادات', path: '/app/settings' },
       ]
     }
@@ -97,9 +104,9 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
   // Update active item based on current location
   useEffect(() => {
     const currentItem = allItems.find(item => {
-      const itemPath = item.path.replace('/app', '');
-      const currentPath = location.pathname.replace('/app', '');
-      return currentPath === itemPath || location.pathname === item.path;
+      // Match exact path or path with params
+      return location.pathname === item.path || 
+             location.pathname.startsWith(item.path + '/');
     });
     if (currentItem) {
       setActiveItem(currentItem.id);
@@ -118,49 +125,27 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         'relative',
         isCollapsed ? 'w-[72px]' : 'w-[260px]'
       )}
-      style={{
-        background: 'var(--bg-surface)',
-        boxShadow: 'var(--shadow-lg)'
-      }}
     >
       {/* Logo */}
-      <div className="flex items-center justify-center px-[var(--spacing-4)] py-[var(--spacing-5)] border-b border-[var(--border-default)]" style={{
-        background: 'var(--bg-surface-elevated)'
-      }}>
+      <div className="flex items-center justify-center border-b border-[var(--border-default)] bg-[var(--bg-surface-elevated)] px-[var(--spacing-4)] py-[var(--spacing-5)]">
         {!isCollapsed && (
           <div className="flex items-center gap-[var(--spacing-3)]">
             <div
-              className="w-10 h-10 rounded-[var(--radius-lg)] flex items-center justify-center"
-              style={{
-                background: 'var(--gradient-primary)',
-                border: '1px solid var(--border-default)',
-                boxShadow: 'var(--shadow-glow)'
-              }}
+              className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--gradient-primary)] shadow-[var(--shadow-glow)]"
             >
-              <Package className="w-5 h-5" style={{ color: 'var(--text-on-primary)' }} />
+              <Package className="h-5 w-5 text-[var(--text-on-primary)]" />
             </div>
             <div className="brand-text">
-              <span className="font-bold text-lg" style={{ 
-                color: 'var(--text-primary)',
-                letterSpacing: '0.5px'
-              }}>PARTFLOW</span>
-              <p className="text-xs brand-sub" style={{ 
-                color: 'var(--text-secondary)',
-                letterSpacing: '0.3px'
-              }}>Store Operating System</p>
+              <span className="text-lg font-bold tracking-[0.5px] text-[var(--text-primary)]">PARTFLOW</span>
+              <p className="brand-sub text-xs tracking-[0.3px] text-[var(--text-secondary)]">Store Operating System</p>
             </div>
           </div>
         )}
         {isCollapsed && (
           <div
-            className="w-10 h-10 rounded-[var(--radius-lg)] flex items-center justify-center"
-            style={{
-              background: 'var(--gradient-primary)',
-              border: '1px solid var(--border-default)',
-              boxShadow: 'var(--shadow-glow)'
-            }}
+            className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--gradient-primary)] shadow-[var(--shadow-glow)]"
           >
-            <Package className="w-5 h-5" style={{ color: 'var(--text-on-primary)' }} />
+            <Package className="h-5 w-5 text-[var(--text-on-primary)]" />
           </div>
         )}
       </div>
@@ -171,8 +156,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
           <div key={group.title}>
             {!isCollapsed && (
               <div
-                className="px-[var(--spacing-3)] py-[var(--spacing-2)] text-xs font-semibold uppercase tracking-wider mb-[var(--spacing-2)]"
-                style={{ color: 'var(--text-tertiary)' }}
+                className="mb-[var(--spacing-2)] px-[var(--spacing-3)] py-[var(--spacing-2)] text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]"
               >
                 {group.title}
               </div>
@@ -190,44 +174,18 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                       navigate(item.path);
                     }}
                     className={cn(
-                      'w-full flex items-center gap-[var(--spacing-3)] px-[var(--spacing-3)] py-[var(--spacing-2)] rounded-[var(--radius-md)] transition-all duration-[var(--transition-normal)]',
+                      'sidebar-item w-full flex items-center gap-[var(--spacing-3)] px-[var(--spacing-3)] py-[var(--spacing-2)] rounded-[var(--radius-md)]',
                       'text-sm font-medium relative overflow-hidden',
-                      isCollapsed && 'justify-center'
+                      isCollapsed && 'justify-center',
+                      isActive && 'active'
                     )}
-                    style={{
-                      background: isActive
-                        ? 'var(--color-primary-15)'
-                        : 'transparent',
-                      color: isActive ? 'var(--color-primary)' : 'var(--text-secondary)',
-                      border: isActive ? '1px solid var(--color-primary-25)' : '1px solid transparent',
-                      boxShadow: isActive ? 'var(--shadow-glow-soft)' : 'none'
-                    }}
                     title={isCollapsed ? item.label : undefined}
-                    onMouseEnter={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = 'var(--bg-surface-elevated)';
-                        e.currentTarget.style.color = 'var(--color-primary)';
-                        e.currentTarget.style.transform = 'translateX(-4px)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) {
-                        e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = 'var(--text-secondary)';
-                        e.currentTarget.style.transform = 'translateX(0)';
-                      }
-                    }}
                   >
                     <Icon
                       className={cn(
                         'flex-shrink-0',
                         'w-5 h-5'
                       )}
-                      style={{
-                        color: isActive
-                          ? 'var(--color-primary)'
-                          : 'inherit'
-                      }}
                     />
                     {!isCollapsed && (
                       <span className="truncate nav-label">{item.label}</span>
@@ -241,34 +199,23 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
       </nav>
 
       {/* Quick Scan Button */}
-      <div className="p-[var(--spacing-4)] border-t border-[var(--border-default)]" style={{
-        background: 'var(--bg-surface-elevated)'
-      }}>
+      <div className="border-t border-[var(--border-default)] bg-[var(--bg-surface-elevated)] p-[var(--spacing-4)]">
         <button
           className={cn(
-            'w-full flex items-center gap-[var(--spacing-3)] px-[var(--spacing-4)] py-[var(--spacing-3)] rounded-[var(--radius-lg)] transition-all duration-[var(--transition-normal)]',
-            'text-sm font-medium relative overflow-hidden',
+            'sidebar-scan-button w-full flex items-center gap-[var(--spacing-3)] rounded-[var(--radius-lg)] border border-[var(--border-default)] px-[var(--spacing-4)] py-[var(--spacing-3)] text-sm font-medium shadow-[var(--shadow-glow)] transition-all duration-[var(--transition-normal)]',
             isCollapsed && 'justify-center'
           )}
-          style={{
-            background: 'var(--gradient-primary)',
-            border: '1px solid var(--border-default)',
-            boxShadow: 'var(--shadow-glow)',
-            color: 'var(--text-on-primary)'
-          }}
           title={isCollapsed ? 'مسح الباركود' : undefined}
           onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-1px)';
-            e.currentTarget.style.boxShadow = 'var(--shadow-glow-strong)';
+            e.currentTarget.classList.add('sidebar-scan-button-hover');
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = 'var(--shadow-glow)';
+            e.currentTarget.classList.remove('sidebar-scan-button-hover');
           }}
         >
-          <Scan className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--text-on-primary)' }} />
+          <Scan className="h-5 w-5 flex-shrink-0 text-[var(--text-on-primary)]" />
           {!isCollapsed && (
-            <span className="nav-label" style={{ color: 'var(--text-on-primary)' }}>مسح الباركود</span>
+            <span className="nav-label text-[var(--text-on-primary)]">مسح الباركود</span>
           )}
         </button>
       </div>

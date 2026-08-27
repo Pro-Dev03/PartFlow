@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { partTypesApi, specificationsApi, typeSpecsApi } from '../../../services/api/endpoints';
+import { partTypesApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -8,13 +8,13 @@ import { Select } from '../../../components/ui/select';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Modal } from '../../../components/ui/modal';
 import { Badge } from '../../../components/ui/badge';
+import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { getButtonSize } from '../../../config/button-sizes';
 import { toast } from 'sonner';
 import { 
   Plus, 
   Edit, 
   Trash2, 
-  Settings,
   Monitor,
   Cpu,
   HardDrive,
@@ -39,6 +39,8 @@ export function PartTypesPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedPartType, setSelectedPartType] = useState<any>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [partTypeToDelete, setPartTypeToDelete] = useState<string | null>(null);
   const [newPartType, setNewPartType] = useState({
     name_ar: '',
     name_en: '',
@@ -111,8 +113,15 @@ export function PartTypesPage() {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا النوع؟')) {
-      deleteMutation.mutate(id);
+    setPartTypeToDelete(id);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (partTypeToDelete) {
+      deleteMutation.mutate(partTypeToDelete);
+      setDeleteDialogOpen(false);
+      setPartTypeToDelete(null);
     }
   };
 
@@ -365,6 +374,22 @@ export function PartTypesPage() {
           </div>
         )}
       </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteDialogOpen}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setPartTypeToDelete(null);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="حذف نوع القطعة"
+        message="هل أنت متأكد من حذف هذا النوع؟ هذا الإجراء لا يمكن التراجع عنه."
+        confirmText="حذف النوع"
+        cancelText="إلغاء"
+        variant="danger"
+        isLoading={deleteMutation.isPending}
+      />
     </div>
   );
 }

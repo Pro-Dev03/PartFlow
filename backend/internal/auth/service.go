@@ -78,7 +78,7 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResp
 	var existingUser User
 	err := s.db.GetContext(ctx, &existingUser, "SELECT id FROM users WHERE email = $1", req.Email)
 	if err == nil {
-		return nil, fmt.Errorf("user already exists")
+		return nil, ErrUserExists
 	}
 
 	// Hash password
@@ -155,22 +155,22 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 
 	err := s.db.GetContext(ctx, &user, query, req.Email)
 	if err != nil {
-		return nil, fmt.Errorf("user not found: %w", err)
+		return nil, ErrUserNotFound
 	}
 
 	// Check if user is active
 	if !user.IsActive {
-		return nil, fmt.Errorf("user account is inactive")
+		return nil, ErrInactiveUser
 	}
 
 	// Verify password with fallback support (from worktrack)
 	if !s.validatePassword(req.Password, user.PasswordHash, req.Email) {
-		return nil, fmt.Errorf("invalid credentials")
+		return nil, ErrInvalidCredentials
 	}
 
 	// Check subscription status (from worktrack)
 	if err := s.checkSubscriptionStatus(user.SubscriptionStatus, user.SubscriptionExpiresAt); err != nil {
-		return nil, fmt.Errorf("subscription error: %w", err)
+		return nil, ErrUnauthorized
 	}
 
 	// Update last login
@@ -205,7 +205,7 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 	// Validate refresh token
 	claims, err := s.jwtService.ValidateToken(refreshToken)
 	if err != nil {
-		return nil, err
+		return nil, ErrInvalidToken
 	}
 
 	// Get user
@@ -219,7 +219,7 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 
 	err = s.db.GetContext(ctx, &user, query, claims.UserID)
 	if err != nil {
-		return nil, fmt.Errorf("user not found: %w", err)
+		return nil, ErrUserNotFound
 	}
 
 	// Generate new access token
@@ -253,7 +253,7 @@ func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (*User, err
 
 	err := s.db.GetContext(ctx, &user, query, userID)
 	if err != nil {
-		return nil, fmt.Errorf("user not found: %w", err)
+		return nil, ErrUserNotFound
 	}
 
 	return &user, nil
@@ -270,7 +270,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, req *Cha
 	// Verify current password
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword))
 	if err != nil {
-		return fmt.Errorf("invalid password: %w", err)
+		return ErrInvalidPassword
 	}
 
 	// Hash new password

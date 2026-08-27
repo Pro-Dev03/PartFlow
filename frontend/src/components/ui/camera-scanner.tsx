@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { cn } from '../../utils';
 import { Camera, X, RefreshCw, Check } from 'lucide-react';
 
 interface CameraScannerProps {

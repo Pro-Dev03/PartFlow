@@ -156,8 +156,11 @@ export default defineConfig({
             if (id.includes('date-fns') || id.includes('dayjs')) {
               return 'date';
             }
+            if (id.includes('sonner')) {
+              return 'notifications';
+            }
           }
-          // Feature-based chunking
+          // Feature-based chunking with better granularity
           if (id.includes('/features/dashboard/')) {
             return 'dashboard';
           }
@@ -167,11 +170,24 @@ export default defineConfig({
           if (id.includes('/features/inventory/')) {
             return 'inventory';
           }
+          // Split customers into smaller chunks
+          if (id.includes('/features/customers/components/FinancialTimeline')) {
+            return 'customers-timeline';
+          }
+          if (id.includes('/features/customers/components/CustomerStats')) {
+            return 'customers-stats';
+          }
           if (id.includes('/features/customers/')) {
             return 'customers';
           }
           if (id.includes('/features/reports/')) {
             return 'reports';
+          }
+          if (id.includes('/features/debts/')) {
+            return 'debts';
+          }
+          if (id.includes('/features/purchases/')) {
+            return 'purchases';
           }
         }
       }
@@ -183,9 +199,17 @@ export default defineConfig({
       compress: {
         drop_console: true,
         drop_debugger: true,
+        pure_funcs: ['console.log', 'console.info', 'console.debug'],
+      },
+      mangle: {
+        safari10: true,
       },
     },
     // Enable source maps in production for debugging
     sourcemap: false,
+    // Optimize chunk size
+    target: 'es2015',
+    // Enable CSS code splitting
+    cssCodeSplit: true,
   }
 })

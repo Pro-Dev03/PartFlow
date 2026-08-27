@@ -1,11 +1,15 @@
+import { useState, lazy, Suspense, useEffect } from 'react';
 import { Modal } from '../../../components/ui/modal';
 import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
 import { CustomerForm, type CustomerFormData } from '../../../components/forms/CustomerForm';
-import { FinancialTimeline, LedgerEntry } from '../../../components/ui/financial-timeline';
 import { getButtonSize } from '../../../config/button-sizes';
 import { Customer } from '../types/customers.types';
-import { User, Sparkles, DollarSign, ShoppingCart, Calendar, CreditCard, FileText, History, AlertTriangle } from 'lucide-react';
+import { User, DollarSign, ShoppingCart, Calendar, CreditCard, FileText, History, AlertTriangle } from 'lucide-react';
+import { LedgerEntry } from '../../../components/ui/financial-timeline';
+import { customersApi } from '../../../services/api/endpoints';
+
+// Lazy load heavy FinancialTimeline component
+const FinancialTimeline = lazy(() => import('../../../components/ui/financial-timeline').then(m => ({ default: m.FinancialTimeline })));
 
 interface CustomerModalsProps {
   isModalOpen: boolean;
@@ -17,8 +21,6 @@ interface CustomerModalsProps {
   selectedCustomer: Customer | null;
   setSelectedCustomer: (customer: Customer | null) => void;
   onSubmit: (data: CustomerFormData) => void;
-  ledgerEntries?: LedgerEntry[];
-  loadingLedger?: boolean;
 }
 
 export function CustomerModals({
@@ -29,11 +31,45 @@ export function CustomerModals({
   editingCustomer,
   setEditingCustomer,
   selectedCustomer,
-  setSelectedCustomer,
   onSubmit,
-  ledgerEntries = [],
-  loadingLedger = false,
 }: CustomerModalsProps) {
+  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
+  const [loadingLedger, setLoadingLedger] = useState(false);
+
+  // Load ledger entries when viewing a customer
+  useEffect(() => {
+    if (isViewModalOpen && selectedCustomer) {
+      loadCustomerLedger(selectedCustomer.id);
+    }
+  }, [isViewModalOpen, selectedCustomer]);
+
+  const loadCustomerLedger = async (customerId: string) => {
+    setLoadingLedger(true);
+    try {
+      const response = await customersApi.ledger(customerId, { page: 1, per_page: 50 });
+      if (response && response.data) {
+        const formattedEntries = response.data.map((entry: any) => ({
+          id: entry.id,
+          transaction_type: entry.transaction_type,
+          amount: entry.amount,
+          balance: entry.balance,
+          previous_balance: entry.previous_balance,
+          description: entry.description,
+          created_at: entry.created_at,
+          reference_id: entry.reference_id,
+          reference_type: entry.reference_type,
+        }));
+        setLedgerEntries(formattedEntries);
+      } else {
+        setLedgerEntries([]);
+      }
+    } catch (error) {
+      console.error('Failed to load ledger entries:', error);
+      setLedgerEntries([]);
+    } finally {
+      setLoadingLedger(false);
+    }
+  };
   return (
     <>
       {/* Add/Edit Modal */}
@@ -216,11 +252,32 @@ export function CustomerModals({
                 السجل المالي
               </h4>
             </div>
-            <FinancialTimeline
-              entries={ledgerEntries}
-              loading={loadingLedger}
-              showBalance={true}
-            />
+            <Suspense fallback={
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'center', 
+                alignItems: 'center', 
+                padding: '40px',
+                minHeight: '200px'
+              }}>
+                <div className="animate-spin rounded-full border-2 border-text-muted/20 border-t-primary" 
+                     style={{ width: '40px', height: '40px' }} />
+              </div>
+            }>
+              <FinancialTimeline
+                transactions={ledgerEntries.map((entry) => ({
+                  id: entry.id,
+                  type: entry.transaction_type || entry.type || 'other',
+                  amount: Number(entry.amount ?? 0),
+                  balance_after: Number(entry.balance ?? entry.previous_balance ?? 0),
+                  date: entry.created_at || entry.date || new Date().toISOString(),
+                  description: entry.description || 'حركة مالية',
+                  status: entry.status || 'completed',
+                }))}
+                loading={loadingLedger}
+                showBalance={true}
+              />
+            </Suspense>
 
             <div className="flex gap-sm justify-end">
               <Button variant="secondary" size={getButtonSize('customers', 'modalAction')} onClick={() => setIsViewModalOpen(false)}>

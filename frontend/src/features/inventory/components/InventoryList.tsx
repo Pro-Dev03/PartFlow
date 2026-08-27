@@ -3,8 +3,7 @@ import { EmptyState } from '../../../components/ui/empty-state';
 import { Button } from '../../../components/ui/button';
 import { Package, PackageOpen, Eye, Edit, Trash2, Inbox, RefreshCw, FileText } from 'lucide-react';
 import { Product, InventoryItem, ViewMode } from '../types/inventory.types';
-import { formatPrice, formatPriceFromCents } from '../../../utils';
-import { useNavigate } from 'react-router-dom';
+import { formatPrice, normalizeCurrencyValue } from '../../../utils';
 import { cn } from '../../../utils';
 
 interface InventoryListProps {
@@ -70,19 +69,8 @@ function getStockDisplay(stock: number | undefined): { text: string; variant: 's
 }
 
 function getPrice(product: any): string {
-  if (product.sellingPrice !== undefined && product.sellingPrice !== null) {
-    const val = product.sellingPrice;
-    return val > 1000 ? formatPriceFromCents(val) : formatPrice(val);
-  }
-  if (product.selling_price !== undefined && product.selling_price !== null) {
-    const val = product.selling_price;
-    return val > 1000 ? formatPriceFromCents(val) : formatPrice(val);
-  }
-  if (product.price !== undefined && product.price !== null) {
-    const val = product.price;
-    return val > 1000 ? formatPriceFromCents(val) : formatPrice(val);
-  }
-  return formatPrice(0);
+  const value = product.sellingPrice ?? product.selling_price ?? product.price ?? 0;
+  return formatPrice(normalizeCurrencyValue(value));
 }
 
 export function InventoryList({
@@ -91,7 +79,6 @@ export function InventoryList({
   filteredInventoryItems,
   productsLoading,
   inventoryLoading,
-  searchQuery,
   onViewProduct,
   onEditProduct,
   onDeleteProduct,
@@ -100,22 +87,46 @@ export function InventoryList({
   onViewInvoice,
   onViewInventoryLedger,
 }: InventoryListProps) {
-  const navigate = useNavigate();
   const getConditionBadge = (condition: string) => {
+    const normalized = String(condition || '').trim().toLowerCase();
     const variants: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'secondary' | 'outline' }> = {
       new: { label: 'جديد', variant: 'success' },
       used: { label: 'مستعمل', variant: 'secondary' },
       refurbished: { label: 'مجدد', variant: 'info' },
       parts_only: { label: 'قطع فقط', variant: 'danger' },
+      default: { label: 'افتراضي', variant: 'outline' },
     };
-    return variants[condition] || { label: condition || 'افتراضي', variant: 'outline' };
+    return variants[normalized] || { label: condition || 'افتراضي', variant: 'outline' };
   };
 
+  const displayProducts = filteredProducts;
+  const displayInventoryItems = filteredInventoryItems.filter((item: InventoryItem) => {
+    const condition = String(item?.condition ?? '').trim().toUpperCase();
+    return condition !== 'USED';
+  });
+
   const getStockValue = (product: any): number | undefined => {
-    if (product.stock !== undefined && product.stock !== null) return product.stock;
-    if (product.stock_quantity !== undefined && product.stock_quantity !== null) return product.stock_quantity;
-    if (product.quantity !== undefined && product.quantity !== null) return product.quantity;
-    return undefined;
+    const status = String(product.status || '').trim().toUpperCase();
+    const inactiveStatuses = new Set(['SOLD', 'RETURNED', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
+
+    if (inactiveStatuses.has(status)) {
+      return 0;
+    }
+
+    const value = Number(
+      product.stock ??
+      product.stock_quantity ??
+      product.available_quantity ??
+      product.current_quantity ??
+      product.quantity ??
+      0
+    );
+
+    if (!Number.isFinite(value) || value <= 0) {
+      return status === 'AVAILABLE' ? 1 : 0;
+    }
+
+    return value;
   };
 
   return (
@@ -130,19 +141,19 @@ export function InventoryList({
           <div>
             {productsLoading ? (
               <LoadingSpinner />
-            ) : filteredProducts.length === 0 ? (
+            ) : displayProducts.length === 0 ? (
               <EmptyState
                 icon={<Inbox className="h-5 w-5" />}
                 title="لا توجد منتجات"
                 description="لم يتم العثور على منتجات تطابق بحثك"
                 action={
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
+                    variant="primary"
                     onClick={onClearSearch}
-                    className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-colors"
                   >
                     مسح البحث
-                  </button>
+                  </Button>
                 }
               />
             ) : (
@@ -163,7 +174,7 @@ export function InventoryList({
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredProducts.map((product: Product) => {
+                      {displayProducts.map((product: Product) => {
                         const stockVal = getStockValue(product);
                         const stockBadge = getStockDisplay(stockVal);
                         return (
@@ -231,7 +242,7 @@ export function InventoryList({
                 {/* Mobile Cards */}
                 <div className="block md:hidden">
                   <div className="grid gap-3 p-4">
-                    {filteredProducts.map((product: Product) => {
+                    {displayProducts.map((product: Product) => {
                       const stockVal = getStockValue(product);
                       const stockBadge = getStockDisplay(stockVal);
                       return (
@@ -313,7 +324,7 @@ export function InventoryList({
           <div>
             {inventoryLoading ? (
               <LoadingSpinner />
-            ) : filteredInventoryItems.length === 0 ? (
+            ) : displayInventoryItems.length === 0 ? (
               <EmptyState
                 icon={<Inbox className="h-5 w-5" />}
                 title="لا توجد عناصر"
@@ -336,7 +347,7 @@ export function InventoryList({
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredInventoryItems.map((item: InventoryItem) => {
+                    {displayInventoryItems.map((item: InventoryItem) => {
                       const condition = item.condition?.toLowerCase() || '';
                       const condBadge = getConditionBadge(condition);
                       return (
@@ -359,12 +370,12 @@ export function InventoryList({
                           </td>
                           <td className="p-4 align-middle">
                             <span className="font-medium text-text-secondary">
-                              {formatPriceFromCents(item.purchase_cost)}
+                              {formatPrice(normalizeCurrencyValue(item.purchase_cost ?? 0))}
                             </span>
                           </td>
                           <td className="p-4 align-middle">
                             <span className="font-medium text-cyan">
-                              {formatPriceFromCents(item.selling_price)}
+                              {formatPrice(normalizeCurrencyValue(item.selling_price ?? item.price ?? 0))}
                             </span>
                           </td>
                           <td className="p-4 align-middle text-text-secondary">{item.location || '-'}</td>

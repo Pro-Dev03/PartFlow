@@ -3,17 +3,33 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { productsApi, inventoryApi, barcodeApi, categoriesApi } from '../../../services/api/endpoints';
 import { Product, InventoryItem, FilterConfig, SortConfig } from '../types/inventory.types';
+import { useDebounce } from '../../../hooks/useDebounce';
+import { Category } from '../../../types/models';
 
 export function useInventory() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: '', direction: null });
   const [filters, setFilters] = useState<FilterConfig[]>([]);
 
-  // Fetch data
+  // Fetch data with debounce search for scalability
   const { data: productsData, isLoading: productsLoading } = useQuery({
-    queryKey: ['products'],
-    queryFn: () => productsApi.list({ page: 1, per_page: 100 }),
+    queryKey: ['products', debouncedSearchQuery],
+    queryFn: () => {
+      if (debouncedSearchQuery) {
+        // Search mode - use API search when query exists
+        return productsApi.list({
+          page: 1,
+          per_page: 50,
+          search: debouncedSearchQuery
+        });
+      } else {
+        // Initial load - fetch limited results for performance
+        return productsApi.list({ page: 1, per_page: 50 });
+      }
+    },
+    enabled: true, // Always enabled, but will refetch when search changes
   });
 
   const { data: categoriesData } = useQuery({
@@ -22,9 +38,14 @@ export function useInventory() {
   });
 
   const { data: inventoryData, isLoading: inventoryLoading } = useQuery({
-    queryKey: ['inventory', filters],
+    queryKey: ['inventory', debouncedSearchQuery, filters],
     queryFn: () => {
-      const params: any = { page: 1, per_page: 100 };
+      const params: any = { page: 1, per_page: 50 };
+      
+      // Apply search
+      if (debouncedSearchQuery) {
+        params.search = debouncedSearchQuery;
+      }
       
       // Apply supplier filter
       const supplierFilter = filters.find(f => f.key === 'supplier_id');
@@ -60,12 +81,12 @@ export function useInventory() {
 
   const products = (productsData?.data?.products as Product[]) || [];
   const inventoryItems = (inventoryData?.data?.items as InventoryItem[]) || [];
-  const categories = (categoriesData?.data as any[]) || [];
+  const categories = (categoriesData?.data as Category[]) || [];
 
   // Create category map for easy lookup
   const categoryMap = useMemo(() => {
     const map = new Map<string, string>();
-    categories.forEach((cat: any) => {
+    categories.forEach((cat: Category) => {
       map.set(cat.id, cat.name);
     });
     return map;
@@ -74,6 +95,43 @@ export function useInventory() {
   // Safe arrays
   const safeProducts = Array.isArray(products) ? products : [];
   const safeInventoryItems = Array.isArray(inventoryItems) ? inventoryItems : [];
+
+  const isUsedItemCondition = (value: unknown) => {
+    const condition = String(value ?? '').trim().toUpperCase();
+    return condition === 'USED' || condition.includes('USED');
+  };
+
+  const inventoryStockMap = useMemo(() => {
+    const map = new Map<string, number>();
+    const inactiveStatuses = new Set(['SOLD', 'RETURNED', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
+
+    safeInventoryItems.forEach((item: any) => {
+      const productId = String(item.product_id || item.product?.id || item.productId || '').trim();
+      if (!productId) return;
+      if (isUsedItemCondition(item.condition)) return;
+
+      const status = String(item.status || '').trim().toUpperCase();
+      if (inactiveStatuses.has(status)) return;
+
+      const explicitStock = Number(
+        item.available_quantity ??
+        item.current_quantity ??
+        item.stock ??
+        item.quantity ??
+        0
+      );
+
+      const fallbackStock = status === 'AVAILABLE' ? 1 : 0;
+      const stock = Number.isFinite(explicitStock) && explicitStock > 0 ? explicitStock : fallbackStock;
+
+      if (stock <= 0) return;
+
+      const current = map.get(productId) || 0;
+      map.set(productId, current + stock);
+    });
+
+    return map;
+  }, [safeInventoryItems]);
 
   // Mutations
   const deleteProductMutation = useMutation({
@@ -135,7 +193,8 @@ export function useInventory() {
     // Add category name to each product
     result = result.map((product: Product) => ({
       ...product,
-      category_name: categoryMap.get(product.category_id) || product.category || product.category_name || '-'
+      category_name: categoryMap.get(product.category_id) || product.category || product.category_name || '-',
+      stock: Number(inventoryStockMap.get(product.id) ?? product.stock ?? product.quantity ?? 0)
     }));
 
     // Search filter
@@ -180,7 +239,7 @@ export function useInventory() {
     }
 
     return result;
-  }, [safeProducts, searchQuery, filters, sortConfig, categoryMap]);
+  }, [safeProducts, searchQuery, filters, sortConfig, categoryMap, inventoryStockMap]);
 
   const filteredProducts = useMemo(() => {
     return processedProducts.filter((product: Product) => {

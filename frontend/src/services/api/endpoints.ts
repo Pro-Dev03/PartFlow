@@ -1,4 +1,26 @@
 import { apiClient } from './client';
+import type {
+  ProductCreateRequest,
+  ProductUpdateRequest,
+  ProductListParams,
+  CategoryCreateRequest,
+  CategoryUpdateRequest,
+  CustomerCreateRequest,
+  CustomerUpdateRequest,
+  CustomerListParams,
+  SupplierCreateRequest,
+  SupplierUpdateRequest,
+  InventoryCreateRequest,
+  InventoryUpdateRequest,
+  InventoryListParams,
+  SaleCreateRequest,
+  DebtPayment,
+  PurchaseCreateRequest,
+  ExpenseCreateRequest,
+  PartTypeCreateRequest,
+  PartTypeUpdateRequest,
+  BarcodeLookupResponse,
+} from './types';
 
 // Auth endpoints
 export const authApi = {
@@ -15,6 +37,8 @@ export const authApi = {
 // Dashboard endpoints
 export const dashboardApi = {
   getStats: () => apiClient.get('/dashboard/stats'),
+  getLowStockItems: () => apiClient.get('/dashboard/low-stock-items'),
+  getOverdueDebts: () => apiClient.get('/dashboard/overdue-debts'),
   // Aggregation endpoints (ARCHITECTURE-PRINCIPLES.md)
   getDailySalesSummary: (date?: string) => apiClient.get('/aggregations/daily-sales', { date }),
   getMonthlySalesSummary: (year?: number, month?: number) => apiClient.get('/aggregations/monthly-sales', { year, month }),
@@ -31,11 +55,11 @@ export const dashboardApi = {
 
 // Products endpoints
 export const productsApi = {
-  list: (params?: { page?: number; per_page?: number; search?: string; category_id?: string }) => 
+  list: (params?: ProductListParams) => 
     apiClient.get('/products', params),
   get: (id: string) => apiClient.get(`/products/${id}`),
-  create: (data: any) => apiClient.post('/products', data),
-  update: (id: string, data: any) => apiClient.put(`/products/${id}`, data),
+  create: (data: ProductCreateRequest) => apiClient.post('/products', data),
+  update: (id: string, data: ProductUpdateRequest) => apiClient.put(`/products/${id}`, data),
   delete: (id: string) => apiClient.delete(`/products/${id}`),
   archive: (id: string) => apiClient.post(`/products/${id}/archive`),
 };
@@ -44,20 +68,16 @@ export const productsApi = {
 export const categoriesApi = {
   list: () => apiClient.get('/categories'),
   get: (id: string) => apiClient.get(`/categories/${id}`),
-  create: (data: any) => apiClient.post('/categories', data),
-  update: (id: string, data: any) => apiClient.put(`/categories/${id}`, data),
+  create: (data: CategoryCreateRequest) => apiClient.post('/categories', data),
+  update: (id: string, data: CategoryUpdateRequest) => apiClient.put(`/categories/${id}`, data),
   delete: (id: string) => apiClient.delete(`/categories/${id}`),
 };
 
 // Inventory endpoints
 export const inventoryApi = {
-  list: (params?: { page?: number; per_page?: number; search?: string; condition?: string }) =>
+  list: (params?: InventoryListParams) =>
     apiClient.get('/inventory/items', params),
-  listWithSupplier: (params?: { 
-    page?: number; 
-    per_page?: number; 
-    search?: string; 
-    condition?: string;
+  listWithSupplier: (params?: InventoryListParams & { 
     supplier_id?: string;
     purchase_date_from?: string;
     purchase_date_to?: string;
@@ -66,19 +86,20 @@ export const inventoryApi = {
   }) =>
     apiClient.get('/inventory/items-with-supplier', params),
   get: (id: string) => apiClient.get(`/inventory/items/${id}`),
-  create: (data: any) => apiClient.post('/inventory/items', data),
-  update: (id: string, data: any) => apiClient.put(`/inventory/items/${id}`, data),
+  create: (data: InventoryCreateRequest) => apiClient.post('/inventory/items', data),
+  update: (id: string, data: InventoryUpdateRequest) => apiClient.put(`/inventory/items/${id}`, data),
+  updateStatus: (id: string, status: string) => apiClient.patch(`/inventory/items/${id}/status`, { status }),
   delete: (id: string) => apiClient.delete(`/inventory/items/${id}`),
-  movements: (itemId: string) => apiClient.get(`/inventory/items/${itemId}/history`),
-  createTradeIn: (data: any) => apiClient.post('/inventory/trade-ins', data),
+  movements: <T = unknown>(itemId: string) => apiClient.get<T>(`/inventory/items/${itemId}/history`),
+  createTradeIn: (data: InventoryCreateRequest) => apiClient.post('/inventory/trade-ins', data),
 };
 
 // Part Types endpoints
 export const partTypesApi = {
   list: () => apiClient.get('/part-types'),
   get: (id: string) => apiClient.get(`/part-types/${id}`),
-  create: (data: any) => apiClient.post('/part-types', data),
-  update: (id: string, data: any) => apiClient.put(`/part-types/${id}`, data),
+  create: (data: PartTypeCreateRequest) => apiClient.post('/part-types', data),
+  update: (id: string, data: PartTypeUpdateRequest) => apiClient.put(`/part-types/${id}`, data),
   delete: (id: string) => apiClient.delete(`/part-types/${id}`),
   getSpecifications: (id: string) => apiClient.get(`/part-types/${id}/specifications`),
 };
@@ -103,46 +124,51 @@ export const itemSpecsApi = {
 
 // Sales endpoints
 export const salesApi = {
-  list: (params?: { page?: number; per_page?: number; search?: string }) =>
+  list: (params?: PaginationParams & { search?: string }) =>
     apiClient.get('/sales', params),
   get: (id: string) => apiClient.get(`/sales/${id}`),
-  create: (data: any) => apiClient.post('/sales', data),
-  update: (id: string, data: any) => apiClient.put(`/sales/${id}`, data),
+  create: (data: SaleCreateRequest) => apiClient.post('/sales', data),
+  listHeld: () => apiClient.get('/sales/held'),
+  hold: (items: unknown[]) => apiClient.post('/sales/held', { items }),
+  deleteHeld: (id: string) => apiClient.delete(`/sales/held/${id}`),
+  update: (id: string, data: Partial<SaleCreateRequest>) => apiClient.put(`/sales/${id}`, data),
   // SmartDelete - now returns SmartDeleteResult (ARCHITECTURE-PRINCIPLES.md)
   delete: (id: string) => apiClient.delete(`/sales/${id}`),
-  refund: (id: string, data: any) => apiClient.post(`/sales/${id}/refund`, data),
+  refund: (id: string, data: { reason?: string; refund_amount?: number }) => apiClient.post(`/sales/${id}/refund`, data),
 };
 
 // Payments endpoints (ARCHITECTURE-PRINCIPLES.md)
 export const paymentsApi = {
-  list: (params?: { page?: number; per_page?: number; type?: string }) =>
+  list: (params?: PaginationParams & { type?: string }) =>
     apiClient.get('/payments', params),
   get: (id: string) => apiClient.get(`/payments/${id}`),
-  create: (data: any) => apiClient.post('/payments', data),
+  create: (data: DebtPayment) => apiClient.post('/payments', data),
   // SmartDelete - now returns SmartDeleteResult (ARCHITECTURE-PRINCIPLES.md)
   delete: (id: string) => apiClient.delete(`/payments/${id}`),
 };
 
 // Customers endpoints
 export const customersApi = {
-  list: (params?: { page?: number; per_page?: number; search?: string; is_active?: boolean }) => 
+  list: (params?: CustomerListParams) => 
     apiClient.get('/customers', params),
   get: (id: string) => apiClient.get(`/customers/${id}`),
-  create: (data: any) => apiClient.post('/customers', data),
-  update: (id: string, data: any) => apiClient.put(`/customers/${id}`, data),
+  create: (data: CustomerCreateRequest) => apiClient.post('/customers', data),
+  update: (id: string, data: CustomerUpdateRequest) => apiClient.put(`/customers/${id}`, data),
   delete: (id: string) => apiClient.delete(`/customers/${id}`),
-  ledger: (id: string, params?: { page?: number; per_page?: number }) => 
+  ledger: (id: string, params?: PaginationParams) => 
     apiClient.get(`/customers/${id}/ledger`, params),
   ledgerSummary: (id: string) => 
     apiClient.get(`/customers/${id}/ledger/summary`),
+  getFinancialTimeline: (id: string) => 
+    apiClient.get(`/customers/${id}/financial-timeline`),
 };
 
 // Debts endpoints - Note: Debts are managed under customers in the backend
 export const debtsApi = {
-  list: (params?: { page?: number; per_page?: number }) => 
+  list: (params?: PaginationParams) => 
     apiClient.get('/customers/overdue', params),
   get: (customerId: string, debtId: string) => apiClient.get(`/customers/${customerId}/debts/${debtId}`),
-  recordPayment: (customerId: string, data: any) => apiClient.post(`/customers/${customerId}/debt-payments`, data),
+  recordPayment: (customerId: string, data: DebtPayment) => apiClient.post(`/customers/${customerId}/debt-payments`, data),
   getDebtEntries: (customerId: string) => apiClient.get(`/customers/${customerId}/debts`),
   getDebtCollections: (customerId: string) => apiClient.get(`/customers/${customerId}/debt-collections`),
   getPendingCollections: () => apiClient.get('/debt-collections/pending'),
@@ -150,13 +176,13 @@ export const debtsApi = {
 
 // Suppliers endpoints
 export const suppliersApi = {
-  list: (params?: { page?: number; per_page?: number; search?: string }) =>
+  list: (params?: PaginationParams & { search?: string }) =>
     apiClient.get('/suppliers', params),
   get: (id: string) => apiClient.get(`/suppliers/${id}`),
-  create: (data: any) => apiClient.post('/suppliers', data),
-  update: (id: string, data: any) => apiClient.put(`/suppliers/${id}`, data),
+  create: (data: SupplierCreateRequest) => apiClient.post('/suppliers', data),
+  update: (id: string, data: SupplierUpdateRequest) => apiClient.put(`/suppliers/${id}`, data),
   delete: (id: string) => apiClient.delete(`/suppliers/${id}`),
-  ledger: (id: string, params?: { page?: number; per_page?: number }) => 
+  ledger: (id: string, params?: PaginationParams) => 
     apiClient.get(`/suppliers/${id}/ledger`, params),
   ledgerSummary: (id: string) => 
     apiClient.get(`/suppliers/${id}/ledger/summary`),
@@ -165,11 +191,11 @@ export const suppliersApi = {
 
 // Purchases endpoints
 export const purchasesApi = {
-  list: (params?: { page?: number; per_page?: number; search?: string }) =>
+  list: (params?: PaginationParams & { search?: string }) =>
     apiClient.get('/purchases', params),
   get: (id: string) => apiClient.get(`/purchases/${id}`),
-  create: (data: any) => apiClient.post('/purchases', data),
-  update: (id: string, data: any) => apiClient.put(`/purchases/${id}`, data),
+  create: (data: PurchaseCreateRequest) => apiClient.post('/purchases', data),
+  update: (id: string, data: Partial<PurchaseCreateRequest>) => apiClient.put(`/purchases/${id}`, data),
   // SmartDelete - now returns SmartDeleteResult (ARCHITECTURE-PRINCIPLES.md)
   delete: (id: string) => apiClient.delete(`/purchases/${id}`),
   receive: (id: string) => apiClient.post(`/purchases/${id}/receive`, {}),
@@ -181,11 +207,11 @@ export const purchasesApi = {
 
 // Expenses endpoints
 export const expensesApi = {
-  list: (params?: { page?: number; per_page?: number; search?: string }) => 
+  list: (params?: PaginationParams & { search?: string }) => 
     apiClient.get('/expenses', params),
   get: (id: string) => apiClient.get(`/expenses/${id}`),
-  create: (data: any) => apiClient.post('/expenses', data),
-  update: (id: string, data: any) => apiClient.put(`/expenses/${id}`, data),
+  create: (data: ExpenseCreateRequest) => apiClient.post('/expenses', data),
+  update: (id: string, data: Partial<ExpenseCreateRequest>) => apiClient.put(`/expenses/${id}`, data),
   delete: (id: string) => apiClient.delete(`/expenses/${id}`),
 };
 
@@ -230,17 +256,19 @@ export const settingsApi = {
 export const barcodeApi = {
   scan: (barcode: string) => apiClient.post('/barcode/scan', { barcode }),
   lookup: (barcode: string) => apiClient.get(`/barcodes/${barcode}`),
-  lookupProduct: (barcode: string) => apiClient.get(`/barcodes/product/${barcode}`),
+  lookupProduct: (barcode: string) => apiClient.get<BarcodeLookupResponse>(`/barcodes/product/${barcode}`),
   lookupBySKU: (sku: string) => apiClient.get(`/barcodes/sku/${sku}`),
 };
 
 // Inspections endpoints
 export const inspectionsApi = {
-  list: (params?: { page?: number; per_page?: number; search?: string }) => 
+  list: (params?: { page?: number; per_page?: number; search?: string; status?: string }) => 
     apiClient.get('/inspections', params),
   get: (id: string) => apiClient.get(`/inspections/${id}`),
   create: (data: any) => apiClient.post('/inspections', data),
   update: (id: string, data: any) => apiClient.put(`/inspections/${id}`, data),
+  pass: (id: string) => apiClient.post(`/inspections/${id}/pass`, {}),
+  fail: (id: string) => apiClient.post(`/inspections/${id}/fail`, {}),
   delete: (id: string) => apiClient.delete(`/inspections/${id}`),
 };
 
@@ -314,7 +342,7 @@ export const acquisitionsApi = {
   addRepairCost: (itemId: string, data: any) => 
     apiClient.post(`/acquisitions/items/${itemId}/repair-cost`, data),
   getItemHistory: (itemId: string) => 
-    apiClient.get(`/inventory/${itemId}/history`),
+    apiClient.get(`/inventory/items/${itemId}/history`),
 };
 
 // Notifications endpoints

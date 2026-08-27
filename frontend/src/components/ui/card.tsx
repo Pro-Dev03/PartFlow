@@ -26,11 +26,11 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
     const getVariantStyle = () => {
   const baseStyle: Record<string, string> = {
     border: '1px solid var(--card-border)',
-    borderRadius: 'var(--radius-xl)',
+    borderRadius: 'var(--card-border-radius)',
     background: 'var(--card-bg)',
-    boxShadow: 'var(--card-shadow)',
+    boxShadow: 'var(--shadow-card)',
     transition: '200ms ease',
-    padding: '16px'
+    padding: 'var(--card-padding-md)'
   };
 
       const variantStyles: Record<string, Record<string, string>> = {
@@ -102,7 +102,7 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
             ...e,
             target: e.currentTarget,
             currentTarget: e.currentTarget,
-          } as any;
+          } as unknown as React.MouseEvent<HTMLDivElement>;
           onClick(syntheticEvent);
         }
       }
@@ -147,7 +147,11 @@ const CardHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('flex justify-between items-center mb-5', className)}
+      className={cn('flex justify-between items-center', className)}
+      style={{ 
+        marginBottom: 'var(--spacing-4)',
+        padding: 'var(--card-header-padding)'
+      }}
       {...props}
     />
   )
@@ -159,7 +163,8 @@ const CardTitle = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLHeadingEle
   ({ className, ...props }, ref) => (
     <h3
       ref={ref}
-      className={cn('text-[14px] font-semibold text-text', className)}
+      className={cn('font-semibold text-text', className)}
+      style={{ fontSize: 'var(--font-size-body)' }}
       {...props}
     />
   )
@@ -171,7 +176,8 @@ const CardDescription = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLPara
   ({ className, ...props }, ref) => (
     <p
       ref={ref}
-      className={cn('text-[11px] text-text-muted', className)}
+      className={cn('text-text-muted', className)}
+      style={{ fontSize: 'var(--font-size-caption)' }}
       {...props}
     />
   )
@@ -181,7 +187,12 @@ CardDescription.displayName = 'CardDescription';
 
 const CardContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement> & { noPadding?: boolean }>(
   ({ className, noPadding, ...props }, ref) => (
-    <div ref={ref} className={cn('', className)} style={{ padding: noPadding ? '0' : undefined }} {...props} />
+    <div 
+      ref={ref} 
+      className={cn('', className)} 
+      style={{ padding: noPadding ? '0' : 'var(--card-body-padding)' }} 
+      {...props} 
+    />
   )
 );
 
@@ -191,7 +202,12 @@ const CardFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('flex items-center pt-4 mt-4 border-t border-border', className)}
+      className={cn('flex items-center border-t border-border', className)}
+      style={{ 
+        paddingTop: 'var(--spacing-4)',
+        marginTop: 'var(--spacing-4)',
+        padding: 'var(--card-footer-padding)'
+      }}
       {...props}
     />
   )

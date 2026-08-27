@@ -50,6 +50,7 @@ type Product struct {
 	DeletedAt         *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
 	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
+	CurrentQuantity   int        `json:"current_quantity,omitempty" db:"current_quantity"` // Runtime field from inventory
 }
 
 // CategoryRequest represents category creation/update request
@@ -104,6 +105,8 @@ type ProductListRequest struct {
 	Search       string     `form:"search"`
 	TrackSerial  *bool      `form:"track_serial"`
 	TrackIndividual *bool  `form:"track_individual"`
+	LowStockOnly *bool      `form:"low_stock_only"`
+	InStockOnly  *bool      `form:"in_stock_only"`
 	SortBy       string     `form:"sort_by"`
 	SortOrder    string     `form:"sort_order"`
 }

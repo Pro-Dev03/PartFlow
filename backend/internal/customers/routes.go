@@ -20,6 +20,7 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 		customers.PUT("/:id", handler.UpdateCustomer)
 		customers.DELETE("/:id", handler.DeleteCustomer)
 		customers.GET("/:id/ledger", handler.GetCustomerLedger)
+		customers.GET("/:id/financial-timeline", handler.GetFinancialTimeline)
 		customers.POST("/:id/payments", handler.AddPayment)
 		customers.GET("/:id/debt-summary", handler.GetCustomerDebtSummary)
 		customers.PUT("/:id/credit-limit", handler.UpdateCreditLimit)

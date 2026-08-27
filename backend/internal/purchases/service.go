@@ -2,6 +2,8 @@ package purchases
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -12,15 +14,15 @@ import (
 // Import InventoryItem from inventory package
 // We'll define a local struct for the fields we need
 type InventoryItem struct {
-	ID           uuid.UUID  `json:"id"`
-	ProductID    *uuid.UUID `json:"product_id"`
-	ItemCode     *string    `json:"item_code"`
-	Barcode      *string    `json:"barcode"`
-	Condition    string     `json:"condition"`
-	Grade        *string    `json:"grade"`
-	PurchaseCost float64    `json:"purchase_cost"`
-	SellingPrice float64    `json:"selling_price"`
-	Status       string     `json:"status"`
+	ID           uuid.UUID  `json:"id" db:"id"`
+	ProductID    *uuid.UUID `json:"product_id" db:"product_id"`
+	ItemCode     *string    `json:"item_code" db:"item_code"`
+	Barcode      *string    `json:"barcode" db:"barcode"`
+	Condition    string     `json:"condition" db:"condition"`
+	Grade        *string    `json:"grade" db:"grade"`
+	PurchaseCost float64    `json:"purchase_cost" db:"purchase_cost"`
+	SellingPrice float64    `json:"selling_price" db:"selling_price"`
+	Status       string     `json:"status" db:"status"`
 }
 
 func strPtr(s string) *string {
@@ -31,11 +33,11 @@ func strPtr(s string) *string {
 type Condition string
 
 const (
-	ConditionNew        Condition = "NEW"
-	ConditionUsed       Condition = "USED"
+	ConditionNew         Condition = "NEW"
+	ConditionUsed        Condition = "USED"
 	ConditionRefurbished Condition = "REFURBISHED"
-	ConditionDamaged    Condition = "DAMAGED"
-	ConditionForParts   Condition = "FOR_PARTS"
+	ConditionDamaged     Condition = "DAMAGED"
+	ConditionForParts    Condition = "FOR_PARTS"
 )
 
 // Service handles purchase business logic
@@ -117,46 +119,46 @@ func (s *Service) CreatePurchase(ctx context.Context, userID uuid.UUID, req *Pur
 	// Update supplier ledger (temporarily disabled - table doesn't exist yet)
 	// TODO: Create supplier_ledger table and enable this logic
 	/*
-	var currentBalance float64
-	balanceQuery := `
-		SELECT COALESCE(SUM(amount), 0)
-		FROM supplier_ledger
-		WHERE supplier_id = $1
-	`
-	err = tx.GetContext(ctx, &currentBalance, balanceQuery, req.SupplierID)
-	if err != nil {
-		currentBalance = 0
-	}
+		var currentBalance float64
+		balanceQuery := `
+			SELECT COALESCE(SUM(amount), 0)
+			FROM supplier_ledger
+			WHERE supplier_id = $1
+		`
+		err = tx.GetContext(ctx, &currentBalance, balanceQuery, req.SupplierID)
+		if err != nil {
+			currentBalance = 0
+		}
 
-	// Calculate new balance (purchase increases debt)
-	newBalance := currentBalance + totalAmount
+		// Calculate new balance (purchase increases debt)
+		newBalance := currentBalance + totalAmount
 
-	ledgerQuery := `
-		INSERT INTO supplier_ledger (id, supplier_id, transaction_type, amount, balance, reference_type, reference_id, description, user_id, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`
-	_, err = tx.ExecContext(ctx, ledgerQuery,
-		uuid.New(), req.SupplierID, "PURCHASE",
-		totalAmount, newBalance, "purchase", purchase.ID, "Purchase: "+req.InvoiceNumber, userID, time.Now())
-	if err != nil {
-		return nil, fmt.Errorf("failed to update supplier ledger: %w", err)
-	}
+		ledgerQuery := `
+			INSERT INTO supplier_ledger (id, supplier_id, transaction_type, amount, balance, reference_type, reference_id, description, user_id, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`
+		_, err = tx.ExecContext(ctx, ledgerQuery,
+			uuid.New(), req.SupplierID, "PURCHASE",
+			totalAmount, newBalance, "purchase", purchase.ID, "Purchase: "+req.InvoiceNumber, userID, time.Now())
+		if err != nil {
+			return nil, fmt.Errorf("failed to update supplier ledger: %w", err)
+		}
 	*/
 
 	// Create audit log (temporarily disabled)
 	// TODO: Check audit_logs schema and enable if needed
 	/*
-	auditQuery := `
-		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
-	changes := fmt.Sprintf("Created purchase %s with %d items, total: %.2f", req.InvoiceNumber, len(items), totalAmount)
-	_, err = tx.ExecContext(ctx, auditQuery,
-		uuid.New(), userID, "CREATE_PURCHASE", "purchase", purchase.ID,
-		changes, time.Now())
-	if err != nil {
-		fmt.Printf("Warning: failed to create audit log: %v\n", err)
-	}
+		auditQuery := `
+			INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`
+		changes := fmt.Sprintf("Created purchase %s with %d items, total: %.2f", req.InvoiceNumber, len(items), totalAmount)
+		_, err = tx.ExecContext(ctx, auditQuery,
+			uuid.New(), userID, "CREATE_PURCHASE", "purchase", purchase.ID,
+			changes, time.Now())
+		if err != nil {
+			fmt.Printf("Warning: failed to create audit log: %v\n", err)
+		}
 	*/
 
 	// Commit transaction
@@ -202,38 +204,7 @@ func (s *Service) ListPurchases(ctx context.Context, req PurchaseListRequest) ([
 		req.PerPage = 20
 	}
 
-	purchases, total, err := s.repo.List(ctx, req)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	var result []PurchaseListItem
-	for _, purchase := range purchases {
-		items, err := s.repo.GetPurchaseItems(ctx, purchase.ID)
-		if err != nil {
-			continue
-		}
-
-		supplier, err := s.repo.GetSupplierInfo(ctx, purchase.SupplierID)
-		if err != nil {
-			continue
-		}
-
-		result = append(result, PurchaseListItem{
-			ID:             purchase.ID.String(),
-			InvoiceNumber:  purchase.InvoiceNumber,
-			PurchaseDate:   purchase.PurchaseDate,
-			TotalAmount:    purchase.TotalAmount,
-			PaidAmount:     purchase.PaidAmount,
-			Remaining:      purchase.TotalAmount - purchase.PaidAmount,
-			Status:         purchase.Status,
-			SupplierName:   supplier.Name,
-			TotalItems:     len(items),
-			CreatedAt:      purchase.CreatedAt,
-		})
-	}
-
-	return result, total, nil
+	return s.repo.ListSummaries(ctx, req)
 }
 
 // UpdatePurchase updates a purchase with status transition validation
@@ -274,12 +245,12 @@ func (s *Service) UpdatePurchase(ctx context.Context, id uuid.UUID, req *Purchas
 func isValidStatusTransition(currentStatus, newStatus string) bool {
 	// Define valid status transitions
 	validTransitions := map[string][]string{
-		StatusDraft:    {StatusPending, StatusCancelled},
-		StatusPending:  {StatusReceived, StatusCancelled, StatusPartiallyReceived},
-		StatusReceived: {StatusReversed}, // Can only reverse after receive
+		StatusDraft:             {StatusPending, StatusCancelled},
+		StatusPending:           {StatusReceived, StatusCancelled, StatusPartiallyReceived},
+		StatusReceived:          {StatusReversed}, // Can only reverse after receive
 		StatusPartiallyReceived: {StatusReceived, StatusReversed, StatusCancelled},
-		StatusCancelled: {}, // Cannot transition from cancelled
-		StatusReversed:  {}, // Cannot transition from reversed
+		StatusCancelled:         {}, // Cannot transition from cancelled
+		StatusReversed:          {}, // Cannot transition from reversed
 	}
 
 	// Allow same status (no change)
@@ -468,7 +439,7 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 }
 
 // CancelPurchase cancels a purchase
-func (s *Service) CancelPurchase(ctx context.Context, id uuid.UUID, ) (*PurchaseResponse, error) {
+func (s *Service) CancelPurchase(ctx context.Context, id uuid.UUID) (*PurchaseResponse, error) {
 	purchase, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -511,7 +482,6 @@ func (s *Service) ReversePurchase(ctx context.Context, id uuid.UUID, userID uuid
 		return nil, err
 	}
 
-	// Validate purchase can be reversed
 	if purchase.Status == StatusReversed {
 		return nil, ErrPurchaseAlreadyReversed
 	}
@@ -520,7 +490,6 @@ func (s *Service) ReversePurchase(ctx context.Context, id uuid.UUID, userID uuid
 		return nil, ErrInvalidPurchaseStatus
 	}
 
-	// Check if any items have been sold (cannot reverse if items are sold)
 	soldItemsCheck := `
 		SELECT COUNT(*)
 		FROM inventory_items
@@ -530,53 +499,46 @@ func (s *Service) ReversePurchase(ctx context.Context, id uuid.UUID, userID uuid
 	itemCodePattern := fmt.Sprintf("ITM-%s-%%", purchaseIDPrefix)
 
 	var soldCount int
-	err = tx.GetContext(ctx, &soldCount, soldItemsCheck, itemCodePattern)
-	if err != nil {
+	if err = tx.GetContext(ctx, &soldCount, soldItemsCheck, itemCodePattern); err != nil {
 		return nil, fmt.Errorf("failed to check sold items: %w", err)
 	}
-
 	if soldCount > 0 {
 		return nil, ErrItemsAlreadySold
 	}
 
-	// Get all inventory items from this purchase
 	getItemsQuery := `
 		SELECT id, product_id, item_code, barcode, condition, grade, purchase_cost, selling_price, status
 		FROM inventory_items
 		WHERE item_code LIKE $1
 	`
 	var items []InventoryItem
-	err = tx.SelectContext(ctx, &items, getItemsQuery, itemCodePattern)
-	if err != nil {
+	if err = tx.SelectContext(ctx, &items, getItemsQuery, itemCodePattern); err != nil {
 		return nil, fmt.Errorf("failed to get inventory items: %w", err)
 	}
 
-	// Reverse inventory items and create reverse movements
 	for _, item := range items {
-		// Update item status to indicate it's been reversed
 		updateItemQuery := `
 			UPDATE inventory_items
 			SET status = 'RETURNED', updated_at = NOW()
 			WHERE id = $1
 		`
-		_, err = tx.ExecContext(ctx, updateItemQuery, item.ID)
-		if err != nil {
+		if _, err = tx.ExecContext(ctx, updateItemQuery, item.ID); err != nil {
 			return nil, fmt.Errorf("failed to update item status: %w", err)
 		}
 
-		// Get current inventory quantity for movement record
-		var currentQuantity int
-		inventoryQuery := `
-			SELECT COALESCE(quantity, 0)
-			FROM inventory
-			WHERE product_id = $1
-		`
-		err = tx.GetContext(ctx, &currentQuantity, inventoryQuery, item.ProductID)
-		if err != nil {
-			currentQuantity = 0
+		currentQuantity := 0
+		if item.ProductID != nil {
+			inventoryQuery := `
+				SELECT COALESCE(quantity, 0)
+				FROM inventory
+				WHERE product_id = $1
+			`
+			queryErr := tx.GetContext(ctx, &currentQuantity, inventoryQuery, item.ProductID)
+			if queryErr != nil && queryErr != sql.ErrNoRows {
+				return nil, fmt.Errorf("failed to read current inventory quantity: %w", queryErr)
+			}
 		}
 
-		// Create reverse inventory movement
 		reverseMovementQuery := `
 			INSERT INTO inventory_movements (id, item_id, product_id, movement_type,
 				quantity, before_quantity, after_quantity, reference_type, reference_id,
@@ -589,64 +551,69 @@ func (s *Service) ReversePurchase(ctx context.Context, id uuid.UUID, userID uuid
 			reverseReason = "Purchase reversal"
 		}
 
-		_, err = tx.ExecContext(ctx, reverseMovementQuery,
+		if _, err = tx.ExecContext(ctx, reverseMovementQuery,
 			uuid.New(), item.ID, item.ProductID, "PURCHASE_REVERSAL",
 			-1, currentQuantity, currentQuantity-1, "purchase", purchase.ID,
-			reverseReason, userID, time.Now())
-		if err != nil {
+			reverseReason, userID, time.Now()); err != nil {
 			return nil, fmt.Errorf("failed to create reverse movement: %w", err)
 		}
 
-		// Update aggregate inventory table
 		inventoryUpdateQuery := `
 			UPDATE inventory
 			SET quantity = quantity - 1, updated_at = NOW()
 			WHERE product_id = $1
 		`
-		result, err := tx.ExecContext(ctx, inventoryUpdateQuery, item.ProductID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to update inventory: %w", err)
+		result, execErr := tx.ExecContext(ctx, inventoryUpdateQuery, item.ProductID)
+		if execErr != nil {
+			return nil, fmt.Errorf("failed to update inventory: %w", execErr)
 		}
 		if rowsAffected, _ := result.RowsAffected(); rowsAffected == 0 {
-			// Create inventory record if it doesn't exist (shouldn't happen)
 			createInventoryQuery := `
 				INSERT INTO inventory (id, product_id, quantity, created_at, updated_at)
 				VALUES ($1, $2, 0, NOW(), NOW())
 			`
-			_, err = tx.ExecContext(ctx, createInventoryQuery, uuid.New(), item.ProductID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create inventory record: %w", err)
+			if _, execErr = tx.ExecContext(ctx, createInventoryQuery, uuid.New(), item.ProductID); execErr != nil {
+				return nil, fmt.Errorf("failed to create inventory record: %w", execErr)
 			}
 		}
 	}
 
-	// Update purchase status to reversed
 	updatePurchaseQuery := `
 		UPDATE purchases
 		SET status = $1, updated_at = NOW()
 		WHERE id = $2
 	`
-	_, err = tx.ExecContext(ctx, updatePurchaseQuery, StatusReversed, purchase.ID)
-	if err != nil {
+	if _, err = tx.ExecContext(ctx, updatePurchaseQuery, StatusReversed, purchase.ID); err != nil {
 		return nil, fmt.Errorf("failed to update purchase status: %w", err)
 	}
 
-	// Create audit log for the reversal
-	auditQuery := `
-		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
-	changes := fmt.Sprintf("Reversed purchase %s, reason: %s, items affected: %d",
-		purchase.InvoiceNumber, reason, len(items))
-	_, err = tx.ExecContext(ctx, auditQuery,
-		uuid.New(), userID, "REVERSE_PURCHASE", "purchase", purchase.ID,
-		changes, time.Now())
-	if err != nil {
-		fmt.Printf("Warning: failed to create audit log: %v\n", err)
+	var userExists bool
+	if userID != uuid.Nil {
+		if err = tx.GetContext(ctx, &userExists, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, userID); err != nil {
+			userExists = false
+		}
+	}
+	if userExists {
+		auditQuery := `
+			INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`
+		changesPayload, marshalErr := json.Marshal(map[string]interface{}{
+			"invoice_number": purchase.InvoiceNumber,
+			"reason":         reason,
+			"items_affected": len(items),
+		})
+		if marshalErr != nil {
+			return nil, fmt.Errorf("failed to encode audit log: %w", marshalErr)
+		}
+		if _, err = tx.ExecContext(ctx, auditQuery,
+			uuid.New(), userID, "REVERSE_PURCHASE", "purchase", purchase.ID,
+			string(changesPayload), time.Now()); err != nil {
+			return nil, fmt.Errorf("failed to create audit log: %w", err)
+		}
 	}
 
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
+	if err = tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -740,16 +707,31 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 	}
 
 	// Create audit log
-	auditQuery := `
-		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
-	changes := fmt.Sprintf("Payment of %.2f for purchase %s", amount, purchase.InvoiceNumber)
-	_, err = tx.ExecContext(ctx, auditQuery,
-		uuid.New(), userID, "ADD_PAYMENT", "purchase", purchase.ID,
-		changes, time.Now())
-	if err != nil {
-		fmt.Printf("Warning: failed to create audit log: %v\n", err)
+	var userExists bool
+	if userID != uuid.Nil {
+		if err = tx.GetContext(ctx, &userExists, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, userID); err != nil {
+			userExists = false
+		}
+	}
+	if userExists {
+		auditQuery := `
+			INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`
+		changesPayload, marshalErr := json.Marshal(map[string]interface{}{
+			"purchase_id":     purchase.ID,
+			"invoice_number":  purchase.InvoiceNumber,
+			"payment_amount":  amount,
+			"new_paid_amount": newPaidAmount,
+		})
+		if marshalErr != nil {
+			return nil, fmt.Errorf("failed to encode audit log: %w", marshalErr)
+		}
+		if _, err = tx.ExecContext(ctx, auditQuery,
+			uuid.New(), userID, "ADD_PAYMENT", "purchase", purchase.ID,
+			string(changesPayload), time.Now()); err != nil {
+			return nil, fmt.Errorf("failed to create audit log: %w", err)
+		}
 	}
 
 	// Commit transaction
@@ -806,9 +788,9 @@ func (s *Service) UpdatePurchaseItem(ctx context.Context, itemID uuid.UUID, req 
 	var item PurchaseItem
 	// This would require a more complex query to join with purchases table
 	// For now, we'll update directly
-	
+
 	totalCost := float64(req.Quantity) * req.UnitCost
-	
+
 	item.ID = itemID
 	item.Quantity = req.Quantity
 	item.UnitCost = req.UnitCost

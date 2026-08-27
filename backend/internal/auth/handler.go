@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -162,14 +163,19 @@ func handleAuthError(c *gin.Context, err error) {
 	status := http.StatusInternalServerError
 	message := "internal server error"
 
-	switch err {
-	case ErrUserNotFound:
+	switch {
+	case errors.Is(err, ErrUserNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
-	case ErrInvalidCredentials, ErrInvalidPassword:
+	case errors.Is(err, ErrInvalidCredentials),
+		errors.Is(err, ErrInvalidPassword),
+		errors.Is(err, ErrInactiveUser),
+		errors.Is(err, ErrUnauthorized),
+		errors.Is(err, ErrInvalidToken),
+		errors.Is(err, ErrTokenExpired):
 		status = http.StatusUnauthorized
 		message = err.Error()
-	case ErrUserExists:
+	case errors.Is(err, ErrUserExists):
 		status = http.StatusConflict
 		message = err.Error()
 	}

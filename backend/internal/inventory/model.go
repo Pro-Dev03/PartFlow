@@ -235,25 +235,27 @@ type ReservationRequest struct {
 
 // InventoryItemWithSupplier represents an inventory item with supplier and product join info
 type InventoryItemWithSupplier struct {
-	ID           uuid.UUID  `json:"id" db:"id"`
-	ProductID    *uuid.UUID `json:"product_id" db:"product_id"`
-	PartTypeID   *uuid.UUID `json:"part_type_id" db:"part_type_id"`
-	ItemCode     *string    `json:"item_code" db:"item_code"`
-	Barcode      *string    `json:"barcode" db:"barcode"`
-	SerialNumber *string    `json:"serial_number" db:"serial_number"`
-	Condition    string     `json:"condition" db:"condition"`
-	Grade        *string    `json:"grade" db:"grade"`
-	PurchaseCost float64    `json:"purchase_cost" db:"purchase_cost"`
-	SellingPrice float64    `json:"selling_price" db:"selling_price"`
-	Status       string     `json:"status" db:"status"`
-	LocationID   *uuid.UUID `json:"location_id" db:"location_id"`
-	SupplierID   *uuid.UUID `json:"supplier_id" db:"supplier_id"`
-	PurchaseDate *time.Time `json:"purchase_date" db:"purchase_date"`
-	SoldAt       *time.Time `json:"sold_at" db:"sold_at"`
-	Notes        *string    `json:"notes" db:"notes"`
-	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at" db:"updated_at"`
-	ProductName  *string    `json:"product_name" db:"product_name"`
-	SupplierName *string    `json:"supplier_name" db:"supplier_name"`
-	SupplierPhone *string   `json:"supplier_phone" db:"supplier_phone"`
+	ID               uuid.UUID  `json:"id" db:"id"`
+	ProductID        *uuid.UUID `json:"product_id" db:"product_id"`
+	PartTypeID       *uuid.UUID `json:"part_type_id" db:"part_type_id"`
+	ItemCode         *string    `json:"item_code" db:"item_code"`
+	Barcode          *string    `json:"barcode" db:"barcode"`
+	SerialNumber     *string    `json:"serial_number" db:"serial_number"`
+	Condition        string     `json:"condition" db:"condition"`
+	Grade            *string    `json:"grade" db:"grade"`
+	PurchaseCost     float64    `json:"purchase_cost" db:"purchase_cost"`
+	SellingPrice     float64    `json:"selling_price" db:"selling_price"`
+	Status           string     `json:"status" db:"status"`
+	LocationID       *uuid.UUID `json:"location_id" db:"location_id"`
+	SupplierID       *uuid.UUID `json:"supplier_id" db:"supplier_id"`
+	PurchaseDate     *time.Time `json:"purchase_date" db:"purchase_date"`
+	SoldAt           *time.Time `json:"sold_at" db:"sold_at"`
+	Notes            *string    `json:"notes" db:"notes"`
+	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at" db:"updated_at"`
+	CurrentQuantity  int        `json:"current_quantity" db:"current_quantity"`
+	AvailableQuantity int       `json:"available_quantity" db:"available_quantity"`
+	ProductName      *string    `json:"product_name" db:"product_name"`
+	SupplierName     *string    `json:"supplier_name" db:"supplier_name"`
+	SupplierPhone    *string    `json:"supplier_phone" db:"supplier_phone"`
 }

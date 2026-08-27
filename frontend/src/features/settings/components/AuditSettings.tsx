@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
-import { FileText, Save, History, Download } from 'lucide-react';
+import { FileText, Save, Download } from 'lucide-react';
 
 export function AuditSettings() {
   const [auditSettings, setAuditSettings] = useState({

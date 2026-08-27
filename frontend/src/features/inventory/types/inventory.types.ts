@@ -18,6 +18,7 @@ export interface Product {
 
 export interface InventoryItem {
   id: string;
+  product_id?: string;
   product_name?: string;
   product?: {
     name: string;
@@ -27,6 +28,9 @@ export interface InventoryItem {
   purchase_cost?: number;
   price?: number;
   stock?: number;
+  current_quantity?: number;
+  available_quantity?: number;
+  quantity?: number;
   location?: string;
   status: string;
   created_at: string;
@@ -39,7 +43,6 @@ export interface InventoryStats {
   totalItems: number;
   totalValue: string;
   lowStock: number;
-  usedItems: number;
 }
 
 export interface FilterConfig {

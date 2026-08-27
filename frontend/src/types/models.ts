@@ -73,6 +73,15 @@ export interface Location {
   updated_at: string;
 }
 
+export interface PartType {
+  id: string;
+  name: string;
+  name_en?: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface InventoryMovement {
   id: string;
   item_id?: string;

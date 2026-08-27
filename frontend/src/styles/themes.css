@@ -90,18 +90,35 @@ body {
 }
 
 .sidebar-item {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
   transition: all var(--transition-fast) var(--ease-out);
 }
 
 .sidebar-item:hover {
   background-color: var(--sidebar-item-hover);
+  color: var(--color-primary);
   transform: translateX(4px);
 }
 
 .sidebar-item.active {
   background: var(--sidebar-item-active);
+  color: var(--color-primary);
   border-left: 3px solid var(--color-primary);
   transform: translateX(4px);
+}
+
+.sidebar-scan-button-hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow-strong);
+}
+
+.sidebar-scan-button {
+  appearance: none;
+  background: var(--gradient-primary);
+  color: var(--text-on-primary);
 }
 
 .topbar {

@@ -10,51 +10,54 @@ import (
 func (i *Inspection) ToInspectionResponse(product *ProductInfo, inspector *UserInfo) *InspectionResponse {
 	return &InspectionResponse{
 		Inspection: *i,
-		Product:   product,
-		Inspector: inspector,
+		Product:    product,
+		Inspector:  inspector,
 	}
 }
 
 // ToInspectionListItem converts Inspection to list item format
 func (i *Inspection) ToInspectionListItem(productName string, inspectorName string) map[string]interface{} {
 	return map[string]interface{}{
-		"id":              i.ID,
-		"product_name":    productName,
-		"serial_number":   i.SerialNumber,
-		"inspection_date": i.InspectionDate,
-		"status":          i.Status,
-		"condition":       i.Condition,
-		"grade":           i.Grade,
-		"inspector_name":  inspectorName,
-		"created_at":      i.CreatedAt,
+		"id":                i.ID,
+		"inventory_item_id": i.InventoryItemID,
+		"product_name":      productName,
+		"serial_number":     i.SerialNumber,
+		"inspection_date":   i.InspectionDate,
+		"status":            i.Status,
+		"condition":         i.Condition,
+		"grade":             i.Grade,
+		"inspector_name":    inspectorName,
+		"created_at":        i.CreatedAt,
 	}
 }
 
 // CreateInspection creates an Inspection from request
 func CreateInspection(userID uuid.UUID, req *InspectionRequest) *Inspection {
 	return &Inspection{
-		ID:             uuid.New(),
-		ProductID:      req.ProductID,
-		SerialNumber:   req.SerialNumber,
-		InspectionDate: req.InspectionDate,
-		InspectedBy:    userID,
-		Status:         "pending",
-		Condition:      req.Condition,
-		Grade:          req.Grade,
-		Notes:          req.Notes,
-		Photos:         req.Photos,
-		TestResults:    req.TestResults,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		ID:              uuid.New(),
+		ProductID:       uuidPtrIfSet(req.ProductID),
+		InventoryItemID: req.InventoryItemID,
+		SerialNumber:    req.SerialNumber,
+		InspectionDate:  req.InspectionDate,
+		InspectedBy:     userID,
+		Status:          "pending",
+		Condition:       req.Condition,
+		Grade:           req.Grade,
+		Notes:           req.Notes,
+		Photos:          req.Photos,
+		TestResults:     req.TestResults,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 }
 
 // ValidateInspectionRequest validates inspection request
 func ValidateInspectionRequest(req *InspectionRequest) error {
-	if req.ProductID == uuid.Nil {
+	if req.ProductID == uuid.Nil && req.InventoryItemID == nil {
 		return ErrProductNotFound
 	}
-	if req.Condition != "excellent" && req.Condition != "very_good" && 
+
+	if req.Condition != "excellent" && req.Condition != "very_good" &&
 		req.Condition != "good" && req.Condition != "fair" && req.Condition != "poor" {
 		return ErrInvalidCondition
 	}
@@ -62,6 +65,13 @@ func ValidateInspectionRequest(req *InspectionRequest) error {
 		return ErrInvalidGrade
 	}
 	return nil
+}
+
+func uuidPtrIfSet(id uuid.UUID) *uuid.UUID {
+	if id == uuid.Nil {
+		return nil
+	}
+	return &id
 }
 
 // IsPassed checks if inspection is passed
@@ -90,7 +100,7 @@ func (tr *TestResults) CalculateOverallStatus() string {
 		tr.VisualTest,
 		tr.SerialTest,
 	}
-	
+
 	allPassed := true
 	for _, test := range tests {
 		if !test {
@@ -98,7 +108,7 @@ func (tr *TestResults) CalculateOverallStatus() string {
 			break
 		}
 	}
-	
+
 	if allPassed {
 		return "passed"
 	}

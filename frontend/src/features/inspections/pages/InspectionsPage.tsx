@@ -1,21 +1,19 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { acquisitionsApi } from '../../../services/api/endpoints';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
 import { SearchInput } from '../../../components/ui/search-input';
 import { Select } from '../../../components/ui/select';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
+import { toast } from 'sonner';
 import {
   CheckCircle,
   XCircle,
   AlertTriangle,
   Package,
-  Search,
-  Filter,
   Layers
 } from 'lucide-react';
 
@@ -83,12 +81,12 @@ export function InspectionsPage() {
       queryClient.invalidateQueries({ queryKey: ['acquisitions'] });
       queryClient.invalidateQueries({ queryKey: ['inspections'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      alert(passed ? 'اجتازت القطعة الفحص بنجاح!' : 'فشلت القطعة في الفحص');
+      toast.success(passed ? 'اجتازت القطعة الفحص بنجاح!' : 'فشلت القطعة في الفحص');
       setIsInspectionModalOpen(false);
       setSelectedItem(null);
     } catch (error) {
       console.error('Inspection failed:', error);
-      alert('فشل تحديث حالة الفحص');
+      toast.error('فشل تحديث حالة الفحص');
     }
   };
 
@@ -210,8 +208,8 @@ export function InspectionsPage() {
       {/* Search and Filters */}
       <Card className="mb-4 border border-[var(--border-default)] bg-[var(--card-bg)] shadow-sm">
         <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-3 items-stretch">
-            <div className="flex-1">
+          <div className="pf-search-row flex flex-col md:flex-row gap-3 items-stretch">
+            <div className="min-w-0 flex-1">
               <SearchInput
                 placeholder="بحث عن قطعة..."
                 value={searchQuery}

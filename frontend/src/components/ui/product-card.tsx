@@ -4,7 +4,7 @@ import { Package } from 'lucide-react';
 import { Badge } from './badge';
 import { formatPrice } from '../../utils';
 
-export interface ProductCardProps extends HTMLAttributes<HTMLDivElement> {
+export interface ProductCardProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onClick'> {
   product: {
     id: string | number;
     name: string;

@@ -12,6 +12,17 @@ import (
 	"github.com/partflow/smart-store/pkg/response"
 )
 
+// FinancialTransaction represents a financial transaction for a customer
+type FinancialTransaction struct {
+	ID          string    `json:"id"`
+	Type        string    `json:"type"` // sale, payment, return, refund, adjustment
+	Amount      float64   `json:"amount"`
+	BalanceAfter float64 `json:"balance_after"`
+	Date        string    `json:"date"`
+	Description string    `json:"description"`
+	Status      string    `json:"status"`
+}
+
 // Handler handles HTTP requests for customers
 type Handler struct {
 	service *Service
@@ -122,7 +133,7 @@ func (h *Handler) ListCustomers(c *gin.Context) {
 	req.Page = page
 	req.PerPage = perPage
 
-	customers, total, err := h.service.ListCustomers(c.Request.Context(), req.Page, req.PerPage, req.Search, req.IsActive)
+	customers, total, err := h.service.ListCustomers(c.Request.Context(), &req)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve customers", err.Error())
 		return
@@ -226,6 +237,27 @@ func (h *Handler) GetCustomerLedger(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusOK, ledger.Entries, "Customer ledger retrieved successfully")
+}
+
+// GetFinancialTimeline handles financial timeline retrieval for a customer
+func (h *Handler) GetFinancialTimeline(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
+		return
+	}
+
+	timeline, err := h.service.GetFinancialTimeline(c.Request.Context(), id)
+	if err != nil {
+		if err == ErrCustomerNotFound {
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
+			return
+		}
+		errors.HandleError(c, errors.WrapError(err, "Failed to retrieve financial timeline"))
+		return
+	}
+
+	response.OK(c, timeline, "Financial timeline retrieved successfully")
 }
 
 // AddPayment handles payment addition

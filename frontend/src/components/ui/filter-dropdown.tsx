@@ -13,7 +13,7 @@ export interface FilterGroup {
   label: string;
   options: FilterOption[];
   value: string | string[] | null;
-  onChange: (value: string | string[]) => void;
+  onChange: (value: string | string[] | null) => void;
   multi?: boolean;
 }
 
@@ -77,9 +77,10 @@ const FilterDropdown = ({
         onClick={() => setIsOpen(!isOpen)}
         aria-expanded={isOpen}
         aria-haspopup="true"
+        aria-label={hasActive ? `${label} (${activeCount} نشط)` : label}
         className={cn(
-          'inline-flex h-9 items-center gap-2 rounded-lg border px-3.5 text-sm font-medium',
-          'border-border bg-transparent text-text-secondary',
+        'pf-filter-trigger inline-flex h-10 items-center gap-2 rounded-xl border px-3.5 text-sm font-semibold',
+        'border-border bg-bg-surface text-text-secondary',
           'transition-all duration-200 ease-out',
           'hover:border-primary hover:text-text-primary hover:bg-bg-surface-elevated',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
@@ -98,6 +99,7 @@ const FilterDropdown = ({
         )}
         <ChevronDown
           className={cn(
+           'pf-filter-option',
             'h-3.5 w-3.5 shrink-0 transition-transform duration-200',
             isOpen && 'rotate-180'
           )}
@@ -107,16 +109,17 @@ const FilterDropdown = ({
       {isOpen && (
         <div
           className={cn(
-            'absolute z-10 mt-2 w-64 origin-top-right rounded-xl border border-border bg-bg-surface',
-            'shadow-[0_8px_32px_rgba(0,0,0,0.25)]',
+            'pf-filter-menu absolute z-20 mt-2 w-72 origin-top-right rounded-2xl border',
             'animate-in slide-in-from-top-2 duration-200 ease-out',
             align === 'end' ? 'right-0' : 'left-0'
           )}
+          role="dialog"
+          aria-label={`${label} خيارات`}
         >
-          <div className="p-3">
+          <div className="pf-filter-menu-content p-4">
             {groups.map((group) => (
-              <div key={group.key} className="mb-3 last:mb-0">
-                <div className="mb-2 text-xs font-semibold text-text-secondary">
+              <div key={group.key} className="pf-filter-group mb-4 last:mb-0">
+                <div className="pf-filter-group-label mb-2">
                   {group.label}
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -128,11 +131,11 @@ const FilterDropdown = ({
                         type="button"
                         onClick={() => handleGroupChange(group, option.id)}
                         className={cn(
-                          'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5',
+                          'pf-filter-option inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5',
                           'text-xs font-medium transition-all duration-200 ease-out',
                           'cursor-pointer',
                           isActive
-                            ? 'border-primary bg-primary/10 text-primary'
+                            ? 'pf-filter-option-active border-primary bg-primary/10 text-primary'
                             : 'border-border text-text-secondary hover:border-primary hover:bg-bg-surface hover:text-text-primary'
                         )}
                       >
@@ -153,7 +156,7 @@ const FilterDropdown = ({
                   groups.forEach(g => g.onChange(g.multi ? [] : null));
                 }}
                 className={cn(
-                  'mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border',
+                  'pf-filter-clear mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border',
                   'border-border bg-bg-surface-elevated px-3 py-2 text-sm font-semibold',
                   'text-text-secondary transition-all duration-200',
                   'hover:border-danger hover:bg-danger/5 hover:text-danger cursor-pointer'

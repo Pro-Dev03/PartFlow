@@ -91,7 +91,7 @@ export function clientWins(localData: SyncableData, serverData: SyncableData): S
  * Strategy: Server wins (for automated/synced data)
  * Always prefer server data (e.g., inventory counts)
  */
-export function serverWins(localData: SyncableData, serverData: SyncableData): SyncableData {
+export function serverWins(_localData: SyncableData, serverData: SyncableData): SyncableData {
   console.log('[Conflict Resolution] Server wins strategy');
   return serverData;
 }

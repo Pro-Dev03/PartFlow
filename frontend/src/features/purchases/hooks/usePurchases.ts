@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { purchasesApi, suppliersApi, productsApi } from '../../../services/api/endpoints';
-import { Purchase, PurchaseItem, PurchaseFormData, PurchaseStats } from '../types/purchases.types';
+import { purchasesApi, suppliersApi } from '../../../services/api/endpoints';
+import { Purchase, PurchaseFormData, PurchaseStats } from '../types/purchases.types';
 import { SmartDeleteResult } from '../../../types/api'; // ARCHITECTURE-PRINCIPLES.md
+import { toast } from 'sonner';
 
 export function usePurchases() {
   const queryClient = useQueryClient();
@@ -50,7 +51,7 @@ export function usePurchases() {
         console.error('Error response:', error.response);
         console.error('Error code:', error.code);
       }
-      alert(`خطأ في إنشاء الشراء: ${error.message || error.arabicMessage || 'حدث خطأ غير معروف'}`);
+      toast.error(`خطأ في إنشاء الشراء: ${error.message || error.arabicMessage || 'حدث خطأ غير معروف'}`);
     },
   });
 
@@ -87,7 +88,7 @@ export function usePurchases() {
     },
     onError: (error) => {
       console.error('Error deleting purchase:', error);
-      alert(`خطأ في حذف الشراء: ${error.message || 'حدث خطأ غير معروف'}`);
+      toast.error(`خطأ في حذف الشراء: ${error.message || 'حدث خطأ غير معروف'}`);
     },
   });
 
@@ -101,9 +102,9 @@ export function usePurchases() {
     onError: (error) => {
       console.error('Error reversing purchase:', error);
       if (error.message?.includes('some items have been sold')) {
-        alert('لا يمكن عكس عملية الشراء لأن بعض القطع تم بيعها بالفعل.');
+        toast.error('لا يمكن عكس عملية الشراء لأن بعض القطع تم بيعها بالفعل.');
       } else {
-        alert(`خطأ في عكس الشراء: ${error.message || 'حدث خطأ غير معروف'}`);
+        toast.error(`خطأ في عكس الشراء: ${error.message || 'حدث خطأ غير معروف'}`);
       }
     },
   });

@@ -9,7 +9,8 @@ import (
 // Inspection represents an inspection of a used item
 type Inspection struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
-	ProductID      uuid.UUID  `json:"product_id" db:"product_id"`
+	ProductID      *uuid.UUID `json:"product_id" db:"product_id"`
+	InventoryItemID *uuid.UUID `json:"inventory_item_id" db:"inventory_item_id"`
 	SerialNumber   string     `json:"serial_number" db:"serial_number"`
 	InspectionDate time.Time  `json:"inspection_date" db:"inspection_date"`
 	InspectedBy    uuid.UUID  `json:"inspected_by" db:"inspected_by"`
@@ -46,6 +47,7 @@ type TestResults struct {
 // InspectionRequest represents inspection creation request
 type InspectionRequest struct {
 	ProductID      uuid.UUID  `json:"product_id" binding:"required"`
+	InventoryItemID *uuid.UUID `json:"inventory_item_id"`
 	SerialNumber   string     `json:"serial_number"`
 	InspectionDate time.Time  `json:"inspection_date" binding:"required"`
 	Condition      string     `json:"condition" binding:"required,oneof=excellent very_good good fair poor"`

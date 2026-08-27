@@ -1,15 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Select } from '../../../components/ui/select';
 import { Palette, Save, Moon, Sun } from 'lucide-react';
+import { useUIStore } from '../../../stores/uiStore';
 
 export function AppearanceSettings() {
+  const { theme, setTheme } = useUIStore();
   const [appearanceSettings, setAppearanceSettings] = useState({
-    theme: 'dark',
+    theme,
     language: 'ar',
     fontSize: 'medium',
   });
+
+  useEffect(() => {
+    setAppearanceSettings((settings) => ({ ...settings, theme }));
+  }, [theme]);
 
   return (
     <Card>
@@ -28,7 +34,10 @@ export function AppearanceSettings() {
           <div className="flex gap-2">
             <Button
               variant={appearanceSettings.theme === 'dark' ? 'primary' : 'secondary'}
-              onClick={() => setAppearanceSettings({ ...appearanceSettings, theme: 'dark' })}
+              onClick={() => {
+                setTheme('dark');
+                localStorage.setItem('theme', 'dark');
+              }}
               className="gap-2"
             >
               <Moon className="w-4 h-4" />
@@ -36,7 +45,10 @@ export function AppearanceSettings() {
             </Button>
             <Button
               variant={appearanceSettings.theme === 'light' ? 'primary' : 'secondary'}
-              onClick={() => setAppearanceSettings({ ...appearanceSettings, theme: 'light' })}
+              onClick={() => {
+                setTheme('light');
+                localStorage.setItem('theme', 'light');
+              }}
               className="gap-2"
             >
               <Sun className="w-4 h-4" />

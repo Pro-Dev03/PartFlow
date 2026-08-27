@@ -116,7 +116,7 @@ export function TradeInItemsSection({
                         marginTop: '2px',
                         fontWeight: '500'
                       }}>
-                        اشتريت بـ: ₪{(item.purchase_cost / 100).toFixed(2)}
+                         اشتريت بـ: ₪{item.purchase_cost.toFixed(2)}
                       </div>
                     </div>
                     <div style={{
@@ -125,7 +125,7 @@ export function TradeInItemsSection({
                       color: 'var(--color-info)',
                       textShadow: '0 0 20px var(--color-info-30)'
                     }}>
-                      ₪{(item.selling_price / 100).toFixed(2)}
+                       ₪{item.selling_price.toFixed(2)}
                     </div>
                   </div>
                 </div>

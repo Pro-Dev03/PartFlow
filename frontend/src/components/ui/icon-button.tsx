@@ -11,40 +11,40 @@ const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
   ({ icon, title, variant = 'default', className, ...props }, ref) => {
     const variants = {
       default: {
-        base: 'var(--color-primary)',
-        bg: 'rgba(99, 102, 241, 0.08)',
-        border: 'rgba(99, 102, 241, 0.15)',
-        shadow: '0 1px 2px rgba(99, 102, 241, 0.05)',
-        hoverBg: 'rgba(99, 102, 241, 0.12)',
-        hoverBorder: 'rgba(99, 102, 241, 0.25)',
-        hoverShadow: '0 2px 4px rgba(99, 102, 241, 0.1)',
+        base: 'var(--text-secondary)',
+        bg: 'var(--bg-surface-elevated)',
+        border: 'var(--border-default)',
+        shadow: 'var(--shadow-sm)',
+        hoverBg: 'var(--bg-surface-3)',
+        hoverBorder: 'var(--border-primary)',
+        hoverShadow: 'var(--shadow-md)',
       },
       primary: {
-        base: '#60a5fa',
-        bg: 'rgba(99, 102, 241, 0.12)',
-        border: 'rgba(99, 102, 241, 0.25)',
-        shadow: '0 2px 4px rgba(99, 102, 241, 0.1)',
-        hoverBg: 'rgba(99, 102, 241, 0.18)',
-        hoverBorder: 'rgba(99, 102, 241, 0.35)',
-        hoverShadow: '0 4px 8px rgba(99, 102, 241, 0.15)',
+        base: 'var(--color-primary)',
+        bg: 'var(--color-primary-10)',
+        border: 'var(--color-primary-25)',
+        shadow: 'var(--shadow-sm)',
+        hoverBg: 'var(--color-primary-20)',
+        hoverBorder: 'var(--color-primary-40)',
+        hoverShadow: 'var(--shadow-md)',
       },
       success: {
         base: 'var(--color-success)',
-        bg: 'rgba(16, 185, 129, 0.08)',
-        border: 'rgba(16, 185, 129, 0.15)',
-        shadow: '0 1px 2px rgba(16, 185, 129, 0.05)',
-        hoverBg: 'rgba(16, 185, 129, 0.12)',
-        hoverBorder: 'rgba(16, 185, 129, 0.25)',
-        hoverShadow: '0 2px 4px rgba(16, 185, 129, 0.1)',
+        bg: 'var(--color-success-10)',
+        border: 'var(--color-success-20)',
+        shadow: 'var(--shadow-sm)',
+        hoverBg: 'var(--color-success-20)',
+        hoverBorder: 'var(--color-success-30)',
+        hoverShadow: 'var(--shadow-md)',
       },
       danger: {
         base: 'var(--color-danger)',
-        bg: 'rgba(239, 68, 68, 0.08)',
-        border: 'rgba(239, 68, 68, 0.15)',
-        shadow: '0 1px 2px rgba(239, 68, 68, 0.05)',
-        hoverBg: 'rgba(239, 68, 68, 0.12)',
-        hoverBorder: 'rgba(239, 68, 68, 0.25)',
-        hoverShadow: '0 2px 4px rgba(239, 68, 68, 0.1)',
+        bg: 'var(--color-danger-10)',
+        border: 'var(--color-danger-20)',
+        shadow: 'var(--shadow-sm)',
+        hoverBg: 'var(--color-danger-20)',
+        hoverBorder: 'var(--color-danger-30)',
+        hoverShadow: 'var(--shadow-md)',
       },
     };
 
@@ -55,12 +55,12 @@ const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
         ref={ref}
         title={title}
         className={cn(
-          'flex items-center justify-center transition-all duration-200 rounded-[8px]',
+          'flex items-center justify-center transition-all duration-150 rounded-[10px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed',
           className
         )}
         style={{
-          width: '32px',
-          height: '32px',
+          width: '36px',
+          height: '36px',
           background: style.bg,
           border: `1px solid ${style.border}`,
           color: style.base,

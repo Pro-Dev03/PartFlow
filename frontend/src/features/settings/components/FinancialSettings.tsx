@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
-import { DollarSign, Save, TrendingUp, Wallet } from 'lucide-react';
+import { DollarSign, Save } from 'lucide-react';
 
 export function FinancialSettings() {
   const [financialSettings, setFinancialSettings] = useState({

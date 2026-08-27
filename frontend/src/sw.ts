@@ -33,7 +33,7 @@ interface FetchEvent extends Event {
 declare const self: ServiceWorkerGlobalScope;
 
 // Precache important assets
-self.addEventListener('install', (event: ExtendableEvent) => {
+self.addEventListener('install', (_event: ExtendableEvent) => {
   console.log('[Service Worker] Install');
   self.skipWaiting();
 });

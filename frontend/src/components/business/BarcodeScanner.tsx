@@ -101,7 +101,7 @@ export function BarcodeScanner({ isOpen, onClose, onScanComplete, context = Barc
 
   const handleCreateProduct = () => {
     // Navigate to product creation page
-    window.location.href = `/app/products/new?barcode=${barcode}`;
+    window.location.href = `/app/inventory?barcode=${barcode}`;
     onClose();
   };
 

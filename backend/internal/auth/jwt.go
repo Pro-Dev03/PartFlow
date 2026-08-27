@@ -2,7 +2,6 @@ package auth
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -74,17 +73,17 @@ func (s *JWTService) ValidateToken(tokenString string) (*Claims, error) {
 	})
 
 	if err != nil {
-		return nil, err
+		return nil, ErrInvalidToken
 	}
 
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
-		return nil, fmt.Errorf("invalid token: %w", err)
+		return nil, ErrInvalidToken
 	}
 
 	// Check if token is expired
 	if time.Now().After(claims.ExpiresAt.Time) {
-		return nil, fmt.Errorf("token has expired: %w", err)
+		return nil, ErrTokenExpired
 	}
 
 	return claims, nil

@@ -42,7 +42,7 @@ func (h *MainHandler) ListInventory(c *gin.Context) {
 		ReservedQuantity int      `json:"reserved_quantity"`
 		Location       string     `json:"location"`
 		WarehouseID    *uuid.UUID `json:"warehouse_id"`
-		LastRestockedAt string    `json:"last_restocked_at"`
+		LastRestockedAt *string   `json:"last_restocked_at"`
 		CreatedAt      string     `json:"created_at"`
 		UpdatedAt      string     `json:"updated_at"`
 	}
@@ -70,7 +70,7 @@ func (h *MainHandler) ListInventory(c *gin.Context) {
 			ReservedQuantity int      `json:"reserved_quantity"`
 			Location       string     `json:"location"`
 			WarehouseID    *uuid.UUID `json:"warehouse_id"`
-			LastRestockedAt string    `json:"last_restocked_at"`
+			LastRestockedAt *string   `json:"last_restocked_at"`
 			CreatedAt      string     `json:"created_at"`
 			UpdatedAt      string     `json:"updated_at"`
 		}
@@ -116,7 +116,7 @@ func (h *MainHandler) GetInventory(c *gin.Context) {
 		ReservedQuantity int     `json:"reserved_quantity"`
 		Location       string    `json:"location"`
 		WarehouseID    *uuid.UUID `json:"warehouse_id"`
-		LastRestockedAt string   `json:"last_restocked_at"`
+		LastRestockedAt *string  `json:"last_restocked_at"`
 		CreatedAt      string    `json:"created_at"`
 		UpdatedAt      string    `json:"updated_at"`
 	}
@@ -155,14 +155,13 @@ func (h *MainHandler) GetInventorySummary(c *gin.Context) {
 
 	query := `
 		SELECT 
-			COUNT(DISTINCT product_id) as total_products,
-			COALESCE(SUM(quantity), 0) as total_quantity,
-			COALESCE(SUM(quantity * 0), 0) as total_value,
-			COUNT(CASE WHEN quantity < 5 AND quantity > 0 THEN 1 END) as low_stock_items,
-			COUNT(CASE WHEN quantity = 0 THEN 1 END) as out_of_stock_items,
-			COALESCE(SUM(reserved_quantity), 0) as reserved_quantity,
-			COALESCE(SUM(quantity - reserved_quantity), 0) as available_quantity
-		FROM inventory
+			(SELECT COUNT(DISTINCT product_id) FROM inventory) as total_products,
+			(SELECT COALESCE(SUM(quantity), 0) FROM inventory) as total_quantity,
+			(SELECT COALESCE(SUM(purchase_cost), 0) FROM inventory_items WHERE status = 'AVAILABLE') as total_value,
+			(SELECT COUNT(*) FROM inventory WHERE quantity < 5 AND quantity > 0) as low_stock_items,
+			(SELECT COUNT(*) FROM inventory WHERE quantity = 0) as out_of_stock_items,
+			(SELECT COALESCE(SUM(reserved_quantity), 0) FROM inventory) as reserved_quantity,
+			(SELECT COALESCE(SUM(quantity - reserved_quantity), 0) FROM inventory) as available_quantity
 	`
 
 	row := h.db.QueryRow(query)

@@ -9,7 +9,7 @@ type CreateSaleRequest struct {
 	PaymentMethod *string           `json:"payment_method,omitempty"`
 	PaymentAmount float64           `json:"payment_amount,omitempty"`
 	Notes         *string           `json:"notes,omitempty"`
-	TaxRate       float64           `json:"tax_rate" binding:"required"`
+	TaxRate       float64           `json:"tax_rate"` // Made optional - will default to 0 if not provided
 	DiscountType  string            `json:"discount_type"` // "percentage" or "fixed"
 	DiscountValue float64           `json:"discount_value"`
 }

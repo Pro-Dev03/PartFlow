@@ -11,8 +11,8 @@ type InventoryItemResponse struct {
 	SerialNumber   string    `json:"serial_number"`
 	Condition      string    `json:"condition"`
 	Grade          string    `json:"grade"`
-	PurchaseCost   int64     `json:"purchase_cost"`
-	SellingPrice   int64     `json:"selling_price"`
+	PurchaseCost   float64    `json:"purchase_cost"`
+	SellingPrice   float64    `json:"selling_price"`
 	Status         string    `json:"status"`
 	LocationID     *string   `json:"location_id"`
 	SupplierID     *string   `json:"supplier_id"`
@@ -101,7 +101,7 @@ type StockSummary struct {
 	Sold           int     `json:"sold"`
 	Damaged        int     `json:"damaged"`
 	InRepair       int     `json:"in_repair"`
-	TotalValue     int64   `json:"total_value"` // in minor units
+	TotalValue     float64   `json:"total_value"` // in shekels
 }
 
 // BarcodeLookupResponse represents barcode lookup response
@@ -115,8 +115,8 @@ type BarcodeLookupResponse struct {
 	Condition      string  `json:"condition,omitempty"`
 	Grade          string  `json:"grade,omitempty"`
 	Status         string  `json:"status,omitempty"`
-	PurchaseCost   int64   `json:"purchase_cost,omitempty"`
-	SellingPrice   int64   `json:"selling_price"`
+	PurchaseCost   float64   `json:"purchase_cost,omitempty"`
+	SellingPrice   float64   `json:"selling_price"`
 	Location       string  `json:"location,omitempty"`
 	Available      bool    `json:"available"`
 }
@@ -138,6 +138,6 @@ type InventoryListRequest struct {
 	SupplierID     *string  `form:"supplier_id"`
 	PurchaseDateFrom *string `form:"purchase_date_from"`
 	PurchaseDateTo   *string `form:"purchase_date_to"`
-	MinPurchaseCost  *int64  `form:"min_purchase_cost"`
-	MaxPurchaseCost  *int64  `form:"max_purchase_cost"`
+	MinPurchaseCost  *float64  `form:"min_purchase_cost"`
+	MaxPurchaseCost  *float64  `form:"max_purchase_cost"`
 }

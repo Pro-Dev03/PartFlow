@@ -38,9 +38,14 @@ export function PaymentSection({
   const projectedDebt = customerBalance + remaining;
   const willExceedCreditLimit = customerCreditLimit && projectedDebt > customerCreditLimit;
   const isCreditSale = paymentMethod === 'credit';
-  
+  const isCreditAdvanceMissing = isCreditSale && paidAmount.trim() === '';
   // For credit sales, customer is required (SALES-PHILOSOPHY.md)
   const isCreditSaleWithoutCustomer = isCreditSale && !selectedCustomer;
+  const isCheckoutDisabled =
+    isProcessing ||
+    (paymentMethod === 'cash' && paid < total) ||
+    isCreditSaleWithoutCustomer ||
+    isCreditAdvanceMissing;
 
   return (
     <Card style={{
@@ -313,7 +318,7 @@ export function PaymentSection({
           )}
 
           {/* Amount Paid */}
-          {paymentMethod === 'cash' && (
+          {(paymentMethod === 'cash' || paymentMethod === 'credit') && (
             <div style={{ marginTop: '14px' }}>
               <label style={{
                 fontSize: '12px',
@@ -323,10 +328,12 @@ export function PaymentSection({
                 fontWeight: '500',
                 letterSpacing: '0.2px'
               }}>
-                المبلغ المدفوع
+                {paymentMethod === 'credit' ? 'الدفعة المقدمة' : 'المبلغ المدفوع'}
               </label>
               <Input
                 type="number"
+                required={isCreditSale}
+                min={0}
                 value={paidAmount}
                 onChange={(e) => setPaidAmount(e.target.value)}
                 placeholder="أدخل المبلغ..."
@@ -351,6 +358,16 @@ export function PaymentSection({
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               />
+              {isCreditAdvanceMissing && (
+                <div style={{
+                  fontSize: '12px',
+                  color: 'var(--color-danger)',
+                  marginTop: '6px',
+                  fontWeight: '500'
+                }}>
+                  يرجى إدخال رقم للدفعة المقدمة
+                </div>
+              )}
               {remaining > 0 && (
                 <div style={{
                   fontSize: '12px',
@@ -380,7 +397,7 @@ export function PaymentSection({
           <Button
             variant="primary"
             onClick={onCheckout}
-            disabled={isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer}
+            disabled={isCheckoutDisabled}
             style={{
               width: '100%',
               marginTop: '16px',
@@ -388,41 +405,41 @@ export function PaymentSection({
               fontSize: '15px',
               fontWeight: '700',
               letterSpacing: '0.3px',
-              background: isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer
+              background: isCheckoutDisabled
                 ? 'linear-gradient(135deg, rgba(100, 116, 139, 0.3) 0%, rgba(75, 85, 99, 0.3) 100%)'
                 : 'linear-gradient(135deg, var(--button-primary-bg) 0%, var(--color-primary-90) 100%)',
-              border: isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer
+              border: isCheckoutDisabled
                 ? '1px solid rgba(100, 116, 139, 0.3)'
                 : '1px solid var(--color-primary-30)',
-              boxShadow: isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer
+              boxShadow: isCheckoutDisabled
                 ? 'none'
                 : '0 4px 20px var(--color-primary-30)',
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               borderRadius: '10px',
               backdropFilter: 'blur(10px)',
-              cursor: isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer
+              cursor: isCheckoutDisabled
                 ? 'not-allowed'
                 : 'pointer'
             }}
             onMouseEnter={(e) => {
-              if (!(isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer)) {
+              if (!isCheckoutDisabled) {
                 e.currentTarget.style.transform = 'translateY(-2px) scale(1.01)';
                 e.currentTarget.style.boxShadow = '0 8px 30px var(--color-primary-40)';
               }
             }}
             onMouseLeave={(e) => {
-              if (!(isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer)) {
+              if (!isCheckoutDisabled) {
                 e.currentTarget.style.transform = 'translateY(0) scale(1)';
                 e.currentTarget.style.boxShadow = '0 4px 20px var(--color-primary-30)';
               }
             }}
             onMouseDown={(e) => {
-              if (!(isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer)) {
+              if (!isCheckoutDisabled) {
                 e.currentTarget.style.transform = 'translateY(0) scale(0.98)';
               }
             }}
             onMouseUp={(e) => {
-              if (!(isProcessing || (paymentMethod === 'cash' && paid < total) || isCreditSaleWithoutCustomer)) {
+              if (!isCheckoutDisabled) {
                 e.currentTarget.style.transform = 'translateY(-2px) scale(1.01)';
               }
             }}

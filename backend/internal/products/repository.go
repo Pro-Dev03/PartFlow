@@ -3,6 +3,7 @@ package products
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -323,13 +324,13 @@ func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string, ) 
 
 // ListProducts retrieves products with pagination and filters
 func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) ([]Product, int, error) {
-	// Build base query
+	// Build base query with current quantity from inventory
 	baseQuery := `
-		SELECT id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
-		FROM products
-		WHERE deleted_at IS NULL
+		SELECT p.id, p.category_id, p.brand_id, p.preferred_supplier_id, p.name, p.description, p.model, p.sku, p.barcode, p.cost_price, p.selling_price, p.track_serial, p.track_individual, p.min_stock_level, p.warranty_days, p.is_active, p.deleted_at, p.created_at, p.updated_at
+		FROM products p
+		WHERE p.deleted_at IS NULL
 	`
-	countQuery := `SELECT COUNT(*) FROM products WHERE deleted_at IS NULL`
+	countQuery := `SELECT COUNT(DISTINCT p.id) FROM products p WHERE p.deleted_at IS NULL`
 
 	args := []interface{}{}
 	argCount := 0
@@ -337,37 +338,64 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 	// Add filters
 	if req.CategoryID != nil {
 		argCount++
-		baseQuery += ` AND category_id = $` + string(rune(argCount+'0'))
-		countQuery += ` AND category_id = $` + string(rune(argCount+'0'))
+		paramNum := argCount
+		baseQuery += ` AND category_id = $` + fmt.Sprint(paramNum)
+		countQuery += ` AND category_id = $` + fmt.Sprint(paramNum)
 		args = append(args, req.CategoryID)
 	}
 
 	if req.BrandID != nil {
 		argCount++
-		baseQuery += ` AND brand_id = $` + string(rune(argCount+'0'))
-		countQuery += ` AND brand_id = $` + string(rune(argCount+'0'))
+		paramNum := argCount
+		baseQuery += ` AND brand_id = $` + fmt.Sprint(paramNum)
+		countQuery += ` AND brand_id = $` + fmt.Sprint(paramNum)
 		args = append(args, req.BrandID)
 	}
 
 	if req.Search != "" {
 		argCount++
-		baseQuery += ` AND (name ILIKE $` + string(rune(argCount+'0')) + ` OR model ILIKE $` + string(rune(argCount+'0')) + ` OR sku ILIKE $` + string(rune(argCount+'0')) + `)`
-		countQuery += ` AND (name ILIKE $` + string(rune(argCount+'0')) + ` OR model ILIKE $` + string(rune(argCount+'0')) + ` OR sku ILIKE $` + string(rune(argCount+'0')) + `)`
-		args = append(args, "%"+req.Search+"%")
+		searchPattern := "%" + req.Search + "%"
+		baseQuery += ` AND (name ILIKE $` + fmt.Sprint(argCount) + ` OR model ILIKE $` + fmt.Sprint(argCount) + ` OR sku ILIKE $` + fmt.Sprint(argCount) + ` OR description ILIKE $` + fmt.Sprint(argCount) + `)`
+		countQuery += ` AND (name ILIKE $` + fmt.Sprint(argCount) + ` OR model ILIKE $` + fmt.Sprint(argCount) + ` OR sku ILIKE $` + fmt.Sprint(argCount) + ` OR description ILIKE $` + fmt.Sprint(argCount) + `)`
+		args = append(args, searchPattern)
 	}
 
 	if req.TrackSerial != nil {
 		argCount++
-		baseQuery += ` AND track_serial = $` + string(rune(argCount+'0'))
-		countQuery += ` AND track_serial = $` + string(rune(argCount+'0'))
+		paramNum := argCount
+		baseQuery += ` AND track_serial = $` + fmt.Sprint(paramNum)
+		countQuery += ` AND track_serial = $` + fmt.Sprint(paramNum)
 		args = append(args, req.TrackSerial)
 	}
 
 	if req.TrackIndividual != nil {
 		argCount++
-		baseQuery += ` AND track_individual = $` + string(rune(argCount+'0'))
-		countQuery += ` AND track_individual = $` + string(rune(argCount+'0'))
+		paramNum := argCount
+		baseQuery += ` AND track_individual = $` + fmt.Sprint(paramNum)
+		countQuery += ` AND track_individual = $` + fmt.Sprint(paramNum)
 		args = append(args, req.TrackIndividual)
+	}
+
+	// Advanced filtering: low stock only
+	if req.LowStockOnly != nil && *req.LowStockOnly {
+		baseQuery += ` AND (COALESCE(SUM(i.quantity), 0) < p.min_stock_level AND p.min_stock_level > 0)`
+		countQuery += ` AND EXISTS (
+			SELECT 1 FROM inventory inv 
+			WHERE inv.product_id = p.id 
+			GROUP BY inv.product_id, p.min_stock_level
+			HAVING COALESCE(SUM(inv.quantity), 0) < p.min_stock_level AND p.min_stock_level > 0
+		)`
+	}
+
+	// Advanced filtering: in stock only
+	if req.InStockOnly != nil && *req.InStockOnly {
+		baseQuery += ` AND COALESCE(SUM(i.quantity), 0) > 0`
+		countQuery += ` AND EXISTS (
+			SELECT 1 FROM inventory inv 
+			WHERE inv.product_id = p.id 
+			GROUP BY inv.product_id
+			HAVING COALESCE(SUM(inv.quantity), 0) > 0
+		)`
 	}
 
 	// Get total count
@@ -390,7 +418,8 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 
 	// Add pagination
 	offset := (req.Page - 1) * req.PerPage
-	baseQuery += ` ORDER BY ` + sortBy + ` ` + sortOrder + ` LIMIT $` + string(rune(argCount+1+'0')) + ` OFFSET $` + string(rune(argCount+2+'0'))
+	paramNum := argCount + 1
+	baseQuery += ` ORDER BY ` + sortBy + ` ` + sortOrder + ` LIMIT $` + fmt.Sprint(paramNum) + ` OFFSET $` + fmt.Sprint(paramNum+1)
 	args = append(args, req.PerPage, offset)
 
 	// Execute query

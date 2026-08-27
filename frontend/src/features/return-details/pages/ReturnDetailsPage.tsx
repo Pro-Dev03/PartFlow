@@ -7,6 +7,7 @@ import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
+import { toast } from 'sonner';
 import { Input } from '../../../components/ui/input';
 import { 
   ArrowRight,
@@ -16,12 +17,7 @@ import {
   AlertTriangle,
   Package,
   DollarSign,
-  Clock,
-  User,
-  ShoppingCart,
   Wrench,
-  FileText,
-  TrendingDown,
   RefreshCw,
   History,
   ClipboardCheck,
@@ -112,7 +108,7 @@ export function ReturnDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['return', id] });
       queryClient.invalidateQueries({ queryKey: ['returns'] });
-      alert('تم تسجيل فحص القطعة بنجاح!');
+      toast.success('تم تسجيل فحص القطعة بنجاح!');
       setIsInspectionModalOpen(false);
       setSelectedItemForInspection(null);
       setInspectionResult('');
@@ -122,7 +118,7 @@ export function ReturnDetailsPage() {
     },
     onError: (error) => {
       console.error('Inspection failed:', error);
-      alert('فشل تسجيل فحص القطعة');
+      toast.error('فشل تسجيل فحص القطعة');
     },
   });
 
@@ -131,11 +127,11 @@ export function ReturnDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['return', id] });
       queryClient.invalidateQueries({ queryKey: ['returns'] });
-      alert('تم إكمال المرتجع بنجاح!');
+      toast.success('تم إكمال المرتجع بنجاح!');
     },
     onError: (error) => {
       console.error('Failed to complete return:', error);
-      alert('فشل إكمال المرتجع');
+      toast.error('فشل إكمال المرتجع');
     },
   });
 
@@ -150,7 +146,7 @@ export function ReturnDetailsPage() {
 
   const handleCompleteInspection = () => {
     if (!selectedItemForInspection || !inspectionResult || !resolution) {
-      alert('يرجى ملء جميع الحقول المطلوبة');
+      toast.error('يرجى ملء جميع الحقول المطلوبة');
       return;
     }
 

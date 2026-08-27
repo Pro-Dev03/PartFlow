@@ -7,7 +7,7 @@ const API_BASE_URL = appConfig.apiUrl;
 interface ApiResponse<T> {
   success: boolean;
   data: T;
-  meta?: Record<string, any>;
+  meta?: Record<string, unknown>;
   error?: {
     code: string;
     message: string;
@@ -21,7 +21,7 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 class ApiClient {
   private baseURL: string;
   private token: string | null = null;
-  private cache: Map<string, { data: any; timestamp: number }> = new Map();
+  private cache: Map<string, { data: unknown; timestamp: number }> = new Map();
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
@@ -124,14 +124,14 @@ class ApiClient {
   private async parseResponse<T>(response: Response): Promise<ApiResponse<T>> {
     const text = await response.text();
     if (!text) {
-      return { success: response.ok, data: undefined as any, error: response.ok ? undefined : { code: String(response.status), message: response.statusText } };
+      return { success: response.ok, data: undefined as T, error: response.ok ? undefined : { code: String(response.status), message: response.statusText } };
     }
     try {
       return JSON.parse(text) as ApiResponse<T>;
     } catch {
       return {
         success: false,
-        data: undefined as any,
+        data: undefined as T,
         error: { code: String(response.status), message: text },
       };
     }

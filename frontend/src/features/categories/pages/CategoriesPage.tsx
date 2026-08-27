@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Modal } from '../../../components/ui/modal';
+import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { getButtonSize } from '../../../config/button-sizes';
 import { toast } from 'sonner';
 import { useLayout } from '../../../contexts/LayoutContext';
@@ -95,6 +96,8 @@ export function CategoriesPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<any>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<{ id: string; name: string } | null>(null);
   const [newCategory, setNewCategory] = useState({
     name: '',
     description: '',
@@ -245,8 +248,15 @@ export function CategoriesPage() {
   };
 
   const handleDelete = (id: string, categoryName: string) => {
-    if (window.confirm(`هل أنت متأكد من حذف تصنيف "${categoryName}"؟\n\nملاحظة: سيتم تحديث المنتجات المرتبطة بهذا التصنيف لتصبح بدون تصنيف.`)) {
-      deleteMutation.mutate(id);
+    setCategoryToDelete({ id, name: categoryName });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (categoryToDelete) {
+      deleteMutation.mutate(categoryToDelete.id);
+      setDeleteDialogOpen(false);
+      setCategoryToDelete(null);
     }
   };
 
@@ -774,6 +784,25 @@ export function CategoriesPage() {
           </div>
         )}
       </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteDialogOpen}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setCategoryToDelete(null);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="حذف التصنيف"
+        message={categoryToDelete 
+          ? `هل أنت متأكد من حذف تصنيف "${categoryToDelete.name}"؟\n\nملاحظة: سيتم تحديث المنتجات المرتبطة بهذا التصنيف لتصبح بدون تصنيف.`
+          : 'هل أنت متأكد من حذف هذا التصنيف؟'
+        }
+        confirmText="حذف التصنيف"
+        cancelText="إلغاء"
+        variant="danger"
+        isLoading={deleteMutation.isPending}
+      />
     </div>
   );
 }

@@ -68,7 +68,11 @@ func (r *Repository) GetByCode(ctx context.Context, code string) (*Customer, err
 }
 
 // List retrieves customers with pagination and filters
-func (r *Repository) List(ctx context.Context, page, perPage int, search string, isActive *bool) ([]Customer, int, error) {
+func (r *Repository) List(ctx context.Context, req *CustomerListRequest) ([]Customer, int, error) {
+	page := req.Page
+	perPage := req.PerPage
+	search := req.Search
+	isActive := req.IsActive
 	offset := (page - 1) * perPage
 
 	query := `
@@ -77,24 +81,97 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 		WHERE 1=1
 	`
 	countQuery := `SELECT COUNT(*) FROM customers WHERE 1=1`
-	
+
 	args := []interface{}{}
-	argCount := 0
 
 	if search != "" {
-		argCount++
-		query += fmt.Sprintf(" AND (name ILIKE $%d OR code ILIKE $%d OR email ILIKE $%d OR phone ILIKE $%d)", argCount, argCount, argCount, argCount)
-		countQuery += fmt.Sprintf(" AND (name ILIKE $%d OR code ILIKE $%d OR email ILIKE $%d OR phone ILIKE $%d)", argCount, argCount, argCount, argCount)
-		searchPattern := "%" + search + "%"
-		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
-		argCount += 3
+		// Enhanced search with partial words support - split search into words
+		searchWords := []string{}
+		currentWord := ""
+		for _, char := range search {
+			if char == ' ' {
+				if currentWord != "" {
+					searchWords = append(searchWords, currentWord)
+					currentWord = ""
+				}
+			} else {
+				currentWord += string(char)
+			}
+		}
+		if currentWord != "" {
+			searchWords = append(searchWords, currentWord)
+		}
+
+		// Build search conditions for each word
+		searchConditions := []string{}
+		for _, word := range searchWords {
+			if len(word) >= 2 { // Only search for words with 2+ characters
+				searchConditions = append(searchConditions, `name ILIKE '%`+word+`%'`)
+				searchConditions = append(searchConditions, `code ILIKE '%`+word+`%'`)
+				searchConditions = append(searchConditions, `email ILIKE '%`+word+`%'`)
+				searchConditions = append(searchConditions, `phone ILIKE '%`+word+`%'`)
+				searchConditions = append(searchConditions, `address ILIKE '%`+word+`%'`)
+				searchConditions = append(searchConditions, `city ILIKE '%`+word+`%'`)
+			}
+		}
+
+		if len(searchConditions) > 0 {
+			searchCondition := "(" + searchConditions[0]
+			for i := 1; i < len(searchConditions); i++ {
+				searchCondition += " OR " + searchConditions[i]
+			}
+			searchCondition += ")"
+			query += " AND " + searchCondition
+			countQuery += " AND " + searchCondition
+		}
 	}
 
 	if isActive != nil {
-		argCount++
-		query += fmt.Sprintf(" AND is_active = $%d", argCount)
-		countQuery += fmt.Sprintf(" AND is_active = $%d", argCount)
+		// After search with raw SQL, we need to use parameter position correctly
+		// Since search uses raw SQL, we start parameters from $1 for isActive
+		paramNum := 1
+		if len(args) > 0 {
+			paramNum = len(args) + 1
+		}
+		query += fmt.Sprintf(" AND is_active = $%d", paramNum)
+		countQuery += fmt.Sprintf(" AND is_active = $%d", paramNum)
 		args = append(args, *isActive)
+	}
+
+	// Advanced filtering: by city
+	if req.City != "" {
+		paramNum := len(args) + 1
+		query += fmt.Sprintf(" AND city = $%d", paramNum)
+		countQuery += fmt.Sprintf(" AND city = $%d", paramNum)
+		args = append(args, req.City)
+	}
+
+	// Advanced filtering: has debt
+	if req.HasDebt != nil {
+		if *req.HasDebt {
+			query += " AND current_balance > 0"
+			countQuery += " AND current_balance > 0"
+		} else {
+			query += " AND current_balance = 0"
+			countQuery += " AND current_balance = 0"
+		}
+	}
+
+	// Advanced filtering: is overdue
+	if req.IsOverdue != nil && *req.IsOverdue {
+		query += ` AND id IN (
+			SELECT DISTINCT customer_id FROM debts
+			WHERE remaining_amount > 0
+			AND due_date < NOW()
+			AND status = 'pending'
+		)`
+		countQuery += ` AND EXISTS (
+			SELECT 1 FROM debts d
+			WHERE d.customer_id = customers.id
+			AND d.remaining_amount > 0
+			AND d.due_date < NOW()
+			AND d.status = 'pending'
+		)`
 	}
 
 	var total int
@@ -104,7 +181,8 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 	}
 
 	// Add pagination
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argCount+1, argCount+2)
+	paramNum := len(args) + 1
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", paramNum, paramNum+1)
 	args = append(args, perPage, offset)
 
 	var customers []Customer
@@ -166,7 +244,7 @@ func (r *Repository) HasActiveTransactions(ctx context.Context, customerID uuid.
 			AND created_at > NOW() - INTERVAL '1 year'
 		)
 	`
-	
+
 	var hasTransactions bool
 	err := r.db.GetContext(ctx, &hasTransactions, query, customerID)
 	if err != nil {
@@ -176,7 +254,7 @@ func (r *Repository) HasActiveTransactions(ctx context.Context, customerID uuid.
 		}
 		return false, fmt.Errorf("failed to check active transactions: %w", err)
 	}
-	
+
 	return hasTransactions, nil
 }
 
@@ -190,7 +268,7 @@ func (r *Repository) HasActiveWarranties(ctx context.Context, customerID uuid.UU
 			AND expires_at > NOW()
 		)
 	`
-	
+
 	var hasWarranties bool
 	err := r.db.GetContext(ctx, &hasWarranties, query, customerID)
 	if err != nil {
@@ -200,7 +278,7 @@ func (r *Repository) HasActiveWarranties(ctx context.Context, customerID uuid.UU
 		}
 		return false, fmt.Errorf("failed to check active warranties: %w", err)
 	}
-	
+
 	return hasWarranties, nil
 }
 
@@ -255,6 +333,23 @@ func (r *Repository) GetCustomerLedger(ctx context.Context, customerID uuid.UUID
 	}
 
 	return entries, totalPurchases, totalPayments, currentBalance, nil
+}
+
+// GetFinancialTimeline retrieves comprehensive financial timeline including sales, payments, returns, etc.
+func (r *Repository) GetFinancialTimeline(ctx context.Context, customerID uuid.UUID) ([]LedgerEntry, error) {
+	query := `
+		SELECT id, customer_id, type, amount, balance, description, reference_id, created_at
+		FROM customer_ledger
+		WHERE customer_id = $1
+		ORDER BY created_at ASC
+	`
+	var entries []LedgerEntry
+	err := r.db.SelectContext(ctx, &entries, query, customerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get financial timeline: %w", err)
+	}
+
+	return entries, nil
 }
 
 // AddPayment adds a payment to customer ledger

@@ -5,7 +5,6 @@ import { useTranslation } from '../../hooks/useTranslation';
 import { SearchInput } from '../ui/search-input';
 import { Button } from '../ui/button';
 import { IconButton } from '../ui/icon-button';
-import { cn } from '../../utils';
 import { useAuthStore } from '../../stores/authStore';
 import { useUIStore } from '../../stores/uiStore';
 
@@ -14,7 +13,7 @@ interface HeaderProps {
 }
 
 export function Header({ onToggleSidebar }: HeaderProps) {
-  const { t, currentLanguage, languages, changeLanguage } = useTranslation();
+  const { t, languages, changeLanguage } = useTranslation();
   const navigate = useNavigate();
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
@@ -33,9 +32,13 @@ export function Header({ onToggleSidebar }: HeaderProps) {
     if (isDark) {
       document.documentElement.classList.remove('light');
       document.body.classList.remove('light');
+      document.documentElement.classList.add('dark');
+      document.body.classList.add('dark');
     } else {
       document.documentElement.classList.add('light');
       document.body.classList.add('light');
+      document.documentElement.classList.remove('dark');
+      document.body.classList.remove('dark');
     }
   }, [theme]);
 
@@ -202,7 +205,7 @@ export function Header({ onToggleSidebar }: HeaderProps) {
              </div>
              <div className="hidden sm:block">
                <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
-                 {user?.first_name || 'Admin'}
+                 {user?.name || 'Admin'}
                </p>
              </div>
              <IconButton

@@ -2,6 +2,7 @@ package sales
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -35,17 +36,24 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 	// Generate invoice number
 	invoiceNumber := s.generateInvoiceNumber()
-	
+
 	// Calculate totals and validate stock
 	subtotal := 0.0
 	totalTax := 0.0
 	totalCost := 0.0
+
+	// Handle tax rate - default to 0 if not provided or invalid
+	taxRate := req.TaxRate
+	if taxRate < 0 || taxRate > 100 {
+		taxRate = 0
+	}
+
 	var items []SaleItem
 	itemStockMap := make(map[uuid.UUID][]struct {
 		ID     uuid.UUID `db:"id"`
 		Amount float64   `db:"selling_price"`
 	}) // Store available items for each product
-	
+
 	for _, itemReq := range req.Items {
 		// Check stock availability with row lock (using inventory_items for individual tracking)
 		var availableItems []struct {
@@ -63,14 +71,24 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		if err != nil {
 			return nil, fmt.Errorf("failed to check stock: %w", err)
 		}
-		
-		if len(availableItems) < itemReq.Quantity {
-			return nil, ErrInsufficientStock
+
+		var productName string
+		if err := tx.GetContext(ctx, &productName, `SELECT name FROM products WHERE id = $1`, itemReq.ProductID); err != nil {
+			return nil, fmt.Errorf("failed to get product name: %w", err)
 		}
-		
+
+		if len(availableItems) < itemReq.Quantity {
+			return nil, &InsufficientStockError{
+				ProductID:   itemReq.ProductID,
+				ProductName: productName,
+				Requested:   itemReq.Quantity,
+				Available:   len(availableItems),
+			}
+		}
+
 		// Store available items for this product
 		itemStockMap[itemReq.ProductID] = availableItems
-		
+
 		// Get product cost for profit calculation
 		var productCost float64
 		costQuery := `SELECT cost_price FROM products WHERE id = $1`
@@ -78,35 +96,35 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		if err != nil {
 			return nil, fmt.Errorf("failed to get product cost: %w", err)
 		}
-		
+
 		// Calculate item totals using actual item costs
 		itemTotal := float64(itemReq.Quantity) * itemReq.UnitPrice
-		itemTax := itemTotal * req.TaxRate / 100
+		itemTax := itemTotal * taxRate / 100
 		itemTotalWithTax := itemTotal + itemTax
-		
+
 		// Calculate actual cost from available items
 		itemCost := 0.0
 		for i := 0; i < itemReq.Quantity && i < len(availableItems); i++ {
 			itemCost += availableItems[i].Amount // Use actual selling price as cost basis
 		}
-		
+
 		subtotal += itemTotal
 		totalTax += itemTax
 		totalCost += itemCost
-		
+
 		item := SaleItem{
-			ID:            uuid.New(),
-			ProductID:     itemReq.ProductID,
-			Quantity:      itemReq.Quantity,
-			UnitPrice:     itemReq.UnitPrice,
-			UnitCost:      productCost, // Store base product cost
-			TaxAmount:     itemTax,
-			TotalAmount:   itemTotalWithTax,
-			CreatedAt:     time.Now(),
+			ID:          uuid.New(),
+			ProductID:   itemReq.ProductID,
+			Quantity:    itemReq.Quantity,
+			UnitPrice:   itemReq.UnitPrice,
+			UnitCost:    productCost, // Store base product cost
+			TaxAmount:   itemTax,
+			TotalAmount: itemTotalWithTax,
+			CreatedAt:   time.Now(),
 		}
 		items = append(items, item)
 	}
-	
+
 	// Calculate discount
 	var discountAmount float64
 	if req.DiscountType == "percentage" {
@@ -114,18 +132,18 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	} else if req.DiscountType == "fixed" {
 		discountAmount = req.DiscountValue
 	}
-	
+
 	// Calculate total
 	totalAmount := subtotal + totalTax - discountAmount
 	grossProfit := subtotal - totalCost
 	netProfit := grossProfit - totalTax - discountAmount
-	
+
 	// Create sale - allow nil user_id for testing
 	var userIDPtr *uuid.UUID
 	if userID != uuid.Nil {
 		userIDPtr = &userID
 	}
-	
+
 	sale := &Sale{
 		ID:             uuid.New(),
 		InvoiceNumber:  invoiceNumber,
@@ -139,7 +157,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		CostAmount:     totalCost,
 		GrossProfit:    grossProfit,
 		NetProfit:      netProfit,
-		PaidAmount:     0,
+		PaidAmount:     req.PaymentAmount,
 		PaymentMethod:  req.PaymentMethod,
 		PaymentStatus:  "pending",
 		Status:         "completed",
@@ -147,7 +165,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 	}
-	
+
 	// Create sale in database
 	saleQuery := `
 		INSERT INTO sales (id, sale_date, customer_id, invoice_number, user_id,
@@ -157,13 +175,13 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	`
 	_, err = tx.ExecContext(ctx, saleQuery,
 		sale.ID, sale.SaleDate, sale.CustomerID, sale.InvoiceNumber, sale.UserID,
-		sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount, sale.CostAmount, 
+		sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount, sale.CostAmount,
 		sale.GrossProfit, sale.NetProfit, sale.PaidAmount, sale.PaymentMethod, sale.PaymentStatus,
 		sale.Status, sale.Notes, sale.CreatedAt, sale.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sale: %w", err)
 	}
-	
+
 	// Create sale items and update inventory items
 	for i := range items {
 		items[i].SaleID = sale.ID
@@ -270,7 +288,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			fmt.Printf("Warning: failed to update aggregate inventory: %v\n", inventoryErr)
 		}
 	}
-	
+
 	// Update customer ledger if customer exists (SALES-PHILOSOPHY.md - automatic debt calculation)
 	if req.CustomerID != nil {
 		// Get current balance
@@ -291,17 +309,17 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 		// Create ledger entry for the sale (SALES-PHILOSOPHY.md)
 		ledgerQuery := `
-			INSERT INTO customer_ledger (id, customer_id, transaction_type,
-				amount, balance, reference_type, reference_id, description, created_by, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			INSERT INTO customer_ledger (id, customer_id, type,
+				amount, balance, reference_id, description, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		`
 		_, ledgerErr := tx.ExecContext(ctx, ledgerQuery,
-			uuid.New(), *req.CustomerID, "SALE",
-			debtAmount, newBalance, "sale", sale.ID, "Sale: "+invoiceNumber, userID, time.Now())
+			uuid.New(), *req.CustomerID, "debit",
+			debtAmount, newBalance, sale.ID, "Sale: "+invoiceNumber, time.Now())
 		if ledgerErr != nil {
 			return nil, fmt.Errorf("failed to update customer ledger: %w", ledgerErr)
 		}
-		
+
 		// Update customer current balance (SALES-PHILOSOPHY.md)
 		updateCustomerQuery := `
 			UPDATE customers
@@ -312,7 +330,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		if customerErr != nil {
 			return nil, fmt.Errorf("failed to update customer balance: %w", customerErr)
 		}
-		
+
 		// Check credit limit (SALES-PHILOSOPHY.md)
 		var creditLimit *float64
 		limitQuery := `SELECT credit_limit FROM customers WHERE id = $1`
@@ -320,7 +338,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		if limitErr == nil && creditLimit != nil && *creditLimit > 0 {
 			if newBalance > *creditLimit {
 				// Log warning but don't fail the sale (store owner's decision)
-				fmt.Printf("Warning: Customer %s will exceed credit limit. Current: %.2f, Limit: %.2f, New: %.2f\n", 
+				fmt.Printf("Warning: Customer %s will exceed credit limit. Current: %.2f, Limit: %.2f, New: %.2f\n",
 					*req.CustomerID, currentBalance, *creditLimit, newBalance)
 			}
 		}
@@ -339,7 +357,16 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		if paymentErr != nil {
 			return nil, fmt.Errorf("failed to create payment: %w", paymentErr)
 		}
-		
+		if req.PaymentAmount <= 0 {
+			sale.PaymentStatus = "pending"
+			if _, updateSaleErr := tx.ExecContext(ctx,
+				`UPDATE sales SET paid_amount = $1, payment_status = $2 WHERE id = $3`,
+				0, sale.PaymentStatus, sale.ID,
+			); updateSaleErr != nil {
+				return nil, fmt.Errorf("failed to update sale payment status: %w", updateSaleErr)
+			}
+		}
+
 		// Update sale paid amount
 		sale.PaidAmount = req.PaymentAmount
 		if sale.PaidAmount >= sale.TotalAmount {
@@ -357,34 +384,51 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 	// Create warranty records for items if applicable
 	if req.CustomerID != nil {
-		for _, item := range items {
-			warrantyQuery := `
-				INSERT INTO warranties (id, sale_id, product_id,
-					warranty_period, expires_at, terms, is_active, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-			`
-			warrantyEnd := time.Now().AddDate(1, 0, 0) // 1 year warranty
-			_, warrantyErr := tx.ExecContext(ctx, warrantyQuery,
-				uuid.New(), sale.ID, item.ProductID,
-				12, warrantyEnd, "Standard 1-year warranty", true, time.Now(), time.Now())
-			if warrantyErr != nil {
-				// Log but don't fail the sale for warranty creation
-				fmt.Printf("Warning: failed to create warranty: %v\n", warrantyErr)
+		var warrantiesTable *string
+		if tableErr := tx.GetContext(ctx, &warrantiesTable, `SELECT to_regclass('public.warranties')`); tableErr == nil && warrantiesTable != nil {
+			for _, item := range items {
+				warrantyQuery := `
+					INSERT INTO warranties (id, sale_id, product_id,
+						warranty_period, expires_at, terms, is_active, created_at, updated_at)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+				`
+				warrantyEnd := time.Now().AddDate(1, 0, 0)
+				_, warrantyErr := tx.ExecContext(ctx, warrantyQuery,
+					uuid.New(), sale.ID, item.ProductID,
+					12, warrantyEnd, "Standard 1-year warranty", true, time.Now(), time.Now())
+				if warrantyErr != nil {
+					return nil, fmt.Errorf("failed to create warranty: %w", warrantyErr)
+				}
 			}
 		}
 	}
 
 	// Create audit log
-	auditQuery := `
-		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
-	changes := fmt.Sprintf("Created sale %s with %d items, total: %.2f", invoiceNumber, len(items), totalAmount)
-	_, auditErr := tx.ExecContext(ctx, auditQuery,
-		uuid.New(), userID, "CREATE_SALE", "sale", sale.ID,
-		changes, time.Now())
-	if auditErr != nil {
-		fmt.Printf("Warning: failed to create audit log: %v\n", auditErr)
+	var auditLogsTable *string
+	var userExists bool
+	if userID != uuid.Nil {
+		_ = tx.GetContext(ctx, &userExists, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, userID)
+	}
+	if userExists {
+		if tableErr := tx.GetContext(ctx, &auditLogsTable, `SELECT to_regclass('public.audit_logs')`); tableErr == nil && auditLogsTable != nil {
+			auditQuery := `
+			INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`
+			changes, marshalErr := json.Marshal(map[string]interface{}{
+				"invoice_number": invoiceNumber,
+				"item_count":     len(items),
+				"total":          totalAmount,
+			})
+			if marshalErr != nil {
+				return nil, fmt.Errorf("failed to encode audit log: %w", marshalErr)
+			}
+			if _, auditErr := tx.ExecContext(ctx, auditQuery,
+				uuid.New(), userID, "CREATE_SALE", "sale", sale.ID,
+				changes, time.Now()); auditErr != nil {
+				return nil, fmt.Errorf("failed to create audit log: %w", auditErr)
+			}
+		}
 	}
 
 	// Commit transaction
@@ -394,7 +438,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 	// Invalidate dashboard cache since sales data changed
 	dashboard.InvalidateDashboardCacheWithReason("sale_created")
-	
+
 	return sale, nil
 }
 
@@ -402,21 +446,21 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 func (s *Service) calculateProfit(ctx context.Context, items []SaleItem) (float64, error) {
 	totalRevenue := 0.0
 	totalCost := 0.0
-	
+
 	for _, item := range items {
 		// Get product cost
 		cost, err := s.repo.GetProductCost(ctx, item.ProductID)
 		if err != nil {
 			return 0, err
 		}
-		
+
 		itemRevenue := item.TotalAmount
 		itemCost := float64(item.Quantity) * cost
-		
+
 		totalRevenue += itemRevenue
 		totalCost += itemCost
 	}
-	
+
 	profit := totalRevenue - totalCost
 	return profit, nil
 }
@@ -427,18 +471,18 @@ func (s *Service) GetSale(ctx context.Context, id uuid.UUID) (*SaleWithItems, er
 	if err != nil {
 		return nil, ErrSaleNotFound
 	}
-	
+
 	items, err := s.repo.GetSaleItems(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Calculate profit
 	profit, err := s.calculateProfit(ctx, items)
 	if err != nil {
 		profit = 0
 	}
-	
+
 	return &SaleWithItems{
 		Sale:   sale,
 		Items:  items,
@@ -463,7 +507,7 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 			tx.Rollback()
 		}
 	}()
-	
+
 	// Get sale with row lock
 	var sale Sale
 	saleQuery := `SELECT * FROM sales WHERE id = $1 FOR UPDATE`
@@ -471,26 +515,26 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 	if err != nil {
 		return ErrSaleNotFound
 	}
-	
+
 	if amount <= 0 {
 		return ErrInvalidPayment
 	}
-	
+
 	newPaidAmount := sale.PaidAmount + amount
 	if newPaidAmount > sale.TotalAmount {
 		return ErrInvalidPayment
 	}
-	
+
 	sale.PaidAmount = newPaidAmount
 	sale.PaymentMethod = &paymentMethod
-	
+
 	// Update payment status
 	if newPaidAmount >= sale.TotalAmount {
 		sale.PaymentStatus = "paid"
 	} else if newPaidAmount > 0 {
 		sale.PaymentStatus = "partial"
 	}
-	
+
 	// Update sale
 	updateSaleQuery := `
 		UPDATE sales SET paid_amount = $1, payment_method = $2, payment_status = $3, updated_at = NOW()
@@ -500,7 +544,7 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 	if err != nil {
 		return fmt.Errorf("failed to update sale: %w", err)
 	}
-	
+
 	// Create payment record
 	paymentQuery := `
 		INSERT INTO payments (id, sale_id, customer_id, amount,
@@ -513,7 +557,7 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 	if err != nil {
 		return fmt.Errorf("failed to create payment: %w", err)
 	}
-	
+
 	// Update customer ledger if customer exists
 	if sale.CustomerID != nil {
 		// Get current balance
@@ -527,10 +571,10 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 		if err != nil {
 			currentBalance = 0
 		}
-		
+
 		// Calculate new balance (payment reduces debt)
 		newBalance := currentBalance - amount
-		
+
 		ledgerQuery := `
 			INSERT INTO customer_ledger (id, customer_id, transaction_type,
 				amount, balance, reference_type, reference_id, description, created_by, created_at)
@@ -542,7 +586,7 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 		if err != nil {
 			return fmt.Errorf("failed to update customer ledger: %w", err)
 		}
-		
+
 		// Update customer current balance
 		updateCustomerQuery := `
 			UPDATE customers 
@@ -554,7 +598,7 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 			return fmt.Errorf("failed to update customer balance: %w", err)
 		}
 	}
-	
+
 	// Create audit log
 	auditQuery := `
 		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
@@ -567,15 +611,15 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 	if err != nil {
 		fmt.Printf("Warning: failed to create audit log: %v\n", err)
 	}
-	
+
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
-	
+
 	// Invalidate dashboard cache since payment data changed
 	dashboard.InvalidateDashboardCacheWithReason("payment_updated")
-	
+
 	return nil
 }
 
@@ -585,11 +629,11 @@ func (s *Service) CancelSale(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return ErrSaleNotFound
 	}
-	
+
 	if sale.Status == "cancelled" {
 		return ErrInvalidSaleStatus
 	}
-	
+
 	sale.Status = "cancelled"
 	return s.repo.UpdateSale(ctx, sale)
 }
@@ -623,7 +667,7 @@ func (s *Service) CreateTransaction(ctx context.Context, tx *Transaction) error 
 	tx.Status = "completed"
 	tx.CreatedAt = time.Now()
 	tx.UpdatedAt = time.Now()
-	
+
 	return s.repo.CreateTransaction(ctx, tx)
 }
 
@@ -644,11 +688,11 @@ func (s *Service) CreateSaleTransaction(ctx context.Context, sale *Sale, profit 
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}
-	
+
 	if err := s.repo.CreateTransaction(ctx, revenueTx); err != nil {
 		return err
 	}
-	
+
 	// Create cost transaction if profit is calculated
 	if profit > 0 {
 		cost := sale.TotalAmount - profit
@@ -666,12 +710,12 @@ func (s *Service) CreateSaleTransaction(ctx context.Context, sale *Sale, profit 
 			CreatedAt:     time.Now(),
 			UpdatedAt:     time.Now(),
 		}
-		
+
 		if err := s.repo.CreateTransaction(ctx, costTx); err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -692,36 +736,36 @@ func (s *Service) CalculateProfitForPeriod(ctx context.Context, period string, s
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Calculate total cost (this would need to be calculated from inventory movements)
 	// For now, we'll estimate it as 70% of revenue
 	totalCost := summary.TotalRevenue * 0.7
-	
+
 	grossProfit := summary.TotalRevenue - totalCost
 	netProfit := grossProfit // In a real system, you'd subtract expenses, taxes, etc.
 	margin := 0.0
 	if summary.TotalRevenue > 0 {
 		margin = (grossProfit / summary.TotalRevenue) * 100
 	}
-	
+
 	entry := &ProfitEntry{
-		ID:             uuid.New(),
-		Period:         period,
-		StartDate:      startDate,
-		EndDate:        endDate,
-		Revenue:        summary.TotalRevenue,
-		Cost:           totalCost,
-		GrossProfit:    grossProfit,
-		NetProfit:      netProfit,
-		Margin:         margin,
-		CreatedAt:      time.Now(),
+		ID:          uuid.New(),
+		Period:      period,
+		StartDate:   startDate,
+		EndDate:     endDate,
+		Revenue:     summary.TotalRevenue,
+		Cost:        totalCost,
+		GrossProfit: grossProfit,
+		NetProfit:   netProfit,
+		Margin:      margin,
+		CreatedAt:   time.Now(),
 	}
-	
+
 	// Store the profit entry
 	if err := s.repo.CreateProfitEntry(ctx, entry); err != nil {
 		return nil, err
 	}
-	
+
 	return entry, nil
 }
 

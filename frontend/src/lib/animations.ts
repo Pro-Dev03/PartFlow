@@ -99,7 +99,7 @@ export function createTransition(options?: {
 
 // Helper function for combined transitions
 export function createTransitionGroup(properties: string[]): string {
-  return properties.map(prop => createTransition({ duration: 'normal', easing: 'easeInOut' })).join(', ');
+  return properties.map(_prop => createTransition({ duration: 'normal', easing: 'easeInOut' })).join(', ');
 }
 
 // Micro-interaction utilities

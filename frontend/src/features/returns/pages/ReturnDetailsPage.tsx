@@ -7,20 +7,13 @@ import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
+import { toast } from 'sonner';
 import { 
-  ArrowRight,
   CheckCircle,
   XCircle,
   AlertTriangle,
-  Package,
-  Calendar,
-  DollarSign,
-  User,
   RefreshCw,
   ClipboardList,
-  Scissors,
-  Wrench,
-  Trash2,
   ArrowLeft
 } from 'lucide-react';
 
@@ -99,11 +92,11 @@ export function ReturnDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['return-with-items', id] });
       queryClient.invalidateQueries({ queryKey: ['returns'] });
-      alert('تم إكمال المرتجع بنجاح!');
+      toast.success('تم إكمال المرتجع بنجاح!');
     },
     onError: (error) => {
       console.error('Failed to complete return:', error);
-      alert('فشل إكمال المرتجع');
+      toast.error('فشل إكمال المرتجع');
     },
   });
 
@@ -112,12 +105,12 @@ export function ReturnDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['return-with-items', id] });
       queryClient.invalidateQueries({ queryKey: ['returns'] });
-      alert('تم عكس المرتجع بنجاح!');
-      navigate('/returns');
+      toast.success('تم عكس المرتجع بنجاح!');
+      navigate('/app/returns');
     },
     onError: (error) => {
       console.error('Failed to reverse return:', error);
-      alert('فشل عكس المرتجع');
+      toast.error('فشل عكس المرتجع');
     },
   });
 
@@ -127,13 +120,13 @@ export function ReturnDetailsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['return-with-items', id] });
       queryClient.invalidateQueries({ queryKey: ['returns'] });
-      alert('تم معالجة الفحص بنجاح!');
+      toast.success('تم معالجة الفحص بنجاح!');
       setIsInspectionModalOpen(false);
       setSelectedItem(null);
     },
     onError: (error) => {
       console.error('Failed to process inspection:', error);
-      alert('فشل معالجة الفحص');
+      toast.error('فشل معالجة الفحص');
     },
   });
 
@@ -277,7 +270,7 @@ export function ReturnDetailsPage() {
           <div className="flex gap-2">
             <Button
               variant="secondary"
-              onClick={() => navigate('/returns')}
+              onClick={() => navigate('/app/returns')}
             >
               <ArrowLeft className="w-4 h-4 mr-1" />
               رجوع

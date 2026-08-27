@@ -17,20 +17,20 @@
 
   /* تحسين التباعد */
   .gap-sm {
-    gap: 8px;
+    gap: var(--spacing-2);
   }
 
   .gap-md {
-    gap: 10px;
+    gap: var(--spacing-3);
   }
 
   .gap-lg {
-    gap: 14px;
+    gap: var(--spacing-4);
   }
 
   /* تحسين الخطوط */
   .text-small {
-    font-size: 12px;
+    font-size: var(--font-size-caption);
   }
 
   .text-tiny {
@@ -77,13 +77,13 @@
 
   /* تحسين البطاقات */
   .card {
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
   }
 
   /* تحسين الأزرار */
   button {
-    font-size: 13px;
-    padding: 8px 16px;
+    font-size: var(--font-size-secondary);
+    padding: var(--spacing-2) var(--spacing-4);
   }
 
   /* تحسين الجداول - تمرير أفقي */
@@ -109,20 +109,20 @@
   /* تحسين الهوامش */
   main,
   .content {
-    padding: 16px !important;
+    padding: var(--spacing-4) !important;
   }
 
   /* تحسين Header */
   header,
   .topbar {
-    padding: 12px 16px;
-    height: 56px;
+    padding: var(--spacing-3) var(--spacing-4);
+    height: var(--topbar-height-mobile);
   }
 
   /* تحسين Sidebar - Like worktrack */
   aside.sidebar {
-    width: 80px !important;
-    min-width: 80px !important;
+    width: var(--sidebar-width-mobile) !important;
+    min-width: var(--sidebar-width-mobile) !important;
   }
 
   /* إخفاء النصوص في Sidebar */
@@ -139,6 +139,32 @@
   aside.sidebar button {
     justify-content: center !important;
   }
+
+  /* تحسين Modal */
+  .modal-content {
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  /* تحسين Charts */
+  .chart-container {
+    min-height: 200px;
+  }
+
+  /* تحسين Dashboard cards */
+  .dashboard-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* تحسين Actions buttons */
+  .actions-container {
+    flex-direction: column;
+    gap: var(--spacing-2);
+  }
+
+  .actions-container button {
+    width: 100%;
+  }
 }
 
 /* ============================================================
@@ -146,15 +172,15 @@
    ============================================================ */
 @media (max-width: 768px) and (orientation: landscape) {
   main {
-    padding: 12px !important;
+    padding: var(--spacing-3) !important;
   }
 
   header {
-    height: 56px;
+    height: var(--topbar-height-mobile);
   }
 
   .card {
-    padding: 12px;
+    padding: var(--spacing-3);
   }
 }
 
@@ -163,20 +189,20 @@
    ============================================================ */
 @media (max-width: 375px) {
   .gap-md {
-    gap: 10px;
+    gap: var(--spacing-3);
   }
 
   .text-small {
-    font-size: 12px;
+    font-size: var(--font-size-caption);
   }
 
   .card {
-    padding: 10px;
+    padding: var(--spacing-3);
   }
 
   main,
   .content {
-    padding: 12px;
+    padding: var(--spacing-3);
   }
 }
 

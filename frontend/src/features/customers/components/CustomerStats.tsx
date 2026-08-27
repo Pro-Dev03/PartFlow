@@ -10,7 +10,7 @@ interface CustomerStatsProps {
   onRecommendationClick: () => void;
 }
 
-export function CustomerStats({ stats, onRecommendationClick }: CustomerStatsProps) {
+export function CustomerStats({ stats }: CustomerStatsProps) {
   return (
     <>
       {/* AI Customer Insight */}

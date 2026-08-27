@@ -4,7 +4,7 @@ import { cn } from '../../utils';
 
 export interface BadgeProps extends HTMLAttributes<HTMLDivElement> {
   variant?: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'destructive' | 'secondary' | 'outline';
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   dot?: boolean;
   'aria-label'?: string;
 }
@@ -22,10 +22,11 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
       outline: 'border border-border text-text bg-transparent',
     };
 
-    const sizes = {
-      sm: 'px-2 py-0.5 text-tiny',
-      md: 'px-2 py-1 text-tiny',
-      lg: 'px-3 py-1 text-small',
+    const sizeClasses = {
+      xs: 'px-[var(--badge-padding-xs)] text-[var(--badge-font-size-xs)]',
+      sm: 'px-[var(--badge-padding-sm)] text-[var(--badge-font-size-sm)]',
+      md: 'px-[var(--badge-padding-md)] text-[var(--badge-font-size-md)]',
+      lg: 'px-[var(--badge-padding-lg)] text-[var(--badge-font-size-lg)]',
     };
 
     const getStatusText = () => {
@@ -43,9 +44,10 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
       <div
         ref={ref}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-lg font-medium tracking-wide transition-colors duration-normal',
+          'inline-flex items-center gap-1.5 font-medium tracking-wide transition-colors duration-normal',
+          'rounded-[var(--badge-border-radius)]',
           variants[variant],
-          sizes[size],
+          sizeClasses[size] || sizeClasses.md,
           className
         )}
         role="status"

@@ -121,6 +121,8 @@ func (s *Service) LookupBarcode(ctx context.Context, barcode string) (*Inventory
 
 // UpdateItemStatus updates the status of an inventory item with validation
 func (s *Service) UpdateItemStatus(ctx context.Context, id uuid.UUID, newStatus string) error {
+	newStatus = strings.ToUpper(strings.TrimSpace(newStatus))
+
 	// Get current item
 	item, err := s.repo.GetInventoryItemByID(ctx, id)
 	if err != nil {
@@ -462,7 +464,7 @@ func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, u
 	} else {
 		statusStr = "unchanged"
 	}
-	changes := fmt.Sprintf("Adjusted item %s, new status: %s, reason: %s", req.ItemID, statusStr, adjustmentReason)
+	changes := fmt.Sprintf("Adjusted item %s, new status: %s, reason: %s", req.ItemID, statusStr, *adjustmentReason)
 	_, err = tx.ExecContext(ctx, auditQuery,
 		uuid.New(), userID, "ADJUST_INVENTORY", "inventory_item", req.ItemID,
 		changes, time.Now())
@@ -604,6 +606,13 @@ func isValidGrade(grade Grade) bool {
 }
 
 func isValidStatusTransition(currentStatus, newStatus string) bool {
+	currentStatus = strings.ToUpper(strings.TrimSpace(currentStatus))
+	newStatus = strings.ToUpper(strings.TrimSpace(newStatus))
+
+	if currentStatus == newStatus {
+		return true
+	}
+
 	// Define valid status transitions
 	validTransitions := map[string][]string{
 		string(StatusPurchased):  {string(StatusReceived), string(StatusInspection)},
@@ -612,7 +621,7 @@ func isValidStatusTransition(currentStatus, newStatus string) bool {
 		string(StatusAvailable):  {string(StatusReserved), string(StatusSold), string(StatusDamaged)},
 		string(StatusReserved):   {string(StatusSold), string(StatusAvailable)},
 		string(StatusSold):       {string(StatusReturned)},
-		string(StatusDamaged):    {string(StatusInRepair), string(StatusForParts)},
+		string(StatusDamaged):    {string(StatusAvailable), string(StatusInRepair), string(StatusForParts)},
 		string(StatusInRepair):   {string(StatusAvailable), string(StatusForParts)},
 		string(StatusReturned):   {string(StatusAvailable), string(StatusForParts)},
 	}

@@ -68,7 +68,6 @@ export function AppLayout({ children }: AppLayoutProps) {
         <div style={{ display: 'flex', flex: 1, minWidth: 0, alignItems: 'stretch' }}>
           <Sidebar
             isCollapsed={sidebarCollapsed}
-            onToggle={toggleSidebar}
           />
           <main
             ref={mainRef}

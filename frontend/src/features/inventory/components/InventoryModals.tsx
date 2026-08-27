@@ -2,7 +2,7 @@ import { Modal } from '../../../components/ui/modal';
 import { Input } from '../../../components/ui/input';
 import { Select } from '../../../components/ui/select';
 import { Product } from '../types/inventory.types';
-import { Package, Plus, Sparkles, Tag, DollarSign, Box, Layers } from 'lucide-react';
+import { Package, Plus, Sparkles, Tag, DollarSign } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { categoriesApi } from '../../../services/api/endpoints';
 

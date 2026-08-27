@@ -9,9 +9,13 @@ interface UIState {
   setLanguage: (language: string) => void;
 }
 
+const storedTheme = typeof window !== 'undefined' ? localStorage.getItem('theme') : null;
+const initialTheme: UIState['theme'] =
+  storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : 'system';
+
 export const useUIStore = create<UIState>((set) => ({
   sidebarCollapsed: false,
-  theme: 'system',
+  theme: initialTheme,
   language: 'ar',
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setTheme: (theme) => set({ theme }),

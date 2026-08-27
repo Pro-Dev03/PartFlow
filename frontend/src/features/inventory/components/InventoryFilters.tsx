@@ -5,7 +5,7 @@ import { Select } from '../../../components/ui/select';
 import { Input } from '../../../components/ui/input';
 import { getButtonSize } from '../../../config/button-sizes';
 import { cn } from '../../../utils';
-import { Filter, ArrowUpDown, ChevronUp, ChevronDown, Zap, Layers, Calendar, DollarSign, Tag } from 'lucide-react';
+import { Filter, ArrowUpDown, ChevronUp, ChevronDown, Zap } from 'lucide-react';
 import { FilterConfig, SortConfig } from '../types/inventory.types';
 import { useQuery } from '@tanstack/react-query';
 import { suppliersApi, categoriesApi } from '../../../services/api/endpoints';
@@ -133,7 +133,7 @@ export function InventoryFilters({
             "flex flex-col gap-md",
             isMobile ? "" : "md:flex-row"
           )}>
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <SearchInput
                 placeholder="بحث"
                 value={searchQuery}
@@ -144,7 +144,7 @@ export function InventoryFilters({
               />
             </div>
             <div className={cn(
-              "flex gap-2",
+              "pf-search-controls flex shrink-0 gap-2",
               isMobile ? "flex-wrap" : ""
             )}>
               {/* Category Filter */}
@@ -171,21 +171,6 @@ export function InventoryFilters({
                 size="sm"
               />
               
-              <Button
-                variant={filters.some(f => f.key === 'condition' && f.value === 'USED') ? 'primary' : 'secondary'}
-                size={getButtonSize('inventory', 'headerActions')}
-                onClick={() => {
-                  if (filters.some(f => f.key === 'condition' && f.value === 'USED')) {
-                    setFilters(filters.filter(f => !(f.key === 'condition' && f.value === 'USED')));
-                  } else {
-                    setFilters([...filters, { key: 'condition', value: 'USED' }]);
-                  }
-                }}
-                className={cn("gap-2", isMobile ? "flex-1" : "")}
-              >
-                <Layers className="w-4 h-4" />
-                <span>قطع مستعملة</span>
-              </Button>
               <Button
                 variant="secondary"
                 size={getButtonSize('inventory', 'headerActions')}

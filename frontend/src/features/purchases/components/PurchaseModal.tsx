@@ -1,29 +1,23 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Modal } from '../../../components/ui/modal';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Select } from '../../../components/ui/select';
 import { Badge } from '../../../components/ui/badge';
 import { Card, CardContent } from '../../../components/ui/card';
-import { getButtonSize } from '../../../config/button-sizes';
 import {
   Search,
   Plus,
   Scan,
   Trash2,
   ShoppingCart,
-  Calendar,
-  Truck,
   CheckCircle2,
-  AlertCircle,
-  Package,
-  Barcode,
-  FileText,
 } from 'lucide-react';
-import { purchasesApi, suppliersApi, productsApi } from '../../../services/api/endpoints';
+import { suppliersApi, productsApi } from '../../../services/api/endpoints';
 import { usePurchases } from '../hooks/usePurchases';
 import { PurchaseItem } from '../types/purchases.types';
+import { toast } from 'sonner';
 
 interface PurchaseModalProps {
   isOpen: boolean;
@@ -174,11 +168,11 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
 
   const handleCreatePurchase = useCallback(async () => {
     if (!selectedSupplier) {
-      alert('يرجى اختيار المورد');
+      toast.error('يرجى اختيار المورد');
       return;
     }
     if (items.length === 0) {
-      alert('يرجى إضافة عناصر للشراء');
+      toast.error('يرجى إضافة عناصر للشراء');
       return;
     }
 
@@ -314,15 +308,15 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
             </div>
 
             {activeTab === 'scan' ? (
-              <form onSubmit={handleBarcodeScan} className="flex gap-2">
+              <form onSubmit={handleBarcodeScan} className="pf-barcode-row">
                 <Input
                   placeholder="امسح الباركود أو اكتب الرقم..."
                   value={barcodeInput}
                   onChange={(e) => setBarcodeInput(e.target.value)}
-                  className="flex-1"
+                  className="min-w-0 flex-1"
                   autoFocus
                 />
-                <Button type="submit" variant="primary">
+                <Button type="submit" variant="primary" className="pf-barcode-submit">
                   <Scan className="w-4 h-4" />
                 </Button>
               </form>

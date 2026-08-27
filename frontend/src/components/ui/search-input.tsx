@@ -1,98 +1,65 @@
-import { forwardRef, useState } from 'react';
-import { cn } from '../../utils';
+import { forwardRef, type InputHTMLAttributes } from 'react';
+import { Input } from './input';
 import { Search, X } from 'lucide-react';
+import { cn } from '../../utils';
 
-export interface SearchInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
-  containerClassName?: string;
-  size?: 'sm' | 'md' | 'lg';
-  showClear?: boolean;
+export interface SearchInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
   onClear?: () => void;
+  isLoading?: boolean;
+  placeholder?: string;
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 }
 
 const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
   ({ 
     className, 
-    containerClassName,
+    onClear, 
+    isLoading = false,
     placeholder = 'بحث...',
     size = 'md',
-    showClear = true,
-    onClear,
     value,
     ...props 
   }, ref) => {
-    const [isFocused, setIsFocused] = useState(false);
     const hasValue = value && value.toString().length > 0;
 
-    const sizes = {
-      sm: 'h-10 text-sm',
-      md: 'h-12 text-sm',
-      lg: 'h-14 text-base',
-    };
-    
-    const handleClear = () => {
-      if (onClear) {
-        onClear();
-      }
-      if (props.onChange) {
-        const event = {
-          target: { value: '' }
-        } as React.ChangeEvent<HTMLInputElement>;
-        props.onChange(event);
-      }
-    };
-    
     return (
-      <div className={cn('w-full', containerClassName)}>
-        <div className="relative">
-          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
-            <Search
-              className={cn(
-                'h-4 w-4 transition-all duration-300',
-                isFocused ? 'text-primary scale-110' : 'text-text-muted/50',
-                size === 'sm' ? 'h-4 w-4' : size === 'md' ? 'h-5 w-5' : 'h-6 w-6'
-              )}
-            />
-          </div>
-          <input
-            ref={ref}
-            type="text"
-            placeholder={placeholder}
-            value={value}
-            className={cn(
-              'search-input-custom',
-              'relative w-full text-sm font-medium',
-              'disabled:cursor-not-allowed disabled:opacity-50',
-              'placeholder:text-text-muted/40',
-              sizes[size],
-              showClear && hasValue && 'pe-10',
-              className
-            )}
-            onFocus={(e) => {
-              setIsFocused(true);
-              if (props.onFocus) props.onFocus(e);
-            }}
-            onBlur={(e) => {
-              setIsFocused(false);
-              if (props.onBlur) props.onBlur(e);
-            }}
-            {...props}
-          />
-
-          {showClear && hasValue && (
-            <button
-              type="button"
-              onClick={handleClear}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted/40 hover:text-text-muted/70 transition-colors duration-200 z-10"
-            >
-              <X
-                className={cn(
-                  'shrink-0',
-                  size === 'sm' ? 'w-4 h-4' : size === 'md' ? 'w-5 h-5' : 'w-6 h-6'
-                )}
+      <div className="pf-search-input relative min-w-0">
+        <Search
+          className="pf-search-icon absolute top-1/2 end-3 -translate-y-1/2"
+          style={{ 
+            width: 'var(--icon-size-sm)', 
+            height: 'var(--icon-size-sm)' 
+          }}
+        />
+        <Input
+          ref={ref}
+          type="text"
+          placeholder={placeholder}
+          value={value}
+          size={size}
+          className={cn('pf-search-field', className)}
+          {...props}
+        />
+        {(hasValue || isLoading) && (
+          <button
+            type="button"
+            onClick={onClear}
+            aria-label="مسح البحث"
+            className="pf-search-clear absolute top-1/2 left-2 -translate-y-1/2"
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <div className="animate-spin rounded-full border-2 border-text-muted/20 border-t-text-muted" />
+            ) : (
+              <X 
+                style={{ 
+                  width: 'var(--icon-size-sm)', 
+                  height: 'var(--icon-size-sm)' 
+                }} 
               />
-            </button>
-          )}
-        </div>
+            )}
+          </button>
+        )}
       </div>
     );
   }

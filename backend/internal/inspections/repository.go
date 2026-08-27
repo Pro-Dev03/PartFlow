@@ -22,27 +22,22 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // CreateInspection creates a new inspection
 func (r *Repository) CreateInspection(ctx context.Context, inspection *Inspection) error {
-	testResultsJSON, err := json.Marshal(inspection.TestResults)
-	if err != nil {
-		return fmt.Errorf("failed to marshal test results: %w", err)
-	}
-
 	photosJSON, err := json.Marshal(inspection.Photos)
 	if err != nil {
 		return fmt.Errorf("failed to marshal photos: %w", err)
 	}
 
 	query := `
-		INSERT INTO inspections (product_id, inspection_date, inspected_by, status, condition, grade, notes, photos, test_results, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		RETURNING id, created_at, updated_at
+		INSERT INTO inspections (product_id, inventory_item_id, inspector_id, inspection_date, result, notes, images, created_at)
+		VALUES ($1, $2, $4, $3, $5, $8, $9, $10)
+		RETURNING id, created_at
 	`
 
 	err = r.db.QueryRowContext(ctx, query,
-		inspection.ProductID, inspection.InspectionDate, inspection.InspectedBy, inspection.Status,
-		inspection.Condition, inspection.Grade, inspection.Notes, photosJSON, testResultsJSON,
-		inspection.CreatedAt, inspection.UpdatedAt,
-	).Scan(&inspection.ID, &inspection.CreatedAt, &inspection.UpdatedAt)
+		inspection.ProductID, inspection.InventoryItemID, inspection.InspectionDate, inspection.InspectedBy, inspection.Status,
+		inspection.Condition, inspection.Grade, inspection.Notes, photosJSON,
+		inspection.CreatedAt,
+	).Scan(&inspection.ID, &inspection.CreatedAt)
 	
 	if err != nil {
 		return fmt.Errorf("failed to create inspection: %w", err)
@@ -56,7 +51,9 @@ func (r *Repository) GetInspectionByID(ctx context.Context, id uuid.UUID) (*Insp
 	var testResultsJSON, photosJSON []byte
 
 	query := `
-		SELECT id, product_id, inspection_date, inspected_by, status, condition, grade, notes, photos, test_results, created_at, updated_at
+		SELECT id, product_id, inventory_item_id, inspection_date, inspector_id AS inspected_by, result AS status,
+		       '' AS condition, '' AS grade, notes, images AS photos, '{}'::jsonb AS test_results,
+		       created_at, created_at AS updated_at
 		FROM inspections
 		WHERE id = $1
 	`
@@ -92,7 +89,9 @@ func (r *Repository) ListInspections(ctx context.Context, req InspectionListRequ
 
 	// Build base query
 	baseQuery := `
-		SELECT id, product_id, inspection_date, inspected_by, status, condition, grade, notes, photos, test_results, created_at, updated_at
+		SELECT id, product_id, inventory_item_id, inspection_date, inspector_id AS inspected_by, result AS status,
+		       '' AS condition, '' AS grade, notes, images AS photos, '{}'::jsonb AS test_results,
+		       created_at, created_at AS updated_at
 		FROM inspections
 		WHERE 1=1
 	`
@@ -114,29 +113,15 @@ func (r *Repository) ListInspections(ctx context.Context, req InspectionListRequ
 	
 	if req.Status != "" {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND status = $%d", argCount)
-		countQuery += fmt.Sprintf(" AND status = $%d", argCount)
+		baseQuery += fmt.Sprintf(" AND result = $%d", argCount)
+		countQuery += fmt.Sprintf(" AND result = $%d", argCount)
 		args = append(args, req.Status)
-	}
-	
-	if req.Condition != "" {
-		argCount++
-		baseQuery += fmt.Sprintf(" AND condition = $%d", argCount)
-		countQuery += fmt.Sprintf(" AND condition = $%d", argCount)
-		args = append(args, req.Condition)
-	}
-	
-	if req.Grade != "" {
-		argCount++
-		baseQuery += fmt.Sprintf(" AND grade = $%d", argCount)
-		countQuery += fmt.Sprintf(" AND grade = $%d", argCount)
-		args = append(args, req.Grade)
 	}
 	
 	if req.InspectedBy != nil {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND inspected_by = $%d", argCount)
-		countQuery += fmt.Sprintf(" AND inspected_by = $%d", argCount)
+		baseQuery += fmt.Sprintf(" AND inspector_id = $%d", argCount)
+		countQuery += fmt.Sprintf(" AND inspector_id = $%d", argCount)
 		args = append(args, *req.InspectedBy)
 	}
 	
@@ -156,8 +141,8 @@ func (r *Repository) ListInspections(ctx context.Context, req InspectionListRequ
 	
 	if req.Search != "" {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND (serial_number ILIKE $%d OR notes ILIKE $%d)", argCount, argCount)
-		countQuery += fmt.Sprintf(" AND (serial_number ILIKE $%d OR notes ILIKE $%d)", argCount, argCount)
+		baseQuery += fmt.Sprintf(" AND notes ILIKE $%d", argCount)
+		countQuery += fmt.Sprintf(" AND notes ILIKE $%d", argCount)
 		searchPattern := "%" + req.Search + "%"
 		args = append(args, searchPattern, searchPattern)
 	}
@@ -220,11 +205,6 @@ func (r *Repository) ListInspections(ctx context.Context, req InspectionListRequ
 
 // UpdateInspection updates an inspection
 func (r *Repository) UpdateInspection(ctx context.Context, inspection *Inspection) error {
-	testResultsJSON, err := json.Marshal(inspection.TestResults)
-	if err != nil {
-		return fmt.Errorf("failed to marshal test results: %w", err)
-	}
-
 	photosJSON, err := json.Marshal(inspection.Photos)
 	if err != nil {
 		return fmt.Errorf("failed to marshal photos: %w", err)
@@ -232,15 +212,13 @@ func (r *Repository) UpdateInspection(ctx context.Context, inspection *Inspectio
 
 	query := `
 		UPDATE inspections
-		SET inspection_date = $2, status = $3, condition = $4, grade = $5, notes = $6,
-			photos = $7, test_results = $8, updated_at = $9
+		SET inspection_date = $2, result = $3, notes = $4, images = $5
 		WHERE id = $1
-		RETURNING updated_at
+		RETURNING created_at
 	`
 	
 	err = r.db.QueryRowContext(ctx, query,
-		inspection.ID, inspection.InspectionDate, inspection.Status, inspection.Condition,
-		inspection.Grade, inspection.Notes, photosJSON, testResultsJSON,
+		inspection.ID, inspection.InspectionDate, inspection.Status, inspection.Notes, photosJSON,
 	).Scan(&inspection.UpdatedAt)
 	
 	if err != nil {
@@ -312,21 +290,21 @@ func (r *Repository) GetInspectionSummary(ctx context.Context) (*InspectionSumma
 
 	// Passed inspections
 	err = r.db.GetContext(ctx, &summary.PassedInspections,
-		`SELECT COUNT(*) FROM inspections WHERE status = 'passed'`)
+		`SELECT COUNT(*) FROM inspections WHERE result = 'passed'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get passed inspections: %w", err)
 	}
 
 	// Failed inspections
 	err = r.db.GetContext(ctx, &summary.FailedInspections,
-		`SELECT COUNT(*) FROM inspections WHERE status = 'failed'`)
+		`SELECT COUNT(*) FROM inspections WHERE result = 'failed'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get failed inspections: %w", err)
 	}
 
 	// Pending inspections
 	err = r.db.GetContext(ctx, &summary.PendingInspections,
-		`SELECT COUNT(*) FROM inspections WHERE status = 'pending'`)
+		`SELECT COUNT(*) FROM inspections WHERE result = 'pending'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pending inspections: %w", err)
 	}

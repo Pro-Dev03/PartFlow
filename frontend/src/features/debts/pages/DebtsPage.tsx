@@ -1,13 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useTranslation as useTranslationHook } from '../../../hooks/useTranslation';
-import { useAuthStore } from '../../../stores/authStore';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { Badge } from '../../../components/ui/badge';
-import { Modal } from '../../../components/ui/modal';
 import { getButtonSize } from '../../../config/button-sizes';
 import { 
   DollarSign, 
@@ -16,20 +14,16 @@ import {
   Calendar,
   Sparkles,
   Zap,
-  Clock,
-  X,
   Eye,
-  TrendingUp,
   Bell,
   CheckCircle,
-  ChevronRight,
   Printer
 } from 'lucide-react';
 import '../styles/success-modal.css';
 import { printPaymentReceipt } from '../../../lib/export-utils';
+import { toast } from 'sonner';
 
 // SmartDelete utility (ARCHITECTURE-PRINCIPLES.md)
-import { handleSmartDelete } from '../../../utils/smartDelete';
 
 // Custom hooks
 import { useDebts } from '../hooks/useDebts';
@@ -52,32 +46,28 @@ export function DebtsPage() {
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [lastPayment, setLastPayment] = useState<any>(null);
 
-  const handleClearSearch = () => {
-    // Will be handled by the custom hook
-  };
-
   // Custom hook
   const {
     debts,
     filteredDebts,
     stats,
     isLoading,
-    searchQuery,
     setSearchQuery,
-    searchFilters,
     setSearchFilters,
     recordPaymentMutation,
   } = useDebts();
 
-  // Use auth store for reactive token access
-  const { token } = useAuthStore();
-  
   // Get current language for receipt
   const { currentLanguage } = useTranslationHook();
 
   const handleRecordPayment = (customerId: string, customerName: string) => {
     console.log('handleRecordPayment called', { customerId, customerName });
-    setSelectedCustomer({ id: customerId, name: customerName });
+    const customerDebt = debts.find((debt: any) => debt.customer?.id === customerId);
+    setSelectedCustomer({
+      id: customerId,
+      name: customerName,
+      outstanding: customerDebt?.remainingAmount || 0,
+    });
     setPaymentAmount('');
     setPaymentMethod('cash');
     setPaymentModalOpen(true);
@@ -89,11 +79,10 @@ export function DebtsPage() {
       const paymentAmountNum = parseFloat(paymentAmount);
       
       // Validate payment doesn't exceed outstanding balance (SALES-PHILOSOPHY.md)
-      const customerDebt = debts.find((d: any) => d.customer?.id === selectedCustomer.id);
-      const outstandingAmount = customerDebt?.remainingAmount || 0;
+      const outstandingAmount = selectedCustomer?.outstanding || 0;
       
       if (paymentAmountNum > outstandingAmount) {
-        alert(`المبلغ أكبر من المبلغ المستحق (₪${outstandingAmount.toLocaleString()})`);
+        toast.error(`المبلغ أكبر من المبلغ المستحق (₪${outstandingAmount.toLocaleString()})`);
         return;
       }
       
@@ -117,10 +106,9 @@ export function DebtsPage() {
             date: `${day}/${month}/${year}`,
           });
           setSuccessModalOpen(true);
+          setPaymentModalOpen(false);
         },
       });
-      
-      setPaymentModalOpen(false);
     }
   };
 
@@ -137,32 +125,9 @@ export function DebtsPage() {
     console.log('isViewModalOpen after set:', true);
   };
 
-  const handleReversePayment = async (paymentId: string) => {
-    await handleSmartDelete(
-      async () => {
-        // This would call the payment delete endpoint which returns SmartDeleteResult
-        // For now, we'll need to implement this in the useDebts hook
-        console.log('Reverse payment:', paymentId);
-        return { action: 'reversed', message: 'تم عكس الدفعة بنجاح', can_proceed: true };
-      },
-      {
-        confirmationMessage: 'هل أنت متأكد من عكس هذه الدفعة؟\n\nسيتم إنشاء سجل عكس الدفعة ولن يتم حذف الدفعة الأصلية.',
-        onSuccess: (result) => {
-          console.log('Payment reversed successfully:', result);
-        },
-        onBlocked: (result) => {
-          console.log('Payment reverse blocked:', result);
-        },
-        onError: (error) => {
-          console.error('Payment reverse error:', error);
-        }
-      }
-    );
-  };
-
   const handlePrintReceipt = () => {
     if (!lastPayment) {
-      alert('لا توجد بيانات للدفعة');
+      toast.error('لا توجد بيانات للدفعة');
       return;
     }
 
@@ -179,7 +144,9 @@ export function DebtsPage() {
   // Debt Aging System - تصنيف ديون حسب العمر
   const getDebtAging = (dueDate: string, status: string) => {
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const due = new Date(dueDate);
+    due.setHours(0, 0, 0, 0);
     
     // Handle invalid dates
     if (isNaN(due.getTime())) {
@@ -215,21 +182,6 @@ export function DebtsPage() {
     }
   };
 
-  const getDaysOverdue = (dueDate: string) => {
-    const today = new Date();
-    const due = new Date(dueDate);
-    const diffTime = today.getTime() - due.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
-  };
-
-  const getAgingCategory = (daysOverdue: number) => {
-    if (daysOverdue < 0) return { label: 'غير مستحق', variant: 'success' as const };
-    if (daysOverdue <= 7) return { label: 'حديث', variant: 'success' as const };
-    if (daysOverdue <= 30) return { label: '1-30 يوم', variant: 'warning' as const };
-    if (daysOverdue <= 60) return { label: '31-60 يوم', variant: 'danger' as const };
-    return { label: '+60 يوم', variant: 'danger' as const };
-  };
 
   return (
     <div>
@@ -363,8 +315,8 @@ export function DebtsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={debt.status === 'overdue' ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'}>
-                          {debt.status === 'overdue' ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
+                          <Badge variant={aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'}>
+                          {aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
                         </Badge>
                       </TableCell>
                       <TableCell style={{ textAlign: 'right' }}>
@@ -455,7 +407,6 @@ export function DebtsPage() {
                   value={paymentAmount}
                   onChange={(e) => setPaymentAmount(e.target.value)}
                   autoFocus
-                  enableEnterNavigation={true}
                 />
               </div>
               
@@ -510,9 +461,15 @@ export function DebtsPage() {
                   variant="primary"
                   size={getButtonSize('debts', 'modalAction')}
                   onClick={handlePaymentSubmit}
-                  disabled={!paymentAmount || isNaN(parseFloat(paymentAmount))}
+                  disabled={
+                    recordPaymentMutation.isPending ||
+                    !paymentAmount ||
+                    isNaN(parseFloat(paymentAmount)) ||
+                    parseFloat(paymentAmount) <= 0 ||
+                    parseFloat(paymentAmount) > (selectedCustomer?.outstanding || 0)
+                  }
                 >
-                  تسجيل الدفعة
+                  {recordPaymentMutation.isPending ? 'جارٍ التسجيل...' : 'تسجيل الدفعة'}
                 </Button>
               </div>
             </div>

@@ -26,9 +26,13 @@ func (s *Service) CreateInspection(ctx context.Context, userID uuid.UUID, req *I
 	}
 
 	// Check if product exists
-	product, err := s.repo.GetProductInfo(ctx, req.ProductID)
-	if err != nil {
-		return nil, ErrProductNotFound
+	var product *ProductInfo
+	var err error
+	if req.ProductID != uuid.Nil {
+		product, err = s.repo.GetProductInfo(ctx, req.ProductID)
+		if err != nil {
+			return nil, ErrProductNotFound
+		}
 	}
 
 	// Create inspection
@@ -53,9 +57,12 @@ func (s *Service) GetInspection(ctx context.Context, id uuid.UUID) (*InspectionR
 		return nil, err
 	}
 
-	product, err := s.repo.GetProductInfo(ctx, inspection.ProductID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get product info: %w", err)
+	var product *ProductInfo
+	if inspection.ProductID != nil {
+		product, err = s.repo.GetProductInfo(ctx, *inspection.ProductID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get product info: %w", err)
+		}
 	}
 
 	inspector, err := s.repo.GetUserInfo(ctx, inspection.InspectedBy)
@@ -83,9 +90,12 @@ func (s *Service) ListInspections(ctx context.Context, req InspectionListRequest
 	// Convert to list items
 	var result []map[string]interface{}
 	for _, inspection := range inspections {
-		product, err := s.repo.GetProductInfo(ctx, inspection.ProductID)
-		if err != nil {
-			continue
+		var product *ProductInfo
+		if inspection.ProductID != nil {
+			product, err = s.repo.GetProductInfo(ctx, *inspection.ProductID)
+			if err != nil {
+				continue
+			}
 		}
 
 		inspector, err := s.repo.GetUserInfo(ctx, inspection.InspectedBy)
@@ -94,7 +104,11 @@ func (s *Service) ListInspections(ctx context.Context, req InspectionListRequest
 		}
 
 		inspectorName := inspector.FirstName + " " + inspector.LastName
-		result = append(result, inspection.ToInspectionListItem(product.Name, inspectorName))
+		productName := "قطعة مستعملة"
+		if product != nil {
+			productName = product.Name
+		}
+		result = append(result, inspection.ToInspectionListItem(productName, inspectorName))
 	}
 
 	return result, total, nil
@@ -131,9 +145,9 @@ func (s *Service) UpdateInspection(ctx context.Context, id uuid.UUID, req *Inspe
 	if req.Photos != nil {
 		inspection.Photos = req.Photos
 	}
-	if req.TestResults.PowerTest || req.TestResults.TemperatureTest || 
-		req.TestResults.PerformanceTest || req.TestResults.PortsTest || 
-		req.TestResults.StorageTest || req.TestResults.VisualTest || 
+	if req.TestResults.PowerTest || req.TestResults.TemperatureTest ||
+		req.TestResults.PerformanceTest || req.TestResults.PortsTest ||
+		req.TestResults.StorageTest || req.TestResults.VisualTest ||
 		req.TestResults.SerialTest {
 		inspection.TestResults = req.TestResults
 	}
@@ -148,7 +162,7 @@ func (s *Service) UpdateInspection(ctx context.Context, id uuid.UUID, req *Inspe
 }
 
 // DeleteInspection deletes an inspection
-func (s *Service) DeleteInspection(ctx context.Context, id uuid.UUID, ) error {
+func (s *Service) DeleteInspection(ctx context.Context, id uuid.UUID) error {
 	inspection, err := s.repo.GetInspectionByID(ctx, id)
 	if err != nil {
 		return err
@@ -163,7 +177,7 @@ func (s *Service) DeleteInspection(ctx context.Context, id uuid.UUID, ) error {
 }
 
 // PassInspection marks an inspection as passed
-func (s *Service) PassInspection(ctx context.Context, id uuid.UUID, ) (*InspectionResponse, error) {
+func (s *Service) PassInspection(ctx context.Context, id uuid.UUID) (*InspectionResponse, error) {
 	inspection, err := s.repo.GetInspectionByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -184,7 +198,7 @@ func (s *Service) PassInspection(ctx context.Context, id uuid.UUID, ) (*Inspecti
 }
 
 // FailInspection marks an inspection as failed
-func (s *Service) FailInspection(ctx context.Context, id uuid.UUID, ) (*InspectionResponse, error) {
+func (s *Service) FailInspection(ctx context.Context, id uuid.UUID) (*InspectionResponse, error) {
 	inspection, err := s.repo.GetInspectionByID(ctx, id)
 	if err != nil {
 		return nil, err

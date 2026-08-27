@@ -1,21 +1,22 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Button } from '../../../components/ui/button';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { Plus, Download, Printer } from 'lucide-react';
-import { FinancialTimeline, LedgerEntry } from '../../../components/ui/financial-timeline';
-import { customersApi } from '../../../services/api/endpoints';
 
 // Custom hooks
 import { useCustomers } from '../hooks/useCustomers';
 
 // Components
-import { CustomerStats } from '../components/CustomerStats';
 import { CustomerFilters } from '../components/CustomerFilters';
 import { CustomerList } from '../components/CustomerList';
 import { CustomerModals } from '../components/CustomerModals';
+import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+
+// Lazy load heavy components
+const CustomerStats = lazy(() => import('../components/CustomerStats').then(m => ({ default: m.CustomerStats })));
 
 // Types
 import { Customer, CustomerFormData } from '../types/customers.types';
@@ -27,12 +28,11 @@ export function CustomersPage() {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
-  const [loadingLedger, setLoadingLedger] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [customerToDelete, setCustomerToDelete] = useState<string | null>(null);
 
   // Custom hook
   const {
-    customers,
     filteredCustomers,
     isLoading,
     stats,
@@ -63,41 +63,18 @@ export function CustomersPage() {
   const handleViewCustomer = (customer: Customer) => {
     setSelectedCustomer(customer);
     setIsViewModalOpen(true);
-    // Load ledger entries for this customer
-    loadCustomerLedger(customer.id);
-  };
-
-  const loadCustomerLedger = async (customerId: string) => {
-    setLoadingLedger(true);
-    try {
-      const response = await customersApi.ledger(customerId, { page: 1, per_page: 50 });
-      if (response && response.data) {
-        const formattedEntries = response.data.map((entry: any) => ({
-          id: entry.id,
-          transaction_type: entry.transaction_type,
-          amount: entry.amount,
-          balance: entry.balance,
-          previous_balance: entry.previous_balance,
-          description: entry.description,
-          created_at: entry.created_at,
-          reference_id: entry.reference_id,
-          reference_type: entry.reference_type,
-        }));
-        setLedgerEntries(formattedEntries);
-      } else {
-        setLedgerEntries([]);
-      }
-    } catch (error) {
-      console.error('Failed to load ledger entries:', error);
-      setLedgerEntries([]);
-    } finally {
-      setLoadingLedger(false);
-    }
   };
 
   const handleDeleteCustomer = (customerId: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا العميل؟')) {
-      deleteMutation.mutate(customerId);
+    setCustomerToDelete(customerId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (customerToDelete) {
+      deleteMutation.mutate(customerToDelete);
+      setDeleteDialogOpen(false);
+      setCustomerToDelete(null);
     }
   };
 
@@ -177,10 +154,23 @@ export function CustomersPage() {
       />
 
       {/* Customer Stats */}
-      <CustomerStats 
-        stats={stats}
-        onRecommendationClick={handleRecommendationClick}
-      />
+      <Suspense fallback={
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          padding: '40px',
+          minHeight: '120px'
+        }}>
+          <div className="animate-spin rounded-full border-2 border-text-muted/20 border-t-primary" 
+               style={{ width: '32px', height: '32px' }} />
+        </div>
+      }>
+        <CustomerStats 
+          stats={stats}
+          onRecommendationClick={handleRecommendationClick}
+        />
+      </Suspense>
 
       {/* Customer Filters */}
       <CustomerFilters
@@ -213,8 +203,22 @@ export function CustomersPage() {
         selectedCustomer={selectedCustomer}
         setSelectedCustomer={setSelectedCustomer}
         onSubmit={handleSubmit}
-        ledgerEntries={ledgerEntries}
-        loadingLedger={loadingLedger}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteDialogOpen}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setCustomerToDelete(null);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="حذف العميل"
+        message="هل أنت متأكد من حذف هذا العميل؟ هذا الإجراء لا يمكن التراجع عنه."
+        confirmText="حذف العميل"
+        cancelText="إلغاء"
+        variant="danger"
+        isLoading={deleteMutation.isPending}
       />
     </div>
   );

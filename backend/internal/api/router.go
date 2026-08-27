@@ -4,29 +4,29 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 
-	"github.com/partflow/smart-store/internal/auth"
-	"github.com/partflow/smart-store/internal/inventory"
-	"github.com/partflow/smart-store/internal/products"
-	"github.com/partflow/smart-store/internal/customers"
-	"github.com/partflow/smart-store/internal/sales"
-	"github.com/partflow/smart-store/internal/payments"
-	"github.com/partflow/smart-store/internal/suppliers"
-	"github.com/partflow/smart-store/internal/purchases"
-	"github.com/partflow/smart-store/internal/expenses"
-	"github.com/partflow/smart-store/internal/returns"
-	"github.com/partflow/smart-store/internal/inspections"
-	"github.com/partflow/smart-store/internal/reports"
-	"github.com/partflow/smart-store/internal/notifications"
-	"github.com/partflow/smart-store/internal/dashboard"
-	"github.com/partflow/smart-store/internal/search"
-	"github.com/partflow/smart-store/internal/users"
-	"github.com/partflow/smart-store/internal/audit"
-	"github.com/partflow/smart-store/internal/parttypes"
-	"github.com/partflow/smart-store/internal/settings"
-	"github.com/partflow/smart-store/internal/barcodes"
-	"github.com/partflow/smart-store/internal/ledgers"
 	"github.com/partflow/smart-store/internal/acquisitions"
+	"github.com/partflow/smart-store/internal/audit"
+	"github.com/partflow/smart-store/internal/auth"
+	"github.com/partflow/smart-store/internal/barcodes"
+	"github.com/partflow/smart-store/internal/customers"
+	"github.com/partflow/smart-store/internal/dashboard"
 	"github.com/partflow/smart-store/internal/debts"
+	"github.com/partflow/smart-store/internal/expenses"
+	"github.com/partflow/smart-store/internal/inspections"
+	"github.com/partflow/smart-store/internal/inventory"
+	"github.com/partflow/smart-store/internal/ledgers"
+	"github.com/partflow/smart-store/internal/notifications"
+	"github.com/partflow/smart-store/internal/parttypes"
+	"github.com/partflow/smart-store/internal/payments"
+	"github.com/partflow/smart-store/internal/products"
+	"github.com/partflow/smart-store/internal/purchases"
+	"github.com/partflow/smart-store/internal/reports"
+	"github.com/partflow/smart-store/internal/returns"
+	"github.com/partflow/smart-store/internal/sales"
+	"github.com/partflow/smart-store/internal/search"
+	"github.com/partflow/smart-store/internal/settings"
+	"github.com/partflow/smart-store/internal/suppliers"
+	"github.com/partflow/smart-store/internal/users"
 	"github.com/partflow/smart-store/pkg/middleware"
 )
 
@@ -84,10 +84,10 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	ledgerHandler := ledgers.NewHandler(ledgerService)
 	acquisitionHandler := acquisitions.NewHandler(acquisitionService)
 	debtsHandler := debts.NewHandler(db)
-	
+
 	// Aggregation handler (ARCHITECTURE-PRINCIPLES.md)
 	aggregationHandler := NewAggregationHandler()
-	
+
 	// SmartDelete handler (PRODUCT-PHILOSOPHY.md)
 	purchaseSmartDeleteHandler := NewPurchaseSmartDeleteHandler(db)
 
@@ -113,7 +113,9 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 		{
 			// Dashboard routes
 			protected.GET("/dashboard/stats", dashboardHandler.GetDashboardStats)
-			
+			protected.GET("/dashboard/low-stock-items", dashboardHandler.GetLowStockItems)
+			protected.GET("/dashboard/overdue-debts", dashboardHandler.GetOverdueDebts)
+
 			// Aggregation routes (ARCHITECTURE-PRINCIPLES.md)
 			aggregations := protected.Group("/aggregations")
 			{
@@ -190,6 +192,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				customers.PUT("/:id", customerHandler.UpdateCustomer)
 				customers.DELETE("/:id", customerHandler.DeleteCustomer)
 				customers.GET("/:id/ledger", customerHandler.GetCustomerLedger)
+				customers.GET("/:id/financial-timeline", customerHandler.GetFinancialTimeline)
 				customers.POST("/:id/payments", customerHandler.AddPayment)
 				customers.POST("/:id/debt-payments", customerHandler.AddPayment)
 				customers.GET("/:id/debt-summary", customerHandler.GetCustomerDebtSummary)
@@ -202,6 +205,9 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			sales := protected.Group("/sales")
 			{
 				sales.POST("", salesHandler.CreateSale)
+				sales.GET("/held", salesHandler.ListHeldSales)
+				sales.POST("/held", salesHandler.HoldSale)
+				sales.DELETE("/held/:id", salesHandler.DeleteHeldSale)
 				sales.GET("/:id", salesHandler.GetSale)
 				sales.GET("", salesHandler.ListSales)
 				sales.POST("/:id/payment", salesHandler.UpdateSalePayment)

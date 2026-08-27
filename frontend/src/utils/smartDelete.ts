@@ -1,4 +1,5 @@
 import { SmartDeleteResult } from '../types/api';
+import { toast } from 'sonner';
 
 /**
  * SmartDelete Handler Utility (PRODUCT-PHILOSOPHY.md)
@@ -18,6 +19,11 @@ export interface SmartDeleteHandlerOptions {
   onError?: (error: Error) => void;
   showConfirmation?: boolean;
   confirmationMessage?: string;
+  /**
+   * Confirmation dialog supplied by the calling screen.
+   * It should return a Promise<boolean> that resolves to true if confirmed.
+   */
+  showConfirmationDialog?: (message: string) => Promise<boolean>;
 }
 
 /**
@@ -32,13 +38,22 @@ export async function handleSmartDelete(
     onBlocked,
     onError,
     showConfirmation = true,
-    confirmationMessage = 'هل تريد حذف هذه العملية؟'
+    confirmationMessage = 'هل تريد حذف هذه العملية؟',
+    showConfirmationDialog
   } = options;
 
   try {
     // Show confirmation if required
     if (showConfirmation) {
-      const confirmed = window.confirm(confirmationMessage);
+      let confirmed: boolean;
+      
+      if (showConfirmationDialog) {
+        // Use custom confirmation dialog
+        confirmed = await showConfirmationDialog(confirmationMessage);
+      } else {
+        throw new Error('Confirmation dialog is required for smart delete operations');
+      }
+      
       if (!confirmed) {
         return false;
       }
@@ -89,9 +104,7 @@ export async function handleSmartDelete(
  * Show success message to user
  */
 function showSuccessMessage(message: string): void {
-  // You can replace this with your preferred notification system
-  // For now using simple alert as placeholder
-  alert(message);
+  toast.success(message);
 }
 
 /**
@@ -118,14 +131,15 @@ function showBlockedMessage(result: SmartDeleteResult): void {
     }
   }
 
-  alert(message);
+  toast.error(message);
 }
 
 /**
  * Show error message
  */
-function showErrorMessage(error: Error): void {
-  alert(`حدث خطأ: ${error.message}`);
+function showErrorMessage(error: unknown): void {
+  const message = error instanceof Error ? error.message : 'حدث خطأ غير متوقع';
+  toast.error(`حدث خطأ: ${message}`);
 }
 
 /**

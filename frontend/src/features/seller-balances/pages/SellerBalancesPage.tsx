@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { acquisitionsApi } from '../../../services/api/endpoints';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { SearchInput } from '../../../components/ui/search-input';
@@ -11,12 +11,10 @@ import { Modal } from '../../../components/ui/modal';
 import {
   DollarSign,
   TrendingUp,
-  TrendingDown,
   User,
-  Search,
   CheckCircle,
-  XCircle
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface SellerBalance {
   customer_id?: string;
@@ -54,20 +52,20 @@ export function SellerBalancesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['seller-balances'] });
       queryClient.invalidateQueries({ queryKey: ['acquisitions'] });
-      alert('تم تسجيل الدفعة بنجاح!');
+      toast.success('تم تسجيل الدفعة بنجاح!');
       setIsPaymentModalOpen(false);
       setPaymentAmount('');
       setSelectedSeller(null);
     },
     onError: (error) => {
       console.error('Payment failed:', error);
-      alert('فشل تسجيل الدفعة');
+      toast.error('فشل تسجيل الدفعة');
     },
   });
 
   const handleMakePayment = () => {
     if (!selectedSeller || !paymentAmount) {
-      alert('يرجى إدخال مبلغ الدفعة');
+      toast.error('يرجى إدخال مبلغ الدفعة');
       return;
     }
 

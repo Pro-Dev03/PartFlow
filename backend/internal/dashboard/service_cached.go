@@ -143,3 +143,62 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 func (s *CachedService) InvalidateCache() {
 	s.cache.Clear()
 }
+
+// GetLowStockItems retrieves low stock items with details
+func (s *CachedService) GetLowStockItems(ctx context.Context) ([]LowStockItem, error) {
+	query := `
+		SELECT 
+			p.id,
+			p.name as product_name,
+			COALESCE(SUM(i.quantity), 0) as quantity,
+			p.min_stock_level,
+			p.cost_price,
+			p.selling_price,
+			p.preferred_supplier_id
+		FROM products p
+		LEFT JOIN inventory i ON p.id = i.product_id
+		WHERE p.is_active = true
+		AND p.min_stock_level > 0
+		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
+		HAVING COALESCE(SUM(i.quantity), 0) < p.min_stock_level
+		ORDER BY (p.min_stock_level - COALESCE(SUM(i.quantity), 0)) DESC
+		LIMIT 10
+	`
+
+	var items []LowStockItem
+	err := s.db.SelectContext(ctx, &items, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get low stock items: %w", err)
+	}
+
+	return items, nil
+}
+
+// GetOverdueDebts retrieves overdue debts with details
+func (s *CachedService) GetOverdueDebts(ctx context.Context) ([]OverdueDebtItem, error) {
+	query := `
+		SELECT 
+			d.id,
+			d.customer_id,
+			c.name as customer_name,
+			d.remaining_amount,
+			d.due_date,
+			EXTRACT(DAY FROM NOW() - d.due_date)::int as days_overdue,
+			COALESCE(c.phone, '') as phone
+		FROM debts d
+		JOIN customers c ON d.customer_id = c.id
+		WHERE d.remaining_amount > 0
+		AND d.due_date < NOW()
+		AND d.status = 'pending'
+		ORDER BY d.due_date ASC
+		LIMIT 10
+	`
+
+	var debts []OverdueDebtItem
+	err := s.db.SelectContext(ctx, &debts, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get overdue debts: %w", err)
+	}
+
+	return debts, nil
+}

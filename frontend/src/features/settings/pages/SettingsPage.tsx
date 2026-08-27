@@ -3,7 +3,6 @@ import { useTranslation } from '../../../hooks/useTranslation';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Button } from '../../../components/ui/button';
 import {
-  Settings as SettingsIcon,
   Store,
   Palette,
   Bell,

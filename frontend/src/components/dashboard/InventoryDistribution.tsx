@@ -1,6 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Package, TrendingUp, AlertTriangle } from 'lucide-react';
-import { cn } from '../../utils';
 
 interface CategoryItem {
   name: string;

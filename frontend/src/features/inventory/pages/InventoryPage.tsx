@@ -6,11 +6,11 @@ import { PageHeader } from '../../../components/ui/page-header';
 import { Button } from '../../../components/ui/button';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { handleSort, type SortConfig } from '../../../lib/table-utils';
 import { Plus, Download, Printer, Package, PackageOpen } from 'lucide-react';
 
 // Custom hooks
 import { useInventory } from '../hooks/useInventory';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 
 // Components
 import { InventoryStats } from '../components/InventoryStats';
@@ -19,15 +19,31 @@ import { InventoryScanner } from '../components/InventoryScanner';
 import { InventoryList } from '../components/InventoryList';
 import { InventoryModals } from '../components/InventoryModals';
 import { InventoryLedger } from '../../../components/ui/inventory-ledger';
+import type { InventoryMovement } from '../../../components/ui/inventory-ledger';
+import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 
 // Types
 import { ViewMode, ItemInputMethodType, Product } from '../types/inventory.types';
+import { inventoryApi } from '../../../services/api/endpoints';
+
+interface InventoryMovementResponse {
+  id: string;
+  movement_type: InventoryMovement['type'];
+  quantity: number;
+  before_quantity: number;
+  after_quantity: number;
+  reference_type?: string;
+  reference_id?: string;
+  reason?: string;
+  created_by?: string;
+  created_at: string;
+}
 
 export function InventoryPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const [isMobile, setIsMobile] = useState(false);
+  const isMobile = useIsMobile();
   const [viewMode, setViewMode] = useState<ViewMode>('products');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -36,11 +52,15 @@ export function InventoryPage() {
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [showInventoryLedger, setShowInventoryLedger] = useState(false);
-  const [inventoryMovements, setInventoryMovements] = useState<any[]>([]);
+  const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
+  const [inventoryLedgerLoading, setInventoryLedgerLoading] = useState(false);
+  const [inventoryLedgerError, setInventoryLedgerError] = useState<string | null>(null);
+  const [inventoryLedgerProduct, setInventoryLedgerProduct] = useState<Product | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<string | null>(null);
 
   // Custom hook
   const {
-    products,
     inventoryItems,
     filteredProducts,
     filteredInventoryItems,
@@ -53,21 +73,10 @@ export function InventoryPage() {
     filters,
     setFilters,
     deleteProductMutation,
-    archiveProductMutation,
     createProductMutation,
     updateProductMutation,
     lookupProduct,
   } = useInventory();
-
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   // Handle edit product from navigation state
   useEffect(() => {
@@ -114,7 +123,7 @@ export function InventoryPage() {
       name: product.name,
       sku: product.sku,
       sellingPrice: product.sellingPrice,
-      costPrice: product.costPrice || (product as any).cost_price || 0,
+      costPrice: product.costPrice || ('cost_price' in product ? (product as Record<string, unknown>).cost_price as number : 0),
       stock: product.stock,
       condition: product.condition,
       category: product.category,
@@ -133,7 +142,7 @@ export function InventoryPage() {
       name: product.name,
       sku: product.sku,
       sellingPrice: product.sellingPrice,
-      costPrice: product.costPrice || (product as any).cost_price || 0,
+      costPrice: product.costPrice || ('cost_price' in product ? (product as Record<string, unknown>).cost_price as number : 0),
       stock: product.stock,
       condition: product.condition,
       category: product.category,
@@ -146,8 +155,15 @@ export function InventoryPage() {
   };
 
   const handleDeleteProduct = (productId: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا المنتج؟')) {
-      deleteProductMutation.mutate(productId);
+    setProductToDelete(productId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (productToDelete) {
+      deleteProductMutation.mutate(productToDelete);
+      setDeleteDialogOpen(false);
+      setProductToDelete(null);
     }
   };
 
@@ -205,7 +221,9 @@ export function InventoryPage() {
 
   const handleCameraScan = (barcode: string) => {
     setBarcodeInput(barcode);
-    handleBarcodeScan(new Event('submit') as any);
+    // Create a proper event object for the barcode scan
+    const event = new Event('submit', { bubbles: true, cancelable: true }) as unknown as React.FormEvent<HTMLFormElement>;
+    handleBarcodeScan(event);
   };
 
   const handleManualAdd = () => {
@@ -216,12 +234,6 @@ export function InventoryPage() {
   const handleRecommendationClick = (action: string) => {
     if (action === 'search_intel') {
       setSearchQuery('Intel');
-    } else if (action === 'filter_used') {
-      if (filters.some(f => f.key === 'condition' && f.value === 'USED')) {
-        setFilters(filters.filter(f => !(f.key === 'condition' && f.value === 'USED')));
-      } else {
-        setFilters([...filters, { key: 'condition', value: 'USED' }]);
-      }
     }
   };
 
@@ -231,45 +243,49 @@ export function InventoryPage() {
   };
 
   const handleViewInventoryLedger = async (productId: string) => {
+    const product = filteredProducts.find((item) => item.id === productId) ?? null;
+    const inventoryItem = (inventoryItems as any[]).find((item: any) =>
+      item.product_id === productId ||
+      item.product?.id === productId ||
+      item.productId === productId ||
+      item.product_name === product?.name
+    );
+    const itemId = inventoryItem?.id || productId;
+
+    setInventoryLedgerLoading(true);
+    setInventoryLedgerError(null);
+    setShowInventoryLedger(true);
+    setInventoryLedgerProduct(product);
+
     try {
-      // In a real implementation, this would call the API to get inventory movements
-      // For now, we'll show a sample
-      const sampleMovements = [
-        {
-          id: '1',
-          date: new Date().toISOString(),
-          type: 'PURCHASE',
-          quantity: 10,
-          beforeQuantity: 0,
-          afterQuantity: 10,
-          referenceType: 'purchase',
-          referenceId: 'PO-001',
-          reason: 'شراء جديد من المورد',
-          createdBy: 'user'
-        },
-        {
-          id: '2',
-          date: new Date(Date.now() - 86400000).toISOString(),
-          type: 'SALE',
-          quantity: 3,
-          beforeQuantity: 10,
-          afterQuantity: 7,
-          referenceType: 'sale',
-          referenceId: 'SALE-001',
-          reason: 'بيع للعميل',
-          createdBy: 'user'
-        }
-      ];
-      setInventoryMovements(sampleMovements);
-      setShowInventoryLedger(true);
+      const response = await inventoryApi.movements<{ movements?: InventoryMovementResponse[] }>(itemId);
+      const movements = response.data?.movements ?? [];
+      setInventoryMovements(movements.map((movement) => ({
+        id: movement.id,
+        type: movement.movement_type,
+        quantity: movement.quantity,
+        beforeQuantity: movement.before_quantity,
+        afterQuantity: movement.after_quantity,
+        referenceType: movement.reference_type,
+        referenceId: movement.reference_id,
+        reason: movement.reason,
+        createdBy: movement.created_by,
+        date: movement.created_at,
+      })));
     } catch (error) {
       console.error('Error loading inventory movements:', error);
+      setInventoryMovements([]);
+      setInventoryLedgerError('تعذر تحميل سجل حركات المخزون. حاول مرة أخرى.');
+    } finally {
+      setInventoryLedgerLoading(false);
     }
   };
 
   const handleCloseInventoryLedger = () => {
     setShowInventoryLedger(false);
     setInventoryMovements([]);
+    setInventoryLedgerProduct(null);
+    setInventoryLedgerError(null);
   };
 
   return (
@@ -412,7 +428,9 @@ export function InventoryPage() {
           <InventoryLedger
             movements={inventoryMovements}
             title="سجل حركات المخزون"
-            currentStock={inventoryMovements.length > 0 ? inventoryMovements[0].afterQuantity : 0}
+            currentStock={inventoryLedgerProduct?.stock}
+            isLoading={inventoryLedgerLoading}
+            error={inventoryLedgerError}
           />
         </div>
       )}
@@ -426,6 +444,22 @@ export function InventoryPage() {
         selectedProduct={selectedProduct}
         setSelectedProduct={setSelectedProduct}
         onSaveProduct={handleSaveProduct}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteDialogOpen}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setProductToDelete(null);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="حذف المنتج"
+        message="هل أنت متأكد من حذف هذا المنتج؟ هذا الإجراء لا يمكن التراجع عنه."
+        confirmText="حذف المنتج"
+        cancelText="إلغاء"
+        variant="danger"
+        isLoading={deleteProductMutation.isPending}
       />
     </div>
   );

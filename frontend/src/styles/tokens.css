@@ -305,48 +305,186 @@
 }
 
 /* ============================================================================
-   COMPONENT-SPECIFIC TOKENS
+   COMPONENT-SPECIFIC TOKENS - مقاييس المكونات
    ============================================================================ */
 
 :root {
-  /* Button Heights */
+  /* Button Component */
+  --button-height-xs: 28px;
   --button-height-sm: 32px;
   --button-height-md: 40px;
   --button-height-lg: 48px;
+  --button-height-xl: 56px;
+  --button-padding-xs: var(--spacing-2) var(--spacing-3);
+  --button-padding-sm: var(--spacing-2) var(--spacing-4);
+  --button-padding-md: var(--spacing-3) var(--spacing-5);
+  --button-padding-lg: var(--spacing-4) var(--spacing-6);
+  --button-padding-xl: var(--spacing-5) var(--spacing-8);
+  --button-font-size-xs: var(--font-size-caption);
+  --button-font-size-sm: var(--font-size-secondary);
+  --button-font-size-md: var(--font-size-body);
+  --button-font-size-lg: var(--font-size-body);
+  --button-font-size-xl: var(--font-size-section-title);
+  --button-border-radius-sm: var(--radius-sm);
+  --button-border-radius-md: var(--radius-md);
+  --button-border-radius-lg: var(--radius-lg);
   
-  /* Input Heights */
+  /* Input Component */
+  --input-height-xs: 28px;
   --input-height-sm: 32px;
   --input-height-md: 40px;
   --input-height-lg: 48px;
+  --input-height-xl: 56px;
+  --input-padding-xs: var(--spacing-2) var(--spacing-3);
+  --input-padding-sm: var(--spacing-2) var(--spacing-4);
+  --input-padding-md: var(--spacing-3) var(--spacing-4);
+  --input-padding-lg: var(--spacing-4) var(--spacing-5);
+  --input-padding-xl: var(--spacing-5) var(--spacing-6);
+  --input-font-size-xs: var(--font-size-caption);
+  --input-font-size-sm: var(--font-size-secondary);
+  --input-font-size-md: var(--font-size-body);
+  --input-font-size-lg: var(--font-size-body);
+  --input-font-size-xl: var(--font-size-section-title);
+  --input-border-radius: var(--radius-md);
   
-  /* Card Padding */
+  /* Card Component */
+  --card-padding-xs: var(--spacing-3);
   --card-padding-sm: var(--spacing-4);
   --card-padding-md: var(--spacing-6);
   --card-padding-lg: var(--spacing-8);
+  --card-padding-xl: var(--spacing-10);
+  --card-border-radius: var(--radius-lg);
+  --card-header-padding: var(--spacing-5) var(--spacing-6);
+  --card-body-padding: var(--spacing-6);
+  --card-footer-padding: var(--spacing-4) var(--spacing-6);
   
-  /* Table */
+  /* Table Component */
   --table-row-height: 48px;
+  --table-row-height-compact: 40px;
+  --table-row-height-comfortable: 56px;
   --table-cell-padding: var(--spacing-4);
+  --table-cell-padding-compact: var(--spacing-3);
+  --table-cell-padding-comfortable: var(--spacing-5);
+  --table-header-height: 48px;
+  --table-border-radius: var(--radius-md);
+  --table-stripe-bg: var(--bg-surface-3);
   
-  /* Sidebar - Based on worktrack */
+  /* Badge Component */
+  --badge-padding-xs: 2px 8px;
+  --badge-padding-sm: 4px 10px;
+  --badge-padding-md: 6px 12px;
+  --badge-padding-lg: 8px 16px;
+  --badge-font-size-xs: 10px;
+  --badge-font-size-sm: var(--font-size-caption);
+  --badge-font-size-md: var(--font-size-secondary);
+  --badge-font-size-lg: var(--font-size-body);
+  --badge-border-radius: var(--radius-full);
+  
+  /* Dialog/Modal Component */
+  --modal-padding-sm: var(--spacing-4);
+  --modal-padding-md: var(--spacing-6);
+  --modal-padding-lg: var(--spacing-8);
+  --modal-border-radius: var(--radius-lg);
+  --modal-max-width-sm: 400px;
+  --modal-max-width-md: 600px;
+  --modal-max-width-lg: 800px;
+  --modal-max-width-xl: 1000px;
+  --modal-backdrop-blur: 8px;
+  
+  /* Sidebar Component */
   --sidebar-width-expanded: 260px;
   --sidebar-width-collapsed: 80px;
   --sidebar-width-mobile: 60px;
+  --sidebar-item-height: 44px;
+  --sidebar-item-padding: var(--spacing-3) var(--spacing-4);
+  --sidebar-border-radius: 0;
   
-  /* Topbar - Based on worktrack */
+  /* Topbar Component */
   --topbar-height: 60px;
   --topbar-height-mobile: 56px;
+  --topbar-padding: var(--spacing-4) var(--spacing-6);
   
-  /* Content - Based on worktrack */
+  /* Layout Component */
   --content-padding-desktop: 24px 28px;
   --content-padding-mobile: 16px;
+  --content-max-width: 1400px;
+  --content-max-width-narrow: 1000px;
   
-  /* Icon sizes - Based on worktrack */
-  --icon-size-nav: 20px;
+  /* Icon Component */
+  --icon-size-xs: 12px;
   --icon-size-sm: 16px;
-  --icon-size-md: 18px;
-  --icon-size-lg: 28px;
+  --icon-size-md: 20px;
+  --icon-size-lg: 24px;
   --icon-size-xl: 32px;
+  --icon-size-2xl: 48px;
+  
+  /* Dropdown Component */
+  --dropdown-min-width: 180px;
+  --dropdown-max-width: 300px;
+  --dropdown-item-height: 40px;
+  --dropdown-item-padding: var(--spacing-3) var(--spacing-4);
+  --dropdown-border-radius: var(--radius-md);
+  
+  /* Tabs Component */
+  --tab-height: 44px;
+  --tab-padding: var(--spacing-3) var(--spacing-5);
+  --tab-font-size: var(--font-size-secondary);
+  --tab-border-radius: var(--radius-md) var(--radius-md) 0 0;
+  
+  /* Toast Component */
+  --toast-min-width: 300px;
+  --toast-max-width: 500px;
+  --toast-padding: var(--spacing-4) var(--spacing-5);
+  --toast-border-radius: var(--radius-lg);
+  
+  /* Pagination Component */
+  --pagination-height: 36px;
+  --pagination-min-width: 36px;
+  --pagination-padding: var(--spacing-2) var(--spacing-3);
+  --pagination-border-radius: var(--radius-md);
+  
+  /* Tooltip Component */
+  --tooltip-padding: var(--spacing-2) var(--spacing-3);
+  --tooltip-font-size: var(--font-size-caption);
+  --tooltip-border-radius: var(--radius-sm);
+  --tooltip-max-width: 250px;
+  
+  /* Form States */
+  --form-label-color: var(--text-secondary);
+  --form-label-font-size: var(--font-size-secondary);
+  --form-label-font-weight: var(--font-weight-medium);
+  --form-hint-color: var(--text-tertiary);
+  --form-hint-font-size: var(--font-size-caption);
+  --form-error-color: var(--color-danger);
+  --form-error-font-size: var(--font-size-caption);
+  --form-success-color: var(--color-success);
+  
+  /* Focus States */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --focus-ring-color: var(--color-primary);
+  --focus-ring-blur: 4px;
+  
+  /* Disabled States */
+  --disabled-opacity: 0.5;
+  --disabled-cursor: not-allowed;
+  --disabled-bg: var(--bg-surface-3);
+  --disabled-text: var(--text-disabled);
+  
+  /* Loading States */
+  --loading-overlay-color: rgba(0, 0, 0, 0.5);
+  --loading-spinner-size: 24px;
+  --loading-spinner-border-width: 2px;
+  
+  /* Empty States */
+  --empty-state-min-height: 200px;
+  --empty-state-icon-size: 48px;
+  --empty-state-padding: var(--spacing-8);
+  
+  /* Error States */
+  --error-state-min-height: 200px;
+  --error-state-icon-size: 48px;
+  --error-state-padding: var(--spacing-8);
 }
 /* ============================================================================
    COMPONENT SEMANTIC VARIABLES - الوضع الداكن (الافتراضي)

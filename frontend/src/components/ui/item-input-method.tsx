@@ -57,21 +57,13 @@ export function ItemInputMethod({
               onClick={() => !disabled && handleMethodChange(method.id)}
               disabled={disabled}
               className={cn(
-                'flex flex-col items-center gap-2 p-3 rounded-xl border transition-all duration-300',
-                'hover:scale-105 hover:shadow-lg',
+                'pf-input-method flex flex-col items-center gap-2 p-3 rounded-xl border transition-all duration-300',
+                'hover:-translate-y-0.5 hover:shadow-md',
                 'disabled:opacity-50 disabled:cursor-not-allowed',
                 isActive
                   ? 'bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border-cyan-500/50 shadow-lg shadow-cyan-500/20'
                   : 'bg-surface/50 border-border-default hover:border-cyan-500/30'
               )}
-              style={{
-                background: isActive 
-                  ? 'linear-gradient(135deg, rgba(34, 211, 238, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%)'
-                  : 'rgba(17, 24, 39, 0.5)',
-                borderColor: isActive 
-                  ? 'rgba(34, 211, 238, 0.5)' 
-                  : 'rgba(148, 163, 184, 0.2)'
-              }}
             >
               <div className={cn(
                 'p-2 rounded-lg transition-all duration-300',

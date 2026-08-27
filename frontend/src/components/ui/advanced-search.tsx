@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Search, Filter, X, ChevronDown } from 'lucide-react';
+import { Search, Filter, X } from 'lucide-react';
 import { Button } from './button';
-import { Input } from './input';
+import { SearchInput } from './search-input';
 import { Badge } from './badge';
 import { cn } from '../../utils/helpers';
 
@@ -65,25 +65,30 @@ export function AdvancedSearch({
   return (
     <div className={cn('space-y-4', className)}>
       {/* Search Bar */}
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input
+      <div className="pf-search-row flex gap-2">
+        <div className="relative min-w-0 flex-1">
+          <SearchInput
             placeholder={placeholder}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            className="pr-10"
+            onClear={() => {
+              setQuery('');
+              onSearch('', activeFilters);
+            }}
+            size="sm"
           />
         </div>
-        <Button onClick={handleSearch}>
+        <Button onClick={handleSearch} className="pf-search-action shrink-0" aria-label="تنفيذ البحث">
           <Search className="w-4 h-4" />
+          <span className="hidden sm:inline">بحث</span>
         </Button>
         {filters.length > 0 && (
           <Button
             variant="outline"
             onClick={() => setShowFilters(!showFilters)}
-            className={cn(showFilters && 'bg-gray-100 dark:bg-gray-800')}
+            className={cn('pf-search-action pf-filter-action shrink-0', showFilters && 'pf-filter-active')}
+            aria-label="عرض الفلاتر"
           >
             <Filter className="w-4 h-4" />
             {activeFilterCount > 0 && (
@@ -94,7 +99,7 @@ export function AdvancedSearch({
           </Button>
         )}
         {(query || activeFilterCount > 0) && (
-          <Button variant="ghost" size="icon" onClick={clearAll}>
+          <Button variant="ghost" size="icon" onClick={clearAll} className="shrink-0">
             <X className="w-3.5 h-3.5" />
           </Button>
         )}
@@ -102,7 +107,7 @@ export function AdvancedSearch({
 
       {/* Advanced Filters */}
       {showFilters && filters.length > 0 && (
-        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-4">
+        <div className="pf-advanced-filter-panel space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-medium text-gray-900 dark:text-gray-100">
               فلاتر متقدمة

@@ -13,8 +13,6 @@ import {
   Sparkles,
   Target,
   Zap,
-  FileText,
-  Calendar,
   RotateCcw
 } from 'lucide-react';
 

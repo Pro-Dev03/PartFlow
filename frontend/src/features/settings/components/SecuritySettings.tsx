@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
-import { Lock, Save, Shield, Key } from 'lucide-react';
+import { Lock, Save, Key } from 'lucide-react';
 
 export function SecuritySettings() {
   const [securitySettings, setSecuritySettings] = useState({

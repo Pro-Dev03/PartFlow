@@ -301,7 +301,7 @@ func (h *Handler) ReversePurchase(c *gin.Context) {
 	}
 
 	var req struct {
-		Reason string `json:"reason" binding:"required"`
+		Reason string `json:"reason"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

@@ -3,16 +3,31 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { customersApi } from '../../../services/api/endpoints';
 import { Customer, CustomerFormData, SortConfig } from '../types/customers.types';
+import { useDebounce } from '../../../hooks/useDebounce';
 
 export function useCustomers() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: '', direction: null });
 
-  // Fetch customers
+  // Fetch customers with debounce search for scalability
   const { data: customersData, isLoading } = useQuery({
-    queryKey: ['customers'],
-    queryFn: () => customersApi.list({ page: 1, per_page: 100 }),
+    queryKey: ['customers', debouncedSearchQuery],
+    queryFn: () => {
+      if (debouncedSearchQuery) {
+        // Search mode - use API search when query exists
+        return customersApi.list({
+          page: 1,
+          per_page: 50,
+          search: debouncedSearchQuery
+        });
+      } else {
+        // Initial load - fetch limited results for performance
+        return customersApi.list({ page: 1, per_page: 50 });
+      }
+    },
+    enabled: true, // Always enabled, but will refetch when search changes
   });
 
   const customers = (customersData?.data as Customer[]) || [];

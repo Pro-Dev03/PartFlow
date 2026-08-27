@@ -7,16 +7,29 @@ import { FilterDropdown } from '../../../components/ui/filter-dropdown';
 import { Package } from 'lucide-react';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { cn } from '../../../utils';
+import type { ProductCardProps } from '../../../components/ui/product-card';
+
+type SearchProduct = ProductCardProps['product'] & {
+  category_id?: string;
+  sales_count?: number;
+};
+
+interface SearchCategory {
+  id: string;
+  name: string;
+}
 
 interface ProductSearchProps {
-  products: any[];
+  products: SearchProduct[];
   searchQuery: string;
   setSearchQuery: (value: string) => void;
   onClearSearch: () => void;
   quickAddMode: boolean;
-  onProductClick: (product: any) => void;
+  onProductClick: (product: SearchProduct) => void;
   selectedCategory: string | null;
-  categories: any[];
+  categories: SearchCategory[];
+  hasMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 export function ProductSearch({
@@ -28,6 +41,8 @@ export function ProductSearch({
   onProductClick,
   selectedCategory,
   categories,
+  hasMore = false,
+  onLoadMore,
 }: ProductSearchProps) {
   const { t } = useTranslation();
 
@@ -36,24 +51,21 @@ export function ProductSearch({
 
   const PRODUCTS_PER_PAGE = 16;
 
-  const getPriceValue = (product: any): number => {
+  const getPriceValue = (product: SearchProduct): number => {
     if (product.sellingPrice !== undefined && product.sellingPrice !== null) {
-      const val = product.sellingPrice;
-      return val > 1000 ? val / 100 : val;
+      return product.sellingPrice;
     }
     if (product.selling_price !== undefined && product.selling_price !== null) {
-      const val = product.selling_price;
-      return val > 1000 ? val / 100 : val;
+      return product.selling_price;
     }
     if (product.price !== undefined && product.price !== null) {
-      const val = product.price;
-      return val > 1000 ? val / 100 : val;
+      return product.price;
     }
     return 0;
   };
 
   const filteredProducts = (products || [])
-    .filter((product: any) => {
+    .filter((product) => {
       const matchesSearch =
         product.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         product.sku?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -71,7 +83,7 @@ export function ProductSearch({
 
       return matchesSearch && matchesCategory && matchesPrice;
     })
-    .sort((a: any, b: any) => {
+    .sort((a, b) => {
       const aSales = a.sales_count || 0;
       const bSales = b.sales_count || 0;
       return bSales - aSales;
@@ -90,7 +102,7 @@ export function ProductSearch({
   };
 
   const sectionTitle = selectedCategory
-    ? `منتجات ${categories?.find((c: any) => c.id === selectedCategory)?.name || 'الفئة المحددة'}`
+    ? `منتجات ${categories?.find((c) => c.id === selectedCategory)?.name || 'الفئة المحددة'}`
     : t('sales.recentProducts');
 
   return (
@@ -111,8 +123,8 @@ export function ProductSearch({
         </div>
       )}
 
-      <div className="flex items-center gap-2">
-        <div className="flex-1">
+      <div className="pf-search-row flex items-center gap-2">
+        <div className="min-w-0 flex-1">
           <SearchInput
             placeholder="بحث بالاسم، الباركود، SKU..."
             value={searchQuery}
@@ -131,7 +143,9 @@ export function ProductSearch({
               label: 'نطاق السعر',
               value: priceRange,
               onChange: (v) => {
-                setPriceRange(v as any);
+                if (typeof v === 'string' && ['all', 'low', 'medium', 'high'].includes(v)) {
+                  setPriceRange(v as typeof priceRange);
+                }
                 setDisplayedCount(PRODUCTS_PER_PAGE);
               },
               options: [
@@ -154,7 +168,7 @@ export function ProductSearch({
               : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5'
           )}
         >
-          {displayedProducts.map((product: any) => (
+          {displayedProducts.map((product) => (
             <ProductCard
               key={product.id}
               product={{
@@ -174,12 +188,12 @@ export function ProductSearch({
         </div>
       )}
 
-      {hasMoreProducts && (
+      {(hasMoreProducts || hasMore) && (
         <div className="flex justify-center">
           <Button
             variant="secondary"
             size="sm"
-            onClick={handleLoadMore}
+            onClick={hasMore ? onLoadMore : handleLoadMore}
             className="rounded-lg px-6 text-sm font-semibold"
           >
             تحميل المزيد ({Math.min(PRODUCTS_PER_PAGE, filteredProducts.length - displayedCount)})

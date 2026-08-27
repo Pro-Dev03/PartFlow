@@ -11,17 +11,19 @@ const SuppliersPage = lazy(() => import('../../features/suppliers/pages/Supplier
 const PurchasesPage = lazy(() => import('../../features/purchases/pages/PurchasesPage').then(m => ({ default: m.PurchasesPage })));
 const CreatePurchasePage = lazy(() => import('../../features/purchases/pages/CreatePurchasePage').then(m => ({ default: m.CreatePurchasePage })));
 const EditPurchasePage = lazy(() => import('../../features/purchases/pages/EditPurchasePage').then(m => ({ default: m.EditPurchasePage })));
+const PurchaseDetailsPage = lazy(() => import('../../features/purchases/pages/PurchaseDetailsPage').then(m => ({ default: m.PurchaseDetailsPage })));
 const ExpensesPage = lazy(() => import('../../features/expenses/pages/ExpensesPage').then(m => ({ default: m.ExpensesPage })));
 const ReturnsPage = lazy(() => import('../../features/returns/pages/ReturnsPage').then(m => ({ default: m.ReturnsPage })));
 const ReportsPage = lazy(() => import('../../features/reports/pages/ReportsPage').then(m => ({ default: m.ReportsPage })));
 const SettingsPage = lazy(() => import('../../features/settings/pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
-const PartTypesPage = lazy(() => import('../../features/parttypes/pages/PartTypesPage').then(m => ({ default: m.PartTypesPage })));
 const UsedPartsPage = lazy(() => import('../../features/usedparts/pages/UsedPartsPage').then(m => ({ default: m.UsedPartsPage })));
+const UsedPartsStockPage = lazy(() => import('../../features/usedparts/pages/UsedPartsStockPage').then(m => ({ default: m.UsedPartsStockPage })));
 const InspectionsPage = lazy(() => import('../../features/inspections/pages/InspectionsPage').then(m => ({ default: m.InspectionsPage })));
 const ItemHistoryPage = lazy(() => import('../../features/item-history/pages/ItemHistoryPage').then(m => ({ default: m.ItemHistoryPage })));
 const AgingPage = lazy(() => import('../../features/aging/pages/AgingPage').then(m => ({ default: m.AgingPage })));
 const SellerBalancesPage = lazy(() => import('../../features/seller-balances/pages/SellerBalancesPage').then(m => ({ default: m.SellerBalancesPage })));
+const PartTypesPage = lazy(() => import('../../features/parttypes/pages/PartTypesPage').then(m => ({ default: m.PartTypesPage })));
 const ReturnDetailsPage = lazy(() => import('../../features/returns/pages/ReturnDetailsPage').then(m => ({ default: m.ReturnDetailsPage })));
 const CategoriesPage = lazy(() => import('../../features/categories/pages/CategoriesPage').then(m => ({ default: m.CategoriesPage })));
 
@@ -37,35 +39,33 @@ export function PageLoader() {
 // Centralized routes configuration
 export const appRoutes = (
   <Routes>
-    {/* Protected routes */}
-    <Route path="/" element={<DashboardPage />} />
-    <Route path="/dashboard" element={<DashboardPage />} />
-    <Route path="/sales" element={<POSPage />} />
-    <Route path="/inventory" element={<InventoryPage />} />
-    <Route path="/usedparts" element={<UsedPartsPage />} />
-    <Route path="/inspections" element={<InspectionsPage />} />
-    <Route path="/item-history/:itemId" element={<ItemHistoryPage />} />
-    <Route path="/aging" element={<AgingPage />} />
-    <Route path="/seller-balances" element={<SellerBalancesPage />} />
-    <Route path="/customers" element={<CustomersPage />} />
-    <Route path="/debts" element={<DebtsPage />} />
-    <Route path="/suppliers" element={<SuppliersPage />} />
-    <Route path="/app/suppliers" element={<SuppliersPage />} />
-    <Route path="/purchases" element={<PurchasesPage />} />
-    <Route path="/app/purchases" element={<PurchasesPage />} />
-    <Route path="/purchases/create" element={<CreatePurchasePage />} />
-    <Route path="/app/purchases/create" element={<CreatePurchasePage />} />
-    <Route path="/purchases/edit/:id" element={<EditPurchasePage />} />
-    <Route path="/app/purchases/edit/:id" element={<EditPurchasePage />} />
-    <Route path="/expenses" element={<ExpensesPage />} />
-    <Route path="/returns" element={<ReturnsPage />} />
-    <Route path="/app/returns" element={<ReturnsPage />} />
-    <Route path="/app/returns/:id" element={<ReturnDetailsPage />} />
-    <Route path="/reports" element={<ReportsPage />} />
-    <Route path="/settings" element={<SettingsPage />} />
-    <Route path="/parttypes" element={<PartTypesPage />} />
-    <Route path="/app/categories" element={<CategoriesPage />} />
-    <Route path="/categories" element={<CategoriesPage />} />
+    {/* Protected routes - all paths without /app prefix since it's handled by App.tsx */}
+    <Route index element={<DashboardPage />} />
+    <Route path="dashboard" element={<DashboardPage />} />
+    <Route path="sales" element={<POSPage />} />
+    <Route path="inventory" element={<InventoryPage />} />
+    <Route path="usedparts" element={<UsedPartsPage />} />
+    <Route path="usedparts/stock" element={<UsedPartsStockPage />} />
+    <Route path="inspections" element={<InspectionsPage />} />
+    <Route path="item-history" element={<ItemHistoryPage />} />
+    <Route path="item-history/:itemId" element={<ItemHistoryPage />} />
+    <Route path="aging" element={<AgingPage />} />
+    <Route path="seller-balances" element={<SellerBalancesPage />} />
+    <Route path="customers" element={<CustomersPage />} />
+    <Route path="debts" element={<DebtsPage />} />
+    <Route path="suppliers" element={<SuppliersPage />} />
+    <Route path="purchases" element={<PurchasesPage />} />
+    <Route path="purchases/create" element={<CreatePurchasePage />} />
+    <Route path="purchases/edit/:id" element={<EditPurchasePage />} />
+    <Route path="purchases/:id" element={<PurchaseDetailsPage />} />
+    <Route path="expenses" element={<ExpensesPage />} />
+    <Route path="returns" element={<ReturnsPage />} />
+    <Route path="returns/:id" element={<ReturnDetailsPage />} />
+    <Route path="reports" element={<ReportsPage />} />
+    <Route path="settings" element={<SettingsPage />} />
+    <Route path="categories" element={<CategoriesPage />} />
+    <Route path="part-types" element={<PartTypesPage />} />
+    <Route path="return-details" element={<ReturnDetailsPage />} />
     
     {/* Catch all - redirect to dashboard */}
     <Route path="*" element={<DashboardPage />} />

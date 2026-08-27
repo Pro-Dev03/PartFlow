@@ -49,7 +49,35 @@ export interface TradeInFormData {
   productName?: string;
   partTypeId: string;
   purchaseCost: number;
-  specifications: any[];
+  specifications: Specification[];
+}
+
+export interface Specification {
+  name: string;
+  value: string;
+}
+
+export interface SaleRequest {
+  customer_id?: string;
+  items: SaleItemRequest[];
+  payment_method: string;
+  payment_amount?: number;
+  notes?: string;
+  tax_rate?: number;
+}
+
+export interface SaleItemRequest {
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+}
+
+export interface SaleResponse {
+  id: string;
+  invoice_number: string;
+  total_amount: number;
+  paid_amount: number;
+  payment_status: string;
 }
 
 export interface POSState {

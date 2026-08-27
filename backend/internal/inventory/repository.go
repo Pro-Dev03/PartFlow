@@ -46,7 +46,18 @@ func (r *Repository) GetInventoryItemByID(ctx context.Context, id uuid.UUID) (*I
 	query := `
 		SELECT id, product_id, part_type_id, item_code, barcode, serial_number,
 			   condition, grade, purchase_cost, selling_price, status, location_id,
-			   supplier_id, purchase_date, sold_at, notes, created_at, updated_at
+			   supplier_id, purchase_date, sold_at, notes, created_at, updated_at,
+			   COALESCE((
+			   SELECT COUNT(*)
+			   FROM inventory_items ii2
+			   WHERE ii2.product_id = inventory_items.product_id
+			   ), 0) AS current_quantity,
+			   COALESCE((
+			   SELECT COUNT(*)
+			   FROM inventory_items ii3
+			   WHERE ii3.product_id = inventory_items.product_id
+			   AND ii3.status = 'AVAILABLE'
+			   ), 0) AS available_quantity
 		FROM inventory_items
 		WHERE id = $1
 	`
@@ -68,7 +79,18 @@ func (r *Repository) GetInventoryItemByBarcode(ctx context.Context, barcode stri
 	query := `
 		SELECT id, product_id, part_type_id, item_code, barcode, serial_number,
 			   condition, grade, purchase_cost, selling_price, status, location_id,
-			   supplier_id, purchase_date, sold_at, notes, created_at, updated_at
+			   supplier_id, purchase_date, sold_at, notes, created_at, updated_at,
+			   COALESCE((
+			   SELECT COUNT(*)
+			   FROM inventory_items ii2
+			   WHERE ii2.product_id = inventory_items.product_id
+			   ), 0) AS current_quantity,
+			   COALESCE((
+			   SELECT COUNT(*)
+			   FROM inventory_items ii3
+			   WHERE ii3.product_id = inventory_items.product_id
+			   AND ii3.status = 'AVAILABLE'
+			   ), 0) AS available_quantity
 		FROM inventory_items
 		WHERE barcode = $1
 	`
@@ -90,7 +112,18 @@ func (r *Repository) GetInventoryItemBySerialNumber(ctx context.Context, serialN
 	query := `
 		SELECT id, product_id, part_type_id, item_code, barcode, serial_number,
 			   condition, grade, purchase_cost, selling_price, status, location_id,
-			   supplier_id, purchase_date, sold_at, notes, created_at, updated_at
+			   supplier_id, purchase_date, sold_at, notes, created_at, updated_at,
+			   COALESCE((
+			   SELECT COUNT(*)
+			   FROM inventory_items ii2
+			   WHERE ii2.product_id = inventory_items.product_id
+			   ), 0) AS current_quantity,
+			   COALESCE((
+			   SELECT COUNT(*)
+			   FROM inventory_items ii3
+			   WHERE ii3.product_id = inventory_items.product_id
+			   AND ii3.status = 'AVAILABLE'
+			   ), 0) AS available_quantity
 		FROM inventory_items
 		WHERE serial_number = $1
 	`
@@ -172,7 +205,18 @@ func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, 
 	baseQuery := `
 		SELECT id, product_id, part_type_id, item_code, barcode, serial_number,
 		       condition, grade, purchase_cost, selling_price, status, location_id,
-		       supplier_id, purchase_date, sold_at, notes, created_at, updated_at
+		       supplier_id, purchase_date, sold_at, notes, created_at, updated_at,
+			   COALESCE((
+		       SELECT COUNT(*)
+		       FROM inventory_items ii2
+		       WHERE ii2.product_id = inventory_items.product_id
+			   ), 0) AS current_quantity,
+			   COALESCE((
+		       SELECT COUNT(*)
+		       FROM inventory_items ii3
+		       WHERE ii3.product_id = inventory_items.product_id
+		       AND ii3.status = 'AVAILABLE'
+			   ), 0) AS available_quantity
 		FROM inventory_items
 		WHERE 1=1
 	`
@@ -258,6 +302,17 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 			ii.id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
 			ii.condition, ii.grade, ii.purchase_cost, ii.selling_price, ii.status, ii.location_id,
 			ii.supplier_id, ii.purchase_date, ii.sold_at, ii.notes, ii.created_at, ii.updated_at,
+			COALESCE((
+				SELECT COUNT(*)
+				FROM inventory_items ii2
+				WHERE ii2.product_id = ii.product_id
+			), 0) AS current_quantity,
+			COALESCE((
+				SELECT COUNT(*)
+				FROM inventory_items ii3
+				WHERE ii3.product_id = ii.product_id
+				AND ii3.status = 'AVAILABLE'
+			), 0) AS available_quantity,
 			p.name as product_name,
 			s.name as supplier_name,
 			s.phone as supplier_phone

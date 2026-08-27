@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS trade_ins (
     
     customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
     inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
-    purchase_price INT NOT NULL, -- in cents
+    purchase_price DECIMAL(10,2) NOT NULL, -- in shekels
     purchase_date TIMESTAMP NOT NULL DEFAULT NOW(),
     notes TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -19,4 +19,4 @@ CREATE INDEX idx_trade_ins_inventory_item_id ON trade_ins(inventory_item_id);
 
 -- Add comment
 COMMENT ON TABLE trade_ins IS 'Tracks used items purchased from customers (trade-ins)';
-COMMENT ON COLUMN trade_ins.purchase_price IS 'Price paid to customer in cents';
+COMMENT ON COLUMN trade_ins.purchase_price IS 'Price paid to customer in shekels';

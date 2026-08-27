@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui
 import { Button } from '../../../components/ui/button';
 import { settingsApi } from '../../../services/api/endpoints';
 import { Trash2, AlertTriangle, Shield, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
 
 export function DatabaseSettings() {
   const [confirmationText, setConfirmationText] = useState('');
@@ -12,12 +13,12 @@ export function DatabaseSettings() {
   const deleteAllDataMutation = useMutation({
     mutationFn: () => settingsApi.deleteAllData(),
     onSuccess: () => {
-      alert('تم حذف جميع البيانات بنجاح! سيتم إعادة تحميل الصفحة.');
+      toast.success('تم حذف جميع البيانات بنجاح! سيتم إعادة تحميل الصفحة.');
       window.location.reload();
     },
     onError: (error: any) => {
       console.error('Failed to delete all data:', error);
-      alert('فشل حذف البيانات: ' + (error.response?.data?.error || error.message));
+      toast.error('فشل حذف البيانات: ' + (error.response?.data?.error || error.message));
     },
   });
 
@@ -25,7 +26,7 @@ export function DatabaseSettings() {
     if (confirmationText === 'احذف جميع البيانات') {
       deleteAllDataMutation.mutate();
     } else {
-      alert('النص المدخل غير صحيح. يجب كتابة "احذف جميع البيانات" للتأكيد.');
+      toast.error('النص المدخل غير صحيح. يجب كتابة "احذف جميع البيانات" للتأكيد.');
     }
   };
 

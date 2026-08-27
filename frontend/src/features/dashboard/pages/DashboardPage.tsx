@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useIsMobile } from '../../../hooks/useIsMobile';
 import { cn } from '../../../utils';
-import { dashboardApi, notificationsApi } from '../../../services/api/endpoints';
+import { dashboardApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
@@ -17,6 +17,7 @@ import { AIInsight } from '../components/AIInsight';
 import { SmartAlerts } from '../../../components/notifications/smart-alerts';
 import { InventoryDistribution } from '../../../components/dashboard/InventoryDistribution';
 import { getButtonSize } from '../../../config/button-sizes';
+import { DashboardStats } from '../../../types/api';
 import {
   ShoppingCart,
   DollarSign,
@@ -24,38 +25,17 @@ import {
   Clock,
   Activity,
   Bell,
-  ArrowUpRight,
   RotateCcw,
   Plus,
   Package,
-  Shield,
   TrendingUp,
-  Target,
-  Zap,
-  XCircle,
-  Calendar,
-  Users,
-  BarChart3,
   Sparkles,
-  Sun,
-  Moon,
-  Coffee
 } from 'lucide-react';
 
 export function DashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [isMobile, setIsMobile] = useState(false);
-  
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+  const isMobile = useIsMobile();
 
   const { data: dashboardData, isLoading, error } = useQuery({
     queryKey: ['dashboard'],
@@ -93,18 +73,19 @@ export function DashboardPage() {
     staleTime: 180000,
   });
 
-  const { data: notificationsData } = useQuery({
-    queryKey: ['notifications'],
-    queryFn: () => notificationsApi.list({ page: 1, per_page: 20 }),
-    refetchInterval: 180000,
-    staleTime: 120000,
+  // Low stock items and overdue debts for attention section
+  const { data: lowStockItemsData } = useQuery({
+    queryKey: ['low-stock-items'],
+    queryFn: () => dashboardApi.getLowStockItems(),
+    refetchInterval: 300000,
+    staleTime: 180000,
   });
 
-  const { data: unreadCountData } = useQuery({
-    queryKey: ['notifications-unread'],
-    queryFn: () => notificationsApi.getUnreadCount(),
-    refetchInterval: 120000,
-    staleTime: 60000,
+  const { data: overdueDebtsData } = useQuery({
+    queryKey: ['overdue-debts'],
+    queryFn: () => dashboardApi.getOverdueDebts(),
+    refetchInterval: 300000,
+    staleTime: 180000,
   });
 
   if (isLoading) {
@@ -138,11 +119,11 @@ export function DashboardPage() {
     );
   }
 
-  const stats = dashboardData as any;
+  const stats = dashboardData as DashboardStats;
 
   return (
     <div>
-      {/* Page Header with Actions */}
+      {/* Page Header with Today's Summary */}
       <PageHeader
         eyebrow={t('dashboard.title')}
         title={t('dashboard.welcome')}
@@ -174,21 +155,26 @@ export function DashboardPage() {
         }
       />
 
-      {/* Attention Section - لما يحتاج انتباهك */}
-      <div style={{ marginTop: '16px' }}>
+      {/* Priority 1: Attention Section - يحتاج انتباهك */}
+      <div style={{ marginTop: 'var(--spacing-6)' }}>
         <AttentionSection
           lowStockCount={stats?.lowStockCount as number}
-          overdueDebtsCount={stats?.overdueDebts as number}
+          overdueDebtsCount={stats?.overdueDebtsCount as number}
+          lowStockItems={lowStockItemsData?.data || []}
+          overdueDebtItems={overdueDebtsData?.data || []}
         />
       </div>
 
-      {/* Smart Actions - العمليات اليومية */}
-      <div style={{ marginTop: '16px' }}>
-        <SmartActions />
+      {/* Priority 2: Smart Actions - العمليات اليومية */}
+      <div style={{ marginTop: 'var(--spacing-6)' }}>
+        <SmartActions 
+          lowStockCount={stats?.lowStockCount as number}
+          overdueDebtsCount={stats?.overdueDebtsCount as number}
+        />
       </div>
 
-      {/* Key Metrics Cards - المؤشرات الرئيسية */}
-      <div style={{ marginTop: '16px' }}>
+      {/* Priority 3: Today's Performance - أداء اليوم */}
+      <div style={{ marginTop: 'var(--spacing-6)' }}>
         <DashboardMetrics 
           stats={stats}
           dailySales={dailySalesData?.data}
@@ -198,12 +184,17 @@ export function DashboardPage() {
         />
       </div>
 
-        {/* Charts Grid - الأداء والتوزيع */}
+      {/* Priority 4: AI Insights - الرؤى الذكية */}
+      <div style={{ marginTop: 'var(--spacing-6)' }}>
+        <AIInsight />
+      </div>
+
+        {/* Secondary: Charts Grid - الأداء والتوزيع */}
         <div style={{ 
-          marginTop: '16px',
+          marginTop: 'var(--spacing-6)',
           display: 'grid', 
           gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.65fr) minmax(0, 0.9fr)', 
-          gap: '16px' 
+          gap: 'var(--spacing-4)' 
         }}>
           <Card>
             <CardHeader>
@@ -216,8 +207,8 @@ export function DashboardPage() {
               {stats?.salesChart && stats.salesChart.length > 0 ? (
                 <SalesChart data={stats.salesChart} />
               ) : (
-                <div style={{ padding: '24px', textAlign: 'center' }}>
-                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                <div style={{ padding: 'var(--spacing-6)', textAlign: 'center' }}>
+                  <p style={{ fontSize: 'var(--font-size-body)', color: 'var(--text-secondary)' }}>
                     لا توجد بيانات كافية للعرض
                   </p>
                 </div>
@@ -240,8 +231,8 @@ export function DashboardPage() {
                   data={stats.inventoryDistribution.data}
                 />
               ) : (
-                <div style={{ padding: '24px', textAlign: 'center' }}>
-                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                <div style={{ padding: 'var(--spacing-6)', textAlign: 'center' }}>
+                  <p style={{ fontSize: 'var(--font-size-body)', color: 'var(--text-secondary)' }}>
                     لا توجد بيانات كافية للعرض
                   </p>
                 </div>
@@ -250,12 +241,12 @@ export function DashboardPage() {
           </Card>
         </div>
 
-      {/* Activity & Notifications - النشاط الأخير */}
+      {/* Secondary: Activity & Notifications - النشاط الأخير */}
       <div style={{ 
-        marginTop: '16px',
+        marginTop: 'var(--spacing-6)',
         display: 'grid', 
         gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)', 
-        gap: '16px' 
+        gap: 'var(--spacing-4)' 
       }}>
         {/* Recent Activity */}
         <Card>
@@ -266,7 +257,7 @@ export function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
               {dashboardData?.data?.recent_activity?.length > 0 ? (
                 dashboardData?.data?.recent_activity?.map((activity: any) => (
                   <ActivityItem
@@ -297,8 +288,8 @@ export function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div style={{ padding: '24px', textAlign: 'center' }}>
-              <p style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)' }}>
+            <div style={{ padding: 'var(--spacing-6)', textAlign: 'center' }}>
+              <p style={{ fontSize: 'var(--font-size-body)', fontWeight: 'var(--font-weight-semibold)', color: 'var(--text-secondary)' }}>
                 قيد التطوير
               </p>
             </div>
@@ -306,23 +297,8 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      {/* AI Insights */}
-      {dashboardData?.data?.insights && dashboardData.data.insights.length > 0 && (
-        <div style={{ marginTop: '16px' }}>
-          {dashboardData.data.insights.map((insight: any, index: number) => (
-            <AIInsight
-              key={index}
-              title={insight.title}
-              description={insight.description}
-              actionLabel={t('dashboard.viewDetails')}
-              onAction={() => navigate(insight.link || '/app/inventory')}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Smart Alerts */}
-      <div style={{ marginTop: '16px' }}>
+      {/* Tertiary: Smart Alerts */}
+      <div style={{ marginTop: 'var(--spacing-6)' }}>
         <Card style={{
           background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(236, 72, 153, 0.05) 100%)',
           border: '1px solid rgba(99, 102, 241, 0.2)'
@@ -360,9 +336,9 @@ function ActivityItem({ type, title, description, amount, time, status }: any) {
     <div style={{
       display: 'flex',
       alignItems: 'center',
-      gap: '14px',
-      padding: '18px',
-      borderRadius: '10px',
+      gap: 'var(--spacing-3)',
+      padding: 'var(--spacing-4)',
+      borderRadius: 'var(--radius-md)',
       border: '1px solid var(--border-default)',
       transition: '180ms ease'
     }}
@@ -377,14 +353,14 @@ function ActivityItem({ type, title, description, amount, time, status }: any) {
         <Icon className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
       </div>
       <div style={{ flex: 1 }}>
-        <p style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)' }}>{title}</p>
-        <p style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{description}</p>
+        <p style={{ fontSize: 'var(--font-size-secondary)', fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>{title}</p>
+        <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>{description}</p>
       </div>
       <div style={{ textAlign: 'right' }}>
-        <p style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)' }}>{amount}</p>
-        <p style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{time}</p>
+        <p style={{ fontSize: 'var(--font-size-secondary)', fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>{amount}</p>
+        <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>{time}</p>
       </div>
-      <Badge variant={status === 'completed' ? 'success' : 'warning'} className="text-xs">
+      <Badge variant={status === 'completed' ? 'success' : 'warning'} size="sm">
         {status === 'completed' ? 'مكتمل' : status}
       </Badge>
     </div>
