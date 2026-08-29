@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
@@ -19,6 +19,7 @@ import {
   Edit,
   Trash2,
   RotateCcw,
+  DollarSign,
 } from 'lucide-react';
 
 // Custom hooks
@@ -52,11 +53,15 @@ export function PurchasesPage() {
     setSearchQuery,
     statusFilter,
     setStatusFilter,
+    viewFilter,
+    setViewFilter,
     receivePurchaseMutation,
     deletePurchaseMutation,
     reversePurchaseMutation,
   } = usePurchases();
   const [purchaseToReceive, setPurchaseToReceive] = useState<string | null>(null);
+  const [purchaseToPay, setPurchaseToPay] = useState<any | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
   const [purchaseToReverse, setPurchaseToReverse] = useState<string | null>(null);
   const [reversalReason, setReversalReason] = useState('');
   const [purchaseToView, setPurchaseToView] = useState<string | null>(null);
@@ -67,6 +72,26 @@ export function PurchasesPage() {
   });
   const purchaseDetails = purchaseDetailsData?.data?.purchase || purchaseDetailsData?.purchase;
   const purchaseItems = purchaseDetailsData?.data?.items || purchaseDetailsData?.items || [];
+  const purchaseDetailsSupplier =
+    purchaseDetails?.supplier ||
+    purchaseDetailsData?.data?.supplier ||
+    purchaseDetailsData?.supplier;
+  const purchaseDetailsRemaining =
+    purchaseDetails?.remaining ??
+    purchaseDetailsData?.data?.remaining ??
+    purchaseDetailsData?.remaining ??
+    Math.max(0, Number(purchaseDetails?.total_amount || 0) - Number(purchaseDetails?.paid_amount || 0));
+  const paymentMutation = useMutation({
+    mutationFn: ({ id, amount }: { id: string; amount: number }) =>
+      purchasesApi.addPayment(id, { amount, paymentMethod: 'cash' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      setPurchaseToPay(null);
+      setPaymentAmount('');
+      toast.success('تم تسجيل دفعة الشراء وتحديث الرصيد');
+    },
+    onError: () => toast.error('تعذر تسجيل دفعة الشراء'),
+  });
 
   // Handle receive purchase
   const handleReceivePurchase = (purchaseId: string) => {
@@ -82,6 +107,7 @@ export function PurchasesPage() {
       },
       {
         confirmationMessage: 'هل أنت متأكد من حذف هذا الشراء؟',
+        showConfirmationDialog: async (message) => window.confirm(message),
         onSuccess: (result) => {
           // Refresh the list or navigate
           console.log('Delete successful:', result);
@@ -122,6 +148,7 @@ export function PurchasesPage() {
       pending: { label: 'قيد الانتظار', variant: 'secondary' },
       ordered: { label: 'تم الطلب', variant: 'outline' },
       received: { label: 'تم الاستلام', variant: 'default' },
+      completed: { label: 'تم الاستلام', variant: 'default' },
       cancelled: { label: 'ملغي', variant: 'destructive' },
       reversed: { label: 'تم العكس', variant: 'destructive' },
       partially_received: { label: 'استلام جزئي', variant: 'secondary' },
@@ -188,7 +215,70 @@ export function PurchasesPage() {
       {/* Purchases Table */}
       <Card>
         <CardHeader>
-          <CardTitle>قائمة المشتريات</CardTitle>
+          <div className="flex flex-col gap-md md:flex-row md:items-center md:justify-between">
+            <CardTitle>
+              {viewFilter === 'active'
+                ? 'المشتريات الحالية'
+                : viewFilter === 'received'
+                  ? 'المشتريات المستلمة'
+                  : viewFilter === 'archived'
+                    ? 'أرشيف المشتريات'
+                    : 'كل المشتريات'}
+            </CardTitle>
+            <div className="flex flex-wrap gap-sm" role="tablist" aria-label="عرض المشتريات">
+              <Button
+                variant={viewFilter === 'active' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => {
+                  setViewFilter('active');
+                  setStatusFilter('');
+                }}
+                role="tab"
+                aria-selected={viewFilter === 'active'}
+              >
+                الحالية
+              </Button>
+              <Button
+                variant={viewFilter === 'received' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => {
+                  setViewFilter('received');
+                  setStatusFilter('');
+                }}
+                role="tab"
+                aria-selected={viewFilter === 'received'}
+              >
+                تم الاستلام
+              </Button>
+              <Button
+                variant={viewFilter === 'archived' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => {
+                  setViewFilter('archived');
+                  setStatusFilter('');
+                }}
+                role="tab"
+                aria-selected={viewFilter === 'archived'}
+              >
+                الأرشيف
+              </Button>
+              <Button
+                variant={viewFilter === 'all' ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => {
+                  setViewFilter('all');
+                  setStatusFilter('');
+                }}
+                role="tab"
+                aria-selected={viewFilter === 'all'}
+              >
+                الكل
+              </Button>
+            </div>
+          </div>
+          <p className="mt-2 text-sm text-text-muted">
+            {filteredPurchases.length} عملية شراء مطابقة
+          </p>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -212,6 +302,7 @@ export function PurchasesPage() {
               </TableHeader>
               <TableBody>
                 {filteredPurchases.map((purchase: any) => {
+                  const normalizedStatus = purchase.status === 'completed' ? 'received' : purchase.status;
                   const statusBadge = getStatusBadge(purchase.status);
                   return (
                     <TableRow key={purchase.id}>
@@ -223,7 +314,7 @@ export function PurchasesPage() {
                       <TableCell>₪{purchase.remaining?.toLocaleString()}</TableCell>
                       <TableCell>
                         {purchase.expected_delivery_date
-                          ? new Date(purchase.expected_delivery_date).toLocaleDateString('ar-SA')
+                          ? new Date(purchase.expected_delivery_date).toLocaleDateString('en-US')
                           : '-'
                         }
                       </TableCell>
@@ -234,18 +325,34 @@ export function PurchasesPage() {
                       </TableCell>
                       <TableCell className="text-start">
                         <div className="flex gap-2">
-                          {purchase.status === 'pending' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleReceivePurchase(purchase.id)}
-                              className="text-green-600 hover:text-green-700"
-                            >
-                              <Check className="w-4 h-4" />
-                            </Button>
+                          {normalizedStatus === 'pending' && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="تسجيل دفعة"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setPurchaseToPay(purchase);
+                                  setPaymentAmount('');
+                                }}
+                                className="text-cyan-600 hover:text-cyan-700"
+                              >
+                                <DollarSign className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="استلام البضاعة"
+                                onClick={() => handleReceivePurchase(purchase.id)}
+                                className="text-green-600 hover:text-green-700"
+                              >
+                                <Check className="w-4 h-4" />
+                              </Button>
+                            </>
                           )}
 
-                          {(purchase.status === 'pending' || purchase.status === 'draft') && (
+                          {(normalizedStatus === 'pending' || normalizedStatus === 'draft') && (
                             <>
                               <Button
                                 variant="ghost"
@@ -255,17 +362,20 @@ export function PurchasesPage() {
                               >
                                 <Edit className="w-4 h-4" />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDeletePurchase(purchase.id)}
-                                className="text-red-600 hover:text-red-700"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
+                              {Number(purchase.paid_amount || 0) <= 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  title="حذف الطلب غير المدفوع"
+                                  onClick={() => handleDeletePurchase(purchase.id)}
+                                  className="text-red-600 hover:text-red-700"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
                             </>
                           )}
-                          {purchase.status === 'received' && (
+                          {normalizedStatus === 'received' && (
                             <>
                               <Button
                                 variant="ghost"
@@ -329,12 +439,12 @@ export function PurchasesPage() {
           <div className="space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div><span className="text-sm text-text-muted">رقم الطلب</span><p>{purchaseDetails.invoice_number || '-'}</p></div>
-              <div><span className="text-sm text-text-muted">المورد</span><p>{purchaseDetails.supplier?.name || purchaseDetails.supplier_name || '-'}</p></div>
+              <div><span className="text-sm text-text-muted">المورد</span><p>{purchaseDetailsSupplier?.name || purchaseDetails?.supplier_name || '-'}</p></div>
               <div><span className="text-sm text-text-muted">الحالة</span><p><Badge>{purchaseDetails.status}</Badge></p></div>
               <div><span className="text-sm text-text-muted">التاريخ</span><p>{purchaseDetails.purchase_date ? new Date(purchaseDetails.purchase_date).toLocaleDateString('en-US') : '-'}</p></div>
               <div><span className="text-sm text-text-muted">الإجمالي</span><p>₪{Number(purchaseDetails.total_amount || 0).toLocaleString('en-US')}</p></div>
               <div><span className="text-sm text-text-muted">المدفوع</span><p>₪{Number(purchaseDetails.paid_amount || 0).toLocaleString('en-US')}</p></div>
-              <div><span className="text-sm text-text-muted">المتبقي</span><p>₪{Number(purchaseDetails.remaining || 0).toLocaleString('en-US')}</p></div>
+              <div><span className="text-sm text-text-muted">المتبقي</span><p>₪{Number(purchaseDetailsRemaining).toLocaleString('en-US')}</p></div>
             </div>
             <div>
               <h2 className="font-semibold mb-3">القطع</h2>
@@ -379,6 +489,40 @@ export function PurchasesPage() {
           placeholder="سبب عكس العملية"
         />
       </ConfirmDialog>
+      <Modal
+        isOpen={purchaseToPay !== null}
+        onClose={() => { setPurchaseToPay(null); setPaymentAmount(''); }}
+        title="تسجيل دفعة للشراء"
+        size="sm"
+      >
+        {purchaseToPay && (
+          <div className="space-y-4">
+            <div className="rounded-lg bg-surface-muted p-3 text-sm">
+              <p className="font-medium">{purchaseToPay.invoice_number}</p>
+              <p className="text-text-muted">الإجمالي: ₪{Number(purchaseToPay.total_amount || 0).toLocaleString('en-US')}</p>
+              <p className="text-text-muted">المتبقي: ₪{Number(purchaseToPay.remaining || 0).toLocaleString('en-US')}</p>
+            </div>
+            <Input
+              type="number"
+              min="0.01"
+              max={Number(purchaseToPay.remaining || 0)}
+              step="0.01"
+              value={paymentAmount}
+              onChange={(event) => setPaymentAmount(event.target.value)}
+              placeholder="مبلغ الدفعة الجزئية أو الكاملة"
+            />
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => { setPurchaseToPay(null); setPaymentAmount(''); }}>إلغاء</Button>
+              <Button
+                onClick={() => paymentMutation.mutate({ id: purchaseToPay.id, amount: Number(paymentAmount) })}
+                disabled={!Number(paymentAmount) || Number(paymentAmount) <= 0 || Number(paymentAmount) > Number(purchaseToPay.remaining || 0) || paymentMutation.isPending}
+              >
+                {paymentMutation.isPending ? 'جاري التسجيل...' : 'تسجيل الدفعة'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

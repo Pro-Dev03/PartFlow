@@ -96,6 +96,69 @@ func (s *Service) UpdateUser(ctx context.Context, id uuid.UUID, email, passwordH
 	return user, nil
 }
 
+// UpdateSubscription updates a user's subscription status and expiry.
+func (s *Service) UpdateSubscription(ctx context.Context, id uuid.UUID, status string, expiresAt *time.Time) (*User, error) {
+	user, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	user.SubscriptionStatus = status
+	user.SubscriptionExpiresAt = expiresAt
+	user.UpdatedAt = time.Now()
+	if err := s.repo.Update(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to update subscription: %w", err)
+	}
+	return user, nil
+}
+
+// RenewSubscription extends a user's subscription by the given number of days.
+func (s *Service) RenewSubscription(ctx context.Context, id uuid.UUID, days int) (*User, error) {
+	if days <= 0 {
+		return nil, fmt.Errorf("days must be greater than zero")
+	}
+	user, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if user.SubscriptionExpiresAt == nil || user.SubscriptionStatus == "expired" || user.SubscriptionStatus == "canceled" || user.SubscriptionStatus == "cancelled" {
+		newExpiry := time.Now().AddDate(0, 0, days)
+		user.SubscriptionExpiresAt = &newExpiry
+		user.SubscriptionStatus = "active"
+	} else {
+		newExpiry := user.SubscriptionExpiresAt.AddDate(0, 0, days)
+		user.SubscriptionExpiresAt = &newExpiry
+		if user.SubscriptionStatus != "active" {
+			user.SubscriptionStatus = "active"
+		}
+	}
+	user.UpdatedAt = time.Now()
+	if err := s.repo.Update(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to renew subscription: %w", err)
+	}
+	return user, nil
+}
+
+// GetSubscriptionSummary returns basic counts for the admin dashboard.
+func (s *Service) GetSubscriptionSummary(ctx context.Context) (map[string]int, error) {
+	users, _, err := s.repo.List(ctx, 1, 500, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	counts := map[string]int{"total": 0, "active": 0, "expired": 0, "canceled": 0}
+	for _, user := range users {
+		counts["total"]++
+		switch user.SubscriptionStatus {
+		case "active":
+			counts["active"]++
+		case "expired":
+			counts["expired"]++
+		case "canceled", "cancelled":
+			counts["canceled"]++
+		}
+	}
+	return counts, nil
+}
+
 // DeleteUser deletes a user
 func (s *Service) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	return s.repo.Delete(ctx, id)

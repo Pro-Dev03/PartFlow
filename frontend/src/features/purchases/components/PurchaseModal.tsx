@@ -14,7 +14,7 @@ import {
   ShoppingCart,
   CheckCircle2,
 } from 'lucide-react';
-import { suppliersApi, productsApi } from '../../../services/api/endpoints';
+import { suppliersApi, productsApi, purchasesApi } from '../../../services/api/endpoints';
 import { usePurchases } from '../hooks/usePurchases';
 import { PurchaseItem } from '../types/purchases.types';
 import { toast } from 'sonner';
@@ -40,6 +40,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
   const [receiveImmediately, setReceiveImmediately] = useState(false);
+  const [initialPayment, setInitialPayment] = useState('');
 
   const { data: suppliersData, isLoading: suppliersLoading } = useQuery({
     queryKey: ['suppliers'],
@@ -80,6 +81,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
       setProductSearchQuery('');
       setActiveTab('manual');
       setReceiveImmediately(false);
+      setInitialPayment('');
     }
   }, [isOpen]);
 
@@ -180,7 +182,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
       supplier_id: selectedSupplier,
       invoice_number: invoiceNumber || `PO-${Date.now()}`,
       purchase_date: new Date(purchaseDate).toISOString(),
-      expected_date: expectedDate ? new Date(expectedDate).toISOString() : undefined,
+      expected_delivery_date: expectedDate ? new Date(expectedDate).toISOString() : undefined,
       notes: notes || undefined,
       items: items.map((item) => ({
         product_id: item.product_id,
@@ -190,18 +192,37 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
       })),
     };
 
+    const paymentAmount = Number(initialPayment);
+    if (initialPayment && (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > totalCost)) {
+      toast.error(`أدخل دفعة صحيحة بين ₪0.01 و ₪${totalCost.toLocaleString('en-US', { maximumFractionDigits: 2 })}`);
+      return;
+    }
+
     createPurchaseMutation.mutate(formData, {
-      onSuccess: (response) => {
-        const purchaseId = response?.data?.id;
-        if (purchaseId && receiveImmediately) {
-          receivePurchaseMutation.mutate(purchaseId, {
-            onSuccess: () => {
-              queryClient.invalidateQueries({ queryKey: ['purchases'] });
-              queryClient.invalidateQueries({ queryKey: ['inventory'] });
-              queryClient.invalidateQueries({ queryKey: ['products'] });
-              onClose();
-            },
-          });
+      onSuccess: async (response) => {
+        const purchaseId =
+          response?.purchase?.id ||
+          response?.data?.purchase?.id ||
+          response?.data?.id ||
+          response?.id;
+        if (purchaseId && (paymentAmount > 0 || receiveImmediately)) {
+          try {
+            if (paymentAmount > 0) {
+              await purchasesApi.addPayment(purchaseId, {
+                amount: paymentAmount,
+                paymentMethod: 'cash',
+              });
+            }
+            if (receiveImmediately) {
+              await receivePurchaseMutation.mutateAsync(purchaseId);
+            }
+            queryClient.invalidateQueries({ queryKey: ['purchases'] });
+            queryClient.invalidateQueries({ queryKey: ['inventory'] });
+            queryClient.invalidateQueries({ queryKey: ['products'] });
+            onClose();
+          } catch {
+            toast.error('تم إنشاء الشراء، لكن تعذر تسجيل الدفعة أو الاستلام');
+          }
         } else {
           queryClient.invalidateQueries({ queryKey: ['purchases'] });
           onClose();
@@ -216,6 +237,8 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
     expectedDate,
     notes,
     receiveImmediately,
+    initialPayment,
+    totalCost,
     createPurchaseMutation,
     receivePurchaseMutation,
     queryClient,
@@ -470,13 +493,32 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
               <div>
                 <div className="font-medium flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-cyan" />
-                  استلام مباشر
+                  استلام مباشر بعد الدفعة
                 </div>
                 <div className="text-sm text-text-muted">
-                  عند التفعيل، سيتم استلام البضاعة وإنشاء عناصر المخزون تلقائياً بعد إنشاء الشراء
+                  عند التفعيل، سيحاول النظام الاستلام بعد إنشاء الشراء، ويتطلب ذلك تسجيل دفعة مسبقة ولو كانت جزئية
                 </div>
               </div>
             </label>
+            {(
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-text mb-2">
+                  مبلغ الدفعة المسبقة {receiveImmediately ? '*' : '(اختياري)'}
+                </label>
+                <Input
+                  type="number"
+                  min="0.01"
+                  max={totalCost}
+                  step="0.01"
+                  value={initialPayment}
+                  onChange={(e) => setInitialPayment(e.target.value)}
+                  placeholder={`أدخل دفعة كاملة أو جزئية (الإجمالي ₪${totalCost.toLocaleString('en-US', { maximumFractionDigits: 2 })})`}
+                />
+                <p className="mt-1 text-xs text-text-muted">
+                  {receiveImmediately ? 'يجب تسجيل مبلغ أكبر من صفر قبل استلام البضاعة.' : 'يمكن تسجيل دفعة كاملة أو جزئية الآن.'}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

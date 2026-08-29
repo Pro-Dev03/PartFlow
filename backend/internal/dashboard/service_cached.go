@@ -64,8 +64,12 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 			(SELECT COUNT(*) FROM suppliers) as total_suppliers,
 			(SELECT COUNT(*) FROM products p
 			 WHERE p.is_active = true
+			 AND p.deleted_at IS NULL
 			 AND p.min_stock_level > 0
-			 AND (SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE product_id = p.id) < p.min_stock_level) as low_stock_items,
+			 AND (SELECT COUNT(*) FROM inventory_items ii
+			      WHERE ii.product_id = p.id
+			      AND ii.condition <> 'USED'
+			      AND ii.status = 'AVAILABLE') < p.min_stock_level) as low_stock_items,
 			(SELECT COALESCE(SUM(current_balance), 0) FROM customers WHERE current_balance > 0) as overdue_debts,
 			(SELECT COUNT(*) FROM returns WHERE status = 'pending') as pending_returns,
 			0 as pending_claims
@@ -113,18 +117,15 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 	stats.OutstandingDebts = result.OverdueDebts
 	stats.ActiveCustomers = result.TotalCustomers
 	stats.LowStockCount = result.LowStockItems
-	
+
 	// Calculate overdue debts count properly
 	var overdueDebtsCount int
 	countQuery := `
-		SELECT COUNT(DISTINCT c.id) 
-		FROM customers c
-		WHERE c.current_balance > 0
-		AND c.id IN (
-			SELECT DISTINCT customer_id FROM debts
-			WHERE remaining_amount > 0
-			AND due_date < NOW()
-		)
+		SELECT COUNT(DISTINCT customer_id)
+		FROM debts
+		WHERE remaining_amount > 0
+		  AND due_date < NOW()
+		  AND status IN ('pending', 'partial', 'overdue')
 	`
 	err = s.db.GetContext(ctx, &overdueDebtsCount, countQuery)
 	if err != nil {
@@ -150,18 +151,19 @@ func (s *CachedService) GetLowStockItems(ctx context.Context) ([]LowStockItem, e
 		SELECT 
 			p.id,
 			p.name as product_name,
-			COALESCE(SUM(i.quantity), 0) as quantity,
+			COUNT(i.id) FILTER (WHERE i.status = 'AVAILABLE') as quantity,
 			p.min_stock_level,
 			p.cost_price,
 			p.selling_price,
 			p.preferred_supplier_id
 		FROM products p
-		LEFT JOIN inventory i ON p.id = i.product_id
+		LEFT JOIN inventory_items i ON p.id = i.product_id
 		WHERE p.is_active = true
+		AND p.deleted_at IS NULL
 		AND p.min_stock_level > 0
 		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
-		HAVING COALESCE(SUM(i.quantity), 0) < p.min_stock_level
-		ORDER BY (p.min_stock_level - COALESCE(SUM(i.quantity), 0)) DESC
+		HAVING COUNT(i.id) FILTER (WHERE i.status = 'AVAILABLE') < p.min_stock_level
+		ORDER BY (p.min_stock_level - COUNT(i.id) FILTER (WHERE i.status = 'AVAILABLE')) DESC
 		LIMIT 10
 	`
 
@@ -189,7 +191,7 @@ func (s *CachedService) GetOverdueDebts(ctx context.Context) ([]OverdueDebtItem,
 		JOIN customers c ON d.customer_id = c.id
 		WHERE d.remaining_amount > 0
 		AND d.due_date < NOW()
-		AND d.status = 'pending'
+		AND d.status IN ('pending', 'partial', 'overdue')
 		ORDER BY d.due_date ASC
 		LIMIT 10
 	`

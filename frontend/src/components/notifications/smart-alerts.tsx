@@ -103,7 +103,7 @@ export function SmartAlerts({ alerts, onDismiss }: SmartAlertsProps) {
         <CardContent style={{ padding: '24px', textAlign: 'center' }}>
           <CheckCircle className="w-8 h-8 mx-auto mb-3" style={{ color: 'var(--color-success)' }} />
           <p style={{ fontSize: '14px', fontWeight: '600', color: 'var(--color-success)', marginBottom: '4px' }}>
-            قيد التطوير
+            لا توجد تنبيهات ذكية حاليًا
           </p>
         </CardContent>
       </Card>

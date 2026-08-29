@@ -90,14 +90,14 @@ type PaymentResponse struct {
 
 // LedgerEntry represents a ledger entry
 type LedgerEntry struct {
-	ID          uuid.UUID  `json:"id"`
-	CustomerID  uuid.UUID  `json:"customer_id"`
-	Type        string     `json:"type"` // debit, credit
-	Amount      float64    `json:"amount"`
-	Balance     float64    `json:"balance"`
-	Description string     `json:"description"`
-	ReferenceID *uuid.UUID `json:"reference_id,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID          uuid.UUID  `json:"id" db:"id"`
+	CustomerID  uuid.UUID  `json:"customer_id" db:"customer_id"`
+	Type        string     `json:"type" db:"type"` // debit, credit
+	Amount      float64    `json:"amount" db:"amount"`
+	Balance     float64    `json:"balance" db:"balance"`
+	Description string     `json:"description" db:"description"`
+	ReferenceID *uuid.UUID `json:"reference_id,omitempty" db:"reference_id"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
 }
 
 // CustomerLedgerResponse represents customer ledger response

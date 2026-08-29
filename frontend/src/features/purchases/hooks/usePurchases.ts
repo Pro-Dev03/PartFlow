@@ -4,11 +4,14 @@ import { purchasesApi, suppliersApi } from '../../../services/api/endpoints';
 import { Purchase, PurchaseFormData, PurchaseStats } from '../types/purchases.types';
 import { SmartDeleteResult } from '../../../types/api'; // ARCHITECTURE-PRINCIPLES.md
 import { toast } from 'sonner';
+import { useDebounce } from '../../../hooks/useDebounce';
 
 export function usePurchases() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [viewFilter, setViewFilter] = useState<'active' | 'received' | 'archived' | 'all'>('active');
+  const debouncedSearchQuery = useDebounce(searchQuery, 250);
 
   const { data: purchasesData, isLoading } = useQuery({
     queryKey: ['purchases'],
@@ -22,21 +25,43 @@ export function usePurchases() {
 
   const purchases = (purchasesData?.data as Purchase[]) || [];
   const suppliers = (suppliersData?.data as any[]) || [];
+  const activePurchases = purchases.filter((p) => p.status !== 'cancelled' && p.status !== 'reversed');
+  const receivedPurchases = activePurchases.filter((p) => p.status === 'received' || p.status === 'completed');
+  const pendingPurchases = activePurchases.filter((p) => p.status !== 'received' && p.status !== 'completed');
 
   const stats: PurchaseStats = {
-    totalPurchases: purchases.length,
+    totalPurchases: activePurchases.length,
     pendingCount: purchases.filter((p) => p.status === 'pending' || p.status === 'draft').length,
-    receivedCount: purchases.filter((p) => p.status === 'received' || p.status === 'partially_received').length,
+    receivedCount: purchases.filter((p) => p.status === 'received' || p.status === 'completed' || p.status === 'partially_received').length,
     reversedCount: purchases.filter((p) => p.status === 'reversed').length,
-    totalCost: purchases.filter((p) => p.status !== 'cancelled' && p.status !== 'reversed').reduce((sum, p) => sum + (p.total_amount || 0), 0),
+    pendingCost: pendingPurchases.reduce((sum, p) => sum + Number(p.total_amount || 0), 0),
+    receivedCost: receivedPurchases.reduce((sum, p) => sum + Number(p.total_amount || 0), 0),
+    outstandingAmount: activePurchases.reduce(
+      (sum, p) => sum + Math.max(0, Number(p.total_amount || 0) - Number(p.paid_amount || 0)),
+      0
+    ),
   };
 
   const filteredPurchases = purchases.filter((purchase: any) => {
+    const isArchived = purchase.status === 'reversed' || purchase.status === 'cancelled';
+    const isReceived = purchase.status === 'received' || purchase.status === 'completed';
+    const matchesView =
+      Boolean(statusFilter) ||
+      viewFilter === 'all' ||
+      (viewFilter === 'archived' && isArchived) ||
+      (viewFilter === 'received' && isReceived) ||
+      (viewFilter === 'active' && !isArchived && !isReceived);
     const matchesSearch =
-      (purchase.supplier_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      purchase.id.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = !statusFilter || purchase.status === statusFilter;
-    return matchesSearch && matchesStatus;
+      (purchase.invoice_number || '').toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+      (purchase.supplier?.name || purchase.supplier_name || '').toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+      purchase.id.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+      (purchase.notes || '').toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+      (purchase.items || []).some((item: any) =>
+        (item.product_name || '').toLowerCase().includes(debouncedSearchQuery.toLowerCase())
+      );
+    const normalizedStatus = purchase.status === 'completed' ? 'received' : purchase.status;
+    const matchesStatus = !statusFilter || normalizedStatus === statusFilter;
+    return matchesView && matchesSearch && matchesStatus;
   });
 
   const createPurchaseMutation = useMutation({
@@ -60,8 +85,14 @@ export function usePurchases() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['purchases'] });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Error receiving purchase:', error);
+      const message = error?.message || error?.response?.data?.error;
+      toast.error(
+        message === 'cannot receive purchase before recording a payment'
+          ? 'لا يمكن استلام المشتريات قبل تسجيل دفعة واحدة على الأقل'
+          : `خطأ في استلام المشتريات: ${message || 'حدث خطأ غير معروف'}`
+      );
     },
   });
 
@@ -120,6 +151,8 @@ export function usePurchases() {
     setSearchQuery,
     statusFilter,
     setStatusFilter,
+    viewFilter,
+    setViewFilter,
     createPurchaseMutation,
     receivePurchaseMutation,
     updatePurchaseMutation,

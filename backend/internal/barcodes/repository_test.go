@@ -41,9 +41,7 @@ func TestRepository_GetBarcodeByCode(t *testing.T) {
 	repo := NewRepository(db)
 	ctx := context.Background()
 	code := "TEST-BARCODE-001"
-	organizationID := uuid.New()
-
-	barcode, err := repo.GetBarcodeByCode(ctx, code, organizationID)
+	barcode, err := repo.GetBarcodeByCode(ctx, code)
 	if err != nil {
 		t.Logf("GetBarcodeByCode() error (expected with empty DB): %v", err)
 		return
@@ -62,15 +60,13 @@ func TestRepository_CreateBarcode(t *testing.T) {
 
 	repo := NewRepository(db)
 	ctx := context.Background()
-	organizationID := uuid.New()
-
 	barcode := &Barcode{
-		ID:             uuid.New(),
-		Code:           "TEST-BARCODE-002",
-		Type:           BarcodeTypeSKU,
-		ProductID:      nil,
+		ID:              uuid.New(),
+		Code:            "TEST-BARCODE-002",
+		Type:            BarcodeTypeSKU,
+		ProductID:       nil,
 		InventoryItemID: nil,
-		IsActive:       true,
+		IsActive:        true,
 	}
 
 	err := repo.CreateBarcode(ctx, barcode)
@@ -87,9 +83,7 @@ func TestRepository_ListBarcodes(t *testing.T) {
 
 	repo := NewRepository(db)
 	ctx := context.Background()
-	organizationID := uuid.New()
-
-	barcodes, total, err := repo.ListBarcodes(ctx, organizationID, 10, 0)
+	barcodes, total, err := repo.ListBarcodes(ctx, 10, 0)
 	if err != nil {
 		t.Logf("ListBarcodes() error (expected with empty DB): %v", err)
 		return
@@ -113,9 +107,7 @@ func TestRepository_DeleteBarcode(t *testing.T) {
 	repo := NewRepository(db)
 	ctx := context.Background()
 	barcodeID := uuid.New()
-	organizationID := uuid.New()
-
-	err := repo.DeleteBarcode(ctx, barcodeID, organizationID)
+	err := repo.DeleteBarcode(ctx, barcodeID)
 	if err != nil {
 		t.Logf("DeleteBarcode() error (expected with test DB): %v", err)
 	}
@@ -124,23 +116,20 @@ func TestRepository_DeleteBarcode(t *testing.T) {
 // Test barcode model structure
 func TestBarcode(t *testing.T) {
 	id := uuid.New()
-	organizationID := uuid.New()
 	productID := uuid.New()
 	inventoryItemID := uuid.New()
 
 	barcode := Barcode{
-		ID:             id,
-		Code:           "TEST-001",
-		Type:           BarcodeTypeSKU,
-		ProductID:      &productID,
+		ID:              id,
+		Code:            "TEST-001",
+		Type:            BarcodeTypeSKU,
+		ProductID:       &productID,
 		InventoryItemID: &inventoryItemID,
-		IsActive:       true,
+		IsActive:        true,
 	}
 
 	if barcode.ID != id {
 		t.Errorf("Barcode.ID = %v, want %v", barcode.ID, id)
-	}
-
 	}
 
 	if barcode.Code != "TEST-001" {

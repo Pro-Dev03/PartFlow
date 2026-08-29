@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
-import { acquisitionsApi } from '../../../services/api/endpoints';
+import { useNavigate, useParams } from 'react-router-dom';
+import { acquisitionsApi, inventoryApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
@@ -33,12 +33,18 @@ interface HistoryEvent {
 
 export function ItemHistoryPage() {
   const { itemId } = useParams<{ itemId: string }>();
+  const navigate = useNavigate();
   const [selectedTab, setSelectedTab] = useState<'timeline' | 'financials' | 'details'>('timeline');
 
   const { data: historyData, isLoading } = useQuery({
     queryKey: ['item-history', itemId],
     queryFn: () => acquisitionsApi.getItemHistory(itemId || ''),
     enabled: !!itemId,
+  });
+  const { data: inventoryData, isLoading: isLoadingInventory } = useQuery({
+    queryKey: ['used-parts-history-index'],
+    queryFn: () => inventoryApi.list({ page: 1, per_page: 100 }),
+    enabled: !itemId,
   });
 
   const history = (historyData as any)?.data ?? historyData;
@@ -51,12 +57,63 @@ export function ItemHistoryPage() {
     );
   }
 
+  if (!itemId) {
+    const soldUsedItems = (Array.isArray(inventoryData?.data) ? inventoryData.data : inventoryData?.data?.items || [])
+      .filter((item: any) =>
+        String(item.condition || '').toUpperCase() === 'USED' &&
+        String(item.status || '').toUpperCase() === 'SOLD'
+      );
+
+    return (
+      <div>
+        <PageHeader
+          eyebrow="Used Parts History"
+          title="تاريخ القطع المباعة"
+          description="القطع المستعملة التي تم بيعها مع سجل كل قطعة"
+          actions={<Button variant="secondary" onClick={() => navigate('/app/usedparts')}>رجوع</Button>}
+        />
+        {isLoadingInventory ? (
+          <div className="flex items-center justify-center h-64">جاري التحميل...</div>
+        ) : soldUsedItems.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <Clock className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+              <p className="text-gray-400">لا توجد قطع مستعملة مباعة</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {soldUsedItems.map((item: any) => (
+              <Card key={item.id}>
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-semibold text-[var(--text-primary)]">
+                      {item.product_name || item.product?.name || 'قطعة مستعملة'}
+                    </h3>
+                    <Badge variant="secondary">مباعة</Badge>
+                  </div>
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    الرقم التسلسلي: {item.serial_number || 'غير متوفر'}
+                  </p>
+                  <Button className="w-full" variant="secondary" onClick={() => navigate(`/app/usedparts/item-history/${item.id}`)}>
+                    عرض السجل الكامل
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   if (!history) {
     return (
       <Card>
         <CardContent className="p-12 text-center">
           <AlertTriangle className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-          <p className="text-gray-400">لم يتم العثور على القطعة</p>
+          <p className="text-gray-400">اختر قطعة لعرض سجلها الكامل</p>
+          <p className="text-sm text-gray-500 mt-2">يمكنك فتح تاريخ أي قطعة من صفحة مخزون القطع المستعملة.</p>
         </CardContent>
       </Card>
     );
@@ -116,7 +173,7 @@ export function ItemHistoryPage() {
         title="تاريخ القطعة"
         description="سجل كامل للقطعة منذ دخولها المتجر"
         actions={
-          <Button variant="secondary" onClick={() => window.history.back()}>
+          <Button variant="secondary" onClick={() => navigate('/app/usedparts')}>
             رجوع
           </Button>
         }
@@ -176,7 +233,7 @@ export function ItemHistoryPage() {
               <div>
                 <p className="text-sm text-gray-400">سعر الشراء</p>
                 <p className="text-2xl font-bold">
-                  ₪{((history.item?.cost || 0) / 100).toFixed(2)}
+                  ₪{(history.item?.cost || 0).toFixed(2)}
                 </p>
               </div>
             </div>
@@ -191,7 +248,7 @@ export function ItemHistoryPage() {
               <div>
                 <p className="text-sm text-gray-400">سعر البيع</p>
                 <p className="text-2xl font-bold">
-                  ₪{((history.item?.selling_price || 0) / 100).toFixed(2)}
+                  ₪{(history.item?.selling_price || 0).toFixed(2)}
                 </p>
               </div>
             </div>
@@ -206,7 +263,7 @@ export function ItemHistoryPage() {
               <div>
                 <p className="text-sm text-gray-400">الربح</p>
                 <p className="text-2xl font-bold">
-                  ₪{(((history.item?.selling_price || 0) - (history.item?.cost || 0)) / 100).toFixed(2)}
+                  ₪{((history.item?.selling_price || 0) - (history.item?.cost || 0)).toFixed(2)}
                 </p>
               </div>
             </div>
@@ -326,7 +383,7 @@ export function ItemHistoryPage() {
                 <div>
                   <p className="text-sm text-[var(--text-secondary)]">تكلفة الشراء</p>
                   <p className="text-xl font-bold text-[var(--text-primary)]">
-                    ₪{((history.item?.cost || 0) / 100).toFixed(2)}
+                    ₪{(history.item?.cost || 0).toFixed(2)}
                   </p>
                 </div>
                 <ShoppingCart className="w-5 h-5 text-cyan" />
@@ -343,7 +400,7 @@ export function ItemHistoryPage() {
                       </div>
                       <div className="text-right">
                         <p className="text-lg font-bold text-[var(--text-primary)]">
-                          ₪{(repair.amount / 100).toFixed(2)}
+                          ₪{repair.amount.toFixed(2)}
                         </p>
                       </div>
                     </div>
@@ -355,7 +412,7 @@ export function ItemHistoryPage() {
                 <div>
                   <p className="text-sm text-[var(--text-secondary)]">سعر البيع</p>
                   <p className="text-xl font-bold text-[var(--text-primary)]">
-                    ₪{((history.item?.selling_price || 0) / 100).toFixed(2)}
+                    ₪{(history.item?.selling_price || 0).toFixed(2)}
                   </p>
                 </div>
                 <DollarSign className="w-5 h-5 text-green" />
@@ -365,7 +422,7 @@ export function ItemHistoryPage() {
                 <div>
                   <p className="text-sm text-[var(--text-secondary)]">الربح الإجمالي</p>
                   <p className="text-2xl font-bold text-green">
-                    ₪{(((history.item?.selling_price || 0) - (history.item?.cost || 0) - (history.total_repair_costs || 0)) / 100).toFixed(2)}
+                    ₪{((history.item?.selling_price || 0) - (history.item?.cost || 0) - (history.total_repair_costs || 0)).toFixed(2)}
                   </p>
                 </div>
                 <TrendingUp className="w-6 h-6 text-green" />

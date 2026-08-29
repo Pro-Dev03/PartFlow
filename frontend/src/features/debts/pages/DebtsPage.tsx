@@ -150,14 +150,14 @@ export function DebtsPage() {
     
     // Handle invalid dates
     if (isNaN(due.getTime())) {
-      return { category: 'FUTURE', label: 'غير محدد', variant: 'secondary' as const, days: 0 };
+      return { category: 'FUTURE', label: 'موعد السداد غير محدد', variant: 'secondary' as const, days: 0 };
     }
     
     const diffTime = due.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     if (status === 'paid') {
-      return { category: 'PAID', label: 'مدفوع', variant: 'success' as const, days: 0 };
+      return { category: 'PAID', label: 'تم السداد بالكامل', variant: 'success' as const, days: 0 };
     }
 
     if (diffDays < 0) {
@@ -174,11 +174,11 @@ export function DebtsPage() {
     }
 
     if (diffDays <= 7) {
-      return { category: 'DUE_SOON', label: 'يستحق قريباً', variant: 'warning' as const, days: diffDays };
+      return { category: 'DUE_SOON', label: 'موعد السداد قريب', variant: 'warning' as const, days: diffDays };
     } else if (diffDays <= 30) {
-      return { category: 'CURRENT', label: 'مستحق', variant: 'success' as const, days: diffDays };
+      return { category: 'CURRENT', label: 'موعد السداد خلال هذا الشهر', variant: 'success' as const, days: diffDays };
     } else {
-      return { category: 'FUTURE', label: 'مستقبلي', variant: 'secondary' as const, days: diffDays };
+      return { category: 'FUTURE', label: 'موعد السداد لاحقًا', variant: 'secondary' as const, days: diffDays };
     }
   };
 
@@ -251,7 +251,12 @@ export function DebtsPage() {
         <CardHeader>
           <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <AlertTriangle style={{ width: '20px', height: '20px', color: 'var(--color-primary)' }} />
-            قائمة الديون
+            <div>
+              <div>قائمة الديون</div>
+              <div style={{ fontSize: '12px', fontWeight: '400', color: 'var(--text-secondary)', marginTop: '3px' }}>
+                جميع الديون المفتوحة والمتأخرة — {filteredDebts.length} سجل
+              </div>
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -276,7 +281,7 @@ export function DebtsPage() {
                   <TableHead>العميل</TableHead>
                   <TableHead>المبلغ</TableHead>
                   <TableHead>المتبقي</TableHead>
-                  <TableHead>تاريخ الاستحقاق</TableHead>
+                  <TableHead>موعد السداد</TableHead>
                   <TableHead>تصنيف العمر</TableHead>
                   <TableHead>الحالة</TableHead>
                   <TableHead style={{ textAlign: 'right' }}>الإجراءات</TableHead>
@@ -309,10 +314,18 @@ export function DebtsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={aging.variant} style={{ fontSize: '11px' }}>
-                          {aging.label}
-                          {aging.days > 0 && ` (${aging.days} يوم)`}
-                        </Badge>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '3px' }}>
+                          <Badge variant={aging.variant} style={{ fontSize: '11px' }} title={`موعد السداد: ${debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('ar-SA') : 'غير محدد'}`}>
+                            {aging.label}
+                          </Badge>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>
+                            {aging.category.startsWith('OVERDUE')
+                              ? `متأخر فعلياً ${aging.days} ${aging.days === 1 ? 'يوم' : 'يوماً'}`
+                              : aging.days > 0
+                                ? `متبقي ${aging.days} ${aging.days === 1 ? 'يوم' : 'أيام'} على موعد السداد`
+                                : 'موعد السداد اليوم'}
+                          </span>
+                        </div>
                       </TableCell>
                       <TableCell>
                           <Badge variant={aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'}>
@@ -527,7 +540,7 @@ export function DebtsPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-small font-medium text-text mb-sm block">تاريخ الاستحقاق</label>
+                  <label className="text-small font-medium text-text mb-sm block">موعد السداد</label>
                   <Input value={selectedDebt.dueDate ? new Date(selectedDebt.dueDate).toLocaleDateString('en-GB') : 'غير محدد'} disabled />
                 </div>
                 <div>

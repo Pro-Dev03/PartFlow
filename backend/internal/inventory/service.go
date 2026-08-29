@@ -653,5 +653,5 @@ func generateBarcode(productID *uuid.UUID, partTypeID *uuid.UUID) string {
 	} else {
 		id = uuid.New().String()[:8]
 	}
-	return fmt.Sprintf("PF-%s", strings.ToUpper(id))
+	return fmt.Sprintf("PF-%s-%s", strings.ToUpper(id), strings.ToUpper(uuid.New().String()[:8]))
 }

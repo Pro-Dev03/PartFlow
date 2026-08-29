@@ -2,22 +2,23 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui
 import { StatCard } from '../../../components/ui/stat-card';
 import { Button } from '../../../components/ui/button';
 import { getButtonSize } from '../../../config/button-sizes';
-import { formatPrice, normalizeCurrencyValue } from '../../../utils';
+import { normalizeCurrencyValue } from '../../../utils';
 import { 
   Package, 
   Sparkles, 
   TrendingUp, 
   AlertTriangle 
 } from 'lucide-react';
-import { InventoryItem } from '../types/inventory.types';
+import { InventoryItem, Product } from '../types/inventory.types';
 
 interface InventoryStatsProps {
+  products: Product[];
   inventoryItems: InventoryItem[];
   onRecommendationClick: (action: string) => void;
   isMobile: boolean;
 }
 
-export function InventoryStats({ inventoryItems, isMobile }: InventoryStatsProps) {
+export function InventoryStats({ products, inventoryItems, isMobile }: InventoryStatsProps) {
   const inactiveStatuses = new Set(['SOLD', 'RETURNED', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
 
   const normalizedItems = inventoryItems.reduce((acc: Map<string, { stock: number; unitPrice: number; condition: string }>, item: InventoryItem) => {
@@ -41,7 +42,7 @@ export function InventoryStats({ inventoryItems, isMobile }: InventoryStatsProps
     }
 
     const nextCondition = String(item.condition || '').toUpperCase();
-    const unitPrice = normalizeCurrencyValue((item as any).purchase_cost ?? (item as any).selling_price ?? item.price ?? 0);
+    const unitPrice = normalizeCurrencyValue((item as any).selling_price ?? item.price ?? (item as any).purchase_cost ?? 0);
 
     acc.set(productId, {
       stock,
@@ -52,12 +53,15 @@ export function InventoryStats({ inventoryItems, isMobile }: InventoryStatsProps
     return acc;
   }, new Map());
 
-  const summaryItems = Array.from(normalizedItems.values()).filter((item) => item.condition !== 'USED');
+  const visibleProductIds = new Set(products.map((product) => product.id));
+  const summaryItems = Array.from(normalizedItems.entries())
+    .filter(([productId, item]) => visibleProductIds.has(productId) && item.condition !== 'USED')
+    .map(([, item]) => item);
 
   const lowStockItems = summaryItems.filter((item) => item.stock > 0 && item.stock < 10).length;
 
   const totalInventoryValue = summaryItems.reduce((total, item) => total + (item.stock * item.unitPrice), 0);
-  const formattedValue = formatPrice(totalInventoryValue);
+  const formattedValue = `₪${Math.round(totalInventoryValue).toLocaleString('en-US')}`;
 
   return (
     <>
@@ -96,7 +100,7 @@ export function InventoryStats({ inventoryItems, isMobile }: InventoryStatsProps
            className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard 
           title="إجمالي العناصر" 
-          value={summaryItems.length} 
+          value={products.length}
           icon={Package}
           subtitle="إجمالي العناصر"
           variant="featured"

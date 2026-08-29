@@ -3,15 +3,21 @@ import { Modal } from '../../../components/ui/modal';
 import { Input } from '../../../components/ui/input';
 import { Select } from '../../../components/ui/select';
 import { TradeInFormData } from '../types/pos.types';
+import type { Customer, Product } from '../../../services/api/types';
 import { ShoppingCart } from 'lucide-react';
 import { toast } from 'sonner';
+
+interface TradeInPartType {
+  id: string;
+  name_ar?: string;
+}
 
 interface TradeInModalProps {
   isOpen: boolean;
   onClose: () => void;
-  customers: any[];
-  products: any[];
-  partTypes: any[];
+  customers: Customer[];
+  products: Product[];
+  partTypes: TradeInPartType[];
   customersLoading: boolean;
   productsLoading: boolean;
   partTypesLoading: boolean;
@@ -39,7 +45,7 @@ export function TradeInModal({
   
   const [tradeInPartType, setTradeInPartType] = useState('');
   const [tradeInPrice, setTradeInPrice] = useState('');
-  const [tradeInSpecifications, setTradeInSpecifications] = useState<any[]>([]);
+  const [tradeInSpecifications, setTradeInSpecifications] = useState<TradeInFormData['specifications']>([]);
 
   const handleSubmit = async () => {
     const customerValue = isCustomerManual ? tradeInCustomerManual : tradeInCustomer;
@@ -251,7 +257,7 @@ export function TradeInModal({
             loading={partTypesLoading}
             options={[
               { value: '', label: 'اختر نوع القطعة...' },
-              ...partTypes.map((pt: any) => ({ value: pt.id, label: pt.name_ar })),
+              ...partTypes.map((pt) => ({ value: pt.id, label: pt.name_ar })),
             ]}
             emptyMessage="لا يوجد أنواع قطع"
             style={{ borderRadius: '10px' }}

@@ -26,40 +26,41 @@ func CreateReport(userID uuid.UUID, req *ReportRequest) *Report {
 	parametersJSON, _ := json.Marshal(req.Parameters)
 
 	return &Report{
-		ID:             uuid.New(),
-		Type:           req.Type,
-		Title:          req.Title,
-		Description:    req.Description,
-		Parameters:     string(parametersJSON),
-		Status:         "pending",
-		GeneratedBy:    userID,
-		GeneratedAt:    time.Now(),
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		ID:          uuid.New(),
+		Type:        req.Type,
+		Title:       req.Title,
+		Description: req.Description,
+		Parameters:  string(parametersJSON),
+		Status:      "pending",
+		GeneratedBy: userID,
+		GeneratedAt: time.Now(),
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 }
 
 // ValidateReportRequest validates report request
 func ValidateReportRequest(req *ReportRequest) error {
 	validTypes := map[string]bool{
-		"sales":     true,
-		"inventory": true,
-		"expenses":  true,
-		"profits":   true,
-		"debts":     true,
-		"purchases": true,
-		"returns":   true,
+		"sales":      true,
+		"inventory":  true,
+		"expenses":   true,
+		"profits":    true,
+		"debts":      true,
+		"purchases":  true,
+		"returns":    true,
+		"net-sales":  true,
 		"warranties": true,
 	}
-	
+
 	if !validTypes[req.Type] {
 		return ErrInvalidReportType
 	}
-	
+
 	if req.Title == "" {
 		return ErrReportNotFound
 	}
-	
+
 	// Validate date range if provided
 	if startDate, ok := req.Parameters["start_date"]; ok {
 		if endDate, ok := req.Parameters["end_date"]; ok {
@@ -72,18 +73,18 @@ func ValidateReportRequest(req *ReportRequest) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
 // ValidateReportStatus validates report status
 func ValidateReportStatus(status string) error {
 	validStatuses := map[string]bool{
-		"pending":  true,
+		"pending":   true,
 		"completed": true,
-		"failed":   true,
+		"failed":    true,
 	}
-	
+
 	if !validStatuses[status] {
 		return ErrInvalidReportStatus
 	}
@@ -105,9 +106,28 @@ func (r *Report) ParseParameters() (map[string]interface{}, error) {
 // ParseData parses data JSON string
 func (r *Report) ParseData() (interface{}, error) {
 	var data interface{}
+	switch r.Type {
+	case "sales":
+		data = &SalesReport{}
+	case "inventory":
+		data = &InventoryReport{}
+	case "expenses":
+		data = &ExpensesReport{}
+	case "profits":
+		data = &ProfitsReport{}
+	case "debts":
+		data = &DebtsReport{}
+	case "purchases":
+		data = &PurchasesReport{}
+	case "returns":
+		data = &ReturnsReport{}
+	case "net-sales":
+		data = &NetSalesReport{}
+	default:
+		data = &map[string]interface{}{}
+	}
 	if r.Data != "" {
-		err := json.Unmarshal([]byte(r.Data), &data)
-		if err != nil {
+		if err := json.Unmarshal([]byte(r.Data), data); err != nil {
 			return nil, err
 		}
 	}

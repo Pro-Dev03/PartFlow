@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { acquisitionsApi } from '../../../services/api/endpoints';
 import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
@@ -11,7 +12,8 @@ import {
   AlertTriangle,
   Clock,
   TrendingDown,
-  Layers
+  Layers,
+  ArrowRight
 } from 'lucide-react';
 
 interface AgingItem {
@@ -28,6 +30,7 @@ interface AgingItem {
 }
 
 export function AgingPage() {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [alertLevelFilter, setAlertLevelFilter] = useState<string>('');
 
@@ -37,9 +40,10 @@ export function AgingPage() {
   });
 
   const agingItems = Array.isArray(agingData?.data) ? agingData.data : [];
+  const longAgingItems = agingItems.filter((item: AgingItem) => item.days_in_stock >= 60);
 
   // Filter items
-  const filteredItems = agingItems.filter((item: AgingItem) => {
+  const filteredItems = longAgingItems.filter((item: AgingItem) => {
     const matchesSearch = !searchQuery || 
       item.product_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.serial_number?.toLowerCase().includes(searchQuery.toLowerCase());
@@ -101,7 +105,13 @@ export function AgingPage() {
       <PageHeader
         eyebrow="Inventory Aging"
         title="تقادم القطع المستعملة"
-        description="تتبع مدة بقاء القطع المستعملة في المخزون"
+        description="القطع المستعملة التي بقيت في المخزون مدة طويلة وتحتاج إلى متابعة"
+        actions={
+          <Button variant="secondary" onClick={() => navigate('/app/usedparts')}>
+            <ArrowRight className="w-4 h-4" />
+            رجوع
+          </Button>
+        }
       />
 
       {/* Stats Cards */}
@@ -128,7 +138,7 @@ export function AgingPage() {
               <div>
                 <p className="text-sm text-gray-400">حرج (90+ يوم)</p>
                 <p className="text-2xl font-bold">
-                  {agingItems.filter((i: any) => i.days_in_stock >= 90).length}
+                  {longAgingItems.filter((i: any) => i.days_in_stock >= 90).length}
                 </p>
               </div>
             </div>
@@ -143,7 +153,7 @@ export function AgingPage() {
               <div>
                 <p className="text-sm text-gray-400">تحذير (60-89 يوم)</p>
                 <p className="text-2xl font-bold">
-                  {agingItems.filter((i: any) => i.days_in_stock >= 60 && i.days_in_stock < 90).length}
+                  {longAgingItems.filter((i: any) => i.days_in_stock >= 60 && i.days_in_stock < 90).length}
                 </p>
               </div>
             </div>
@@ -159,7 +169,7 @@ export function AgingPage() {
                 <p className="text-sm text-gray-400">متوسط الأيام</p>
                 <p className="text-2xl font-bold">
                   {agingItems.length > 0 
-                    ? Math.round(agingItems.reduce((sum: number, i: any) => sum + i.days_in_stock, 0) / agingItems.length)
+                    ? Math.round(longAgingItems.reduce((sum: number, i: any) => sum + i.days_in_stock, 0) / longAgingItems.length)
                     : 0}
                 </p>
               </div>

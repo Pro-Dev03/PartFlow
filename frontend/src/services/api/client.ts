@@ -177,23 +177,33 @@ class ApiClient {
               headers: {
                 'Content-Type': 'application/json',
               },
+              body: JSON.stringify({
+                refresh_token: TokenManager.getRefreshToken(),
+              }),
             });
 
             if (refreshResponse.ok) {
               const refreshData = await refreshResponse.json();
-              const newToken = refreshData.data?.token;
-              
+              const refreshPayload = refreshData?.data && typeof refreshData.data === 'object'
+                ? refreshData.data
+                : refreshData;
+              const newToken = refreshPayload?.access_token || refreshPayload?.token;
+              const newRefreshToken = refreshPayload?.refresh_token || refreshPayload?.refreshToken || TokenManager.getRefreshToken();
+
               if (newToken) {
                 this.setToken(newToken);
+                if (newRefreshToken) {
+                  TokenManager.setRefreshToken(newRefreshToken);
+                }
                 headers['Authorization'] = `Bearer ${newToken}`;
-                
+
                 // Retry request with new token
                 const retryResponse = await fetch(url, {
                   ...options,
                   headers,
                 });
                 const retryData: ApiResponse<T> = await this.parseResponse<T>(retryResponse);
-                
+
                 if (!retryResponse.ok) {
                   const error: any = new Error(retryData.error?.message || 'An error occurred');
                   error.status = retryResponse.status;
@@ -202,22 +212,42 @@ class ApiClient {
                   error.arabicMessage = getArabicErrorMessage(error);
                   throw error;
                 }
-                
+
                 return retryData;
               }
             }
           } catch (refreshError) {
             console.error('Token refresh failed:', refreshError);
           }
-          
-          // If refresh failed, clear token and redirect
-          this.clearToken();
-          window.location.href = '/login';
-          throw new Error('Session expired. Please login again.');
+
+          // Do not automatically log the user out.
+          // Keep the current session alive and let the user continue
+          // until they explicitly choose to log out or log in again.
+          throw new Error('Session refresh failed. Your session will remain active until you log out manually.');
+        }
+
+        if (response.status === 403) {
+          if (typeof window !== 'undefined' && !window.location.pathname.includes('/subscription-expired')) {
+            try {
+              window.history.pushState({}, '', '/subscription-expired');
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            } catch {
+              window.location.href = '/subscription-expired';
+            }
+          }
+          const subscriptionError: any = new Error('انتهت مدة اشتراكك. يرجى التواصل مع المطور لتجديد الاشتراك.');
+          subscriptionError.status = 403;
+          subscriptionError.code = 'SUBSCRIPTION_EXPIRED';
+          subscriptionError.arabicMessage = 'انتهت مدة اشتراكك. يرجى التواصل مع المطور لتجديد الاشتراك.';
+          throw subscriptionError;
         }
         
         // Create error object with status
-        const error: any = new Error(data.error?.message || 'An error occurred');
+        const responseError = data.error as ApiResponse<T>['error'] | string | undefined;
+        const errorMessage = typeof responseError === 'string'
+          ? responseError
+          : responseError?.message || 'An error occurred';
+        const error: any = new Error(errorMessage);
         error.status = response.status;
         error.code = data.error?.code;
         error.response = data;
@@ -273,7 +303,10 @@ class ApiClient {
       }
     }
     
-    const result = await this.requestWithRetry<T>(url, { method: 'GET' });
+    const result = await this.requestWithRetry<T>(url, {
+      method: 'GET',
+      ...(useCache ? {} : { cache: 'no-store' as RequestCache }),
+    });
     
     if (useCache) {
       this.setCache(cacheKey, result);

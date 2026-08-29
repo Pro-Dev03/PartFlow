@@ -8,28 +8,28 @@ import (
 
 // Inspection represents an inspection of a used item
 type Inspection struct {
-	ID             uuid.UUID  `json:"id" db:"id"`
-	ProductID      *uuid.UUID `json:"product_id" db:"product_id"`
-	InventoryItemID *uuid.UUID `json:"inventory_item_id" db:"inventory_item_id"`
-	SerialNumber   string     `json:"serial_number" db:"serial_number"`
-	InspectionDate time.Time  `json:"inspection_date" db:"inspection_date"`
-	InspectedBy    uuid.UUID  `json:"inspected_by" db:"inspected_by"`
-	Status         string     `json:"status" db:"status"` // pending, passed, failed, needs_repair
-	Condition      string     `json:"condition" db:"condition"` // excellent, very_good, good, fair, poor
-	Grade          string     `json:"grade" db:"grade"` // A, B, C, D, F
-	Notes          string     `json:"notes" db:"notes"`
-	Photos         []string   `json:"photos" db:"photos"`
-	TestResults    TestResults `json:"test_results" db:"test_results"`
-	
+	ID              uuid.UUID   `json:"id" db:"id"`
+	ProductID       *uuid.UUID  `json:"product_id" db:"product_id"`
+	InventoryItemID *uuid.UUID  `json:"inventory_item_id" db:"inventory_item_id"`
+	SerialNumber    string      `json:"serial_number" db:"serial_number"`
+	InspectionDate  time.Time   `json:"inspection_date" db:"inspection_date"`
+	InspectedBy     uuid.UUID   `json:"inspected_by" db:"inspected_by"`
+	Status          string      `json:"status" db:"status"`       // pending, passed, failed, needs_repair
+	Condition       string      `json:"condition" db:"condition"` // excellent, very_good, good, fair, poor
+	Grade           string      `json:"grade" db:"grade"`         // A, B, C, D, F
+	Notes           string      `json:"notes" db:"notes"`
+	Photos          []string    `json:"photos" db:"photos"`
+	TestResults     TestResults `json:"test_results" db:"test_results"`
+
 	// Template-based inspection (USED-PARTS-ACQUISITION.md)
-	TemplateType   string     `json:"template_type" db:"template_type"` // gpu, cpu, laptop, etc.
-	CheckpointResults string   `json:"checkpoint_results" db:"checkpoint_results"` // JSON of CheckpointResult
-	
+	TemplateType      string `json:"template_type" db:"template_type"`           // gpu, cpu, laptop, etc.
+	CheckpointResults string `json:"checkpoint_results" db:"checkpoint_results"` // JSON of CheckpointResult
+
 	// Link to acquisition item (for customer acquisitions)
 	AcquisitionItemID *uuid.UUID `json:"acquisition_item_id" db:"acquisition_item_id"`
-	
-	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // TestResults represents test results for an inspection
@@ -46,76 +46,78 @@ type TestResults struct {
 
 // InspectionRequest represents inspection creation request
 type InspectionRequest struct {
-	ProductID      uuid.UUID  `json:"product_id" binding:"required"`
-	InventoryItemID *uuid.UUID `json:"inventory_item_id"`
-	SerialNumber   string     `json:"serial_number"`
-	InspectionDate time.Time  `json:"inspection_date" binding:"required"`
-	Condition      string     `json:"condition" binding:"required,oneof=excellent very_good good fair poor"`
-	Grade          string     `json:"grade" binding:"required,oneof=A B C D F"`
-	Notes          string     `json:"notes"`
-	Photos         []string   `json:"photos"`
-	TestResults    TestResults `json:"test_results"`
+	ProductID         uuid.UUID   `json:"product_id" binding:"required"`
+	InventoryItemID   *uuid.UUID  `json:"inventory_item_id"`
+	AcquisitionItemID *uuid.UUID  `json:"acquisition_item_id"`
+	SerialNumber      string      `json:"serial_number"`
+	InspectionDate    time.Time   `json:"inspection_date" binding:"required"`
+	Condition         string      `json:"condition" binding:"required,oneof=excellent very_good good fair poor"`
+	Grade             string      `json:"grade" binding:"required,oneof=A B C D F"`
+	Notes             string      `json:"notes"`
+	Photos            []string    `json:"photos"`
+	TestResults       TestResults `json:"test_results"`
 }
 
 // InspectionUpdateRequest represents inspection update request
 type InspectionUpdateRequest struct {
-	InspectionDate time.Time  `json:"inspection_date"`
-	Status         string     `json:"status" binding:"omitempty,oneof=pending passed failed needs_repair"`
-	Condition      string     `json:"condition" binding:"omitempty,oneof=excellent very_good good fair poor"`
-	Grade          string     `json:"grade" binding:"omitempty,oneof=A B C D F"`
-	Notes          string     `json:"notes"`
-	Photos         []string   `json:"photos"`
-	TestResults    TestResults `json:"test_results"`
+	InspectionDate    time.Time   `json:"inspection_date"`
+	Status            string      `json:"status" binding:"omitempty,oneof=pending passed failed needs_repair"`
+	Condition         string      `json:"condition" binding:"omitempty,oneof=excellent very_good good fair poor"`
+	Grade             string      `json:"grade" binding:"omitempty,oneof=A B C D F"`
+	Notes             string      `json:"notes"`
+	Photos            []string    `json:"photos"`
+	TestResults       TestResults `json:"test_results"`
+	AcquisitionItemID *uuid.UUID  `json:"acquisition_item_id"`
 }
 
 // InspectionResponse represents inspection response with related data
 type InspectionResponse struct {
 	Inspection Inspection   `json:"inspection"`
-	Product   *ProductInfo `json:"product,omitempty"`
-	Inspector *UserInfo    `json:"inspector,omitempty"`
+	Product    *ProductInfo `json:"product,omitempty"`
+	Inspector  *UserInfo    `json:"inspector,omitempty"`
 }
 
 // ProductInfo represents product information
 type ProductInfo struct {
-	ID     uuid.UUID `json:"id"`
-	Name   string    `json:"name"`
-	Model  string    `json:"model"`
-	SKU    string    `json:"sku"`
-	Barcode string   `json:"barcode"`
+	ID      uuid.UUID `json:"id" db:"id"`
+	Name    string    `json:"name" db:"name"`
+	Model   string    `json:"model" db:"model"`
+	SKU     string    `json:"sku" db:"sku"`
+	Barcode string    `json:"barcode" db:"barcode"`
 }
 
 // UserInfo represents user information
 type UserInfo struct {
-	ID        uuid.UUID `json:"id"`
-	FirstName string    `json:"first_name"`
-	LastName string    `json:"last_name"`
-	Email     string    `json:"email"`
+	ID        uuid.UUID `json:"id" db:"id"`
+	FirstName string    `json:"first_name" db:"first_name"`
+	LastName  string    `json:"last_name" db:"last_name"`
+	Email     string    `json:"email" db:"email"`
 }
 
 // InspectionListRequest represents inspection list query parameters
 type InspectionListRequest struct {
-	Page         int        `form:"page" binding:"min=1"`
-	PerPage      int        `form:"per_page" binding:"min=1,max=100"`
-	ProductID    *uuid.UUID `form:"product_id"`
-	Status       string     `form:"status" binding:"omitempty,oneof=pending passed failed needs_repair"`
-	Condition    string     `form:"condition" binding:"omitempty,oneof=excellent very_good good fair poor"`
-	Grade        string     `form:"grade" binding:"omitempty,oneof=A B C D F"`
-	StartDate    *time.Time `form:"start_date"`
-	EndDate      *time.Time `form:"end_date"`
-	InspectedBy  *uuid.UUID `form:"inspected_by"`
-	Search       string     `form:"search"`
-	SortBy       string     `form:"sort_by"`
-	SortOrder    string     `form:"sort_order"`
+	Page        int        `form:"page" binding:"min=1"`
+	PerPage     int        `form:"per_page" binding:"min=1,max=100"`
+	ProductID   *uuid.UUID `form:"product_id"`
+	Status      string     `form:"status" binding:"omitempty,oneof=pending passed failed needs_repair"`
+	Condition   string     `form:"condition" binding:"omitempty,oneof=excellent very_good good fair poor"`
+	Grade       string     `form:"grade" binding:"omitempty,oneof=A B C D F"`
+	StartDate   *time.Time `form:"start_date"`
+	EndDate     *time.Time `form:"end_date"`
+	InspectedBy *uuid.UUID `form:"inspected_by"`
+	Search      string     `form:"search"`
+	SortBy      string     `form:"sort_by"`
+	SortOrder   string     `form:"sort_order"`
 }
 
 // InspectionSummary represents inspection summary statistics
 type InspectionSummary struct {
-	TotalInspections    int              `json:"total_inspections"`
-	PassedInspections   int              `json:"passed_inspections"`
-	FailedInspections   int              `json:"failed_inspections"`
-	PendingInspections  int              `json:"pending_inspections"`
-	ByCondition         map[string]int    `json:"by_condition"`
-	ByGrade             map[string]int    `json:"by_grade"`
-	ThisWeek            int              `json:"this_week"`
-	ThisMonth           int              `json:"this_month"`
+	TotalInspections   int            `json:"total_inspections"`
+	PassedInspections  int            `json:"passed_inspections"`
+	FailedInspections  int            `json:"failed_inspections"`
+	PendingInspections int            `json:"pending_inspections"`
+	ByCondition        map[string]int `json:"by_condition"`
+	ByGrade            map[string]int `json:"by_grade"`
+	ThisWeek           int            `json:"this_week"`
+	ThisMonth          int            `json:"this_month"`
 }

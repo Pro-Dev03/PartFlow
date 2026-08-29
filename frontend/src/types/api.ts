@@ -33,6 +33,7 @@ export interface DashboardStats {
   todayProfit: number;
   inventoryValue: number;
   outstandingDebts: number;
+  overdueDebts: number;
   lowStock: number;
   alerts: DashboardAlert[];
   topProducts: Product[];

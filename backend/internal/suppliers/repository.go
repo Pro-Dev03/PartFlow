@@ -41,7 +41,11 @@ func (r *Repository) Create(ctx context.Context, supplier *Supplier) error {
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Supplier, error) {
 	query := `
 		SELECT id, code, name, email, phone, address, city, country, tax_id,
-			payment_terms, credit_limit, current_balance, notes, is_active, created_at, updated_at
+			payment_terms, credit_limit, current_balance,
+			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
+			COALESCE((SELECT SUM(COALESCE(paid_amount, 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS paid_amount,
+			COALESCE((SELECT SUM(GREATEST(total_amount - COALESCE(paid_amount, 0), 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS outstanding,
+			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE id = $1
 	`
@@ -57,7 +61,11 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Supplier, erro
 func (r *Repository) GetByCode(ctx context.Context, code string) (*Supplier, error) {
 	query := `
 		SELECT id, code, name, email, phone, address, city, country, tax_id,
-			payment_terms, credit_limit, current_balance, notes, is_active, created_at, updated_at
+			payment_terms, credit_limit, current_balance,
+			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
+			COALESCE((SELECT SUM(COALESCE(paid_amount, 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS paid_amount,
+			COALESCE((SELECT SUM(GREATEST(total_amount - COALESCE(paid_amount, 0), 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS outstanding,
+			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE code = $1
 	`
@@ -75,7 +83,11 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 
 	query := `
 		SELECT id, code, name, email, phone, address, city, country, tax_id,
-			payment_terms, credit_limit, current_balance, notes, is_active, created_at, updated_at
+			payment_terms, credit_limit, current_balance,
+			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
+			COALESCE((SELECT SUM(COALESCE(paid_amount, 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS paid_amount,
+			COALESCE((SELECT SUM(GREATEST(total_amount - COALESCE(paid_amount, 0), 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS outstanding,
+			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE 1=1
 	`
@@ -164,32 +176,19 @@ func (r *Repository) Update(ctx context.Context, supplier *Supplier) error {
 
 // Delete deletes a supplier
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
-	// Safety check: Get supplier first
-	supplier, err := r.GetByID(ctx, id)
+	var exists bool
+	err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM suppliers WHERE id = $1)`, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to find supplier: %w", err)
+	}
+	if !exists {
+		return ErrSupplierNotFound
 	}
 
-	// CRITICAL: Check if supplier has outstanding balance
-	if supplier.CurrentBalance > 0 {
-		return fmt.Errorf("cannot delete supplier with outstanding balance")
-	}
-
-	// Check for active purchases
-	hasActivePurchases, err := r.HasActivePurchases(ctx, id)
-	if err != nil {
-		return fmt.Errorf("failed to check for active purchases: %w", err)
-	}
-
-	if hasActivePurchases {
-		return fmt.Errorf("cannot delete supplier with active purchases")
-	}
-
-	// Safe to delete
-	query := `DELETE FROM suppliers WHERE id = $1`
+	query := `UPDATE suppliers SET is_active = false, updated_at = NOW() WHERE id = $1`
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
-		return fmt.Errorf("failed to delete supplier: %w", err)
+		return fmt.Errorf("failed to deactivate supplier: %w", err)
 	}
 
 	rowsAffected, _ := result.RowsAffected()
@@ -210,7 +209,7 @@ func (r *Repository) HasActivePurchases(ctx context.Context, supplierID uuid.UUI
 			AND created_at > NOW() - INTERVAL '1 year'
 		)
 	`
-	
+
 	var hasPurchases bool
 	err := r.db.GetContext(ctx, &hasPurchases, query, supplierID)
 	if err != nil {
@@ -220,7 +219,7 @@ func (r *Repository) HasActivePurchases(ctx context.Context, supplierID uuid.UUI
 		}
 		return false, fmt.Errorf("failed to check active purchases: %w", err)
 	}
-	
+
 	return hasPurchases, nil
 }
 

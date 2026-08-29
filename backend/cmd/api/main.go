@@ -11,9 +11,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/partflow/smart-store/internal/api"
 	"github.com/partflow/smart-store/internal/auth"
 	"github.com/partflow/smart-store/internal/inventory"
-	"github.com/partflow/smart-store/internal/api"
+	"github.com/partflow/smart-store/internal/localdb"
+	repoMiddleware "github.com/partflow/smart-store/internal/middleware"
 
 	"github.com/partflow/smart-store/pkg/config"
 	"github.com/partflow/smart-store/pkg/database"
@@ -48,6 +50,15 @@ func main() {
 	}
 	defer database.Close()
 
+	// Initialize database connections
+	db := database.GetDB()
+
+	sqliteDB, err := localdb.Open()
+	if err != nil {
+		logger.Fatal("Failed to initialize local SQLite database", err)
+	}
+	defer sqliteDB.DB.Close()
+
 	// Set Gin mode
 	gin.SetMode(cfg.ServerMode)
 
@@ -56,6 +67,7 @@ func main() {
 
 	// Register middleware
 	router.Use(middleware.CORS())
+	router.Use(repoMiddleware.RepositoryFactoryMiddleware(db, sqliteDB.DB))
 	router.Use(middleware.LoggingMiddleware())
 	router.Use(middleware.ErrorLoggingMiddleware())
 	router.Use(errors.ErrorHandlerMiddleware())
@@ -72,9 +84,6 @@ func main() {
 	// Set disable auth flag for development
 	middleware.SetDisableAuth(cfg.DisableAuth)
 
-	// Initialize services
-	db := database.GetDB()
-
 	// Auth service
 	authService, err := auth.NewService(db, cfg.JWTSecret, cfg.UseSupabaseAuth, cfg.SupabaseURL, cfg.SupabaseKey)
 	if err != nil {
@@ -86,7 +95,7 @@ func main() {
 
 	// Health checker
 	healthChecker := health.NewHealthChecker(db)
-	
+
 	// Register health check routes
 	router.GET("/health", healthChecker.Check)
 	router.GET("/ready", healthChecker.Readiness)
@@ -94,10 +103,10 @@ func main() {
 
 	// Log application startup
 	logger.LogSystemEvent("application_start", "api", map[string]interface{}{
-		"server_mode": cfg.ServerMode,
-		"port": cfg.ServerPort,
+		"server_mode":        cfg.ServerMode,
+		"port":               cfg.ServerPort,
 		"rate_limit_enabled": cfg.RateLimitEnabled,
-		"architecture": "Centralized routing inspired by Fynexa",
+		"architecture":       "Centralized routing inspired by Fynexa",
 	})
 
 	// Register API routes using centralized router (inspired by Fynexa architecture)

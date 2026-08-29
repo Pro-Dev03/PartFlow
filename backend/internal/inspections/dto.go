@@ -34,20 +34,21 @@ func (i *Inspection) ToInspectionListItem(productName string, inspectorName stri
 // CreateInspection creates an Inspection from request
 func CreateInspection(userID uuid.UUID, req *InspectionRequest) *Inspection {
 	return &Inspection{
-		ID:              uuid.New(),
-		ProductID:       uuidPtrIfSet(req.ProductID),
-		InventoryItemID: req.InventoryItemID,
-		SerialNumber:    req.SerialNumber,
-		InspectionDate:  req.InspectionDate,
-		InspectedBy:     userID,
-		Status:          "pending",
-		Condition:       req.Condition,
-		Grade:           req.Grade,
-		Notes:           req.Notes,
-		Photos:          req.Photos,
-		TestResults:     req.TestResults,
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
+		ID:                uuid.New(),
+		ProductID:         uuidPtrIfSet(req.ProductID),
+		InventoryItemID:   req.InventoryItemID,
+		AcquisitionItemID: req.AcquisitionItemID,
+		SerialNumber:      req.SerialNumber,
+		InspectionDate:    req.InspectionDate,
+		InspectedBy:       userID,
+		Status:            "pending",
+		Condition:         req.Condition,
+		Grade:             req.Grade,
+		Notes:             req.Notes,
+		Photos:            req.Photos,
+		TestResults:       req.TestResults,
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
 	}
 }
 

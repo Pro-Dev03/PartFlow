@@ -43,7 +43,7 @@ export function PaymentSection({
   const isCreditSaleWithoutCustomer = isCreditSale && !selectedCustomer;
   const isCheckoutDisabled =
     isProcessing ||
-    (['cash', 'card', 'other'].includes(paymentMethod) && paid < total) ||
+    (['cash', 'card', 'checks'].includes(paymentMethod) && paid < total) ||
     isCreditSaleWithoutCustomer ||
     isCreditAdvanceMissing;
 
@@ -161,11 +161,11 @@ export function PaymentSection({
                 <span style={{ color: paymentMethod === 'cash' ? '#fff' : 'var(--text-primary)' }}>نقداً</span>
               </Button>
               <Button
-                variant={paymentMethod === 'other' ? 'primary' : 'secondary'}
-                onClick={() => { setPaymentMethod('other'); setPaidAmount(total.toFixed(2)); }}
+                variant={paymentMethod === 'checks' ? 'primary' : 'secondary'}
+                onClick={() => { setPaymentMethod('checks'); setPaidAmount(total.toFixed(2)); }}
               >
                 <Wallet className="w-3.5 h-3.5 mr-1.5" />
-                أخرى
+                شيكات
               </Button>
               <Button
                 variant={paymentMethod === 'card' ? 'primary' : 'secondary'}
@@ -241,7 +241,7 @@ export function PaymentSection({
                 }}
               >
                 <User className="w-3.5 h-3.5 mr-1.5" style={{ color: paymentMethod === 'credit' ? '#fff' : 'var(--color-info)' }} />
-                <span style={{ color: paymentMethod === 'credit' ? '#fff' : 'var(--text-primary)' }}>آجل</span>
+                <span style={{ color: paymentMethod === 'credit' ? '#fff' : 'var(--text-primary)' }}>دين</span>
               </Button>
             </div>
           </div>

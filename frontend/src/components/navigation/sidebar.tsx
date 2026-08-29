@@ -15,9 +15,6 @@ import {
   BarChart3,
   Layers,
   Tag,
-  CheckCircle,
-  Clock,
-  AlertTriangle,
   FileText,
   UserCheck,
 } from 'lucide-react';
@@ -66,9 +63,6 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
       items: [
         { id: 'inventory', icon: Package, label: t('nav.inventory') || 'المنتجات', path: '/app/inventory' },
         { id: 'used-parts', icon: Layers, label: 'مخزون القطع المستعملة', path: '/app/usedparts' },
-        { id: 'inspections', icon: CheckCircle, label: 'الفحص', path: '/app/inspections' },
-        { id: 'item-history', icon: Clock, label: 'تاريخ القطع', path: '/app/item-history' },
-        { id: 'aging', icon: AlertTriangle, label: 'تقادم القطع', path: '/app/aging' },
         { id: 'seller-balances', icon: UserCheck, label: 'رصيد البائعين', path: '/app/seller-balances' },
       ]
     },
@@ -84,6 +78,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
       items: [
         { id: 'expenses', icon: DollarSign, label: t('nav.expenses') || 'المصروفات', path: '/app/expenses' },
         { id: 'returns', icon: RotateCcw, label: t('nav.returns') || 'المرتجعات', path: '/app/returns' },
+        { id: 'supplier-returns', icon: RotateCcw, label: 'مرتجعات الموردين', path: '/app/supplier-returns' },
         { id: 'return-details', icon: FileText, label: 'تفاصيل المرتجعات', path: '/app/return-details' },
         { id: 'reports', icon: BarChart3, label: t('nav.reports') || 'التقارير', path: '/app/reports' },
       ]
@@ -131,9 +126,24 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
         {!isCollapsed && (
           <div className="flex items-center gap-[var(--spacing-3)]">
             <div
-              className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--gradient-primary)] shadow-[var(--shadow-glow)]"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-lg)] border shadow-[var(--shadow-glow)]"
+              style={{
+                background: 'var(--color-primary-08)',
+                borderColor: 'var(--color-primary-25)',
+                boxShadow: '0 4px 14px var(--color-primary-15)',
+                width: '40px',
+                minWidth: '40px',
+                height: '40px',
+                minHeight: '40px',
+              }}
             >
-              <Package className="h-5 w-5 text-[var(--text-on-primary)]" />
+              <img
+                src="/favicon.svg?v=3"
+                alt=""
+                aria-hidden="true"
+                className="block h-5 w-5 shrink-0"
+                style={{ width: '20px', height: '20px' }}
+              />
             </div>
             <div className="brand-text">
               <span className="text-lg font-bold tracking-[0.5px] text-[var(--text-primary)]">PARTFLOW</span>
@@ -143,9 +153,24 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
         )}
         {isCollapsed && (
           <div
-            className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--gradient-primary)] shadow-[var(--shadow-glow)]"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-lg)] border shadow-[var(--shadow-glow)]"
+            style={{
+              background: 'var(--color-primary-08)',
+              borderColor: 'var(--color-primary-25)',
+              boxShadow: '0 4px 14px var(--color-primary-15)',
+              width: '40px',
+              minWidth: '40px',
+              height: '40px',
+              minHeight: '40px',
+            }}
           >
-            <Package className="h-5 w-5 text-[var(--text-on-primary)]" />
+            <img
+              src="/favicon.svg?v=3"
+              alt=""
+              aria-hidden="true"
+              className="block h-5 w-5 shrink-0"
+              style={{ width: '20px', height: '20px' }}
+            />
           </div>
         )}
       </div>
@@ -213,7 +238,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
             e.currentTarget.classList.remove('sidebar-scan-button-hover');
           }}
         >
-          <Scan className="h-5 w-5 flex-shrink-0 text-[var(--text-on-primary)]" />
+          <Scan className="h-5 w-5 flex-shrink-0" style={{ color: '#ffffff' }} />
           {!isCollapsed && (
             <span className="nav-label text-[var(--text-on-primary)]">مسح الباركود</span>
           )}

@@ -29,24 +29,26 @@ type Sale struct {
 	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
 
 	// Reversal tracking (ARCHITECTURE-PRINCIPLES.md - Reverse instead of Delete)
-	ReversedAt         *time.Time `json:"reversed_at" db:"reversed_at"`         // متى تم عكس البيع
-	ReversedBy         *uuid.UUID `json:"reversed_by" db:"reversed_by"`         // من قام بالعكس
-	ReversalReason     *string    `json:"reversal_reason" db:"reversal_reason"` // سبب العكس
+	ReversedAt     *time.Time `json:"reversed_at" db:"reversed_at"`         // متى تم عكس البيع
+	ReversedBy     *uuid.UUID `json:"reversed_by" db:"reversed_by"`         // من قام بالعكس
+	ReversalReason *string    `json:"reversal_reason" db:"reversal_reason"` // سبب العكس
 }
 
 // SaleItem represents an item in a sale
 type SaleItem struct {
-	ID            uuid.UUID  `json:"id" db:"id"`
-	SaleID        uuid.UUID  `json:"sale_id" db:"sale_id"`
-	ProductID     uuid.UUID  `json:"product_id" db:"product_id"`
-	Quantity      int        `json:"quantity" db:"quantity"`
-	UnitPrice     float64    `json:"unit_price" db:"unit_price"`
-	UnitCost      float64    `json:"unit_cost" db:"unit_cost"`
-	DiscountAmount float64    `json:"discount_amount" db:"discount_amount"`
-	TaxAmount     float64    `json:"tax_amount" db:"tax_amount"`
-	TotalAmount   float64    `json:"total_amount" db:"total_amount"`
-	SupplierID    *uuid.UUID `json:"supplier_id,omitempty" db:"supplier_id"`
-	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
+	ID              uuid.UUID  `json:"id" db:"id"`
+	SaleID          uuid.UUID  `json:"sale_id" db:"sale_id"`
+	ProductID       uuid.UUID  `json:"product_id" db:"product_id"`
+	InventoryItemID *uuid.UUID `json:"inventory_item_id,omitempty" db:"inventory_item_id"`
+	SerialNumber    *string    `json:"serial_number,omitempty" db:"serial_number"`
+	Quantity        int        `json:"quantity" db:"quantity"`
+	UnitPrice       float64    `json:"unit_price" db:"unit_price"`
+	UnitCost        float64    `json:"unit_cost" db:"unit_cost"`
+	DiscountAmount  float64    `json:"discount_amount" db:"discount_amount"`
+	TaxAmount       float64    `json:"tax_amount" db:"tax_amount"`
+	TotalAmount     float64    `json:"total_amount" db:"total_amount"`
+	SupplierID      *uuid.UUID `json:"supplier_id,omitempty" db:"supplier_id"`
+	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
 }
 
 // TableName returns the table name for the Sale model
@@ -80,33 +82,33 @@ func NewSale(organizationID uuid.UUID, invoiceNumber string, userID *uuid.UUID) 
 
 // Transaction represents a financial transaction
 type Transaction struct {
-	ID             uuid.UUID  `json:"id" db:"id"`
-	SaleID         *uuid.UUID `json:"sale_id,omitempty" db:"sale_id"`
-	Type           string     `json:"type" db:"type"` // "sale", "refund", "payment", "expense"
-	Amount         float64    `json:"amount" db:"amount"`
-	Currency       string     `json:"currency" db:"currency"`
-	Reference      string     `json:"reference" db:"reference"`
-	Description    *string    `json:"description,omitempty" db:"description"`
-	DebitAccount   string     `json:"debit_account" db:"debit_account"`
-	CreditAccount  string     `json:"credit_account" db:"credit_account"`
-	Status         string     `json:"status" db:"status"`
-	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+	ID            uuid.UUID  `json:"id" db:"id"`
+	SaleID        *uuid.UUID `json:"sale_id,omitempty" db:"sale_id"`
+	Type          string     `json:"type" db:"type"` // "sale", "refund", "payment", "expense"
+	Amount        float64    `json:"amount" db:"amount"`
+	Currency      string     `json:"currency" db:"currency"`
+	Reference     string     `json:"reference" db:"reference"`
+	Description   *string    `json:"description,omitempty" db:"description"`
+	DebitAccount  string     `json:"debit_account" db:"debit_account"`
+	CreditAccount string     `json:"credit_account" db:"credit_account"`
+	Status        string     `json:"status" db:"status"`
+	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // ProfitEntry represents a profit/loss entry
 type ProfitEntry struct {
-	ID             uuid.UUID  `json:"id" db:"id"`
-	SaleID         *uuid.UUID `json:"sale_id,omitempty" db:"sale_id"`
-	Period         string     `json:"period" db:"period"` // "daily", "weekly", "monthly"
-	StartDate      time.Time  `json:"start_date" db:"start_date"`
-	EndDate        time.Time  `json:"end_date" db:"end_date"`
-	Revenue        float64    `json:"revenue" db:"revenue"`
-	Cost           float64    `json:"cost" db:"cost"`
-	GrossProfit    float64    `json:"gross_profit" db:"gross_profit"`
-	NetProfit      float64    `json:"net_profit" db:"net_profit"`
-	Margin         float64    `json:"margin" db:"margin"`
-	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
+	ID          uuid.UUID  `json:"id" db:"id"`
+	SaleID      *uuid.UUID `json:"sale_id,omitempty" db:"sale_id"`
+	Period      string     `json:"period" db:"period"` // "daily", "weekly", "monthly"
+	StartDate   time.Time  `json:"start_date" db:"start_date"`
+	EndDate     time.Time  `json:"end_date" db:"end_date"`
+	Revenue     float64    `json:"revenue" db:"revenue"`
+	Cost        float64    `json:"cost" db:"cost"`
+	GrossProfit float64    `json:"gross_profit" db:"gross_profit"`
+	NetProfit   float64    `json:"net_profit" db:"net_profit"`
+	Margin      float64    `json:"margin" db:"margin"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
 }
 
 // TableName returns the table name for the Transaction model
@@ -121,15 +123,15 @@ func (ProfitEntry) TableName() string {
 
 // SaleReversal represents a reversal of a sale (ARCHITECTURE-PRINCIPLES.md)
 type SaleReversal struct {
-	ID              uuid.UUID  `json:"id" db:"id"`
-	SaleID          uuid.UUID  `json:"sale_id" db:"sale_id"`
-	Reason          string     `json:"reason" db:"reason"`           // سبب العكس
-	ReversedBy      uuid.UUID  `json:"reversed_by" db:"reversed_by"` // من قام بالعكس
-	ReversedAt      time.Time  `json:"reversed_at" db:"reversed_at"` // متى تم العكس
-	OriginalTotal   float64    `json:"original_total" db:"original_total"` // المبلغ الأصلي
+	ID                     uuid.UUID   `json:"id" db:"id"`
+	SaleID                 uuid.UUID   `json:"sale_id" db:"sale_id"`
+	Reason                 string      `json:"reason" db:"reason"`                                     // سبب العكس
+	ReversedBy             uuid.UUID   `json:"reversed_by" db:"reversed_by"`                           // من قام بالعكس
+	ReversedAt             time.Time   `json:"reversed_at" db:"reversed_at"`                           // متى تم العكس
+	OriginalTotal          float64     `json:"original_total" db:"original_total"`                     // المبلغ الأصلي
 	InventoryAdjustmentIDs []uuid.UUID `json:"inventory_adjustment_ids" db:"inventory_adjustment_ids"` // تعديلات المخزون المرتبطة
-	PaymentReversalIDs []uuid.UUID `json:"payment_reversal_ids" db:"payment_reversal_ids"` // عكس الدفعات المرتبطة
-	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+	PaymentReversalIDs     []uuid.UUID `json:"payment_reversal_ids" db:"payment_reversal_ids"`         // عكس الدفعات المرتبطة
+	CreatedAt              time.Time   `json:"created_at" db:"created_at"`
 }
 
 // SaleReversalRequest represents a request to reverse a sale

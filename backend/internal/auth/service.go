@@ -18,17 +18,26 @@ type Service struct {
 	supabase   *SupabaseAuthService
 }
 
-// checkSubscriptionStatus checks if user's subscription is valid (from worktrack)
-func (s *Service) checkSubscriptionStatus(subscriptionStatus string, expiresAt *time.Time) error {
-	if subscriptionStatus == "canceled" {
-		return errors.New("subscription canceled")
-	}
-
-	if subscriptionStatus == "expired" {
-		return errors.New("subscription expired")
+// IsSubscriptionExpired reports whether the user's subscription is no longer valid.
+func IsSubscriptionExpired(subscriptionStatus string, expiresAt *time.Time) bool {
+	switch subscriptionStatus {
+	case "canceled", "cancelled", "expired":
+		return true
 	}
 
 	if expiresAt != nil && time.Now().After(*expiresAt) {
+		return true
+	}
+
+	return false
+}
+
+// checkSubscriptionStatus checks if user's subscription is valid (from worktrack)
+func (s *Service) checkSubscriptionStatus(subscriptionStatus string, expiresAt *time.Time) error {
+	if IsSubscriptionExpired(subscriptionStatus, expiresAt) {
+		if subscriptionStatus == "canceled" || subscriptionStatus == "cancelled" {
+			return errors.New("subscription canceled")
+		}
 		return errors.New("subscription expired")
 	}
 
@@ -55,7 +64,7 @@ func (s *Service) validatePassword(password, storedHash, email string) bool {
 
 func NewService(db *sqlx.DB, jwtSecret string, useSupabase bool, supabaseURL, supabaseKey string) (*Service, error) {
 	jwtService := NewJWTService(jwtSecret, 15*time.Minute, 7*24*time.Hour)
-	
+
 	var supabase *SupabaseAuthService
 	var err error
 	if useSupabase {
@@ -222,6 +231,14 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 		return nil, ErrUserNotFound
 	}
 
+	if err := s.checkSubscriptionStatus(user.SubscriptionStatus, user.SubscriptionExpiresAt); err != nil {
+		return nil, ErrUnauthorized
+	}
+
+	if !user.IsActive {
+		return nil, ErrInactiveUser
+	}
+
 	// Generate new access token
 	newAccessToken, err := s.jwtService.RefreshAccessToken(refreshToken)
 	if err != nil {
@@ -280,7 +297,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, req *Cha
 	}
 
 	// Update password
-	_, err = s.db.ExecContext(ctx, 
+	_, err = s.db.ExecContext(ctx,
 		"UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
 		string(hashedPassword), userID)
 	if err != nil {
@@ -334,13 +351,13 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) error {
 	// Validate reset token
 	var userID uuid.UUID
-	
+
 	query := `
 		SELECT user_id 
 		FROM password_reset_tokens 
 		WHERE token = $1 AND used = FALSE AND expires_at > NOW()
 	`
-	
+
 	err := s.db.GetContext(ctx, &userID, query, token)
 	if err != nil {
 		return fmt.Errorf("invalid or expired reset token")
@@ -353,7 +370,7 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 	}
 
 	// Update user password
-	_, err = s.db.ExecContext(ctx, 
+	_, err = s.db.ExecContext(ctx,
 		"UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
 		string(hashedPassword), userID)
 	if err != nil {
@@ -361,7 +378,7 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 	}
 
 	// Mark token as used
-	_, err = s.db.ExecContext(ctx, 
+	_, err = s.db.ExecContext(ctx,
 		"UPDATE password_reset_tokens SET used = TRUE, used_at = NOW() WHERE token = $1",
 		token)
 	if err != nil {

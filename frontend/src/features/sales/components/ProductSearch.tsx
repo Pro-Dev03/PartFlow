@@ -131,7 +131,7 @@ export function ProductSearch({
             onChange={(e) => handleSearchChange(e.target.value)}
             onClear={onClearSearch}
             size="sm"
-            className="w-full"
+            className="w-full pos-product-search-field"
           />
         </div>
 

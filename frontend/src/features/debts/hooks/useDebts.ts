@@ -8,7 +8,6 @@ export function useDebts() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
-
   const { data: overdueCustomersData, isLoading } = useQuery({
     queryKey: ['debts'],
     queryFn: () => debtsApi.list({ page: 1, per_page: 100 }),
@@ -68,7 +67,10 @@ export function useDebts() {
   // Calculate stats
   const stats: DebtStats = {
     totalDebt: debts.reduce((sum, debt) => sum + (debt.amount || 0), 0),
-    paidAmount: overdueCustomers.reduce((sum, customer) => sum + (customer.paid_amount || 0), 0),
+    paidAmount: debts.reduce(
+      (sum, debt) => sum + Math.max(0, (debt.amount || 0) - (debt.remaining_amount || 0)),
+      0
+    ),
     remainingAmount: debts.reduce((sum, debt) => sum + (debt.remaining_amount || 0), 0),
     overdueCount: debts.filter((debt) => debt.status === 'overdue').length,
     customerCount: overdueCustomers.length,

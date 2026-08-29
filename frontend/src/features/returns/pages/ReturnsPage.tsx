@@ -214,7 +214,7 @@ export function ReturnsPage() {
               <div>
                 <p className="text-sm text-gray-400">قيمة المرتجعات</p>
                 <p className="text-2xl font-bold">
-                  ₪{statistics?.total_refunded ? (statistics.total_refunded / 100).toLocaleString() : returns.reduce((sum, r) => sum + r.total_refund_amount, 0).toLocaleString()}
+                  ₪{(statistics?.total_refunded ?? returns.filter((r) => r.status === 'COMPLETED').reduce((sum, r) => sum + r.total_refund_amount, 0)).toLocaleString()}
                 </p>
               </div>
             </div>

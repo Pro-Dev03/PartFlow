@@ -23,12 +23,12 @@ func NewRepository(db *sqlx.DB) *Repository {
 func (r *Repository) Create(ctx context.Context, user *User) error {
 	query := `
 		INSERT INTO users (id, email, password_hash, first_name, last_name, phone, avatar_url,
-			is_active, is_verified, last_login_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			is_active, is_verified, last_login_at, subscription_status, subscription_expires_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		user.ID, user.Email, user.PasswordHash, user.FirstName, user.LastName, user.Phone, user.AvatarURL,
-		user.IsActive, user.IsVerified, user.LastLoginAt, user.CreatedAt, user.UpdatedAt,
+		user.IsActive, user.IsVerified, user.LastLoginAt, user.SubscriptionStatus, user.SubscriptionExpiresAt, user.CreatedAt, user.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
@@ -40,7 +40,7 @@ func (r *Repository) Create(ctx context.Context, user *User) error {
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*User, error) {
 	query := `
 		SELECT id, email, password_hash, first_name, last_name, phone, avatar_url,
-		       is_active, is_verified, last_login_at, created_at, updated_at
+		       is_active, is_verified, last_login_at, subscription_status, subscription_expires_at, created_at, updated_at
 		FROM users WHERE id = $1
 	`
 
@@ -59,7 +59,7 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*User, error) {
 func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error) {
 	query := `
 		SELECT id, email, password_hash, first_name, last_name, phone, avatar_url,
-		       is_active, is_verified, last_login_at, created_at, updated_at
+		       is_active, is_verified, last_login_at, subscription_status, subscription_expires_at, created_at, updated_at
 		FROM users WHERE email = $1
 	`
 
@@ -81,7 +81,7 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 
 	query := `
 		SELECT id, email, password_hash, first_name, last_name, phone, avatar_url,
-		       is_active, is_verified, last_login_at, created_at, updated_at
+		       is_active, is_verified, last_login_at, subscription_status, subscription_expires_at, created_at, updated_at
 		FROM users WHERE 1=1
 	`
 	countQuery := `
@@ -146,12 +146,12 @@ func (r *Repository) Update(ctx context.Context, user *User) error {
 	query := `
 		UPDATE users 
 		SET email = $2, password_hash = $3, first_name = $4, last_name = $5, phone = $6, avatar_url = $7, 
-		    is_active = $8, updated_at = $9
+		    is_active = $8, subscription_status = $9, subscription_expires_at = $10, updated_at = $11
 		WHERE id = $1
 	`
 	result, err := r.db.ExecContext(ctx, query,
 		user.ID, user.Email, user.PasswordHash, user.FirstName, user.LastName,
-		user.Phone, user.AvatarURL, user.IsActive, user.UpdatedAt,
+		user.Phone, user.AvatarURL, user.IsActive, user.SubscriptionStatus, user.SubscriptionExpiresAt, user.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)

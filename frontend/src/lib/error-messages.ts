@@ -21,6 +21,7 @@ export const errorMessages = {
   INVALID_CREDENTIALS: 'البريد الإلكتروني أو كلمة المرور غير صحيحة',
   TOKEN_EXPIRED: 'انتهت صلاحية الجلسة',
   SESSION_EXPIRED: 'انتهت الجلسة، يرجى تسجيل الدخول مرة أخرى',
+  SUBSCRIPTION_EXPIRED: 'انتهت مدة اشتراكك. يرجى التواصل مع المطور لتجديد الاشتراك.',
   
   // Validation Errors
   REQUIRED_FIELD: 'هذا الحقل مطلوب',

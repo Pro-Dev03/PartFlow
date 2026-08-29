@@ -29,6 +29,7 @@ import {
   Download,
   Printer,
   RefreshCw
+  , RotateCcw
 } from 'lucide-react';
 
 export function SuppliersPage() {
@@ -43,18 +44,22 @@ export function SuppliersPage() {
   const [viewingSupplier, setViewingSupplier] = useState<any | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [supplierToDelete, setSupplierToDelete] = useState<any | null>(null);
+  const [showOutstandingOnly, setShowOutstandingOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<'recent' | 'outstanding' | 'purchases'>('recent');
+  const [showInactive, setShowInactive] = useState(false);
 
   const { data: suppliersData, isLoading, refetch } = useQuery({
-    queryKey: ['suppliers', debouncedSearchQuery],
+    queryKey: ['suppliers', debouncedSearchQuery, showInactive],
     queryFn: () => {
       if (debouncedSearchQuery) {
         return suppliersApi.list({
           page: 1,
           per_page: 50,
-          search: debouncedSearchQuery
+          search: debouncedSearchQuery,
+          is_active: !showInactive
         });
       } else {
-        return suppliersApi.list({ page: 1, per_page: 50 });
+        return suppliersApi.list({ page: 1, per_page: 50, is_active: !showInactive });
       }
     },
     enabled: true,
@@ -70,9 +75,14 @@ export function SuppliersPage() {
 
   const filteredSuppliers = suppliers.filter((supplier: Supplier) =>
     supplier.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    supplier.phone.includes(searchQuery) ||
+    (supplier.phone || '').includes(searchQuery) ||
     supplier.code.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  ).filter((supplier: any) => !showOutstandingOnly || Number(supplier.outstanding || 0) > 0)
+    .sort((a: any, b: any) => {
+      if (sortBy === 'outstanding') return Number(b.outstanding || 0) - Number(a.outstanding || 0);
+      if (sortBy === 'purchases') return Number(b.totalPurchases || 0) - Number(a.totalPurchases || 0);
+      return 0;
+    });
 
   const totalSuppliers = suppliers.length;
   const totalPurchases = suppliers.reduce((sum: number, s: Supplier) => sum + ('totalPurchases' in s ? (s as Record<string, unknown>).totalPurchases as number : 0), 0);
@@ -129,13 +139,23 @@ export function SuppliersPage() {
     if (supplierToDelete) {
       try {
         await suppliersApi.delete(supplierToDelete.id);
-        showSuccess('تم حذف المورد بنجاح');
+        showSuccess('تم إيقاف المورد وإخفاؤه من التعاملات اليومية');
         setDeleteDialogOpen(false);
         setSupplierToDelete(null);
         refetch();
       } catch (err) {
-        showError('حدث خطأ أثناء حذف المورد');
+        showError('تعذر إيقاف المورد');
       }
+    }
+  };
+
+  const handleRestoreSupplier = async (supplier: any) => {
+    try {
+      await suppliersApi.update(supplier.id, { ...supplier, is_active: true });
+      showSuccess('تمت إعادة تفعيل المورد بنجاح');
+      refetch();
+    } catch (err) {
+      showError('تعذر إعادة تفعيل المورد');
     }
   };
 
@@ -309,10 +329,37 @@ export function SuppliersPage() {
               />
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size={getButtonSize('suppliers', 'headerActions')} className="gap-2">
+              <Button
+                variant={showOutstandingOnly ? 'primary' : 'outline'}
+                size={getButtonSize('suppliers', 'headerActions')}
+                className="gap-2"
+                onClick={() => setShowOutstandingOnly((current) => !current)}
+              >
                 <Filter className="w-4 h-4" />
-                {t('common.filter')}
+                {showOutstandingOnly ? 'عرض كل الموردين' : 'الموردون المستحقون'}
               </Button>
+              <Button
+                variant={showInactive ? 'primary' : 'outline'}
+                size={getButtonSize('suppliers', 'headerActions')}
+                className="gap-2"
+                onClick={() => {
+                  setShowInactive((current) => !current);
+                  setShowOutstandingOnly(false);
+                }}
+              >
+                {showInactive ? <RotateCcw className="w-4 h-4" /> : <RefreshCw className="w-4 h-4" />}
+                {showInactive ? 'عرض الموردين النشطين' : 'الموردون المعطلون'}
+              </Button>
+              <select
+                value={sortBy}
+                onChange={(event) => setSortBy(event.target.value as typeof sortBy)}
+                className="h-10 rounded-md border border-border bg-surface px-3 text-sm text-text"
+                aria-label="ترتيب الموردين"
+              >
+                <option value="recent">الأحدث إضافة</option>
+                <option value="outstanding">الأعلى استحقاقًا</option>
+                <option value="purchases">الأعلى مشتريات</option>
+              </select>
             </div>
           </div>
         </CardContent>
@@ -322,7 +369,7 @@ export function SuppliersPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
-            <CardTitle>قائمة الموردين ({filteredSuppliers.length})</CardTitle>
+            <CardTitle>{showInactive ? 'الموردون المعطلون' : 'الموردون النشطون'} ({filteredSuppliers.length})</CardTitle>
             <Button
               variant="outline"
               size={getButtonSize('suppliers', 'headerActions')}
@@ -364,6 +411,7 @@ export function SuppliersPage() {
                     setIsViewModalOpen(true);
                   }}
                   onDelete={handleDeleteSupplier}
+                  onRestore={showInactive ? handleRestoreSupplier : undefined}
                 />
               ))}
             </div>
@@ -390,9 +438,9 @@ export function SuppliersPage() {
           setSupplierToDelete(null);
         }}
         onConfirm={handleConfirmDelete}
-        title="حذف المورد"
-        message="هل أنت متأكد من حذف هذا المورد؟ هذا الإجراء لا يمكن التراجع عنه."
-        confirmText="حذف المورد"
+        title="إيقاف المورد"
+        message="سيتم إيقاف المورد وإخفاؤه من القوائم اليومية مع الاحتفاظ بسجلاته المالية."
+        confirmText="إيقاف المورد"
         cancelText="إلغاء"
         variant="danger"
       />

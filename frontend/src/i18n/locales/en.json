@@ -140,6 +140,10 @@
   "dashboard": {
     "title": "Dashboard",
     "welcome": "Good morning, Store Owner 🌅",
+    "welcomeMorning": "Good morning, Store Owner 🌅",
+    "welcomeAfternoon": "Good afternoon, Store Owner ☀️",
+    "welcomeEvening": "Good evening, Store Owner 🌇",
+    "welcomeNight": "Good evening, Store Owner 🌙",
     "subtitle": "Here's an overview of your store's performance today",
     "todaySales": "Today's Sales",
     "todayProfit": "Today's Profit",
@@ -149,6 +153,7 @@
     "attentionSection": "Needs attention",
     "lowStock": "Low stock",
     "overdueDebts": "Overdue debts",
+    "critical": "Urgent",
     "expiringWarranties": "Warranties expiring soon",
     "pendingInspections": "Pending inspections",
     "quickActions": "Quick Actions",

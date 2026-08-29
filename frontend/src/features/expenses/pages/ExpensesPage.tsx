@@ -23,6 +23,29 @@ import {
   Printer
 } from 'lucide-react';
 
+export function normalizeExpenseForDisplay(expense: any) {
+  const description = (expense?.description || expense?.title || '').toString();
+  const category = (expense?.category || expense?.category_name || expense?.categoryName || '').toString();
+  const date = expense?.date || expense?.expense_date || '';
+  const amount = Number(expense?.amount ?? 0);
+  const recurring = typeof expense?.recurring === 'boolean'
+    ? expense.recurring
+    : Boolean(expense?.is_recurring);
+  const recurringPeriod = expense?.recurringPeriod || expense?.recurring_period || '';
+  const receipt = expense?.receipt || expense?.receipt_url || '';
+
+  return {
+    ...expense,
+    description,
+    category,
+    date,
+    amount,
+    recurring,
+    recurringPeriod,
+    receipt,
+  };
+}
+
 export function ExpensesPage() {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
@@ -33,12 +56,11 @@ export function ExpensesPage() {
     queryFn: () => expensesApi.list({ page: 1, per_page: 100 }),
   });
 
-  const expenses = (expensesData?.data as any[]) || [];
+  const expenses = ((expensesData?.data as any[]) || []).map(normalizeExpenseForDisplay);
 
   const filteredExpenses = expenses.filter((expense: any) => {
-    const matchesSearch = 
-      expense.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      expense.category.toLowerCase().includes(searchQuery.toLowerCase());
+    const searchText = `${expense.description || ''} ${expense.category || ''}`.toLowerCase();
+    const matchesSearch = searchText.includes(searchQuery.toLowerCase());
     const matchesCategory = !categoryFilter || expense.category === categoryFilter;
     return matchesSearch && matchesCategory;
   });
@@ -50,10 +72,11 @@ export function ExpensesPage() {
            expenseDate.getFullYear() === now.getFullYear();
   });
 
-  const thisMonthTotal = thisMonthExpenses.reduce((sum: number, e: any) => sum + e.amount, 0);
+  const thisMonthTotal = thisMonthExpenses.reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
 
   const categoryTotals = expenses.reduce((acc: Record<string, number>, expense: any) => {
-    acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
+    const categoryKey = String(expense.category || 'other');
+    acc[categoryKey] = (acc[categoryKey] || 0) + Number(expense.amount || 0);
     return acc;
   }, {});
 
@@ -223,16 +246,16 @@ export function ExpensesPage() {
                 {filteredExpenses.map((expense: any) => (
                   <TableRow key={expense.id}>
                     <TableCell>
-                      {new Date(expense.date).toLocaleDateString('ar-SA')}
+                      {expense.date ? new Date(expense.date).toLocaleDateString('ar-SA') : '-' }
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">
                         {getCategoryLabel(expense.category)}
                       </Badge>
                     </TableCell>
-                    <TableCell>{expense.description}</TableCell>
+                    <TableCell>{expense.description || '-'}</TableCell>
                     <TableCell className="font-bold">
-                      ₪{expense.amount.toLocaleString()}
+                      ₪{Number(expense.amount || 0).toLocaleString()}
                     </TableCell>
                     <TableCell>
                       {expense.recurring ? (

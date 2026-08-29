@@ -37,8 +37,8 @@ func (r *Repository) CreateSale(ctx context.Context, sale *Sale) error {
 func (r *Repository) GetSaleByID(ctx context.Context, id uuid.UUID) (*Sale, error) {
 	query := `
 		SELECT id, sale_date, customer_id, invoice_number, 
-			subtotal, tax_amount, discount_amount, total_amount, paid_amount, payment_method,
-			payment_status, status, notes, created_at, updated_at
+			subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit,
+			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at
 		FROM sales WHERE id = $1
 	`
 	var sale Sale
@@ -53,8 +53,8 @@ func (r *Repository) GetSaleByID(ctx context.Context, id uuid.UUID) (*Sale, erro
 func (r *Repository) GetSaleByInvoiceNumber(ctx context.Context, invoiceNumber string) (*Sale, error) {
 	query := `
 		SELECT id, sale_date, customer_id, invoice_number, 
-			subtotal, tax_amount, discount_amount, total_amount, paid_amount, payment_method,
-			payment_status, status, notes, created_at, updated_at
+			subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit,
+			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at
 		FROM sales WHERE invoice_number = $1
 	`
 	var sale Sale
@@ -68,19 +68,19 @@ func (r *Repository) GetSaleByInvoiceNumber(ctx context.Context, invoiceNumber s
 // ListSales retrieves sales with pagination and filters
 func (r *Repository) ListSales(ctx context.Context, page, perPage int, filters map[string]interface{}) ([]Sale, int, error) {
 	offset := (page - 1) * perPage
-	
+
 	baseQuery := `
 		SELECT id, sale_date, customer_id, invoice_number, 
-			subtotal, tax_amount, discount_amount, total_amount, paid_amount, payment_method,
-			payment_status, status, notes, created_at, updated_at
+			subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit,
+			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at
 		FROM sales WHERE 1=1
 	`
-	
+
 	countQuery := `SELECT COUNT(*) FROM sales WHERE 1=1`
-	
+
 	args := []interface{}{}
 	argCount := 0
-	
+
 	// Add filters
 	if status, ok := filters["status"].(string); ok && status != "" {
 		argCount++
@@ -88,43 +88,43 @@ func (r *Repository) ListSales(ctx context.Context, page, perPage int, filters m
 		countQuery += fmt.Sprintf(" AND status = $%d", argCount)
 		args = append(args, status)
 	}
-	
+
 	if customerID, ok := filters["customer_id"].(uuid.UUID); ok {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND customer_id = $%d", argCount)
 		countQuery += fmt.Sprintf(" AND customer_id = $%d", argCount)
 		args = append(args, customerID)
 	}
-	
+
 	if startDate, ok := filters["start_date"].(string); ok && startDate != "" {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND sale_date >= $%d", argCount)
 		countQuery += fmt.Sprintf(" AND sale_date >= $%d", argCount)
 		args = append(args, startDate)
 	}
-	
+
 	if endDate, ok := filters["end_date"].(string); ok && endDate != "" {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND sale_date <= $%d", argCount)
 		countQuery += fmt.Sprintf(" AND sale_date <= $%d", argCount)
 		args = append(args, endDate)
 	}
-	
-	baseQuery += fmt.Sprintf(" ORDER BY sale_date DESC LIMIT $%d OFFSET $%d", argCount+1, argCount+2)
+
+	baseQuery += fmt.Sprintf(" ORDER BY sale_date DESC, id DESC LIMIT $%d OFFSET $%d", argCount+1, argCount+2)
 	args = append(args, perPage, offset)
-	
+
 	var sales []Sale
 	err := r.db.SelectContext(ctx, &sales, baseQuery, args...)
 	if err != nil {
 		return nil, 0, err
 	}
-	
+
 	var total int
 	err = r.db.GetContext(ctx, &total, countQuery, args[:argCount]...)
 	if err != nil {
 		return nil, 0, err
 	}
-	
+
 	return sales, total, nil
 }
 
@@ -152,12 +152,12 @@ func (r *Repository) DeleteSale(ctx context.Context, id uuid.UUID) error {
 // CreateSaleItem creates a new sale item
 func (r *Repository) CreateSaleItem(ctx context.Context, item *SaleItem) error {
 	query := `
-		INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_price, 
+		INSERT INTO sale_items (id, sale_id, product_id, inventory_item_id, quantity, unit_price,
 			discount_amount, tax_amount, total_amount, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		item.ID, item.SaleID, item.ProductID, item.Quantity, item.UnitPrice,
+		item.ID, item.SaleID, item.ProductID, item.InventoryItemID, item.Quantity, item.UnitPrice,
 		item.DiscountAmount, item.TaxAmount, item.TotalAmount, item.CreatedAt)
 	return err
 }
@@ -165,9 +165,12 @@ func (r *Repository) CreateSaleItem(ctx context.Context, item *SaleItem) error {
 // GetSaleItems retrieves items for a sale
 func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]SaleItem, error) {
 	query := `
-		SELECT id, sale_id, product_id, quantity, unit_price, 
-			discount_amount, tax_amount, total_amount, created_at
-		FROM sale_items WHERE sale_id = $1
+		SELECT si.id, si.sale_id, si.product_id, si.inventory_item_id, ii.serial_number,
+			si.quantity, si.unit_price, si.unit_cost,
+			si.discount_amount, si.tax_amount, si.total_amount, si.created_at
+		FROM sale_items si
+		LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
+		WHERE si.sale_id = $1
 	`
 	var items []SaleItem
 	err := r.db.SelectContext(ctx, &items, query, saleID)
@@ -290,18 +293,18 @@ func (r *Repository) GetTransactionByID(ctx context.Context, id uuid.UUID) (*Tra
 // ListTransactions retrieves transactions with pagination and filters
 func (r *Repository) ListTransactions(ctx context.Context, page, perPage int, filters map[string]interface{}) ([]Transaction, int, error) {
 	offset := (page - 1) * perPage
-	
+
 	baseQuery := `
 		SELECT id, sale_id, type, amount, currency, reference, description,
 			debit_account, credit_account, status, created_at, updated_at
 		FROM financial_transactions WHERE 1=1
 	`
-	
+
 	countQuery := `SELECT COUNT(*) FROM financial_transactions WHERE 1=1`
-	
+
 	args := []interface{}{}
 	argCount := 0
-	
+
 	// Add filters
 	if txType, ok := filters["type"].(string); ok && txType != "" {
 		argCount++
@@ -309,43 +312,43 @@ func (r *Repository) ListTransactions(ctx context.Context, page, perPage int, fi
 		countQuery += fmt.Sprintf(" AND type = $%d", argCount)
 		args = append(args, txType)
 	}
-	
+
 	if status, ok := filters["status"].(string); ok && status != "" {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND status = $%d", argCount)
 		countQuery += fmt.Sprintf(" AND status = $%d", argCount)
 		args = append(args, status)
 	}
-	
+
 	if startDate, ok := filters["start_date"].(string); ok && startDate != "" {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND created_at >= $%d", argCount)
 		countQuery += fmt.Sprintf(" AND created_at >= $%d", argCount)
 		args = append(args, startDate)
 	}
-	
+
 	if endDate, ok := filters["end_date"].(string); ok && endDate != "" {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND created_at <= $%d", argCount)
 		countQuery += fmt.Sprintf(" AND created_at <= $%d", argCount)
 		args = append(args, endDate)
 	}
-	
+
 	baseQuery += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argCount+1, argCount+2)
 	args = append(args, perPage, offset)
-	
+
 	var transactions []Transaction
 	err := r.db.SelectContext(ctx, &transactions, baseQuery, args...)
 	if err != nil {
 		return nil, 0, err
 	}
-	
+
 	var total int
 	err = r.db.GetContext(ctx, &total, countQuery, args[:argCount]...)
 	if err != nil {
 		return nil, 0, err
 	}
-	
+
 	return transactions, total, nil
 }
 

@@ -163,6 +163,8 @@ export interface InventoryCreateRequest {
   selling_price: number;
   supplier_id?: string;
   part_type_id?: string;
+  status?: 'PURCHASED' | 'RECEIVED' | 'AVAILABLE';
+  notes?: string;
 }
 
 export interface InventoryUpdateRequest extends Partial<InventoryCreateRequest> {}
@@ -171,6 +173,8 @@ export interface InventoryListParams extends PaginationParams {
   search?: string;
   condition?: string;
   supplier_id?: string;
+  product_id?: string;
+  status?: string;
 }
 
 // Sales Types
@@ -223,6 +227,14 @@ export interface DebtPayment {
   notes?: string;
 }
 
+export interface PaymentCreateRequest {
+  type: 'customer' | 'supplier' | 'expense';
+  reference_id: string;
+  amount: number;
+  method: 'cash' | 'card' | 'transfer';
+  notes?: string;
+}
+
 // Purchase Types
 export interface Purchase {
   id: string;
@@ -244,6 +256,10 @@ export interface PurchaseCreateRequest {
   supplier_id: string;
   items: PurchaseItem[];
   total_amount: number;
+  invoice_number?: string;
+  purchase_date?: string;
+  expected_delivery_date?: string;
+  notes?: string;
 }
 
 // Expense Types

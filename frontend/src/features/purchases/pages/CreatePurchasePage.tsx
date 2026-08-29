@@ -25,10 +25,12 @@ import {
   Box,
   Edit,
 } from 'lucide-react';
-import { suppliersApi, productsApi, categoriesApi } from '../../../services/api/endpoints';
+import { suppliersApi, productsApi, categoriesApi, purchasesApi } from '../../../services/api/endpoints';
 import { usePurchases } from '../hooks/usePurchases';
 import { PurchaseItem } from '../types/purchases.types';
 import { toast } from 'sonner';
+import { settingsApi } from '../../../services/api/endpoints';
+import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
 
 interface LineItem extends PurchaseItem {
   key: string;
@@ -47,6 +49,7 @@ export function CreatePurchasePage() {
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
   const [receiveImmediately, setReceiveImmediately] = useState(false);
+  const [initialPayment, setInitialPayment] = useState('');
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   
   // Manual product addition states
@@ -61,6 +64,15 @@ export function CreatePurchasePage() {
     min_stock: '',
     description: '',
   });
+  const { data: marginSetting } = useQuery({
+    queryKey: ['settings', 'default_profit_margin'],
+    queryFn: () => settingsApi.getSetting('default_profit_margin'),
+    retry: false,
+  });
+  const suggestedMargin = Number(marginSetting?.data?.value);
+  const profitMargin = Number.isFinite(suggestedMargin) && suggestedMargin >= 0 && suggestedMargin < 100
+    ? suggestedMargin
+    : DEFAULT_PROFIT_MARGIN;
 
   const { data: suppliersData, isLoading: suppliersLoading } = useQuery({
     queryKey: ['suppliers'],
@@ -258,6 +270,14 @@ export function CreatePurchasePage() {
     createProductMutation.mutate(productData);
   }, [manualProductData, createProductMutation]);
 
+  const handleCostPriceChange = (costPrice: string) => {
+    setManualProductData((current) => ({
+      ...current,
+      cost_price: costPrice,
+      selling_price: String(calculateSuggestedSellingPrice(Number(costPrice), profitMargin) || ''),
+    }));
+  };
+
   const handleCreatePurchase = useCallback(async () => {
     if (!selectedSupplier) {
       toast.error('يرجى اختيار المورد');
@@ -292,6 +312,7 @@ export function CreatePurchasePage() {
       supplier_id: selectedSupplier,
       invoice_number: invoiceNumber || `PO-${Date.now()}`,
       purchase_date: new Date(purchaseDate).toISOString(),
+      expected_delivery_date: expectedDate ? new Date(expectedDate).toISOString() : undefined,
       notes: notes || undefined,
       items: items.map((item) => ({
         product_id: item.product_id,
@@ -301,23 +322,43 @@ export function CreatePurchasePage() {
       })),
     };
 
+    const paymentAmount = Number(initialPayment);
+    if (initialPayment && (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > totalCost)) {
+      toast.error(`أدخل دفعة صحيحة بين ₪0.01 و ₪${totalCost.toLocaleString('en-US', { maximumFractionDigits: 2 })}`);
+      return;
+    }
+
     // Debug logging (can be removed in production)
     if (process.env.NODE_ENV === 'development') {
       console.log('Sending purchase data:', JSON.stringify(formData, null, 2));
     }
 
     createPurchaseMutation.mutate(formData, {
-      onSuccess: (response) => {
-        const purchaseId = response?.data?.id;
-        if (purchaseId && receiveImmediately) {
-          receivePurchaseMutation.mutate(purchaseId, {
-            onSuccess: () => {
-              queryClient.invalidateQueries({ queryKey: ['purchases'] });
-              queryClient.invalidateQueries({ queryKey: ['inventory'] });
-              queryClient.invalidateQueries({ queryKey: ['products'] });
-              navigate('/app/purchases');
-            },
-          });
+      onSuccess: async (response) => {
+        const purchaseId =
+          response?.purchase?.id ||
+          response?.data?.purchase?.id ||
+          response?.data?.id ||
+          response?.id;
+        if (purchaseId && (paymentAmount > 0 || receiveImmediately)) {
+          try {
+            if (paymentAmount > 0) {
+              await purchasesApi.addPayment(purchaseId, {
+                amount: paymentAmount,
+                paymentMethod: 'cash',
+              });
+            }
+            if (receiveImmediately) {
+              await receivePurchaseMutation.mutateAsync(purchaseId);
+            }
+            queryClient.invalidateQueries({ queryKey: ['purchases'] });
+            queryClient.invalidateQueries({ queryKey: ['inventory'] });
+            queryClient.invalidateQueries({ queryKey: ['products'] });
+            navigate('/app/purchases');
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'خطأ غير معروف';
+            toast.error(`تم إنشاء الشراء، لكن تعذر تسجيل الدفعة أو الاستلام: ${message}`);
+          }
         } else {
           queryClient.invalidateQueries({ queryKey: ['purchases'] });
           navigate('/app/purchases');
@@ -332,6 +373,8 @@ export function CreatePurchasePage() {
     expectedDate,
     notes,
     receiveImmediately,
+    initialPayment,
+    totalCost,
     createPurchaseMutation,
     receivePurchaseMutation,
     queryClient,
@@ -690,13 +733,32 @@ export function CreatePurchasePage() {
                 <div>
                   <div className="font-medium flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-green" />
-                    استلام مباشر
+                    استلام مباشر بعد الدفعة
                   </div>
                   <div className="text-sm text-text-muted">
-                    عند التفعيل، سيتم استلام البضاعة وإنشاء عناصر المخزون تلقائياً
+                    عند التفعيل، سيحاول النظام الاستلام بعد إنشاء الشراء، ويتطلب ذلك تسجيل دفعة مسبقة ولو كانت جزئية
                   </div>
                 </div>
               </label>
+              {(
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-text mb-2">
+                    مبلغ الدفعة المسبقة {receiveImmediately ? '*' : '(اختياري)'}
+                  </label>
+                  <Input
+                    type="number"
+                    min="0.01"
+                    max={totalCost}
+                    step="0.01"
+                    value={initialPayment}
+                    onChange={(e) => setInitialPayment(e.target.value)}
+                    placeholder={`أدخل دفعة كاملة أو جزئية (الإجمالي ₪${totalCost.toLocaleString('en-US', { maximumFractionDigits: 2 })})`}
+                  />
+                  <p className="mt-1 text-xs text-text-muted">
+                    {receiveImmediately ? 'يجب تسجيل مبلغ أكبر من صفر قبل استلام البضاعة.' : 'يمكن تسجيل دفعة كاملة أو جزئية الآن.'}
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -948,7 +1010,7 @@ export function CreatePurchasePage() {
                 <Input
                   type="number"
                   value={manualProductData.cost_price}
-                  onChange={(e) => setManualProductData({ ...manualProductData, cost_price: e.target.value })}
+                  onChange={(e) => handleCostPriceChange(e.target.value)}
                   placeholder="0.00"
                 />
               </div>

@@ -7,17 +7,24 @@ import { ErrorBoundary } from './components/ui/error-boundary';
 import { ToastContainer } from './components/ui/ToastContainer';
 import { appRoutes, PageLoader } from './app/router';
 import { LayoutProvider } from './contexts/LayoutContext';
+import { isOfflineSubscriptionBlocked } from './lib/subscription-guard';
+import AIAssistantWrapper from './components/ui/ai-assistant-wrapper';
 
-// Lazy load login page separately
+// Lazy load auth pages separately
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
+const SubscriptionExpiredPage = lazy(() => import('./features/auth/pages/SubscriptionExpiredPage').then(m => ({ default: m.default })));
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
-  
-  if (!isAuthenticated) {
+  const { isAuthenticated, token } = useAuthStore();
+
+  if (!isAuthenticated || !token) {
     return <Navigate to="/login" replace />;
   }
-  
+
+  if (isOfflineSubscriptionBlocked(token)) {
+    return <Navigate to="/subscription-expired" replace />;
+  }
+
   return <>{children}</>;
 }
 
@@ -44,6 +51,12 @@ function PagePreloader() {
 }
 
 function App() {
+  const checkAuth = useAuthStore((state) => state.checkAuth);
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
   return (
     <ErrorBoundary>
       <QueryProvider>
@@ -61,6 +74,15 @@ function App() {
                     </Suspense>
                   </AuthLayout>
                 </PublicRoute>
+              }
+            />
+
+            <Route
+              path="/subscription-expired"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <SubscriptionExpiredPage />
+                </Suspense>
               }
             />
 
@@ -86,6 +108,7 @@ function App() {
           </Routes>
         </Router>
         <ToastContainer />
+        <AIAssistantWrapper />
       </QueryProvider>
     </ErrorBoundary>
   );

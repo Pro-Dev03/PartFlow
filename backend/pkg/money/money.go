@@ -3,6 +3,8 @@ package money
 import (
 	"fmt"
 	"math/big"
+	"strconv"
+	"strings"
 )
 
 // Currency represents a currency code
@@ -16,7 +18,7 @@ const (
 
 // Money represents a monetary amount in shekels (float64)
 type Money struct {
-	Amount   float64  // Amount in shekels
+	Amount   float64 // Amount in shekels
 	Currency Currency
 }
 
@@ -43,7 +45,7 @@ func (m Money) ToFloat() float64 {
 
 // ToDecimal converts Money to decimal string
 func (m Money) ToDecimal() string {
-	return fmt.Sprintf("%.2f", m.ToFloat())
+	return formatAmount(m.ToFloat())
 }
 
 // Add adds two Money instances
@@ -164,10 +166,21 @@ func (m Money) Format() string {
 	case EUR:
 		symbol = "€"
 	}
-	return fmt.Sprintf("%s%.2f", symbol, m.ToFloat())
+	return fmt.Sprintf("%s%s", symbol, formatAmount(m.ToFloat()))
 }
 
 // FormatWithCode formats the money with currency code
 func (m Money) FormatWithCode() string {
-	return fmt.Sprintf("%.2f %s", m.ToFloat(), m.Currency)
+	return fmt.Sprintf("%s %s", formatAmount(m.ToFloat()), m.Currency)
+}
+
+// formatAmount keeps at most two decimal places and removes insignificant
+// trailing zeroes, so whole monetary values are represented as 12100 not 12100.00.
+func formatAmount(amount float64) string {
+	formatted := strconv.FormatFloat(amount, 'f', 2, 64)
+	formatted = strings.TrimRight(strings.TrimRight(formatted, "0"), ".")
+	if formatted == "-0" {
+		return "0"
+	}
+	return formatted
 }

@@ -11,6 +11,7 @@ export interface ReportType {
   id: string;
   label: string;
   icon: any;
+  group?: 'period' | 'current';
 }
 
 export interface DateRange {

@@ -8,31 +8,34 @@ import (
 
 // Report represents a generated report
 type Report struct {
-	ID             uuid.UUID  `json:"id" db:"id"`
-	Type           string     `json:"type" db:"type"` // sales, inventory, expenses, purchases, returns, warranties, customers, suppliers
-	Title          string     `json:"title" db:"title"`
-	Description    string     `json:"description" db:"description"`
-	Parameters     string     `json:"parameters" db:"parameters"` // JSON string of report parameters
-	Data           string     `json:"data" db:"data"` // JSON string of report data
-	Status         string     `json:"status" db:"status"` // pending, completed, failed
-	GeneratedBy    uuid.UUID  `json:"generated_by" db:"generated_by"`
-	GeneratedAt    time.Time  `json:"generated_at" db:"generated_at"`
-	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+	ID          uuid.UUID `json:"id" db:"id"`
+	Type        string    `json:"type" db:"type"` // sales, inventory, expenses, purchases, returns, warranties, customers, suppliers
+	Title       string    `json:"title" db:"title"`
+	Description string    `json:"description" db:"description"`
+	Parameters  string    `json:"parameters" db:"parameters"` // JSON string of report parameters
+	Data        string    `json:"data" db:"data"`             // JSON string of report data
+	Status      string    `json:"status" db:"status"`         // pending, completed, failed
+	GeneratedBy uuid.UUID `json:"generated_by" db:"generated_by"`
+	GeneratedAt time.Time `json:"generated_at" db:"generated_at"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // SalesReport represents sales report data
 type SalesReport struct {
-	Period         string    `json:"period"`
-	StartDate      time.Time `json:"start_date"`
-	EndDate        time.Time `json:"end_date"`
-	TotalSales     int       `json:"total_sales"`
-	TotalRevenue   float64   `json:"total_revenue"`
-	TotalCOGS      float64   `json:"total_cogs"`
-	GrossProfit    float64   `json:"gross_profit"`
-	ProfitMargin   float64   `json:"profit_margin"`
-	ByDay          []DailySales `json:"by_day"`
-	TopProducts    []ProductSales `json:"top_products"`
+	Period          string             `json:"period"`
+	StartDate       time.Time          `json:"start_date"`
+	EndDate         time.Time          `json:"end_date"`
+	TotalSales      int                `json:"total_sales"`
+	TotalRevenue    float64            `json:"total_revenue"`
+	TotalCOGS       float64            `json:"total_cogs"`
+	GrossProfit     float64            `json:"gross_profit"`
+	ProfitMargin    float64            `json:"profit_margin"`
+	TotalItemsSold  int                `json:"total_items_sold"`
+	CashRevenue     float64            `json:"cash_revenue"`
+	CreditRevenue   float64            `json:"credit_revenue"`
+	ByDay           []DailySales       `json:"by_day"`
+	TopProducts     []ProductSales     `json:"top_products"`
 	ByPaymentMethod map[string]float64 `json:"by_payment_method"`
 }
 
@@ -54,32 +57,32 @@ type ProductSales struct {
 
 // InventoryReport represents inventory report data
 type InventoryReport struct {
-	TotalItems       int                `json:"total_items"`
-	TotalValue       float64            `json:"total_value"`
-	ByCondition      map[string]int     `json:"by_condition"`
-	ByCategory       map[string]int     `json:"by_category"`
-	LowStockItems    []LowStockItem     `json:"low_stock_items"`
-	OverstockItems   []OverstockItem    `json:"overstock_items"`
-	StagnantItems    []StagnantItem     `json:"stagnant_items"`
-	Valuation        InventoryValuation `json:"valuation"`
+	TotalItems     int                `json:"total_items"`
+	TotalValue     float64            `json:"total_value"`
+	ByCondition    map[string]int     `json:"by_condition"`
+	ByCategory     map[string]int     `json:"by_category"`
+	LowStockItems  []LowStockItem     `json:"low_stock_items"`
+	OverstockItems []OverstockItem    `json:"overstock_items"`
+	StagnantItems  []StagnantItem     `json:"stagnant_items"`
+	Valuation      InventoryValuation `json:"valuation"`
 }
 
 // LowStockItem represents low stock item
 type LowStockItem struct {
-	ProductID     uuid.UUID `json:"product_id"`
-	ProductName   string    `json:"product_name"`
-	CurrentStock  int       `json:"current_stock"`
-	MinStock      int       `json:"min_stock"`
-	ReorderLevel  int       `json:"reorder_level"`
+	ProductID    uuid.UUID `json:"product_id"`
+	ProductName  string    `json:"product_name"`
+	CurrentStock int       `json:"current_stock"`
+	MinStock     int       `json:"min_stock"`
+	ReorderLevel int       `json:"reorder_level"`
 }
 
 // OverstockItem represents overstock item
 type OverstockItem struct {
-	ProductID    uuid.UUID `json:"product_id"`
-	ProductName  string    `json:"product_name"`
-	CurrentStock int       `json:"current_stock"`
-	AvgMonthlySales int     `json:"avg_monthly_sales"`
-	MonthsOfSupply int      `json:"months_of_supply"`
+	ProductID       uuid.UUID `json:"product_id"`
+	ProductName     string    `json:"product_name"`
+	CurrentStock    int       `json:"current_stock"`
+	AvgMonthlySales int       `json:"avg_monthly_sales"`
+	MonthsOfSupply  int       `json:"months_of_supply"`
 }
 
 // StagnantItem represents stagnant item
@@ -94,10 +97,10 @@ type StagnantItem struct {
 
 // InventoryValuation represents inventory valuation
 type InventoryValuation struct {
-	TotalCost      float64 `json:"total_cost"`
-	TotalRetail    float64 `json:"total_retail"`
-	PotentialProfit float64 `json:"potential_profit"`
-	ByCondition    map[string]float64 `json:"by_condition"`
+	TotalCost       float64            `json:"total_cost"`
+	TotalRetail     float64            `json:"total_retail"`
+	PotentialProfit float64            `json:"potential_profit"`
+	ByCondition     map[string]float64 `json:"by_condition"`
 }
 
 // ExpensesReport represents expenses report data
@@ -114,8 +117,8 @@ type ExpensesReport struct {
 
 // MonthlyExpenses represents monthly expenses data
 type MonthlyExpenses struct {
-	Month   time.Time `json:"month"`
-	Amount  float64   `json:"amount"`
+	Month  time.Time `json:"month"`
+	Amount float64   `json:"amount"`
 }
 
 // ExpenseItem represents expense item data
@@ -128,17 +131,17 @@ type ExpenseItem struct {
 
 // ProfitsReport represents profits report data
 type ProfitsReport struct {
-	Period            string    `json:"period"`
-	StartDate         time.Time `json:"start_date"`
-	EndDate           time.Time `json:"end_date"`
-	TotalRevenue      float64   `json:"total_revenue"`
-	TotalCOGS         float64   `json:"total_cogs"`
-	GrossProfit       float64   `json:"gross_profit"`
-	TotalExpenses     float64   `json:"total_expenses"`
-	NetProfit         float64   `json:"net_profit"`
-	ProfitMargin      float64   `json:"profit_margin"`
-	ByMonth           []MonthlyProfit `json:"by_month"`
-	ByCategory        map[string]float64 `json:"by_category"`
+	Period        string             `json:"period"`
+	StartDate     time.Time          `json:"start_date"`
+	EndDate       time.Time          `json:"end_date"`
+	TotalRevenue  float64            `json:"total_revenue"`
+	TotalCOGS     float64            `json:"total_cogs"`
+	GrossProfit   float64            `json:"gross_profit"`
+	TotalExpenses float64            `json:"total_expenses"`
+	NetProfit     float64            `json:"net_profit"`
+	ProfitMargin  float64            `json:"profit_margin"`
+	ByMonth       []MonthlyProfit    `json:"by_month"`
+	ByCategory    map[string]float64 `json:"by_category"`
 }
 
 // MonthlyProfit represents monthly profit data
@@ -153,13 +156,13 @@ type MonthlyProfit struct {
 
 // DebtsReport represents debts report data
 type DebtsReport struct {
-	TotalDebt           float64         `json:"total_debt"`
-	TotalPaid           float64         `json:"total_paid"`
-	Outstanding         float64         `json:"outstanding"`
-	OverdueDebt         float64         `json:"overdue_debt"`
-	ByCustomer          []CustomerDebt  `json:"by_customer"`
-	ByAge               map[string]int  `json:"by_age"`
-	PaymentHistory      []PaymentRecord `json:"payment_history"`
+	TotalDebt      float64         `json:"total_debt"`
+	TotalPaid      float64         `json:"total_paid"`
+	Outstanding    float64         `json:"outstanding"`
+	OverdueDebt    float64         `json:"overdue_debt"`
+	ByCustomer     []CustomerDebt  `json:"by_customer"`
+	ByAge          map[string]int  `json:"by_age"`
+	PaymentHistory []PaymentRecord `json:"payment_history"`
 }
 
 // CustomerDebt represents customer debt data
@@ -175,22 +178,22 @@ type CustomerDebt struct {
 
 // PaymentRecord represents payment record
 type PaymentRecord struct {
-	Date        time.Time `json:"date"`
-	CustomerID  uuid.UUID `json:"customer_id"`
-	CustomerName string   `json:"customer_name"`
-	Amount      float64   `json:"amount"`
+	Date         time.Time `json:"date"`
+	CustomerID   uuid.UUID `json:"customer_id"`
+	CustomerName string    `json:"customer_name"`
+	Amount       float64   `json:"amount"`
 }
 
 // PurchasesReport represents purchases report data
 type PurchasesReport struct {
-	Period          string              `json:"period"`
-	StartDate       time.Time           `json:"start_date"`
-	EndDate         time.Time           `json:"end_date"`
-	TotalPurchases  int                 `json:"total_purchases"`
-	TotalCost       float64             `json:"total_cost"`
-	BySupplier      []SupplierPurchases `json:"by_supplier"`
-	ByCategory      map[string]int      `json:"by_category"`
-	ByMonth         []MonthlyPurchases  `json:"by_month"`
+	Period         string              `json:"period"`
+	StartDate      time.Time           `json:"start_date"`
+	EndDate        time.Time           `json:"end_date"`
+	TotalPurchases int                 `json:"total_purchases"`
+	TotalCost      float64             `json:"total_cost"`
+	BySupplier     []SupplierPurchases `json:"by_supplier"`
+	ByCategory     map[string]int      `json:"by_category"`
+	ByMonth        []MonthlyPurchases  `json:"by_month"`
 }
 
 // SupplierPurchases represents supplier purchases data
@@ -203,29 +206,29 @@ type SupplierPurchases struct {
 
 // MonthlyPurchases represents monthly purchases data
 type MonthlyPurchases struct {
-	Month  time.Time `json:"month"`
-	Cost   float64   `json:"cost"`
-	Count  int       `json:"count"`
+	Month time.Time `json:"month"`
+	Cost  float64   `json:"cost"`
+	Count int       `json:"count"`
 }
 
 // ReturnsReport represents returns report data
 type ReturnsReport struct {
-	Period         string          `json:"period"`
-	StartDate      time.Time       `json:"start_date"`
-	EndDate        time.Time       `json:"end_date"`
-	TotalReturns   int             `json:"total_returns"`
-	TotalRefunded  float64         `json:"total_refunded"`
-	ByReason       map[string]int  `json:"by_reason"`
-	ByProduct      []ProductReturns `json:"by_product"`
-	ByMonth        []MonthlyReturns `json:"by_month"`
+	Period        string           `json:"period"`
+	StartDate     time.Time        `json:"start_date"`
+	EndDate       time.Time        `json:"end_date"`
+	TotalReturns  int              `json:"total_returns"`
+	TotalRefunded float64          `json:"total_refunded"`
+	ByReason      map[string]int   `json:"by_reason"`
+	ByProduct     []ProductReturns `json:"by_product"`
+	ByMonth       []MonthlyReturns `json:"by_month"`
 }
 
 // ProductReturns represents product returns data
 type ProductReturns struct {
-	ProductID   uuid.UUID `json:"product_id"`
-	ProductName string    `json:"product_name"`
-	ReturnCount int       `json:"return_count"`
-	RefundAmount float64  `json:"refund_amount"`
+	ProductID    uuid.UUID `json:"product_id"`
+	ProductName  string    `json:"product_name"`
+	ReturnCount  int       `json:"return_count"`
+	RefundAmount float64   `json:"refund_amount"`
 }
 
 // MonthlyReturns represents monthly returns data
@@ -237,43 +240,43 @@ type MonthlyReturns struct {
 
 // NetSalesReport represents net sales report data (gross sales minus returns)
 type NetSalesReport struct {
-	Period           string           `json:"period"`
-	StartDate        time.Time        `json:"start_date"`
-	EndDate          time.Time        `json:"end_date"`
-	GrossSales       int              `json:"gross_sales"`
-	GrossRevenue     float64          `json:"gross_revenue"`
-	TotalReturns     int              `json:"total_returns"`
-	TotalRefunded    float64          `json:"total_refunded"`
-	NetSales         int              `json:"net_sales"`
-	NetRevenue       float64          `json:"net_revenue"`
-	ReturnRate       float64          `json:"return_rate"`
-	ByDay            []DailyNetSales  `json:"by_day"`
-	ByPaymentMethod  map[string]float64 `json:"by_payment_method"`
-	TopReturnedProducts []ProductNetSales `json:"top_returned_products"`
+	Period              string             `json:"period"`
+	StartDate           time.Time          `json:"start_date"`
+	EndDate             time.Time          `json:"end_date"`
+	GrossSales          int                `json:"gross_sales"`
+	GrossRevenue        float64            `json:"gross_revenue"`
+	TotalReturns        int                `json:"total_returns"`
+	TotalRefunded       float64            `json:"total_refunded"`
+	NetSales            int                `json:"net_sales"`
+	NetRevenue          float64            `json:"net_revenue"`
+	ReturnRate          float64            `json:"return_rate"`
+	ByDay               []DailyNetSales    `json:"by_day"`
+	ByPaymentMethod     map[string]float64 `json:"by_payment_method"`
+	TopReturnedProducts []ProductNetSales  `json:"top_returned_products"`
 }
 
 // DailyNetSales represents daily net sales data
 type DailyNetSales struct {
-	Date       time.Time `json:"date"`
-	GrossSales int       `json:"gross_sales"`
-	GrossRevenue float64 `json:"gross_revenue"`
-	Returns    int       `json:"returns"`
-	Refunded   float64   `json:"refunded"`
-	NetSales   int       `json:"net_sales"`
-	NetRevenue float64   `json:"net_revenue"`
+	Date         time.Time `json:"date"`
+	GrossSales   int       `json:"gross_sales"`
+	GrossRevenue float64   `json:"gross_revenue"`
+	Returns      int       `json:"returns"`
+	Refunded     float64   `json:"refunded"`
+	NetSales     int       `json:"net_sales"`
+	NetRevenue   float64   `json:"net_revenue"`
 }
 
 // ProductNetSales represents product net sales data
 type ProductNetSales struct {
-	ProductID      uuid.UUID `json:"product_id"`
-	ProductName    string    `json:"product_name"`
-	GrossQuantity  int       `json:"gross_quantity"`
-	ReturnedQuantity int     `json:"returned_quantity"`
-	NetQuantity    int       `json:"net_quantity"`
-	GrossRevenue   float64   `json:"gross_revenue"`
-	RefundedAmount float64   `json:"refunded_amount"`
-	NetRevenue     float64   `json:"net_revenue"`
-	ReturnRate     float64   `json:"return_rate"`
+	ProductID        uuid.UUID `json:"product_id"`
+	ProductName      string    `json:"product_name"`
+	GrossQuantity    int       `json:"gross_quantity"`
+	ReturnedQuantity int       `json:"returned_quantity"`
+	NetQuantity      int       `json:"net_quantity"`
+	GrossRevenue     float64   `json:"gross_revenue"`
+	RefundedAmount   float64   `json:"refunded_amount"`
+	NetRevenue       float64   `json:"net_revenue"`
+	ReturnRate       float64   `json:"return_rate"`
 }
 
 // ReportRequest represents report generation request
@@ -286,14 +289,14 @@ type ReportRequest struct {
 
 // ReportListRequest represents report list query parameters
 type ReportListRequest struct {
-	Page         int        `form:"page" binding:"min=1"`
-	PerPage      int        `form:"per_page" binding:"min=1,max=100"`
-	Type         string     `form:"type" binding:"omitempty,oneof=sales inventory expenses profits debts purchases returns net-sales warranties"`
-	Status       string     `form:"status" binding:"omitempty,oneof=pending completed failed"`
-	StartDate    *time.Time `form:"start_date"`
-	EndDate      *time.Time `form:"end_date"`
-	GeneratedBy  *uuid.UUID `form:"generated_by"`
-	Search       string     `form:"search"`
-	SortBy       string     `form:"sort_by"`
-	SortOrder    string     `form:"sort_order"`
+	Page        int        `form:"page" binding:"min=1"`
+	PerPage     int        `form:"per_page" binding:"min=1,max=100"`
+	Type        string     `form:"type" binding:"omitempty,oneof=sales inventory expenses profits debts purchases returns net-sales warranties"`
+	Status      string     `form:"status" binding:"omitempty,oneof=pending completed failed"`
+	StartDate   *time.Time `form:"start_date"`
+	EndDate     *time.Time `form:"end_date"`
+	GeneratedBy *uuid.UUID `form:"generated_by"`
+	Search      string     `form:"search"`
+	SortBy      string     `form:"sort_by"`
+	SortOrder   string     `form:"sort_order"`
 }

@@ -79,3 +79,6 @@ frontend/.env.production.local
 # Misc
 .npm/
 .eslintcache
+
+# Admin scripts (sensitive data)
+scripts/admin/

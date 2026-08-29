@@ -25,8 +25,8 @@ func (r *Repository) Create(ctx context.Context, payment *Payment) error {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		payment.ID, payment.Type, payment.ReferenceID, payment.Amount, payment.PaymentDate, 
-		payment.Method, payment.Reference, payment.Notes, payment.Status, payment.CreatedBy, 
+		payment.ID, payment.Type, payment.ReferenceID, payment.Amount, payment.PaymentDate,
+		payment.Method, payment.Reference, payment.Notes, payment.Status, payment.CreatedBy,
 		payment.CreatedAt, payment.UpdatedAt,
 	)
 	if err != nil {
@@ -38,7 +38,10 @@ func (r *Repository) Create(ctx context.Context, payment *Payment) error {
 // GetByID retrieves a payment by ID
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Payment, error) {
 	query := `
-		SELECT id, type, reference_id, amount, payment_date, method, reference, notes, status, created_by, created_at, updated_at
+		SELECT id, COALESCE(type, '') AS type, COALESCE(reference_id, '00000000-0000-0000-0000-000000000000') AS reference_id,
+			amount, payment_date, COALESCE(method, payment_method) AS method,
+			COALESCE(reference, reference_number) AS reference, notes, COALESCE(status, 'completed') AS status,
+			COALESCE(created_by, '00000000-0000-0000-0000-000000000000') AS created_by, created_at, updated_at
 		FROM payments
 		WHERE id = $1
 	`
@@ -55,7 +58,10 @@ func (r *Repository) List(ctx context.Context, page, perPage int, filters map[st
 	offset := (page - 1) * perPage
 
 	query := `
-		SELECT id, type, reference_id, amount, payment_date, method, reference, notes, status, created_by, created_at, updated_at
+		SELECT id, COALESCE(type, '') AS type, COALESCE(reference_id, '00000000-0000-0000-0000-000000000000') AS reference_id,
+			amount, payment_date, COALESCE(method, payment_method) AS method,
+			COALESCE(reference, reference_number) AS reference, notes, COALESCE(status, 'completed') AS status,
+			COALESCE(created_by, '00000000-0000-0000-0000-000000000000') AS created_by, created_at, updated_at
 		FROM payments
 		WHERE 1=1
 	`

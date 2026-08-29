@@ -145,7 +145,7 @@ export function EditPurchasePage() {
       setSelectedSupplier(purchase.supplier_id || '');
       setInvoiceNumber(purchase.invoice_number || '');
       setPurchaseDate(purchase.purchase_date ? new Date(purchase.purchase_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
-      setExpectedDate(purchase.expected_date ? new Date(purchase.expected_date).toISOString().split('T')[0] : '');
+      setExpectedDate(purchase.expected_delivery_date ? new Date(purchase.expected_delivery_date).toISOString().split('T')[0] : '');
       setNotes(purchase.notes || '');
       
       // Load items
@@ -299,7 +299,7 @@ export function EditPurchasePage() {
       supplier_id: selectedSupplier,
       invoice_number: invoiceNumber || `PO-${Date.now()}`,
       purchase_date: new Date(purchaseDate).toISOString(),
-      expected_date: expectedDate ? new Date(expectedDate).toISOString() : undefined,
+      expected_delivery_date: expectedDate ? new Date(expectedDate).toISOString() : undefined,
       notes: notes || undefined,
       items: items.map((item) => ({
         product_id: item.product_id,

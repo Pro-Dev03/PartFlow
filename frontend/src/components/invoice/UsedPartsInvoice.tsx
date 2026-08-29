@@ -95,7 +95,7 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onDownload, onC
       'cash': 'نقداً',
       'card': 'بطاقة',
       'bank_transfer': 'تحويل بنكي',
-      'credit': 'آجل',
+      'credit': 'دين',
     };
     return methodMap[method] || method;
   };

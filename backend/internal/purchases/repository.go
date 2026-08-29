@@ -166,6 +166,7 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 			p.id::text AS id,
 			p.invoice_number,
 			p.purchase_date,
+			p.expected_delivery_date,
 			p.total_amount,
 			p.paid_amount,
 			p.total_amount - p.paid_amount AS remaining,
@@ -204,10 +205,17 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 		query += fmt.Sprintf(" AND (p.invoice_number ILIKE $%d OR p.notes ILIKE $%d)", argCount, argCount)
 		args = append(args, "%"+req.Search+"%")
 	}
+	if req.AvailableForReturn {
+		query += ` AND EXISTS (
+			SELECT 1 FROM purchase_items return_pi
+			JOIN inventory_items return_ii ON return_ii.product_id = return_pi.product_id
+			WHERE return_pi.purchase_id = p.id AND return_ii.status = 'AVAILABLE'
+		)`
+	}
 
 	query += `
 		GROUP BY p.id, p.invoice_number, p.purchase_date, p.total_amount,
-			p.paid_amount, p.status, p.created_at, s.name
+			p.paid_amount, p.expected_delivery_date, p.status, p.created_at, s.name
 	`
 
 	sortColumns := map[string]string{

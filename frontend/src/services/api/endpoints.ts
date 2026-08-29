@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { TokenManager } from '../../lib/token-manager';
 import type {
   ProductCreateRequest,
   ProductUpdateRequest,
@@ -15,6 +16,7 @@ import type {
   InventoryListParams,
   SaleCreateRequest,
   DebtPayment,
+  PaymentCreateRequest,
   PurchaseCreateRequest,
   ExpenseCreateRequest,
   PartTypeCreateRequest,
@@ -27,7 +29,14 @@ export const authApi = {
   login: (email: string, password: string) =>
     apiClient.post('/auth/login', { email, password }),
   logout: () => apiClient.post('/auth/logout', {}),
-  refreshToken: () => apiClient.post('/auth/refresh', {}),
+  refreshToken: () => {
+    const refreshToken = TokenManager.getRefreshToken();
+    if (!refreshToken) {
+      return Promise.reject(new Error('No refresh token available'));
+    }
+
+    return apiClient.post('/auth/refresh', { refresh_token: refreshToken });
+  },
   forgotPassword: (email: string) =>
     apiClient.post('/auth/forgot-password', { email }),
   resetPassword: (token: string, password: string) =>
@@ -36,9 +45,9 @@ export const authApi = {
 
 // Dashboard endpoints
 export const dashboardApi = {
-  getStats: () => apiClient.get('/dashboard/stats'),
-  getLowStockItems: () => apiClient.get('/dashboard/low-stock-items'),
-  getOverdueDebts: () => apiClient.get('/dashboard/overdue-debts'),
+  getStats: () => apiClient.get('/dashboard/stats', undefined, false),
+  getLowStockItems: () => apiClient.get('/dashboard/low-stock-items', undefined, false),
+  getOverdueDebts: () => apiClient.get('/dashboard/overdue-debts', undefined, false),
   // Aggregation endpoints (ARCHITECTURE-PRINCIPLES.md)
   getDailySalesSummary: (date?: string) => apiClient.get('/aggregations/daily-sales', { date }),
   getMonthlySalesSummary: (year?: number, month?: number) => apiClient.get('/aggregations/monthly-sales', { year, month }),
@@ -78,6 +87,7 @@ export const inventoryApi = {
   list: (params?: InventoryListParams) =>
     apiClient.get('/inventory/items', params),
   listWithSupplier: (params?: InventoryListParams & { 
+    exclude_condition?: string;
     supplier_id?: string;
     purchase_date_from?: string;
     purchase_date_to?: string;
@@ -124,7 +134,7 @@ export const itemSpecsApi = {
 
 // Sales endpoints
 export const salesApi = {
-  list: (params?: PaginationParams & { search?: string }) =>
+  list: (params?: PaginationParams & { search?: string; available_for_return?: boolean }) =>
     apiClient.get('/sales', params),
   get: (id: string) => apiClient.get(`/sales/${id}`),
   create: (data: SaleCreateRequest) => apiClient.post('/sales', data),
@@ -142,7 +152,7 @@ export const paymentsApi = {
   list: (params?: PaginationParams & { type?: string }) =>
     apiClient.get('/payments', params),
   get: (id: string) => apiClient.get(`/payments/${id}`),
-  create: (data: DebtPayment) => apiClient.post('/payments', data),
+  create: (data: PaymentCreateRequest) => apiClient.post('/payments', data),
   // SmartDelete - now returns SmartDeleteResult (ARCHITECTURE-PRINCIPLES.md)
   delete: (id: string) => apiClient.delete(`/payments/${id}`),
 };
@@ -166,7 +176,7 @@ export const customersApi = {
 // Debts endpoints - Note: Debts are managed under customers in the backend
 export const debtsApi = {
   list: (params?: PaginationParams) => 
-    apiClient.get('/customers/overdue', params),
+    apiClient.get('/debts', params, false),
   get: (customerId: string, debtId: string) => apiClient.get(`/customers/${customerId}/debts/${debtId}`),
   recordPayment: (customerId: string, data: DebtPayment) => apiClient.post(`/customers/${customerId}/debt-payments`, data),
   getDebtEntries: (customerId: string) => apiClient.get(`/customers/${customerId}/debts`),
@@ -176,7 +186,7 @@ export const debtsApi = {
 
 // Suppliers endpoints
 export const suppliersApi = {
-  list: (params?: PaginationParams & { search?: string }) =>
+  list: (params?: PaginationParams & { search?: string; is_active?: boolean }) =>
     apiClient.get('/suppliers', params),
   get: (id: string) => apiClient.get(`/suppliers/${id}`),
   create: (data: SupplierCreateRequest) => apiClient.post('/suppliers', data),
@@ -199,6 +209,8 @@ export const purchasesApi = {
   // SmartDelete - now returns SmartDeleteResult (ARCHITECTURE-PRINCIPLES.md)
   delete: (id: string) => apiClient.delete(`/purchases/${id}`),
   receive: (id: string) => apiClient.post(`/purchases/${id}/receive`, {}),
+  addPayment: (id: string, data: { amount: number; paymentMethod: string }) =>
+    apiClient.post(`/purchases/${id}/payment`, data),
   cancel: (id: string) => apiClient.post(`/purchases/${id}/cancel`, {}),
   reverse: (id: string, reason: string) => apiClient.post(`/purchases/${id}/reverse`, { reason }),
   // Get used items info for blocked deletion
@@ -218,29 +230,43 @@ export const expensesApi = {
 // Reports endpoints
 export const reportsApi = {
   sales: (params?: { start_date?: string; end_date?: string }) => 
-    apiClient.get('/reports/sales', params),
+    apiClient.get('/reports/sales', params, false),
   netSales: (params?: { start_date?: string; end_date?: string }) => 
-    apiClient.get('/reports/net-sales', params),
+    apiClient.get('/reports/net-sales', params, false),
   profit: (params?: { start_date?: string; end_date?: string }) => 
-    apiClient.get('/reports/profit', params),
+    apiClient.get('/reports/profit', params, false),
   inventory: () => 
-    apiClient.get('/reports/inventory'),
+    apiClient.get('/reports/inventory', undefined, false),
   debts: () => 
-    apiClient.get('/reports/debts'),
+    apiClient.get('/reports/debts', undefined, false),
   products: () => 
-    apiClient.get('/reports/products'),
+    apiClient.get('/reports/products', undefined, false),
   suppliers: () => 
-    apiClient.get('/reports/suppliers'),
+    apiClient.get('/reports/suppliers', undefined, false),
+  purchases: (params?: { start_date?: string; end_date?: string }) =>
+    apiClient.get('/reports/purchases', params, false),
   expenses: (params?: { start_date?: string; end_date?: string }) => 
-    apiClient.get('/reports/expenses', params),
+    apiClient.get('/reports/expenses', params, false),
   returns: (params?: { start_date?: string; end_date?: string }) => 
-    apiClient.get('/reports/returns', params),
+    apiClient.get('/reports/returns', params, false),
+  returnsAnalysis: () =>
+    apiClient.get('/returns/analysis/monthly', undefined, false),
 };
 
 // Settings endpoints
 export const settingsApi = {
+  setOperatingMode: (mode: 'offline' | 'online') =>
+    apiClient.put('/settings/operating-mode', { mode }),
   getUsers: (params?: { page?: number; per_page?: number }) =>
     apiClient.get('/settings/users', params),
+  getSubscribers: (params?: { page?: number; per_page?: number; search?: string; is_active?: boolean }) =>
+    apiClient.get('/users/subscriptions', params),
+  getSubscriptionSummary: () =>
+    apiClient.get('/users/subscription-summary'),
+  updateSubscriptionStatus: (id: string, payload: { subscription_status: string; subscription_expires_at?: string | null }) =>
+    apiClient.put(`/users/${id}/subscription`, payload),
+  renewSubscription: (id: string, days: number) =>
+    apiClient.post(`/users/${id}/subscription/renew`, { days }),
   createUser: (data: any) => apiClient.post('/settings/users', data),
   updateUser: (id: string, data: any) => apiClient.put(`/settings/users/${id}`, data),
   deleteUser: (id: string) => apiClient.delete(`/settings/users/${id}`),
@@ -249,7 +275,10 @@ export const settingsApi = {
   getPublicSettings: () => apiClient.get('/settings/public'),
   getSetting: (key: string) => apiClient.get(`/settings/${key}`),
   updateSetting: (key: string, value: string) => apiClient.put(`/settings/${key}`, { value }),
-  deleteAllData: () => apiClient.delete('/settings/database'),
+  deleteAllData: (confirmation: string, target: 'offline' | 'online' | 'current' = 'current') => {
+    const resetTarget = target === 'current' ? 'current' : target;
+    return apiClient.delete('/settings/database', { confirmation, target: resetTarget });
+  },
 };
 
 // Barcode endpoints
@@ -314,6 +343,17 @@ export const returnsApi = {
   reverse: (id: string) => apiClient.post(`/returns/${id}/reverse`),
 };
 
+export const supplierReturnsApi = {
+  list: (status?: string) => apiClient.get('/supplier-returns', status ? { status } : undefined),
+  create: (data: { purchase_id: string; reason: string; notes?: string }) =>
+    apiClient.post('/supplier-returns', data),
+  addItem: (id: string, data: { purchase_item_id: string; quantity: number }) =>
+    apiClient.post(`/supplier-returns/${id}/items`, data),
+  delete: (id: string) => apiClient.delete(`/supplier-returns/${id}`),
+  reject: (id: string) => apiClient.post(`/supplier-returns/${id}/reject`, {}),
+  complete: (id: string) => apiClient.post(`/supplier-returns/${id}/complete`),
+};
+
 // Acquisitions endpoints (USED-PARTS-ACQUISITION.md)
 export const acquisitionsApi = {
   list: (params?: { 
@@ -342,7 +382,7 @@ export const acquisitionsApi = {
   addRepairCost: (itemId: string, data: any) => 
     apiClient.post(`/acquisitions/items/${itemId}/repair-cost`, data),
   getItemHistory: (itemId: string) => 
-    apiClient.get(`/inventory/items/${itemId}/history`),
+    apiClient.get(`/acquisitions/items/${itemId}/history`),
 };
 
 // Notifications endpoints

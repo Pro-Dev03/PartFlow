@@ -41,5 +41,7 @@ export interface PurchaseStats {
   pendingCount: number;
   receivedCount: number;
   reversedCount: number;
-  totalCost: number;
+  pendingCost: number;
+  receivedCost: number;
+  outstandingAmount: number;
 }

@@ -87,6 +87,28 @@ export function ReturnDetailsPage() {
   const returnRecord = returnData?.return as Return;
   const items = (returnData?.items as ReturnItem[]) || [];
 
+  const updateReturnStatusMutation = useMutation({
+    mutationFn: ({ action, returnId }: { action: 'approve' | 'reject' | 'refund'; returnId: string }) => {
+      if (action === 'approve') return returnsApi.approve(returnId);
+      if (action === 'reject') return returnsApi.reject(returnId);
+      return returnsApi.processRefund(returnId);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['return-with-items', id] });
+      queryClient.invalidateQueries({ queryKey: ['returns'] });
+      const messages = {
+        approve: 'تم اعتماد المرتجع بنجاح',
+        reject: 'تم رفض المرتجع',
+        refund: 'تم بدء معالجة الاسترجاع',
+      };
+      toast.success(messages[variables.action]);
+    },
+    onError: (error) => {
+      console.error('Failed to update return status:', error);
+      toast.error('تعذر تحديث حالة المرتجع');
+    },
+  });
+
   const completeReturnMutation = useMutation({
     mutationFn: (returnId: string) => returnsApi.complete(returnId),
     onSuccess: () => {
@@ -275,7 +297,37 @@ export function ReturnDetailsPage() {
               <ArrowLeft className="w-4 h-4 mr-1" />
               رجوع
             </Button>
+            {returnRecord.status === 'PENDING' && (
+              <>
+                <Button
+                  variant="success"
+                  onClick={() => updateReturnStatusMutation.mutate({ action: 'approve', returnId: returnRecord.id })}
+                  disabled={updateReturnStatusMutation.isPending}
+                >
+                  <CheckCircle className="w-4 h-4 mr-1" />
+                  اعتماد المرتجع
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => updateReturnStatusMutation.mutate({ action: 'reject', returnId: returnRecord.id })}
+                  disabled={updateReturnStatusMutation.isPending}
+                >
+                  <XCircle className="w-4 h-4 mr-1" />
+                  رفض المرتجع
+                </Button>
+              </>
+            )}
             {returnRecord.status === 'APPROVED' && (
+              <Button
+                variant="info"
+                onClick={() => updateReturnStatusMutation.mutate({ action: 'refund', returnId: returnRecord.id })}
+                disabled={updateReturnStatusMutation.isPending}
+              >
+                <RefreshCw className="w-4 h-4 mr-1" />
+                بدء الاسترجاع
+              </Button>
+            )}
+            {(returnRecord.status === 'APPROVED' || returnRecord.status === 'PROCESSING') && (
               <Button
                 variant="success"
                 onClick={() => completeReturnMutation.mutate(returnRecord.id)}

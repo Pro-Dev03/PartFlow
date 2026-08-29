@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	ErrSaleCannotReverse = errors.New("sale cannot be reversed - wrong status")
+	ErrSaleCannotReverse     = errors.New("sale cannot be reversed - wrong status")
 	ErrInvalidReversalReason = errors.New("reversal reason is required")
 )
 
@@ -168,13 +168,13 @@ func (s *ReversalService) ReverseSale(ctx context.Context, saleID uuid.UUID, req
 
 	// Return the reversal record
 	reversal := &SaleReversal{
-		ID:              reversalID,
-		SaleID:          saleID,
-		Reason:          req.Reason,
-		ReversedBy:      userID,
-		ReversedAt:      now,
-		OriginalTotal:   sale.TotalAmount,
-		CreatedAt:       now,
+		ID:            reversalID,
+		SaleID:        saleID,
+		Reason:        req.Reason,
+		ReversedBy:    userID,
+		ReversedAt:    now,
+		OriginalTotal: sale.TotalAmount,
+		CreatedAt:     now,
 	}
 
 	return reversal, nil

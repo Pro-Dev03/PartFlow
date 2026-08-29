@@ -6,6 +6,7 @@
 export class TokenManager {
   private static readonly AUTH_TOKEN_KEY = 'auth_token';
   private static readonly TOKEN_KEY = 'token'; // For backwards compatibility
+  private static readonly REFRESH_TOKEN_KEY = 'refresh_token';
 
   /**
    * الحصول على الـ token من أي من المفاتيح
@@ -18,6 +19,10 @@ export class TokenManager {
     );
   }
 
+  static getRefreshToken(): string | null {
+    return localStorage.getItem(this.REFRESH_TOKEN_KEY);
+  }
+
   /**
    * حفظ الـ token في كلا المفتاحين للتوافقية
    */
@@ -26,12 +31,20 @@ export class TokenManager {
     localStorage.setItem(this.TOKEN_KEY, token);
   }
 
+  static setRefreshToken(refreshToken: string): void {
+    localStorage.setItem(this.REFRESH_TOKEN_KEY, refreshToken);
+  }
+
   /**
    * حذف الـ token من كلا المفتاحين
    */
   static clearToken(): void {
     localStorage.removeItem(this.AUTH_TOKEN_KEY);
     localStorage.removeItem(this.TOKEN_KEY);
+  }
+
+  static clearRefreshToken(): void {
+    localStorage.removeItem(this.REFRESH_TOKEN_KEY);
   }
 
   /**

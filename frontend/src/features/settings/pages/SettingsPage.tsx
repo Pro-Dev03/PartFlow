@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Button } from '../../../components/ui/button';
+import { buildSubscriptionGuardFromToken } from '../../../lib/subscription-guard';
+import { useAuthStore } from '../../../stores/authStore';
 import {
   Store,
   Palette,
@@ -11,7 +13,10 @@ import {
   Zap,
   DollarSign,
   Save,
-  Trash2
+  Trash2,
+  User,
+  ShieldCheck,
+  CalendarClock
 } from 'lucide-react';
 
 // Components
@@ -25,7 +30,30 @@ import { DatabaseSettings } from '../components/DatabaseSettings';
 
 export function SettingsPage() {
   const { t } = useTranslation();
+  const user = useAuthStore((state) => state.user);
+  const token = useAuthStore((state) => state.token);
   const [activeTab, setActiveTab] = useState('store');
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const subscriptionGuard = buildSubscriptionGuardFromToken(token, {
+    subscriptionStatus: user?.subscription_status || 'active',
+    subscriptionExpiresAt: user?.subscription_expires_at || null,
+  });
+
+  const expiryDate = subscriptionGuard?.subscriptionExpiresAt ? new Date(subscriptionGuard.subscriptionExpiresAt) : null;
+  const remainingMs = expiryDate ? expiryDate.getTime() - now : null;
+  const remainingDays = remainingMs === null ? 0 : Math.max(0, Math.ceil(remainingMs / (1000 * 60 * 60 * 24)));
+  const remainingText = remainingMs === null ? 'غير محدد' : `${remainingDays} يوم`;
+  const displayName = user?.first_name || user?.name || 'مستخدم';
+  const displayEmail = user?.email || 'غير متوفر';
+  const displayPhone = user?.phone || 'غير متوفر';
+  const subscriptionStatus = (subscriptionGuard?.subscriptionStatus || 'active').toLowerCase();
+  const isActiveSubscription = subscriptionStatus === 'active' || subscriptionStatus === 'trial';
 
   const tabs = [
     { id: 'store', label: t('settings.store'), icon: Store },
@@ -57,6 +85,79 @@ export function SettingsPage() {
           </div>
         }
       />
+
+      <div className="mb-6 grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <User className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">بيانات المستخدم</p>
+              <h3 className="text-lg font-bold text-foreground">{displayName}</h3>
+            </div>
+          </div>
+
+          <div className="space-y-3 text-sm text-foreground/90">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">البريد</span>
+              <span className="font-medium">{displayEmail}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">الهاتف</span>
+              <span className="font-medium">{displayPhone}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">حالة الاشتراك</p>
+              <h3 className="text-lg font-bold text-foreground">{isActiveSubscription ? 'نشط' : 'منتهي'}</h3>
+            </div>
+          </div>
+
+          <div className="space-y-3 text-sm text-foreground/90">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">الحالة</span>
+              <span className="font-medium">{subscriptionStatus}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">تاريخ الانتهاء</span>
+              <span className="font-medium">{expiryDate ? expiryDate.toLocaleDateString('ar-EG') : 'غير محدد'}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
+              <CalendarClock className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">الوقت المتبقي</p>
+              <h3 className="text-lg font-bold text-foreground">{remainingText}</h3>
+            </div>
+          </div>
+
+          <div className="space-y-3 text-sm text-foreground/90">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">تحديث مباشر</span>
+              <span className="font-medium">{isActiveSubscription ? 'يتم التحديث تلقائياً' : 'الاشتراك منتهي'}</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className={`h-full rounded-full ${isActiveSubscription ? 'bg-emerald-500' : 'bg-red-500'}`}
+                style={{ width: `${expiryDate && remainingMs !== null ? Math.max(0, Math.min(100, (remainingMs / (expiryDate.getTime() - Date.now() + remainingMs + 1)) * 100)) : 100}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-md">
         {/* Sidebar Tabs - Futuristic + Minimal */}

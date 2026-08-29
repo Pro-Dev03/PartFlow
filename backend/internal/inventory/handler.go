@@ -208,6 +208,9 @@ func (h *Handler) ListInventoryItemsWithSupplierInfo(c *gin.Context) {
 	if condition := c.Query("condition"); condition != "" {
 		filters["condition"] = condition
 	}
+	if excludeCondition := c.Query("exclude_condition"); excludeCondition != "" {
+		filters["exclude_condition"] = excludeCondition
+	}
 	if locationID := c.Query("location_id"); locationID != "" {
 		if id, err := uuid.Parse(locationID); err == nil {
 			filters["location_id"] = id
@@ -393,10 +396,13 @@ func (h *Handler) GetItemHistory(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"movements": movements,
-		"total":     total,
-		"page":      page,
-		"per_page":  perPage,
+		"success": true,
+		"data": gin.H{
+			"movements": movements,
+			"total":     total,
+			"page":      page,
+			"per_page":  perPage,
+		},
 	})
 }
 

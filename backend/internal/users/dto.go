@@ -19,18 +19,20 @@ type UserRequest struct {
 
 // UserResponse represents user response
 type UserResponse struct {
-	ID          uuid.UUID  `json:"id"`
-	Email       string     `json:"email"`
-	FirstName   string     `json:"first_name"`
-	LastName    string     `json:"last_name"`
-	FullName    string     `json:"full_name"`
-	Phone       *string    `json:"phone,omitempty"`
-	AvatarURL   *string    `json:"avatar_url,omitempty"`
-	IsActive    bool       `json:"is_active"`
-	IsVerified  bool       `json:"is_verified"`
-	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID                    uuid.UUID  `json:"id"`
+	Email                 string     `json:"email"`
+	FirstName             string     `json:"first_name"`
+	LastName              string     `json:"last_name"`
+	FullName              string     `json:"full_name"`
+	Phone                 *string    `json:"phone,omitempty"`
+	AvatarURL             *string    `json:"avatar_url,omitempty"`
+	IsActive              bool       `json:"is_active"`
+	IsVerified            bool       `json:"is_verified"`
+	LastLoginAt           *time.Time `json:"last_login_at,omitempty"`
+	SubscriptionStatus    string     `json:"subscription_status"`
+	SubscriptionExpiresAt *time.Time `json:"subscription_expires_at,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
 }
 
 // UserListRequest represents user list query parameters

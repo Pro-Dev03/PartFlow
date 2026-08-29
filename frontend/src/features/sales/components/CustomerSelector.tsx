@@ -70,7 +70,7 @@ export function CustomerSelector({
         className="pf-customer-select"
       />
       <p className="pf-customer-selector-hint">
-        {customersLoading ? 'جارٍ تحميل العملاء...' : selectedCustomer ? 'تم اختيار العميل' : 'اختياري - للعمليات الآجلة وتسجيل المبيعات'}
+        {customersLoading ? 'جارٍ تحميل العملاء...' : selectedCustomer ? 'تم اختيار العميل' : 'اختياري - اختر عميلاً لتسجيل الدين'}
       </p>
     </div>
   );

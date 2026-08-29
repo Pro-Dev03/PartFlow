@@ -70,25 +70,25 @@ func (h *Handler) ListDebts(c *gin.Context) {
 	// Try cache first for first page
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
-	
+
 	if page == 1 && perPage == 20 {
 		if cached, found := h.cache.get(); found {
 			c.JSON(http.StatusOK, cached)
 			return
 		}
 	}
-	
+
 	offset := (page - 1) * perPage
 
 	var debts []struct {
-		ID             uuid.UUID `json:"id"`
-		CustomerID     uuid.UUID `json:"customer_id"`
-		CustomerName   string    `json:"customer_name"`
-		Amount         float64   `json:"amount"`
-		RemainingAmount float64  `json:"remaining_amount"`
-		DueDate        string    `json:"due_date"`
-		Status         string    `json:"status"`
-		CreatedAt      string    `json:"created_at"`
+		ID              uuid.UUID `json:"id"`
+		CustomerID      uuid.UUID `json:"customer_id"`
+		CustomerName    string    `json:"customer_name"`
+		Amount          float64   `json:"amount"`
+		RemainingAmount float64   `json:"remaining_amount"`
+		DueDate         string    `json:"due_date"`
+		Status          string    `json:"status"`
+		CreatedAt       string    `json:"created_at"`
 	}
 
 	query := `
@@ -109,14 +109,14 @@ func (h *Handler) ListDebts(c *gin.Context) {
 
 	for rows.Next() {
 		var debt struct {
-			ID             uuid.UUID `json:"id"`
-			CustomerID     uuid.UUID `json:"customer_id"`
-			CustomerName   string    `json:"customer_name"`
-			Amount         float64   `json:"amount"`
-			RemainingAmount float64  `json:"remaining_amount"`
-			DueDate        string    `json:"due_date"`
-			Status         string    `json:"status"`
-			CreatedAt      string    `json:"created_at"`
+			ID              uuid.UUID `json:"id"`
+			CustomerID      uuid.UUID `json:"customer_id"`
+			CustomerName    string    `json:"customer_name"`
+			Amount          float64   `json:"amount"`
+			RemainingAmount float64   `json:"remaining_amount"`
+			DueDate         string    `json:"due_date"`
+			Status          string    `json:"status"`
+			CreatedAt       string    `json:"created_at"`
 		}
 		if err := rows.Scan(&debt.ID, &debt.CustomerID, &debt.CustomerName, &debt.Amount, &debt.RemainingAmount, &debt.DueDate, &debt.Status, &debt.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -137,17 +137,17 @@ func (h *Handler) ListDebts(c *gin.Context) {
 		"success": true,
 		"data":    debts,
 		"meta": gin.H{
-			"page":      page,
-			"per_page":  perPage,
-			"total":     total,
+			"page":     page,
+			"per_page": perPage,
+			"total":    total,
 		},
 	}
-	
+
 	// Cache the response for first page
 	if page == 1 && perPage == 20 {
 		h.cache.set(response, 2*time.Minute)
 	}
-	
+
 	c.JSON(http.StatusOK, response)
 }
 
@@ -160,16 +160,16 @@ func (h *Handler) GetDebt(c *gin.Context) {
 	}
 
 	var debt struct {
-		ID             uuid.UUID `json:"id"`
-		CustomerID     uuid.UUID `json:"customer_id"`
-		CustomerName   string    `json:"customer_name"`
-		Amount         float64   `json:"amount"`
-		RemainingAmount float64  `json:"remaining_amount"`
-		DueDate        string    `json:"due_date"`
-		Status         string    `json:"status"`
-		Notes          string    `json:"notes"`
-		CreatedAt      string    `json:"created_at"`
-		UpdatedAt      string    `json:"updated_at"`
+		ID              uuid.UUID `json:"id"`
+		CustomerID      uuid.UUID `json:"customer_id"`
+		CustomerName    string    `json:"customer_name"`
+		Amount          float64   `json:"amount"`
+		RemainingAmount float64   `json:"remaining_amount"`
+		DueDate         string    `json:"due_date"`
+		Status          string    `json:"status"`
+		Notes           string    `json:"notes"`
+		CreatedAt       string    `json:"created_at"`
+		UpdatedAt       string    `json:"updated_at"`
 	}
 
 	query := `
@@ -196,10 +196,10 @@ func (h *Handler) GetDebt(c *gin.Context) {
 // CreateDebt creates a new debt
 func (h *Handler) CreateDebt(c *gin.Context) {
 	var req struct {
-		CustomerID     uuid.UUID `json:"customer_id" binding:"required"`
-		Amount         float64   `json:"amount" binding:"required"`
-		DueDate        string    `json:"due_date" binding:"required"`
-		Notes          string    `json:"notes"`
+		CustomerID uuid.UUID `json:"customer_id" binding:"required"`
+		Amount     float64   `json:"amount" binding:"required"`
+		DueDate    string    `json:"due_date" binding:"required"`
+		Notes      string    `json:"notes"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -237,11 +237,11 @@ func (h *Handler) UpdateDebt(c *gin.Context) {
 	}
 
 	var req struct {
-		Amount         float64  `json:"amount"`
+		Amount          float64 `json:"amount"`
 		RemainingAmount float64 `json:"remaining_amount"`
-		DueDate        string   `json:"due_date"`
-		Status         string   `json:"status"`
-		Notes          string   `json:"notes"`
+		DueDate         string  `json:"due_date"`
+		Status          string  `json:"status"`
+		Notes           string  `json:"notes"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -301,12 +301,12 @@ func (h *Handler) GetCustomerDebts(c *gin.Context) {
 	}
 
 	var debts []struct {
-		ID             uuid.UUID `json:"id"`
-		Amount         float64   `json:"amount"`
-		RemainingAmount float64  `json:"remaining_amount"`
-		DueDate        string    `json:"due_date"`
-		Status         string    `json:"status"`
-		CreatedAt      string    `json:"created_at"`
+		ID              uuid.UUID `json:"id"`
+		Amount          float64   `json:"amount"`
+		RemainingAmount float64   `json:"remaining_amount"`
+		DueDate         string    `json:"due_date"`
+		Status          string    `json:"status"`
+		CreatedAt       string    `json:"created_at"`
 	}
 
 	query := `
@@ -325,12 +325,12 @@ func (h *Handler) GetCustomerDebts(c *gin.Context) {
 
 	for rows.Next() {
 		var debt struct {
-			ID             uuid.UUID `json:"id"`
-			Amount         float64   `json:"amount"`
-			RemainingAmount float64  `json:"remaining_amount"`
-			DueDate        string    `json:"due_date"`
-			Status         string    `json:"status"`
-			CreatedAt      string    `json:"created_at"`
+			ID              uuid.UUID `json:"id"`
+			Amount          float64   `json:"amount"`
+			RemainingAmount float64   `json:"remaining_amount"`
+			DueDate         string    `json:"due_date"`
+			Status          string    `json:"status"`
+			CreatedAt       string    `json:"created_at"`
 		}
 		if err := rows.Scan(&debt.ID, &debt.Amount, &debt.RemainingAmount, &debt.DueDate, &debt.Status, &debt.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -357,16 +357,16 @@ func (h *Handler) GetOverdueDebts(c *gin.Context) {
 		c.JSON(http.StatusOK, cached)
 		return
 	}
-	
+
 	var debts []struct {
-		ID             uuid.UUID `json:"id"`
-		CustomerID     uuid.UUID `json:"customer_id"`
-		CustomerName   string    `json:"customer_name"`
-		Amount         float64   `json:"amount"`
-		RemainingAmount float64  `json:"remaining_amount"`
-		DueDate        string    `json:"due_date"`
-		DaysOverdue    string    `json:"days_overdue"`
-		CreatedAt      string    `json:"created_at"`
+		ID              uuid.UUID `json:"id"`
+		CustomerID      uuid.UUID `json:"customer_id"`
+		CustomerName    string    `json:"customer_name"`
+		Amount          float64   `json:"amount"`
+		RemainingAmount float64   `json:"remaining_amount"`
+		DueDate         string    `json:"due_date"`
+		DaysOverdue     string    `json:"days_overdue"`
+		CreatedAt       string    `json:"created_at"`
 	}
 
 	query := `
@@ -387,14 +387,14 @@ func (h *Handler) GetOverdueDebts(c *gin.Context) {
 
 	for rows.Next() {
 		var debt struct {
-			ID             uuid.UUID `json:"id"`
-			CustomerID     uuid.UUID `json:"customer_id"`
-			CustomerName   string    `json:"customer_name"`
-			Amount         float64   `json:"amount"`
-			RemainingAmount float64  `json:"remaining_amount"`
-			DueDate        string    `json:"due_date"`
-			DaysOverdue    string    `json:"days_overdue"`
-			CreatedAt      string    `json:"created_at"`
+			ID              uuid.UUID `json:"id"`
+			CustomerID      uuid.UUID `json:"customer_id"`
+			CustomerName    string    `json:"customer_name"`
+			Amount          float64   `json:"amount"`
+			RemainingAmount float64   `json:"remaining_amount"`
+			DueDate         string    `json:"due_date"`
+			DaysOverdue     string    `json:"days_overdue"`
+			CreatedAt       string    `json:"created_at"`
 		}
 		if err := rows.Scan(&debt.ID, &debt.CustomerID, &debt.CustomerName, &debt.Amount, &debt.RemainingAmount, &debt.DueDate, &debt.DaysOverdue, &debt.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -412,22 +412,22 @@ func (h *Handler) GetOverdueDebts(c *gin.Context) {
 		"success": true,
 		"data":    debts,
 	}
-	
+
 	// Cache the response
 	h.cache.set(response, 2*time.Minute)
-	
+
 	c.JSON(http.StatusOK, response)
 }
 
 // GetDebtSummary retrieves debt summary statistics
 func (h *Handler) GetDebtSummary(c *gin.Context) {
 	var summary struct {
-		TotalDebts        float64 `json:"total_debts"`
-		TotalRemaining    float64 `json:"total_remaining"`
-		OverdueDebts      float64 `json:"overdue_debts"`
-		OverdueCount      int     `json:"overdue_count"`
-		PendingDebts      float64 `json:"pending_debts"`
-		PaidDebts         float64 `json:"paid_debts"`
+		TotalDebts     float64 `json:"total_debts"`
+		TotalRemaining float64 `json:"total_remaining"`
+		OverdueDebts   float64 `json:"overdue_debts"`
+		OverdueCount   int     `json:"overdue_count"`
+		PendingDebts   float64 `json:"pending_debts"`
+		PaidDebts      float64 `json:"paid_debts"`
 	}
 
 	query := `
@@ -480,6 +480,12 @@ func (h *Handler) AddPayment(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
+	var customerID uuid.UUID
+	if err := tx.Get(&customerID, `SELECT customer_id FROM debts WHERE id = $1`, id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "debt not found"})
+		return
+	}
+
 	// Update debt remaining amount
 	updateQuery := `
 		UPDATE debts 
@@ -501,11 +507,11 @@ func (h *Handler) AddPayment(c *gin.Context) {
 	// Create payment record
 	paymentID := uuid.New()
 	paymentQuery := `
-		INSERT INTO payments (id, reference_number, amount, payment_method, payment_date, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, 'cash', CURRENT_DATE, $4, NOW(), NOW())
+		INSERT INTO payments (id, reference_number, customer_id, amount, payment_method, payment_date, notes, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, 'cash', CURRENT_DATE, $5, NOW(), NOW())
 	`
 
-	_, err = tx.Exec(paymentQuery, paymentID, "PAY-"+paymentID.String()[:8], req.Amount, req.Notes)
+	_, err = tx.Exec(paymentQuery, paymentID, "PAY-"+paymentID.String()[:8], customerID, req.Amount, req.Notes)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -14,8 +14,9 @@ import (
 
 // Handler handles products HTTP requests
 type Handler struct {
-	service *Service
-	cache   *productsCache
+	service       *Service
+	cache         *productsCache
+	categoryCache *productsCache
 }
 
 type productsCache struct {
@@ -47,8 +48,9 @@ func (c *productsCache) set(data interface{}, ttl time.Duration) {
 // NewHandler creates a new products handler
 func NewHandler(service *Service) *Handler {
 	return &Handler{
-		service: service,
-		cache:   newProductsCache(),
+		service:       service,
+		cache:         newProductsCache(),
+		categoryCache: newProductsCache(),
 	}
 }
 
@@ -118,7 +120,7 @@ func (h *Handler) GetCategory(c *gin.Context) {
 // @Router /api/v1/categories [get]
 func (h *Handler) ListCategories(c *gin.Context) {
 	// Try cache first
-	if cached, found := h.cache.get(); found {
+	if cached, found := h.categoryCache.get(); found {
 		c.JSON(http.StatusOK, cached)
 		return
 	}
@@ -136,7 +138,7 @@ func (h *Handler) ListCategories(c *gin.Context) {
 	}
 
 	// Cache the response
-	h.cache.set(responseData, 5*time.Minute)
+	h.categoryCache.set(responseData, 5*time.Minute)
 
 	c.JSON(http.StatusOK, responseData)
 }

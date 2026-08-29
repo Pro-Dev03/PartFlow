@@ -3,7 +3,7 @@ import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { cn } from '../../../utils';
-import { dashboardApi } from '../../../services/api/endpoints';
+import { dashboardApi, notificationsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
@@ -32,45 +32,25 @@ import {
   Sparkles,
 } from 'lucide-react';
 
+function getWelcomeKey() {
+  const hour = new Date().getHours();
+
+  if (hour >= 5 && hour < 12) return 'dashboard.welcomeMorning';
+  if (hour >= 17 && hour < 22) return 'dashboard.welcomeEvening';
+  return 'dashboard.welcomeNight';
+}
+
 export function DashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const welcomeMessage = t(getWelcomeKey());
 
   const { data: dashboardData, isLoading, error } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => dashboardApi.getStats(),
     refetchInterval: 120000,
     staleTime: 60000,
-  });
-
-  // Use aggregation tables for faster dashboard (ARCHITECTURE-PRINCIPLES.md)
-  const { data: dailySalesData } = useQuery({
-    queryKey: ['daily-sales-summary'],
-    queryFn: () => dashboardApi.getDailySalesSummary(),
-    refetchInterval: 300000, // 5 minutes
-    staleTime: 180000, // 3 minutes
-  });
-
-  const { data: dailyInventoryData } = useQuery({
-    queryKey: ['daily-inventory-summary'],
-    queryFn: () => dashboardApi.getDailyInventorySummary(),
-    refetchInterval: 300000,
-    staleTime: 180000,
-  });
-
-  const { data: dailyDebtData } = useQuery({
-    queryKey: ['daily-debt-summary'],
-    queryFn: () => dashboardApi.getDailyDebtSummary(),
-    refetchInterval: 300000,
-    staleTime: 180000,
-  });
-
-  const { data: dailyProfitData } = useQuery({
-    queryKey: ['daily-profit-summary'],
-    queryFn: () => dashboardApi.getDailyProfitSummary(),
-    refetchInterval: 300000,
-    staleTime: 180000,
   });
 
   // Low stock items and overdue debts for attention section
@@ -88,12 +68,18 @@ export function DashboardPage() {
     staleTime: 180000,
   });
 
+  const { data: notificationsData } = useQuery({
+    queryKey: ['notifications', 'dashboard'],
+    queryFn: () => notificationsApi.list(),
+    staleTime: 30000,
+  });
+
   if (isLoading) {
     return (
       <div>
         <PageHeader
           eyebrow={t('dashboard.title')}
-          title={t('dashboard.welcome')}
+          title={welcomeMessage}
           description={t('dashboard.subtitle')}
         />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
@@ -119,14 +105,37 @@ export function DashboardPage() {
     );
   }
 
-  const stats = dashboardData as DashboardStats;
+  const stats = dashboardData?.data as DashboardStats | undefined;
+  const lowStockItems = lowStockItemsData?.data || [];
+  const overdueDebtItems = overdueDebtsData?.data || [];
+  const notifications = Array.isArray(notificationsData?.data) ? notificationsData.data : [];
+  const insight = lowStockItems.length > 0
+    ? {
+        title: 'مخزون يحتاج إعادة طلب',
+        description: `يوجد ${lowStockItems.length} منتجًا تحت الحد الأدنى. ابدأ بإعادة التوريد قبل نفاد المخزون.`,
+        actionLabel: 'مراجعة المخزون',
+        onAction: () => navigate('/app/inventory'),
+      }
+    : overdueDebtItems.length > 0
+      ? {
+          title: 'دفعات متأخرة تحتاج متابعة',
+          description: `يوجد ${overdueDebtItems.length} دينًا متأخرًا. متابعة التحصيل الآن تحافظ على السيولة.`,
+          actionLabel: 'مراجعة الديون',
+          onAction: () => navigate('/app/debts'),
+        }
+      : {
+          title: 'الوضع مستقر',
+          description: 'لا توجد تنبيهات مخزون أو ديون متأخرة حاليًا وفق آخر بيانات النظام.',
+          actionLabel: 'عرض التقارير',
+          onAction: () => navigate('/app/reports'),
+        };
 
   return (
     <div>
       {/* Page Header with Today's Summary */}
       <PageHeader
         eyebrow={t('dashboard.title')}
-        title={t('dashboard.welcome')}
+        title={welcomeMessage}
         description={t('dashboard.subtitle')}
         actions={
           <div className={cn(
@@ -159,9 +168,9 @@ export function DashboardPage() {
       <div style={{ marginTop: 'var(--spacing-6)' }}>
         <AttentionSection
           lowStockCount={stats?.lowStockCount as number}
-          overdueDebtsCount={stats?.overdueDebtsCount as number}
-          lowStockItems={lowStockItemsData?.data || []}
-          overdueDebtItems={overdueDebtsData?.data || []}
+          overdueDebtsCount={stats?.overdueDebts as number}
+          lowStockItems={lowStockItems}
+          overdueDebtItems={overdueDebtItems}
         />
       </div>
 
@@ -169,24 +178,20 @@ export function DashboardPage() {
       <div style={{ marginTop: 'var(--spacing-6)' }}>
         <SmartActions 
           lowStockCount={stats?.lowStockCount as number}
-          overdueDebtsCount={stats?.overdueDebtsCount as number}
+          overdueDebtsCount={stats?.overdueDebts as number}
         />
       </div>
 
       {/* Priority 3: Today's Performance - أداء اليوم */}
       <div style={{ marginTop: 'var(--spacing-6)' }}>
         <DashboardMetrics 
-          stats={stats}
-          dailySales={dailySalesData?.data}
-          dailyInventory={dailyInventoryData?.data}
-          dailyDebt={dailyDebtData?.data}
-          dailyProfit={dailyProfitData?.data}
+         stats={stats}
         />
       </div>
 
       {/* Priority 4: AI Insights - الرؤى الذكية */}
       <div style={{ marginTop: 'var(--spacing-6)' }}>
-        <AIInsight />
+        <AIInsight {...insight} />
       </div>
 
         {/* Secondary: Charts Grid - الأداء والتوزيع */}
@@ -224,7 +229,7 @@ export function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {stats?.inventoryDistribution ? (
+              {stats?.inventoryDistribution && stats.inventoryDistribution.data?.length > 0 ? (
                 <InventoryDistribution
                   totalValue={stats.inventoryDistribution.totalValue}
                   totalItems={stats.inventoryDistribution.totalItems}
@@ -288,11 +293,20 @@ export function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div style={{ padding: 'var(--spacing-6)', textAlign: 'center' }}>
-              <p style={{ fontSize: 'var(--font-size-body)', fontWeight: 'var(--font-weight-semibold)', color: 'var(--text-secondary)' }}>
-                قيد التطوير
-              </p>
-            </div>
+            {notifications.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+                {notifications.slice(0, 5).map((notification: any) => (
+                  <div key={notification.id} className="rounded-lg border border-border p-3">
+                    <p className="text-sm font-medium text-text-primary">{notification.title || notification.message}</p>
+                    {notification.title && notification.message && (
+                      <p className="mt-1 text-xs text-text-secondary">{notification.message}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="py-4 text-center text-text-muted">لا توجد إشعارات فعلية حاليًا</p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -310,7 +324,26 @@ export function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <SmartAlerts alerts={[]} />
+            <SmartAlerts alerts={[
+              ...(lowStockItems.length > 0 ? [{
+                id: 'dashboard-low-stock',
+                type: 'warning' as const,
+                title: 'مخزون منخفض',
+                message: `${lowStockItems.length} منتجًا يحتاج إلى إعادة طلب.`,
+                priority: 'high' as const,
+                actionLabel: 'فتح المخزون',
+                onAction: () => navigate('/app/inventory'),
+              }] : []),
+              ...(overdueDebtItems.length > 0 ? [{
+                id: 'dashboard-overdue-debts',
+                type: 'warning' as const,
+                title: 'ديون متأخرة',
+                message: `${overdueDebtItems.length} عميلًا لديه دفعة متأخرة.`,
+                priority: 'urgent' as const,
+                actionLabel: 'فتح الديون',
+                onAction: () => navigate('/app/debts'),
+              }] : []),
+            ]} />
           </CardContent>
         </Card>
       </div>

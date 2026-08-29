@@ -1,6 +1,6 @@
 import { type HTMLAttributes } from 'react';
 import { cn } from '../../utils';
-import { Phone, Mail, Package, Eye, Edit, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Phone, Mail, Package, Eye, Edit, Trash2, ChevronDown, ChevronUp, CircleDollarSign, RotateCcw } from 'lucide-react';
 import { Button } from './button';
 import { Badge } from './badge';
 import { getButtonSize } from '../../config/button-sizes';
@@ -24,6 +24,7 @@ export interface SupplierCardProps extends Omit<HTMLAttributes<HTMLDivElement>, 
   onView?: (supplier: SupplierCardProps['supplier']) => void;
   onEdit?: (supplier: SupplierCardProps['supplier']) => void;
   onDelete?: (supplier: SupplierCardProps['supplier']) => void;
+  onRestore?: (supplier: SupplierCardProps['supplier']) => void;
 }
 
 const AVATAR_PALETTE = [
@@ -53,6 +54,7 @@ function SupplierCard({
   onView,
   onEdit,
   onDelete,
+  onRestore,
   className,
   ...props
 }: SupplierCardProps) {
@@ -95,9 +97,14 @@ function SupplierCard({
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
-              <span className="truncate text-sm font-semibold text-text-primary">
-                {supplier.name}
-              </span>
+              <div className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-text-primary">
+                  {supplier.name}
+                </span>
+                <span className="mt-0.5 block text-tiny text-text-muted">
+                  رمز المورد: {('code' in supplier && supplier.code) || '-'}
+                </span>
+              </div>
               {hasOutstanding ? (
                 <Badge variant="danger" size="sm">
                   {formatCurrency(outstanding)}
@@ -141,7 +148,8 @@ function SupplierCard({
           </div>
           <div className="text-center">
             <div className="text-tiny text-text-muted">المستحق</div>
-            <div className={`mt-0.5 text-small font-semibold ${hasOutstanding ? 'text-red-500' : 'text-text-secondary'}`}>
+            <div className={`mt-0.5 flex items-center justify-center gap-1 text-small font-semibold ${hasOutstanding ? 'text-red-500' : 'text-text-secondary'}`}>
+              {hasOutstanding && <CircleDollarSign className="h-3.5 w-3.5" />}
               {formatCurrency(outstanding)}
             </div>
           </div>
@@ -182,15 +190,27 @@ function SupplierCard({
             >
               <Edit className="w-3.5 h-3.5" />
             </Button>
-            <Button
-              variant="ghost"
-              size={getButtonSize('suppliers', 'iconAction')}
-              onClick={() => onDelete?.(supplier)}
-              aria-label="حذف"
-              className="text-red-500 hover:text-red-600 hover:bg-red-50"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </Button>
+            {onRestore ? (
+              <Button
+                variant="ghost"
+                size={getButtonSize('suppliers', 'iconAction')}
+                onClick={() => onRestore(supplier)}
+                aria-label="إعادة تفعيل"
+                className="text-green-600 hover:text-green-700 hover:bg-green-50"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size={getButtonSize('suppliers', 'iconAction')}
+                onClick={() => onDelete?.(supplier)}
+                aria-label="إيقاف"
+                className="text-red-500 hover:text-red-600 hover:bg-red-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
+            )}
           </div>
         </div>
       </div>

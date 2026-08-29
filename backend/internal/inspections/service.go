@@ -34,6 +34,12 @@ func (s *Service) CreateInspection(ctx context.Context, userID uuid.UUID, req *I
 			return nil, ErrProductNotFound
 		}
 	}
+	// Resolve the inspector before writing so a response-enrichment failure
+	// cannot leave an orphan inspection row behind.
+	inspector, err := s.repo.GetUserInfo(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get inspector info: %w", err)
+	}
 
 	// Create inspection
 	inspection := CreateInspection(userID, req)
@@ -41,10 +47,10 @@ func (s *Service) CreateInspection(ctx context.Context, userID uuid.UUID, req *I
 	if err := s.repo.CreateInspection(ctx, inspection); err != nil {
 		return nil, fmt.Errorf("failed to create inspection: %w", err)
 	}
-
-	inspector, err := s.repo.GetUserInfo(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get inspector info: %w", err)
+	if inspection.AcquisitionItemID != nil {
+		if err := s.repo.LinkAcquisitionItemInspection(ctx, *inspection.AcquisitionItemID, inspection.ID, inspection.InventoryItemID, inspection.Status); err != nil {
+			return nil, err
+		}
 	}
 
 	return inspection.ToInspectionResponse(product, inspector), nil
@@ -157,6 +163,11 @@ func (s *Service) UpdateInspection(ctx context.Context, id uuid.UUID, req *Inspe
 	if err := s.repo.UpdateInspection(ctx, inspection); err != nil {
 		return nil, err
 	}
+	if inspection.AcquisitionItemID != nil {
+		if err := s.repo.UpdateAcquisitionItemInspectionStatus(ctx, *inspection.AcquisitionItemID, inspection.ID, inspection.Status); err != nil {
+			return nil, err
+		}
+	}
 
 	return s.GetInspection(ctx, id)
 }
@@ -193,6 +204,11 @@ func (s *Service) PassInspection(ctx context.Context, id uuid.UUID) (*Inspection
 	if err := s.repo.UpdateInspection(ctx, inspection); err != nil {
 		return nil, err
 	}
+	if inspection.AcquisitionItemID != nil {
+		if err := s.repo.UpdateAcquisitionItemInspectionStatus(ctx, *inspection.AcquisitionItemID, inspection.ID, "passed"); err != nil {
+			return nil, err
+		}
+	}
 
 	return s.GetInspection(ctx, id)
 }
@@ -213,6 +229,11 @@ func (s *Service) FailInspection(ctx context.Context, id uuid.UUID) (*Inspection
 
 	if err := s.repo.UpdateInspection(ctx, inspection); err != nil {
 		return nil, err
+	}
+	if inspection.AcquisitionItemID != nil {
+		if err := s.repo.UpdateAcquisitionItemInspectionStatus(ctx, *inspection.AcquisitionItemID, inspection.ID, "failed"); err != nil {
+			return nil, err
+		}
 	}
 
 	return s.GetInspection(ctx, id)

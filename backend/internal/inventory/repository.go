@@ -337,6 +337,13 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 		countQuery += ` AND ii.condition = ` + param
 		args = append(args, condition)
 	}
+	if excludeCondition, ok := filters["exclude_condition"].(string); ok && excludeCondition != "" {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND ii.condition <> ` + param
+		countQuery += ` AND ii.condition <> ` + param
+		args = append(args, excludeCondition)
+	}
 
 	if status, ok := filters["status"].(string); ok && status != "" {
 		argCount++

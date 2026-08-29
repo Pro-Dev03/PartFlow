@@ -49,25 +49,38 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	}
 
 	var items []SaleItem
+	productNames := make(map[uuid.UUID]string)
 	itemStockMap := make(map[uuid.UUID][]struct {
-		ID     uuid.UUID `db:"id"`
-		Amount float64   `db:"selling_price"`
+		ID   uuid.UUID `db:"id"`
+		Cost float64   `db:"purchase_cost"`
 	}) // Store available items for each product
 
 	for _, itemReq := range req.Items {
 		// Check stock availability with row lock (using inventory_items for individual tracking)
 		var availableItems []struct {
-			ID     uuid.UUID `db:"id"`
-			Amount float64   `db:"selling_price"`
+			ID   uuid.UUID `db:"id"`
+			Cost float64   `db:"purchase_cost"`
 		}
 		stockQuery := `
-			SELECT id, selling_price 
-			FROM inventory_items 
-			WHERE product_id = $1
-			ORDER BY created_at ASC 
+			SELECT id, purchase_cost
+			FROM inventory_items
+			WHERE product_id = $1 AND status = 'AVAILABLE'
+			ORDER BY created_at ASC
 			FOR UPDATE
 		`
-		err := tx.SelectContext(ctx, &availableItems, stockQuery, itemReq.ProductID)
+		var stockArgs []interface{}
+		if itemReq.InventoryItemID != nil {
+			stockQuery = `
+				SELECT id, purchase_cost
+				FROM inventory_items
+				WHERE id = $1 AND product_id = $2 AND status = 'AVAILABLE'
+				FOR UPDATE
+			`
+			stockArgs = []interface{}{*itemReq.InventoryItemID, itemReq.ProductID}
+		} else {
+			stockArgs = []interface{}{itemReq.ProductID}
+		}
+		err := tx.SelectContext(ctx, &availableItems, stockQuery, stockArgs...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check stock: %w", err)
 		}
@@ -76,6 +89,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		if err := tx.GetContext(ctx, &productName, `SELECT name FROM products WHERE id = $1`, itemReq.ProductID); err != nil {
 			return nil, fmt.Errorf("failed to get product name: %w", err)
 		}
+		productNames[itemReq.ProductID] = productName
 
 		if len(availableItems) < itemReq.Quantity {
 			return nil, &InsufficientStockError{
@@ -89,14 +103,6 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		// Store available items for this product
 		itemStockMap[itemReq.ProductID] = availableItems
 
-		// Get product cost for profit calculation
-		var productCost float64
-		costQuery := `SELECT cost_price FROM products WHERE id = $1`
-		err = tx.GetContext(ctx, &productCost, costQuery, itemReq.ProductID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get product cost: %w", err)
-		}
-
 		// Calculate item totals using actual item costs
 		itemTotal := float64(itemReq.Quantity) * itemReq.UnitPrice
 		itemTax := itemTotal * taxRate / 100
@@ -105,7 +111,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		// Calculate actual cost from available items
 		itemCost := 0.0
 		for i := 0; i < itemReq.Quantity && i < len(availableItems); i++ {
-			itemCost += availableItems[i].Amount // Use actual selling price as cost basis
+			itemCost += availableItems[i].Cost
 		}
 
 		subtotal += itemTotal
@@ -113,14 +119,15 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		totalCost += itemCost
 
 		item := SaleItem{
-			ID:          uuid.New(),
-			ProductID:   itemReq.ProductID,
-			Quantity:    itemReq.Quantity,
-			UnitPrice:   itemReq.UnitPrice,
-			UnitCost:    productCost, // Store base product cost
-			TaxAmount:   itemTax,
-			TotalAmount: itemTotalWithTax,
-			CreatedAt:   time.Now(),
+			ID:              uuid.New(),
+			ProductID:       itemReq.ProductID,
+			InventoryItemID: itemReq.InventoryItemID,
+			Quantity:        itemReq.Quantity,
+			UnitPrice:       itemReq.UnitPrice,
+			UnitCost:        itemCost / float64(itemReq.Quantity),
+			TaxAmount:       itemTax,
+			TotalAmount:     itemTotalWithTax,
+			CreatedAt:       time.Now(),
 		}
 		items = append(items, item)
 	}
@@ -201,12 +208,12 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 		// Create sale item with supplier_id
 		itemQuery := `
-			INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_price, unit_cost,
+			INSERT INTO sale_items (id, sale_id, product_id, inventory_item_id, quantity, unit_price, unit_cost,
 				tax_amount, total_amount, supplier_id, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		`
 		_, err = tx.ExecContext(ctx, itemQuery,
-			items[i].ID, items[i].SaleID, items[i].ProductID, items[i].Quantity,
+			items[i].ID, items[i].SaleID, items[i].ProductID, items[i].InventoryItemID, items[i].Quantity,
 			items[i].UnitPrice, items[i].UnitCost, items[i].TaxAmount, items[i].TotalAmount,
 			supplierID, items[i].CreatedAt)
 		if err != nil {
@@ -217,7 +224,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		for j := 0; j < items[i].Quantity && j < len(availableItems); j++ {
 			itemID := availableItems[j].ID
 
-			// Check if this is a used item (trade-in) - if so, delete it completely
+			// Preserve every inventory item for auditability; status is the source of truth.
 			var itemCondition string
 			conditionQuery := `SELECT condition FROM inventory_items WHERE id = $1`
 			err := tx.GetContext(ctx, &itemCondition, conditionQuery, itemID)
@@ -225,54 +232,59 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 				return nil, fmt.Errorf("failed to check item condition: %w", err)
 			}
 
-			if itemCondition == "USED" {
-				// Delete trade-in items completely from inventory
-				deleteItemQuery := `
-					DELETE FROM inventory_items WHERE id = $1
-				`
-				_, err = tx.ExecContext(ctx, deleteItemQuery, itemID)
-				if err != nil {
-					return nil, fmt.Errorf("failed to delete trade-in item: %w", err)
-				}
-
-				// Create inventory movement record for deletion
-				movementQuery := `
-					INSERT INTO inventory_movements (id, item_id, movement_type,
-						quantity, before_quantity, after_quantity, reference_type, reference_id,
-						reason, created_by, created_at)
-					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-				`
-				_, err = tx.ExecContext(ctx, movementQuery,
-					uuid.New(), itemID, "SALE",
-					-1, 1, 0, "sale", sale.ID, "Sold trade-in item: "+invoiceNumber, userID, time.Now())
-				if err != nil {
-					return nil, fmt.Errorf("failed to create inventory movement: %w", err)
-				}
-			} else {
-				// For regular items, just mark as SOLD
-				updateItemQuery := `
-					UPDATE inventory_items
+			updateItemQuery := `
+				UPDATE inventory_items
 					SET status = 'SOLD', sold_at = NOW(), updated_at = NOW()
-					WHERE id = $1
-				`
-				_, err = tx.ExecContext(ctx, updateItemQuery, itemID)
-				if err != nil {
-					return nil, fmt.Errorf("failed to update inventory item: %w", err)
+					WHERE id = $1 AND status = 'AVAILABLE'
+			`
+			result, err := tx.ExecContext(ctx, updateItemQuery, itemID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to update inventory item: %w", err)
+			}
+			if affected, _ := result.RowsAffected(); affected != 1 {
+				return nil, &InsufficientStockError{
+					ProductID:   items[i].ProductID,
+					ProductName: productNames[items[i].ProductID],
+					Requested:   items[i].Quantity,
+					Available:   0,
 				}
+			}
 
-				// Create inventory movement record for each item
-				movementQuery := `
-					INSERT INTO inventory_movements (id, item_id, movement_type,
-						quantity, before_quantity, after_quantity, reference_type, reference_id,
-						reason, created_by, created_at)
-					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-				`
-				_, err = tx.ExecContext(ctx, movementQuery,
-					uuid.New(), itemID, "SALE",
-					-1, 1, 0, "sale", sale.ID, "Sale: "+invoiceNumber, userID, time.Now())
-				if err != nil {
-					return nil, fmt.Errorf("failed to create inventory movement: %w", err)
-				}
+			movementQuery := `
+				INSERT INTO inventory_movements (id, item_id, movement_type,
+					quantity, before_quantity, after_quantity, reference_type, reference_id,
+					reason, created_by, created_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			`
+			reason := "Sale: " + invoiceNumber
+			if itemCondition == "USED" {
+				reason = "Sold used item: " + invoiceNumber
+			}
+			_, err = tx.ExecContext(ctx, movementQuery,
+				uuid.New(), itemID, "SALE",
+				-1, 1, 0, "sale", sale.ID, reason, userID, time.Now())
+			if err != nil {
+				return nil, fmt.Errorf("failed to create inventory movement: %w", err)
+			}
+
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO item_history
+					(inventory_item_id, event_type, event_date, reference_type, reference_id,
+					 description, metadata, created_by, created_at)
+				VALUES ($1, 'sold', NOW(), 'sale', $2, $3, $4::jsonb, $5, NOW())
+			`, itemID, sale.ID, reason,
+				fmt.Sprintf(`{"sale_id":"%s","unit_price":%.2f}`, sale.ID, items[i].UnitPrice), userID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create item history: %w", err)
+			}
+
+			_, err = tx.ExecContext(ctx, `
+				UPDATE acquisition_items
+				SET item_status = 'sold', updated_at = NOW()
+				WHERE inventory_item_id = $1
+			`, itemID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to update acquired item status: %w", err)
 			}
 		}
 
@@ -448,14 +460,8 @@ func (s *Service) calculateProfit(ctx context.Context, items []SaleItem) (float6
 	totalCost := 0.0
 
 	for _, item := range items {
-		// Get product cost
-		cost, err := s.repo.GetProductCost(ctx, item.ProductID)
-		if err != nil {
-			return 0, err
-		}
-
 		itemRevenue := item.TotalAmount
-		itemCost := float64(item.Quantity) * cost
+		itemCost := float64(item.Quantity) * item.UnitCost
 
 		totalRevenue += itemRevenue
 		totalCost += itemCost

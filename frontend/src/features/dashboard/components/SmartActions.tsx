@@ -84,7 +84,7 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
     urgentActions.push({
       title: `متابعة ديون (${overdueDebtsCount})`,
       icon: Phone,
-      path: '/app/debts?is_overdue=true',
+      path: '/app/debts',
       variant: 'danger',
       color: 'var(--color-danger)',
       bgColor: 'var(--color-danger-10)',

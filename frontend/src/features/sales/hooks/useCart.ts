@@ -4,6 +4,8 @@ import { playScanSound } from '../../../hooks/useBarcodeContext';
 
 export interface PosCartProduct {
   id: string | number;
+  inventoryItemId?: string;
+  serialNumber?: string;
   name: string;
   barcode?: string;
   sku?: string;
@@ -49,6 +51,8 @@ export function useCart(soundEnabled: boolean = true) {
       }
       return [...currentCart, {
         id: item.id,
+        inventoryItemId: item.inventoryItemId,
+        serialNumber: item.serialNumber,
         name: item.name,
         barcode: item.barcode,
         price,

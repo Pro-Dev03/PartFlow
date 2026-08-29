@@ -25,6 +25,7 @@ import (
 	"github.com/partflow/smart-store/internal/sales"
 	"github.com/partflow/smart-store/internal/search"
 	"github.com/partflow/smart-store/internal/settings"
+	"github.com/partflow/smart-store/internal/supplierreturns"
 	"github.com/partflow/smart-store/internal/suppliers"
 	"github.com/partflow/smart-store/internal/users"
 	"github.com/partflow/smart-store/pkg/middleware"
@@ -81,12 +82,13 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	partTypesHandler := parttypes.NewHandler(partTypesService)
 	settingsHandler := settings.NewHandler(db.DB)
 	databaseHandler := settings.NewDatabaseHandler(db)
+	localDatabaseHandler := settings.NewLocalDatabaseHandler()
 	ledgerHandler := ledgers.NewHandler(ledgerService)
 	acquisitionHandler := acquisitions.NewHandler(acquisitionService)
 	debtsHandler := debts.NewHandler(db)
 
 	// Aggregation handler (ARCHITECTURE-PRINCIPLES.md)
-	aggregationHandler := NewAggregationHandler()
+	aggregationHandler := NewAggregationHandler(db)
 
 	// SmartDelete handler (PRODUCT-PHILOSOPHY.md)
 	purchaseSmartDeleteHandler := NewPurchaseSmartDeleteHandler(db)
@@ -216,6 +218,22 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				sales.GET("/top-products", salesHandler.GetTopSellingProducts)
 			}
 
+			// Financial transaction routes
+			transactions := protected.Group("/transactions")
+			{
+				transactions.POST("", salesHandler.CreateTransaction)
+				transactions.GET("/:id", salesHandler.GetTransaction)
+				transactions.GET("", salesHandler.ListTransactions)
+				transactions.GET("/accounts/:account/balance", salesHandler.GetAccountBalance)
+			}
+
+			// Profit routes
+			profit := protected.Group("/profit")
+			{
+				profit.GET("/calculate", salesHandler.CalculateProfitForPeriod)
+				profit.GET("/entries", salesHandler.GetProfitEntries)
+			}
+
 			// Payments routes
 			payments := protected.Group("/payments")
 			{
@@ -268,6 +286,8 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			expenses := protected.Group("/expenses")
 			{
 				expenses.POST("", expenseHandler.CreateExpense)
+				expenses.GET("/categories", expenseHandler.ListExpenseCategories)
+				expenses.POST("/categories", expenseHandler.CreateExpenseCategory)
 				expenses.GET("/:id", expenseHandler.GetExpense)
 				expenses.GET("", expenseHandler.ListExpenses)
 				expenses.PUT("/:id", expenseHandler.UpdateExpense)
@@ -275,8 +295,8 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				expenses.POST("/:id/approve", expenseHandler.ApproveExpense)
 				expenses.POST("/:id/reject", expenseHandler.RejectExpense)
 				expenses.GET("/summary", expenseHandler.GetExpenseSummary)
-				expenses.GET("/categories", expenseHandler.ListExpenseCategories)
 			}
+			supplierreturns.RegisterRoutes(protected, db)
 
 			// Returns routes
 			returns := protected.Group("/returns")
@@ -310,10 +330,13 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			inspections := protected.Group("/inspections")
 			{
 				inspections.POST("", inspectionHandler.CreateInspection)
+				inspections.GET("/summary", inspectionHandler.GetInspectionSummary)
 				inspections.GET("/:id", inspectionHandler.GetInspection)
 				inspections.GET("", inspectionHandler.ListInspections)
 				inspections.PUT("/:id", inspectionHandler.UpdateInspection)
 				inspections.DELETE("/:id", inspectionHandler.DeleteInspection)
+				inspections.POST("/:id/pass", inspectionHandler.PassInspection)
+				inspections.POST("/:id/fail", inspectionHandler.FailInspection)
 			}
 
 			// Reports routes
@@ -354,6 +377,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			// Settings routes
 			settings := protected.Group("/settings")
 			{
+				settings.PUT("/operating-mode", localDatabaseHandler.SetOperatingMode)
 				settings.GET("/public", settingsHandler.GetPublicSettings)
 				settings.GET("/:key", settingsHandler.GetSetting)
 				settings.PUT("/:key", settingsHandler.UpdateSetting)

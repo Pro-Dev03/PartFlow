@@ -40,7 +40,7 @@ export function useInventory() {
   const { data: inventoryData, isLoading: inventoryLoading } = useQuery({
     queryKey: ['inventory', debouncedSearchQuery, filters],
     queryFn: () => {
-      const params: any = { page: 1, per_page: 50 };
+      const params: any = { page: 1, per_page: 100, exclude_condition: 'USED' };
       
       // Apply search
       if (debouncedSearchQuery) {
@@ -101,6 +101,34 @@ export function useInventory() {
     return condition === 'USED' || condition.includes('USED');
   };
 
+  const regularProductIds = useMemo(() => {
+    const inactiveStatuses = new Set(['SOLD', 'RETURNED', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
+    return new Set(
+      safeInventoryItems
+        .filter((item: any) => {
+          const status = String(item.status || '').trim().toUpperCase();
+          const quantity = Number(item.available_quantity ?? item.current_quantity ?? item.stock ?? item.quantity ?? 0);
+          return !isUsedItemCondition(item.condition) &&
+            !inactiveStatuses.has(status) &&
+            (quantity > 0 || status === 'AVAILABLE');
+        })
+        .map((item: any) => String(item.product_id || item.product?.id || item.productId || '').trim())
+        .filter(Boolean)
+    );
+  }, [safeInventoryItems]);
+
+  const usedProductIds = useMemo(() => new Set(
+    safeInventoryItems
+      .filter((item: any) => isUsedItemCondition(item.condition))
+      .map((item: any) => String(item.product_id || item.product?.id || item.productId || '').trim())
+      .filter(Boolean)
+  ), [safeInventoryItems]);
+
+  const regularProducts = useMemo(
+    () => safeProducts.filter((product: Product) => !usedProductIds.has(product.id) || regularProductIds.has(product.id)),
+    [regularProductIds, safeProducts, usedProductIds]
+  );
+
   const inventoryStockMap = useMemo(() => {
     const map = new Map<string, number>();
     const inactiveStatuses = new Set(['SOLD', 'RETURNED', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
@@ -126,8 +154,11 @@ export function useInventory() {
 
       if (stock <= 0) return;
 
+      // available_quantity/current_quantity are product-level totals repeated on
+      // every item row, so do not add them once per row.
+      const hasProductTotal = item.available_quantity !== undefined || item.current_quantity !== undefined;
       const current = map.get(productId) || 0;
-      map.set(productId, current + stock);
+      map.set(productId, hasProductTotal ? Math.max(current, stock) : current + stock);
     });
 
     return map;
@@ -188,7 +219,7 @@ export function useInventory() {
 
   // Filter and sort logic
   const processedProducts = useMemo(() => {
-    let result = [...safeProducts];
+    let result = [...regularProducts];
 
     // Add category name to each product
     result = result.map((product: Product) => ({
@@ -239,7 +270,7 @@ export function useInventory() {
     }
 
     return result;
-  }, [safeProducts, searchQuery, filters, sortConfig, categoryMap, inventoryStockMap]);
+  }, [regularProducts, searchQuery, filters, sortConfig, categoryMap, inventoryStockMap]);
 
   const filteredProducts = useMemo(() => {
     return processedProducts.filter((product: Product) => {

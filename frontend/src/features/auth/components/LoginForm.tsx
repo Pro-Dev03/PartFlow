@@ -29,7 +29,11 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
 
   const inputStyle = {
     width: '100%',
-    padding: '12px 13px',
+    boxSizing: 'border-box' as const,
+    paddingTop: '12px',
+    paddingRight: '13px',
+    paddingBottom: '12px',
+    paddingLeft: '13px',
     color: isDark ? '#f1f7ff' : '#111827',
     border: isDark ? '1px solid rgba(148, 163, 184, 0.13)' : '1px solid rgba(0, 0, 0, 0.08)',
     borderRadius: '10px',
@@ -37,6 +41,11 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
     background: isDark ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.8)',
     transition: 'border-color 180ms ease, box-shadow 180ms ease, background 180ms ease',
     fontSize: '13px',
+  };
+
+  const passwordInputStyle = {
+    ...inputStyle,
+    paddingRight: '52px',
   };
 
   const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
@@ -140,7 +149,7 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
               onChange={(e) => setPassword(e.target.value)}
               required
               autoComplete="current-password"
-              style={inputStyle}
+              style={passwordInputStyle}
               className="placeholder:text-[#4f5c70]"
               onFocus={handleFocus}
               onBlur={handleBlur}
@@ -151,19 +160,23 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
               style={{
                 position: 'absolute',
                 top: '50%',
-                left: '-35px',
+                insetInlineStart: '4px',
                 transform: 'translateY(-50%)',
-                padding: '6px',
+                width: '40px',
+                height: '40px',
+                minWidth: '40px',
+                minHeight: '40px',
+                padding: '0',
                 color: isDark ? '#8290a7' : '#6B7280',
-                background: isDark ? 'rgba(17, 24, 39, 0.8)' : 'rgba(255, 255, 255, 0.9)',
-                border: isDark ? '1px solid rgba(148, 163, 184, 0.13)' : '1px solid rgba(0, 0, 0, 0.08)',
+                background: 'transparent',
+                border: 'none',
                 cursor: 'pointer',
                 transition: 'all 180ms ease',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 borderRadius: '8px',
-                boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.1)',
+                boxShadow: 'none',
               }}
               aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
             >
@@ -179,6 +192,7 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
+              minHeight: '44px',
               color: isDark ? '#8290a7' : '#6B7280',
               fontSize: '11px',
               cursor: 'pointer',
@@ -188,7 +202,15 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
-              style={{ accentColor: isDark ? '#14b8a6' : '#2563EB' }}
+              style={{
+                width: '16px',
+                height: '16px',
+                minWidth: '16px',
+                minHeight: '16px',
+                flexShrink: 0,
+                margin: 0,
+                accentColor: isDark ? '#14b8a6' : '#2563EB',
+              }}
             />
             {t('auth.rememberMe')}
           </label>

@@ -12,19 +12,18 @@ import (
 
 // SmartDeleteResult represents the result of a smart delete operation (PRODUCT-PHILOSOPHY.md)
 type SmartDeleteResult struct {
-	Action       string            `json:"action"`       // deleted, reversed, blocked
-	Message      string            `json:"message"`      // User-friendly message
-	CanProceed   bool              `json:"can_proceed"`  // Whether the operation succeeded
-	Details      *SmartDeleteDetails `json:"details,omitempty"`
+	Action     string              `json:"action"`      // deleted, reversed, blocked
+	Message    string              `json:"message"`     // User-friendly message
+	CanProceed bool                `json:"can_proceed"` // Whether the operation succeeded
+	Details    *SmartDeleteDetails `json:"details,omitempty"`
 }
 
 // SmartDeleteDetails provides additional information when deletion is blocked
 type SmartDeleteDetails struct {
-	Reason         string         `json:"reason"`         // Why deletion was blocked
-	UsedItems      []UsedItemInfo `json:"used_items,omitempty"`
-	SuggestedAction string        `json:"suggested_action"` // What the user should do instead
+	Reason          string         `json:"reason"` // Why deletion was blocked
+	UsedItems       []UsedItemInfo `json:"used_items,omitempty"`
+	SuggestedAction string         `json:"suggested_action"` // What the user should do instead
 }
-
 
 // SmartDeleteService handles intelligent deletion based on business rules (PRODUCT-PHILOSOPHY.md)
 type SmartDeleteService struct {
@@ -40,15 +39,15 @@ func NewSmartDeleteService(db *sqlx.DB) *SmartDeleteService {
 func (s *SmartDeleteService) SmartDelete(ctx context.Context, purchaseID uuid.UUID, userID uuid.UUID) (*SmartDeleteResult, error) {
 	// Get purchase details
 	var purchase struct {
-		ID          uuid.UUID `db:"id"`
-		Status      string    `db:"status"`
-		ReceivedAt  *time.Time `db:"received_at"`
+		ID          uuid.UUID  `db:"id"`
+		Status      string     `db:"status"`
 		ReversedAt  *time.Time `db:"reversed_at"`
-		TotalAmount float64   `db:"total_amount"`
+		TotalAmount float64    `db:"total_amount"`
+		PaidAmount  float64    `db:"paid_amount"`
 	}
 
-	err := s.db.GetContext(ctx, &purchase, 
-		"SELECT id, status, received_at, reversed_at, total_amount FROM purchases WHERE id = $1", purchaseID)
+	err := s.db.GetContext(ctx, &purchase,
+		"SELECT id, status, reversed_at, total_amount, COALESCE(paid_amount, 0) AS paid_amount FROM purchases WHERE id = $1", purchaseID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("purchase not found")
@@ -63,7 +62,7 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, purchaseID uuid.UU
 			Message:    "تم بالفعل إلغاء هذه العملية",
 			CanProceed: false,
 			Details: &SmartDeleteDetails{
-				Reason:         "تم بالفعل عكس العملية",
+				Reason:          "تم بالفعل عكس العملية",
 				SuggestedAction: "لا حاجة لأي إجراء",
 			},
 		}, nil
@@ -72,31 +71,42 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, purchaseID uuid.UU
 	// Check purchase status and dependencies
 	switch purchase.Status {
 	case "draft", "pending":
-		// Safe to delete - no impact on inventory or accounting
+		if purchase.PaidAmount > 0 {
+			return &SmartDeleteResult{
+				Action:     "blocked",
+				Message:    "لا يمكن حذف شراء تم تسجيل دفعة له",
+				CanProceed: false,
+				Details: &SmartDeleteDetails{
+					Reason:          "تم تسجيل دفعة لهذا الشراء",
+					SuggestedAction: "استخدم عكس العملية أو راجع الدفعات المسجلة",
+				},
+			}, nil
+		}
+		// Safe to delete only before any payment or receipt
 		return s.deleteDraftPurchase(ctx, purchaseID, userID)
-		
+
 	case "received":
 		// Check if items have been used in sales or other operations
 		return s.handleReceivedPurchase(ctx, purchaseID, userID, purchase)
-		
+
 	case "cancelled":
 		return &SmartDeleteResult{
 			Action:     "blocked",
 			Message:    "تم بالفعل إلغاء هذه العملية",
 			CanProceed: false,
 			Details: &SmartDeleteDetails{
-				Reason:         "العملية ملغاة بالفعل",
+				Reason:          "العملية ملغاة بالفعل",
 				SuggestedAction: "لا حاجة لأي إجراء",
 			},
 		}, nil
-		
+
 	default:
 		return &SmartDeleteResult{
 			Action:     "blocked",
 			Message:    "لا يمكن حذف هذه العملية",
 			CanProceed: false,
 			Details: &SmartDeleteDetails{
-				Reason:         "حالة العملية غير معروفة",
+				Reason:          "حالة العملية غير معروفة",
 				SuggestedAction: "تواصل مع الدعم الفني",
 			},
 		}, nil
@@ -106,7 +116,7 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, purchaseID uuid.UU
 // deleteDraftPurchase handles deletion of draft/pending purchases
 func (s *SmartDeleteService) deleteDraftPurchase(ctx context.Context, purchaseID uuid.UUID, userID uuid.UUID) (*SmartDeleteResult, error) {
 	// Direct delete - no inventory impact
-	_, err := s.db.ExecContext(ctx, 
+	_, err := s.db.ExecContext(ctx,
 		"DELETE FROM purchases WHERE id = $1", purchaseID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete purchase: %w", err)
@@ -147,10 +157,10 @@ func (s *SmartDeleteService) handleReceivedPurchase(ctx context.Context, purchas
 
 // DependencyCheck represents the result of dependency checking
 type DependencyCheck struct {
-	HasSales       bool          `json:"has_sales"`
-	HasReturns     bool          `json:"has_returns"`
-	HasPayments    bool          `json:"has_payments"`
-	UsedItems      []UsedItemInfo `json:"used_items"`
+	HasSales    bool           `json:"has_sales"`
+	HasReturns  bool           `json:"has_returns"`
+	HasPayments bool           `json:"has_payments"`
+	UsedItems   []UsedItemInfo `json:"used_items"`
 }
 
 // checkDependencies checks if a purchase has dependent operations
@@ -164,16 +174,19 @@ func (s *SmartDeleteService) checkDependencies(ctx context.Context, purchaseID u
 			pi.product_id,
 			p.name as product_name,
 			pi.quantity as original_quantity,
-			COALESCE(SUM(si.quantity), 0) as sold_quantity,
-			0 as transferred_quantity,
-			0 as damaged_quantity,
-			0 as repair_quantity
+			COALESCE(SUM(CASE WHEN im.movement_type = 'SALE' THEN im.quantity ELSE 0 END), 0) as sold_quantity,
+			COALESCE(SUM(CASE WHEN im.movement_type = 'TRANSFER' THEN im.quantity ELSE 0 END), 0) as transferred_quantity,
+			COALESCE(SUM(CASE WHEN im.movement_type = 'DAMAGE' THEN im.quantity ELSE 0 END), 0) as damaged_quantity,
+			COALESCE(SUM(CASE WHEN im.movement_type = 'REPAIR' THEN im.quantity ELSE 0 END), 0) as repair_quantity
 		FROM purchase_items pi
 		LEFT JOIN products p ON pi.product_id = p.id
-		LEFT JOIN sale_items si ON pi.product_id = si.product_id
+		LEFT JOIN inventory_items ii ON ii.product_id = pi.product_id
+			AND ii.item_code LIKE 'ITM-' || LEFT(pi.purchase_id::text, 8) || '-%'
+		LEFT JOIN inventory_movements im ON im.item_id = ii.id
+			AND im.movement_type IN ('SALE', 'TRANSFER', 'DAMAGE', 'REPAIR')
 		WHERE pi.purchase_id = $1
 		GROUP BY pi.id, pi.product_id, p.name, pi.quantity
-		HAVING COALESCE(SUM(si.quantity), 0) > 0
+		HAVING COALESCE(SUM(CASE WHEN im.movement_type = 'SALE' THEN im.quantity ELSE 0 END), 0) > 0
 	`
 
 	rows, err := s.db.QueryContext(ctx, query, purchaseID)
@@ -249,7 +262,7 @@ func (s *SmartDeleteService) reversePurchase(ctx context.Context, purchaseID uui
 
 	// Reverse inventory impact by creating reversal ledger entries
 	// This is handled by the inventory service in a real implementation
-	
+
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)

@@ -36,20 +36,20 @@ func (h *MainHandler) ListInventory(c *gin.Context) {
 	offset := (page - 1) * perPage
 
 	var inventory []struct {
-		ID             uuid.UUID  `json:"id"`
-		ProductID      uuid.UUID  `json:"product_id"`
-		Quantity       int        `json:"quantity"`
-		ReservedQuantity int      `json:"reserved_quantity"`
-		Location       string     `json:"location"`
-		WarehouseID    *uuid.UUID `json:"warehouse_id"`
-		LastRestockedAt *string   `json:"last_restocked_at"`
-		CreatedAt      string     `json:"created_at"`
-		UpdatedAt      string     `json:"updated_at"`
+		ID               uuid.UUID  `json:"id"`
+		ProductID        uuid.UUID  `json:"product_id"`
+		Quantity         int        `json:"quantity"`
+		ReservedQuantity int        `json:"reserved_quantity"`
+		Location         string     `json:"location"`
+		WarehouseID      *uuid.UUID `json:"warehouse_id"`
+		LastRestockedAt  *string    `json:"last_restocked_at"`
+		CreatedAt        string     `json:"created_at"`
+		UpdatedAt        string     `json:"updated_at"`
 	}
 
 	query := `
 		SELECT i.id, i.product_id, i.quantity, i.reserved_quantity, 
-		       i.location, i.warehouse_id, i.last_restocked_at, i.created_at, i.updated_at
+		       COALESCE(i.location, '') AS location, i.warehouse_id, i.last_restocked_at, i.created_at, i.updated_at
 		FROM inventory i
 		ORDER BY i.updated_at DESC
 		LIMIT $1 OFFSET $2
@@ -64,15 +64,15 @@ func (h *MainHandler) ListInventory(c *gin.Context) {
 
 	for rows.Next() {
 		var item struct {
-			ID             uuid.UUID  `json:"id"`
-			ProductID      uuid.UUID  `json:"product_id"`
-			Quantity       int        `json:"quantity"`
-			ReservedQuantity int      `json:"reserved_quantity"`
-			Location       string     `json:"location"`
-			WarehouseID    *uuid.UUID `json:"warehouse_id"`
-			LastRestockedAt *string   `json:"last_restocked_at"`
-			CreatedAt      string     `json:"created_at"`
-			UpdatedAt      string     `json:"updated_at"`
+			ID               uuid.UUID  `json:"id"`
+			ProductID        uuid.UUID  `json:"product_id"`
+			Quantity         int        `json:"quantity"`
+			ReservedQuantity int        `json:"reserved_quantity"`
+			Location         string     `json:"location"`
+			WarehouseID      *uuid.UUID `json:"warehouse_id"`
+			LastRestockedAt  *string    `json:"last_restocked_at"`
+			CreatedAt        string     `json:"created_at"`
+			UpdatedAt        string     `json:"updated_at"`
 		}
 		if err := rows.Scan(&item.ID, &item.ProductID, &item.Quantity, &item.ReservedQuantity, &item.Location, &item.WarehouseID, &item.LastRestockedAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -93,9 +93,9 @@ func (h *MainHandler) ListInventory(c *gin.Context) {
 		"success": true,
 		"data":    inventory,
 		"meta": gin.H{
-			"page":      page,
-			"per_page":  perPage,
-			"total":     total,
+			"page":     page,
+			"per_page": perPage,
+			"total":    total,
 		},
 	})
 }
@@ -109,16 +109,16 @@ func (h *MainHandler) GetInventory(c *gin.Context) {
 	}
 
 	var inventory struct {
-		ID             uuid.UUID `json:"id"`
-		ProductID      uuid.UUID `json:"product_id"`
-		ProductName    string    `json:"product_name"`
-		Quantity       int       `json:"quantity"`
-		ReservedQuantity int     `json:"reserved_quantity"`
-		Location       string    `json:"location"`
-		WarehouseID    *uuid.UUID `json:"warehouse_id"`
-		LastRestockedAt *string  `json:"last_restocked_at"`
-		CreatedAt      string    `json:"created_at"`
-		UpdatedAt      string    `json:"updated_at"`
+		ID               uuid.UUID  `json:"id"`
+		ProductID        uuid.UUID  `json:"product_id"`
+		ProductName      string     `json:"product_name"`
+		Quantity         int        `json:"quantity"`
+		ReservedQuantity int        `json:"reserved_quantity"`
+		Location         string     `json:"location"`
+		WarehouseID      *uuid.UUID `json:"warehouse_id"`
+		LastRestockedAt  *string    `json:"last_restocked_at"`
+		CreatedAt        string     `json:"created_at"`
+		UpdatedAt        string     `json:"updated_at"`
 	}
 
 	query := `
@@ -144,13 +144,13 @@ func (h *MainHandler) GetInventory(c *gin.Context) {
 // GetInventorySummary retrieves inventory summary statistics
 func (h *MainHandler) GetInventorySummary(c *gin.Context) {
 	var summary struct {
-		TotalProducts    int     `json:"total_products"`
-		TotalQuantity    int     `json:"total_quantity"`
-		TotalValue       float64 `json:"total_value"`
-		LowStockItems    int     `json:"low_stock_items"`
-		OutOfStockItems  int     `json:"out_of_stock_items"`
-		ReservedQuantity int     `json:"reserved_quantity"`
-		AvailableQuantity int    `json:"available_quantity"`
+		TotalProducts     int     `json:"total_products"`
+		TotalQuantity     int     `json:"total_quantity"`
+		TotalValue        float64 `json:"total_value"`
+		LowStockItems     int     `json:"low_stock_items"`
+		OutOfStockItems   int     `json:"out_of_stock_items"`
+		ReservedQuantity  int     `json:"reserved_quantity"`
+		AvailableQuantity int     `json:"available_quantity"`
 	}
 
 	query := `
@@ -180,20 +180,31 @@ func (h *MainHandler) GetInventorySummary(c *gin.Context) {
 // GetLowStockItems retrieves items with low stock
 func (h *MainHandler) GetLowStockItems(c *gin.Context) {
 	var items []struct {
-		ID          uuid.UUID `json:"id"`
-		ProductID   uuid.UUID `json:"product_id"`
-		ProductName string    `json:"product_name"`
-		Quantity    int       `json:"quantity"`
-		MinStock    int       `json:"min_stock_level"`
-		Location    string    `json:"location"`
+		ID          uuid.UUID `json:"id" db:"id"`
+		ProductID   uuid.UUID `json:"product_id" db:"product_id"`
+		ProductName string    `json:"product_name" db:"product_name"`
+		Quantity    int       `json:"quantity" db:"quantity"`
+		MinStock    int       `json:"min_stock_level" db:"min_stock_level"`
+		Location    string    `json:"location" db:"location"`
 	}
 
 	query := `
-		SELECT i.id, i.product_id, p.name as product_name, i.quantity, p.min_stock_level, i.location
-		FROM inventory i
-		JOIN products p ON i.product_id = p.id
-		WHERE i.quantity < p.min_stock_level AND i.quantity > 0
-		ORDER BY i.quantity ASC
+		SELECT 
+			p.id, 
+			p.id as product_id,
+			p.name as product_name, 
+			COALESCE((SELECT COUNT(*) FROM inventory_items ii 
+					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0) as quantity,
+			p.min_stock_level, 
+			'' as location
+		FROM products p
+		WHERE p.is_active = true
+		  AND p.min_stock_level > 0
+		  AND COALESCE((SELECT COUNT(*) FROM inventory_items ii 
+					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0) > 0
+		  AND COALESCE((SELECT COUNT(*) FROM inventory_items ii 
+					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0) < p.min_stock_level
+		ORDER BY quantity ASC
 	`
 
 	err := h.db.Select(&items, query)
@@ -211,15 +222,15 @@ func (h *MainHandler) GetLowStockItems(c *gin.Context) {
 // GetOutOfStockItems retrieves items that are out of stock
 func (h *MainHandler) GetOutOfStockItems(c *gin.Context) {
 	var items []struct {
-		ID          uuid.UUID `json:"id"`
-		ProductID   uuid.UUID `json:"product_id"`
-		ProductName string    `json:"product_name"`
-		Quantity    int       `json:"quantity"`
-		Location    string    `json:"location"`
+		ID          uuid.UUID `json:"id" db:"id"`
+		ProductID   uuid.UUID `json:"product_id" db:"product_id"`
+		ProductName string    `json:"product_name" db:"product_name"`
+		Quantity    int       `json:"quantity" db:"quantity"`
+		Location    string    `json:"location" db:"location"`
 	}
 
 	query := `
-		SELECT i.id, i.product_id, p.name as product_name, i.quantity, i.location
+		SELECT i.id, i.product_id, p.name as product_name, i.quantity, COALESCE(i.location, '') AS location
 		FROM inventory i
 		JOIN products p ON i.product_id = p.id
 		WHERE i.quantity = 0

@@ -12,24 +12,24 @@ import (
 // From user perspective: it's just "delete"
 // Internally: decides between DELETE, REVERSE, or BLOCK based on state
 type SmartDeleteService struct {
-	db             *sql.DB
+	db              *sql.DB
 	reversalService *ReversalService
 }
 
 // NewSmartDeleteService creates a new smart delete service
 func NewSmartDeleteService(db *sql.DB) *SmartDeleteService {
 	return &SmartDeleteService{
-		db:             db,
+		db:              db,
 		reversalService: NewReversalService(db),
 	}
 }
 
 // DeleteResult represents the result of a smart delete operation
 type DeleteResult struct {
-	Action      string `json:"action"`      // "deleted", "reversed", "blocked"
-	Message     string `json:"message"`     // User-friendly message
-	CanProceed  bool   `json:"can_proceed"`  // Whether the operation was successful
-	Details     *DeleteDetails `json:"details,omitempty"` // Additional details if blocked
+	Action     string         `json:"action"`            // "deleted", "reversed", "blocked"
+	Message    string         `json:"message"`           // User-friendly message
+	CanProceed bool           `json:"can_proceed"`       // Whether the operation was successful
+	Details    *DeleteDetails `json:"details,omitempty"` // Additional details if blocked
 }
 
 // DeleteDetails contains information when deletion is blocked

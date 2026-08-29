@@ -3,12 +3,21 @@ package acquisitions
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 )
+
+func nullableUUID(id uuid.UUID) *uuid.UUID {
+	if id == uuid.Nil {
+		return nil
+	}
+	return &id
+}
 
 // Service handles acquisition business logic (USED-PARTS-ACQUISITION.md)
 type Service struct {
@@ -46,11 +55,11 @@ func (s *Service) CreateAcquisition(ctx context.Context, req *AcquisitionRequest
 		SupplierID:      req.SupplierID,
 		CustomerID:      req.CustomerID,
 		TotalCost:       0, // Will be calculated from items
-		PaidAmount:       0,
-		PaymentStatus:    req.PaymentStatus,
+		PaidAmount:      0,
+		PaymentStatus:   req.PaymentStatus,
 		Status:          StatusDraft,
 		Notes:           &req.Notes,
-		UserID:          &userID,
+		UserID:          nullableUUID(userID),
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
@@ -75,19 +84,19 @@ func (s *Service) CreateAcquisition(ctx context.Context, req *AcquisitionRequest
 	// Create acquisition items
 	for _, itemReq := range req.Items {
 		item := &AcquisitionItem{
-			ID:              uuid.New(),
-			AcquisitionID:   acquisitionID,
-			ProductID:       itemReq.ProductID,
-			SerialNumber:    itemReq.SerialNumber,
-			Condition:       itemReq.Condition,
-			Grade:           itemReq.Grade,
-			UnitCost:        itemReq.UnitCost,
-			TotalCost:       itemReq.UnitCost, // Assuming quantity 1 for individual items
+			ID:               uuid.New(),
+			AcquisitionID:    acquisitionID,
+			ProductID:        itemReq.ProductID,
+			SerialNumber:     itemReq.SerialNumber,
+			Condition:        itemReq.Condition,
+			Grade:            itemReq.Grade,
+			UnitCost:         itemReq.UnitCost,
+			TotalCost:        itemReq.UnitCost, // Assuming quantity 1 for individual items
 			InspectionStatus: "pending",
-			ItemStatus:      "acquired",
-			Notes:           itemReq.Notes,
-			CreatedAt:       time.Now(),
-			UpdatedAt:       time.Now(),
+			ItemStatus:       "acquired",
+			Notes:            itemReq.Notes,
+			CreatedAt:        time.Now(),
+			UpdatedAt:        time.Now(),
 		}
 
 		itemQuery := `
@@ -270,31 +279,76 @@ func (s *Service) ListAcquisitions(ctx context.Context, req *AcquisitionListRequ
 		return nil, 0, fmt.Errorf("failed to list acquisitions: %w", err)
 	}
 
+	for i := range acquisitions {
+		var items []AcquisitionItem
+		if err := s.db.Select(&items, `SELECT * FROM acquisition_items WHERE acquisition_id = $1 ORDER BY created_at`, acquisitions[i].ID); err != nil {
+			return nil, 0, fmt.Errorf("failed to load acquisition items: %w", err)
+		}
+		if items == nil {
+			items = []AcquisitionItem{}
+		}
+		acquisitions[i].Items = items
+	}
+
 	return acquisitions, total, nil
 }
 
 // UpdateAcquisitionStatus updates acquisition status
 func (s *Service) UpdateAcquisitionStatus(ctx context.Context, id uuid.UUID, status string) error {
-	query := `
-		UPDATE acquisitions 
-		SET status = $1, updated_at = NOW()
-		WHERE id = $2
-	`
-	result, err := s.db.Exec(query, status, id)
-	if err != nil {
-		return fmt.Errorf("failed to update acquisition status: %w", err)
+	status = strings.ToLower(strings.TrimSpace(status))
+	updateAcquisition := func() error {
+		result, err := s.db.ExecContext(ctx, `
+			UPDATE acquisitions
+			SET status = $1,
+			    updated_at = NOW()
+			WHERE id = $2
+		`, status, id)
+		if err != nil {
+			return fmt.Errorf("failed to update acquisition status: %w", err)
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			return fmt.Errorf("acquisition not found")
+		}
+		return nil
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
+	switch status {
+	case "pending", "passed", "failed", "needs_repair":
+		result, err := s.db.ExecContext(ctx, `
+			UPDATE acquisition_items
+			SET inspection_status = $1,
+			    item_status = CASE
+			        WHEN $1 = 'passed' THEN 'available'
+			        WHEN $1 = 'failed' THEN 'rejected'
+			        ELSE 'inspection'
+			    END,
+			    updated_at = NOW()
+			WHERE id = $2
+		`, status, id)
+		if err != nil {
+			return fmt.Errorf("failed to update acquisition item status: %w", err)
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			if status == "pending" {
+				return updateAcquisition()
+			}
+			return fmt.Errorf("acquisition item not found")
+		}
+		return nil
+	case StatusDraft, StatusAcquired, StatusInspection,
+		StatusApproved, StatusRejected, StatusCancelled, StatusReversed:
+		return updateAcquisition()
+	default:
+		return fmt.Errorf("invalid acquisition status: %s", status)
 	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("acquisition not found")
-	}
-
-	return nil
 }
 
 // LinkItemToInventory links an acquisition item to an inventory item
@@ -426,21 +480,128 @@ func (s *Service) AddRepairCost(ctx context.Context, inventoryItemID uuid.UUID, 
 	return nil
 }
 
-// GetItemHistory retrieves the complete history of an item
-func (s *Service) GetItemHistory(ctx context.Context, inventoryItemID uuid.UUID) ([]map[string]interface{}, error) {
+// GetItemHistory retrieves the item snapshot and complete lifecycle history.
+func (s *Service) GetItemHistory(ctx context.Context, inventoryItemID uuid.UUID) (*ItemHistoryResponse, error) {
+	var item struct {
+		ID           uuid.UUID  `db:"id"`
+		ProductName  string     `db:"product_name"`
+		SerialNumber string     `db:"serial_number"`
+		Barcode      string     `db:"barcode"`
+		Condition    string     `db:"condition"`
+		Grade        string     `db:"grade"`
+		Status       string     `db:"status"`
+		Cost         float64    `db:"cost"`
+		SellingPrice float64    `db:"selling_price"`
+		PurchaseDate *time.Time `db:"purchase_date"`
+		Location     string     `db:"location"`
+		Notes        string     `db:"notes"`
+	}
+	err := s.db.GetContext(ctx, &item, `
+		SELECT ii.id,
+		       COALESCE(p.name, '') AS product_name,
+		       COALESCE(ii.serial_number, '') AS serial_number,
+		       COALESCE(ii.barcode, '') AS barcode,
+		       COALESCE(ii.condition, '') AS condition,
+		       COALESCE(ii.grade, '') AS grade,
+		       COALESCE(ii.status, '') AS status,
+		       COALESCE(ii.purchase_cost, 0) AS cost,
+		       COALESCE(ii.selling_price, 0) AS selling_price,
+		       ii.purchase_date,
+		       COALESCE(l.name, '') AS location,
+		       COALESCE(ii.notes, '') AS notes
+		FROM inventory_items ii
+		LEFT JOIN products p ON p.id = ii.product_id
+		LEFT JOIN locations l ON l.id = ii.location_id
+		WHERE ii.id = $1
+	`, inventoryItemID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("inventory item not found")
+		}
+		return nil, fmt.Errorf("failed to get inventory item: %w", err)
+	}
+
 	query := `
-		SELECT * FROM item_history 
-		WHERE inventory_item_id = $1 
+		SELECT id, event_type, event_date, description, metadata AS details
+		FROM item_history
+		WHERE inventory_item_id = $1
 		ORDER BY event_date DESC
 	`
-
-	var history []map[string]interface{}
-	err := s.db.Select(&history, query, inventoryItemID)
+	var rows []struct {
+		ID          uuid.UUID `db:"id"`
+		EventType   string    `db:"event_type"`
+		EventDate   time.Time `db:"event_date"`
+		Description *string   `db:"description"`
+		Details     []byte    `db:"details"`
+	}
+	err = s.db.Select(&rows, query, inventoryItemID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get item history: %w", err)
 	}
+	events := make([]map[string]interface{}, 0, len(rows))
+	for _, row := range rows {
+		details := map[string]interface{}{}
+		if len(row.Details) > 0 {
+			if err := json.Unmarshal(row.Details, &details); err != nil {
+				return nil, fmt.Errorf("failed to decode item history metadata: %w", err)
+			}
+		}
+		events = append(events, map[string]interface{}{
+			"id":          row.ID,
+			"event_type":  row.EventType,
+			"event_date":  row.EventDate,
+			"description": row.Description,
+			"details":     details,
+		})
+	}
 
-	return history, nil
+	var repairs []struct {
+		Description string    `db:"description"`
+		Date        time.Time `db:"date"`
+		Amount      float64   `db:"amount"`
+	}
+	err = s.db.Select(&repairs, `
+		SELECT COALESCE(description, '') AS description,
+		       repair_date AS date,
+		       COALESCE(cost, 0) AS amount
+		FROM item_repair_costs
+		WHERE inventory_item_id = $1
+		ORDER BY repair_date DESC, created_at DESC
+	`, inventoryItemID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get item repair costs: %w", err)
+	}
+
+	repairCosts := make([]map[string]interface{}, 0, len(repairs))
+	var totalRepairCosts float64
+	for _, repair := range repairs {
+		totalRepairCosts += repair.Amount
+		repairCosts = append(repairCosts, map[string]interface{}{
+			"description": repair.Description,
+			"date":        repair.Date,
+			"amount":      repair.Amount,
+		})
+	}
+
+	return &ItemHistoryResponse{
+		Item: map[string]interface{}{
+			"id":            item.ID,
+			"product_name":  item.ProductName,
+			"serial_number": item.SerialNumber,
+			"barcode":       item.Barcode,
+			"condition":     item.Condition,
+			"grade":         item.Grade,
+			"status":        item.Status,
+			"cost":          item.Cost,
+			"selling_price": item.SellingPrice,
+			"purchase_date": item.PurchaseDate,
+			"location":      item.Location,
+			"notes":         item.Notes,
+		},
+		Events:           events,
+		RepairCosts:      repairCosts,
+		TotalRepairCosts: totalRepairCosts,
+	}, nil
 }
 
 // GetUsedPartsAging retrieves aging information for used parts

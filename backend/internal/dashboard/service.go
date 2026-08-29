@@ -101,9 +101,12 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 	query := `
 		SELECT
 			(SELECT COUNT(*) FROM products p
-			 AND p.is_active = true
+			 WHERE p.is_active = true
 			 AND p.min_stock_level > 0
-			 AND (SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE product_id = p.id) < p.min_stock_level) as low_stock_items,
+			 AND (SELECT COUNT(*) FROM inventory_items ii
+				WHERE ii.product_id = p.id
+				AND ii.condition <> 'USED'
+				AND ii.status = 'AVAILABLE') < p.min_stock_level) as low_stock_items,
 			(SELECT COALESCE(SUM(current_balance), 0) FROM customers
 			 WHERE current_balance > 0) as overdue_debts,
 			(SELECT COUNT(*) FROM sales WHERE status = 'pending') as pending_orders,
@@ -249,18 +252,19 @@ func (s *Service) GetLowStockItems(ctx context.Context) ([]LowStockItem, error) 
 		SELECT 
 			p.id,
 			p.name as product_name,
-			COALESCE(SUM(i.quantity), 0) as quantity,
+			COALESCE((SELECT COUNT(*) FROM inventory_items ii 
+					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0) as quantity,
 			p.min_stock_level,
 			p.cost_price,
 			p.selling_price,
 			p.preferred_supplier_id
 		FROM products p
-		LEFT JOIN inventory i ON p.id = i.product_id
 		WHERE p.is_active = true
 		AND p.min_stock_level > 0
-		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
-		HAVING COALESCE(SUM(i.quantity), 0) < p.min_stock_level
-		ORDER BY (p.min_stock_level - COALESCE(SUM(i.quantity), 0)) DESC
+		AND COALESCE((SELECT COUNT(*) FROM inventory_items ii 
+					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0) < p.min_stock_level
+		ORDER BY (p.min_stock_level - COALESCE((SELECT COUNT(*) FROM inventory_items ii 
+					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0)) DESC
 		LIMIT 10
 	`
 

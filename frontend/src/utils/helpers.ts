@@ -193,7 +193,7 @@ export function isDesktop(): boolean {
 export function formatPrice(value: number | string | undefined | null, fallback: string = '₪0'): string {
   const num = typeof value === 'string' ? parseFloat(value) : value;
   if (num === undefined || num === null || isNaN(num)) return fallback;
-  return `₪${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₪${num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
 export function normalizeCurrencyValue(value: number | string | undefined | null): number {

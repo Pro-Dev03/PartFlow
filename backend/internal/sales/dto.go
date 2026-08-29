@@ -9,16 +9,17 @@ type CreateSaleRequest struct {
 	PaymentMethod *string           `json:"payment_method,omitempty"`
 	PaymentAmount float64           `json:"payment_amount,omitempty"`
 	Notes         *string           `json:"notes,omitempty"`
-	TaxRate       float64           `json:"tax_rate"` // Made optional - will default to 0 if not provided
+	TaxRate       float64           `json:"tax_rate"`      // Made optional - will default to 0 if not provided
 	DiscountType  string            `json:"discount_type"` // "percentage" or "fixed"
 	DiscountValue float64           `json:"discount_value"`
 }
 
 // SaleItemRequest represents an item in a sale request
 type SaleItemRequest struct {
-	ProductID uuid.UUID `json:"product_id" binding:"required"`
-	Quantity  int       `json:"quantity" binding:"required,min=1"`
-	UnitPrice float64   `json:"unit_price" binding:"required,min=0"`
+	ProductID       uuid.UUID  `json:"product_id" binding:"required"`
+	InventoryItemID *uuid.UUID `json:"inventory_item_id,omitempty"`
+	Quantity        int        `json:"quantity" binding:"required,min=1"`
+	UnitPrice       float64    `json:"unit_price" binding:"required,min=0"`
 }
 
 // UpdatePaymentRequest represents the request to update payment

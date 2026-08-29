@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { acquisitionsApi } from '../../../services/api/endpoints';
+import { useNavigate } from 'react-router-dom';
+import { acquisitionsApi, productsApi } from '../../../services/api/endpoints';
 import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { SearchInput } from '../../../components/ui/search-input';
@@ -14,7 +15,8 @@ import {
   XCircle,
   AlertTriangle,
   Package,
-  Layers
+  Layers,
+  ArrowRight
 } from 'lucide-react';
 
 interface InspectionItem {
@@ -30,6 +32,7 @@ interface InspectionItem {
 }
 
 export function InspectionsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -42,13 +45,22 @@ export function InspectionsPage() {
     queryKey: ['acquisitions'],
     queryFn: () => acquisitionsApi.list({ type: 'CUSTOMER' }),
   });
+  const { data: productsData } = useQuery({
+    queryKey: ['products', 'inspection-labels'],
+    queryFn: () => productsApi.list({ page: 1, per_page: 100 }),
+  });
 
   const acquisitions = Array.isArray(acquisitionsData?.data) ? acquisitionsData.data : [];
+  const products = Array.isArray(productsData?.data?.products) ? productsData.data.products : [];
+  const productNames = new Map(products.map((product: any) => [product.id, product.name]));
   
   // Extract items from acquisitions
   const inspectionItems: InspectionItem[] = acquisitions.flatMap((acq: any) => 
     acq.items?.map((item: any) => ({
       ...item,
+      product_name: productNames.get(item.product_id) || `قطعة رقم ${item.product_id.slice(0, 8)}`,
+      cost: Number(item.unit_cost || item.total_cost || 0),
+      inspection_status: String(item.inspection_status || 'pending').toUpperCase(),
       customer_name: acq.customer_name,
       acquisition_date: acq.acquisition_date,
     })) || []
@@ -141,6 +153,12 @@ export function InspectionsPage() {
         eyebrow="Inspections Management"
         title="إدارة الفحص"
         description="فحص القطع المستعملة قبل إضافتها للمخزون"
+        actions={
+          <Button variant="secondary" onClick={() => navigate('/app/usedparts')}>
+            <ArrowRight className="w-4 h-4" />
+            رجوع
+          </Button>
+        }
       />
 
       {/* Stats Cards */}
@@ -293,7 +311,7 @@ export function InspectionsPage() {
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-[var(--text-secondary)]">التكلفة:</span>
-                    <span className="text-[var(--text-primary)]">₪{(item.cost / 100).toFixed(2)}</span>
+                    <span className="text-[var(--text-primary)]">₪{item.cost.toFixed(2)}</span>
                   </div>
                   {item.customer_name && (
                     <div className="flex justify-between text-sm">

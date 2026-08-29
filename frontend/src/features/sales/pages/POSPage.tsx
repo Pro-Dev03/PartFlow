@@ -57,7 +57,7 @@ export function POSPage() {
   } = usePayment();
 
   useEffect(() => {
-    const usedPart = (location.state as { usedPart?: any } | null)?.usedPart;
+    const usedPart = (location.state as { usedPart?: PosCartProduct } | null)?.usedPart;
     if (!usedPart) return;
 
     addToCart(usedPart);
@@ -123,7 +123,7 @@ export function POSPage() {
         handleHoldSale();
       } else if (event.key === 'F2') {
         event.preventDefault();
-        document.querySelector<HTMLInputElement>('input[placeholder*="بحث"]')?.focus();
+        document.querySelector<HTMLInputElement>('.pos-product-search-field')?.focus();
       } else if (event.key === 'F8') {
         event.preventDefault();
         document.querySelector<HTMLButtonElement>('.pos-checkout-button:not(:disabled)')?.click();
@@ -195,7 +195,7 @@ export function POSPage() {
   const getAvailableStockCount = useCallback((productId: string) => {
     if (!productId) return 0;
 
-    return inventoryItems.filter((item: any) => {
+    return inventoryItems.filter((item) => {
       if (String(item.product_id) !== String(productId)) {
         return false;
       }
@@ -221,7 +221,7 @@ export function POSPage() {
   const createCustomerMutation = useMutation({
     mutationFn: (data: CustomerCreateRequest) => customersApi.create(data),
     onSuccess: (response) => {
-      const payload = response?.data as any;
+      const payload = response?.data as { customer?: Customer } | Customer;
       const createdCustomer = payload?.customer ?? payload;
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       if (createdCustomer?.id) {
@@ -265,7 +265,7 @@ export function POSPage() {
       stock: Number(manualProduct.quantity) || 1,
     }),
     onSuccess: (response) => {
-      const product = (response?.data as any)?.product ?? response?.data;
+      const product = (response?.data as { product?: PosCartProduct } | PosCartProduct)?.product ?? response?.data;
       if (product?.id) {
         const barcode = product.barcode || product.id;
         addToCart({ ...product, barcode }, Number(manualProduct.quantity) || 1);
@@ -283,6 +283,7 @@ export function POSPage() {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory', 'used-stock'] });
       
       if (lastSaleDataRef.current) {
         const sale = response?.data?.sale ?? response?.data ?? response?.sale;
@@ -300,8 +301,9 @@ export function POSPage() {
       resetPayment();
       setProcessing(false);
     },
-    onError: (error: any) => {
-      const message = error?.response?.error?.message || error?.arabicMessage || error?.message || 'فشل إتمام البيع';
+    onError: (error: unknown) => {
+      const apiError = error as { response?: { error?: { message?: string } }; arabicMessage?: string; message?: string };
+      const message = apiError.response?.error?.message || apiError.arabicMessage || apiError.message || 'فشل إتمام البيع';
       const normalizedMessage = String(message).toLowerCase();
 
       if (normalizedMessage.includes('insufficient stock') || normalizedMessage.includes('نفذ') || normalizedMessage.includes('مخزون')) {
@@ -368,8 +370,8 @@ export function POSPage() {
         if (soundEnabled) {
           playScanSound(false);
         }
-        const product = products?.find((p: any) => 
-          p.sku === barcodeInput.trim() || 
+        const product = products?.find((p) =>
+          p.sku === barcodeInput.trim() ||
           p.barcode === barcodeInput.trim()
         );
         if (product) {
@@ -393,7 +395,7 @@ export function POSPage() {
     }
   };
 
-  const handleProductSelect = useCallback((product: any) => {
+  const handleProductSelect = useCallback((product: PosCartProduct) => {
     if (!canAddProductToCart(product.id, product.name, 1)) {
       return;
     }
@@ -410,7 +412,9 @@ export function POSPage() {
   const addTradeInToCart = (inventoryItem: InventoryItem) => {
     const partType = partTypes.find((pt: PartType) => pt.id === inventoryItem.part_type_id);
     addToCart({
-      id: inventoryItem.id,
+      id: inventoryItem.product_id || inventoryItem.id,
+      inventoryItemId: inventoryItem.id,
+      serialNumber: inventoryItem.serial_number,
       name: inventoryItem.product_name || inventoryItem.product?.name,
       barcode: inventoryItem.serial_number || inventoryItem.id,
       price: normalizePosPrice(inventoryItem.selling_price),
@@ -451,6 +455,7 @@ export function POSPage() {
       customer_id: selectedCustomer || null,
       items: cart.map(item => ({
         product_id: item.id,
+        ...(item.inventoryItemId ? { inventory_item_id: item.inventoryItemId } : {}),
         quantity: item.quantity,
         unit_price: item.price
       })),
@@ -461,11 +466,11 @@ export function POSPage() {
     const invoiceData: InvoiceData = {
       id: 'pending',
       customerName: selectedCustomer 
-        ? (customers.find((c: any) => String(c.id) === String(selectedCustomer))?.name
+        ? (customers.find((c) => String(c.id) === String(selectedCustomer))?.name
           ?? selectedCustomerOption?.name)
         : '',
       customerPhone: selectedCustomer 
-        ? customers.find((c: any) => String(c.id) === String(selectedCustomer))?.phone
+        ? customers.find((c) => String(c.id) === String(selectedCustomer))?.phone
         : undefined,
       saleDate: new Date().toISOString(),
       items: cart.map(item => ({
@@ -474,6 +479,7 @@ export function POSPage() {
         partTypeColor: item.partTypeColor,
         condition: item.condition,
         grade: item.grade,
+        serialNumber: item.serialNumber,
         sellingPrice: item.price,
         quantity: item.quantity,
         total: item.total,
@@ -499,7 +505,7 @@ export function POSPage() {
   const handleCustomerChange = (customerId: string) => {
     setSelectedCustomer(customerId);
     if (customerId) {
-      const customer = customers.find((c: any) => String(c.id) === String(customerId));
+      const customer = customers.find((c) => String(c.id) === String(customerId));
       if (customer) {
         setSelectedCustomerOption({ id: String(customer.id), name: customer.name });
         setCustomerBalance(customer.balance || 0);
@@ -622,7 +628,7 @@ export function POSPage() {
         </div>
         <div className="pos-cashier-footer">
           <Button variant="secondary" size="sm" onClick={() => setIsManualProductOpen(true)}>
-            <Plus className="h-4 w-4" /> إضافة يدويًا
+            <Plus className="h-4 w-4" /> إضافة منتج سريع
           </Button>
           <Button variant="secondary" size="sm" onClick={handleHoldSale}>
             <Pause className="h-4 w-4" /> تعليق البيع
@@ -657,7 +663,7 @@ export function POSPage() {
         <Modal
           isOpen={isManualProductOpen}
           onClose={() => setIsManualProductOpen(false)}
-          title="إضافة منتج يدويًا"
+          title="إضافة منتج سريع للمخزون"
           variant="modern"
           size="md"
         >
@@ -690,12 +696,12 @@ export function POSPage() {
             <Button variant="secondary" onClick={() => {
               setSearchQuery(unknownBarcode);
               setUnknownBarcode('');
-            }}>البحث يدويًا</Button>
+            }}>البحث عن منتج</Button>
             <Button variant="primary" onClick={() => {
               setManualProduct((current) => ({ ...current, barcode: unknownBarcode }));
               setUnknownBarcode('');
               setIsManualProductOpen(true);
-            }}>إضافة منتج جديد</Button>
+            }}>إنشاء وإضافة للمخزون</Button>
             <Button variant="ghost" onClick={() => setUnknownBarcode('')}>إلغاء</Button>
           </div>
         </Modal>

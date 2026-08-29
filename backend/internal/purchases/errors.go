@@ -24,6 +24,9 @@ var (
 	// ErrPurchaseAlreadyReceived is returned when purchase is already received
 	ErrPurchaseAlreadyReceived = errors.New("purchase already received")
 
+	// ErrPurchasePaymentRequired is returned when receiving an unpaid purchase
+	ErrPurchasePaymentRequired = errors.New("cannot receive purchase before recording a payment")
+
 	// ErrPurchaseCancelled is returned when purchase is cancelled
 	ErrPurchaseCancelled = errors.New("purchase is cancelled")
 
@@ -44,6 +47,9 @@ var (
 
 	// ErrCannotDeleteReceivedPurchase is returned when trying to delete a received purchase
 	ErrCannotDeleteReceivedPurchase = errors.New("cannot delete received purchase - use reverse instead")
+
+	// ErrCannotDeletePaidPurchase is returned when trying to delete a purchase with payments
+	ErrCannotDeletePaidPurchase = errors.New("cannot delete purchase with recorded payments")
 
 	// ErrItemsAlreadySold is returned when purchase items have been sold
 	ErrItemsAlreadySold = errors.New("cannot reverse purchase - some items have been sold")

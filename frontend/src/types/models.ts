@@ -1,9 +1,13 @@
 // User Types
 export interface User {
   id: string;
-  name: string;
+  name?: string;
+  first_name?: string;
+  last_name?: string;
   email: string;
   phone?: string;
+  subscription_status?: string;
+  subscription_expires_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -147,6 +151,8 @@ export interface SaleItem {
   id: string;
   sale_id: string;
   product_id: string;
+  inventory_item_id?: string;
+  serial_number?: string;
   quantity: number;
   unit_price: number;
   unit_cost: number;

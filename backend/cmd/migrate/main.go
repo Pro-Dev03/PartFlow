@@ -42,6 +42,20 @@ func main() {
 
 	// Sort migration files
 	sort.Strings(migrationFiles)
+	// The initial schema must precede the legacy users fix migration. Both
+	// share the 001 prefix, so lexical ordering alone is unsafe on a new DB.
+	sort.SliceStable(migrationFiles, func(i, j int) bool {
+		left, right := filepath.Base(migrationFiles[i]), filepath.Base(migrationFiles[j])
+		if strings.HasPrefix(left, "001_") && strings.HasPrefix(right, "001_") {
+			if strings.Contains(left, "_initial_") {
+				return true
+			}
+			if strings.Contains(right, "_initial_") {
+				return false
+			}
+		}
+		return left < right
+	})
 
 	// Create migrations table if not exists
 	_, err = db.Exec(`

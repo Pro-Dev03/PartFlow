@@ -1,5 +1,7 @@
 export interface CartItem {
   id: string;
+  inventoryItemId?: string;
+  serialNumber?: string;
   name: string;
   barcode: string;
   price: number;
@@ -14,7 +16,7 @@ export interface CartItem {
   grade?: string;
 }
 
-export type PaymentMethod = 'cash' | 'card' | 'credit' | 'other';
+export type PaymentMethod = 'cash' | 'card' | 'credit' | 'checks';
 
 export type ItemInputMethodType = 'barcode' | 'camera' | 'manual';
 
@@ -37,6 +39,7 @@ export interface InvoiceItem {
   partTypeColor?: string;
   condition?: string;
   grade?: string;
+  serialNumber?: string;
   sellingPrice: number;
   quantity: number;
   total: number;
@@ -68,6 +71,7 @@ export interface SaleRequest {
 
 export interface SaleItemRequest {
   product_id: string;
+  inventory_item_id?: string;
   quantity: number;
   unit_price: number;
 }

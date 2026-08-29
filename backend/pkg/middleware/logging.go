@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,7 +17,7 @@ func LoggingMiddleware() gin.HandlerFunc {
 		method := c.Request.Method
 		userAgent := c.GetHeader("User-Agent")
 		ipAddress := c.ClientIP()
-		
+
 		// Get request ID
 		requestID := GetRequestID(c)
 		if requestID == "" {
@@ -51,7 +52,7 @@ func LoggingMiddleware() gin.HandlerFunc {
 		if len(c.Errors) > 0 {
 			for _, err := range c.Errors {
 				requestLogger.Error().
-					Str("error_type", string(err.Type)).
+					Str("error_type", fmt.Sprintf("%d", err.Type)).
 					Msg(err.Error())
 			}
 		}
@@ -87,7 +88,7 @@ func ErrorLoggingMiddleware() gin.HandlerFunc {
 
 			for _, err := range c.Errors {
 				errorLogger.Error().
-					Str("error_type", string(err.Type)).
+					Str("error_type", fmt.Sprintf("%d", err.Type)).
 					Interface("error_meta", err.Meta).
 					Msg(err.Error())
 			}
@@ -103,7 +104,7 @@ func PerformanceLoggingMiddleware() gin.HandlerFunc {
 		c.Next()
 
 		duration := time.Since(start)
-		
+
 		// Log slow requests (> 1 second)
 		if duration > time.Second {
 			requestID := GetRequestID(c)
@@ -134,11 +135,11 @@ func SecurityLoggingMiddleware() gin.HandlerFunc {
 			userAgent := c.GetHeader("User-Agent")
 
 			logger.Warn("Authentication failed", map[string]interface{}{
-				"request_id":  requestID,
-				"method":      method,
-				"path":        path,
-				"ip_address":  ipAddress,
-				"user_agent":  userAgent,
+				"request_id": requestID,
+				"method":     method,
+				"path":       path,
+				"ip_address": ipAddress,
+				"user_agent": userAgent,
 			})
 		}
 
@@ -151,11 +152,11 @@ func SecurityLoggingMiddleware() gin.HandlerFunc {
 			ipAddress := c.ClientIP()
 
 			logger.Warn("Authorization failed - access denied", map[string]interface{}{
-				"request_id":   requestID,
-				"user_id":      userID,
-				"method":       method,
-				"path":         path,
-				"ip_address":   ipAddress,
+				"request_id": requestID,
+				"user_id":    userID,
+				"method":     method,
+				"path":       path,
+				"ip_address": ipAddress,
 			})
 		}
 

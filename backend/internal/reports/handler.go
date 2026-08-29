@@ -75,7 +75,6 @@ func (h *Handler) GetReport(c *gin.Context) {
 		return
 	}
 
-
 	report, err := h.service.GetReport(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -108,7 +107,7 @@ func (h *Handler) GetReport(c *gin.Context) {
 // @Router /api/v1/reports [get]
 func (h *Handler) ListReports(c *gin.Context) {
 	var req ReportListRequest
-	
+
 	// Parse query parameters
 	if page, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil {
 		req.Page = page
@@ -116,31 +115,30 @@ func (h *Handler) ListReports(c *gin.Context) {
 	if perPage, err := strconv.Atoi(c.DefaultQuery("per_page", "20")); err == nil {
 		req.PerPage = perPage
 	}
-	
+
 	if generatedBy := c.Query("generated_by"); generatedBy != "" {
 		if id, err := uuid.Parse(generatedBy); err == nil {
 			req.GeneratedBy = &id
 		}
 	}
-	
+
 	req.Type = c.Query("type")
 	req.Status = c.Query("status")
 	req.Search = c.Query("search")
 	req.SortBy = c.DefaultQuery("sort_by", "generated_at")
 	req.SortOrder = c.DefaultQuery("sort_order", "DESC")
-	
+
 	if startDate := c.Query("start_date"); startDate != "" {
 		if t, err := time.Parse(time.RFC3339, startDate); err == nil {
 			req.StartDate = &t
 		}
 	}
-	
+
 	if endDate := c.Query("end_date"); endDate != "" {
 		if t, err := time.Parse(time.RFC3339, endDate); err == nil {
 			req.EndDate = &t
 		}
 	}
-
 
 	reports, total, err := h.service.ListReports(c.Request.Context(), req)
 	if err != nil {
@@ -179,7 +177,6 @@ func (h *Handler) DeleteReport(c *gin.Context) {
 		return
 	}
 
-
 	if err := h.service.DeleteReport(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -193,7 +190,7 @@ func parseDate(dateStr string) (time.Time, error) {
 	if dateStr == "" {
 		return time.Time{}, nil
 	}
-	
+
 	// Try multiple date formats
 	formats := []string{
 		time.RFC3339,
@@ -202,13 +199,13 @@ func parseDate(dateStr string) (time.Time, error) {
 		"01-02-2006",
 		"01/02/2006",
 	}
-	
+
 	for _, format := range formats {
 		if t, err := time.Parse(format, dateStr); err == nil {
 			return t, nil
 		}
 	}
-	
+
 	return time.Time{}, fmt.Errorf("invalid date format")
 }
 
@@ -568,10 +565,10 @@ func (h *Handler) GenerateNetSalesReport(c *gin.Context) {
 func (h *Handler) GenerateProductsReport(c *gin.Context) {
 	// Get products data directly from database
 	reportData := make(map[string]interface{})
-	
+
 	// Get total products - simplified
 	var totalProducts int
-	err := h.repo.db.GetContext(c.Request.Context(), &totalProducts, 
+	err := h.repo.db.GetContext(c.Request.Context(), &totalProducts,
 		"SELECT COUNT(*) FROM products WHERE is_active = true")
 	if err != nil {
 		// If products table doesn't exist, return empty report
@@ -582,17 +579,18 @@ func (h *Handler) GenerateProductsReport(c *gin.Context) {
 		return
 	}
 	reportData["total_products"] = totalProducts
-	
+
 	// Get products by category - simplified
 	byCategory := make(map[string]int)
 	rows, err := h.repo.db.QueryContext(c.Request.Context(),
-		`SELECT c.name, COUNT(p.id) as count 
+		`SELECT COALESCE(c.name, 'غير مصنف'), COUNT(p.id) as count
 		 FROM categories c 
-		 LEFT JOIN products p ON c.id = p.category_id AND p.is_active = true
-		 GROUP BY c.name`)
+		 RIGHT JOIN products p ON c.id = p.category_id AND p.is_active = true
+		 WHERE p.is_active = true
+		 GROUP BY COALESCE(c.name, 'غير مصنف')`)
 	if err == nil {
 		defer rows.Close()
-		
+
 		for rows.Next() {
 			var category string
 			var count int
@@ -603,20 +601,23 @@ func (h *Handler) GenerateProductsReport(c *gin.Context) {
 		}
 	}
 	reportData["by_category"] = byCategory
-	
+
 	// Get low stock products - simplified
 	var lowStockCount int
 	err = h.repo.db.GetContext(c.Request.Context(), &lowStockCount,
-		`SELECT COUNT(*) FROM inventory_items ii 
-		 JOIN products p ON ii.product_id = p.id 
-		 WHERE ii.status = 'AVAILABLE' AND p.min_stock_level > 0
-		 GROUP BY p.id, p.min_stock_level
-		 HAVING COUNT(ii.id) < p.min_stock_level`)
+		`SELECT COUNT(*) FROM (
+			SELECT p.id
+			FROM inventory_items ii
+			JOIN products p ON ii.product_id = p.id
+			WHERE ii.status = 'AVAILABLE' AND p.min_stock_level > 0
+			GROUP BY p.id, p.min_stock_level
+			HAVING COUNT(ii.id) < p.min_stock_level
+		) low_stock`)
 	if err != nil {
 		lowStockCount = 0
 	}
 	reportData["low_stock_count"] = lowStockCount
-	
+
 	c.JSON(http.StatusOK, gin.H{"data": reportData})
 }
 
@@ -634,45 +635,104 @@ func (h *Handler) GenerateProductsReport(c *gin.Context) {
 func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 	// Get suppliers data directly from database
 	reportData := make(map[string]interface{})
-	
-	// Get total suppliers - simplified
-	var totalSuppliers int
-	err := h.repo.db.GetContext(c.Request.Context(), &totalSuppliers,
+
+	var activeSuppliers, inactiveSuppliers int
+	err := h.repo.db.GetContext(c.Request.Context(), &activeSuppliers,
 		"SELECT COUNT(*) FROM suppliers WHERE is_active = true")
 	if err != nil {
 		// If suppliers table doesn't exist, return empty report
 		reportData["total_suppliers"] = 0
+		reportData["inactive_suppliers"] = 0
 		reportData["suppliers_with_balance"] = []map[string]interface{}{}
 		c.JSON(http.StatusOK, gin.H{"data": reportData})
 		return
 	}
-	reportData["total_suppliers"] = totalSuppliers
-	
-	// Get suppliers with outstanding balances - simplified
+	reportData["total_suppliers"] = activeSuppliers
+	if err := h.repo.db.GetContext(c.Request.Context(), &inactiveSuppliers,
+		"SELECT COUNT(*) FROM suppliers WHERE is_active = false"); err == nil {
+		reportData["inactive_suppliers"] = inactiveSuppliers
+	} else {
+		reportData["inactive_suppliers"] = 0
+	}
+
+	var purchaseTotals struct {
+		Total float64 `db:"total"`
+		Paid  float64 `db:"paid"`
+		Open  float64 `db:"open"`
+	}
+	if err := h.repo.db.GetContext(c.Request.Context(), &purchaseTotals,
+		`SELECT COALESCE(SUM(total_amount), 0) AS total,
+		        COALESCE(SUM(paid_amount), 0) AS paid,
+		        COALESCE(SUM(total_amount - paid_amount), 0) AS open
+		 FROM purchases
+		 WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`); err == nil {
+		reportData["total_purchases"] = purchaseTotals.Total
+		reportData["total_paid"] = purchaseTotals.Paid
+		reportData["total_outstanding"] = purchaseTotals.Open
+	} else {
+		reportData["total_purchases"] = 0
+		reportData["total_paid"] = 0
+		reportData["total_outstanding"] = 0
+	}
+
+	bySupplier := []map[string]interface{}{}
+	rows, err := h.repo.db.QueryContext(c.Request.Context(), `
+			SELECT COALESCE(s.name, 'مورد غير معروف'),
+				COALESCE(SUM(p.total_amount), 0),
+				COALESCE(SUM(p.paid_amount), 0),
+				COALESCE(SUM(p.total_amount - p.paid_amount), 0)
+			FROM purchases p
+			LEFT JOIN suppliers s ON s.id = p.supplier_id
+			WHERE LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
+			GROUP BY s.name
+			HAVING SUM(p.total_amount) > 0
+			ORDER BY SUM(p.total_amount) DESC`)
+	if err == nil {
+		for rows.Next() {
+			var name string
+			var total, paid, outstanding float64
+			if err := rows.Scan(&name, &total, &paid, &outstanding); err == nil {
+				bySupplier = append(bySupplier, map[string]interface{}{
+					"supplier_name": name, "total_purchases": total,
+					"total_paid": paid, "outstanding": outstanding,
+				})
+			}
+		}
+		rows.Close()
+	}
+	reportData["by_supplier"] = bySupplier
+
 	suppliersWithBalance := []map[string]interface{}{}
-	rows, err := h.repo.db.QueryContext(c.Request.Context(),
-		`SELECT id, name, current_balance 
-		 FROM suppliers 
-		 WHERE current_balance > 0 AND is_active = true
-		 ORDER BY current_balance DESC`)
+	rows, err = h.repo.db.QueryContext(c.Request.Context(),
+		`SELECT s.id, s.name,
+		        COALESCE(SUM(p.total_amount), 0) AS total_purchases,
+		        COALESCE(SUM(p.paid_amount), 0) AS total_paid,
+		        COALESCE(SUM(p.total_amount - p.paid_amount), 0) AS balance
+				FROM suppliers s
+				JOIN purchases p ON p.supplier_id = s.id
+				WHERE LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
+		 GROUP BY s.id, s.name
+		 HAVING SUM(p.total_amount - p.paid_amount) > 0
+		 ORDER BY balance DESC`)
 	if err == nil {
 		defer rows.Close()
-		
+
 		for rows.Next() {
 			var id uuid.UUID
 			var name string
+			var totalPurchases float64
+			var totalPaid float64
 			var balance float64
-			if err := rows.Scan(&id, &name, &balance); err != nil {
+			if err := rows.Scan(&id, &name, &totalPurchases, &totalPaid, &balance); err != nil {
 				continue
 			}
 			suppliersWithBalance = append(suppliersWithBalance, map[string]interface{}{
-				"id":      id,
-				"name":    name,
-				"balance": balance,
+				"id": id, "name": name, "total_purchases": totalPurchases,
+				"total_paid": totalPaid, "balance": balance,
 			})
 		}
 	}
 	reportData["suppliers_with_balance"] = suppliersWithBalance
-	
+
 	c.JSON(http.StatusOK, gin.H{"data": reportData})
 }

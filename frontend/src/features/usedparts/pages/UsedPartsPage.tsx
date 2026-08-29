@@ -65,6 +65,8 @@ export function UsedPartsPage() {
   const { data: inventoryData, isLoading } = useQuery({
     queryKey: ['inventory'],
     queryFn: () => inventoryApi.list({ page: 1, per_page: 100 }),
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const { data: inspectionsData } = useQuery({
@@ -101,6 +103,12 @@ export function UsedPartsPage() {
     : Array.isArray(inspectionsData?.data)
       ? inspectionsData.data
       : [];
+  const passedInspectionItemIds = new Set(
+    inspections
+      .filter((inspection: any) => String(inspection.status || '').toUpperCase() === 'PASSED')
+      .map((inspection: any) => inspection.inventory_item_id)
+      .filter(Boolean)
+  );
 
   // Handle part types error gracefully
   if (partTypesError) {
@@ -280,9 +288,15 @@ export function UsedPartsPage() {
   };
 
   // Filter used parts only
-  const usedParts = inventoryItems.filter((item: any) =>
-    String(item.condition || '').toUpperCase() === 'USED' &&
-    String(item.status || '').toUpperCase() === 'AVAILABLE'
+  const usedParts = inventoryItems.filter((item: any) => {
+    const condition = String(item.condition || '').trim().toUpperCase();
+    const status = String(item.status || '').trim().toUpperCase();
+    return condition === 'USED' &&
+      status === 'AVAILABLE';
+  });
+  // Financial totals cover only sellable stock; rejected/damaged parts never contribute.
+  const sellableUsedParts = usedParts.filter(
+    (item: any) => String(item.status || '').trim().toUpperCase() !== 'DAMAGED'
   );
 
   // Filter by search and part type
@@ -301,12 +315,12 @@ export function UsedPartsPage() {
     maximumFractionDigits: 0,
   }).format(value)}`;
 
-  const totalPurchaseValue = usedParts.reduce((sum: number, item: any) => {
+  const totalPurchaseValue = sellableUsedParts.reduce((sum: number, item: any) => {
     const cost = Number(item.purchase_cost ?? item.unit_cost ?? item.cost_price ?? item.cost ?? 0);
     return sum + cost;
   }, 0);
 
-  const totalSellingValue = usedParts.reduce((sum: number, item: any) => {
+  const totalSellingValue = sellableUsedParts.reduce((sum: number, item: any) => {
     const price = Number(item.selling_price ?? item.price ?? item.sale_price ?? 0);
     return sum + price;
   }, 0);
@@ -327,7 +341,7 @@ export function UsedPartsPage() {
       <PageHeader
         eyebrow="Used Parts Inventory"
         title="القطع المستعملة"
-        description="إدارة القطع المستعملة ومواصفاتها"
+        description="إدارة القطع المستعملة ومتابعة الفحص والبيع"
         actions={
           <div className="flex flex-col gap-2">
             <Button variant="primary" onClick={() => setIsAcquisitionModalOpen(true)}>
@@ -340,6 +354,22 @@ export function UsedPartsPage() {
             >
               <Layers className="w-4 h-4" />
               مخزون القطع المستعملة
+            </Button>
+            <Button variant="secondary" onClick={() => navigate('/app/usedparts/inspections')}>
+              <CheckCircle className="w-4 h-4" />
+              فحص القطع
+            </Button>
+            <Button variant="secondary" onClick={() => navigate('/app/usedparts/item-history')}>
+              <Clock className="w-4 h-4" />
+              تاريخ القطع
+            </Button>
+            <Button variant="secondary" onClick={() => navigate('/app/usedparts/aging')}>
+              <AlertTriangle className="w-4 h-4" />
+              تقادم القطع
+            </Button>
+            <Button variant="secondary" onClick={() => navigate('/app/usedparts/rejected')}>
+              <XCircle className="w-4 h-4" />
+              القطع المرفوضة
             </Button>
           </div>
         }
@@ -490,8 +520,8 @@ export function UsedPartsPage() {
             </div>
             
             <form onSubmit={handleBarcodeScan} className="mt-3">
-              <div className="pf-search-row flex gap-2 items-stretch">
-                <div className="min-w-0 flex-1 relative flex items-center">
+              <div className="pf-barcode-row flex gap-2 items-stretch w-full">
+                <div className="pf-barcode-input min-w-0 flex-1 relative flex items-center">
                   <div className="w-full">
                     <Input
                       id="barcode-input"
@@ -502,7 +532,7 @@ export function UsedPartsPage() {
                     />
                   </div>
                 </div>
-                <Button type="submit" size="sm" className="shrink-0 px-4">
+                <Button type="submit" size="sm" className="shrink-0 whitespace-nowrap px-4">
                   إضافة
                 </Button>
               </div>
@@ -515,7 +545,7 @@ export function UsedPartsPage() {
       <Card className="mb-4 border border-[var(--border-default)] bg-[var(--card-bg)] shadow-sm">
         <CardContent className="p-4">
           <div className="pf-search-row flex flex-col md:flex-row gap-3 items-stretch">
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 w-full max-w-xl">
               <SearchInput
                 placeholder="بحث عن قطعة..."
                 value={searchQuery}
@@ -593,7 +623,9 @@ export function UsedPartsPage() {
                         {getIconComponent(partType.icon)}
                       </div>
                     )}
-                    <Badge variant="success">متاح</Badge>
+                    <Badge variant={passedInspectionItemIds.has(item.id) ? 'success' : 'warning'}>
+                      {passedInspectionItemIds.has(item.id) ? 'اجتاز الفحص' : 'بانتظار الفحص'}
+                    </Badge>
                   </div>
                   
                   <h3 className="font-semibold mb-1">
@@ -639,7 +671,7 @@ export function UsedPartsPage() {
                       variant="secondary"
                       size="sm"
                       className="flex-1"
-                      onClick={() => navigate(`/app/item-history/${item.id}`)}
+                      onClick={() => navigate(`/app/usedparts/item-history/${item.id}`)}
                     >
                       <Clock className="w-3 h-3 mr-1" />
                       السجل

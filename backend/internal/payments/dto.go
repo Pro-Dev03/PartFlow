@@ -59,10 +59,10 @@ type PaymentResponse struct {
 
 // PaymentSummary represents payment summary statistics
 type PaymentSummary struct {
-	TotalPayments      float64 `json:"total_payments"`
-	CompletedPayments  float64 `json:"completed_payments"`
-	PendingPayments    float64 `json:"pending_payments"`
-	CancelledPayments  float64 `json:"cancelled_payments"`
-	FailedPayments     float64 `json:"failed_payments"`
-	TotalCount         int     `json:"total_count"`
+	TotalPayments      float64 `json:"total_payments" db:"total_payments"`
+	CompletedPayments  float64 `json:"completed_payments" db:"completed_payments"`
+	PendingPayments    float64 `json:"pending_payments" db:"pending_payments"`
+	CancelledPayments  float64 `json:"cancelled_payments" db:"cancelled_payments"`
+	FailedPayments     float64 `json:"failed_payments" db:"failed_payments"`
+	TotalCount         int     `json:"total_count" db:"total_count"`
 }

@@ -20,6 +20,9 @@ type Supplier struct {
 	PaymentTerms   *string    `json:"payment_terms,omitempty" db:"payment_terms"`
 	CreditLimit    float64    `json:"credit_limit" db:"credit_limit"`
 	CurrentBalance float64    `json:"current_balance" db:"current_balance"`
+	TotalPurchases float64    `json:"totalPurchases" db:"total_purchases"`
+	PaidAmount     float64    `json:"paidAmount" db:"paid_amount"`
+	Outstanding    float64    `json:"outstanding" db:"outstanding"`
 	Notes          *string    `json:"notes,omitempty" db:"notes"`
 	IsActive       bool       `json:"is_active" db:"is_active"`
 	CreatedAt      time.Time  `json:"created_at" db:"created_at"`

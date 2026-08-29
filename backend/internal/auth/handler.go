@@ -11,7 +11,7 @@ import (
 
 type Handler struct {
 	service *Service
-	db       *sqlx.DB
+	db      *sqlx.DB
 }
 
 func NewHandler(service *Service, db *sqlx.DB) *Handler {
@@ -105,7 +105,26 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	response := gin.H{
+		"data": gin.H{
+			"token":         resp.AccessToken,
+			"access_token":  resp.AccessToken,
+			"refresh_token": resp.RefreshToken,
+			"expires_in":    resp.ExpiresIn,
+			"user": gin.H{
+				"id":                      resp.User.ID.String(),
+				"email":                   resp.User.Email,
+				"first_name":              resp.User.FirstName,
+				"last_name":               resp.User.LastName,
+				"phone":                   resp.User.Phone,
+				"is_active":               resp.User.IsActive,
+				"subscription_status":     resp.User.SubscriptionStatus,
+				"subscription_expires_at": resp.User.SubscriptionExpiresAt,
+			},
+		},
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // Logout handles user logout

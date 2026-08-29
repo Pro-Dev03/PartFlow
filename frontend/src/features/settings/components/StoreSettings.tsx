@@ -35,7 +35,7 @@ export function StoreSettings() {
         <div className="flex items-center justify-between p-4 border border-border rounded-lg">
           <div>
             <h4 className="font-medium text-text-primary">السماح بالديون</h4>
-            <p className="text-small text-text-secondary">السماح للعملاء بالشراء على الحساب</p>
+            <p className="text-small text-text-secondary">السماح للعملاء بالشراء بالدين</p>
           </div>
           <Button
             variant={storeSettings.allowDebt ? 'primary' : 'secondary'}

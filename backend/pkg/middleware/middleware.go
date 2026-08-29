@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -51,9 +52,16 @@ func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip authentication if disabled (development mode)
 		if disableAuth {
-			// Set a default user ID for development
-			c.Set("user_id", uuid.New())
-			c.Set("user_id_string", "00000000-0000-0000-0000-000000000000")
+			// Use a real user when available so endpoints with non-null user
+			// references (inspections and seller payments) remain usable.
+			// Fall back to the zero UUID for installations without users yet.
+			userID := uuid.Nil
+			if db != nil {
+				_ = db.QueryRowContext(c.Request.Context(),
+					"SELECT id FROM users ORDER BY created_at LIMIT 1").Scan(&userID)
+			}
+			c.Set("user_id", userID)
+			c.Set("user_id_string", userID.String())
 			c.Next()
 			return
 		}
@@ -105,6 +113,25 @@ func Auth() gin.HandlerFunc {
 				"SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", userUUID).Scan(&userExists)
 			if err != nil || !userExists {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+				c.Abort()
+				return
+			}
+
+			var subscriptionStatus string
+			var subscriptionExpiresAt *time.Time
+			err = db.QueryRowContext(c.Request.Context(),
+				"SELECT subscription_status, subscription_expires_at FROM users WHERE id = $1", userUUID).
+				Scan(&subscriptionStatus, &subscriptionExpiresAt)
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Unable to verify subscription status"})
+				c.Abort()
+				return
+			}
+
+			if subscriptionStatus == "canceled" || subscriptionStatus == "cancelled" || subscriptionStatus == "expired" || (subscriptionExpiresAt != nil && time.Now().After(*subscriptionExpiresAt)) {
+				c.JSON(http.StatusForbidden, gin.H{
+					"error": "انتهت مدة اشتراكك. يرجى التواصل مع المطور لتجديد الاشتراك.",
+				})
 				c.Abort()
 				return
 			}
@@ -164,4 +191,3 @@ func RateLimiter() gin.HandlerFunc {
 func SetJWTSecret(secret string) {
 	jwtSecret = []byte(secret)
 }
-

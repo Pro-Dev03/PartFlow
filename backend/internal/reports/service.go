@@ -136,31 +136,10 @@ func (s *Service) DeleteReport(ctx context.Context, id uuid.UUID) error {
 
 // GenerateSalesReport generates a sales report
 func (s *Service) GenerateSalesReport(ctx context.Context, userID uuid.UUID, startDate, endDate time.Time) (*SalesReport, error) {
-	req := &ReportRequest{
-		Type:        "sales",
-		Title:       "Sales Report",
-		Description: fmt.Sprintf("Sales report from %s to %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")),
-		Parameters: map[string]interface{}{
-			"start_date": startDate.Format(time.RFC3339),
-			"end_date":   endDate.Format(time.RFC3339),
-		},
-	}
-
-	report, err := s.GenerateReport(ctx, userID, req)
+	salesReport, err := s.repo.GetSalesData(ctx, startDate, endDate)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate sales report: %w", err)
 	}
-
-	data, err := report.ParseData()
-	if err != nil {
-		return nil, err
-	}
-
-	salesReport, ok := data.(*SalesReport)
-	if !ok {
-		return nil, ErrReportGenerationFailed
-	}
-
 	return salesReport, nil
 }
 

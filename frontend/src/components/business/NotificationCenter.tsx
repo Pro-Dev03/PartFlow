@@ -90,8 +90,12 @@ export function NotificationCenter() {
     refetchInterval: 30000,
   });
 
-  const notifications = (notificationsData as unknown) as any[];
-  const unreadCount = (unreadCountData as unknown) as number;
+  const notifications = Array.isArray((notificationsData as { data?: unknown } | undefined)?.data)
+    ? ((notificationsData as { data: any[] }).data)
+    : [];
+  const unreadCount = Number(
+    (unreadCountData as { unread_count?: number } | undefined)?.unread_count ?? 0
+  );
 
   // Play sound and show browser notifications when new notifications arrive
   useEffect(() => {

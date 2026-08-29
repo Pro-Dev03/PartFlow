@@ -4,13 +4,15 @@ import { Select } from '../../../components/ui/select';
 import { Product } from '../types/inventory.types';
 import { Package, Plus, Sparkles, Tag, DollarSign } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { categoriesApi } from '../../../services/api/endpoints';
+import { categoriesApi, settingsApi } from '../../../services/api/endpoints';
+import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
 
 interface InventoryModalsProps {
   isViewModalOpen: boolean;
   setIsViewModalOpen: (open: boolean) => void;
   isEditModalOpen: boolean;
   setIsEditModalOpen: (open: boolean) => void;
+  isCreatingProduct: boolean;
   selectedProduct: Product | null;
   setSelectedProduct: (product: Product | null) => void;
   onSaveProduct: (productData: Product) => void;
@@ -21,6 +23,7 @@ export function InventoryModals({
   setIsViewModalOpen,
   isEditModalOpen,
   setIsEditModalOpen,
+  isCreatingProduct,
   selectedProduct,
   setSelectedProduct,
   onSaveProduct,
@@ -29,8 +32,17 @@ export function InventoryModals({
     queryKey: ['categories'],
     queryFn: () => categoriesApi.list(),
   });
+  const { data: marginSetting } = useQuery({
+    queryKey: ['settings', 'default_profit_margin'],
+    queryFn: () => settingsApi.getSetting('default_profit_margin'),
+    retry: false,
+  });
 
   const categories = (categoriesData?.data as unknown) as any[] || [];
+  const configuredMargin = Number(marginSetting?.data?.value);
+  const profitMargin = Number.isFinite(configuredMargin) && configuredMargin >= 0 && configuredMargin < 100
+    ? configuredMargin
+    : DEFAULT_PROFIT_MARGIN;
   return (
     <>
       {/* View Product Modal */}
@@ -121,7 +133,7 @@ export function InventoryModals({
           setIsEditModalOpen(false);
           setSelectedProduct(null);
         }}
-        title={selectedProduct ? "تعديل المنتج" : "إضافة منتج جديد"}
+        title={isCreatingProduct ? "إضافة منتج جديد" : "تعديل المنتج"}
         variant="modern"
         size="lg"
         autoFocus={true}
@@ -135,7 +147,7 @@ export function InventoryModals({
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 0 40px rgba(99, 102, 241, 0.1)'
         }}
       >
-        {selectedProduct ? (
+        {selectedProduct && !isCreatingProduct ? (
           <div className="space-y-md">
             {/* Basic Information Section */}
             <div style={{ 
@@ -182,6 +194,36 @@ export function InventoryModals({
                 gap: '16px' 
               }}>
                 <div>
+                 <label style={{ 
+                   fontSize: '12px', 
+                   fontWeight: '600', 
+                   color: 'var(--text-secondary)',
+                   marginBottom: '8px',
+                   display: 'block',
+                   letterSpacing: '0.2px'
+                 }}>
+                   سعر التكلفة (₪)
+                   <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
+                 </label>
+                 <Input
+                   type="number"
+                   value={selectedProduct?.costPrice || ''}
+                   onChange={(e) => {
+                     const costPrice = Number(e.target.value);
+                     setSelectedProduct((prev) => prev ? {
+                       ...prev,
+                       costPrice,
+                       sellingPrice: prev.sellingPrice > 0
+                         ? prev.sellingPrice
+                         : calculateSuggestedSellingPrice(costPrice, profitMargin),
+                     } : prev);
+                   }}
+                   placeholder="0.00"
+                   min="0"
+                   step="0.01"
+                 />
+               </div>
+               <div>
                   <label style={{ 
                     fontSize: '12px', 
                     fontWeight: '600', 
@@ -350,7 +392,16 @@ export function InventoryModals({
                   <Input 
                     type="number"
                     value={selectedProduct.costPrice || ''}
-                    onChange={(e) => setSelectedProduct({ ...selectedProduct, costPrice: Number(e.target.value) })}
+                    onChange={(e) => {
+                      const costPrice = Number(e.target.value);
+                      setSelectedProduct({
+                        ...selectedProduct,
+                        costPrice,
+                        sellingPrice: selectedProduct.sellingPrice > 0
+                          ? selectedProduct.sellingPrice
+                          : calculateSuggestedSellingPrice(costPrice, profitMargin),
+                      });
+                    }}
                     placeholder="0.00"
                     min="0"
                     step="0.01"
@@ -375,7 +426,7 @@ export function InventoryModals({
                   </label>
                   <Input 
                     type="number"
-                    value={selectedProduct.sellingPrice}
+                    value={selectedProduct.sellingPrice || ''}
                     onChange={(e) => setSelectedProduct({ ...selectedProduct, sellingPrice: Number(e.target.value) })}
                     placeholder="0.00"
                     min="0"
@@ -396,7 +447,7 @@ export function InventoryModals({
                     display: 'block',
                     letterSpacing: '0.2px'
                   }}>
-                    الكمية المتاحة
+                    الكمية بدون فاتورة
                     <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
                   </label>
                   <Input 
@@ -564,12 +615,42 @@ export function InventoryModals({
                   </label>
                   <Input 
                     placeholder="أدخل اسم المنتج"
-                    onChange={(e) => setSelectedProduct({ name: e.target.value } as Product)}
+                    onChange={(e) => setSelectedProduct((prev) => prev ? { ...prev, name: e.target.value } : prev)}
                     style={{
                       fontSize: '14px',
                       fontWeight: '500',
                       borderRadius: '10px'
                     }}
+                  />
+                </div>
+                <div>
+                  <label style={{ 
+                    fontSize: '12px', 
+                    fontWeight: '600', 
+                    color: 'var(--text-secondary)',
+                    marginBottom: '8px',
+                    display: 'block',
+                    letterSpacing: '0.2px'
+                  }}>
+                    سعر التكلفة (₪)
+                    <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
+                  </label>
+                  <Input
+                    type="number"
+                    value={selectedProduct?.costPrice || ''}
+                    onChange={(e) => {
+                      const costPrice = Number(e.target.value);
+                      setSelectedProduct((prev) => prev ? {
+                        ...prev,
+                        costPrice,
+                        sellingPrice: prev.sellingPrice > 0
+                          ? prev.sellingPrice
+                          : calculateSuggestedSellingPrice(costPrice, profitMargin),
+                      } : prev);
+                    }}
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
                   />
                 </div>
                 <div>
@@ -715,8 +796,9 @@ export function InventoryModals({
                     سعر البيع (₪)
                     <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
                   </label>
-                  <Input 
+                  <Input
                     type="number"
+                  value={selectedProduct?.sellingPrice || ''}
                     placeholder="0.00"
                     min="0"
                     step="0.01"
@@ -737,7 +819,7 @@ export function InventoryModals({
                     display: 'block',
                     letterSpacing: '0.2px'
                   }}>
-                    الكمية المتاحة
+                    الكمية بدون فاتورة
                     <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
                   </label>
                   <Input 

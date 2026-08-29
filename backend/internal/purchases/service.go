@@ -286,7 +286,10 @@ func (s *Service) DeletePurchase(ctx context.Context, id uuid.UUID) error {
 	// Status-based deletion logic
 	switch purchase.Status {
 	case StatusDraft, StatusPending:
-		// Allow full deletion for draft and pending purchases
+		if purchase.PaidAmount > 0 {
+			return ErrCannotDeletePaidPurchase
+		}
+		// Allow full deletion only before any payment or receipt
 		return s.deleteDraftPurchase(ctx, id)
 	case StatusReceived, StatusPartiallyReceived:
 		// Received purchases cannot be deleted directly - must be reversed
@@ -363,6 +366,10 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 
 	if purchase.Status == "received" {
 		return nil, ErrPurchaseAlreadyReceived
+	}
+
+	if purchase.PaidAmount <= 0 {
+		return nil, ErrPurchasePaymentRequired
 	}
 
 	// Get purchase items
@@ -669,7 +676,7 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 
 	// Create payment record
 	paymentQuery := `
-		INSERT INTO payments (id, purchase_id, supplier_id, amount, payment_method, payment_status, user_id, created_at, updated_at)
+		INSERT INTO payments (id, purchase_id, supplier_id, amount, payment_method, payment_status, created_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 	_, err = tx.ExecContext(ctx, paymentQuery,
@@ -683,7 +690,7 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 	// Get current balance
 	var currentBalance float64
 	balanceQuery := `
-		SELECT COALESCE(SUM(amount), 0)
+		SELECT COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0)
 		FROM supplier_ledger
 		WHERE supplier_id = $1
 	`
@@ -696,12 +703,12 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 	newBalance := currentBalance - amount
 
 	ledgerQuery := `
-		INSERT INTO supplier_ledger (id, supplier_id, transaction_type, amount, balance, reference_type, reference_id, description, user_id, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO supplier_ledger (id, supplier_id, type, amount, balance, description, reference_id, created_at)
+		VALUES ($1, $2, 'credit', $3, $4, $5, $6, $7)
 	`
 	_, err = tx.ExecContext(ctx, ledgerQuery,
-		uuid.New(), purchase.SupplierID, "PAYMENT",
-		-amount, newBalance, "payment", purchase.ID, "Payment for purchase "+purchase.InvoiceNumber, userID, time.Now())
+		uuid.New(), purchase.SupplierID, amount, newBalance,
+		"Payment for purchase "+purchase.InvoiceNumber, purchase.ID, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("failed to update supplier ledger: %w", err)
 	}

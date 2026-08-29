@@ -26,7 +26,6 @@ func (h *Handler) CreateSupplier(c *gin.Context) {
 		return
 	}
 
-
 	supplier, err := h.service.CreateSupplier(c.Request.Context(), &req)
 	if err != nil {
 		if err == ErrSupplierCodeExists {
@@ -48,7 +47,6 @@ func (h *Handler) GetSupplier(c *gin.Context) {
 		return
 	}
 
-
 	supplier, err := h.service.GetSupplier(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrSupplierNotFound {
@@ -69,7 +67,6 @@ func (h *Handler) ListSuppliers(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid query parameters", err.Error())
 		return
 	}
-
 
 	suppliers, total, err := h.service.ListSuppliers(c.Request.Context(), req.Page, req.PerPage, req.Search, req.IsActive)
 	if err != nil {
@@ -93,7 +90,6 @@ func (h *Handler) UpdateSupplier(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
-
 
 	supplier, err := h.service.UpdateSupplier(c.Request.Context(), id, &req)
 	if err != nil {
@@ -120,7 +116,6 @@ func (h *Handler) DeleteSupplier(c *gin.Context) {
 		return
 	}
 
-
 	err = h.service.DeleteSupplier(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrSupplierNotFound {
@@ -131,7 +126,7 @@ func (h *Handler) DeleteSupplier(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, http.StatusOK, nil, "Supplier deleted successfully")
+	response.Success(c, http.StatusOK, nil, "Supplier deactivated successfully")
 }
 
 // GetSupplierLedger handles supplier ledger retrieval
@@ -141,7 +136,6 @@ func (h *Handler) GetSupplierLedger(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid supplier ID", err.Error())
 		return
 	}
-
 
 	ledger, err := h.service.GetSupplierLedger(c.Request.Context(), id)
 	if err != nil {
@@ -170,7 +164,6 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		return
 	}
 
-
 	payment, err := h.service.AddPayment(c.Request.Context(), id, &req)
 	if err != nil {
 		if err == ErrSupplierNotFound {
@@ -195,7 +188,6 @@ func (h *Handler) GetSupplierDebtSummary(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid supplier ID", err.Error())
 		return
 	}
-
 
 	summary, err := h.service.GetSupplierDebtSummary(c.Request.Context(), id)
 	if err != nil {
@@ -223,7 +215,6 @@ func (h *Handler) UpdateCreditLimit(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid request body", err.Error())
 		return
 	}
-
 
 	err = h.service.UpdateCreditLimit(c.Request.Context(), id, req.NewLimit)
 	if err != nil {
@@ -268,7 +259,6 @@ func (h *Handler) CreateDebtEntry(c *gin.Context) {
 		return
 	}
 
-
 	err = h.service.CreateDebtEntry(c.Request.Context(), id, req.Amount, req.ReferenceID, req.ReferenceType, req.DueDate)
 	if err != nil {
 		if err == ErrSupplierNotFound {
@@ -293,7 +283,6 @@ func (h *Handler) GetDebtEntries(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid supplier ID", err.Error())
 		return
 	}
-
 
 	debts, err := h.service.GetDebtEntries(c.Request.Context(), id)
 	if err != nil {
@@ -322,7 +311,6 @@ func (h *Handler) CreateDebtCollection(c *gin.Context) {
 		return
 	}
 
-
 	err = h.service.CreateDebtCollection(c.Request.Context(), id, req.Type, req.ScheduledDate, req.Notes)
 	if err != nil {
 		if err == ErrSupplierNotFound {
@@ -343,7 +331,6 @@ func (h *Handler) GetDebtCollections(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid supplier ID", err.Error())
 		return
 	}
-
 
 	collections, err := h.service.GetDebtCollections(c.Request.Context(), id)
 	if err != nil {
@@ -384,7 +371,6 @@ func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 		return
 	}
 
-
 	err = h.service.ProcessDebtPayment(c.Request.Context(), id, req.Amount, req.Method)
 	if err != nil {
 		if err == ErrSupplierNotFound {
@@ -416,7 +402,6 @@ func (h *Handler) GetSupplierInventory(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid supplier ID", err.Error())
 		return
 	}
-
 
 	inventory, err := h.service.GetSupplierInventory(c.Request.Context(), id)
 	if err != nil {

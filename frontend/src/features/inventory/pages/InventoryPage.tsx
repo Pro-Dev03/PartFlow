@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { cn } from '../../../utils';
@@ -25,6 +26,7 @@ import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 // Types
 import { ViewMode, ItemInputMethodType, Product } from '../types/inventory.types';
 import { inventoryApi } from '../../../services/api/endpoints';
+import { toast } from 'sonner';
 
 interface InventoryMovementResponse {
   id: string;
@@ -40,6 +42,7 @@ interface InventoryMovementResponse {
 }
 
 export function InventoryPage() {
+  const queryClient = useQueryClient();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -48,6 +51,7 @@ export function InventoryPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isCreatingProduct, setIsCreatingProduct] = useState(false);
   const [inputMethod, setInputMethod] = useState<ItemInputMethodType>('barcode');
   const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -87,6 +91,11 @@ export function InventoryPage() {
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state, navigate, location.pathname]);
+
+  useEffect(() => {
+    const search = new URLSearchParams(location.search).get('search') || '';
+    setSearchQuery(search);
+  }, [location.search, setSearchQuery]);
 
   const handleClearSearch = () => {
     setSearchQuery('');
@@ -151,6 +160,7 @@ export function InventoryPage() {
       barcode: product.barcode,
     };
     setSelectedProduct(mappedProduct);
+    setIsCreatingProduct(false);
     setIsEditModalOpen(true);
   };
 
@@ -172,7 +182,7 @@ export function InventoryPage() {
       // Update existing product - map to API field names
       const apiData = {
         name: productData.name,
-        sku: productData.sku,
+        sku: productData.sku || `SKU-${Date.now()}`,
         selling_price: productData.sellingPrice,
         cost_price: productData.costPrice,
         stock: productData.stock,
@@ -183,11 +193,12 @@ export function InventoryPage() {
       updateProductMutation.mutate({ id: selectedProduct.id, data: apiData });
       setIsEditModalOpen(false);
       setSelectedProduct(null);
+      setIsCreatingProduct(false);
     } else {
       // Add new product - map to API field names
       const apiData = {
         name: productData.name,
-        sku: productData.sku,
+        sku: productData.sku || `SKU-${Date.now()}`,
         selling_price: productData.sellingPrice,
         cost_price: productData.costPrice,
         stock: productData.stock,
@@ -195,9 +206,36 @@ export function InventoryPage() {
         category_id: productData.category_id,
         barcode: productData.barcode,
       };
-      createProductMutation.mutate(apiData);
+      createProductMutation.mutate(apiData, {
+        onSuccess: async (response: any) => {
+          const product = response?.data?.product ?? response?.data;
+          const quantity = Math.max(0, Math.floor(Number(productData.stock) || 0));
+          if (!product?.id || quantity === 0) {
+            return;
+          }
+
+          const inventoryItem = {
+            product_id: product.id,
+            condition: productData.condition === 'used' ? 'USED' : 'NEW',
+            purchase_cost: Number(productData.costPrice) || 0,
+            selling_price: Number(productData.sellingPrice) || 0,
+            status: 'AVAILABLE' as const,
+            notes: 'إضافة منتج بدون فاتورة',
+          };
+          try {
+            await Promise.all(Array.from({ length: quantity }, () => inventoryApi.create(inventoryItem)));
+            await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+            await queryClient.invalidateQueries({ queryKey: ['products'] });
+            toast.success('تمت إضافة المنتج والكمية بدون فاتورة');
+          } catch (error) {
+            console.error('Failed to create no-invoice inventory quantity:', error);
+            toast.error('تم إنشاء المنتج لكن تعذرت إضافة الكمية للمخزون');
+          }
+        },
+      });
       setIsEditModalOpen(false);
       setSelectedProduct(null);
+      setIsCreatingProduct(false);
     }
   };
 
@@ -208,11 +246,21 @@ export function InventoryPage() {
       
       if (product) {
         setSelectedProduct(product);
+        setIsCreatingProduct(false);
         setIsEditModalOpen(true);
         setBarcodeInput('');
       } else {
         // Product not found, open modal for new product
-        setSelectedProduct(null);
+        setSelectedProduct({
+          id: '',
+          name: '',
+          sku: '',
+          sellingPrice: 0,
+          costPrice: 0,
+          stock: 0,
+          condition: 'new',
+        });
+        setIsCreatingProduct(true);
         setIsEditModalOpen(true);
         setBarcodeInput('');
       }
@@ -227,7 +275,16 @@ export function InventoryPage() {
   };
 
   const handleManualAdd = () => {
-    setSelectedProduct(null);
+    setSelectedProduct({
+      id: '',
+      name: '',
+      sku: '',
+      sellingPrice: 0,
+      costPrice: 0,
+      stock: 0,
+      condition: 'new',
+    });
+    setIsCreatingProduct(true);
     setIsEditModalOpen(true);
   };
 
@@ -333,6 +390,7 @@ export function InventoryPage() {
 
       {/* Inventory Stats */}
       <InventoryStats 
+        products={filteredProducts}
         inventoryItems={inventoryItems}
         onRecommendationClick={handleRecommendationClick}
         isMobile={isMobile}
@@ -441,6 +499,7 @@ export function InventoryPage() {
         setIsViewModalOpen={setIsViewModalOpen}
         isEditModalOpen={isEditModalOpen}
         setIsEditModalOpen={setIsEditModalOpen}
+        isCreatingProduct={isCreatingProduct}
         selectedProduct={selectedProduct}
         setSelectedProduct={setSelectedProduct}
         onSaveProduct={handleSaveProduct}

@@ -14,9 +14,13 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 	{
 		users.POST("", handler.CreateUser)
 		users.GET("", handler.ListUsers)
+		users.GET("/subscription-summary", handler.GetSubscriptionSummary)
+		users.GET("/subscriptions", handler.ListSubscriptionAccounts)
+		users.POST("/change-password", handler.ChangePassword)
 		users.GET("/:id", handler.GetUser)
 		users.PUT("/:id", handler.UpdateUser)
+		users.PUT("/:id/subscription", handler.UpdateSubscriptionStatus)
+		users.POST("/:id/subscription/renew", handler.RenewSubscriptionByDays)
 		users.DELETE("/:id", handler.DeleteUser)
-		users.POST("/change-password", handler.ChangePassword)
 	}
 }

@@ -1,5 +1,5 @@
 import { StatCard } from '../../../components/ui/stat-card';
-import { ShoppingCart, Calendar, Package, RotateCcw, Truck } from 'lucide-react';
+import { ShoppingCart, Calendar, Package, RotateCcw, Truck, CreditCard } from 'lucide-react';
 import { PurchaseStats } from '../types/purchases.types';
 
 interface PurchaseStatsProps {
@@ -8,7 +8,7 @@ interface PurchaseStatsProps {
 
 export function PurchaseStats({ stats }: PurchaseStatsProps) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-md">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-md">
       <StatCard
         title="إجمالي المشتريات"
         value={stats.totalPurchases}
@@ -34,10 +34,22 @@ export function PurchaseStats({ stats }: PurchaseStatsProps) {
         variant="destructive"
       />
       <StatCard
-        title="إجمالي التكلفة"
-        value={`₪${stats.totalCost.toLocaleString()}`}
+        title="تكلفة غير المستلمة"
+        value={`₪${stats.pendingCost.toLocaleString()}`}
         icon={Truck}
         variant="default"
+      />
+      <StatCard
+        title="تكلفة المستلمة"
+        value={`₪${stats.receivedCost.toLocaleString()}`}
+        icon={Package}
+        variant="success"
+      />
+      <StatCard
+        title="المتبقي غير المدفوع"
+        value={`₪${stats.outstandingAmount.toLocaleString()}`}
+        icon={CreditCard}
+        variant="warning"
       />
     </div>
   );

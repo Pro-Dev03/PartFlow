@@ -98,6 +98,9 @@ func (h *Handler) ListAcquisitions(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if acquisitions == nil {
+		acquisitions = []Acquisition{}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"data": acquisitions,
@@ -202,7 +205,8 @@ func (h *Handler) AddRepairCost(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Repair cost added successfully"})
 }
 
-// GetItemHistory handles GET /api/v1/inventory/:id/history
+// GetItemHistory handles GET /api/v1/acquisitions/items/:id/history.
+// The legacy /api/v1/inventory/:id/history alias is also supported.
 func (h *Handler) GetItemHistory(c *gin.Context) {
 	itemID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -227,6 +231,9 @@ func (h *Handler) GetUsedPartsAging(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if aging == nil {
+		aging = []ItemAging{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": aging})

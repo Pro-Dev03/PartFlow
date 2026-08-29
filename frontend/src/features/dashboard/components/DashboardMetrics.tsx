@@ -1,6 +1,5 @@
 import { StatCard } from '../../../components/ui/stat-card';
 import { ShoppingCart, DollarSign, AlertTriangle, Package } from 'lucide-react';
-import { DailySalesSummary, DailyInventorySummary, DailyDebtSummary, DailyProfitSummary } from '../../../types/api';
 
 interface DashboardMetricsProps {
   stats?: {
@@ -10,21 +9,18 @@ interface DashboardMetricsProps {
     activeCustomers?: number;
     lowStockCount?: number;
   };
-  // Aggregation data from ARCHITECTURE-PRINCIPLES.md
-  dailySales?: DailySalesSummary;
-  dailyInventory?: DailyInventorySummary;
-  dailyDebt?: DailyDebtSummary;
-  dailyProfit?: DailyProfitSummary;
 }
 
-export function DashboardMetrics({ stats, dailySales, dailyInventory, dailyDebt, dailyProfit }: DashboardMetricsProps) {
-  // Use aggregation data when available (ARCHITECTURE-PRINCIPLES.md)
-  const todaySales = dailySales?.total_revenue || stats?.todaySales || 0;
-  const todayProfit = dailyProfit?.net_profit || stats?.todayProfit || 0;
-  const profitMargin = dailyProfit?.profit_margin || stats?.profitMargin;
-  const outstandingDebts = dailyDebt?.total_debt || stats?.outstandingDebts || 0;
-  const activeCustomers = dailySales?.total_customers || stats?.activeCustomers || 0;
-  const lowStockCount = dailyInventory?.low_stock_count || stats?.lowStockCount || 0;
+export function DashboardMetrics({ stats }: DashboardMetricsProps) {
+  // Dashboard stats are the authoritative live source. Aggregation endpoints may
+  // contain stale snapshots while their background refresh is pending.
+  const todaySales = stats?.todaySales || 0;
+  const todayProfit = stats?.todayProfit || 0;
+  const profitMargin = stats?.profitMargin;
+  const outstandingDebts = stats?.outstandingDebts || 0;
+  const activeCustomers = stats?.activeCustomers || 0;
+  // The attention card and this metric must use the same live product count.
+  const lowStockCount = stats?.lowStockCount ?? 0;
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}

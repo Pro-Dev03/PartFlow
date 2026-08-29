@@ -2,7 +2,7 @@ import { Card, CardContent } from '../../../components/ui/card';
 import { Input } from '../../../components/ui/input';
 import { Select } from '../../../components/ui/select';
 import { Button } from '../../../components/ui/button';
-import { Search, Filter } from 'lucide-react';
+import { Search, Filter, X } from 'lucide-react';
 
 interface PurchaseFiltersProps {
   searchQuery: string;
@@ -22,15 +22,26 @@ export function PurchaseFilters({
       <CardContent className="p-lg">
         <div className="flex flex-col md:flex-row gap-md">
           <div className="flex-1 relative">
-            <Search className="absolute inset-y-0 end-3 w-4 h-4 text-cyan" />
+            <Search className={`absolute inset-y-0 ${searchQuery ? 'end-10' : 'end-3'} w-4 h-4 text-cyan`} />
             <Input
-              placeholder="بحث..."
+              placeholder="ابحث برقم الفاتورة أو المورد أو اسم القطعة..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pe-10"
+              aria-label="البحث في المشتريات"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute inset-y-0 end-3 flex items-center text-text-muted hover:text-text-primary"
+                aria-label="مسح البحث"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
-          <div className="flex gap-sm">
+          <div className="flex flex-col sm:flex-row gap-sm">
             <Select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}

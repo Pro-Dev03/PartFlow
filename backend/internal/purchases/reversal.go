@@ -11,10 +11,10 @@ import (
 )
 
 var (
-	ErrPurchaseCannotReverse    = errors.New("purchase cannot be reversed - wrong status")
-	ErrInvalidReversalReason    = errors.New("reversal reason is required")
-	ErrItemsAlreadyUsed         = errors.New("cannot reverse - some items were already used in subsequent operations")
-	ErrPartialReversalRequired  = errors.New("cannot fully reverse - partial reversal required as some items were used")
+	ErrPurchaseCannotReverse   = errors.New("purchase cannot be reversed - wrong status")
+	ErrInvalidReversalReason   = errors.New("reversal reason is required")
+	ErrItemsAlreadyUsed        = errors.New("cannot reverse - some items were already used in subsequent operations")
+	ErrPartialReversalRequired = errors.New("cannot fully reverse - partial reversal required as some items were used")
 )
 
 // ReversalService handles purchase reversals (ARCHITECTURE-PRINCIPLES.md)
@@ -177,13 +177,13 @@ func (s *ReversalService) ReversePurchase(ctx context.Context, purchaseID uuid.U
 
 	// Return the reversal record
 	reversal := &PurchaseReversal{
-		ID:              reversalID,
-		PurchaseID:      purchaseID,
-		Reason:          req.Reason,
-		ReversedBy:      userID,
-		ReversedAt:      now,
-		OriginalTotal:   purchase.TotalAmount,
-		CreatedAt:       now,
+		ID:            reversalID,
+		PurchaseID:    purchaseID,
+		Reason:        req.Reason,
+		ReversedBy:    userID,
+		ReversedAt:    now,
+		OriginalTotal: purchase.TotalAmount,
+		CreatedAt:     now,
 	}
 
 	return reversal, nil
@@ -201,13 +201,11 @@ func (s *ReversalService) GetUsedItemsInfo(ctx context.Context, purchaseID uuid.
 			COALESCE(SUM(CASE WHEN im.movement_type = 'DAMAGE' THEN im.quantity ELSE 0 END), 0) as damaged_quantity,
 			COALESCE(SUM(CASE WHEN im.movement_type = 'REPAIR' THEN im.quantity ELSE 0 END), 0) as repair_quantity
 		 FROM purchase_items pi
-		 LEFT JOIN inventory_movements im ON pi.id = im.item_id
+		 LEFT JOIN inventory_items ii ON ii.product_id = pi.product_id
+		 	AND ii.item_code LIKE 'ITM-' || LEFT(pi.purchase_id::text, 8) || '-%'
+		 LEFT JOIN inventory_movements im ON im.item_id = ii.id
+		 	AND im.movement_type IN ('SALE', 'TRANSFER', 'DAMAGE', 'REPAIR')
 		 WHERE pi.purchase_id = $1
-		 AND im.movement_type IN ('SALE', 'TRANSFER', 'DAMAGE', 'REPAIR')
-		 AND im.created_at > (
-		 	SELECT MAX(created_at) FROM inventory_movements
-		 	WHERE movement_type = 'PURCHASE' AND reference_id = $1
-		 )
 		 GROUP BY pi.id, pi.product_id, pi.quantity`,
 		purchaseID,
 	)
@@ -239,14 +237,14 @@ func (s *ReversalService) GetUsedItemsInfo(ctx context.Context, purchaseID uuid.
 
 // UsedItemInfo contains information about items that were used in subsequent operations
 type UsedItemInfo struct {
-	ItemID             uuid.UUID `json:"item_id"`
-	ProductID          uuid.UUID `json:"product_id"`
-	ProductName        string    `json:"product_name"`
-	OriginalQuantity   int       `json:"original_quantity"`
-	SoldQuantity       int       `json:"sold_quantity"`
-	TransferredQuantity int      `json:"transferred_quantity"`
-	DamagedQuantity    int       `json:"damaged_quantity"`
-	RepairQuantity     int       `json:"repair_quantity"`
+	ItemID              uuid.UUID `json:"item_id"`
+	ProductID           uuid.UUID `json:"product_id"`
+	ProductName         string    `json:"product_name"`
+	OriginalQuantity    int       `json:"original_quantity"`
+	SoldQuantity        int       `json:"sold_quantity"`
+	TransferredQuantity int       `json:"transferred_quantity"`
+	DamagedQuantity     int       `json:"damaged_quantity"`
+	RepairQuantity      int       `json:"repair_quantity"`
 }
 
 // GetReversalHistory returns the reversal history for a purchase
