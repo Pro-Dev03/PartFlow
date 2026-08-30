@@ -39,12 +39,10 @@ RUN chown -R appuser:appuser /app
 # Switch to non-root user
 USER appuser
 
-# Expose port
-EXPOSE 8080
+# Render provides PORT at runtime. The application uses SERVER_PORT, so map
+# it here while keeping a local default for Docker Compose.
+EXPOSE 10000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
-
-# Run the application
-CMD ["./main"]
+# Render performs the external health check. Avoid a fixed internal port here
+# because PORT is assigned at runtime.
+CMD ["sh", "-c", "SERVER_PORT=${PORT:-8080} exec ./main"]

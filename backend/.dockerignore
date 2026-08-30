@@ -1,0 +1,26 @@
+# Version control and local tooling
+.git
+.gitignore
+.env
+.env.*
+
+# Local databases, logs and generated binaries
+*.db
+*.db-shm
+*.db-wal
+logs/
+api
+api.exe
+main
+main.exe
+*.exe
+
+# Development probes and temporary scripts
+probe_*.go
+tmp_*.go
+verify_*.go
+
+# Documentation and editor files are not needed by the runtime image
+*.md
+.vscode/
+.idea/
