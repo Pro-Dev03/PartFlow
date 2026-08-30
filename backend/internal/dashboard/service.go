@@ -101,12 +101,9 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 	query := `
 		SELECT
 			(SELECT COUNT(*) FROM products p
-			 WHERE p.is_active = true
+			 AND p.is_active = true
 			 AND p.min_stock_level > 0
-			 AND (SELECT COUNT(*) FROM inventory_items ii
-				WHERE ii.product_id = p.id
-				AND ii.condition <> 'USED'
-				AND ii.status = 'AVAILABLE') < p.min_stock_level) as low_stock_items,
+			 AND (SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE product_id = p.id) < p.min_stock_level) as low_stock_items,
 			(SELECT COALESCE(SUM(current_balance), 0) FROM customers
 			 WHERE current_balance > 0) as overdue_debts,
 			(SELECT COUNT(*) FROM sales WHERE status = 'pending') as pending_orders,
@@ -181,17 +178,18 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 	stats.ActiveCustomers = result.TotalCustomers
 	stats.LowStockCount = result.LowStockItems
 	
-	// Calculate overdue debts count properly
+	// Calculate overdue debts count properly based on actual debt rows rather than raw customer balance.
 	var overdueDebtsCount int
 	countQuery := `
-		SELECT COUNT(DISTINCT c.id)
-		FROM customers c
-		WHERE c.current_balance > 0
-		AND c.id IN (
-			SELECT DISTINCT customer_id FROM debts
-			WHERE remaining_amount > 0
-			AND due_date < NOW()
-		)
+		SELECT COUNT(*)
+		FROM (
+			SELECT DISTINCT d.customer_id
+			FROM debts d
+			WHERE COALESCE(d.remaining_amount, 0) > 0
+			  AND d.due_date IS NOT NULL
+			  AND d.due_date < CURRENT_DATE
+			  AND d.status IN ('pending', 'partial', 'overdue')
+		) AS overdue_customers
 	`
 	err = s.db.GetContext(ctx, &overdueDebtsCount, countQuery)
 	if err != nil {
@@ -252,19 +250,18 @@ func (s *Service) GetLowStockItems(ctx context.Context) ([]LowStockItem, error) 
 		SELECT 
 			p.id,
 			p.name as product_name,
-			COALESCE((SELECT COUNT(*) FROM inventory_items ii 
-					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0) as quantity,
+			COALESCE(SUM(i.quantity), 0) as quantity,
 			p.min_stock_level,
 			p.cost_price,
 			p.selling_price,
 			p.preferred_supplier_id
 		FROM products p
+		LEFT JOIN inventory i ON p.id = i.product_id
 		WHERE p.is_active = true
 		AND p.min_stock_level > 0
-		AND COALESCE((SELECT COUNT(*) FROM inventory_items ii 
-					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0) < p.min_stock_level
-		ORDER BY (p.min_stock_level - COALESCE((SELECT COUNT(*) FROM inventory_items ii 
-					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0)) DESC
+		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
+		HAVING COALESCE(SUM(i.quantity), 0) < p.min_stock_level
+		ORDER BY (p.min_stock_level - COALESCE(SUM(i.quantity), 0)) DESC
 		LIMIT 10
 	`
 

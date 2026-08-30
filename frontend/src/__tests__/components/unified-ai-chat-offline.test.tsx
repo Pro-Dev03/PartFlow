@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { fireEvent, render, screen } from '../../test/utils'
 import UnifiedAIChat from '../../components/ui/unified-ai-chat'
+import { generateAssistantReply } from '../../lib/assistant-response'
 
 describe('UnifiedAIChat offline fallback', () => {
   it('uses local store-aware fallback responses when offline', async () => {
@@ -28,6 +29,23 @@ describe('UnifiedAIChat offline fallback', () => {
     fireEvent.click(screen.getByRole('button', { name: 'إرسال' }))
 
     expect(await screen.findByText(/أولويات اليوم واضحة/i)).toBeInTheDocument()
+  })
+
+  it('uses product names from the backend payload when low-stock alerts are loaded', () => {
+    const response = generateAssistantReply('شو عم يصير؟', {
+      lowStockCount: 2,
+      overdueDebtsCount: 0,
+      salesToday: 0,
+      salesYesterday: 0,
+      lowStockItems: [
+        { product_name: 'بطارية', quantity: 2, minQuantity: 5 },
+        { product_name: 'زيت', quantity: 1, minQuantity: 4 },
+      ],
+      overdueDebts: [],
+    })
+
+    expect(response).toContain('بطارية')
+    expect(response).toContain('زيت')
   })
 
   it('introduces itself like a human store assistant when asked who it is', async () => {

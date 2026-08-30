@@ -461,7 +461,7 @@ func printAccountStatus(db *sqlx.DB, email string) error {
 }
 
 func printBanner() {
-	fmt.Println(banner)
+	fmt.Print(banner)
 }
 
 func printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd *flag.FlagSet) {

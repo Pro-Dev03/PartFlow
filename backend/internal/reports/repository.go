@@ -355,20 +355,27 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 	report.Valuation.ByCondition = make(map[string]float64)
 
 	err := r.db.GetContext(ctx, &report.TotalItems,
-		`SELECT COUNT(*) FROM inventory_items WHERE status = 'AVAILABLE'`)
+		`SELECT COUNT(*) FROM inventory_items ii
+		 JOIN products p ON p.id = ii.product_id
+		 WHERE ii.status = 'AVAILABLE' AND p.deleted_at IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve inventory totals: %w", err)
 	}
 
 	err = r.db.GetContext(ctx, &report.TotalValue,
-		`SELECT COALESCE(SUM(purchase_cost), 0) FROM inventory_items WHERE status = 'AVAILABLE'`)
+		`SELECT COALESCE(SUM(ii.purchase_cost), 0) FROM inventory_items ii
+		 JOIN products p ON p.id = ii.product_id
+		 WHERE ii.status = 'AVAILABLE' AND p.deleted_at IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve inventory value: %w", err)
 	}
 
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT condition, COUNT(*), COALESCE(SUM(purchase_cost), 0)
-		 FROM inventory_items WHERE status = 'AVAILABLE' GROUP BY condition`)
+		`SELECT ii.condition, COUNT(*), COALESCE(SUM(ii.purchase_cost), 0)
+		 FROM inventory_items ii
+		 JOIN products p ON p.id = ii.product_id
+		 WHERE ii.status = 'AVAILABLE' AND p.deleted_at IS NULL
+		 GROUP BY ii.condition`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve inventory conditions: %w", err)
 	}
@@ -386,7 +393,9 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 	rows.Close()
 	report.Valuation.TotalCost = report.TotalValue
 	err = r.db.GetContext(ctx, &report.Valuation.TotalRetail,
-		`SELECT COALESCE(SUM(selling_price), 0) FROM inventory_items WHERE status = 'AVAILABLE'`)
+		`SELECT COALESCE(SUM(ii.selling_price), 0) FROM inventory_items ii
+		 JOIN products p ON p.id = ii.product_id
+		 WHERE ii.status = 'AVAILABLE' AND p.deleted_at IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve retail inventory value: %w", err)
 	}
@@ -398,7 +407,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		        p.min_stock_level, p.min_stock_level
 		 FROM products p
 		 LEFT JOIN inventory_items ii ON ii.product_id = p.id
-		 WHERE p.is_active = true AND p.min_stock_level > 0
+		 WHERE p.is_active = true AND p.deleted_at IS NULL AND p.min_stock_level > 0
 		 GROUP BY p.id, p.name, p.min_stock_level
 		 HAVING COALESCE(COUNT(ii.id) FILTER (WHERE ii.status = 'AVAILABLE'), 0) < p.min_stock_level
 		 ORDER BY (p.min_stock_level - COALESCE(COUNT(ii.id) FILTER (WHERE ii.status = 'AVAILABLE'), 0)) DESC`)
@@ -419,7 +428,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		 FROM inventory_items ii
 		 JOIN products p ON p.id = ii.product_id
 		 LEFT JOIN categories c ON c.id = p.category_id
-		 WHERE ii.status = 'AVAILABLE'
+		 WHERE ii.status = 'AVAILABLE' AND p.deleted_at IS NULL
 		 GROUP BY c.name ORDER BY COUNT(*) DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve inventory categories: %w", err)
@@ -448,7 +457,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		                  WHERE si.product_id = p.id AND s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
 		                    AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 1)
 		 FROM products p
-		 WHERE p.is_active = true
+		 WHERE p.is_active = true AND p.deleted_at IS NULL
 		   AND (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE') > 0
 		   AND ((SELECT COALESCE(SUM(si.quantity), 0) FROM sale_items si
 		         JOIN sales s ON s.id = si.sale_id
@@ -479,7 +488,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		 LEFT JOIN sale_items si ON si.product_id = p.id
 		 LEFT JOIN sales s ON s.id = si.sale_id
 		   AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
-		 WHERE p.is_active = true
+		 WHERE p.is_active = true AND p.deleted_at IS NULL
 		 GROUP BY p.id, p.name
 		 HAVING CURRENT_DATE - COALESCE(MAX(s.sale_date), DATE '0001-01-01') >= 30
 		 ORDER BY CURRENT_DATE - COALESCE(MAX(s.sale_date), DATE '0001-01-01') DESC`)
@@ -1078,6 +1087,30 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	}
 
 	// Get payment method breakdown for gross sales
+	report.ByCategory = make(map[string]float64)
+	rows, err = r.db.QueryContext(ctx,
+		`SELECT COALESCE(c.name, 'غير مصنف'), COALESCE(SUM(si.total_amount), 0) AS total
+		 FROM sale_items si
+		 JOIN sales s ON s.id = si.sale_id
+		 JOIN products p ON p.id = si.product_id
+		 LEFT JOIN categories c ON c.id = p.category_id
+		 WHERE s.sale_date >= $1 AND s.sale_date <= $2
+		 GROUP BY c.name
+		 ORDER BY total DESC`,
+		startDate, endDate)
+	if err == nil {
+		defer rows.Close()
+
+		for rows.Next() {
+			var category string
+			var total float64
+			if err := rows.Scan(&category, &total); err != nil {
+				continue
+			}
+			report.ByCategory[category] = total
+		}
+	}
+
 	report.ByPaymentMethod = make(map[string]float64)
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT payment_method, COALESCE(SUM(total_amount), 0) as total

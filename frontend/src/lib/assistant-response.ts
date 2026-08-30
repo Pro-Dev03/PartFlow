@@ -1,3 +1,5 @@
+/* cspell:disable */
+
 export type AssistantContext = {
   lowStockCount: number;
   overdueDebtsCount: number;
@@ -8,18 +10,30 @@ export type AssistantContext = {
   totalProducts?: number;
   lowStockItems?: Array<{
     name?: string;
+    product_name?: string;
+    productName?: string;
+    product?: { name?: string; product_name?: string };
     quantity?: number;
     minQuantity?: number;
     category?: string;
   }>;
   overdueDebts?: Array<{
     customerName?: string;
+    customer_name?: string;
     amount?: number;
+    balance?: number;
+    total?: number;
+    remaining_amount?: number;
     days?: number;
+    daysOverdue?: number;
+    overdueDays?: number;
+    overdue_days?: number;
     phone?: string;
   }>;
   topSellingProducts?: Array<{
     name?: string;
+    product_name?: string;
+    productName?: string;
     quantity?: number;
     revenue?: number;
   }>;
@@ -42,12 +56,32 @@ function pick<T>(arr: T[], index: number): T {
   return arr[index % arr.length];
 }
 
-function topItemName(items: Array<{ name?: string }>[], fallback = 'منتج') {
-  return items?.[0]?.name || items?.[0]?.product_name || fallback;
+function topItemName(
+  items: Array<{ name?: string; product_name?: string; productName?: string; product?: { name?: string } }> = [],
+  fallback = 'منتج'
+) {
+  return items[0]?.name || items[0]?.product_name || items[0]?.productName || items[0]?.product?.name || fallback;
 }
 
 function randomBetween(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function stockIssueSummary(context: AssistantContext): string {
+  if (context.lowStockCount <= 0) {
+    return '';
+  }
+
+  const names = (context.lowStockItems || [])
+    .slice(0, 3)
+    .map((item) => item.name || item.product_name || item.productName || item.product?.name || 'منتج')
+    .join(' و ');
+
+  if (context.lowStockCount === 1) {
+    return `منتج واحد على شفير النفاد: ${names}`;
+  }
+
+  return `${context.lowStockCount} عناصر تحتاج إعادة طلب، أبرزها ${names}`;
 }
 
 function mentionStock(context: AssistantContext, prefix = ''): string {
@@ -56,7 +90,7 @@ function mentionStock(context: AssistantContext, prefix = ''): string {
   }
   const names = (context.lowStockItems || [])
     .slice(0, 3)
-    .map((item) => item.name || 'منتج')
+    .map((item) => item.name || item.product_name || item.productName || item.product?.name || 'منتج')
     .join(' و ');
   const count = context.lowStockCount;
   const phrases = [
@@ -67,21 +101,42 @@ function mentionStock(context: AssistantContext, prefix = ''): string {
   return pick(phrases, randomBetween(0, 2));
 }
 
+function resolveCustomerLabel(value: unknown): string {
+  const text = String(value ?? '').trim();
+  if (!text) return 'عميل';
+  if (/^\d+$/.test(text)) return `العميل رقم ${text}`;
+  return text;
+}
+
 function mentionDebts(context: AssistantContext, prefix = ''): string {
   if (context.overdueDebtsCount <= 0) {
     return prefix ? `${prefix}الديون تمام وكل العملاء منضبطين، ماشي الحال.` : 'الديون تمام وكل العملاء منضبطين، ماشي الحال.';
   }
+
   const top = context.overdueDebts?.[0];
   const count = context.overdueDebtsCount;
-  const base = `في ${count} دين متأخر يحتاج متابعة.`;
+  const customerName = resolveCustomerLabel(top?.customerName ?? top?.customer_name ?? 'عميل');
+  const amount = Number(top?.amount ?? top?.balance ?? top?.total ?? top?.remaining_amount ?? 0);
+  const days = Number(top?.days ?? top?.daysOverdue ?? top?.overdueDays ?? top?.overdue_days ?? 0);
+
+  const base = count === 1
+    ? 'في دين واحد متأخر يحتاج متابعة.'
+    : `في ${count} ديون متأخرة تحتاج متابعة.`;
+
+  const delayText = days > 0
+    ? `، وتأخر ${days} يوم${days === 1 ? '' : 'ي'}`
+    : ', ويحتاج متابعة الآن';
+
   const details = top
-    ? ` وأبعدهم ${top.customerName}، مبلغه ${formatCurrency(top.amount)} وتأخر ${top.days ?? 0} يوم.`
+    ? ` أبعدهم ${customerName}، مبلغه ${formatCurrency(amount)}${delayText}.`
     : '';
+
   const suffixes = [
-    'هالشي يضغط على السيولة، فالاتصال بهم اليوم يخليك مرتاح.',
-    'لا ت procrastinate عليهن، خذ لك دقيقة وتصل بهم وتخلص منه.',
-    'التحصيل اليوم بيسهل عليك الأيام الجاية، فلا تتوانى.',
+    'هذا يضغط على السيولة، فالأحسن تتواصل معهم اليوم وتعيد ترتيب المتابعة.',
+    'لا تؤجلها، خذ دقيقة وتواصل معهم اليوم، وممكن تعطيهم خيار دفع مرن إن كان مناسباً.',
+    'التحصيل اليوم يخفف الضغوط ويُريحك في الأيام القادمة.',
   ];
+
   return `${base}${details} ${pick(suffixes, randomBetween(0, 2))}`;
 }
 
@@ -121,7 +176,7 @@ function mentionTopProducts(context: AssistantContext): string | undefined {
   const items = context.topSellingProducts || [];
   if (!items.length) return undefined;
   const top = items[0];
-  const name = top.name || 'منتج';
+  const name = topItemName(items, 'منتج');
   const qty = Number(top.quantity ?? 0);
   const rev = Number(top.revenue ?? 0);
   const phrases = [
@@ -154,10 +209,10 @@ function smallTalk(message: string): string | undefined {
     return pick(responses, randomBetween(0, 2));
   }
 
-  if (/مرحبا|اهلا|hello|hi|السلام|السلام\s*عليكم|هاي|مرحبة|اهلاً|هلا|صباح\s*الخير|مساء\s*الخير/.test(text)) {
+  if (/مرحبا|اهلا|hello|hi|السلام|السلام\s*عليكم|مرحبة|اهلاً|هلا|صباح\s*الخير|مساء\s*الخير/.test(text)) {
     const responses = [
       `أهلاً بك! شو بدك اليوم؟ أقدر أطلعلك على شو عم يصير في المتجر بثواني.`,
-      `هاي! شو الأخبار؟ إذا بدك نراجع المخزون أو الديون أو المبيعات، قل لي.`,
+      `وعليكم السلام! شو الأخبار؟ إذا بدك نراجع المخزون أو الديون أو المبيعات، قل لي.`, 
       `أهلاً وسهلاً! شو تبي نساعدك فيه اليوم؟`,
       `مرحباً! أنا ${assistantName}، هون عشان أسهل عليك اليوم. شو بدك نبدأ بيه؟`,
     ];
@@ -200,7 +255,7 @@ function smallTalk(message: string): string | undefined {
 export function generateAssistantReply(message: string, context: AssistantContext): string {
   const text = normalizeMessage(message);
   const isUrgent = /مستعجل|urgent|طارئ|طوارئ|حالة\s*طارئة|عاجل|حالاً|سريع|بسرعة/.test(text);
-  const isFriendly = /كيف\s*الحال|كيف\s*أنت|شخبارك|شو\s*حالك|مرحبا|اهلا|السلام|هاي|هلا/.test(text);
+  const isFriendly = /كيف\s*الحال|كيف\s*أنت|شخبارك|شو\s*حالك|مرحبا|اهلا|السلام|هلا/.test(text);
   const isFirm = /مهم|ضروري|لازم|يجب|أكيد|مطلوب|بشكل\s*صارم|بالتأكيد/.test(text);
 
   if (!text) {
@@ -240,11 +295,11 @@ export function generateAssistantReply(message: string, context: AssistantContex
     return pick(responses, randomBetween(0, 5));
   }
 
-  const hasGreeting = /^(مرحبا|اهلا|hello|hi|السلام|السلام عليكم|هاي|مرحبة|اهلاً|هلا|هاي|هلا|صباح\s*الخير|مساء\s*الخير)/.test(text);
+  const hasGreeting = /^(مرحبا|اهلا|hello|hi|السلام|السلام عليكم|مرحبة|اهلاً|هلا|هلا|صباح\s*الخير|مساء\s*الخير)/.test(text);
   if (hasGreeting) {
     const responses = [
       `أهلاً، أنا ${assistantName}. شو بدك اليوم؟ أقدر أطلعلك على شو عم يصير في المتجر وأقول لك شو اللي يحتاج انتباهك أول.`,
-      `هاي! شو الأخبار؟ إذا بدك نراجع المخزون أو الديون أو المبيعات، قل لي.`,
+      `وعليكم السلام! شو الأخبار؟ إذا بدك نراجع المخزون أو الديون أو المبيعات، قل لي.`, 
       `أهلاً وسهلاً! شو تبي نساعدك فيه اليوم؟`,
     ];
     return pick(responses, randomBetween(0, 2));
@@ -253,7 +308,10 @@ export function generateAssistantReply(message: string, context: AssistantContex
   const asksAboutCurrentStatus = /ما.*يحدث.*الآن|ماذا.*يحدث.*الآن|ما.*يحدث|حالة.*المتجر|حالة.*الآن|status|what.*happening|what.*is.*happening|شو\s*عم\s*يصير|شو\s*صار|شو\s*الوضيعة|شو\s*الخبر|الآن|وضع.*المتجر|شنو.*الوضع|شو.*في/.test(text);
   if (asksAboutCurrentStatus) {
     const issues: string[] = [];
-    if (context.lowStockCount > 0) issues.push(`${context.lowStockCount} عناصر تحتاج إعادة طلب`);
+    if (context.lowStockCount > 0) {
+      const stockSummary = stockIssueSummary(context);
+      if (stockSummary) issues.push(stockSummary);
+    }
     if (context.overdueDebtsCount > 0) issues.push(`${context.overdueDebtsCount} ديون متأخرة تحتاج متابعة`);
 
     if (issues.length === 0) {
@@ -273,7 +331,6 @@ export function generateAssistantReply(message: string, context: AssistantContex
 
     const stockLine = mentionStock(context);
     const debtLine = mentionDebts(context);
-    const topProductsLine = mentionTopProducts(context);
 
     if (isUrgent) {
       const urgentResponses = [
@@ -472,6 +529,15 @@ export function generateAssistantReply(message: string, context: AssistantContex
       'أفضل ترتيب لليوم: طلب المخزون، تحصيل الديون، ثم دعم المبيعات. مش لازم تعقد الأمور أكتر من هيك.',
     ];
     return pick(firmResponses, randomBetween(0, 2));
+  }
+
+  if (isFriendly) {
+    const friendlyResponses = [
+      `أهلاً، أنا ${assistantName}. أقدر أساعدك في متابعة المخزون، الديون، أو المبيعات. شو تبي نراجع أول؟`,
+      `مرحباً! أنا ${assistantName}. اذا بدك، نراجع اليوم شو عم يصير في المتجر ونحدد أولوياتك بسرعة.`,
+      `أنا موجود، ${assistantName}، وأقدر أعطيك خلاصة واضحة عن المتجر. شو اللي بدك نركز عليه؟`,
+    ];
+    return pick(friendlyResponses, randomBetween(0, 2));
   }
 
   const fallbackResponses = [

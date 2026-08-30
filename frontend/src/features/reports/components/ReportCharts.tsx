@@ -38,8 +38,14 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       Object.entries(source || {}).map(([label, value]) => ({ label, value: Number(value) }))
         .filter(item => Number.isFinite(item.value) && item.value > 0);
     const categoryData = objectData(report.by_category);
+    const inventoryProductData = Array.isArray(report.low_stock_items)
+      ? report.low_stock_items.map((item: any) => ({
+          label: String(item.product_name || item.name || 'منتج غير معروف'),
+          value: Math.max(1, Number(item.min_stock ?? item.current_stock ?? item.stock ?? 1)),
+        }))
+      : [];
     const attentionData = [
-      { label: 'منخفض المخزون', value: Number(report.low_stock_count || 0) },
+      { label: 'منخفض المخزون', value: Number(report.low_stock_count || (Array.isArray(report.low_stock_items) ? report.low_stock_items.length : 0)) },
       { label: 'غير مصنف', value: Number(report.by_category?.['غير مصنف'] || 0) },
     ].filter(item => Number.isFinite(item.value) && item.value > 0);
     const supplierData = Array.isArray(report.by_supplier)
@@ -57,7 +63,9 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       ? report.by_product.map((item: any) => ({ label: String(item.product_name || 'غير معروف'), value: Number(item.refund_amount || 0) }))
           .filter((item: { value: number }) => Number.isFinite(item.value) && item.value > 0)
       : [];
-    const distributionData = productData.length > 0 ? productData
+    const distributionData = reportType === 'inventory' && inventoryProductData.length > 0
+      ? inventoryProductData
+      : productData.length > 0 ? productData
       : returnedProductData.length > 0 ? returnedProductData
       : supplierData.length > 0 ? supplierData : categoryData;
     const items = dailyItems.length > 0 ? dailyItems : monthlyItems;
@@ -100,7 +108,13 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       categoryData,
       trendData: reportType === 'suppliers' ? supplierBalanceData : trendData,
       sourceData: reportType === 'suppliers' ? supplierSourceData : sourceData,
-      productData: reportType === 'products' ? attentionData : reportType === 'suppliers' ? supplierData : distributionData,
+      productData: reportType === 'products'
+        ? attentionData
+        : reportType === 'suppliers'
+          ? supplierData
+          : reportType === 'inventory'
+            ? inventoryProductData.length > 0 ? inventoryProductData : distributionData
+            : distributionData,
     };
   };
 

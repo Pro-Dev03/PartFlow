@@ -28,15 +28,17 @@ import { ReportCharts } from '../components/ReportCharts';
 // Types
 import { ReportType, DateRange } from '../types/reports.types';
 
+function getDisplayValue(item: Record<string, unknown>): unknown {
+  return item.value ?? item.amount ?? item.total_amount ?? item.revenue ?? item.net_revenue ?? item.cost ??
+    item.total_cost ?? item.refund_amount ?? item.profit ?? item.net_profit ?? item.gross_revenue ??
+    item.total_debt ?? item.outstanding ?? item.overdue_amount ?? item.paid_amount ?? item.balance ?? 0;
+}
+
 function getReportRows(payload: unknown): Record<string, unknown>[] {
   if (Array.isArray(payload)) {
     return payload.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object');
   }
 
-  function getDisplayValue(item: Record<string, unknown>): unknown {
-    return item.value ?? item.amount ?? item.revenue ?? item.net_revenue ?? item.cost ??
-      item.total_cost ?? item.refund_amount ?? item.profit ?? item.net_profit ?? 0;
-  }
   if (!payload || typeof payload !== 'object') return [];
 
   const entries = Object.entries(payload);
@@ -301,6 +303,35 @@ export function ReportsPage() {
               </table>
               </div>
             </div>
+          ) : selectedReport === 'inventory' && reportPayload && typeof reportPayload === 'object' ? (
+            <div className="horizontal-scroll">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المنتج</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المخزون الحالي</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الحد الأدنى</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الحالة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.isArray((reportPayload as Record<string, unknown>).low_stock_items) && ((reportPayload as any).low_stock_items.length > 0)
+                    ? ((reportPayload as any).low_stock_items as Record<string, unknown>[]).map((item: any, index: number) => (
+                        <tr key={String(item.product_id || index)} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(item.product_name || 'منتج غير معروف')}</td>
+                          <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>{Number(item.current_stock ?? 0)}</td>
+                          <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>{Number(item.min_stock ?? item.reorder_level ?? 0)}</td>
+                          <td style={{ padding: '12px' }}>
+                            <Badge variant="warning">منخفض</Badge>
+                          </td>
+                        </tr>
+                      ))
+                    : (
+                      <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد منتجات منخفضة المخزون في الفترة الحالية</td></tr>
+                    )}
+                </tbody>
+              </table>
+            </div>
           ) : selectedReport === 'used-items' ? (
             // تقرير القطع المستعملة - عرض خاص
             <div className="horizontal-scroll">
@@ -352,6 +383,35 @@ export function ReportsPage() {
                         لا توجد قطع مستعملة
                       </td>
                     </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : selectedReport === 'debts' && reportPayload && typeof reportPayload === 'object' ? (
+            <div className="horizontal-scroll">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الزبون</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>إجمالي الدين</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المدفوع</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المتبقي</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>متأخر</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.isArray((reportPayload as Record<string, unknown>).by_customer) && ((reportPayload as Record<string, unknown[]>).by_customer as Record<string, unknown>[]).length > 0 ? (
+                    ((reportPayload as Record<string, unknown[]>).by_customer as Record<string, unknown>[]).map((customer, index) => (
+                      <tr key={String(customer.customer_id ?? index)} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(customer.customer_name ?? 'زبون غير معروف')}</td>
+                        <td style={{ padding: '12px', color: 'var(--color-primary)', fontSize: '13px', fontWeight: '600' }}>₪{Number(customer.total_debt ?? 0).toLocaleString()}</td>
+                        <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>₪{Number(customer.paid_amount ?? 0).toLocaleString()}</td>
+                        <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>₪{Number(customer.outstanding ?? 0).toLocaleString()}</td>
+                        <td style={{ padding: '12px', color: Number(customer.overdue_amount ?? 0) > 0 ? 'var(--color-error)' : 'var(--text-secondary)', fontSize: '13px' }}>₪{Number(customer.overdue_amount ?? 0).toLocaleString()}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr><td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد ديون مسجلة في الفترة الحالية</td></tr>
                   )}
                 </tbody>
               </table>
@@ -413,13 +473,13 @@ export function ReportsPage() {
                         {item.date || new Date().toLocaleDateString('ar-SA')}
                       </td>
                       <td style={{ padding: '12px', color: 'var(--color-primary)', fontSize: '13px', fontWeight: '600' }}>
-                        ₪{(item.value || item.amount || 0).toLocaleString()}
+                        ₪{Number(getDisplayValue(item) ?? 0).toLocaleString()}
                       </td>
                       <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
-                        {item.description || item.name || '-'}
+                        {item.description || item.name || item.product_name || item.customer_name || item.category_name || item.key || '-'}
                       </td>
                       <td style={{ padding: '12px' }}>
-                        <Badge variant={item.status === 'completed' ? 'success' : 'warning'}>
+                        <Badge variant={String(item.status || 'completed').toLowerCase() === 'completed' ? 'success' : 'warning'}>
                           {item.status || 'مكتمل'}
                         </Badge>
                       </td>

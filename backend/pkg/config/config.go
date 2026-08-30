@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -18,7 +19,11 @@ type Config struct {
 	WriteTimeout      time.Duration
 
 	// Database
+	DatabaseMode      string
+	DatabaseSource    string
 	DatabaseURL       string
+	DatabaseURLLocal  string
+	DatabaseURLCloud  string
 	DatabaseMaxOpenConns int
 	DatabaseMaxIdleConns int
 	DatabaseConnMaxLifetime time.Duration
@@ -71,6 +76,11 @@ func Load() (*Config, error) {
 	// Load .env file if exists
 	godotenv.Load()
 
+	selectedURL, selectedSource, err := ResolveDatabaseURL()
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		// Server
 		ServerPort:         getEnv("SERVER_PORT", "8080"),
@@ -79,7 +89,11 @@ func Load() (*Config, error) {
 		WriteTimeout:      getDurationEnv("WRITE_TIMEOUT", 15*time.Second),
 
 		// Database
-		DatabaseURL:       getEnv("DATABASE_URL", ""),
+		DatabaseMode:      getEnv("DB_CONNECTION_MODE", getEnv("DATABASE_MODE", "default")),
+		DatabaseSource:    selectedSource,
+		DatabaseURL:       selectedURL,
+		DatabaseURLLocal:  getEnv("DATABASE_URL_LOCAL", getEnv("DB_LOCAL_URL", getEnv("LOCAL_DATABASE_URL", ""))),
+		DatabaseURLCloud:  getEnv("DATABASE_URL_CLOUD", getEnv("DB_CLOUD_URL", getEnv("CLOUD_DATABASE_URL", ""))),
 		DatabaseMaxOpenConns: getIntEnv("DB_MAX_OPEN_CONNS", 25),
 		DatabaseMaxIdleConns: getIntEnv("DB_MAX_IDLE_CONNS", 5),
 		DatabaseConnMaxLifetime: getDurationEnv("DB_CONN_MAX_LIFETIME", 5*time.Minute),
@@ -127,9 +141,14 @@ func Load() (*Config, error) {
 		DefaultCurrency:    getEnv("DEFAULT_CURRENCY", "ILS"),
 	}
 
+	// Persist the resolved active connection so the rest of the codebase and scripts continue to use it.
+	if cfg.DatabaseURL != "" {
+		_ = os.Setenv("DATABASE_URL", cfg.DatabaseURL)
+	}
+
 	// Validate required fields
 	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL is required")
+		return nil, fmt.Errorf("No database connection configured. Set DATABASE_URL or configure DATABASE_URL_LOCAL / DATABASE_URL_CLOUD together with DB_CONNECTION_MODE")
 	}
 
 	if cfg.JWTSecret == "change-this-secret-in-production" && cfg.ServerMode == "release" {
@@ -140,6 +159,71 @@ func Load() (*Config, error) {
 }
 
 // Helper functions
+
+func ResolveDatabaseURL() (string, string, error) {
+	mode := strings.TrimSpace(strings.ToLower(getEnv("DB_CONNECTION_MODE", getEnv("DATABASE_MODE", "default"))))
+	localCandidates := []string{
+		getEnv("DATABASE_URL_LOCAL", ""),
+		getEnv("DB_LOCAL_URL", ""),
+		getEnv("LOCAL_DATABASE_URL", ""),
+	}
+	cloudCandidates := []string{
+		getEnv("DATABASE_URL_CLOUD", ""),
+		getEnv("DB_CLOUD_URL", ""),
+		getEnv("CLOUD_DATABASE_URL", ""),
+	}
+	primaryURL := getEnv("DATABASE_URL", "")
+
+	choose := func(candidates ...string) string {
+		for _, candidate := range candidates {
+			if strings.TrimSpace(candidate) != "" {
+				return strings.TrimSpace(candidate)
+			}
+		}
+		return ""
+	}
+
+	switch mode {
+	case "local":
+		if url := choose(localCandidates...); url != "" {
+			return url, "local", nil
+		}
+		if primaryURL != "" {
+			return primaryURL, "database_url", nil
+		}
+		return "", "", fmt.Errorf("No local database URL configured. Set DATABASE_URL_LOCAL or DB_LOCAL_URL")
+	case "cloud":
+		if url := choose(cloudCandidates...); url != "" {
+			return url, "cloud", nil
+		}
+		if primaryURL != "" {
+			return primaryURL, "database_url", nil
+		}
+		return "", "", fmt.Errorf("No cloud database URL configured. Set DATABASE_URL_CLOUD or DB_CLOUD_URL")
+	case "auto":
+		if primaryURL != "" {
+			return primaryURL, "database_url", nil
+		}
+		if url := choose(localCandidates...); url != "" {
+			return url, "local", nil
+		}
+		if url := choose(cloudCandidates...); url != "" {
+			return url, "cloud", nil
+		}
+		return "", "", fmt.Errorf("No database connection configured. Set DATABASE_URL, or configure local/cloud alternatives")
+	default:
+		if primaryURL != "" {
+			return primaryURL, "database_url", nil
+		}
+		if url := choose(localCandidates...); url != "" {
+			return url, "local", nil
+		}
+		if url := choose(cloudCandidates...); url != "" {
+			return url, "cloud", nil
+		}
+		return "", "", fmt.Errorf("No database connection configured. Set DATABASE_URL, or configure local/cloud alternatives")
+	}
+}
 
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {

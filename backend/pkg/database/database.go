@@ -9,13 +9,19 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	"github.com/partflow/smart-store/pkg/config"
 )
 
 var DB *sqlx.DB
 
 // Initialize initializes the database connection
 func Initialize() error {
-	databaseURL := os.Getenv("DATABASE_URL")
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	databaseURL := cfg.DatabaseURL
 	if databaseURL == "" {
 		return fmt.Errorf("DATABASE_URL environment variable is not set")
 	}
@@ -25,7 +31,8 @@ func Initialize() error {
 		databaseURL += "?sslmode=require"
 	}
 
-	var err error
+	_ = os.Setenv("DATABASE_URL", databaseURL)
+
 	DB, err = sqlx.Connect("postgres", databaseURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)

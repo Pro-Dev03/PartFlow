@@ -251,6 +251,7 @@ type NetSalesReport struct {
 	NetRevenue          float64            `json:"net_revenue"`
 	ReturnRate          float64            `json:"return_rate"`
 	ByDay               []DailyNetSales    `json:"by_day"`
+	ByCategory          map[string]float64 `json:"by_category"`
 	ByPaymentMethod     map[string]float64 `json:"by_payment_method"`
 	TopReturnedProducts []ProductNetSales  `json:"top_returned_products"`
 }
