@@ -446,7 +446,7 @@ CREATE TABLE IF NOT EXISTS returns (
 CREATE TABLE IF NOT EXISTS return_items (
     id TEXT PRIMARY KEY,
     return_id TEXT NOT NULL,
-    product_id TEXT NOT NULL,
+    product_id TEXT,
     quantity INTEGER NOT NULL DEFAULT 0,
     unit_price REAL NOT NULL DEFAULT 0,
     total_refund_amount REAL NOT NULL DEFAULT 0,
@@ -601,7 +601,10 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 		`CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, description TEXT, parameters TEXT, data TEXT, status TEXT DEFAULT 'completed', generated_by TEXT, generated_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS acquisitions (id TEXT PRIMARY KEY, type TEXT NOT NULL, acquisition_date TEXT NOT NULL, supplier_id TEXT, customer_id TEXT, total_cost REAL DEFAULT 0, paid_amount REAL DEFAULT 0, payment_status TEXT DEFAULT 'payable', status TEXT DEFAULT 'draft', notes TEXT, user_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, reversed_at TEXT, reversed_by TEXT, reversal_reason TEXT)`,
 		`CREATE TABLE IF NOT EXISTS acquisition_items (id TEXT PRIMARY KEY, acquisition_id TEXT, product_id TEXT, inventory_item_id TEXT, inspection_id TEXT, item_code TEXT, serial_number TEXT, inspection_status TEXT DEFAULT 'pending', item_status TEXT DEFAULT 'inspection', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS trade_ins (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, inventory_item_id TEXT NOT NULL, purchase_price REAL NOT NULL DEFAULT 0, purchase_date TEXT NOT NULL, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		// A historical trade-in may be recorded before an inventory item is
+		// materialized. Keep the cloud schema's nullable relationship so one
+		// legacy row cannot abort the entire cloud-to-local snapshot.
+		`CREATE TABLE IF NOT EXISTS trade_ins (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, inventory_item_id TEXT, purchase_price REAL NOT NULL DEFAULT 0, purchase_date TEXT NOT NULL, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS item_specification_values (id TEXT PRIMARY KEY, inventory_item_id TEXT NOT NULL, specification_id TEXT NOT NULL, value_text TEXT, value_number REAL, value_boolean INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(inventory_item_id, specification_id))`,
 		`CREATE TABLE IF NOT EXISTS part_types (id TEXT PRIMARY KEY, name_ar TEXT NOT NULL UNIQUE, name_en TEXT NOT NULL, icon TEXT, color TEXT, is_active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS part_specifications (id TEXT PRIMARY KEY, name_ar TEXT NOT NULL UNIQUE, name_en TEXT NOT NULL, data_type TEXT NOT NULL, options TEXT DEFAULT '[]', is_required INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)`,
@@ -621,6 +624,9 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 			return fmt.Errorf("initialize compatibility schema: %w", err)
 		}
 	}
+	if err := ensureTradeInsInventoryItemNullable(db); err != nil {
+		return fmt.Errorf("migrate trade-ins schema: %w", err)
+	}
 	if _, err := db.Exec(`CREATE VIEW IF NOT EXISTS used_parts_aging AS
 		SELECT ii.id AS item_id, ai.acquisition_id, a.acquisition_date,
 		CAST(julianday('now') - julianday(a.acquisition_date) AS INTEGER) AS days_in_stock,
@@ -634,6 +640,9 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 
 	if err := migrateLegacySchema(db); err != nil {
 		return fmt.Errorf("migrate local database schema: %w", err)
+	}
+	if err := ensureReturnItemsProductNullable(db); err != nil {
+		return fmt.Errorf("migrate return-items schema: %w", err)
 	}
 
 	if _, err := db.Exec(`INSERT OR IGNORE INTO settings (id, key, value, value_type, category, description, is_public, created_at, updated_at)
@@ -661,6 +670,182 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 		return fmt.Errorf("create local returns summary: %w", err)
 	}
 
+	return nil
+}
+
+// ensureTradeInsInventoryItemNullable upgrades databases created by older
+// builds where inventory_item_id was incorrectly declared NOT NULL. SQLite
+// cannot alter a column constraint in place, so rebuild this standalone table
+// while preserving all existing rows.
+func ensureTradeInsInventoryItemNullable(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info('trade_ins')`)
+	if err != nil {
+		return fmt.Errorf("inspect trade_ins schema: %w", err)
+	}
+	defer rows.Close()
+
+	needsMigration := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return fmt.Errorf("read trade_ins schema: %w", err)
+		}
+		if name == "inventory_item_id" && notNull == 1 {
+			needsMigration = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read trade_ins schema: %w", err)
+	}
+	if !needsMigration {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin trade_ins migration: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err := tx.Exec(`ALTER TABLE trade_ins RENAME TO trade_ins_legacy`); err != nil {
+		return fmt.Errorf("rename legacy trade_ins: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE TABLE trade_ins (
+		id TEXT PRIMARY KEY,
+		customer_id TEXT NOT NULL,
+		inventory_item_id TEXT,
+		purchase_price REAL NOT NULL DEFAULT 0,
+		purchase_date TEXT NOT NULL,
+		notes TEXT,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`); err != nil {
+		return fmt.Errorf("create migrated trade_ins: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO trade_ins (id, customer_id, inventory_item_id, purchase_price, purchase_date, notes, created_at, updated_at)
+		SELECT id, customer_id, inventory_item_id, purchase_price, purchase_date, notes, created_at, updated_at
+		FROM trade_ins_legacy`); err != nil {
+		return fmt.Errorf("copy legacy trade_ins: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE trade_ins_legacy`); err != nil {
+		return fmt.Errorf("drop legacy trade_ins: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit trade_ins migration: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+// ensureReturnItemsProductNullable upgrades databases created by older builds
+// where product_id was incorrectly declared NOT NULL. A cloud return line may
+// retain only its sale_item_id, so one legacy row must not abort a full sync.
+func ensureReturnItemsProductNullable(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info('return_items')`)
+	if err != nil {
+		return fmt.Errorf("inspect return_items schema: %w", err)
+	}
+	defer rows.Close()
+
+	needsMigration := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return fmt.Errorf("read return_items schema: %w", err)
+		}
+		if name == "product_id" && notNull == 1 {
+			needsMigration = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read return_items schema: %w", err)
+	}
+	if !needsMigration {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin return_items migration: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err := tx.Exec(`PRAGMA legacy_alter_table = ON`); err != nil {
+		return fmt.Errorf("prepare return_items migration: %w", err)
+	}
+	if _, err := tx.Exec(`ALTER TABLE return_items RENAME TO return_items_legacy`); err != nil {
+		return fmt.Errorf("rename legacy return_items: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE TABLE return_items (
+		id TEXT PRIMARY KEY,
+		return_id TEXT NOT NULL,
+		product_id TEXT,
+		quantity INTEGER NOT NULL DEFAULT 0,
+		unit_price REAL NOT NULL DEFAULT 0,
+		total_refund_amount REAL NOT NULL DEFAULT 0,
+		reason TEXT,
+		created_at TEXT NOT NULL,
+		sale_item_id TEXT,
+		inventory_item_id TEXT,
+		quantity_returned INTEGER DEFAULT 0,
+		original_quantity INTEGER,
+		serial_number TEXT,
+		barcode TEXT,
+		original_condition TEXT,
+		returned_condition TEXT,
+		condition_notes TEXT,
+		resolution TEXT,
+		inventory_status TEXT,
+		inspection_required INTEGER DEFAULT 0,
+		inspection_date TEXT,
+		inspection_result TEXT,
+		inspection_notes TEXT,
+		original_cost REAL,
+		repair_cost REAL DEFAULT 0,
+		updated_at TEXT
+	)`); err != nil {
+		return fmt.Errorf("create migrated return_items: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO return_items (
+		id, return_id, product_id, quantity, unit_price, total_refund_amount,
+		reason, created_at, sale_item_id, inventory_item_id, quantity_returned,
+		original_quantity, serial_number, barcode, original_condition,
+		returned_condition, condition_notes, resolution, inventory_status,
+		inspection_required, inspection_date, inspection_result, inspection_notes,
+		original_cost, repair_cost, updated_at
+	) SELECT id, return_id, product_id, quantity, unit_price, total_refund_amount,
+		reason, created_at, sale_item_id, inventory_item_id, quantity_returned,
+		original_quantity, serial_number, barcode, original_condition,
+		returned_condition, condition_notes, resolution, inventory_status,
+		inspection_required, inspection_date, inspection_result, inspection_notes,
+		original_cost, repair_cost, updated_at
+		FROM return_items_legacy`); err != nil {
+		return fmt.Errorf("copy legacy return_items: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE return_items_legacy`); err != nil {
+		return fmt.Errorf("drop legacy return_items: %w", err)
+	}
+	if _, err := tx.Exec(`PRAGMA legacy_alter_table = OFF`); err != nil {
+		return fmt.Errorf("finish return_items migration: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit return_items migration: %w", err)
+	}
+	committed = true
 	return nil
 }
 
@@ -834,7 +1019,7 @@ func migrateLegacySchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS expense_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT, color TEXT, icon TEXT, budget REAL DEFAULT 0, is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS expenses (id TEXT PRIMARY KEY, title TEXT NOT NULL, category_id TEXT, amount REAL NOT NULL DEFAULT 0, currency TEXT DEFAULT 'ILS', reference TEXT, notes TEXT, expense_date TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'approved', is_recurring INTEGER NOT NULL DEFAULT 0, recurring_period TEXT, approved_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS returns (id TEXT PRIMARY KEY, return_number TEXT NOT NULL UNIQUE, customer_id TEXT, sale_id TEXT, purchase_id TEXT, total_refund_amount REAL NOT NULL DEFAULT 0, refund_status TEXT NOT NULL DEFAULT 'pending', status TEXT NOT NULL DEFAULT 'pending', reason TEXT, notes TEXT, return_date TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS return_items (id TEXT PRIMARY KEY, return_id TEXT NOT NULL, product_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0, unit_price REAL NOT NULL DEFAULT 0, total_refund_amount REAL NOT NULL DEFAULT 0, reason TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS return_items (id TEXT PRIMARY KEY, return_id TEXT NOT NULL, product_id TEXT, quantity INTEGER NOT NULL DEFAULT 0, unit_price REAL NOT NULL DEFAULT 0, total_refund_amount REAL NOT NULL DEFAULT 0, reason TEXT, created_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS warranty_claims (id TEXT PRIMARY KEY, claim_number TEXT NOT NULL UNIQUE, customer_id TEXT, product_id TEXT, serial_number TEXT, issue_description TEXT, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 	}
 
@@ -886,8 +1071,10 @@ func SeedLocalSnapshot(db *sql.DB, snapshot map[string]any) error {
 		{key: "purchase_items", table: "purchase_items"},
 		{key: "payments", table: "payments"},
 		{key: "debts", table: "debts"},
-		{key: "expenses", table: "expenses"},
 		{key: "expense_categories", table: "expense_categories"},
+		// expenses.category_id references expense_categories(id), so seed the
+		// parent rows first while foreign-key enforcement is enabled.
+		{key: "expenses", table: "expenses"},
 		{key: "seller_payments", table: "seller_payments"},
 		{key: "supplier_returns", table: "supplier_returns"},
 		{key: "supplier_return_items", table: "supplier_return_items"},
@@ -1034,6 +1221,12 @@ func upsertSnapshotRows(executor snapshotExecutor, db *sql.DB, tableName string,
 		}
 		placeholders := make([]string, len(fields))
 		updates := make([]string, 0, len(fields))
+		conflictTarget := "id"
+		if tableName == "settings" {
+			// Settings are identified by their stable key. Local bootstrap
+			// settings can have a different generated id than the cloud row.
+			conflictTarget = "key"
+		}
 		for i, field := range fields {
 			placeholders[i] = "?"
 			if field == "id" {
@@ -1043,9 +1236,9 @@ func upsertSnapshotRows(executor snapshotExecutor, db *sql.DB, tableName string,
 		}
 		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", tableName, strings.Join(fields, ", "), strings.Join(placeholders, ", "))
 		if len(updates) > 0 {
-			query += " ON CONFLICT(id) DO UPDATE SET " + strings.Join(updates, ", ")
+			query += " ON CONFLICT(" + conflictTarget + ") DO UPDATE SET " + strings.Join(updates, ", ")
 		} else {
-			query += " ON CONFLICT(id) DO NOTHING"
+			query += " ON CONFLICT(" + conflictTarget + ") DO NOTHING"
 		}
 		if _, err := executor.Exec(query, values...); err != nil {
 			return fmt.Errorf("insert row into %s: %w", tableName, err)

@@ -955,11 +955,92 @@ func (s *Service) GetSellerBalances(ctx context.Context) ([]SellerBalance, error
 		ORDER BY balance DESC
 	`
 
-	var balances []SellerBalance
-	err := s.db.Select(&balances, query)
+	// SQLite stores legacy timestamps as TEXT while PostgreSQL returns a
+	// time.Time. Scan through a small compatibility type so the same endpoint
+	// works in both modes (and with NULL for sellers without a transaction).
+	type sellerBalanceRow struct {
+		CustomerID        uuid.UUID       `db:"customer_id"`
+		CustomerName      string          `db:"customer_name"`
+		TotalAcquisitions int             `db:"total_acquisitions"`
+		TotalAcquired     float64         `db:"total_acquired"`
+		TotalPaid         float64         `db:"total_paid"`
+		Balance           float64         `db:"balance"`
+		TransactionCount  int             `db:"transaction_count"`
+		LastTransaction   nullableSQLTime `db:"last_transaction"`
+	}
+	var rows []sellerBalanceRow
+	err := s.db.SelectContext(ctx, &rows, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get seller balances: %w", err)
 	}
 
+	balances := make([]SellerBalance, 0, len(rows))
+	for _, row := range rows {
+		balance := SellerBalance{
+			CustomerID:        row.CustomerID,
+			CustomerName:      row.CustomerName,
+			TotalAcquisitions: row.TotalAcquisitions,
+			TotalAcquired:     row.TotalAcquired,
+			TotalPaid:         row.TotalPaid,
+			Balance:           row.Balance,
+			TransactionCount:  row.TransactionCount,
+		}
+		if row.LastTransaction.Valid {
+			lastTransaction := row.LastTransaction.Time
+			balance.LastTransaction = &lastTransaction
+		}
+		balances = append(balances, balance)
+	}
+
 	return balances, nil
+}
+
+// nullableSQLTime accepts both database driver representations used by the
+// application: time.Time from PostgreSQL and text from SQLite.
+type nullableSQLTime struct {
+	time.Time
+	Valid bool
+}
+
+func (t *nullableSQLTime) Scan(value interface{}) error {
+	if value == nil {
+		t.Valid = false
+		t.Time = time.Time{}
+		return nil
+	}
+	switch v := value.(type) {
+	case time.Time:
+		t.Time, t.Valid = v, true
+		return nil
+	case []byte:
+		return t.parse(string(v))
+	case string:
+		return t.parse(v)
+	default:
+		return fmt.Errorf("unsupported timestamp type %T", value)
+	}
+}
+
+func (t *nullableSQLTime) parse(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		t.Valid = false
+		t.Time = time.Time{}
+		return nil
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			t.Time, t.Valid = parsed, true
+			return nil
+		}
+	}
+	return fmt.Errorf("unsupported timestamp value %q", raw)
 }

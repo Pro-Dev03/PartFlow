@@ -45,7 +45,11 @@ export function useInitialDataSync(
         // The sync mutates SQLite behind React Query's back. Invalidate every
         // operational query so dashboard, customers, debts and reports read
         // the newly downloaded snapshot instead of an older cached response.
-        await queryClient.invalidateQueries();
+        // Refresh active operational queries in the background. Do not await
+        // this promise: waiting here keeps the full-screen sync modal open at
+        // 100% while those requests perform their own cloud checks, which can
+        // leave navigation blocked indefinitely.
+        void queryClient.invalidateQueries();
 
         // Show success message
         const tables = (data as { tables?: Record<string, number> }).tables;

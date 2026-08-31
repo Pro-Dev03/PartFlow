@@ -643,8 +643,13 @@ export function POSPage() {
           </div>
         </div>
         <div className="pos-cashier-footer">
-          <Button variant="secondary" size="sm" onClick={() => setIsManualProductOpen(true)}>
-            <Plus className="h-4 w-4" /> إضافة منتج سريع
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-label="إضافة يدويًا"
+            onClick={() => setIsManualProductOpen(true)}
+          >
+            <Plus className="h-4 w-4" /> إضافة يدويًا
           </Button>
           <Button variant="secondary" size="sm" onClick={handleHoldSale}>
             <Pause className="h-4 w-4" /> تعليق البيع
@@ -679,7 +684,7 @@ export function POSPage() {
         <Modal
           isOpen={isManualProductOpen}
           onClose={() => setIsManualProductOpen(false)}
-          title="إضافة منتج سريع للمخزون"
+          title="إضافة منتج يدويًا"
           variant="modern"
           size="md"
         >

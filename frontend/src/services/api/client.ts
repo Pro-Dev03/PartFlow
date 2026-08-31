@@ -22,6 +22,7 @@ class ApiClient {
   private baseURL: string;
   private token: string | null = null;
   private cache: Map<string, { data: unknown; timestamp: number }> = new Map();
+  private refreshInFlight: Promise<string | null> | null = null;
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
@@ -82,6 +83,70 @@ class ApiClient {
 
   private async sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Refresh a cloud access token once for all requests that encounter the
+   * same expired session at the same time. Without this guard, a dashboard
+   * burst can send one refresh request per endpoint and invalidate the same
+   * refresh token repeatedly.
+   */
+  private async refreshAccessToken(): Promise<string | null> {
+    if (this.refreshInFlight) {
+      return this.refreshInFlight;
+    }
+
+    const refreshToken = TokenManager.getRefreshToken();
+    if (!refreshToken) {
+      return null;
+    }
+
+    const refreshPromise = (async () => {
+      const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      const refreshData = await refreshResponse.json().catch(() => ({}));
+      if (!refreshResponse.ok) {
+        const error: any = new Error(
+          refreshData?.error?.message || refreshData?.error || 'Session refresh failed'
+        );
+        error.status = refreshResponse.status;
+        error.response = refreshData;
+        throw error;
+      }
+
+      const refreshPayload = refreshData?.data && typeof refreshData.data === 'object'
+        ? refreshData.data
+        : refreshData;
+      const newToken = refreshPayload?.access_token || refreshPayload?.token;
+      const newRefreshToken = refreshPayload?.refresh_token
+        || refreshPayload?.refreshToken
+        || refreshToken;
+
+      if (!newToken) {
+        return null;
+      }
+
+      this.setToken(newToken);
+      if (newRefreshToken) {
+        TokenManager.setRefreshToken(newRefreshToken);
+      }
+      return newToken as string;
+    })();
+
+    this.refreshInFlight = refreshPromise;
+    try {
+      return await refreshPromise;
+    } finally {
+      if (this.refreshInFlight === refreshPromise) {
+        this.refreshInFlight = null;
+      }
+    }
   }
 
   private async requestWithRetry<T>(
@@ -186,49 +251,27 @@ class ApiClient {
             // Tokens belong to the cloud authority even though business data
             // is served by the local SQLite API. Refresh against Render so a
             // valid cloud session can continue using local operations.
-            const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                refresh_token: TokenManager.getRefreshToken(),
-              }),
-            });
+            const newToken = await this.refreshAccessToken();
+            if (newToken) {
+              headers['Authorization'] = `Bearer ${newToken}`;
 
-            if (refreshResponse.ok) {
-              const refreshData = await refreshResponse.json();
-              const refreshPayload = refreshData?.data && typeof refreshData.data === 'object'
-                ? refreshData.data
-                : refreshData;
-              const newToken = refreshPayload?.access_token || refreshPayload?.token;
-              const newRefreshToken = refreshPayload?.refresh_token || refreshPayload?.refreshToken || TokenManager.getRefreshToken();
+              // Retry request with new token
+              const retryResponse = await fetch(url, {
+                ...options,
+                headers,
+              });
+              const retryData: ApiResponse<T> = await this.parseResponse<T>(retryResponse);
 
-              if (newToken) {
-                this.setToken(newToken);
-                if (newRefreshToken) {
-                  TokenManager.setRefreshToken(newRefreshToken);
-                }
-                headers['Authorization'] = `Bearer ${newToken}`;
-
-                // Retry request with new token
-                const retryResponse = await fetch(url, {
-                  ...options,
-                  headers,
-                });
-                const retryData: ApiResponse<T> = await this.parseResponse<T>(retryResponse);
-
-                if (!retryResponse.ok) {
-                  const error: any = new Error(retryData.error?.message || 'An error occurred');
-                  error.status = retryResponse.status;
-                  error.code = retryData.error?.code;
-                  error.response = retryData;
-                  error.arabicMessage = getArabicErrorMessage(error);
-                  throw error;
-                }
-
-                return retryData;
+              if (!retryResponse.ok) {
+                const error: any = new Error(retryData.error?.message || 'An error occurred');
+                error.status = retryResponse.status;
+                error.code = retryData.error?.code;
+                error.response = retryData;
+                error.arabicMessage = getArabicErrorMessage(error);
+                throw error;
               }
+
+              return retryData;
             }
           } catch (refreshError) {
             console.error('Token refresh failed:', refreshError);
@@ -237,7 +280,11 @@ class ApiClient {
           // Do not automatically log the user out.
           // Keep the current session alive and let the user continue
           // until they explicitly choose to log out or log in again.
-          throw new Error('Session refresh failed. Your session will remain active until you log out manually.');
+          const refreshError: any = new Error('Session refresh failed. Your session will remain active until you log out manually.');
+          refreshError.status = 401;
+          refreshError.code = 'AUTH_REFRESH_FAILED';
+          refreshError.response = data;
+          throw refreshError;
         }
 
         if (response.status === 403) {

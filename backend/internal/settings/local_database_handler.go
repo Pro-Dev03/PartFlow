@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	stdsync "sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,12 @@ import (
 )
 
 type LocalDatabaseHandler struct{}
+
+// SQLite allows one writer at a time. A browser can start the initial sync in
+// more than one React effect (or open two windows), so serialize snapshot
+// writes and metadata updates to avoid transient SQLITE_BUSY/constraint
+// failures while keeping the cloud fetch itself concurrent-safe.
+var cloudSnapshotMu stdsync.Mutex
 
 type OperatingModeRequest struct {
 	Mode string `json:"mode"`
@@ -197,6 +204,8 @@ func (h *LocalDatabaseHandler) SyncCloudData(c *gin.Context) {
 		return
 	}
 	defer sqliteDB.DB.Close()
+	cloudSnapshotMu.Lock()
+	defer cloudSnapshotMu.Unlock()
 	if err := localdb.SeedLocalSnapshot(sqliteDB.DB, payload.Data); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل حفظ بيانات السحابة محلياً", "details": err.Error()})
 		return
@@ -329,7 +338,10 @@ func (h *LocalDatabaseHandler) ResolveSyncConflict(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Ø¨ÙŠØ§Ù† Ø§Ù„ØªØ¹Ø§Ø±Ø¶ ØºÙŠØ± ØµØ§Ù„Ø­", "details": err.Error()})
 			return
 		}
-		if err := localdb.SeedLocalSnapshot(db.DB, map[string]any{conflict["entity_table"]: []any{payload}}); err != nil {
+		cloudSnapshotMu.Lock()
+		err = localdb.SeedLocalSnapshot(db.DB, map[string]any{conflict["entity_table"]: []any{payload}})
+		cloudSnapshotMu.Unlock()
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªØ·Ø¨ÙŠÙ‚ ØªØºÙŠÙŠØ± Ø§Ù„Ø¹Ù…ÙŠÙ„ Ù…Ø­Ù„ÙŠØ§Ù‹", "details": err.Error()})
 			return
 		}
@@ -338,7 +350,10 @@ func (h *LocalDatabaseHandler) ResolveSyncConflict(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "manual_merge يتطلب merged_data"})
 			return
 		}
-		if err := localdb.SeedLocalSnapshot(db.DB, map[string]any{conflict["entity_table"]: []any{request.MergedData}}); err != nil {
+		cloudSnapshotMu.Lock()
+		err = localdb.SeedLocalSnapshot(db.DB, map[string]any{conflict["entity_table"]: []any{request.MergedData}})
+		cloudSnapshotMu.Unlock()
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ø¯Ù…Ø¬ Ø§Ù„ÙŠØ¯ÙˆÙŠ", "details": err.Error()})
 			return
 		}
@@ -389,6 +404,8 @@ func (h *LocalDatabaseHandler) applyCloudSnapshot(c *gin.Context, sqliteDB *sql.
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices || !payload.Success {
 		return fmt.Errorf("cloud snapshot rejected: %s", payload.Error)
 	}
+	cloudSnapshotMu.Lock()
+	defer cloudSnapshotMu.Unlock()
 	if err := localdb.SeedLocalSnapshot(sqliteDB, payload.Data); err != nil {
 		return err
 	}

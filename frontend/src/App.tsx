@@ -16,7 +16,15 @@ const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m =>
 const SubscriptionExpiredPage = lazy(() => import('./features/auth/pages/SubscriptionExpiredPage').then(m => ({ default: m.default })));
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, token, sessionVerified } = useAuthStore();
+  const { isAuthenticated, token, sessionVerified, isLoading } = useAuthStore();
+
+  // Keep the requested deep link mounted while the persisted token is being
+  // verified. Redirecting immediately on the temporary `sessionVerified=false`
+  // state turns /app/sales into /app and makes a direct browser navigation
+  // appear to load the dashboard instead of POS.
+  if (isLoading) {
+    return <PageLoader />;
+  }
 
   if (!isAuthenticated || !token || !sessionVerified || !navigator.onLine) {
     return <Navigate to="/login" replace />;
@@ -73,6 +81,22 @@ function InitialSyncController() {
 
 function App() {
   const checkAuth = useAuthStore((state) => state.checkAuth);
+
+  // HashRouter is required by the packaged Electron build, but a normal
+  // browser can still open a deep link such as /app/sales directly. Normalize
+  // that path into the hash before React Router reads it; otherwise HashRouter
+  // silently falls back to the dashboard and POS smoke tests look broken.
+  useEffect(() => {
+    if (!window.location.pathname.startsWith('/app')) {
+      return;
+    }
+    const hashRoute = window.location.hash.replace(/^#/, '').split('?')[0];
+    if (hashRoute && hashRoute !== '/app' && hashRoute !== '/') {
+      return;
+    }
+    const route = `${window.location.pathname}${window.location.search}`;
+    window.location.hash = route;
+  }, []);
 
   useEffect(() => {
     checkAuth();

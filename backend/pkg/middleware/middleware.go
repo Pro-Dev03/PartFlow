@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -24,10 +25,37 @@ var disableAuth = false
 
 const defaultCloudAPIURL = "https://partflow-api.onrender.com/api/v1"
 
+// Cloud validation is intentionally cached only for a very short period. The
+// cloud remains the source of truth (a revoked account is rejected on the
+// next validation window), while requests made by the dashboard do not cause
+// a validation request for every single local endpoint.
+const cloudValidationCacheTTL = 15 * time.Second
+
+// Keep validation traffic bounded when several dashboard requests arrive at
+// once. Render/Supabase can briefly return 502/503 under a burst; one small
+// queue is enough for local requests and avoids turning that burst into a
+// cascade of authentication failures.
+var cloudValidationSlots = make(chan struct{}, 1)
+
 type cloudAuthError struct {
 	status int
 	err    error
 }
+
+type cloudValidationCacheEntry struct {
+	userID    uuid.UUID
+	expiresAt time.Time
+}
+
+type cloudValidationCall struct {
+	done    chan struct{}
+	userID  uuid.UUID
+	authErr *cloudAuthError
+}
+
+var cloudValidationMu sync.Mutex
+var cloudValidationCache = make(map[string]cloudValidationCacheEntry)
+var cloudValidationInFlight = make(map[string]*cloudValidationCall)
 
 func requiresCloudAuth() bool {
 	value := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")))
@@ -45,6 +73,58 @@ func validateWithCloud(ctx context.Context, tokenString string) (uuid.UUID, *clo
 	if baseURL == "" {
 		baseURL = defaultCloudAPIURL
 	}
+	keyBytes := sha256.Sum256([]byte(baseURL + "\x00" + tokenString))
+	cacheKey := fmt.Sprintf("%x", keyBytes[:])
+
+	now := time.Now()
+	cloudValidationMu.Lock()
+	if cached, ok := cloudValidationCache[cacheKey]; ok {
+		if now.Before(cached.expiresAt) {
+			cloudValidationMu.Unlock()
+			return cached.userID, nil
+		}
+		delete(cloudValidationCache, cacheKey)
+	}
+	if call, ok := cloudValidationInFlight[cacheKey]; ok {
+		cloudValidationMu.Unlock()
+		select {
+		case <-call.done:
+			return call.userID, call.authErr
+		case <-ctx.Done():
+			return uuid.Nil, &cloudAuthError{status: http.StatusServiceUnavailable, err: ctx.Err()}
+		}
+	}
+	call := &cloudValidationCall{done: make(chan struct{})}
+	cloudValidationInFlight[cacheKey] = call
+	cloudValidationMu.Unlock()
+
+	userID, authErr := validateWithCloudRemote(ctx, baseURL, tokenString)
+	cloudValidationMu.Lock()
+	delete(cloudValidationInFlight, cacheKey)
+	call.userID = userID
+	call.authErr = authErr
+	if authErr == nil {
+		cloudValidationCache[cacheKey] = cloudValidationCacheEntry{
+			userID:    userID,
+			expiresAt: time.Now().Add(cloudValidationCacheTTL),
+		}
+	}
+	close(call.done)
+	cloudValidationMu.Unlock()
+	return userID, authErr
+}
+
+func validateWithCloudRemote(ctx context.Context, baseURL, tokenString string) (uuid.UUID, *cloudAuthError) {
+	select {
+	case cloudValidationSlots <- struct{}{}:
+		defer func() { <-cloudValidationSlots }()
+	case <-ctx.Done():
+		return uuid.Nil, &cloudAuthError{status: http.StatusServiceUnavailable, err: ctx.Err()}
+	}
+	return validateWithCloudRemoteOnce(ctx, baseURL, tokenString)
+}
+
+func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString string) (uuid.UUID, *cloudAuthError) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/auth/validate", strings.NewReader("{}"))
 	if err != nil {
