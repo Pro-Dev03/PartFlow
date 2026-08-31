@@ -584,9 +584,16 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 		`CREATE TABLE IF NOT EXISTS inventory_movements (id TEXT PRIMARY KEY, item_id TEXT, product_id TEXT, movement_type TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0, before_quantity INTEGER NOT NULL DEFAULT 0, after_quantity INTEGER NOT NULL DEFAULT 0, reference_type TEXT, reference_id TEXT, reason TEXT, created_by TEXT, created_at TEXT NOT NULL, is_reversed INTEGER NOT NULL DEFAULT 0, reversed_by TEXT, reversed_at TEXT, reversal_reason TEXT)`,
 		`CREATE TABLE IF NOT EXISTS reservations (id TEXT PRIMARY KEY, item_id TEXT NOT NULL, customer_id TEXT, user_id TEXT NOT NULL, reserved_at TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, type TEXT, transaction_type TEXT, amount REAL NOT NULL DEFAULT 0, balance REAL NOT NULL DEFAULT 0, description TEXT, reference_id TEXT, reference_type TEXT, created_by TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS customer_payments (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, amount REAL NOT NULL DEFAULT 0, payment_date TEXT NOT NULL, method TEXT NOT NULL, reference TEXT, notes TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS customer_debts (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, amount REAL NOT NULL DEFAULT 0, reference_id TEXT, reference_type TEXT, due_date TEXT, is_paid INTEGER NOT NULL DEFAULT 0, paid_amount REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS debt_collections (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', notes TEXT, scheduled_date TEXT NOT NULL, completed_date TEXT, created_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS supplier_ledger (id TEXT PRIMARY KEY, supplier_id TEXT NOT NULL, type TEXT, transaction_type TEXT, amount REAL NOT NULL DEFAULT 0, balance REAL NOT NULL DEFAULT 0, description TEXT, reference_id TEXT, reference_type TEXT, created_by TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS supplier_payments (id TEXT PRIMARY KEY, supplier_id TEXT NOT NULL, amount REAL NOT NULL DEFAULT 0, payment_date TEXT NOT NULL, method TEXT NOT NULL, reference TEXT, notes TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS audit_logs (id TEXT PRIMARY KEY, user_id TEXT, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, old_values TEXT, new_values TEXT, ip_address TEXT, user_agent TEXT, request_id TEXT, changes TEXT, description TEXT, status TEXT DEFAULT 'success', error_message TEXT, metadata TEXT DEFAULT '{}', created_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS ledger_entries (id TEXT PRIMARY KEY, ledger_type TEXT NOT NULL, entity_id TEXT NOT NULL, transaction_type TEXT NOT NULL, reference_id TEXT, reference_type TEXT, amount REAL NOT NULL DEFAULT 0, balance REAL NOT NULL DEFAULT 0, previous_balance REAL DEFAULT 0, description TEXT, metadata TEXT DEFAULT '{}', created_by TEXT, created_at TEXT NOT NULL, cost_before REAL DEFAULT 0, cost_after REAL DEFAULT 0, value_before REAL DEFAULT 0, value_after REAL DEFAULT 0, is_reversed INTEGER NOT NULL DEFAULT 0, reversed_by TEXT, reversed_at TEXT, reversal_reason TEXT, product_id TEXT)`,
 		`CREATE TABLE IF NOT EXISTS inspection_items (id TEXT PRIMARY KEY, inspection_id TEXT NOT NULL, item_id TEXT, checkpoint_name TEXT NOT NULL, status TEXT NOT NULL, notes TEXT, images TEXT DEFAULT '[]', created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS item_repair_costs (id TEXT PRIMARY KEY, inventory_item_id TEXT NOT NULL, acquisition_item_id TEXT, repair_date TEXT NOT NULL, repair_type TEXT NOT NULL, cost REAL NOT NULL DEFAULT 0, description TEXT, performed_by TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE IF NOT EXISTS item_history (id TEXT PRIMARY KEY, inventory_item_id TEXT NOT NULL, event_type TEXT NOT NULL, event_date TEXT NOT NULL, reference_type TEXT, reference_id TEXT, description TEXT, metadata TEXT DEFAULT '{}', created_by TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 		`CREATE TABLE IF NOT EXISTS held_sales (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, items TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 		`CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, data TEXT DEFAULT '{}', priority TEXT DEFAULT 'medium', status TEXT DEFAULT 'unread', action_url TEXT, action_text TEXT, expires_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, read_at TEXT)`,
 		`CREATE TABLE IF NOT EXISTS notification_preferences (id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE, email_enabled INTEGER DEFAULT 1, push_enabled INTEGER DEFAULT 1, low_stock INTEGER DEFAULT 1, debt_overdue INTEGER DEFAULT 1, return_requests INTEGER DEFAULT 1, expense_approval INTEGER DEFAULT 1, sales_updates INTEGER DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
@@ -594,6 +601,11 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 		`CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, description TEXT, parameters TEXT, data TEXT, status TEXT DEFAULT 'completed', generated_by TEXT, generated_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS acquisitions (id TEXT PRIMARY KEY, type TEXT NOT NULL, acquisition_date TEXT NOT NULL, supplier_id TEXT, customer_id TEXT, total_cost REAL DEFAULT 0, paid_amount REAL DEFAULT 0, payment_status TEXT DEFAULT 'payable', status TEXT DEFAULT 'draft', notes TEXT, user_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, reversed_at TEXT, reversed_by TEXT, reversal_reason TEXT)`,
 		`CREATE TABLE IF NOT EXISTS acquisition_items (id TEXT PRIMARY KEY, acquisition_id TEXT, product_id TEXT, inventory_item_id TEXT, inspection_id TEXT, item_code TEXT, serial_number TEXT, inspection_status TEXT DEFAULT 'pending', item_status TEXT DEFAULT 'inspection', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS trade_ins (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, inventory_item_id TEXT NOT NULL, purchase_price REAL NOT NULL DEFAULT 0, purchase_date TEXT NOT NULL, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS item_specification_values (id TEXT PRIMARY KEY, inventory_item_id TEXT NOT NULL, specification_id TEXT NOT NULL, value_text TEXT, value_number REAL, value_boolean INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(inventory_item_id, specification_id))`,
+		`CREATE TABLE IF NOT EXISTS part_types (id TEXT PRIMARY KEY, name_ar TEXT NOT NULL UNIQUE, name_en TEXT NOT NULL, icon TEXT, color TEXT, is_active INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS part_specifications (id TEXT PRIMARY KEY, name_ar TEXT NOT NULL UNIQUE, name_en TEXT NOT NULL, data_type TEXT NOT NULL, options TEXT DEFAULT '[]', is_required INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS type_specifications (id TEXT PRIMARY KEY, part_type_id TEXT NOT NULL, specification_id TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, UNIQUE(part_type_id, specification_id))`,
 		`CREATE TABLE IF NOT EXISTS seller_payments (id TEXT PRIMARY KEY, acquisition_id TEXT, customer_id TEXT, amount REAL DEFAULT 0, payment_method TEXT, payment_date TEXT, notes TEXT, user_id TEXT, created_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS daily_sales_summary (date TEXT PRIMARY KEY, total_sales INTEGER DEFAULT 0, total_revenue REAL DEFAULT 0, total_profit REAL DEFAULT 0, total_customers INTEGER DEFAULT 0, average_order_value REAL DEFAULT 0, total_items_sold INTEGER DEFAULT 0, cash_sales REAL DEFAULT 0, card_sales REAL DEFAULT 0, debt_sales REAL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 		`CREATE TABLE IF NOT EXISTS monthly_sales_summary (year INTEGER NOT NULL, month INTEGER NOT NULL, total_sales INTEGER DEFAULT 0, total_revenue REAL DEFAULT 0, total_profit REAL DEFAULT 0, total_customers INTEGER DEFAULT 0, average_order_value REAL DEFAULT 0, total_items_sold INTEGER DEFAULT 0, cash_sales REAL DEFAULT 0, card_sales REAL DEFAULT 0, debt_sales REAL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (year, month))`,
@@ -608,6 +620,16 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 		if _, err := db.Exec(statement); err != nil {
 			return fmt.Errorf("initialize compatibility schema: %w", err)
 		}
+	}
+	if _, err := db.Exec(`CREATE VIEW IF NOT EXISTS used_parts_aging AS
+		SELECT ii.id AS item_id, ai.acquisition_id, a.acquisition_date,
+		CAST(julianday('now') - julianday(a.acquisition_date) AS INTEGER) AS days_in_stock,
+		ii.status, ii.condition, ii.purchase_cost AS cost, ii.selling_price AS current_price,
+		CASE WHEN julianday('now') - julianday(a.acquisition_date) <= 30 THEN 'fresh' WHEN julianday('now') - julianday(a.acquisition_date) <= 60 THEN 'normal' WHEN julianday('now') - julianday(a.acquisition_date) <= 90 THEN 'aged' ELSE 'long_aged' END AS aging_category,
+		CASE WHEN julianday('now') - julianday(a.acquisition_date) > 90 THEN 'critical' WHEN julianday('now') - julianday(a.acquisition_date) > 60 THEN 'warning' ELSE 'none' END AS alert_level
+		FROM inventory_items ii JOIN acquisition_items ai ON ii.id = ai.inventory_item_id JOIN acquisitions a ON ai.acquisition_id = a.id
+		WHERE a.type = 'CUSTOMER' AND ii.status IN ('AVAILABLE', 'RESERVED')`); err != nil {
+		return fmt.Errorf("initialize local aging view: %w", err)
 	}
 
 	if err := migrateLegacySchema(db); err != nil {
@@ -697,12 +719,22 @@ func migrateLegacySchema(db *sql.DB) error {
 		{tableName: "suppliers", columnName: "payment_terms", columnDef: "payment_terms TEXT"},
 		{tableName: "inventory_items", columnName: "location_id", columnDef: "location_id TEXT"},
 		{tableName: "inventory_items", columnName: "grade", columnDef: "grade TEXT"},
+		{tableName: "inventory_items", columnName: "part_type_id", columnDef: "part_type_id TEXT"},
+		{tableName: "inventory_items", columnName: "sold_at", columnDef: "sold_at TEXT"},
+		{tableName: "inventory_items", columnName: "notes", columnDef: "notes TEXT"},
+		{tableName: "acquisition_items", columnName: "condition", columnDef: "condition TEXT"},
+		{tableName: "acquisition_items", columnName: "grade", columnDef: "grade TEXT"},
+		{tableName: "acquisition_items", columnName: "unit_cost", columnDef: "unit_cost REAL DEFAULT 0"},
+		{tableName: "acquisition_items", columnName: "total_cost", columnDef: "total_cost REAL DEFAULT 0"},
+		{tableName: "acquisition_items", columnName: "notes", columnDef: "notes TEXT"},
 		{tableName: "purchases", columnName: "discount_amount", columnDef: "discount_amount REAL DEFAULT 0"},
 		{tableName: "purchases", columnName: "invoice_number", columnDef: "invoice_number TEXT"},
 		{tableName: "purchases", columnName: "purchase_date", columnDef: "purchase_date TEXT"},
 		{tableName: "purchases", columnName: "expected_delivery_date", columnDef: "expected_delivery_date TEXT"},
 		{tableName: "purchases", columnName: "user_id", columnDef: "user_id TEXT"},
 		{tableName: "sales", columnName: "invoice_number", columnDef: "invoice_number TEXT"},
+		{tableName: "sales", columnName: "sale_number", columnDef: "sale_number TEXT"},
+		{tableName: "sales", columnName: "user_id", columnDef: "user_id TEXT"},
 		{tableName: "sales", columnName: "sale_date", columnDef: "sale_date TEXT"},
 		{tableName: "sales", columnName: "subtotal", columnDef: "subtotal REAL DEFAULT 0"},
 		{tableName: "sales", columnName: "cost_amount", columnDef: "cost_amount REAL DEFAULT 0"},
@@ -712,8 +744,34 @@ func migrateLegacySchema(db *sql.DB) error {
 		{tableName: "payments", columnName: "payment_date", columnDef: "payment_date TEXT"},
 		{tableName: "sale_items", columnName: "total_amount", columnDef: "total_amount REAL DEFAULT 0"},
 		{tableName: "sale_items", columnName: "unit_cost", columnDef: "unit_cost REAL DEFAULT 0"},
+		{tableName: "sale_items", columnName: "discount_amount", columnDef: "discount_amount REAL DEFAULT 0"},
+		{tableName: "sale_items", columnName: "tax_amount", columnDef: "tax_amount REAL DEFAULT 0"},
+		{tableName: "sale_items", columnName: "supplier_id", columnDef: "supplier_id TEXT"},
+		{tableName: "payments", columnName: "sale_id", columnDef: "sale_id TEXT"},
+		{tableName: "payments", columnName: "purchase_id", columnDef: "purchase_id TEXT"},
+		{tableName: "payments", columnName: "payment_status", columnDef: "payment_status TEXT DEFAULT 'completed'"},
+		{tableName: "payments", columnName: "created_by", columnDef: "created_by TEXT"},
+		{tableName: "payments", columnName: "updated_at", columnDef: "updated_at TEXT"},
+		{tableName: "payments", columnName: "payment_date", columnDef: "payment_date TEXT"},
 		{tableName: "return_items", columnName: "sale_item_id", columnDef: "sale_item_id TEXT"},
+		{tableName: "return_items", columnName: "inventory_item_id", columnDef: "inventory_item_id TEXT"},
 		{tableName: "return_items", columnName: "quantity_returned", columnDef: "quantity_returned INTEGER DEFAULT 0"},
+		{tableName: "return_items", columnName: "original_quantity", columnDef: "original_quantity INTEGER"},
+		{tableName: "return_items", columnName: "serial_number", columnDef: "serial_number TEXT"},
+		{tableName: "return_items", columnName: "barcode", columnDef: "barcode TEXT"},
+		{tableName: "return_items", columnName: "original_condition", columnDef: "original_condition TEXT"},
+		{tableName: "return_items", columnName: "returned_condition", columnDef: "returned_condition TEXT"},
+		{tableName: "return_items", columnName: "condition_notes", columnDef: "condition_notes TEXT"},
+		{tableName: "return_items", columnName: "resolution", columnDef: "resolution TEXT"},
+		{tableName: "return_items", columnName: "inventory_status", columnDef: "inventory_status TEXT"},
+		{tableName: "return_items", columnName: "inspection_required", columnDef: "inspection_required INTEGER DEFAULT 0"},
+		{tableName: "return_items", columnName: "inspection_date", columnDef: "inspection_date TEXT"},
+		{tableName: "return_items", columnName: "inspection_result", columnDef: "inspection_result TEXT"},
+		{tableName: "return_items", columnName: "inspection_notes", columnDef: "inspection_notes TEXT"},
+		{tableName: "return_items", columnName: "original_cost", columnDef: "original_cost REAL"},
+		{tableName: "return_items", columnName: "repair_cost", columnDef: "repair_cost REAL DEFAULT 0"},
+		{tableName: "return_items", columnName: "updated_at", columnDef: "updated_at TEXT"},
+		{tableName: "inventory_items", columnName: "part_type_id", columnDef: "part_type_id TEXT"},
 		{tableName: "expenses", columnName: "title", columnDef: "title TEXT DEFAULT 'Expense'"},
 		{tableName: "expenses", columnName: "description", columnDef: "description TEXT"},
 		{tableName: "expenses", columnName: "reference_number", columnDef: "reference_number TEXT"},
@@ -750,6 +808,12 @@ func migrateLegacySchema(db *sql.DB) error {
 		{tableName: "returns", columnName: "approved_by", columnDef: "approved_by TEXT"},
 		{tableName: "returns", columnName: "approved_at", columnDef: "approved_at TEXT"},
 		{tableName: "returns", columnName: "internal_notes", columnDef: "internal_notes TEXT"},
+		{tableName: "audit_logs", columnName: "request_id", columnDef: "request_id TEXT"},
+		{tableName: "audit_logs", columnName: "changes", columnDef: "changes TEXT"},
+		{tableName: "audit_logs", columnName: "description", columnDef: "description TEXT"},
+		{tableName: "audit_logs", columnName: "status", columnDef: "status TEXT DEFAULT 'success'"},
+		{tableName: "audit_logs", columnName: "error_message", columnDef: "error_message TEXT"},
+		{tableName: "audit_logs", columnName: "metadata", columnDef: "metadata TEXT DEFAULT '{}'"},
 	}
 
 	for _, migration := range migrations {
@@ -791,6 +855,16 @@ func SeedLocalSnapshot(db *sql.DB, snapshot map[string]any) error {
 	if len(snapshot) == 0 {
 		return nil
 	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin local snapshot transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
 
 	tableOrder := []struct {
 		key   string
@@ -820,7 +894,12 @@ func SeedLocalSnapshot(db *sql.DB, snapshot map[string]any) error {
 		{key: "inspections", table: "inspections"},
 		{key: "inspection_items", table: "inspection_items"},
 		{key: "part_types", table: "part_types"},
+		{key: "part_specifications", table: "part_specifications"},
+		{key: "type_specifications", table: "type_specifications"},
 		{key: "acquisitions", table: "acquisitions"},
+		{key: "acquisition_items", table: "acquisition_items"},
+		{key: "trade_ins", table: "trade_ins"},
+		{key: "item_specification_values", table: "item_specification_values"},
 		{key: "returns", table: "returns"},
 		{key: "return_items", table: "return_items"},
 		{key: "used_parts", table: "used_parts"},
@@ -847,10 +926,14 @@ func SeedLocalSnapshot(db *sql.DB, snapshot map[string]any) error {
 		if len(rows) == 0 {
 			continue
 		}
-		if err := upsertSnapshotRows(db, item.table, rows); err != nil {
+		if err := upsertSnapshotRows(tx, db, item.table, rows); err != nil {
 			return fmt.Errorf("seed %s: %w", item.table, err)
 		}
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit local snapshot transaction: %w", err)
+	}
+	committed = true
 
 	return nil
 }
@@ -874,7 +957,11 @@ func normalizeSnapshotRows(raw any) ([]map[string]any, error) {
 	}
 }
 
-func upsertSnapshotRows(db *sql.DB, tableName string, rows []map[string]any) error {
+type snapshotExecutor interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func upsertSnapshotRows(executor snapshotExecutor, db *sql.DB, tableName string, rows []map[string]any) error {
 	allowedFields, err := localSnapshotFields(db, tableName)
 	if err != nil {
 		return err
@@ -960,7 +1047,7 @@ func upsertSnapshotRows(db *sql.DB, tableName string, rows []map[string]any) err
 		} else {
 			query += " ON CONFLICT(id) DO NOTHING"
 		}
-		if _, err := db.Exec(query, values...); err != nil {
+		if _, err := executor.Exec(query, values...); err != nil {
 			return fmt.Errorf("insert row into %s: %w", tableName, err)
 		}
 	}
@@ -1024,6 +1111,8 @@ func fieldMapForTable(tableName string) []string {
 	switch tableName {
 	case "categories":
 		return []string{"id", "name", "description", "parent_id", "icon", "color", "is_active", "created_at", "updated_at"}
+	case "brands":
+		return []string{"id", "name", "description", "logo_url", "created_at", "updated_at"}
 	case "products":
 		return []string{"id", "sku", "name", "description", "category_id", "brand_id", "preferred_supplier_id", "model", "barcode", "purchase_price", "cost_price", "selling_price", "currency", "min_stock_level", "max_stock_level", "warranty_days", "track_serial", "track_individual", "is_active", "deleted_at", "created_at", "updated_at"}
 	case "customers":
@@ -1078,10 +1167,18 @@ func fieldMapForTable(tableName string) []string {
 		return []string{"id", "user_id", "items", "created_at"}
 	case "part_types":
 		return []string{"id", "name_ar", "name_en", "icon", "color", "is_active", "sort_order", "created_at", "updated_at"}
+	case "part_specifications":
+		return []string{"id", "name_ar", "name_en", "data_type", "options", "is_required", "created_at"}
+	case "type_specifications":
+		return []string{"id", "part_type_id", "specification_id", "sort_order", "created_at"}
 	case "acquisitions":
 		return []string{"id", "type", "acquisition_date", "supplier_id", "customer_id", "total_cost", "paid_amount", "payment_status", "status", "notes", "user_id", "created_at", "updated_at", "reversed_at", "reversed_by", "reversal_reason"}
 	case "acquisition_items":
-		return []string{"id", "acquisition_id", "product_id", "inventory_item_id", "inspection_id", "item_code", "serial_number", "inspection_status", "item_status", "created_at", "updated_at"}
+		return []string{"id", "acquisition_id", "product_id", "inventory_item_id", "inspection_id", "item_code", "serial_number", "condition", "grade", "unit_cost", "total_cost", "inspection_status", "item_status", "notes", "created_at", "updated_at"}
+	case "trade_ins":
+		return []string{"id", "customer_id", "inventory_item_id", "purchase_price", "purchase_date", "notes", "created_at", "updated_at"}
+	case "item_specification_values":
+		return []string{"id", "inventory_item_id", "specification_id", "value_text", "value_number", "value_boolean", "created_at", "updated_at"}
 	case "seller_payments":
 		return []string{"id", "acquisition_id", "customer_id", "amount", "payment_method", "payment_date", "notes", "user_id", "created_at"}
 	case "supplier_returns":
@@ -1091,11 +1188,17 @@ func fieldMapForTable(tableName string) []string {
 	case "returns":
 		return []string{"id", "return_number", "reference_number", "sale_id", "purchase_id", "customer_id", "return_date", "return_type", "status", "total_refund_amount", "refund_method", "refund_date", "refund_reference", "debt_id", "debt_adjustment", "customer_credit", "reason", "reason_detail", "item_condition_after_return", "is_warranty_claim", "warranty_id", "warranty_valid_until", "created_by", "processed_by", "approved_by", "approved_at", "notes", "internal_notes", "refund_status", "created_at", "updated_at"}
 	case "return_items":
-		return []string{"id", "return_id", "sale_item_id", "product_id", "quantity", "quantity_returned", "unit_price", "total_refund_amount", "reason", "created_at"}
+		return []string{
+			"id", "return_id", "sale_item_id", "product_id", "inventory_item_id",
+			"quantity", "quantity_returned", "original_quantity", "serial_number", "barcode",
+			"unit_price", "total_refund_amount", "reason", "original_condition", "returned_condition",
+			"condition_notes", "resolution", "inventory_status", "inspection_required", "inspection_date",
+			"inspection_result", "inspection_notes", "original_cost", "repair_cost", "created_at", "updated_at",
+		}
 	case "used_parts":
 		return []string{"id", "product_id", "quantity", "status", "created_at", "updated_at"}
 	case "inventory_items":
-		return []string{"id", "product_id", "item_code", "barcode", "serial_number", "condition", "grade", "purchase_cost", "selling_price", "status", "location_id", "supplier_id", "purchase_date", "sold_at", "notes", "created_at", "updated_at"}
+		return []string{"id", "product_id", "part_type_id", "item_code", "barcode", "serial_number", "condition", "grade", "purchase_cost", "selling_price", "status", "location_id", "supplier_id", "purchase_date", "sold_at", "notes", "created_at", "updated_at"}
 	default:
 		return nil
 	}
@@ -1421,6 +1524,34 @@ func ListSyncConflicts(db *sql.DB, limit int) ([]map[string]string, error) {
 		return nil, fmt.Errorf("iterate sync conflicts: %w", err)
 	}
 	return entries, nil
+}
+
+// GetSyncConflict returns one pending conflict, including the original local
+// payload. Keeping this lookup in localdb prevents handlers from deleting a
+// conflict before its selected policy has actually been applied.
+func GetSyncConflict(db *sql.DB, conflictID string) (map[string]string, error) {
+	var conflict = make(map[string]string)
+	var id, entityType, entityID, entityTable, operation, conflictType, localUpdatedAt, remoteUpdatedAt, reason, payload, createdAt string
+	err := db.QueryRow(`SELECT id, entity_type, entity_id, entity_table, operation, conflict_type, local_updated_at, remote_updated_at, conflict_reason, payload, created_at FROM sync_conflicts WHERE id = ?`, conflictID).
+		Scan(&id, &entityType, &entityID, &entityTable, &operation, &conflictType, &localUpdatedAt, &remoteUpdatedAt, &reason, &payload, &createdAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get sync conflict: %w", err)
+	}
+	conflict["id"] = id
+	conflict["entity_type"] = entityType
+	conflict["entity_id"] = entityID
+	conflict["entity_table"] = entityTable
+	conflict["operation"] = operation
+	conflict["conflict_type"] = conflictType
+	conflict["local_updated_at"] = localUpdatedAt
+	conflict["remote_updated_at"] = remoteUpdatedAt
+	conflict["conflict_reason"] = reason
+	conflict["payload"] = payload
+	conflict["created_at"] = createdAt
+	return conflict, nil
 }
 
 func ClearSyncConflicts(db *sql.DB) error {

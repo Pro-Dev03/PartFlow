@@ -130,6 +130,23 @@ func parsePaymentMap(record map[string]any) (Payment, error) {
 
 // Create creates a new payment
 func (r *Repository) Create(ctx context.Context, payment *Payment) error {
+	if dbutil.IsSQLite(r.db) {
+		var customerID, supplierID interface{}
+		switch payment.Type {
+		case "customer":
+			customerID = payment.ReferenceID
+		case "supplier":
+			supplierID = payment.ReferenceID
+		case "expense":
+		default:
+			return ErrInvalidPaymentType
+		}
+		_, err := r.db.ExecContext(ctx, `INSERT INTO payments (id, transaction_number, customer_id, supplier_id, amount, payment_method, reference, notes, payment_date, payment_status, created_by, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)`, payment.ID, "PAY-"+payment.ID.String()[:8], customerID, supplierID, payment.Amount, payment.Method, payment.Reference, payment.Notes, payment.PaymentDate, payment.Status, payment.CreatedBy, payment.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to create local payment: %w", err)
+		}
+		return nil
+	}
 	query := `
 		INSERT INTO payments (id, type, reference_id, amount, payment_date, method, reference, notes, status, created_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -148,7 +165,7 @@ func (r *Repository) Create(ctx context.Context, payment *Payment) error {
 // GetByID retrieves a payment by ID
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Payment, error) {
 	if dbutil.IsSQLite(r.db) {
-		row := r.db.QueryRowxContext(ctx, `SELECT id, CASE WHEN customer_id IS NOT NULL THEN 'customer' WHEN supplier_id IS NOT NULL THEN 'supplier' ELSE '' END AS type, COALESCE(customer_id, supplier_id, '00000000-0000-0000-0000-000000000000') AS reference_id, amount, created_at AS payment_date, COALESCE(payment_method, '') AS method, reference, notes, 'completed' AS status, '00000000-0000-0000-0000-000000000000' AS created_by, created_at, created_at, 0 AS is_reversed, NULL AS reversed_at, NULL AS reversed_by, NULL AS reversal_reason, NULL AS reversal_payment_id FROM payments WHERE id = $1`, id)
+		row := r.db.QueryRowxContext(ctx, `SELECT id, CASE WHEN customer_id IS NOT NULL THEN 'customer' WHEN supplier_id IS NOT NULL THEN 'supplier' ELSE '' END AS type, COALESCE(customer_id, supplier_id, '00000000-0000-0000-0000-000000000000') AS reference_id, amount, COALESCE(payment_date, created_at) AS payment_date, COALESCE(payment_method, '') AS method, reference, notes, COALESCE(payment_status, 'completed') AS status, COALESCE(created_by, '00000000-0000-0000-0000-000000000000') AS created_by, created_at, COALESCE(updated_at, created_at) AS updated_at, 0 AS is_reversed, NULL AS reversed_at, NULL AS reversed_by, NULL AS reversal_reason, NULL AS reversal_payment_id FROM payments WHERE id = $1`, id)
 		record := map[string]any{}
 		if err := row.MapScan(record); err != nil {
 			if err == sql.ErrNoRows {
@@ -195,7 +212,7 @@ func (r *Repository) List(ctx context.Context, page, perPage int, filters map[st
 		if perPage <= 0 || perPage > 100 {
 			perPage = 20
 		}
-		query := `SELECT id, CASE WHEN customer_id IS NOT NULL THEN 'customer' WHEN supplier_id IS NOT NULL THEN 'supplier' ELSE '' END AS type, COALESCE(customer_id, supplier_id, '00000000-0000-0000-0000-000000000000') AS reference_id, amount, created_at AS payment_date, COALESCE(payment_method, '') AS method, reference, notes, 'completed' AS status, '00000000-0000-0000-0000-000000000000' AS created_by, created_at, created_at, 0 AS is_reversed, NULL AS reversed_at, NULL AS reversed_by, NULL AS reversal_reason, NULL AS reversal_payment_id FROM payments WHERE 1=1`
+		query := `SELECT id, CASE WHEN customer_id IS NOT NULL THEN 'customer' WHEN supplier_id IS NOT NULL THEN 'supplier' ELSE '' END AS type, COALESCE(customer_id, supplier_id, '00000000-0000-0000-0000-000000000000') AS reference_id, amount, COALESCE(payment_date, created_at) AS payment_date, COALESCE(payment_method, '') AS method, reference, notes, COALESCE(payment_status, 'completed') AS status, COALESCE(created_by, '00000000-0000-0000-0000-000000000000') AS created_by, created_at, COALESCE(updated_at, created_at) AS updated_at, 0 AS is_reversed, NULL AS reversed_at, NULL AS reversed_by, NULL AS reversal_reason, NULL AS reversal_payment_id FROM payments WHERE 1=1`
 		countQuery := `SELECT COUNT(*) FROM payments WHERE 1=1`
 		args := make([]interface{}, 0, 5)
 		argCount := 0
@@ -220,8 +237,8 @@ func (r *Repository) List(ctx context.Context, page, perPage int, filters map[st
 			query += fmt.Sprintf(" OR supplier_id = $%d)", argCount)
 			countQuery += fmt.Sprintf(" OR supplier_id = $%d)", argCount)
 		}
-		if status, ok := filters["status"].(string); ok && status != "" && status != "completed" {
-			return []Payment{}, 0, nil
+		if status, ok := filters["status"].(string); ok && status != "" {
+			add("payment_status =", status)
 		}
 		if method, ok := filters["method"].(string); ok && method != "" {
 			add("payment_method =", method)
@@ -341,6 +358,17 @@ func (r *Repository) List(ctx context.Context, page, perPage int, filters map[st
 
 // Update updates a payment
 func (r *Repository) Update(ctx context.Context, payment *Payment) error {
+	if dbutil.IsSQLite(r.db) {
+		result, err := r.db.ExecContext(ctx, `UPDATE payments SET payment_status = $2, payment_method = $3, reference = $4, notes = $5, payment_date = $6, updated_at = $7 WHERE id = $1`, payment.ID, payment.Status, payment.Method, payment.Reference, payment.Notes, payment.PaymentDate, payment.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to update local payment: %w", err)
+		}
+		count, _ := result.RowsAffected()
+		if count == 0 {
+			return ErrPaymentNotFound
+		}
+		return nil
+	}
 	query := `
 		UPDATE payments
 		SET status = $2, method = $3, reference = $4, notes = $5, payment_date = $6, updated_at = $7

@@ -165,7 +165,11 @@ func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
 	}
 
 	for _, table := range tables {
-		if _, err := db.DB.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %q", table)); err != nil {
+		// Keep table definitions intact; reset only business rows.
+		if table == "users" || table == "local_sessions" || table == "refresh_tokens" || table == "settings" || table == "schema_migrations" {
+			continue
+		}
+		if _, err := db.DB.Exec(fmt.Sprintf("DELETE FROM %q", table)); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تصفير بيانات قاعدة البيانات المحلية", "details": err.Error()})
 			return
 		}

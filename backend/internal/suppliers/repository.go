@@ -9,11 +9,61 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Repository handles supplier data operations
 type Repository struct {
 	db *sqlx.DB
+}
+
+type localSupplierRow struct {
+	ID             string         `db:"id"`
+	Code           string         `db:"code"`
+	Name           string         `db:"name"`
+	Email          sql.NullString `db:"email"`
+	Phone          sql.NullString `db:"phone"`
+	Address        sql.NullString `db:"address"`
+	City           sql.NullString `db:"city"`
+	Country        sql.NullString `db:"country"`
+	TaxID          sql.NullString `db:"tax_id"`
+	PaymentTerms   sql.NullString `db:"payment_terms"`
+	CreditLimit    float64        `db:"credit_limit"`
+	CurrentBalance float64        `db:"current_balance"`
+	TotalPurchases float64        `db:"total_purchases"`
+	PaidAmount     float64        `db:"paid_amount"`
+	Outstanding    float64        `db:"outstanding"`
+	Notes          sql.NullString `db:"notes"`
+	IsActive       int            `db:"is_active"`
+	CreatedAt      string         `db:"created_at"`
+	UpdatedAt      string         `db:"updated_at"`
+}
+
+func localSupplierFromRow(row localSupplierRow) (Supplier, error) {
+	id, err := uuid.Parse(row.ID)
+	if err != nil {
+		return Supplier{}, err
+	}
+	created, err := dbutil.ParseTimestamp(row.CreatedAt)
+	if err != nil {
+		return Supplier{}, err
+	}
+	updated, err := dbutil.ParseTimestamp(row.UpdatedAt)
+	if err != nil {
+		return Supplier{}, err
+	}
+	s := Supplier{ID: id, Code: row.Code, Name: row.Name, CreditLimit: row.CreditLimit, CurrentBalance: row.CurrentBalance, TotalPurchases: row.TotalPurchases, PaidAmount: row.PaidAmount, Outstanding: row.Outstanding, IsActive: row.IsActive != 0, CreatedAt: created, UpdatedAt: updated}
+	for value, target := range map[*sql.NullString]**string{&row.Email: &s.Email, &row.Phone: &s.Phone, &row.Address: &s.Address, &row.City: &s.City, &row.Country: &s.Country, &row.TaxID: &s.TaxID, &row.PaymentTerms: &s.PaymentTerms, &row.Notes: &s.Notes} {
+		if value.Valid && value.String != "" {
+			v := value.String
+			*target = &v
+		}
+	}
+	return s, nil
+}
+
+func localSupplierQuery() string {
+	return `SELECT s.id, s.code, s.name, s.email, s.phone, s.address, s.city, s.country, s.tax_id, s.payment_terms, s.credit_limit, s.current_balance, COALESCE((SELECT SUM(total_amount) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) AS total_purchases, COALESCE((SELECT SUM(COALESCE(paid_amount,0)) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) AS paid_amount, COALESCE((SELECT SUM(CASE WHEN total_amount - COALESCE(paid_amount,0) > 0 THEN total_amount - COALESCE(paid_amount,0) ELSE 0 END) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) AS outstanding, s.notes, s.is_active, s.created_at, s.updated_at FROM suppliers s`
 }
 
 // NewRepository creates a new supplier repository
@@ -88,6 +138,17 @@ func (r *Repository) Create(ctx context.Context, supplier *Supplier) error {
 
 // GetByID retrieves a supplier by ID
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Supplier, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row localSupplierRow
+		if err := r.db.GetContext(ctx, &row, localSupplierQuery()+` WHERE s.id = $1`, id); err != nil {
+			return nil, ErrSupplierNotFound
+		}
+		s, err := localSupplierFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		return &s, nil
+	}
 	query := `
 		SELECT id, code, name, email, phone, address, city, country, tax_id,
 			payment_terms, credit_limit, current_balance,
@@ -108,6 +169,17 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Supplier, erro
 
 // GetByCode retrieves a supplier by code
 func (r *Repository) GetByCode(ctx context.Context, code string) (*Supplier, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row localSupplierRow
+		if err := r.db.GetContext(ctx, &row, localSupplierQuery()+` WHERE s.code = $1`, code); err != nil {
+			return nil, ErrSupplierNotFound
+		}
+		s, err := localSupplierFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		return &s, nil
+	}
 	query := `
 		SELECT id, code, name, email, phone, address, city, country, tax_id,
 			payment_terms, credit_limit, current_balance,
@@ -128,6 +200,54 @@ func (r *Repository) GetByCode(ctx context.Context, code string) (*Supplier, err
 
 // List retrieves suppliers with pagination and filters
 func (r *Repository) List(ctx context.Context, page, perPage int, search string, isActive *bool) ([]Supplier, int, error) {
+	if dbutil.IsSQLite(r.db) {
+		if page <= 0 {
+			page = 1
+		}
+		if perPage <= 0 || perPage > 100 {
+			perPage = 20
+		}
+		base := localSupplierQuery() + ` WHERE 1=1`
+		countQuery := `SELECT COUNT(*) FROM suppliers WHERE 1=1`
+		args := []interface{}{}
+		n := 0
+		if search != "" {
+			n++
+			condition := fmt.Sprintf(` AND (LOWER(s.name) LIKE LOWER($%d) OR LOWER(s.code) LIKE LOWER($%d) OR LOWER(COALESCE(s.email,'')) LIKE LOWER($%d) OR LOWER(COALESCE(s.phone,'')) LIKE LOWER($%d))`, n, n, n, n)
+			base += condition
+			countQuery += strings.Replace(condition, "s.", "", -1)
+			args = append(args, "%"+search+"%")
+		}
+		if isActive != nil {
+			n++
+			base += fmt.Sprintf(" AND s.is_active = $%d", n)
+			countQuery += fmt.Sprintf(" AND is_active = $%d", n)
+			value := 0
+			if *isActive {
+				value = 1
+			}
+			args = append(args, value)
+		}
+		var total int
+		if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
+			return nil, 0, err
+		}
+		base += fmt.Sprintf(" ORDER BY s.created_at DESC LIMIT $%d OFFSET $%d", n+1, n+2)
+		args = append(args, perPage, (page-1)*perPage)
+		var rows []localSupplierRow
+		if err := r.db.SelectContext(ctx, &rows, base, args...); err != nil {
+			return nil, 0, err
+		}
+		out := make([]Supplier, 0, len(rows))
+		for _, row := range rows {
+			s, err := localSupplierFromRow(row)
+			if err != nil {
+				return nil, 0, err
+			}
+			out = append(out, s)
+		}
+		return out, total, nil
+	}
 	offset := (page - 1) * perPage
 
 	query := `
@@ -245,7 +365,7 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 		return ErrSupplierNotFound
 	}
 
-	query := `UPDATE suppliers SET is_active = false, updated_at = NOW() WHERE id = $1`
+	query := fmt.Sprintf(`UPDATE suppliers SET is_active = false, updated_at = %s WHERE id = $1`, dbutil.NowSQL(r.db))
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to deactivate supplier: %w", err)
@@ -266,9 +386,14 @@ func (r *Repository) HasActivePurchases(ctx context.Context, supplierID uuid.UUI
 			SELECT 1 FROM purchases 
 			WHERE supplier_id = $1 
 			AND status != 'cancelled'
-			AND created_at > NOW() - INTERVAL '1 year'
+			AND created_at > %s
 		)
 	`
+	if dbutil.IsSQLite(r.db) {
+		query = fmt.Sprintf(query, "datetime('now','-1 year')")
+	} else {
+		query = fmt.Sprintf(query, "NOW() - INTERVAL '1 year'")
+	}
 
 	var hasPurchases bool
 	err := r.db.GetContext(ctx, &hasPurchases, query, supplierID)
@@ -285,11 +410,11 @@ func (r *Repository) HasActivePurchases(ctx context.Context, supplierID uuid.UUI
 
 // UpdateBalance updates supplier balance
 func (r *Repository) UpdateBalance(ctx context.Context, supplierID uuid.UUID, amount float64) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE suppliers
-		SET current_balance = current_balance + $1, updated_at = NOW()
+		SET current_balance = current_balance + $1, updated_at = %s
 		WHERE id = $2
-	`
+	`, dbutil.NowSQL(r.db))
 	result, err := r.db.ExecContext(ctx, query, amount, supplierID)
 	if err != nil {
 		return fmt.Errorf("failed to update supplier balance: %w", err)
@@ -313,7 +438,53 @@ func (r *Repository) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID
 		ORDER BY created_at ASC
 	`
 	var entries []LedgerEntry
-	err := r.db.SelectContext(ctx, &entries, query, supplierID)
+	var err error
+	if dbutil.IsSQLite(r.db) {
+		var rows []struct {
+			ID              string         `db:"id"`
+			SupplierID      string         `db:"supplier_id"`
+			Type            sql.NullString `db:"type"`
+			TransactionType sql.NullString `db:"transaction_type"`
+			Amount, Balance float64
+			Description     sql.NullString `db:"description"`
+			ReferenceID     sql.NullString `db:"reference_id"`
+			CreatedAt       string         `db:"created_at"`
+		}
+		err = r.db.SelectContext(ctx, &rows, `SELECT id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at FROM supplier_ledger WHERE supplier_id = $1 ORDER BY created_at ASC`, supplierID)
+		if err == nil {
+			entries = make([]LedgerEntry, 0, len(rows))
+			for _, row := range rows {
+				id, e := uuid.Parse(row.ID)
+				if e != nil {
+					return nil, 0, 0, 0, e
+				}
+				sid, e := uuid.Parse(row.SupplierID)
+				if e != nil {
+					return nil, 0, 0, 0, e
+				}
+				created, e := dbutil.ParseTimestamp(row.CreatedAt)
+				if e != nil {
+					return nil, 0, 0, 0, e
+				}
+				typ := row.Type.String
+				if typ == "" {
+					typ = strings.ToLower(row.TransactionType.String)
+				}
+				entry := LedgerEntry{ID: id, SupplierID: sid, Type: typ, Amount: row.Amount, Balance: row.Balance, CreatedAt: created}
+				if row.Description.Valid {
+					entry.Description = row.Description.String
+				}
+				if row.ReferenceID.Valid && row.ReferenceID.String != "" {
+					if ref, e := uuid.Parse(row.ReferenceID.String); e == nil {
+						entry.ReferenceID = &ref
+					}
+				}
+				entries = append(entries, entry)
+			}
+		}
+	} else {
+		err = r.db.SelectContext(ctx, &entries, query, supplierID)
+	}
 	if err != nil {
 		// If table doesn't exist, return empty ledger
 		if err.Error() == `pq: relation "supplier_ledger" does not exist` {
@@ -324,14 +495,18 @@ func (r *Repository) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID
 
 	// Get totals
 	var totalPurchases, totalPayments, currentBalance float64
-	query = `
+	if dbutil.IsSQLite(r.db) {
+		query = `SELECT COALESCE(SUM(CASE WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount ELSE 0 END), 0), COALESCE(SUM(CASE WHEN type = 'credit' OR transaction_type IN ('PAYMENT','RETURN') THEN amount ELSE 0 END), 0), COALESCE(SUM(CASE WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount ELSE -amount END), 0) FROM supplier_ledger WHERE supplier_id = $1`
+	} else {
+		query = `
 		SELECT 
 			COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE 0 END), 0) as total_purchases,
 			COALESCE(SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END), 0) as total_payments,
 			COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0) as current_balance
 		FROM supplier_ledger
 		WHERE supplier_id = $1
-	`
+		`
+	}
 	err = r.db.QueryRowContext(ctx, query, supplierID).Scan(&totalPurchases, &totalPayments, &currentBalance)
 	if err != nil {
 		// If table doesn't exist, return empty totals
@@ -346,6 +521,14 @@ func (r *Repository) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID
 
 // AddPayment adds a payment to supplier ledger
 func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) error {
+	if dbutil.IsSQLite(r.db) {
+		_, err := r.db.ExecContext(ctx, `INSERT INTO payments (id, transaction_number, supplier_id, amount, payment_method, reference, notes, payment_date, payment_status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed', $9, $9)`, payment.ID, "PAY-"+payment.ID.String()[:8], payment.SupplierID, payment.Amount, payment.Method, payment.Reference, payment.Notes, payment.PaymentDate, payment.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to add local payment: %w", err)
+		}
+		_, err = r.db.ExecContext(ctx, `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT $1, $2, 'credit', 'PAYMENT', $3, COALESCE((SELECT balance FROM supplier_ledger WHERE supplier_id = $2 ORDER BY created_at DESC LIMIT 1), 0) - $3, $4, $5, $6`, uuid.New(), payment.SupplierID, payment.Amount, "Payment: "+payment.Method, payment.ID, payment.CreatedAt)
+		return err
+	}
 	query := `
 		INSERT INTO supplier_payments (id, supplier_id, amount, payment_date, method, reference, notes, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -378,6 +561,10 @@ func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) e
 
 // AddLedgerEntry adds a ledger entry
 func (r *Repository) AddLedgerEntry(ctx context.Context, supplierID uuid.UUID, entryType string, amount float64, description string, referenceID uuid.UUID) error {
+	if dbutil.IsSQLite(r.db) {
+		_, err := r.db.ExecContext(ctx, `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT $1, $2, $3, CASE WHEN $3 = 'debit' THEN 'PURCHASE' ELSE 'ADJUSTMENT' END, $4, COALESCE((SELECT balance FROM supplier_ledger WHERE supplier_id = $2 ORDER BY created_at DESC LIMIT 1), 0) + CASE WHEN $3 = 'debit' THEN $4 ELSE -$4 END, $5, $6, CURRENT_TIMESTAMP`, uuid.New(), supplierID, entryType, amount, description, referenceID)
+		return err
+	}
 	ledgerQuery := `
 		INSERT INTO supplier_ledger (id, supplier_id, type, amount, balance, description, reference_id, created_at)
 		SELECT $1, $2, $3, $4, 
@@ -397,6 +584,13 @@ func (r *Repository) AddLedgerEntry(ctx context.Context, supplierID uuid.UUID, e
 
 // CreateDebtEntry creates a new debt entry
 func (r *Repository) CreateDebtEntry(ctx context.Context, debt *DebtEntry) error {
+	if dbutil.IsSQLite(r.db) {
+		if _, err := r.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS supplier_debts (id TEXT PRIMARY KEY, supplier_id TEXT NOT NULL, amount REAL NOT NULL, reference_id TEXT, reference_type TEXT, due_date TEXT, is_paid INTEGER DEFAULT 0, paid_amount REAL DEFAULT 0, created_at TEXT NOT NULL)`); err != nil {
+			return err
+		}
+		_, err := r.db.ExecContext(ctx, `INSERT INTO supplier_debts (id, supplier_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, debt.ID, debt.SupplierID, debt.Amount, debt.ReferenceID, debt.ReferenceType, debt.DueDate, debt.IsPaid, debt.PaidAmount, debt.CreatedAt)
+		return err
+	}
 	query := `
 		INSERT INTO supplier_debts (id, supplier_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -413,6 +607,40 @@ func (r *Repository) CreateDebtEntry(ctx context.Context, debt *DebtEntry) error
 
 // GetDebtEntries retrieves debt entries for a supplier
 func (r *Repository) GetDebtEntries(ctx context.Context, supplierID uuid.UUID) ([]DebtEntry, error) {
+	if dbutil.IsSQLite(r.db) {
+		var rows []struct {
+			ID                                             string `db:"id"`
+			SupplierID                                     string `db:"supplier_id"`
+			Amount, Paid                                   float64
+			ReferenceID, ReferenceType, DueDate, CreatedAt string
+			IsPaid                                         int
+		}
+		if err := r.db.SelectContext(ctx, &rows, `SELECT id, supplier_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at FROM supplier_debts WHERE supplier_id = $1 ORDER BY due_date ASC`, supplierID); err != nil {
+			return nil, err
+		}
+		out := make([]DebtEntry, 0, len(rows))
+		for _, row := range rows {
+			id, e := uuid.Parse(row.ID)
+			if e != nil {
+				return nil, e
+			}
+			sid, e := uuid.Parse(row.SupplierID)
+			if e != nil {
+				return nil, e
+			}
+			ref, _ := uuid.Parse(row.ReferenceID)
+			due, e := dbutil.ParseTimestamp(row.DueDate)
+			if e != nil {
+				return nil, e
+			}
+			created, e := dbutil.ParseTimestamp(row.CreatedAt)
+			if e != nil {
+				return nil, e
+			}
+			out = append(out, DebtEntry{ID: id, SupplierID: sid, Amount: row.Amount, PaidAmount: row.Paid, ReferenceID: ref, ReferenceType: row.ReferenceType, DueDate: due, IsPaid: row.IsPaid != 0, CreatedAt: created})
+		}
+		return out, nil
+	}
 	query := `
 		SELECT id, supplier_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at
 		FROM supplier_debts
@@ -429,6 +657,10 @@ func (r *Repository) GetDebtEntries(ctx context.Context, supplierID uuid.UUID) (
 
 // UpdateDebtPayment updates payment for a debt entry
 func (r *Repository) UpdateDebtPayment(ctx context.Context, debtID uuid.UUID, paymentAmount float64) error {
+	if dbutil.IsSQLite(r.db) {
+		_, err := r.db.ExecContext(ctx, `UPDATE supplier_debts SET paid_amount = MIN(amount, paid_amount + $1), is_paid = CASE WHEN paid_amount + $1 >= amount THEN 1 ELSE 0 END WHERE id = $2`, paymentAmount, debtID)
+		return err
+	}
 	query := `
 		UPDATE supplier_debts
 		SET paid_amount = paid_amount + $1,

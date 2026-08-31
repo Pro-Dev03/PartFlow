@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	apperrors "github.com/partflow/smart-store/pkg/errors"
 	"github.com/partflow/smart-store/pkg/middleware"
 )
 
@@ -35,7 +36,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) CreateReturn(c *gin.Context) {
 	var req ReturnRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
@@ -43,7 +44,7 @@ func (h *Handler) CreateReturn(c *gin.Context) {
 
 	response, err := h.service.CreateReturn(c.Request.Context(), userID, &req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to create return"))
 		return
 	}
 
@@ -66,13 +67,13 @@ func (h *Handler) CreateReturn(c *gin.Context) {
 func (h *Handler) GetReturn(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid return ID", err))
 		return
 	}
 
 	response, err := h.service.GetReturn(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.NewNotFoundError("Return", err))
 		return
 	}
 
@@ -104,7 +105,7 @@ func (h *Handler) GetReturn(c *gin.Context) {
 // @Router /api/v1/returns [get]
 func (h *Handler) ListReturns(c *gin.Context) {
 	var req ReturnListRequest
-	
+
 	// Parse query parameters
 	if page, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil {
 		req.Page = page
@@ -112,42 +113,41 @@ func (h *Handler) ListReturns(c *gin.Context) {
 	if perPage, err := strconv.Atoi(c.DefaultQuery("per_page", "20")); err == nil {
 		req.PerPage = perPage
 	}
-	
+
 	if customerID := c.Query("customer_id"); customerID != "" {
 		if id, err := uuid.Parse(customerID); err == nil {
 			req.CustomerID = &id
 		}
 	}
-	
+
 	if saleID := c.Query("sale_id"); saleID != "" {
 		if id, err := uuid.Parse(saleID); err == nil {
 			req.SaleID = &id
 		}
 	}
-	
+
 	req.Status = c.Query("status")
 	req.ReturnType = c.Query("return_type")
 	req.RefundMethod = c.Query("refund_method")
 	req.Search = c.Query("search")
 	req.SortBy = c.DefaultQuery("sort_by", "return_date")
 	req.SortOrder = c.DefaultQuery("sort_order", "DESC")
-	
+
 	if startDate := c.Query("start_date"); startDate != "" {
 		if t, err := time.Parse(time.RFC3339, startDate); err == nil {
 			req.StartDate = &t
 		}
 	}
-	
+
 	if endDate := c.Query("end_date"); endDate != "" {
 		if t, err := time.Parse(time.RFC3339, endDate); err == nil {
 			req.EndDate = &t
 		}
 	}
 
-
 	returns, total, err := h.service.ListReturns(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to list returns"))
 		return
 	}
 
@@ -179,20 +179,19 @@ func (h *Handler) ListReturns(c *gin.Context) {
 func (h *Handler) UpdateReturn(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid return ID", err))
 		return
 	}
 
 	var req ReturnUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
-
 	response, err := h.service.UpdateReturn(c.Request.Context(), id, &req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to update return"))
 		return
 	}
 
@@ -215,13 +214,12 @@ func (h *Handler) UpdateReturn(c *gin.Context) {
 func (h *Handler) DeleteReturn(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid return ID", err))
 		return
 	}
 
-
 	if err := h.service.DeleteReturn(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
@@ -244,14 +242,13 @@ func (h *Handler) DeleteReturn(c *gin.Context) {
 func (h *Handler) ApproveReturn(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid return ID", err))
 		return
 	}
 
-
 	response, err := h.service.ApproveReturn(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to approve return"))
 		return
 	}
 
@@ -274,14 +271,13 @@ func (h *Handler) ApproveReturn(c *gin.Context) {
 func (h *Handler) RejectReturn(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid return ID", err))
 		return
 	}
 
-
 	response, err := h.service.RejectReturn(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to process return"))
 		return
 	}
 
@@ -304,14 +300,13 @@ func (h *Handler) RejectReturn(c *gin.Context) {
 func (h *Handler) ProcessRefund(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid return ID", err))
 		return
 	}
 
-
 	response, err := h.service.ProcessRefund(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
@@ -335,20 +330,19 @@ func (h *Handler) ProcessRefund(c *gin.Context) {
 func (h *Handler) AddReturnItem(c *gin.Context) {
 	returnID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid return ID", err))
 		return
 	}
 
 	var req ReturnItemRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to create return item"))
 		return
 	}
 
-
 	item, err := h.service.AddReturnItem(c.Request.Context(), returnID, req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
@@ -372,20 +366,19 @@ func (h *Handler) AddReturnItem(c *gin.Context) {
 func (h *Handler) UpdateReturnItem(c *gin.Context) {
 	itemID, err := uuid.Parse(c.Param("item_id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid item ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid item ID", err))
 		return
 	}
 
 	var req ReturnItemRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
-
 	item, err := h.service.UpdateReturnItem(c.Request.Context(), itemID, req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to update return item"))
 		return
 	}
 
@@ -408,12 +401,12 @@ func (h *Handler) UpdateReturnItem(c *gin.Context) {
 func (h *Handler) DeleteReturnItem(c *gin.Context) {
 	itemID, err := uuid.Parse(c.Param("item_id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid item ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid item ID", err))
 		return
 	}
 
 	if err := h.service.DeleteReturnItem(c.Request.Context(), itemID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to delete return item"))
 		return
 	}
 
@@ -437,19 +430,19 @@ func (h *Handler) DeleteReturnItem(c *gin.Context) {
 func (h *Handler) ProcessReturnItemInspection(c *gin.Context) {
 	itemID, err := uuid.Parse(c.Param("item_id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid item ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid item ID", err))
 		return
 	}
 
 	var req ReturnInspectionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
 	item, err := h.service.ProcessReturnItemInspection(c.Request.Context(), itemID, &req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to create return item"))
 		return
 	}
 
@@ -472,7 +465,7 @@ func (h *Handler) ProcessReturnItemInspection(c *gin.Context) {
 func (h *Handler) CompleteReturn(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid return ID", err))
 		return
 	}
 
@@ -480,7 +473,7 @@ func (h *Handler) CompleteReturn(c *gin.Context) {
 
 	response, err := h.service.CompleteReturn(c.Request.Context(), id, userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to reverse return"))
 		return
 	}
 
@@ -502,13 +495,13 @@ func (h *Handler) CompleteReturn(c *gin.Context) {
 func (h *Handler) GetReturnsBySale(c *gin.Context) {
 	saleID, err := uuid.Parse(c.Param("sale_id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sale ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid sale ID", err))
 		return
 	}
 
 	returns, err := h.service.GetReturnBySale(c.Request.Context(), saleID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve sale returns"))
 		return
 	}
 
@@ -528,7 +521,7 @@ func (h *Handler) GetReturnsBySale(c *gin.Context) {
 func (h *Handler) GetMonthlyReturnsAnalysis(c *gin.Context) {
 	analysis, err := h.service.GetMonthlyReturnsAnalysis(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve return analysis"))
 		return
 	}
 
@@ -548,7 +541,7 @@ func (h *Handler) GetMonthlyReturnsAnalysis(c *gin.Context) {
 func (h *Handler) GetSalesReturnsAnalysis(c *gin.Context) {
 	analysis, err := h.service.GetSalesReturnsAnalysis(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve return trends"))
 		return
 	}
 
@@ -571,13 +564,13 @@ func (h *Handler) GetSalesReturnsAnalysis(c *gin.Context) {
 func (h *Handler) ValidateReturnQuantity(c *gin.Context) {
 	saleItemID, err := uuid.Parse(c.Param("sale_item_id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sale item ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid sale item ID", err))
 		return
 	}
 
 	quantity, err := strconv.Atoi(c.Query("quantity"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid quantity"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid quantity", nil))
 		return
 	}
 
@@ -603,7 +596,7 @@ func (h *Handler) ValidateReturnQuantity(c *gin.Context) {
 func (h *Handler) GetReturnSummary(c *gin.Context) {
 	summary, err := h.service.GetReturnSummary(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve return summary"))
 		return
 	}
 
@@ -626,7 +619,7 @@ func (h *Handler) GetReturnSummary(c *gin.Context) {
 func (h *Handler) ReverseReturn(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid return ID", err))
 		return
 	}
 
@@ -634,7 +627,7 @@ func (h *Handler) ReverseReturn(c *gin.Context) {
 
 	response, err := h.service.ReverseReturn(c.Request.Context(), id, userID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to validate return"))
 		return
 	}
 
@@ -656,13 +649,13 @@ func (h *Handler) ReverseReturn(c *gin.Context) {
 func (h *Handler) GetReturnsByCustomer(c *gin.Context) {
 	customerID, err := uuid.Parse(c.Param("customer_id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid customer ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid customer ID", err))
 		return
 	}
 
 	returns, err := h.service.GetReturnsByCustomer(c.Request.Context(), customerID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve customer returns"))
 		return
 	}
 
@@ -682,7 +675,7 @@ func (h *Handler) GetReturnsByCustomer(c *gin.Context) {
 func (h *Handler) GetPendingReturns(c *gin.Context) {
 	returns, err := h.service.GetPendingReturns(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve customer returns"))
 		return
 	}
 
@@ -702,7 +695,7 @@ func (h *Handler) GetPendingReturns(c *gin.Context) {
 func (h *Handler) GetReturnStatistics(c *gin.Context) {
 	stats, err := h.service.GetReturnStatistics(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve return statistics"))
 		return
 	}
 
@@ -725,13 +718,13 @@ func (h *Handler) GetReturnStatistics(c *gin.Context) {
 func (h *Handler) GetReturnWithItems(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid return ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid return ID", err))
 		return
 	}
 
 	returnRecord, items, err := h.service.GetReturnWithItems(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.NewNotFoundError("Return", err))
 		return
 	}
 

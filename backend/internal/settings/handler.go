@@ -13,12 +13,12 @@ type Handler struct {
 }
 
 type Setting struct {
-	Key         string  `json:"key"`
-	Value       string  `json:"value"`
-	ValueType   string  `json:"value_type"`
-	Category    string  `json:"category"`
-	Description string  `json:"description"`
-	IsPublic    bool    `json:"is_public"`
+	Key         string `json:"key"`
+	Value       string `json:"value"`
+	ValueType   string `json:"value_type"`
+	Category    string `json:"category"`
+	Description string `json:"description"`
+	IsPublic    bool   `json:"is_public"`
 }
 
 type UpdateSettingRequest struct {
@@ -101,23 +101,19 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
-	query := `
-		UPDATE settings
-		SET value = $1, updated_at = NOW()
-		WHERE key = $2
-		RETURNING key, value, value_type, category, description, is_public
-	`
-
-	var setting Setting
-	err := h.db.QueryRow(query, req.Value, key).Scan(
-		&setting.Key, &setting.Value, &setting.ValueType, &setting.Category, &setting.Description, &setting.IsPublic,
-	)
-
-	if err == sql.ErrNoRows {
+	result, err := h.db.Exec(`UPDATE settings SET value = $1, updated_at = CURRENT_TIMESTAMP WHERE key = $2`, req.Value, key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update setting"})
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Setting not found"})
 		return
 	}
-
+	var setting Setting
+	err = h.db.QueryRow(`SELECT key, value, value_type, category, description, is_public FROM settings WHERE key = $1`, key).Scan(
+		&setting.Key, &setting.Value, &setting.ValueType, &setting.Category, &setting.Description, &setting.IsPublic,
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update setting"})
 		return
@@ -159,18 +155,13 @@ func (h *Handler) UpdateTaxRate(c *gin.Context) {
 		return
 	}
 
-	query := `
-		UPDATE settings
-		SET value = $1, updated_at = NOW()
-		WHERE key = 'tax_rate'
-		RETURNING value
-	`
-
-	var updatedValue string
-	err := h.db.QueryRow(query, strconv.FormatFloat(req.TaxRate, 'f', 2, 64)).Scan(&updatedValue)
-
+	result, err := h.db.Exec(`UPDATE settings SET value = $1, updated_at = CURRENT_TIMESTAMP WHERE key = 'tax_rate'`, strconv.FormatFloat(req.TaxRate, 'f', 2, 64))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update tax rate"})
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tax_rate setting not found"})
 		return
 	}
 

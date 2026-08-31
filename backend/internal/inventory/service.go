@@ -2,12 +2,14 @@ package inventory
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 type Service struct {
@@ -62,7 +64,7 @@ func (s *Service) CreateInventoryItem(ctx context.Context, req *InventoryItemReq
 	}
 
 	now := time.Now()
-	
+
 	// Set default status if not provided
 	status := req.Status
 	if status == "" {
@@ -77,22 +79,22 @@ func (s *Service) CreateInventoryItem(ctx context.Context, req *InventoryItemReq
 	}
 
 	item := &InventoryItem{
-		ID:             uuid.New(),
-		ProductID:      req.ProductID,
-		PartTypeID:     req.PartTypeID,
-		ItemCode:       itemCode,
-		Barcode:        barcode,
-		SerialNumber:   req.SerialNumber,
-		Condition:      string(req.Condition),
-		Grade:          gradePtr,
-		PurchaseCost:   req.PurchaseCost,
-		SellingPrice:   req.SellingPrice,
-		Status:         string(status),
-		LocationID:     req.LocationID,
-		SupplierID:     req.SupplierID,
-		Notes:          req.Notes,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:           uuid.New(),
+		ProductID:    req.ProductID,
+		PartTypeID:   req.PartTypeID,
+		ItemCode:     itemCode,
+		Barcode:      barcode,
+		SerialNumber: req.SerialNumber,
+		Condition:    string(req.Condition),
+		Grade:        gradePtr,
+		PurchaseCost: req.PurchaseCost,
+		SellingPrice: req.SellingPrice,
+		Status:       string(status),
+		LocationID:   req.LocationID,
+		SupplierID:   req.SupplierID,
+		Notes:        req.Notes,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 
 	if err := s.repo.CreateInventoryItem(ctx, item); err != nil {
@@ -144,20 +146,30 @@ func (s *Service) ReceiveItem(ctx context.Context, id uuid.UUID, locationID *uui
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	committed := false
 	defer func() {
-		if err != nil {
-			tx.Rollback()
+		if !committed {
+			_ = tx.Rollback()
 		}
 	}()
 
-	// Get current item
-	item, err := s.repo.GetInventoryItemByID(ctx, id)
+	// Read and lock the item inside the same transaction used for every update.
+	itemQuery := `SELECT id, product_id, part_type_id, item_code, barcode, serial_number, condition, grade, purchase_cost, selling_price, status, location_id, supplier_id, purchase_date, sold_at, notes, created_at, updated_at FROM inventory_items WHERE id = $1`
+	if !dbutil.IsSQLite(s.db) {
+		itemQuery += " FOR UPDATE"
+	}
+	var item *InventoryItem
+	item, err = getInventoryItemTx(ctx, tx, itemQuery, id)
 	if err != nil {
 		return fmt.Errorf("failed to get item: %w", err)
 	}
+	var currentQuantity int
+	if err = tx.GetContext(ctx, &currentQuantity, `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1 LIMIT 1`, item.ProductID); err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to read inventory quantity: %w", err)
+	}
 
 	// Update status to available
-	if err := s.repo.UpdateItemStatus(ctx, id, string(StatusAvailable)); err != nil {
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE inventory_items SET status = 'AVAILABLE', updated_at = %s WHERE id = $1`, dbutil.NowSQL(s.db)), id); err != nil {
 		return fmt.Errorf("failed to update item status: %w", err)
 	}
 
@@ -165,35 +177,32 @@ func (s *Service) ReceiveItem(ctx context.Context, id uuid.UUID, locationID *uui
 	if locationID != nil {
 		item.LocationID = locationID
 		item.UpdatedAt = time.Now()
-		if err := s.repo.UpdateInventoryItem(ctx, item); err != nil {
+		if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE inventory_items SET location_id = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db)), locationID, id); err != nil {
 			return fmt.Errorf("failed to update item location: %w", err)
 		}
 	}
 
 	// Update inventory table (increase stock)
-	inventoryUpdateQuery := `
+	inventoryUpdateQuery := fmt.Sprintf(`
 		UPDATE inventory
-		SET quantity = quantity + 1, updated_at = NOW()
+		SET quantity = quantity + 1, updated_at = %s
 		WHERE product_id = $1
-	`
+	`, dbutil.NowSQL(s.db))
 	result, err := tx.ExecContext(ctx, inventoryUpdateQuery, item.ProductID)
 	if err != nil {
 		return fmt.Errorf("failed to update inventory: %w", err)
 	}
 	if rowsAffected, _ := result.RowsAffected(); rowsAffected == 0 {
 		// Create inventory record if it doesn't exist
-		createInventoryQuery := `
+		createInventoryQuery := fmt.Sprintf(`
 			INSERT INTO inventory (id, product_id, quantity, created_at, updated_at)
-			VALUES ($1, $2, 1, NOW(), NOW())
-		`
+			VALUES ($1, $2, 1, %s, %s)
+		`, dbutil.NowSQL(s.db), dbutil.NowSQL(s.db))
 		_, err = tx.ExecContext(ctx, createInventoryQuery, uuid.New(), item.ProductID)
 		if err != nil {
 			return fmt.Errorf("failed to create inventory record: %w", err)
 		}
 	}
-
-	// Get current inventory quantity for movement record
-	var currentQuantity int
 
 	// Create movement record
 	reason := "Item received and made available"
@@ -203,88 +212,93 @@ func (s *Service) ReceiveItem(ctx context.Context, id uuid.UUID, locationID *uui
 		ProductID:      item.ProductID,
 		MovementType:   MovementPurchase,
 		Quantity:       1,
-		BeforeQuantity: currentQuantity - 1,
-		AfterQuantity:  currentQuantity,
+		BeforeQuantity: currentQuantity,
+		AfterQuantity:  currentQuantity + 1,
 		Reason:         &reason,
 		CreatedBy:      userID,
 		CreatedAt:      time.Now(),
 	}
 
-	if err := s.repo.CreateMovement(ctx, movement); err != nil {
+	movementQuery := fmt.Sprintf(`INSERT INTO inventory_movements (id, item_id, product_id, movement_type, quantity, before_quantity, after_quantity, reason, created_by, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, %s)`, dbutil.NowSQL(s.db))
+	if _, err = tx.ExecContext(ctx, movementQuery, movement.ID, movement.ItemID, movement.ProductID, movement.MovementType, movement.Quantity, currentQuantity, currentQuantity+1, movement.Reason, movement.CreatedBy); err != nil {
 		return fmt.Errorf("failed to create movement: %w", err)
 	}
 
 	// Create audit log
-	auditQuery := `
+	auditQuery := fmt.Sprintf(`
 		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
+		VALUES ($1, $2, $3, $4, $5, $6, %s)
+	`, dbutil.NowSQL(s.db))
 	changes := fmt.Sprintf("Received item %s, location: %v", id, locationID)
 	_, err = tx.ExecContext(ctx, auditQuery,
 		uuid.New(), userID, "RECEIVE_ITEM", "inventory_item", id,
 		changes, time.Now())
 	if err != nil {
-		fmt.Printf("Warning: failed to create audit log: %v\n", err)
+		return fmt.Errorf("failed to create audit log: %w", err)
 	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	committed = true
 
 	return nil
 }
 
 // ReserveItem reserves an item for a customer
 func (s *Service) ReserveItem(ctx context.Context, req *ReservationRequest, userID uuid.UUID) (*Reservation, error) {
-	// Check if item exists and is available
-	item, err := s.repo.GetInventoryItemByID(ctx, req.ItemID)
+	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to begin reservation: %w", err)
 	}
-
-	if item.Status != string(StatusAvailable) {
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	var status string
+	itemQuery := `SELECT status FROM inventory_items WHERE id = $1`
+	if !dbutil.IsSQLite(s.db) {
+		itemQuery += " FOR UPDATE"
+	}
+	if err = tx.GetContext(ctx, &status, itemQuery, req.ItemID); err != nil {
+		return nil, ErrItemNotFound
+	}
+	if status != string(StatusAvailable) {
 		return nil, ErrInvalidStatus
 	}
-
-	// Check if item is already reserved
-	existingReservation, err := s.repo.GetActiveReservationByItem(ctx, req.ItemID)
-	if err != nil {
-		return nil, err
+	var existing int
+	if err = tx.GetContext(ctx, &existing, `SELECT COUNT(*) FROM reservations WHERE item_id = $1 AND status = 'active'`, req.ItemID); err != nil {
+		return nil, fmt.Errorf("failed to check reservation: %w", err)
 	}
-	if existingReservation != nil {
+	if existing > 0 {
 		return nil, ErrItemAlreadyReserved
 	}
-
-	// Calculate expiration time
-	expiresAt := time.Now().Add(time.Duration(req.ExpiresIn) * time.Minute)
-	if req.ExpiresIn == 0 {
-		expiresAt = time.Now().Add(24 * time.Hour) // Default 24 hours
+	if req.ExpiresIn < 0 {
+		return nil, fmt.Errorf("reservation expiration cannot be negative")
 	}
-
-	// Create reservation
-	reservation := &Reservation{
-		ID:             uuid.New(),
-		ItemID:         req.ItemID,
-		CustomerID:     req.CustomerID,
-		UserID:         userID,
-		ReservedAt:     time.Now(),
-		ExpiresAt:      expiresAt,
-		Status:         "active",
-		Notes:          req.Notes,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+	now := time.Now().UTC()
+	expiresAt := now.Add(24 * time.Hour)
+	if req.ExpiresIn > 0 {
+		expiresAt = now.Add(time.Duration(req.ExpiresIn) * time.Minute)
 	}
-
-	if err := s.repo.CreateReservation(ctx, reservation); err != nil {
+	reservation := &Reservation{ID: uuid.New(), ItemID: req.ItemID, CustomerID: req.CustomerID, UserID: userID, ReservedAt: now, ExpiresAt: expiresAt, Status: "active", Notes: req.Notes, CreatedAt: now, UpdatedAt: now}
+	insert := fmt.Sprintf(`INSERT INTO reservations (id, item_id, customer_id, user_id, reserved_at, expires_at, status, notes, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, %s)`, dbutil.NowSQL(s.db))
+	if _, err = tx.ExecContext(ctx, insert, reservation.ID, reservation.ItemID, reservation.CustomerID, reservation.UserID, reservation.ReservedAt, reservation.ExpiresAt, reservation.Notes, reservation.CreatedAt); err != nil {
 		return nil, fmt.Errorf("failed to create reservation: %w", err)
 	}
-
-	// Update item status
-	if err := s.repo.UpdateItemStatus(ctx, req.ItemID, string(StatusReserved)); err != nil {
-		return nil, fmt.Errorf("failed to update item status: %w", err)
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE inventory_items SET status = 'RESERVED', updated_at = %s WHERE id = $1`, dbutil.NowSQL(s.db)), req.ItemID); err != nil {
+		return nil, fmt.Errorf("failed to reserve item: %w", err)
 	}
-
+	if _, err = tx.ExecContext(ctx, `UPDATE inventory SET reserved_quantity = COALESCE(reserved_quantity, 0) + 1 WHERE product_id = (SELECT product_id FROM inventory_items WHERE id = $1)`, req.ItemID); err != nil {
+		return nil, fmt.Errorf("failed to update reserved inventory quantity: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit reservation: %w", err)
+	}
+	committed = true
 	return reservation, nil
 }
 
@@ -295,15 +309,23 @@ func (s *Service) ReleaseReservation(ctx context.Context, reservationID uuid.UUI
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	committed := false
 	defer func() {
-		if err != nil {
-			tx.Rollback()
+		if !committed {
+			_ = tx.Rollback()
 		}
 	}()
 
 	// Get reservation with row lock
-	var reservation Reservation
-	reservationQuery := `SELECT id, item_id, customer_id, user_id, reserved_at, expires_at, status, notes, created_at, updated_at FROM reservations WHERE id = $1 FOR UPDATE`
+	var reservation struct {
+		ItemID    uuid.UUID `db:"item_id"`
+		ProductID uuid.UUID `db:"product_id"`
+		Status    string    `db:"status"`
+	}
+	reservationQuery := `SELECT r.item_id, ii.product_id, r.status FROM reservations r JOIN inventory_items ii ON ii.id = r.item_id WHERE r.id = $1`
+	if !dbutil.IsSQLite(s.db) {
+		reservationQuery += " FOR UPDATE"
+	}
 	err = tx.GetContext(ctx, &reservation, reservationQuery, reservationID)
 	if err != nil {
 		return fmt.Errorf("failed to get reservation: %w", err)
@@ -312,19 +334,26 @@ func (s *Service) ReleaseReservation(ctx context.Context, reservationID uuid.UUI
 	if reservation.Status != "active" {
 		return fmt.Errorf("reservation is not active")
 	}
+	var beforeAvailable int
+	if err = tx.GetContext(ctx, &beforeAvailable, `SELECT COUNT(*) FROM inventory_items WHERE product_id = $1 AND status = 'AVAILABLE'`, reservation.ProductID); err != nil {
+		return fmt.Errorf("failed to read available inventory quantity: %w", err)
+	}
 
 	// Update reservation status to cancelled
-	updateReservationQuery := `UPDATE reservations SET status = 'cancelled', updated_at = NOW() WHERE id = $1`
+	updateReservationQuery := fmt.Sprintf(`UPDATE reservations SET status = 'cancelled', updated_at = %s WHERE id = $1`, dbutil.NowSQL(s.db))
 	_, err = tx.ExecContext(ctx, updateReservationQuery, reservationID)
 	if err != nil {
 		return fmt.Errorf("failed to update reservation: %w", err)
 	}
 
 	// Update item status back to available
-	updateItemQuery := `UPDATE inventory_items SET status = 'AVAILABLE', updated_at = NOW() WHERE id = $1`
+	updateItemQuery := fmt.Sprintf(`UPDATE inventory_items SET status = 'AVAILABLE', updated_at = %s WHERE id = $1`, dbutil.NowSQL(s.db))
 	_, err = tx.ExecContext(ctx, updateItemQuery, reservation.ItemID)
 	if err != nil {
 		return fmt.Errorf("failed to update item status: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE inventory SET reserved_quantity = CASE WHEN COALESCE(reserved_quantity, 0) > 0 THEN reserved_quantity - 1 ELSE 0 END WHERE product_id = (SELECT product_id FROM inventory_items WHERE id = $1)`, reservation.ItemID); err != nil {
+		return fmt.Errorf("failed to release reserved inventory quantity: %w", err)
 	}
 
 	// Create movement record
@@ -337,102 +366,151 @@ func (s *Service) ReleaseReservation(ctx context.Context, reservationID uuid.UUI
 	`
 	_, err = tx.ExecContext(ctx, movementQuery,
 		uuid.New(), reservation.ItemID, "RELEASE",
-		1, 0, 1, "reservation", reservationID, releaseReason, userID, time.Now())
+		1, beforeAvailable, beforeAvailable+1, "reservation", reservationID, releaseReason, userID, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to create movement: %w", err)
 	}
 
 	// Create audit log
-	auditQuery := `
+	auditQuery := fmt.Sprintf(`
 		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
+		VALUES ($1, $2, $3, $4, $5, $6, %s)
+	`, dbutil.NowSQL(s.db))
 	changes := fmt.Sprintf("Released reservation %s for item %s", reservationID, reservation.ItemID)
 	_, err = tx.ExecContext(ctx, auditQuery,
 		uuid.New(), userID, "RELEASE_RESERVATION", "reservation", reservationID,
 		changes, time.Now())
 	if err != nil {
-		fmt.Printf("Warning: failed to create audit log: %v\n", err)
+		return fmt.Errorf("failed to create audit log: %w", err)
 	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	committed = true
 
 	return nil
 }
 
 // ConvertReservationToSale converts a reservation to a sale
 func (s *Service) ConvertReservationToSale(ctx context.Context, reservationID uuid.UUID) error {
-	// Get reservation
-	// Update reservation status to converted
-	// Update item status to sold
-	// This would be called during sale creation
-
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin reservation conversion: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	var reservation struct {
+		ItemID uuid.UUID `db:"item_id"`
+		UserID uuid.UUID `db:"user_id"`
+		Status string    `db:"status"`
+	}
+	query := `SELECT item_id, user_id, status FROM reservations WHERE id = $1`
+	if !dbutil.IsSQLite(s.db) {
+		query += " FOR UPDATE"
+	}
+	if err = tx.GetContext(ctx, &reservation, query, reservationID); err != nil {
+		return fmt.Errorf("reservation not found: %w", err)
+	}
+	if reservation.Status != "active" {
+		return fmt.Errorf("reservation is not active")
+	}
+	nowSQL := dbutil.NowSQL(s.db)
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE reservations SET status = 'converted', updated_at = %s WHERE id = $1`, nowSQL), reservationID); err != nil {
+		return fmt.Errorf("failed to convert reservation: %w", err)
+	}
+	var productID uuid.UUID
+	if err = tx.GetContext(ctx, &productID, `SELECT product_id FROM inventory_items WHERE id = $1`, reservation.ItemID); err != nil {
+		return fmt.Errorf("failed to get reserved item product: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE inventory_items SET status = 'SOLD', sold_at = %s, updated_at = %s WHERE id = $1`, nowSQL, nowSQL), reservation.ItemID); err != nil {
+		return fmt.Errorf("failed to mark reserved item sold: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE inventory SET quantity = CASE WHEN COALESCE(quantity, 0) > 0 THEN quantity - 1 ELSE 0 END, reserved_quantity = CASE WHEN COALESCE(reserved_quantity, 0) > 0 THEN reserved_quantity - 1 ELSE 0 END, updated_at = %s WHERE product_id = $1`, nowSQL), productID); err != nil {
+		return fmt.Errorf("failed to update reserved item aggregate: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`INSERT INTO inventory_movements (id, item_id, movement_type, quantity, before_quantity, after_quantity, reference_type, reference_id, reason, created_by, created_at) VALUES ($1, $2, 'SALE', 1, 1, 0, 'reservation', $3, 'Reservation converted to sale', $4, %s)`, nowSQL), uuid.New(), reservation.ItemID, reservationID, reservation.UserID); err != nil {
+		return fmt.Errorf("failed to record reservation sale movement: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit reservation conversion: %w", err)
+	}
 	return nil
 }
 
 // AdjustInventory adjusts inventory quantity (for quantity-based products) with full automation
 func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, userID uuid.UUID) error {
+	if req.NewQuantity < 0 {
+		return fmt.Errorf("new quantity cannot be negative")
+	}
 	// Start transaction for atomic operation
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	committed := false
 	defer func() {
-		if err != nil {
-			tx.Rollback()
+		if !committed {
+			_ = tx.Rollback()
 		}
 	}()
 
 	// Get current item with row lock
-	var item InventoryItem
-	itemQuery := `SELECT id, product_id, part_type_id, item_code, barcode, serial_number, condition, grade, purchase_cost, selling_price, status, location_id, supplier_id, purchase_date, sold_at, notes, created_at, updated_at FROM inventory_items WHERE id = $1 FOR UPDATE`
-	err = tx.GetContext(ctx, &item, itemQuery, req.ItemID)
+	itemQuery := `SELECT id, product_id, part_type_id, item_code, barcode, serial_number, condition, grade, purchase_cost, selling_price, status, location_id, supplier_id, purchase_date, sold_at, notes, created_at, updated_at FROM inventory_items WHERE id = $1`
+	if !dbutil.IsSQLite(s.db) {
+		itemQuery += " FOR UPDATE"
+	}
+	item, err := getInventoryItemTx(ctx, tx, itemQuery, req.ItemID)
 	if err != nil {
 		return fmt.Errorf("failed to get item: %w", err)
 	}
 
-	// Calculate quantity difference
-	quantityDiff := req.NewQuantity - 1 // Since individual items have quantity of 1
+	// Calculate the difference from the aggregate quantity, not from the
+	// individual row's implicit quantity of one.
+	var currentQuantity int
+	if err = tx.GetContext(ctx, &currentQuantity, `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1 LIMIT 1`, item.ProductID); err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to read current inventory quantity: %w", err)
+	}
+	quantityDiff := req.NewQuantity - currentQuantity
 
 	// Update item status if needed
 	if req.NewStatus != nil && *req.NewStatus != "" {
 		if !isValidStatusTransition(item.Status, *req.NewStatus) {
 			return ErrInvalidStatus
 		}
-		updateStatusQuery := `UPDATE inventory_items SET status = $1, updated_at = NOW() WHERE id = $2`
-		_, err = tx.ExecContext(ctx, updateStatusQuery, *req.NewStatus, req.ItemID)
+		newStatus := strings.ToUpper(strings.TrimSpace(*req.NewStatus))
+		updateStatusQuery := fmt.Sprintf(`UPDATE inventory_items SET status = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db))
+		_, err = tx.ExecContext(ctx, updateStatusQuery, newStatus, req.ItemID)
 		if err != nil {
 			return fmt.Errorf("failed to update item status: %w", err)
 		}
 	}
 
 	// Update aggregate inventory table
-	inventoryUpdateQuery := `
+	inventoryUpdateQuery := fmt.Sprintf(`
 		UPDATE inventory
-		SET quantity = quantity + $1, updated_at = NOW()
+		SET quantity = quantity + $1, updated_at = %s
 		WHERE product_id = $2
-	`
+	`, dbutil.NowSQL(s.db))
 	result, err := tx.ExecContext(ctx, inventoryUpdateQuery, quantityDiff, item.ProductID)
 	if err != nil {
 		return fmt.Errorf("failed to update inventory: %w", err)
 	}
 	if rowsAffected, _ := result.RowsAffected(); rowsAffected == 0 {
 		// Create inventory record if it doesn't exist
-		createInventoryQuery := `
+		createInventoryQuery := fmt.Sprintf(`
 			INSERT INTO inventory (id, product_id, quantity, created_at, updated_at)
-			VALUES ($1, $2, $3, NOW(), NOW())
-		`
+			VALUES ($1, $2, $3, %s, %s)
+		`, dbutil.NowSQL(s.db), dbutil.NowSQL(s.db))
 		_, err = tx.ExecContext(ctx, createInventoryQuery, uuid.New(), item.ProductID, req.NewQuantity)
 		if err != nil {
 			return fmt.Errorf("failed to create inventory record: %w", err)
 		}
 	}
-
-	// Get current inventory quantity for movement record
-	var currentQuantity int
 
 	// Create movement record
 	adjustmentReason := req.Reason
@@ -448,16 +526,16 @@ func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, u
 	`
 	_, err = tx.ExecContext(ctx, movementQuery,
 		uuid.New(), req.ItemID, "ADJUSTMENT",
-		quantityDiff, currentQuantity - quantityDiff, currentQuantity, "adjustment", req.ItemID, adjustmentReason, userID, time.Now())
+		quantityDiff, currentQuantity, req.NewQuantity, "adjustment", req.ItemID, adjustmentReason, userID, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to create movement: %w", err)
 	}
 
 	// Create audit log
-	auditQuery := `
+	auditQuery := fmt.Sprintf(`
 		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
+		VALUES ($1, $2, $3, $4, $5, $6, %s)
+	`, dbutil.NowSQL(s.db))
 	var statusStr string
 	if req.NewStatus != nil {
 		statusStr = *req.NewStatus
@@ -469,13 +547,14 @@ func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, u
 		uuid.New(), userID, "ADJUST_INVENTORY", "inventory_item", req.ItemID,
 		changes, time.Now())
 	if err != nil {
-		fmt.Printf("Warning: failed to create audit log: %v\n", err)
+		return fmt.Errorf("failed to create audit log: %w", err)
 	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	committed = true
 
 	return nil
 }
@@ -487,16 +566,19 @@ func (s *Service) TransferItem(ctx context.Context, req *TransferRequest, userID
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	committed := false
 	defer func() {
-		if err != nil {
-			tx.Rollback()
+		if !committed {
+			_ = tx.Rollback()
 		}
 	}()
 
 	// Get item with row lock
-	itemQuery := `SELECT id, product_id, part_type_id, item_code, barcode, serial_number, condition, grade, purchase_cost, selling_price, status, location_id, supplier_id, purchase_date, sold_at, notes, created_at, updated_at FROM inventory_items WHERE id = $1 FOR UPDATE`
-	var item InventoryItem
-	err = tx.GetContext(ctx, &item, itemQuery, req.ItemID)
+	itemQuery := `SELECT id, product_id, part_type_id, item_code, barcode, serial_number, condition, grade, purchase_cost, selling_price, status, location_id, supplier_id, purchase_date, sold_at, notes, created_at, updated_at FROM inventory_items WHERE id = $1`
+	if !dbutil.IsSQLite(s.db) {
+		itemQuery += " FOR UPDATE"
+	}
+	item, err := getInventoryItemTx(ctx, tx, itemQuery, req.ItemID)
 	if err != nil {
 		return fmt.Errorf("failed to get item: %w", err)
 	}
@@ -515,7 +597,7 @@ func (s *Service) TransferItem(ctx context.Context, req *TransferRequest, userID
 	}
 
 	// Update location
-	updateItemQuery := `UPDATE inventory_items SET location_id = $1, updated_at = NOW() WHERE id = $2`
+	updateItemQuery := fmt.Sprintf(`UPDATE inventory_items SET location_id = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db))
 	_, err = tx.ExecContext(ctx, updateItemQuery, req.ToLocationID, req.ItemID)
 	if err != nil {
 		return fmt.Errorf("failed to update item location: %w", err)
@@ -533,18 +615,21 @@ func (s *Service) TransferItem(ctx context.Context, req *TransferRequest, userID
 			reason, created_by, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
+	if req.Quantity <= 0 {
+		return fmt.Errorf("transfer quantity must be positive")
+	}
 	_, err = tx.ExecContext(ctx, movementQuery,
 		uuid.New(), req.ItemID, "TRANSFER",
-		1, 1, 1, "transfer", req.ItemID, transferReason, userID, time.Now())
+		req.Quantity, req.Quantity, req.Quantity, "transfer", req.ItemID, transferReason, userID, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to create movement: %w", err)
 	}
 
 	// Create audit log
-	auditQuery := `
+	auditQuery := fmt.Sprintf(`
 		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
+		VALUES ($1, $2, $3, $4, $5, $6, %s)
+	`, dbutil.NowSQL(s.db))
 	var reasonStr string
 	if transferReason != nil {
 		reasonStr = *transferReason
@@ -556,15 +641,24 @@ func (s *Service) TransferItem(ctx context.Context, req *TransferRequest, userID
 		uuid.New(), userID, "TRANSFER_ITEM", "inventory_item", req.ItemID,
 		changes, time.Now())
 	if err != nil {
-		fmt.Printf("Warning: failed to create audit log: %v\n", err)
+		return fmt.Errorf("failed to create audit log: %w", err)
 	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	committed = true
 
 	return nil
+}
+
+func getInventoryItemTx(ctx context.Context, tx *sqlx.Tx, query string, id uuid.UUID) (*InventoryItem, error) {
+	record := map[string]any{}
+	if err := tx.QueryRowxContext(ctx, query, id).MapScan(record); err != nil {
+		return nil, err
+	}
+	return inventoryItemFromMap(record)
 }
 
 // ListInventoryItems lists inventory items with filters
@@ -577,6 +671,26 @@ func (s *Service) ListInventoryItems(ctx context.Context, page, perPage int, fil
 func (s *Service) ListInventoryItemsWithSupplierInfo(ctx context.Context, page, perPage int, filters map[string]interface{}) ([]*InventoryItemWithSupplier, int64, error) {
 	offset := (page - 1) * perPage
 	return s.repo.ListInventoryItemsWithSupplierInfo(ctx, perPage, offset, filters)
+}
+
+func (s *Service) CreateLocation(ctx context.Context, req *LocationRequest) (*Location, error) {
+	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Type) == "" {
+		return nil, fmt.Errorf("location name and type are required")
+	}
+	now := time.Now().UTC()
+	location := &Location{ID: uuid.New(), Name: strings.TrimSpace(req.Name), Type: strings.TrimSpace(req.Type), ParentID: req.ParentID, WarehouseID: req.WarehouseID, Description: req.Description, IsActive: true, CreatedAt: now, UpdatedAt: now}
+	if err := s.repo.CreateLocation(ctx, location); err != nil {
+		return nil, err
+	}
+	return location, nil
+}
+
+func (s *Service) GetLocation(ctx context.Context, id uuid.UUID) (*Location, error) {
+	return s.repo.GetLocationByID(ctx, id)
+}
+
+func (s *Service) ListLocations(ctx context.Context) ([]*Location, error) {
+	return s.repo.ListLocations(ctx)
 }
 
 // GetItemHistory retrieves movement history for an item

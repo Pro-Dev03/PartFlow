@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Repository handles audit log data operations
@@ -21,14 +22,17 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // CreateAuditLog creates a new audit log entry
 func (r *Repository) CreateAuditLog(ctx context.Context, auditLog *AuditLog) error {
+	if auditLog.ID == uuid.Nil {
+		auditLog.ID = uuid.New()
+	}
 	query := `
-		INSERT INTO audit_logs (user_id, action, entity_type, entity_id,
+		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id,
 			ip_address, user_agent, request_id, changes, description, status, error_message, metadata, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 
 	_, err := r.db.ExecContext(ctx, query,
-		auditLog.UserID, auditLog.Action, auditLog.EntityType, auditLog.EntityID,
+		auditLog.ID, auditLog.UserID, auditLog.Action, auditLog.EntityType, auditLog.EntityID,
 		auditLog.IPAddress, auditLog.UserAgent, auditLog.RequestID, auditLog.Changes,
 		auditLog.Description, auditLog.Status, auditLog.ErrorMessage, auditLog.Metadata,
 		auditLog.CreatedAt,
@@ -89,63 +93,67 @@ func (r *Repository) ListAuditLogs(ctx context.Context, req AuditLogListRequest)
 		countQuery += fmt.Sprintf(" AND user_id = $%d", argCount)
 		args = append(args, *req.UserID)
 	}
-	
+
 	if req.Action != "" {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND action = $%d", argCount)
 		countQuery += fmt.Sprintf(" AND action = $%d", argCount)
 		args = append(args, req.Action)
 	}
-	
+
 	if req.EntityID != nil {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND entity_id = $%d", argCount)
 		countQuery += fmt.Sprintf(" AND entity_id = $%d", argCount)
 		args = append(args, *req.EntityID)
 	}
-	
+
 	if req.EntityType != "" {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND entity_type = $%d", argCount)
 		countQuery += fmt.Sprintf(" AND entity_type = $%d", argCount)
 		args = append(args, req.EntityType)
 	}
-	
+
 	if req.Status != "" {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND status = $%d", argCount)
 		countQuery += fmt.Sprintf(" AND status = $%d", argCount)
 		args = append(args, req.Status)
 	}
-	
+
 	if req.StartDate != nil {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND created_at >= $%d", argCount)
 		countQuery += fmt.Sprintf(" AND created_at >= $%d", argCount)
 		args = append(args, *req.StartDate)
 	}
-	
+
 	if req.EndDate != nil {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND created_at <= $%d", argCount)
 		countQuery += fmt.Sprintf(" AND created_at <= $%d", argCount)
 		args = append(args, *req.EndDate)
 	}
-	
+
 	if req.Search != "" {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND (description ILIKE $%d OR error_message ILIKE $%d)", argCount, argCount)
-		countQuery += fmt.Sprintf(" AND (description ILIKE $%d OR error_message ILIKE $%d)", argCount, argCount)
+		like := "ILIKE"
+		if dbutil.IsSQLite(r.db) {
+			like = "LIKE"
+		}
+		baseQuery += fmt.Sprintf(" AND (description %s $%d OR error_message %s $%d)", like, argCount, like, argCount)
+		countQuery += fmt.Sprintf(" AND (description %s $%d OR error_message %s $%d)", like, argCount, like, argCount)
 		searchPattern := "%" + req.Search + "%"
 		args = append(args, searchPattern, searchPattern)
 	}
-	
+
 	// Get total count
 	err := r.db.GetContext(ctx, &count, countQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count audit logs: %w", err)
 	}
-	
+
 	// Add sorting
 	sortBy := "created_at"
 	if req.SortBy != "" {
@@ -156,18 +164,18 @@ func (r *Repository) ListAuditLogs(ctx context.Context, req AuditLogListRequest)
 		sortOrder = req.SortOrder
 	}
 	baseQuery += fmt.Sprintf(" ORDER BY %s %s", sortBy, sortOrder)
-	
+
 	// Add pagination
 	offset := (req.Page - 1) * req.PerPage
 	argCount++
 	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argCount, argCount+1)
 	args = append(args, req.PerPage, offset)
-	
+
 	err = r.db.SelectContext(ctx, &auditLogs, baseQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list audit logs: %w", err)
 	}
-	
+
 	return auditLogs, count, nil
 }
 
@@ -197,17 +205,19 @@ func (r *Repository) GetAuditLogSummary(ctx context.Context) (*AuditLogSummary, 
 	}
 
 	// This week logs
-	err = r.db.GetContext(ctx, &summary.ThisWeek,
-		`SELECT COUNT(*) FROM audit_logs
-		 WHERE created_at >= DATE_TRUNC('week', CURRENT_DATE)`)
+	weekQuery := `SELECT COUNT(*) FROM audit_logs WHERE created_at >= DATE_TRUNC('week', CURRENT_DATE)`
+	monthQuery := `SELECT COUNT(*) FROM audit_logs WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)`
+	if dbutil.IsSQLite(r.db) {
+		weekQuery = `SELECT COUNT(*) FROM audit_logs WHERE date(created_at) >= date('now', 'weekday 1', '-7 days')`
+		monthQuery = `SELECT COUNT(*) FROM audit_logs WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')`
+	}
+	err = r.db.GetContext(ctx, &summary.ThisWeek, weekQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this week logs: %w", err)
 	}
 
 	// This month logs
-	err = r.db.GetContext(ctx, &summary.ThisMonth,
-		`SELECT COUNT(*) FROM audit_logs
-		 WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)`)
+	err = r.db.GetContext(ctx, &summary.ThisMonth, monthQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this month logs: %w", err)
 	}
@@ -279,16 +289,16 @@ func (r *Repository) GetAuditLogSummary(ctx context.Context) (*AuditLogSummary, 
 		return nil, fmt.Errorf("failed to get recent activity: %w", err)
 	}
 	defer rows.Close()
-	
+
 	for rows.Next() {
 		var entry AuditLogEntry
-		if err := rows.Scan(&entry.ID, &entry.Action, &entry.EntityType, &entry.EntityID, 
+		if err := rows.Scan(&entry.ID, &entry.Action, &entry.EntityType, &entry.EntityID,
 			&entry.Description, &entry.Status, &entry.UserID, &entry.UserName, &entry.CreatedAt); err != nil {
 			continue
 		}
 		summary.RecentActivity = append(summary.RecentActivity, entry)
 	}
-	
+
 	return &summary, nil
 }
 
@@ -296,7 +306,7 @@ func (r *Repository) GetAuditLogSummary(ctx context.Context) (*AuditLogSummary, 
 func (r *Repository) GetUserName(ctx context.Context, userID uuid.UUID) (string, error) {
 	var name string
 	query := `SELECT first_name || ' ' || last_name as name FROM users WHERE id = $1`
-	
+
 	err := r.db.GetContext(ctx, &name, query, userID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get user name: %w", err)

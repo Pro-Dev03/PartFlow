@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryProvider } from './app/providers/QueryProvider';
 import { AppLayout, AuthLayout } from './layouts';
@@ -8,6 +8,8 @@ import { ToastContainer } from './components/ui/ToastContainer';
 import { appRoutes, PageLoader } from './app/router';
 import { LayoutProvider } from './contexts/LayoutContext';
 import AIAssistantWrapper from './components/ui/ai-assistant-wrapper';
+import { InitialDataSyncModal } from './features/settings/components/InitialDataSyncModal';
+import { isInitialSyncNeeded } from './hooks/useInitialDataSync';
 
 // Lazy load auth pages separately
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -43,6 +45,30 @@ function PagePreloader() {
   }, []);
 
   return null;
+}
+
+// Hydrate the local SQLite business database once after cloud authentication.
+// Subscription/authentication remain cloud-authoritative; only operational
+// rows are downloaded into the local database by this flow.
+function InitialSyncController() {
+  const { isAuthenticated, sessionVerified, user } = useAuthStore();
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (isAuthenticated && sessionVerified && navigator.onLine && isInitialSyncNeeded(user?.id)) {
+      setIsOpen(true);
+    } else if (!isAuthenticated || !sessionVerified) {
+      setIsOpen(false);
+    }
+  }, [isAuthenticated, sessionVerified, user?.id]);
+
+  return (
+    <InitialDataSyncModal
+      isOpen={isOpen}
+      userId={user?.id}
+      onComplete={() => setIsOpen(false)}
+    />
+  );
 }
 
 function App() {
@@ -86,6 +112,7 @@ function App() {
   return (
     <ErrorBoundary>
       <QueryProvider>
+        <InitialSyncController />
         <Router>
           <PagePreloader />
           <Routes>

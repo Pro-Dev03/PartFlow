@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,6 +82,42 @@ func (h *Handler) ListDebts(c *gin.Context) {
 	}
 
 	offset := (page - 1) * perPage
+	if dbutil.IsSQLite(h.db) {
+		var rows []struct {
+			ID              string  `db:"id"`
+			CustomerID      string  `db:"customer_id"`
+			CustomerName    string  `db:"customer_name"`
+			Amount          float64 `db:"amount"`
+			RemainingAmount float64 `db:"remaining_amount"`
+			DueDate         string  `db:"due_date"`
+			Status          string  `db:"status"`
+			CreatedAt       string  `db:"created_at"`
+		}
+		query := `SELECT d.id, d.customer_id, c.name AS customer_name, d.amount, d.remaining_amount,
+			d.due_date, d.status, d.created_at FROM debts d JOIN customers c ON d.customer_id = c.id
+			ORDER BY d.due_date DESC LIMIT ? OFFSET ?`
+		if err := h.db.Select(&rows, query, perPage, offset); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		data := make([]gin.H, 0, len(rows))
+		for _, row := range rows {
+			data = append(data, gin.H{"id": row.ID, "customer_id": row.CustomerID, "customer_name": row.CustomerName,
+				"amount": row.Amount, "remaining_amount": row.RemainingAmount, "due_date": row.DueDate,
+				"status": row.Status, "created_at": row.CreatedAt})
+		}
+		var total int
+		if err := h.db.Get(&total, "SELECT COUNT(*) FROM debts"); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		response := gin.H{"success": true, "data": data, "meta": gin.H{"page": page, "per_page": perPage, "total": total}}
+		if page == 1 && perPage == 20 {
+			h.cache.set(response, 2*time.Minute)
+		}
+		c.JSON(http.StatusOK, response)
+		return
+	}
 
 	var debts []struct {
 		ID              uuid.UUID `json:"id"`
@@ -160,6 +197,21 @@ func (h *Handler) GetDebt(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid debt ID"})
 		return
 	}
+	if dbutil.IsSQLite(h.db) {
+		var debt struct {
+			ID, CustomerID, CustomerName, DueDate, Status, Notes, CreatedAt, UpdatedAt string
+			Amount, RemainingAmount                                                    float64
+		}
+		err = h.db.Get(&debt, `SELECT d.id, d.customer_id, c.name AS customer_name, d.amount, d.remaining_amount,
+			d.due_date, d.status, COALESCE(d.notes,''), d.created_at, d.updated_at
+			FROM debts d JOIN customers c ON d.customer_id = c.id WHERE d.id = ?`, id.String())
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "debt not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": debt})
+		return
+	}
 
 	var debt struct {
 		ID              uuid.UUID `json:"id"`
@@ -208,6 +260,16 @@ func (h *Handler) CreateDebt(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if req.Amount <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "amount must be greater than zero"})
+		return
+	}
+	if _, err := time.Parse("2006-01-02", strings.TrimSpace(req.DueDate)); err != nil {
+		if _, err = time.Parse(time.RFC3339, strings.TrimSpace(req.DueDate)); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "due_date must be a valid date"})
+			return
+		}
+	}
 
 	id := uuid.New()
 	query := fmt.Sprintf(`
@@ -220,6 +282,7 @@ func (h *Handler) CreateDebt(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	h.cache.set(nil, 0)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
@@ -267,6 +330,7 @@ func (h *Handler) UpdateDebt(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	h.cache.set(nil, 0)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -287,6 +351,7 @@ func (h *Handler) DeleteDebt(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	h.cache.set(nil, 0)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -299,6 +364,23 @@ func (h *Handler) GetCustomerDebts(c *gin.Context) {
 	customerID, err := uuid.Parse(c.Param("customer_id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid customer ID"})
+		return
+	}
+	if dbutil.IsSQLite(h.db) {
+		var rows []struct {
+			ID                         string  `db:"id"`
+			Amount, RemainingAmount    float64 `db:"amount"`
+			DueDate, Status, CreatedAt string
+		}
+		if err := h.db.Select(&rows, `SELECT id, amount, remaining_amount, due_date, status, created_at FROM debts WHERE customer_id = ? ORDER BY due_date DESC`, customerID.String()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		data := make([]gin.H, 0, len(rows))
+		for _, row := range rows {
+			data = append(data, gin.H{"id": row.ID, "amount": row.Amount, "remaining_amount": row.RemainingAmount, "due_date": row.DueDate, "status": row.Status, "created_at": row.CreatedAt})
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 		return
 	}
 
@@ -357,6 +439,28 @@ func (h *Handler) GetOverdueDebts(c *gin.Context) {
 	// Try cache first
 	if cached, found := h.cache.get(); found {
 		c.JSON(http.StatusOK, cached)
+		return
+	}
+	if dbutil.IsSQLite(h.db) {
+		var rows []struct {
+			ID, CustomerID, CustomerName, DueDate, CreatedAt string
+			Amount, RemainingAmount                          float64
+			DaysOverdue                                      int
+		}
+		query := `SELECT d.id, d.customer_id, c.name AS customer_name, d.amount, d.remaining_amount, d.due_date,
+			CAST(julianday('now') - julianday(d.due_date) AS INTEGER) AS days_overdue, d.created_at
+			FROM debts d JOIN customers c ON d.customer_id = c.id WHERE date(d.due_date) < date('now') AND d.remaining_amount > 0 ORDER BY d.due_date ASC`
+		if err := h.db.Select(&rows, query); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		data := make([]gin.H, 0, len(rows))
+		for _, row := range rows {
+			data = append(data, gin.H{"id": row.ID, "customer_id": row.CustomerID, "customer_name": row.CustomerName, "amount": row.Amount, "remaining_amount": row.RemainingAmount, "due_date": row.DueDate, "days_overdue": row.DaysOverdue, "created_at": row.CreatedAt})
+		}
+		response := gin.H{"success": true, "data": data}
+		h.cache.set(response, 2*time.Minute)
+		c.JSON(http.StatusOK, response)
 		return
 	}
 
@@ -481,6 +585,33 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		return
 	}
 	defer tx.Rollback()
+	if dbutil.IsSQLite(h.db) {
+		var customerID string
+		if err := tx.Get(&customerID, `SELECT customer_id FROM debts WHERE id = ?`, id.String()); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "debt not found"})
+			return
+		}
+		if req.Amount <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "amount must be greater than zero"})
+			return
+		}
+		if _, err := tx.Exec(`UPDATE debts SET paid_amount = MIN(amount, COALESCE(paid_amount,0) + ?), remaining_amount = MAX(0, remaining_amount - ?), status = CASE WHEN remaining_amount - ? <= 0 THEN 'paid' ELSE status END, updated_at = ? WHERE id = ?`, req.Amount, req.Amount, req.Amount, time.Now().UTC().Format(time.RFC3339), id.String()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		paymentID := uuid.New().String()
+		if _, err := tx.Exec(`INSERT INTO payments (id, transaction_number, customer_id, amount, payment_method, reference, notes, created_at) VALUES (?, ?, ?, ?, 'cash', ?, ?, ?)`, paymentID, "PAY-"+paymentID[:8], customerID, req.Amount, id.String(), req.Notes, time.Now().UTC().Format(time.RFC3339)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		h.cache.set(nil, 0)
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "payment added successfully"})
+		return
+	}
 
 	var customerID uuid.UUID
 	if err := tx.Get(&customerID, `SELECT customer_id FROM debts WHERE id = $1`, id); err != nil {

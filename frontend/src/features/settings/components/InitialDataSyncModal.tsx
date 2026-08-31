@@ -6,17 +6,18 @@ import { useInitialDataSync, isInitialSyncNeeded } from '../../../hooks/useIniti
 interface InitialDataSyncModalProps {
   isOpen: boolean;
   onComplete: () => void;
+  userId?: string;
 }
 
-export function InitialDataSyncModal({ isOpen, onComplete }: InitialDataSyncModalProps) {
+export function InitialDataSyncModal({ isOpen, onComplete, userId }: InitialDataSyncModalProps) {
   const [shouldSync, setShouldSync] = useState(false);
 
   // Trigger sync only when modal opens
   useEffect(() => {
-    if (isOpen && isInitialSyncNeeded()) {
+    if (isOpen && isInitialSyncNeeded(userId)) {
       setShouldSync(true);
     }
-  }, [isOpen]);
+  }, [isOpen, userId]);
 
   const { isLoading, isError, error, progress } = useInitialDataSync(
     shouldSync,
@@ -28,7 +29,8 @@ export function InitialDataSyncModal({ isOpen, onComplete }: InitialDataSyncModa
     (err) => {
       // Sync failed
       console.error('Initial data sync failed:', err);
-    }
+    },
+    userId
   );
 
   if (!isOpen || !shouldSync) {

@@ -54,6 +54,15 @@ func CreateInspection(userID uuid.UUID, req *InspectionRequest) *Inspection {
 
 // ValidateInspectionRequest validates inspection request
 func ValidateInspectionRequest(req *InspectionRequest) error {
+	if req == nil {
+		return ErrInspectionNotFound
+	}
+	if req.InspectionDate.IsZero() {
+		return ErrInvalidInspectionStatus
+	}
+	if req.InspectionDate.After(time.Now().Add(24 * time.Hour)) {
+		return ErrInvalidInspectionStatus
+	}
 	if req.ProductID == uuid.Nil && req.InventoryItemID == nil {
 		return ErrProductNotFound
 	}

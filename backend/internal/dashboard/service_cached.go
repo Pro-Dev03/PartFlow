@@ -57,10 +57,10 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 	// Query to get real statistics
 	query := `
 		SELECT
-			(SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE status = 'completed') as total_sales,
+			(SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) as total_sales,
 			(SELECT COUNT(*) FROM sales WHERE status = 'pending') as pending_orders,
-			(SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE status = 'received') as total_purchases,
-			(SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE status = 'approved') as total_expenses,
+			(SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) as total_purchases,
+			(SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')) as total_expenses,
 			(SELECT COUNT(*) FROM products WHERE is_active = true) as total_products,
 			(SELECT COUNT(*) FROM customers) as total_customers,
 			(SELECT COUNT(*) FROM suppliers) as total_suppliers,
@@ -72,8 +72,8 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 			      WHERE ii.product_id = p.id
 			      AND ii.condition <> 'USED'
 			      AND ii.status = 'AVAILABLE') < p.min_stock_level) as low_stock_items,
-			(SELECT COALESCE(SUM(current_balance), 0) FROM customers WHERE current_balance > 0) as overdue_debts,
-			(SELECT COUNT(*) FROM returns WHERE status = 'pending') as pending_returns,
+			(SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE remaining_amount > 0) as overdue_debts,
+			(SELECT COUNT(*) FROM returns WHERE LOWER(COALESCE(status, 'pending')) IN ('pending', 'approved', 'processing')) as pending_returns,
 			0 as pending_claims
 	`
 
@@ -162,10 +162,11 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 	query := `
 		WITH sale_costs AS (
 			SELECT s.id, s.created_at, s.total_amount,
-			       COALESCE(SUM(COALESCE(ii.purchase_cost, 0) * COALESCE(si.quantity, 0)), 0) AS cost
+				COALESCE(SUM(COALESCE(ii.purchase_cost, p.purchase_price, p.cost_price, 0) * COALESCE(si.quantity, 0)), 0) AS cost
 			FROM sales s
 			LEFT JOIN sale_items si ON si.sale_id = s.id
 			LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
+			LEFT JOIN products p ON p.id = si.product_id
 			WHERE LOWER(COALESCE(s.status, '')) = 'completed'
 			  AND datetime(s.created_at) >= datetime('now', '-30 days')
 			GROUP BY s.id, s.created_at, s.total_amount
@@ -181,10 +182,11 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 		query = `
 			WITH sale_costs AS (
 				SELECT s.id, s.created_at, s.total_amount,
-				       COALESCE(SUM(COALESCE(ii.purchase_cost, 0) * COALESCE(si.quantity, 0)), 0) AS cost
+				       COALESCE(SUM(COALESCE(ii.purchase_cost, p.purchase_price, p.cost_price, 0) * COALESCE(si.quantity, 0)), 0) AS cost
 				FROM sales s
 				LEFT JOIN sale_items si ON si.sale_id = s.id
 				LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
+				LEFT JOIN products p ON p.id = si.product_id
 				WHERE LOWER(COALESCE(s.status, '')) = 'completed'
 				  AND s.created_at >= NOW() - INTERVAL '30 days'
 				GROUP BY s.id, s.created_at, s.total_amount

@@ -52,7 +52,9 @@ services:
     env: docker
     plan: free
     dockerfilePath: ./worker/Dockerfile
-    dockerContext: ./worker
+    # Build the production worker from backend/cmd/worker.  The old
+    # ./worker context contained a legacy stub and never ran the real jobs.
+    dockerContext: .
     region: oregon
     branch: main
     envVars:

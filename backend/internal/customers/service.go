@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jung-kurt/gofpdf"
 	"github.com/partflow/smart-store/internal/dashboard"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Service handles customer business logic
@@ -312,6 +313,16 @@ func (s *Service) GetCustomerDebtSummary(ctx context.Context, customerID uuid.UU
 		creditUtilization = (customer.CurrentBalance / customer.CreditLimit) * 100
 	}
 
+	overdueAmount := 0.0
+	overdueQuery := `SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE customer_id = $1 AND due_date < CURRENT_DATE AND remaining_amount > 0`
+	if dbutil.IsSQLite(s.repo.db) {
+		overdueQuery = `SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE customer_id = $1 AND date(due_date) < date('now') AND remaining_amount > 0`
+	}
+	if err := s.repo.db.GetContext(ctx, &overdueAmount, overdueQuery, customerID); err != nil {
+		return nil, fmt.Errorf("failed to calculate overdue debt: %w", err)
+	}
+	daysUntilOverdue := s.calculateDaysUntilOverdue(ctx, customerID)
+
 	return &DebtSummary{
 		CustomerID:        customerID,
 		CustomerName:      customer.Name,
@@ -319,9 +330,9 @@ func (s *Service) GetCustomerDebtSummary(ctx context.Context, customerID uuid.UU
 		CreditLimit:       customer.CreditLimit,
 		AvailableCredit:   availableCredit,
 		CreditUtilization: creditUtilization,
-		OverdueAmount:     customer.CurrentBalance, // Use current balance as overdue for now
-		IsOverdue:         customer.CurrentBalance > 0,
-		DaysUntilOverdue:  0,
+		OverdueAmount:     overdueAmount,
+		IsOverdue:         overdueAmount > 0,
+		DaysUntilOverdue:  daysUntilOverdue,
 	}, nil
 }
 
@@ -359,11 +370,39 @@ func (s *Service) GetOverdueCustomers(ctx context.Context) ([]OverdueCustomer, e
 		AND c.current_balance > 0
 		ORDER BY c.current_balance DESC
 	`
+	if dbutil.IsSQLite(s.repo.db) {
+		query = `
+			SELECT c.id, c.name, c.code, c.current_balance, c.credit_limit,
+				c.current_balance AS overdue_amount,
+				COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.customer_id = c.id), 0) AS paid_amount
+			FROM customers c
+			WHERE c.is_active = 1 AND c.current_balance > 0
+			ORDER BY c.current_balance DESC
+		`
+	}
 
 	var overdueCustomers []OverdueCustomer
-	err := s.repo.db.SelectContext(ctx, &overdueCustomers, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get overdue customers: %w", err)
+	if dbutil.IsSQLite(s.repo.db) {
+		var rows []struct {
+			ID, Name, Code                                         string
+			CurrentBalance, CreditLimit, OverdueAmount, PaidAmount float64
+		}
+		if err := s.repo.db.SelectContext(ctx, &rows, query); err != nil {
+			return nil, fmt.Errorf("failed to get overdue customers: %w", err)
+		}
+		overdueCustomers = make([]OverdueCustomer, 0, len(rows))
+		for _, row := range rows {
+			id, err := uuid.Parse(row.ID)
+			if err != nil {
+				return nil, err
+			}
+			overdueCustomers = append(overdueCustomers, OverdueCustomer{ID: id, Name: row.Name, Code: row.Code, CurrentBalance: row.CurrentBalance, CreditLimit: row.CreditLimit, OverdueAmount: row.OverdueAmount, PaidAmount: row.PaidAmount})
+		}
+	} else {
+		err := s.repo.db.SelectContext(ctx, &overdueCustomers, query)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get overdue customers: %w", err)
+		}
 	}
 
 	// For each customer, get their debts
@@ -417,6 +456,16 @@ func (s *Service) calculateDaysUntilOverdue(ctx context.Context, customerID uuid
 		AND created_at >= NOW() - INTERVAL '30 days'
 		HAVING MIN(created_at) IS NOT NULL
 	`
+
+	if dbutil.IsSQLite(s.repo.db) {
+		query = `
+			SELECT CAST(julianday(MIN(created_at), '+30 days') - julianday('now') AS INTEGER)
+			FROM customer_ledger
+			WHERE customer_id = $1 AND type = 'debit'
+			AND datetime(created_at) >= datetime('now', '-30 days')
+			HAVING MIN(created_at) IS NOT NULL
+		`
+	}
 
 	var days int
 	err := s.repo.db.GetContext(ctx, &days, query, customerID)

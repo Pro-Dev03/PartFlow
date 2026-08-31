@@ -50,6 +50,8 @@ export default function UnifiedAIChat({
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const replyTimeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const mountedRef = useRef(true);
   const offlineMode = isOffline ?? (typeof navigator !== 'undefined' && !navigator.onLine);
   const context = assistantContext || defaultContext;
 
@@ -78,6 +80,15 @@ export default function UnifiedAIChat({
     scrollToBottom();
   }, [messages]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      replyTimeouts.current.forEach(clearTimeout);
+      replyTimeouts.current = [];
+    };
+  }, []);
+
   const handleSendMessage = async () => {
     if (inputText.trim()) {
       const userMessage: ChatMessage = {
@@ -92,7 +103,8 @@ export default function UnifiedAIChat({
       setInputText('');
       setIsTyping(true);
 
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
+        if (!mountedRef.current) return;
         const response = generateAssistantReply(userMessage.text, context);
         const assistantMessage: ChatMessage = {
           id: crypto.randomUUID(),
@@ -104,6 +116,7 @@ export default function UnifiedAIChat({
         setMessages(prev => [...prev, assistantMessage]);
         setIsTyping(false);
       }, 50);
+      replyTimeouts.current.push(timeout);
 
       onSendMessage?.(userMessage.text);
     }
@@ -120,7 +133,8 @@ export default function UnifiedAIChat({
     setMessages(prev => [...prev, userMessage]);
     setIsTyping(true);
 
-    setTimeout(() => {
+    const timeout = setTimeout(() => {
+      if (!mountedRef.current) return;
       const response = generateAssistantReply(question, context);
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
@@ -132,6 +146,7 @@ export default function UnifiedAIChat({
       setMessages(prev => [...prev, assistantMessage]);
       setIsTyping(false);
     }, 50);
+    replyTimeouts.current.push(timeout);
 
     onSendMessage?.(question);
   };

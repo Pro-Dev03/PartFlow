@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/dashboard"
 )
 
 // Service handles expense business logic
@@ -43,6 +44,7 @@ func (s *Service) CreateExpense(ctx context.Context, userID uuid.UUID, req *Expe
 	if err := s.repo.CreateExpense(ctx, expense); err != nil {
 		return nil, fmt.Errorf("failed to create expense: %w", err)
 	}
+	dashboard.InvalidateDashboardCacheWithReason("expense_created")
 
 	return expense.ToExpenseResponse(category), nil
 }
@@ -156,6 +158,7 @@ func (s *Service) UpdateExpense(ctx context.Context, id uuid.UUID, req *ExpenseU
 	if err := s.repo.UpdateExpense(ctx, expense); err != nil {
 		return nil, err
 	}
+	dashboard.InvalidateDashboardCacheWithReason("expense_updated")
 
 	return s.GetExpense(ctx, id)
 }
@@ -172,7 +175,11 @@ func (s *Service) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 		return ErrExpenseAlreadyApproved
 	}
 
-	return s.repo.DeleteExpense(ctx, id)
+	if err := s.repo.DeleteExpense(ctx, id); err != nil {
+		return err
+	}
+	dashboard.InvalidateDashboardCacheWithReason("expense_deleted")
+	return nil
 }
 
 // ApproveExpense approves an expense
@@ -197,6 +204,7 @@ func (s *Service) ApproveExpense(ctx context.Context, id uuid.UUID, approverID u
 	if err := s.repo.UpdateExpense(ctx, expense); err != nil {
 		return nil, err
 	}
+	dashboard.InvalidateDashboardCacheWithReason("expense_approved")
 
 	return s.GetExpense(ctx, id)
 }
@@ -222,6 +230,7 @@ func (s *Service) RejectExpense(ctx context.Context, id uuid.UUID) (*ExpenseResp
 	if err := s.repo.UpdateExpense(ctx, expense); err != nil {
 		return nil, err
 	}
+	dashboard.InvalidateDashboardCacheWithReason("expense_rejected")
 
 	return s.GetExpense(ctx, id)
 }

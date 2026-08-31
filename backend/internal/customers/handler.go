@@ -14,13 +14,13 @@ import (
 
 // FinancialTransaction represents a financial transaction for a customer
 type FinancialTransaction struct {
-	ID          string    `json:"id"`
-	Type        string    `json:"type"` // sale, payment, return, refund, adjustment
-	Amount      float64   `json:"amount"`
+	ID           string  `json:"id"`
+	Type         string  `json:"type"` // sale, payment, return, refund, adjustment
+	Amount       float64 `json:"amount"`
 	BalanceAfter float64 `json:"balance_after"`
-	Date        string    `json:"date"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
+	Date         string  `json:"date"`
+	Description  string  `json:"description"`
+	Status       string  `json:"status"`
 }
 
 // Handler handles HTTP requests for customers
@@ -55,6 +55,13 @@ func (c *customersCache) set(data interface{}, ttl time.Duration) {
 	c.expiration = time.Now().Add(ttl)
 }
 
+func (c *customersCache) clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data = nil
+	c.expiration = time.Time{}
+}
+
 // NewHandler creates a new customer handler
 func NewHandler(service *Service) *Handler {
 	return &Handler{
@@ -71,7 +78,6 @@ func (h *Handler) CreateCustomer(c *gin.Context) {
 		return
 	}
 
-
 	customer, err := h.service.CreateCustomer(c.Request.Context(), &req)
 	if err != nil {
 		if err == ErrCustomerCodeExists {
@@ -81,6 +87,7 @@ func (h *Handler) CreateCustomer(c *gin.Context) {
 		errors.HandleError(c, errors.WrapError(err, "Failed to create customer"))
 		return
 	}
+	h.cache.clear()
 
 	response.Success(c, http.StatusCreated, customer, "Customer created successfully")
 }
@@ -92,7 +99,6 @@ func (h *Handler) GetCustomer(c *gin.Context) {
 		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
 		return
 	}
-
 
 	customer, err := h.service.GetCustomer(c.Request.Context(), id)
 	if err != nil {
@@ -143,12 +149,12 @@ func (h *Handler) ListCustomers(c *gin.Context) {
 	// Cache the response for default first page without filters
 	if page == 1 && perPage == 20 && search == "" && isActive == "" {
 		responseData := gin.H{
-			"success": true,
-			"data":    customers,
-			"total":   total,
-			"page":    req.Page,
+			"success":  true,
+			"data":     customers,
+			"total":    total,
+			"page":     req.Page,
 			"per_page": req.PerPage,
-			"message": "Customers retrieved successfully",
+			"message":  "Customers retrieved successfully",
 		}
 		h.cache.set(responseData, 3*time.Minute)
 	}
@@ -170,7 +176,6 @@ func (h *Handler) UpdateCustomer(c *gin.Context) {
 		return
 	}
 
-
 	customer, err := h.service.UpdateCustomer(c.Request.Context(), id, &req)
 	if err != nil {
 		if err == ErrCustomerNotFound {
@@ -180,6 +185,7 @@ func (h *Handler) UpdateCustomer(c *gin.Context) {
 		errors.HandleError(c, errors.WrapError(err, "Failed to update customer"))
 		return
 	}
+	h.cache.clear()
 
 	response.Success(c, http.StatusOK, customer, "Customer updated successfully")
 }
@@ -191,7 +197,6 @@ func (h *Handler) DeleteCustomer(c *gin.Context) {
 		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
 		return
 	}
-
 
 	err = h.service.DeleteCustomer(c.Request.Context(), id)
 	if err != nil {
@@ -214,6 +219,7 @@ func (h *Handler) DeleteCustomer(c *gin.Context) {
 		errors.HandleError(c, errors.WrapError(err, "Failed to delete customer"))
 		return
 	}
+	h.cache.clear()
 
 	response.Success(c, http.StatusOK, nil, "Customer deleted successfully")
 }
@@ -225,7 +231,6 @@ func (h *Handler) GetCustomerLedger(c *gin.Context) {
 		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
 		return
 	}
-
 
 	ledger, err := h.service.GetCustomerLedger(c.Request.Context(), id)
 	if err != nil {
@@ -275,7 +280,6 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		return
 	}
 
-
 	payment, err := h.service.AddPayment(c.Request.Context(), id, &req)
 	if err != nil {
 		if err == ErrCustomerNotFound {
@@ -305,7 +309,6 @@ func (h *Handler) GetCustomerDebtSummary(c *gin.Context) {
 		return
 	}
 
-
 	summary, err := h.service.GetCustomerDebtSummary(c.Request.Context(), id)
 	if err != nil {
 		if err == ErrCustomerNotFound {
@@ -332,7 +335,6 @@ func (h *Handler) UpdateCreditLimit(c *gin.Context) {
 		errors.HandleError(c, errors.ValidateRequest(err))
 		return
 	}
-
 
 	err = h.service.UpdateCreditLimit(c.Request.Context(), id, req.NewLimit)
 	if err != nil {
@@ -377,7 +379,6 @@ func (h *Handler) CreateDebtEntry(c *gin.Context) {
 		return
 	}
 
-
 	err = h.service.CreateDebtEntry(c.Request.Context(), id, req.Amount, req.ReferenceID, req.ReferenceType, req.DueDate)
 	if err != nil {
 		if err == ErrCustomerNotFound {
@@ -402,7 +403,6 @@ func (h *Handler) GetDebtEntries(c *gin.Context) {
 		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
 		return
 	}
-
 
 	debts, err := h.service.GetDebtEntries(c.Request.Context(), id)
 	if err != nil {
@@ -431,7 +431,6 @@ func (h *Handler) CreateDebtCollection(c *gin.Context) {
 		return
 	}
 
-
 	err = h.service.CreateDebtCollection(c.Request.Context(), id, req.Type, req.ScheduledDate, req.Notes)
 	if err != nil {
 		if err == ErrCustomerNotFound {
@@ -452,7 +451,6 @@ func (h *Handler) GetDebtCollections(c *gin.Context) {
 		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
 		return
 	}
-
 
 	collections, err := h.service.GetDebtCollections(c.Request.Context(), id)
 	if err != nil {
@@ -492,7 +490,6 @@ func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 		errors.HandleError(c, errors.ValidateRequest(err))
 		return
 	}
-
 
 	err = h.service.ProcessDebtPayment(c.Request.Context(), id, req.Amount, req.Method)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/dashboard"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
@@ -59,9 +60,10 @@ func (s *Service) CreatePurchase(ctx context.Context, userID uuid.UUID, req *Pur
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	committed := false
 	defer func() {
-		if err != nil {
-			tx.Rollback()
+		if !committed {
+			_ = tx.Rollback()
 		}
 	}()
 
@@ -103,7 +105,7 @@ func (s *Service) CreatePurchase(ctx context.Context, userID uuid.UUID, req *Pur
 		UpdatedAt:            time.Now(),
 	}
 
-	if err := s.repo.Create(ctx, purchase); err != nil {
+	if err := s.repo.CreateTx(ctx, tx, purchase); err != nil {
 		return nil, fmt.Errorf("failed to create purchase: %w", err)
 	}
 
@@ -111,61 +113,25 @@ func (s *Service) CreatePurchase(ctx context.Context, userID uuid.UUID, req *Pur
 	var items []PurchaseItem
 	for _, itemReq := range req.Items {
 		item := CreatePurchaseItem(purchase.ID, itemReq)
-		if err := s.repo.CreatePurchaseItem(ctx, item); err != nil {
+		if err := s.repo.CreatePurchaseItemTx(ctx, tx, item); err != nil {
 			return nil, fmt.Errorf("failed to create purchase item: %w", err)
 		}
 		items = append(items, *item)
 	}
 
-	// Update supplier ledger (temporarily disabled - table doesn't exist yet)
-	// TODO: Create supplier_ledger table and enable this logic
-	/*
-		var currentBalance float64
-		balanceQuery := `
-			SELECT COALESCE(SUM(amount), 0)
-			FROM supplier_ledger
-			WHERE supplier_id = $1
-		`
-		err = tx.GetContext(ctx, &currentBalance, balanceQuery, req.SupplierID)
-		if err != nil {
-			currentBalance = 0
-		}
-
-		// Calculate new balance (purchase increases debt)
-		newBalance := currentBalance + totalAmount
-
-		ledgerQuery := `
-			INSERT INTO supplier_ledger (id, supplier_id, transaction_type, amount, balance, reference_type, reference_id, description, user_id, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		`
-		_, err = tx.ExecContext(ctx, ledgerQuery,
-			uuid.New(), req.SupplierID, "PURCHASE",
-			totalAmount, newBalance, "purchase", purchase.ID, "Purchase: "+req.InvoiceNumber, userID, time.Now())
-		if err != nil {
-			return nil, fmt.Errorf("failed to update supplier ledger: %w", err)
-		}
-	*/
-
-	// Create audit log (temporarily disabled)
-	// TODO: Check audit_logs schema and enable if needed
-	/*
-		auditQuery := `
-			INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`
-		changes := fmt.Sprintf("Created purchase %s with %d items, total: %.2f", req.InvoiceNumber, len(items), totalAmount)
-		_, err = tx.ExecContext(ctx, auditQuery,
-			uuid.New(), userID, "CREATE_PURCHASE", "purchase", purchase.ID,
-			changes, time.Now())
-		if err != nil {
-			fmt.Printf("Warning: failed to create audit log: %v\n", err)
-		}
-	*/
+	if err := s.recordSupplierPurchaseLedger(ctx, tx, req.SupplierID, totalAmount, purchase.ID, req.InvoiceNumber, userID); err != nil {
+		return nil, err
+	}
+	if err := s.recordPurchaseAudit(ctx, tx, purchase, len(items), totalAmount, userID); err != nil {
+		return nil, err
+	}
 
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	committed = true
+	dashboard.InvalidateDashboardCacheWithReason("purchase_created")
 
 	// Get supplier info
 	supplier, err := s.repo.GetSupplierInfo(ctx, req.SupplierID)
@@ -174,6 +140,134 @@ func (s *Service) CreatePurchase(ctx context.Context, userID uuid.UUID, req *Pur
 	}
 
 	return purchase.ToPurchaseResponse(items, supplier), nil
+}
+
+// recordSupplierPurchaseLedger records the purchase as a debit. Older cloud
+// databases use transaction_type while newer migrations use type; the helper
+// supports both schemas and keeps the write in the purchase transaction.
+func (s *Service) recordSupplierPurchaseLedger(ctx context.Context, tx *sqlx.Tx, supplierID uuid.UUID, amount float64, purchaseID uuid.UUID, invoice string, userID uuid.UUID) error {
+	hasType, hasTransactionType, hasReferenceType, hasCreatedBy, err := supplierLedgerSchema(ctx, tx, s.db)
+	if err != nil {
+		return fmt.Errorf("failed to inspect supplier ledger schema: %w", err)
+	}
+	var balance float64
+	if hasType && hasTransactionType {
+		if err := tx.GetContext(ctx, &balance, `SELECT COALESCE(SUM(CASE WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount ELSE -amount END), 0) FROM supplier_ledger WHERE supplier_id = $1`, supplierID); err != nil {
+			return fmt.Errorf("failed to read supplier balance: %w", err)
+		}
+		query := `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at)
+			VALUES ($1, $2, 'debit', 'PURCHASE', $3, $4, $5, $6, $7)`
+		args := []interface{}{uuid.New(), supplierID, amount, balance + amount, "Purchase: " + invoice, purchaseID, time.Now()}
+		if hasReferenceType && hasCreatedBy {
+			query = `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, reference_type, reference_id, description, created_by, created_at)
+				VALUES ($1, $2, 'debit', 'PURCHASE', $3, $4, 'purchase', $5, $6, $7, $8)`
+			args = []interface{}{uuid.New(), supplierID, amount, balance + amount, purchaseID, "Purchase: " + invoice, nullableUUID(userID), time.Now()}
+		}
+		_, err = tx.ExecContext(ctx, query, args...)
+	} else if hasType {
+		if err := tx.GetContext(ctx, &balance, `SELECT COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0) FROM supplier_ledger WHERE supplier_id = $1`, supplierID); err != nil {
+			return fmt.Errorf("failed to read supplier balance: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO supplier_ledger (id, supplier_id, type, amount, balance, description, reference_id, created_at) VALUES ($1, $2, 'debit', $3, $4, $5, $6, $7)`, uuid.New(), supplierID, amount, balance+amount, "Purchase: "+invoice, purchaseID, time.Now())
+	} else if hasTransactionType {
+		if err := tx.GetContext(ctx, &balance, `SELECT COALESCE(SUM(CASE WHEN transaction_type IN ('PAYMENT', 'RETURN') THEN -amount ELSE amount END), 0) FROM supplier_ledger WHERE supplier_id = $1`, supplierID); err != nil {
+			return fmt.Errorf("failed to read supplier balance: %w", err)
+		}
+		query := `INSERT INTO supplier_ledger (id, supplier_id, transaction_type, amount, balance, description, reference_id, created_at) VALUES ($1, $2, 'PURCHASE', $3, $4, $5, $6, $7)`
+		args := []interface{}{uuid.New(), supplierID, amount, balance + amount, "Purchase: " + invoice, purchaseID, time.Now()}
+		if hasReferenceType && hasCreatedBy {
+			query = `INSERT INTO supplier_ledger (id, supplier_id, transaction_type, amount, balance, reference_type, reference_id, description, created_by, created_at) VALUES ($1, $2, 'PURCHASE', $3, $4, 'purchase', $5, $6, $7, $8)`
+			args = []interface{}{uuid.New(), supplierID, amount, balance + amount, purchaseID, "Purchase: " + invoice, nullableUUID(userID), time.Now()}
+		}
+		_, err = tx.ExecContext(ctx, query, args...)
+	} else {
+		return fmt.Errorf("supplier_ledger has neither type nor transaction_type")
+	}
+	if err != nil {
+		return fmt.Errorf("failed to update supplier ledger: %w", err)
+	}
+	if err := updateSupplierBalanceTx(ctx, tx, s.db, supplierID, amount); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) recordPurchaseAudit(ctx context.Context, tx *sqlx.Tx, purchase *Purchase, itemCount int, totalAmount float64, userID uuid.UUID) error {
+	changes, err := json.Marshal(map[string]interface{}{
+		"invoice_number": purchase.InvoiceNumber,
+		"items_count":    itemCount,
+		"total_amount":   totalAmount,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to encode purchase audit: %w", err)
+	}
+	var auditUser interface{}
+	if userID != uuid.Nil {
+		var exists bool
+		if err := tx.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, userID); err == nil && exists {
+			auditUser = userID
+		}
+	}
+	query := `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	if _, err := tx.ExecContext(ctx, query, uuid.New(), auditUser, "CREATE_PURCHASE", "purchase", purchase.ID, string(changes), time.Now()); err != nil {
+		return fmt.Errorf("failed to create purchase audit log: %w", err)
+	}
+	return nil
+}
+
+func nullableUUID(id uuid.UUID) interface{} {
+	if id == uuid.Nil {
+		return nil
+	}
+	return id
+}
+
+func supplierLedgerSchema(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB) (hasType, hasTransactionType, hasReferenceType, hasCreatedBy bool, err error) {
+	if dbutil.IsSQLite(db) {
+		row := struct {
+			Type            bool `db:"has_type"`
+			TransactionType bool `db:"has_transaction_type"`
+			ReferenceType   bool `db:"has_reference_type"`
+			CreatedBy       bool `db:"has_created_by"`
+		}{}
+		err = tx.GetContext(ctx, &row, `SELECT
+			EXISTS (SELECT 1 FROM pragma_table_info('supplier_ledger') WHERE name = 'type') AS has_type,
+			EXISTS (SELECT 1 FROM pragma_table_info('supplier_ledger') WHERE name = 'transaction_type') AS has_transaction_type,
+			EXISTS (SELECT 1 FROM pragma_table_info('supplier_ledger') WHERE name = 'reference_type') AS has_reference_type,
+			EXISTS (SELECT 1 FROM pragma_table_info('supplier_ledger') WHERE name = 'created_by') AS has_created_by`)
+		return row.Type, row.TransactionType, row.ReferenceType, row.CreatedBy, err
+	}
+	row := struct {
+		Type            bool `db:"has_type"`
+		TransactionType bool `db:"has_transaction_type"`
+		ReferenceType   bool `db:"has_reference_type"`
+		CreatedBy       bool `db:"has_created_by"`
+	}{}
+	err = tx.GetContext(ctx, &row, `SELECT
+		EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'supplier_ledger' AND column_name = 'type') AS has_type,
+		EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'supplier_ledger' AND column_name = 'transaction_type') AS has_transaction_type,
+		EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'supplier_ledger' AND column_name = 'reference_type') AS has_reference_type,
+		EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'supplier_ledger' AND column_name = 'created_by') AS has_created_by`)
+	return row.Type, row.TransactionType, row.ReferenceType, row.CreatedBy, err
+}
+
+func updateSupplierBalanceTx(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, supplierID uuid.UUID, amount float64) error {
+	var hasBalance bool
+	if dbutil.IsSQLite(db) {
+		if err := tx.GetContext(ctx, &hasBalance, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('suppliers') WHERE name = 'current_balance')`); err != nil {
+			return fmt.Errorf("failed to inspect supplier balance column: %w", err)
+		}
+	} else if err := tx.GetContext(ctx, &hasBalance, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'suppliers' AND column_name = 'current_balance')`); err != nil {
+		return fmt.Errorf("failed to inspect supplier balance column: %w", err)
+	}
+	if !hasBalance {
+		return nil
+	}
+	query := fmt.Sprintf(`UPDATE suppliers SET current_balance = COALESCE(current_balance, 0) + $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(db))
+	if _, err := tx.ExecContext(ctx, query, amount, supplierID); err != nil {
+		return fmt.Errorf("failed to update supplier balance: %w", err)
+	}
+	return nil
 }
 
 // GetPurchase retrieves a purchase by ID
@@ -651,8 +745,10 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 		SELECT id, supplier_id, invoice_number, purchase_date, total_amount, paid_amount, status, notes, user_id, created_at, updated_at
 		FROM purchases
 		WHERE id = $1
-		FOR UPDATE
 	`
+	if !dbutil.IsSQLite(s.db) {
+		purchaseQuery += " FOR UPDATE"
+	}
 	err = tx.GetContext(ctx, &purchase, purchaseQuery, id)
 	if err != nil {
 		return nil, err
@@ -687,31 +783,55 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 		return nil, fmt.Errorf("failed to create payment: %w", err)
 	}
 
-	// Update supplier ledger
-	// Get current balance
+	// Update supplier ledger.  The runtime migration exposes both legacy and
+	// canonical columns, while this fallback keeps older installations usable.
+	hasType, hasTransactionType, hasReferenceType, hasCreatedBy, schemaErr := supplierLedgerSchema(ctx, tx, s.db)
+	if schemaErr != nil {
+		return nil, fmt.Errorf("failed to inspect supplier ledger schema: %w", schemaErr)
+	}
 	var currentBalance float64
-	balanceQuery := `
-		SELECT COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0)
-		FROM supplier_ledger
-		WHERE supplier_id = $1
-	`
-	err = tx.GetContext(ctx, &currentBalance, balanceQuery, purchase.SupplierID)
+	if hasType && hasTransactionType {
+		err = tx.GetContext(ctx, &currentBalance, `SELECT COALESCE(SUM(CASE WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount ELSE -amount END), 0) FROM supplier_ledger WHERE supplier_id = $1`, purchase.SupplierID)
+	} else if hasType {
+		err = tx.GetContext(ctx, &currentBalance, `SELECT COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0) FROM supplier_ledger WHERE supplier_id = $1`, purchase.SupplierID)
+	} else if hasTransactionType {
+		err = tx.GetContext(ctx, &currentBalance, `SELECT COALESCE(SUM(CASE WHEN transaction_type IN ('PAYMENT', 'RETURN', 'SUPPLIER_RETURN') THEN -amount ELSE amount END), 0) FROM supplier_ledger WHERE supplier_id = $1`, purchase.SupplierID)
+	} else {
+		return nil, fmt.Errorf("supplier_ledger has neither type nor transaction_type")
+	}
 	if err != nil {
-		currentBalance = 0
+		return nil, fmt.Errorf("failed to read supplier balance: %w", err)
 	}
 
 	// Calculate new balance (payment reduces debt)
 	newBalance := currentBalance - amount
 
-	ledgerQuery := `
-		INSERT INTO supplier_ledger (id, supplier_id, type, amount, balance, description, reference_id, created_at)
-		VALUES ($1, $2, 'credit', $3, $4, $5, $6, $7)
-	`
-	_, err = tx.ExecContext(ctx, ledgerQuery,
-		uuid.New(), purchase.SupplierID, amount, newBalance,
-		"Payment for purchase "+purchase.InvoiceNumber, purchase.ID, time.Now())
+	ledgerQuery := `INSERT INTO supplier_ledger (id, supplier_id, type, amount, balance, description, reference_id, created_at) VALUES ($1, $2, 'credit', $3, $4, $5, $6, $7)`
+	ledgerArgs := []interface{}{uuid.New(), purchase.SupplierID, amount, newBalance, "Payment for purchase " + purchase.InvoiceNumber, purchase.ID, time.Now()}
+	if hasType && hasTransactionType {
+		ledgerQuery = `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at) VALUES ($1, $2, 'credit', 'PAYMENT', $3, $4, $5, $6, $7)`
+		ledgerArgs = []interface{}{uuid.New(), purchase.SupplierID, amount, newBalance, "Payment for purchase " + purchase.InvoiceNumber, purchase.ID, time.Now()}
+	}
+	if hasTransactionType && !hasType {
+		ledgerQuery = `INSERT INTO supplier_ledger (id, supplier_id, transaction_type, amount, balance, description, reference_id, created_at) VALUES ($1, $2, 'PAYMENT', $3, $4, $5, $6, $7)`
+		ledgerArgs = []interface{}{uuid.New(), purchase.SupplierID, amount, newBalance, "Payment for purchase " + purchase.InvoiceNumber, purchase.ID, time.Now()}
+	}
+	if hasReferenceType && hasCreatedBy {
+		if hasType && hasTransactionType {
+			ledgerQuery = `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, reference_type, reference_id, description, created_by, created_at) VALUES ($1, $2, 'credit', 'PAYMENT', $3, $4, 'payment', $5, $6, $7, $8)`
+		} else if hasTransactionType {
+			ledgerQuery = `INSERT INTO supplier_ledger (id, supplier_id, transaction_type, amount, balance, reference_type, reference_id, description, created_by, created_at) VALUES ($1, $2, 'PAYMENT', $3, $4, 'payment', $5, $6, $7, $8)`
+		} else {
+			ledgerQuery = `INSERT INTO supplier_ledger (id, supplier_id, type, amount, balance, reference_type, reference_id, description, created_by, created_at) VALUES ($1, $2, 'credit', $3, $4, 'payment', $5, $6, $7, $8)`
+		}
+		ledgerArgs = []interface{}{uuid.New(), purchase.SupplierID, amount, newBalance, purchase.ID, "Payment for purchase " + purchase.InvoiceNumber, nullableUUID(userID), time.Now()}
+	}
+	_, err = tx.ExecContext(ctx, ledgerQuery, ledgerArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update supplier ledger: %w", err)
+	}
+	if err := updateSupplierBalanceTx(ctx, tx, s.db, purchase.SupplierID, -amount); err != nil {
+		return nil, err
 	}
 
 	// Create audit log

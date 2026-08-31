@@ -1,30 +1,16 @@
-# Build stage
+# The production worker lives in backend/cmd/worker.  Build it from the
+# repository root so Render does not deploy the legacy worker stub.
 FROM golang:1.21-alpine AS builder
 
-WORKDIR /app
-
-# Copy go mod files
-COPY go.mod go.sum ./
-
-# Download dependencies
+WORKDIR /app/backend
+COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 
-# Copy source code
-COPY . .
+COPY backend .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/partflow-worker ./cmd/worker
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o worker main.go
-
-# Final stage
-FROM alpine:latest
-
+FROM alpine:3.20
+RUN apk --no-cache add ca-certificates
 WORKDIR /app
-
-# Copy the binary from builder
-COPY --from=builder /app/worker .
-
-# Expose port (if needed)
-# EXPOSE 8080
-
-# Run the application
-CMD ["./worker"]
+COPY --from=builder /out/partflow-worker /app/partflow-worker
+CMD ["/app/partflow-worker"]

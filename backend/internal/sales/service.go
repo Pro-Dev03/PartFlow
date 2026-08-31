@@ -2,6 +2,7 @@ package sales
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -29,9 +30,10 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	committed := false
 	defer func() {
-		if err != nil {
-			tx.Rollback()
+		if !committed {
+			_ = tx.Rollback()
 		}
 	}()
 	sqlNow := dbutil.NowSQL(s.db)
@@ -72,7 +74,6 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			FROM inventory_items
 			WHERE product_id = $1 AND status = 'AVAILABLE'
 			ORDER BY created_at ASC
-			FOR UPDATE
 		`
 		var stockArgs []interface{}
 		if itemReq.InventoryItemID != nil {
@@ -80,11 +81,13 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 				SELECT id, purchase_cost
 				FROM inventory_items
 				WHERE id = $1 AND product_id = $2 AND status = 'AVAILABLE'
-				FOR UPDATE
 			`
 			stockArgs = []interface{}{*itemReq.InventoryItemID, itemReq.ProductID}
 		} else {
 			stockArgs = []interface{}{itemReq.ProductID}
+		}
+		if !dbutil.IsSQLite(s.db) {
+			stockQuery += " FOR UPDATE"
 		}
 		err := tx.SelectContext(ctx, &availableItems, stockQuery, stockArgs...)
 		if err != nil {
@@ -186,11 +189,19 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 	`
-	_, err = tx.ExecContext(ctx, saleQuery,
-		sale.ID, sale.SaleDate, sale.CustomerID, sale.InvoiceNumber, sale.UserID,
-		sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount, sale.CostAmount,
-		sale.GrossProfit, sale.NetProfit, sale.PaidAmount, sale.PaymentMethod, sale.PaymentStatus,
-		sale.Status, sale.Notes, sale.CreatedAt, sale.UpdatedAt)
+	if dbutil.IsSQLite(s.db) {
+		_, err = tx.ExecContext(ctx, `INSERT INTO sales (id, sale_number, invoice_number, sale_date, customer_id, user_id, subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit, paid_amount, remaining_amount, payment_method, payment_status, status, notes, created_at, updated_at) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
+			sale.ID, sale.InvoiceNumber, sale.SaleDate, sale.CustomerID, sale.UserID,
+			sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount, sale.CostAmount,
+			sale.GrossProfit, sale.NetProfit, sale.PaidAmount, sale.TotalAmount-sale.PaidAmount,
+			sale.PaymentMethod, sale.PaymentStatus, sale.Status, sale.Notes, sale.CreatedAt, sale.UpdatedAt)
+	} else {
+		_, err = tx.ExecContext(ctx, saleQuery,
+			sale.ID, sale.SaleDate, sale.CustomerID, sale.InvoiceNumber, sale.UserID,
+			sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount, sale.CostAmount,
+			sale.GrossProfit, sale.NetProfit, sale.PaidAmount, sale.PaymentMethod, sale.PaymentStatus,
+			sale.Status, sale.Notes, sale.CreatedAt, sale.UpdatedAt)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sale: %w", err)
 	}
@@ -232,7 +243,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 			// Preserve every inventory item for auditability; status is the source of truth.
 			var itemCondition string
-			conditionQuery := `SELECT condition FROM inventory_items WHERE id = $1`
+			conditionQuery := `SELECT COALESCE(condition, '') FROM inventory_items WHERE id = $1`
 			err := tx.GetContext(ctx, &itemCondition, conditionQuery, itemID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to check item condition: %w", err)
@@ -266,9 +277,17 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			if itemCondition == "USED" {
 				reason = "Sold used item: " + invoiceNumber
 			}
+			var beforeQuantity int
+			if err = tx.GetContext(ctx, &beforeQuantity, `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1`, items[i].ProductID); err != nil && err != sql.ErrNoRows {
+				return nil, fmt.Errorf("failed to read inventory quantity: %w", err)
+			}
+			afterQuantity := beforeQuantity - 1
+			if afterQuantity < 0 {
+				afterQuantity = 0
+			}
 			_, err = tx.ExecContext(ctx, movementQuery,
 				uuid.New(), itemID, "SALE",
-				-1, 1, 0, "sale", sale.ID, reason, userID, time.Now())
+				-1, beforeQuantity, afterQuantity, "sale", sale.ID, reason, userID, time.Now())
 			if err != nil {
 				return nil, fmt.Errorf("failed to create inventory movement: %w", err)
 			}
@@ -339,11 +358,11 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		}
 
 		// Update customer current balance (SALES-PHILOSOPHY.md)
-		updateCustomerQuery := `
+		updateCustomerQuery := fmt.Sprintf(`
 			UPDATE customers
-			SET current_balance = $1, updated_at = NOW()
+			SET current_balance = $1, updated_at = %s
 			WHERE id = $2
-		`
+		`, dbutil.NowSQL(s.db))
 		_, customerErr := tx.ExecContext(ctx, updateCustomerQuery, newBalance, *req.CustomerID)
 		if customerErr != nil {
 			return nil, fmt.Errorf("failed to update customer balance: %w", customerErr)
@@ -369,9 +388,16 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 				payment_method, payment_status, created_by, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		`
-		_, paymentErr := tx.ExecContext(ctx, paymentQuery,
-			uuid.New(), sale.ID, req.CustomerID, req.PaymentAmount,
-			req.PaymentMethod, "completed", userID, time.Now())
+		paymentID := uuid.New()
+		paymentTime := time.Now()
+		var paymentErr error
+		if dbutil.IsSQLite(s.db) {
+			_, paymentErr = tx.ExecContext(ctx, `INSERT INTO payments (id, transaction_number, sale_id, customer_id, amount, payment_method, payment_status, created_by, payment_date, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9)`, paymentID, paymentID.String(), sale.ID, req.CustomerID, req.PaymentAmount, req.PaymentMethod, "completed", userID, paymentTime)
+		} else {
+			_, paymentErr = tx.ExecContext(ctx, paymentQuery,
+				paymentID, sale.ID, req.CustomerID, req.PaymentAmount,
+				req.PaymentMethod, "completed", userID, paymentTime)
+		}
 		if paymentErr != nil {
 			return nil, fmt.Errorf("failed to create payment: %w", paymentErr)
 		}
@@ -453,6 +479,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	if commitErr := tx.Commit(); commitErr != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", commitErr)
 	}
+	committed = true
 
 	// Invalidate dashboard cache since sales data changed
 	dashboard.InvalidateDashboardCacheWithReason("sale_created")
@@ -514,16 +541,28 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	committed := false
 	defer func() {
-		if err != nil {
-			tx.Rollback()
+		if !committed {
+			_ = tx.Rollback()
 		}
 	}()
 
 	// Get sale with row lock
+	saleQuery := `SELECT id, sale_date, customer_id, invoice_number, subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit, paid_amount, payment_method, payment_status, status, notes, created_at, updated_at FROM sales WHERE id = $1`
+	if !dbutil.IsSQLite(s.db) {
+		saleQuery += " FOR UPDATE"
+	}
 	var sale Sale
-	saleQuery := `SELECT * FROM sales WHERE id = $1 FOR UPDATE`
-	err = tx.GetContext(ctx, &sale, saleQuery, id)
+	if dbutil.IsSQLite(s.db) {
+		var localRow localSaleRow
+		err = tx.GetContext(ctx, &localRow, saleQuery, id)
+		if err == nil {
+			sale, err = localRow.sale()
+		}
+	} else {
+		err = tx.GetContext(ctx, &sale, saleQuery, id)
+	}
 	if err != nil {
 		return ErrSaleNotFound
 	}
@@ -548,10 +587,10 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 	}
 
 	// Update sale
-	updateSaleQuery := `
-		UPDATE sales SET paid_amount = $1, payment_method = $2, payment_status = $3, updated_at = NOW()
+	updateSaleQuery := fmt.Sprintf(`
+		UPDATE sales SET paid_amount = $1, payment_method = $2, payment_status = $3, updated_at = %s
 		WHERE id = $4
-	`
+	`, dbutil.NowSQL(s.db))
 	_, err = tx.ExecContext(ctx, updateSaleQuery, sale.PaidAmount, sale.PaymentMethod, sale.PaymentStatus, sale.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update sale: %w", err)
@@ -563,9 +602,15 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 			payment_method, payment_status, created_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
-	_, err = tx.ExecContext(ctx, paymentQuery,
-		uuid.New(), sale.ID, sale.CustomerID, amount,
-		paymentMethod, "completed", userID, time.Now(), time.Now())
+	paymentID := uuid.New()
+	paymentTime := time.Now()
+	if dbutil.IsSQLite(s.db) {
+		_, err = tx.ExecContext(ctx, `INSERT INTO payments (id, transaction_number, sale_id, customer_id, amount, payment_method, payment_status, created_by, payment_date, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9)`, paymentID, paymentID.String(), sale.ID, sale.CustomerID, amount, paymentMethod, "completed", userID, paymentTime)
+	} else {
+		_, err = tx.ExecContext(ctx, paymentQuery,
+			paymentID, sale.ID, sale.CustomerID, amount,
+			paymentMethod, "completed", userID, paymentTime, paymentTime)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to create payment: %w", err)
 	}
@@ -600,11 +645,11 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 		}
 
 		// Update customer current balance
-		updateCustomerQuery := `
+		updateCustomerQuery := fmt.Sprintf(`
 			UPDATE customers 
-			SET current_balance = $1, updated_at = NOW()
+			SET current_balance = $1, updated_at = %s
 			WHERE id = $2
-		`
+		`, dbutil.NowSQL(s.db))
 		_, err = tx.ExecContext(ctx, updateCustomerQuery, newBalance, *sale.CustomerID)
 		if err != nil {
 			return fmt.Errorf("failed to update customer balance: %w", err)
@@ -628,6 +673,7 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	committed = true
 
 	// Invalidate dashboard cache since payment data changed
 	dashboard.InvalidateDashboardCacheWithReason("payment_updated")

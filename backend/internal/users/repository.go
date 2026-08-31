@@ -9,12 +9,68 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Repository handles database operations for users
 type Repository struct {
 	db *sqlx.DB
 }
+
+type localUserRow struct {
+	ID                    string         `db:"id"`
+	Email                 string         `db:"email"`
+	PasswordHash          string         `db:"password_hash"`
+	FirstName             string         `db:"first_name"`
+	LastName              string         `db:"last_name"`
+	Phone                 sql.NullString `db:"phone"`
+	AvatarURL             sql.NullString `db:"avatar_url"`
+	LastLoginAt           sql.NullString `db:"last_login_at"`
+	SubscriptionExpiresAt sql.NullString `db:"subscription_expires_at"`
+	IsActive              bool           `db:"is_active"`
+	IsVerified            bool           `db:"is_verified"`
+	SubscriptionStatus    sql.NullString `db:"subscription_status"`
+	CreatedAt             string         `db:"created_at"`
+	UpdatedAt             string         `db:"updated_at"`
+}
+
+func (r localUserRow) model() (*User, error) {
+	id, err := uuid.Parse(r.ID)
+	if err != nil {
+		return nil, err
+	}
+	created, err := dbutil.ParseTimestamp(r.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	updated, err := dbutil.ParseTimestamp(r.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	u := &User{ID: id, Email: r.Email, PasswordHash: r.PasswordHash, FirstName: r.FirstName, LastName: r.LastName, IsActive: r.IsActive, IsVerified: r.IsVerified, SubscriptionStatus: "active", CreatedAt: created, UpdatedAt: updated}
+	if r.Phone.Valid {
+		u.Phone = &r.Phone.String
+	}
+	if r.AvatarURL.Valid {
+		u.AvatarURL = &r.AvatarURL.String
+	}
+	if r.SubscriptionStatus.Valid {
+		u.SubscriptionStatus = r.SubscriptionStatus.String
+	}
+	if r.LastLoginAt.Valid {
+		if t, e := dbutil.ParseTimestamp(r.LastLoginAt.String); e == nil {
+			u.LastLoginAt = &t
+		}
+	}
+	if r.SubscriptionExpiresAt.Valid {
+		if t, e := dbutil.ParseTimestamp(r.SubscriptionExpiresAt.String); e == nil {
+			u.SubscriptionExpiresAt = &t
+		}
+	}
+	return u, nil
+}
+
+const localUserColumns = `id,email,password_hash,first_name,last_name,phone,avatar_url,is_active,is_verified,last_login_at,subscription_status,subscription_expires_at,created_at,updated_at`
 
 // NewRepository creates a new users repository
 func NewRepository(db *sqlx.DB) *Repository {
@@ -40,6 +96,20 @@ func (r *Repository) Create(ctx context.Context, user *User) error {
 
 // GetByID retrieves a user by ID
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*User, error) {
+	if r.db.DriverName() == "sqlite" {
+		var row localUserRow
+		if err := r.db.GetContext(ctx, &row, `SELECT `+localUserColumns+` FROM users WHERE id = ?`, id.String()); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrUserNotFound
+			}
+			return nil, fmt.Errorf("failed to get user: %w", err)
+		}
+		u, err := row.model()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse user: %w", err)
+		}
+		return u, nil
+	}
 	query := `
 		SELECT id, email, password_hash, first_name, last_name, phone, avatar_url,
 		       is_active, is_verified, last_login_at, subscription_status, subscription_expires_at, created_at, updated_at
@@ -59,6 +129,20 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*User, error) {
 
 // GetByEmail retrieves a user by email
 func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error) {
+	if r.db.DriverName() == "sqlite" {
+		var row localUserRow
+		if err := r.db.GetContext(ctx, &row, `SELECT `+localUserColumns+` FROM users WHERE email = ?`, email); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrUserNotFound
+			}
+			return nil, fmt.Errorf("failed to get user: %w", err)
+		}
+		u, err := row.model()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse user: %w", err)
+		}
+		return u, nil
+	}
 	query := `
 		SELECT id, email, password_hash, first_name, last_name, phone, avatar_url,
 		       is_active, is_verified, last_login_at, subscription_status, subscription_expires_at, created_at, updated_at
@@ -171,20 +255,20 @@ func (r *Repository) listSQLite(ctx context.Context, page, perPage int, search s
 	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 	args = append(args, perPage, offset)
 	var rows []struct {
-		ID string `db:"id"`
-		Email string `db:"email"`
-		PasswordHash string `db:"password_hash"`
-		FirstName string `db:"first_name"`
-		LastName string `db:"last_name"`
-		Phone sql.NullString `db:"phone"`
-		AvatarURL sql.NullString `db:"avatar_url"`
-		LastLoginAt sql.NullString `db:"last_login_at"`
+		ID                    string         `db:"id"`
+		Email                 string         `db:"email"`
+		PasswordHash          string         `db:"password_hash"`
+		FirstName             string         `db:"first_name"`
+		LastName              string         `db:"last_name"`
+		Phone                 sql.NullString `db:"phone"`
+		AvatarURL             sql.NullString `db:"avatar_url"`
+		LastLoginAt           sql.NullString `db:"last_login_at"`
 		SubscriptionExpiresAt sql.NullString `db:"subscription_expires_at"`
-		IsActive bool `db:"is_active"`
-		IsVerified bool `db:"is_verified"`
-		SubscriptionStatus sql.NullString `db:"subscription_status"`
-		CreatedAt string `db:"created_at"`
-		UpdatedAt string `db:"updated_at"`
+		IsActive              bool           `db:"is_active"`
+		IsVerified            bool           `db:"is_verified"`
+		SubscriptionStatus    sql.NullString `db:"subscription_status"`
+		CreatedAt             string         `db:"created_at"`
+		UpdatedAt             string         `db:"updated_at"`
 	}
 	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
 		return nil, 0, fmt.Errorf("failed to list users: %w", err)
@@ -192,17 +276,39 @@ func (r *Repository) listSQLite(ctx context.Context, page, perPage int, search s
 	users := make([]User, 0, len(rows))
 	for _, row := range rows {
 		createdAt, err := parseLocalUserTime(row.CreatedAt)
-		if err != nil { return nil, 0, fmt.Errorf("parse user created_at: %w", err) }
+		if err != nil {
+			return nil, 0, fmt.Errorf("parse user created_at: %w", err)
+		}
 		updatedAt, err := parseLocalUserTime(row.UpdatedAt)
-		if err != nil { return nil, 0, fmt.Errorf("parse user updated_at: %w", err) }
+		if err != nil {
+			return nil, 0, fmt.Errorf("parse user updated_at: %w", err)
+		}
 		user := User{Email: row.Email, PasswordHash: row.PasswordHash, FirstName: row.FirstName, LastName: row.LastName, IsActive: row.IsActive, IsVerified: row.IsVerified, CreatedAt: createdAt, UpdatedAt: updatedAt}
 		user.ID, err = uuid.Parse(row.ID)
-		if err != nil { return nil, 0, fmt.Errorf("parse user id: %w", err) }
-		if row.Phone.Valid { user.Phone = &row.Phone.String }
-		if row.AvatarURL.Valid { user.AvatarURL = &row.AvatarURL.String }
-		if row.SubscriptionStatus.Valid { user.SubscriptionStatus = row.SubscriptionStatus.String }
-		if row.SubscriptionExpiresAt.Valid { value, parseErr := parseLocalUserTime(row.SubscriptionExpiresAt.String); if parseErr == nil { user.SubscriptionExpiresAt = &value } }
-		if row.LastLoginAt.Valid { value, parseErr := parseLocalUserTime(row.LastLoginAt.String); if parseErr == nil { user.LastLoginAt = &value } }
+		if err != nil {
+			return nil, 0, fmt.Errorf("parse user id: %w", err)
+		}
+		if row.Phone.Valid {
+			user.Phone = &row.Phone.String
+		}
+		if row.AvatarURL.Valid {
+			user.AvatarURL = &row.AvatarURL.String
+		}
+		if row.SubscriptionStatus.Valid {
+			user.SubscriptionStatus = row.SubscriptionStatus.String
+		}
+		if row.SubscriptionExpiresAt.Valid {
+			value, parseErr := parseLocalUserTime(row.SubscriptionExpiresAt.String)
+			if parseErr == nil {
+				user.SubscriptionExpiresAt = &value
+			}
+		}
+		if row.LastLoginAt.Valid {
+			value, parseErr := parseLocalUserTime(row.LastLoginAt.String)
+			if parseErr == nil {
+				user.LastLoginAt = &value
+			}
+		}
 		users = append(users, user)
 	}
 	return users, total, nil
@@ -214,7 +320,9 @@ func parseLocalUserTime(value string) (time.Time, error) {
 		value = strings.TrimSpace(value[:index])
 	}
 	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999 -0700 MST", "2006-01-02 15:04:05 -0700 MST", "2006-01-02 15:04:05", "2006-01-02"} {
-		if parsed, err := time.Parse(layout, value); err == nil { return parsed, nil }
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, nil
+		}
 	}
 	return time.Time{}, fmt.Errorf("unsupported timestamp %q", value)
 }
@@ -245,7 +353,7 @@ func (r *Repository) Update(ctx context.Context, user *User) error {
 
 // UpdatePassword updates a user's password
 func (r *Repository) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
-	query := `UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1`
+	query := fmt.Sprintf(`UPDATE users SET password_hash = $2, updated_at = %s WHERE id = $1`, dbutil.NowSQL(r.db))
 	result, err := r.db.ExecContext(ctx, query, id, passwordHash)
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)

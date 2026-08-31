@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 func nullableUUID(id uuid.UUID) *uuid.UUID {
@@ -31,6 +32,38 @@ func NewService(db *sqlx.DB) *Service {
 
 // CreateAcquisition creates a new acquisition (from supplier or customer)
 func (s *Service) CreateAcquisition(ctx context.Context, req *AcquisitionRequest, userID uuid.UUID) (*Acquisition, error) {
+	if req == nil {
+		return nil, fmt.Errorf("acquisition request is required")
+	}
+	if req.AcquisitionDate.IsZero() {
+		return nil, fmt.Errorf("acquisition_date is required")
+	}
+	if req.AcquisitionDate.After(time.Now().Add(24 * time.Hour)) {
+		return nil, fmt.Errorf("acquisition_date cannot be in the future")
+	}
+	if req.Type != TypeSupplier && req.Type != TypeCustomer {
+		return nil, fmt.Errorf("type must be SUPPLIER or CUSTOMER")
+	}
+	if len(req.Items) == 0 {
+		return nil, fmt.Errorf("at least one acquisition item is required")
+	}
+	if req.PaymentStatus == "" {
+		req.PaymentStatus = PaymentStatusPayable
+	}
+	if req.PaymentStatus != PaymentStatusPaid && req.PaymentStatus != PaymentStatusPayable && req.PaymentStatus != PaymentStatusPartial && req.PaymentStatus != PaymentStatusOverdue {
+		return nil, fmt.Errorf("invalid payment_status")
+	}
+	for _, item := range req.Items {
+		if item.ProductID == uuid.Nil {
+			return nil, fmt.Errorf("product_id is required for every acquisition item")
+		}
+		if item.UnitCost < 0 {
+			return nil, fmt.Errorf("unit_cost cannot be negative")
+		}
+		if item.Condition != "new" && item.Condition != "used" && item.Condition != "refurbished" {
+			return nil, fmt.Errorf("invalid acquisition item condition")
+		}
+	}
 	// Validate that seller is set based on type
 	if req.Type == TypeSupplier && req.SupplierID == nil {
 		return nil, fmt.Errorf("supplier_id is required for supplier acquisitions")
@@ -68,10 +101,9 @@ func (s *Service) CreateAcquisition(ctx context.Context, req *AcquisitionRequest
 		INSERT INTO acquisitions (id, type, acquisition_date, supplier_id, customer_id, 
 			total_cost, paid_amount, payment_status, status, notes, user_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		RETURNING *
 	`
 
-	err = tx.Get(acquisition, query,
+	_, err = tx.Exec(query,
 		acquisition.ID, acquisition.Type, acquisition.AcquisitionDate,
 		acquisition.SupplierID, acquisition.CustomerID, acquisition.TotalCost,
 		acquisition.PaidAmount, acquisition.PaymentStatus, acquisition.Status,
@@ -82,18 +114,24 @@ func (s *Service) CreateAcquisition(ctx context.Context, req *AcquisitionRequest
 	}
 
 	// Create acquisition items
+	var calculatedTotal float64
 	for _, itemReq := range req.Items {
+		condition := strings.ToLower(strings.TrimSpace(itemReq.Condition))
+		grade := strings.ToLower(strings.TrimSpace(itemReq.Grade))
+		if grade == "" {
+			grade = "good"
+		}
 		item := &AcquisitionItem{
 			ID:               uuid.New(),
 			AcquisitionID:    acquisitionID,
 			ProductID:        itemReq.ProductID,
 			SerialNumber:     itemReq.SerialNumber,
-			Condition:        itemReq.Condition,
-			Grade:            itemReq.Grade,
+			Condition:        condition,
+			Grade:            grade,
 			UnitCost:         itemReq.UnitCost,
 			TotalCost:        itemReq.UnitCost, // Assuming quantity 1 for individual items
 			InspectionStatus: "pending",
-			ItemStatus:       "acquired",
+			ItemStatus:       "inspection",
 			Notes:            itemReq.Notes,
 			CreatedAt:        time.Now(),
 			UpdatedAt:        time.Now(),
@@ -113,6 +151,45 @@ func (s *Service) CreateAcquisition(ctx context.Context, req *AcquisitionRequest
 		if err != nil {
 			return nil, fmt.Errorf("failed to create acquisition item: %w", err)
 		}
+
+		// Every acquired unit is an actual inventory item.  It starts in
+		// INSPECTION so it cannot be sold before the inspection workflow passes it.
+		inventoryID := uuid.New()
+		itemCode := fmt.Sprintf("ACQ-%s", strings.ToUpper(strings.ReplaceAll(inventoryID.String()[:13], "-", "")))
+		barcode := fmt.Sprintf("ACQ-%s", strings.ToUpper(strings.ReplaceAll(inventoryID.String(), "-", "")))
+		inventoryQuery := fmt.Sprintf(`
+			INSERT INTO inventory_items (id, product_id, item_code, barcode, serial_number,
+				condition, grade, purchase_cost, selling_price, status, supplier_id,
+				purchase_date, notes, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, %s, %s)
+		`, dbutil.NowSQL(s.db), dbutil.NowSQL(s.db))
+		if _, err = tx.ExecContext(ctx, inventoryQuery, inventoryID, itemReq.ProductID, itemCode, barcode,
+			nullableString(itemReq.SerialNumber), strings.ToUpper(condition), strings.ToUpper(grade),
+			itemReq.UnitCost, itemReq.UnitCost, "INSPECTION", req.SupplierID, req.AcquisitionDate, nullableString(itemReq.Notes)); err != nil {
+			return nil, fmt.Errorf("failed to create inventory item for acquisition: %w", err)
+		}
+		if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE acquisition_items SET inventory_item_id = $1, item_code = $2, item_status = 'inspection', updated_at = %s WHERE id = $3`, dbutil.NowSQL(s.db)), inventoryID, itemCode, item.ID); err != nil {
+			return nil, fmt.Errorf("failed to link acquisition item to inventory: %w", err)
+		}
+		updateAggregate := fmt.Sprintf(`UPDATE inventory SET quantity = quantity + 1, updated_at = %s WHERE product_id = $1`, dbutil.NowSQL(s.db))
+		aggregateResult, aggregateErr := tx.ExecContext(ctx, updateAggregate, itemReq.ProductID)
+		if aggregateErr != nil {
+			return nil, fmt.Errorf("failed to update inventory aggregate: %w", aggregateErr)
+		}
+		if rows, rowsErr := aggregateResult.RowsAffected(); rowsErr != nil {
+			return nil, fmt.Errorf("failed to inspect inventory aggregate: %w", rowsErr)
+		} else if rows == 0 {
+			if _, aggregateErr = tx.ExecContext(ctx, fmt.Sprintf(`
+				INSERT INTO inventory (id, product_id, quantity, reserved_quantity, created_at, updated_at)
+				VALUES ($1, $2, 1, 0, %s, %s)
+			`, dbutil.NowSQL(s.db), dbutil.NowSQL(s.db)), uuid.New(), itemReq.ProductID); aggregateErr != nil {
+				return nil, fmt.Errorf("failed to create inventory aggregate: %w", aggregateErr)
+			}
+		}
+		calculatedTotal += itemReq.UnitCost
+	}
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE acquisitions SET total_cost = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db)), calculatedTotal, acquisitionID); err != nil {
+		return nil, fmt.Errorf("failed to update acquisition total: %w", err)
 	}
 
 	// Commit transaction
@@ -124,18 +201,103 @@ func (s *Service) CreateAcquisition(ctx context.Context, req *AcquisitionRequest
 	return s.GetAcquisition(ctx, acquisitionID)
 }
 
+func nullableString(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
 // GetAcquisition retrieves an acquisition by ID
 func (s *Service) GetAcquisition(ctx context.Context, id uuid.UUID) (*Acquisition, error) {
-	var acquisition Acquisition
-	query := `SELECT * FROM acquisitions WHERE id = $1`
-	err := s.db.Get(&acquisition, query, id)
-	if err != nil {
+	row := map[string]any{}
+	if err := s.db.QueryRowxContext(ctx, `SELECT * FROM acquisitions WHERE id = $1`, id).MapScan(row); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("acquisition not found")
 		}
 		return nil, fmt.Errorf("failed to get acquisition: %w", err)
 	}
-	return &acquisition, nil
+	acquisition := &Acquisition{ID: parseUUIDValue(row["id"]), Type: fmt.Sprint(row["type"]), TotalCost: parseFloatValue(row["total_cost"]), PaidAmount: parseFloatValue(row["paid_amount"]), PaymentStatus: fmt.Sprint(row["payment_status"]), Status: fmt.Sprint(row["status"])}
+	if acquisition.ID == uuid.Nil {
+		acquisition.ID = id
+	}
+	acquisition.SupplierID = parseNullableUUIDValue(row["supplier_id"])
+	acquisition.CustomerID = parseNullableUUIDValue(row["customer_id"])
+	acquisition.UserID = parseNullableUUIDValue(row["user_id"])
+	acquisition.ReversedBy = parseNullableUUIDValue(row["reversed_by"])
+	acquisition.Notes = parseNullableStringValue(row["notes"])
+	if value, err := dbutil.ParseTimestamp(row["acquisition_date"]); err == nil {
+		acquisition.AcquisitionDate = value
+	} else {
+		return nil, fmt.Errorf("parse acquisition date: %w", err)
+	}
+	if value, err := dbutil.ParseTimestamp(row["created_at"]); err == nil {
+		acquisition.CreatedAt = value
+	}
+	if value, err := dbutil.ParseTimestamp(row["updated_at"]); err == nil {
+		acquisition.UpdatedAt = value
+	}
+	if value, err := dbutil.ParseTimestamp(row["reversed_at"]); err == nil && !value.IsZero() {
+		acquisition.ReversedAt = &value
+	}
+	return acquisition, nil
+}
+
+func parseUUIDValue(value any) uuid.UUID {
+	if value == nil {
+		return uuid.Nil
+	}
+	if parsed, ok := value.(uuid.UUID); ok {
+		return parsed
+	}
+	if bytes, ok := value.([]byte); ok && len(bytes) == 16 {
+		var parsed uuid.UUID
+		copy(parsed[:], bytes)
+		return parsed
+	}
+	parsed, _ := uuid.Parse(strings.TrimSpace(fmt.Sprint(value)))
+	return parsed
+}
+
+func parseNullableUUIDValue(value any) *uuid.UUID {
+	parsed := parseUUIDValue(value)
+	if parsed == uuid.Nil {
+		return nil
+	}
+	return &parsed
+}
+
+func parseNullableStringValue(value any) *string {
+	if value == nil {
+		return nil
+	}
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" {
+		return nil
+	}
+	return &text
+}
+
+func parseFloatValue(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case int:
+		return float64(v)
+	case []byte:
+		var out float64
+		_, _ = fmt.Sscan(string(v), &out)
+		return out
+	default:
+		var out float64
+		_, _ = fmt.Sscan(fmt.Sprint(value), &out)
+		return out
+	}
 }
 
 // GetAcquisitionWithItems retrieves an acquisition with its items
@@ -147,9 +309,7 @@ func (s *Service) GetAcquisitionWithItems(ctx context.Context, id uuid.UUID) (*A
 	}
 
 	// Get items
-	var items []AcquisitionItem
-	query := `SELECT * FROM acquisition_items WHERE acquisition_id = $1 ORDER BY created_at`
-	err = s.db.Select(&items, query, id)
+	items, err := s.loadAcquisitionItems(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get acquisition items: %w", err)
 	}
@@ -175,6 +335,51 @@ func (s *Service) GetAcquisitionWithItems(ctx context.Context, id uuid.UUID) (*A
 		TotalItems:  len(items),
 		Remaining:   remaining,
 	}, nil
+}
+
+// loadAcquisitionItems parses timestamps and UUIDs explicitly. PostgreSQL's
+// driver returns native time/UUID values, while SQLite returns text; scanning
+// directly into time.Time/uuid.UUID makes the local application fail after a
+// perfectly valid write.
+func (s *Service) loadAcquisitionItems(ctx context.Context, acquisitionID uuid.UUID) ([]AcquisitionItem, error) {
+	rows, err := s.db.QueryxContext(ctx, `SELECT * FROM acquisition_items WHERE acquisition_id = $1 ORDER BY created_at`, acquisitionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]AcquisitionItem, 0)
+	for rows.Next() {
+		record := map[string]any{}
+		if err := rows.MapScan(record); err != nil {
+			return nil, err
+		}
+		item := AcquisitionItem{
+			ID:               parseUUIDValue(record["id"]),
+			AcquisitionID:    parseUUIDValue(record["acquisition_id"]),
+			ProductID:        parseUUIDValue(record["product_id"]),
+			SerialNumber:     strings.TrimSpace(fmt.Sprint(record["serial_number"])),
+			Condition:        strings.TrimSpace(fmt.Sprint(record["condition"])),
+			Grade:            strings.TrimSpace(fmt.Sprint(record["grade"])),
+			UnitCost:         parseFloatValue(record["unit_cost"]),
+			TotalCost:        parseFloatValue(record["total_cost"]),
+			InspectionStatus: strings.TrimSpace(fmt.Sprint(record["inspection_status"])),
+			ItemStatus:       strings.TrimSpace(fmt.Sprint(record["item_status"])),
+			Notes:            strings.TrimSpace(fmt.Sprint(record["notes"])),
+		}
+		item.InspectionID = parseNullableUUIDValue(record["inspection_id"])
+		item.InventoryItemID = parseNullableUUIDValue(record["inventory_item_id"])
+		if value, parseErr := dbutil.ParseTimestamp(record["created_at"]); parseErr == nil {
+			item.CreatedAt = value
+		}
+		if value, parseErr := dbutil.ParseTimestamp(record["updated_at"]); parseErr == nil {
+			item.UpdatedAt = value
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 // getSupplierInfo retrieves supplier information
@@ -248,6 +453,24 @@ func (s *Service) ListAcquisitions(ctx context.Context, req *AcquisitionListRequ
 		args = append(args, req.PaymentStatus)
 		argCount++
 	}
+	if req.StartDate != nil {
+		query += fmt.Sprintf(" AND acquisition_date >= $%d", argCount)
+		countQuery += fmt.Sprintf(" AND acquisition_date >= $%d", argCount)
+		args = append(args, *req.StartDate)
+		argCount++
+	}
+	if req.EndDate != nil {
+		query += fmt.Sprintf(" AND acquisition_date <= $%d", argCount)
+		countQuery += fmt.Sprintf(" AND acquisition_date <= $%d", argCount)
+		args = append(args, *req.EndDate)
+		argCount++
+	}
+	if search := strings.TrimSpace(req.Search); search != "" {
+		query += fmt.Sprintf(" AND (LOWER(COALESCE(notes, '')) LIKE LOWER($%d) OR CAST(id AS TEXT) LIKE $%d)", argCount, argCount)
+		countQuery += fmt.Sprintf(" AND (LOWER(COALESCE(notes, '')) LIKE LOWER($%d) OR CAST(id AS TEXT) LIKE $%d)", argCount, argCount)
+		args = append(args, "%"+search+"%")
+		argCount++
+	}
 
 	// Get total count
 	var total int
@@ -257,12 +480,19 @@ func (s *Service) ListAcquisitions(ctx context.Context, req *AcquisitionListRequ
 	}
 
 	// Apply sorting
-	sortBy := "acquisition_date"
-	if req.SortBy != "" {
-		sortBy = req.SortBy
+	sortColumns := map[string]string{
+		"acquisition_date": "acquisition_date",
+		"created_at":       "created_at",
+		"total_cost":       "total_cost",
+		"status":           "status",
+		"payment_status":   "payment_status",
+	}
+	sortBy := sortColumns[req.SortBy]
+	if sortBy == "" {
+		sortBy = "acquisition_date"
 	}
 	sortOrder := "DESC"
-	if req.SortOrder == "asc" {
+	if strings.EqualFold(req.SortOrder, "asc") {
 		sortOrder = "ASC"
 	}
 	query += fmt.Sprintf(" ORDER BY %s %s", sortBy, sortOrder)
@@ -273,21 +503,51 @@ func (s *Service) ListAcquisitions(ctx context.Context, req *AcquisitionListRequ
 	args = append(args, req.PerPage, offset)
 
 	// Execute query
-	var acquisitions []Acquisition
-	err = s.db.Select(&acquisitions, query, args...)
+	rows, err := s.db.QueryxContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list acquisitions: %w", err)
 	}
-
-	for i := range acquisitions {
-		var items []AcquisitionItem
-		if err := s.db.Select(&items, `SELECT * FROM acquisition_items WHERE acquisition_id = $1 ORDER BY created_at`, acquisitions[i].ID); err != nil {
-			return nil, 0, fmt.Errorf("failed to load acquisition items: %w", err)
+	defer rows.Close()
+	acquisitions := make([]Acquisition, 0)
+	for rows.Next() {
+		record := map[string]any{}
+		if err := rows.MapScan(record); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan acquisition: %w", err)
 		}
-		if items == nil {
-			items = []AcquisitionItem{}
+		acquisition := Acquisition{
+			ID:            parseUUIDValue(record["id"]),
+			Type:          fmt.Sprint(record["type"]),
+			TotalCost:     parseFloatValue(record["total_cost"]),
+			PaidAmount:    parseFloatValue(record["paid_amount"]),
+			PaymentStatus: fmt.Sprint(record["payment_status"]),
+			Status:        fmt.Sprint(record["status"]),
+			Notes:         parseNullableStringValue(record["notes"]),
+			SupplierID:    parseNullableUUIDValue(record["supplier_id"]),
+			CustomerID:    parseNullableUUIDValue(record["customer_id"]),
+			UserID:        parseNullableUUIDValue(record["user_id"]),
+			ReversedBy:    parseNullableUUIDValue(record["reversed_by"]),
 		}
-		acquisitions[i].Items = items
+		if value, parseErr := dbutil.ParseTimestamp(record["acquisition_date"]); parseErr == nil {
+			acquisition.AcquisitionDate = value
+		}
+		if value, parseErr := dbutil.ParseTimestamp(record["created_at"]); parseErr == nil {
+			acquisition.CreatedAt = value
+		}
+		if value, parseErr := dbutil.ParseTimestamp(record["updated_at"]); parseErr == nil {
+			acquisition.UpdatedAt = value
+		}
+		if value, parseErr := dbutil.ParseTimestamp(record["reversed_at"]); parseErr == nil && !value.IsZero() {
+			acquisition.ReversedAt = &value
+		}
+		items, itemErr := s.loadAcquisitionItems(ctx, acquisition.ID)
+		if itemErr != nil {
+			return nil, 0, fmt.Errorf("failed to load acquisition items: %w", itemErr)
+		}
+		acquisition.Items = items
+		acquisitions = append(acquisitions, acquisition)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to list acquisitions: %w", err)
 	}
 
 	return acquisitions, total, nil
@@ -297,12 +557,12 @@ func (s *Service) ListAcquisitions(ctx context.Context, req *AcquisitionListRequ
 func (s *Service) UpdateAcquisitionStatus(ctx context.Context, id uuid.UUID, status string) error {
 	status = strings.ToLower(strings.TrimSpace(status))
 	updateAcquisition := func() error {
-		result, err := s.db.ExecContext(ctx, `
+		result, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 			UPDATE acquisitions
 			SET status = $1,
-			    updated_at = NOW()
+			updated_at = %s
 			WHERE id = $2
-		`, status, id)
+		`, dbutil.NowSQL(s.db)), status, id)
 		if err != nil {
 			return fmt.Errorf("failed to update acquisition status: %w", err)
 		}
@@ -318,7 +578,17 @@ func (s *Service) UpdateAcquisitionStatus(ctx context.Context, id uuid.UUID, sta
 
 	switch status {
 	case "pending", "passed", "failed", "needs_repair":
-		result, err := s.db.ExecContext(ctx, `
+		tx, txErr := s.db.BeginTxx(ctx, nil)
+		if txErr != nil {
+			return fmt.Errorf("begin acquisition item status transaction: %w", txErr)
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+		result, err := tx.ExecContext(ctx, fmt.Sprintf(`
 			UPDATE acquisition_items
 			SET inspection_status = $1,
 			    item_status = CASE
@@ -326,22 +596,57 @@ func (s *Service) UpdateAcquisitionStatus(ctx context.Context, id uuid.UUID, sta
 			        WHEN $1 = 'failed' THEN 'rejected'
 			        ELSE 'inspection'
 			    END,
-			    updated_at = NOW()
+			    updated_at = %s
 			WHERE id = $2
-		`, status, id)
+		`, dbutil.NowSQL(s.db)), status, id)
 		if err != nil {
+			_ = tx.Rollback()
 			return fmt.Errorf("failed to update acquisition item status: %w", err)
 		}
 		rowsAffected, err := result.RowsAffected()
 		if err != nil {
+			_ = tx.Rollback()
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		}
 		if rowsAffected == 0 {
 			if status == "pending" {
-				return updateAcquisition()
+				result, updateErr := tx.ExecContext(ctx, fmt.Sprintf(`UPDATE acquisitions SET status = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db)), status, id)
+				if updateErr != nil {
+					_ = tx.Rollback()
+					return fmt.Errorf("failed to update acquisition status: %w", updateErr)
+				}
+				if affected, _ := result.RowsAffected(); affected == 0 {
+					_ = tx.Rollback()
+					return fmt.Errorf("acquisition not found")
+				}
+				if err := tx.Commit(); err != nil {
+					return fmt.Errorf("commit acquisition status transaction: %w", err)
+				}
+				committed = true
+				return nil
 			}
+			_ = tx.Rollback()
 			return fmt.Errorf("acquisition item not found")
 		}
+		if status == "passed" {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+				UPDATE inventory_items SET status = 'AVAILABLE', updated_at = %s
+				WHERE id = (SELECT inventory_item_id FROM acquisition_items WHERE id = $1)
+			`, dbutil.NowSQL(s.db)), id); err != nil {
+				return fmt.Errorf("failed to make inspected item available: %w", err)
+			}
+		} else if status == "failed" {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+				UPDATE inventory_items SET status = 'DAMAGED', updated_at = %s
+				WHERE id = (SELECT inventory_item_id FROM acquisition_items WHERE id = $1)
+			`, dbutil.NowSQL(s.db)), id); err != nil {
+				return fmt.Errorf("failed to mark inspected item rejected: %w", err)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit acquisition status transaction: %w", err)
+		}
+		committed = true
 		return nil
 	case StatusDraft, StatusAcquired, StatusInspection,
 		StatusApproved, StatusRejected, StatusCancelled, StatusReversed:
@@ -353,11 +658,11 @@ func (s *Service) UpdateAcquisitionStatus(ctx context.Context, id uuid.UUID, sta
 
 // LinkItemToInventory links an acquisition item to an inventory item
 func (s *Service) LinkItemToInventory(ctx context.Context, acquisitionItemID uuid.UUID, inventoryItemID uuid.UUID) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE acquisition_items 
-		SET inventory_item_id = $1, item_status = 'available', updated_at = NOW()
+		SET inventory_item_id = $1, item_status = 'available', updated_at = %s
 		WHERE id = $2
-	`
+	`, dbutil.NowSQL(s.db))
 	result, err := s.db.Exec(query, inventoryItemID, acquisitionItemID)
 	if err != nil {
 		return fmt.Errorf("failed to link item to inventory: %w", err)
@@ -395,21 +700,26 @@ func (s *Service) CreateSellerPayment(ctx context.Context, req *SellerPaymentReq
 		RETURNING *
 	`
 
-	err := s.db.Get(payment, query,
-		payment.ID, payment.AcquisitionID, payment.CustomerID,
-		payment.Amount, payment.PaymentMethod, payment.PaymentDate,
-		payment.Notes, payment.UserID, payment.CreatedAt,
-	)
+	var err error
+	if dbutil.IsSQLite(s.db) {
+		_, err = s.db.ExecContext(ctx, `INSERT INTO seller_payments (id, acquisition_id, customer_id, amount, payment_method, payment_date, notes, user_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, payment.ID, payment.AcquisitionID, payment.CustomerID, payment.Amount, payment.PaymentMethod, payment.PaymentDate, payment.Notes, payment.UserID, payment.CreatedAt)
+	} else {
+		err = s.db.Get(payment, query,
+			payment.ID, payment.AcquisitionID, payment.CustomerID,
+			payment.Amount, payment.PaymentMethod, payment.PaymentDate,
+			payment.Notes, payment.UserID, payment.CreatedAt,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create seller payment: %w", err)
 	}
 
 	// Update acquisition paid amount
-	updateQuery := `
+	updateQuery := fmt.Sprintf(`
 		UPDATE acquisitions 
-		SET paid_amount = paid_amount + $1, updated_at = NOW()
+		SET paid_amount = paid_amount + $1, updated_at = %s
 		WHERE id = $2
-	`
+	`, dbutil.NowSQL(s.db))
 	_, err = s.db.Exec(updateQuery, req.Amount, req.AcquisitionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update acquisition paid amount: %w", err)
@@ -445,10 +755,11 @@ func (s *Service) CreateSellerPayment(ctx context.Context, req *SellerPaymentReq
 
 // AddRepairCost adds a repair cost to an item
 func (s *Service) AddRepairCost(ctx context.Context, inventoryItemID uuid.UUID, acquisitionItemID uuid.UUID, repairType string, cost float64, description string, userID uuid.UUID) error {
-	query := `
+	nowSQL := dbutil.NowSQL(s.db)
+	query := fmt.Sprintf(`
 		INSERT INTO item_repair_costs (inventory_item_id, acquisition_item_id, repair_date, repair_type, cost, description, performed_by, created_at)
-		VALUES ($1, $2, CURRENT_DATE, $3, $4, $5, $6, NOW())
-	`
+		VALUES ($1, $2, CURRENT_DATE, $3, $4, $5, $6, %s)
+	`, nowSQL)
 
 	_, err := s.db.Exec(query, inventoryItemID, acquisitionItemID, repairType, cost, description, userID)
 	if err != nil {
@@ -456,23 +767,23 @@ func (s *Service) AddRepairCost(ctx context.Context, inventoryItemID uuid.UUID, 
 	}
 
 	// Update inventory item cost to include repair cost
-	updateQuery := `
+	updateQuery := fmt.Sprintf(`
 		UPDATE inventory_items 
-		SET purchase_cost = purchase_cost + $1, updated_at = NOW()
+		SET purchase_cost = purchase_cost + $1, updated_at = %s
 		WHERE id = $2
-	`
+	`, nowSQL)
 	_, err = s.db.Exec(updateQuery, cost, inventoryItemID)
 	if err != nil {
 		return fmt.Errorf("failed to update inventory item cost: %w", err)
 	}
 
 	// Add to item history
-	historyQuery := `
+	historyQuery := fmt.Sprintf(`
 		INSERT INTO item_history (inventory_item_id, event_type, event_date, reference_type, reference_id, description, metadata, created_by, created_at)
-		VALUES ($1, 'repair', NOW(), 'repair_cost', gen_random_uuid(), $2, $3, $4, NOW())
-	`
+		VALUES ($1, 'repair', %s, 'repair_cost', $5, $2, $3, $4, %s)
+	`, nowSQL, nowSQL)
 	metadata := fmt.Sprintf(`{"repair_type": "%s", "cost": %.2f}`, repairType, cost)
-	_, err = s.db.Exec(historyQuery, inventoryItemID, description, metadata, userID)
+	_, err = s.db.Exec(historyQuery, inventoryItemID, description, metadata, userID, uuid.New())
 	if err != nil {
 		return fmt.Errorf("failed to add item history: %w", err)
 	}

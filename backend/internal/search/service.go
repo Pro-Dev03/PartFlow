@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Service handles search business logic
@@ -17,6 +18,13 @@ type Service struct {
 // NewService creates a new search service
 func NewService(db *sqlx.DB) *Service {
 	return &Service{db: db}
+}
+
+func (s *Service) likeOperator() string {
+	if dbutil.IsSQLite(s.db) {
+		return "LIKE"
+	}
+	return "ILIKE"
 }
 
 // Search performs a global search across all entities
@@ -65,7 +73,7 @@ func (s *Service) Search(ctx context.Context, req *SearchRequest) (*SearchRespon
 		Total:   total,
 		Limit:   req.Limit,
 		Offset:  req.Offset,
-		HasMore: req.Offset + req.Limit < total,
+		HasMore: req.Offset+req.Limit < total,
 	}, nil
 }
 
@@ -74,11 +82,12 @@ func (s *Service) searchProducts(ctx context.Context, query string, limit, offse
 	var results []SearchResult
 	searchPattern := "%" + query + "%"
 
+	like := s.likeOperator()
 	queryStr := `
 		SELECT id, name, sku, model, barcode, created_at
 		FROM products
 		WHERE is_active = true
-		AND (name ILIKE $1 OR sku ILIKE $1 OR model ILIKE $1 OR barcode ILIKE $1)
+		AND (name ` + like + ` $1 OR sku ` + like + ` $1 OR model ` + like + ` $1 OR barcode ` + like + ` $1)
 		ORDER BY name
 		LIMIT $2 OFFSET $3
 	`
@@ -121,7 +130,7 @@ func (s *Service) searchProducts(ctx context.Context, query string, limit, offse
 		SELECT COUNT(*)
 		FROM products
 		WHERE is_active = true
-		AND (name ILIKE $1 OR sku ILIKE $1 OR model ILIKE $1 OR barcode ILIKE $1)
+		AND (name ` + like + ` $1 OR sku ` + like + ` $1 OR model ` + like + ` $1 OR barcode ` + like + ` $1)
 	`
 	s.db.GetContext(ctx, &total, countQuery, searchPattern)
 
@@ -133,11 +142,12 @@ func (s *Service) searchCustomers(ctx context.Context, query string, limit, offs
 	var results []SearchResult
 	searchPattern := "%" + query + "%"
 
+	like := s.likeOperator()
 	queryStr := `
 		SELECT id, name, email, phone, created_at
 		FROM customers
 		WHERE is_active = true
-		AND (name ILIKE $1 OR email ILIKE $1 OR phone ILIKE $1)
+		AND (name ` + like + ` $1 OR email ` + like + ` $1 OR phone ` + like + ` $1)
 		ORDER BY name
 		LIMIT $2 OFFSET $3
 	`
@@ -179,7 +189,7 @@ func (s *Service) searchCustomers(ctx context.Context, query string, limit, offs
 		SELECT COUNT(*)
 		FROM customers
 		WHERE is_active = true
-		AND (name ILIKE $1 OR email ILIKE $1 OR phone ILIKE $1)
+		AND (name ` + like + ` $1 OR email ` + like + ` $1 OR phone ` + like + ` $1)
 	`
 	s.db.GetContext(ctx, &total, countQuery, searchPattern)
 
@@ -191,11 +201,12 @@ func (s *Service) searchSuppliers(ctx context.Context, query string, limit, offs
 	var results []SearchResult
 	searchPattern := "%" + query + "%"
 
+	like := s.likeOperator()
 	queryStr := `
 		SELECT id, name, email, phone, created_at
 		FROM suppliers
 		WHERE is_active = true
-		AND (name ILIKE $1 OR email ILIKE $1 OR phone ILIKE $1)
+		AND (name ` + like + ` $1 OR email ` + like + ` $1 OR phone ` + like + ` $1)
 		ORDER BY name
 		LIMIT $2 OFFSET $3
 	`
@@ -237,7 +248,7 @@ func (s *Service) searchSuppliers(ctx context.Context, query string, limit, offs
 		SELECT COUNT(*)
 		FROM suppliers
 		WHERE is_active = true
-		AND (name ILIKE $1 OR email ILIKE $1 OR phone ILIKE $1)
+		AND (name ` + like + ` $1 OR email ` + like + ` $1 OR phone ` + like + ` $1)
 	`
 	s.db.GetContext(ctx, &total, countQuery, searchPattern)
 
@@ -249,10 +260,11 @@ func (s *Service) searchSales(ctx context.Context, query string, limit, offset i
 	var results []SearchResult
 	searchPattern := "%" + query + "%"
 
+	like := s.likeOperator()
 	queryStr := `
 		SELECT id, invoice_number, total_amount, sale_date, created_at
 		FROM sales
-		WHERE invoice_number ILIKE $1
+		WHERE invoice_number ` + like + ` $1
 		ORDER BY sale_date DESC
 		LIMIT $2 OFFSET $3
 	`
@@ -294,7 +306,7 @@ func (s *Service) searchSales(ctx context.Context, query string, limit, offset i
 	countQuery := `
 		SELECT COUNT(*)
 		FROM sales
-		WHERE invoice_number ILIKE $1
+		WHERE invoice_number ` + like + ` $1
 	`
 	s.db.GetContext(ctx, &total, countQuery, searchPattern)
 
@@ -306,10 +318,11 @@ func (s *Service) searchPurchases(ctx context.Context, query string, limit, offs
 	var results []SearchResult
 	searchPattern := "%" + query + "%"
 
+	like := s.likeOperator()
 	queryStr := `
 		SELECT id, invoice_number, total_amount, purchase_date, created_at
 		FROM purchases
-		WHERE invoice_number ILIKE $1
+		WHERE invoice_number ` + like + ` $1
 		ORDER BY purchase_date DESC
 		LIMIT $2 OFFSET $3
 	`
@@ -331,8 +344,8 @@ func (s *Service) searchPurchases(ctx context.Context, query string, limit, offs
 		}
 
 		metadata := map[string]interface{}{
-			"total_amount":    totalAmount,
-			"purchase_date":   purchaseDate,
+			"total_amount":  totalAmount,
+			"purchase_date": purchaseDate,
 		}
 
 		results = append(results, SearchResult{
@@ -351,7 +364,7 @@ func (s *Service) searchPurchases(ctx context.Context, query string, limit, offs
 	countQuery := `
 		SELECT COUNT(*)
 		FROM purchases
-		WHERE invoice_number ILIKE $1
+		WHERE invoice_number ` + like + ` $1
 	`
 	s.db.GetContext(ctx, &total, countQuery, searchPattern)
 

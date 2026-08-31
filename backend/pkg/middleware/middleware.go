@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -248,11 +250,21 @@ func Auth() gin.HandlerFunc {
 		}
 
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			// The local fallback accepts only the configured HMAC algorithm.  In
+			// particular, never let a token choose an RSA/none algorithm while a
+			// shared HMAC secret is being used.
+			if token.Method != jwt.SigningMethodHS256 {
+				return nil, fmt.Errorf("unexpected signing method: %s", token.Method.Alg())
+			}
 			return jwtSecret, nil
-		})
+		}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 
-		if err != nil || !token.Valid {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token: " + err.Error()})
+		if err != nil || token == nil || !token.Valid {
+			message := "Invalid token"
+			if err != nil {
+				message += ": " + err.Error()
+			}
+			c.JSON(http.StatusUnauthorized, gin.H{"error": message})
 			c.Abort()
 			return
 		}
@@ -355,13 +367,75 @@ func GetRequestID(c *gin.Context) string {
 	return ""
 }
 
-// RateLimiter middleware (basic implementation)
+type rateLimitBucket struct {
+	mu     sync.Mutex
+	tokens float64
+	last   time.Time
+}
+
+var rateLimitBuckets sync.Map
+
+func rateLimitSetting(name string, fallback float64) float64 {
+	value, err := strconv.ParseFloat(strings.TrimSpace(os.Getenv(name)), 64)
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+// RateLimiter applies a small in-process token bucket keyed by client IP.
+// It deliberately has no Redis dependency so the embedded/local service is
+// protected as well. Deployments with multiple API replicas should still put
+// a shared limiter at the edge (or use one process per tenant).
 func RateLimiter() gin.HandlerFunc {
-	// TODO: Implement proper rate limiting with Redis
-	// For now, this is a placeholder
+	rps := rateLimitSetting("RATE_LIMIT_RPS", 100)
+	burst := rateLimitSetting("RATE_LIMIT_BURST", 10)
+	if burst < 1 {
+		burst = 1
+	}
+
 	return func(c *gin.Context) {
+		key := c.ClientIP()
+		value, _ := rateLimitBuckets.LoadOrStore(key, &rateLimitBucket{tokens: burst, last: time.Now()})
+		bucket := value.(*rateLimitBucket)
+		allowed, remaining, retryAfter := func() (bool, int, int) {
+			bucket.mu.Lock()
+			defer bucket.mu.Unlock()
+			now := time.Now()
+			elapsed := now.Sub(bucket.last).Seconds()
+			if elapsed > 0 {
+				bucket.tokens = minFloat(burst, bucket.tokens+elapsed*rps)
+				bucket.last = now
+			}
+			if bucket.tokens < 1 {
+				wait := int((1 - bucket.tokens) / rps)
+				if wait < 1 {
+					wait = 1
+				}
+				return false, 0, wait
+			}
+			bucket.tokens--
+			return true, int(bucket.tokens), 0
+		}()
+		c.Header("X-RateLimit-Limit", strconv.Itoa(int(rps)))
+		c.Header("X-RateLimit-Remaining", strconv.Itoa(remaining))
+		if !allowed {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error":       "rate limit exceeded",
+				"retry_after": retryAfter,
+			})
+			return
+		}
 		c.Next()
 	}
+}
+
+func minFloat(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // SetJWTSecret sets the JWT secret key

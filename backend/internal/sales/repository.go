@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 type Repository struct {
@@ -86,6 +87,17 @@ func (r *Repository) GetSaleByID(ctx context.Context, id uuid.UUID) (*Sale, erro
 			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at
 		FROM sales WHERE id = $1
 	`
+	if dbutil.IsSQLite(r.db) {
+		var row localSaleRow
+		if err := r.db.GetContext(ctx, &row, query, id); err != nil {
+			return nil, err
+		}
+		sale, err := row.sale()
+		if err != nil {
+			return nil, err
+		}
+		return &sale, nil
+	}
 	var sale Sale
 	err := r.db.GetContext(ctx, &sale, query, id)
 	if err != nil {
@@ -102,6 +114,17 @@ func (r *Repository) GetSaleByInvoiceNumber(ctx context.Context, invoiceNumber s
 			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at
 		FROM sales WHERE invoice_number = $1
 	`
+	if dbutil.IsSQLite(r.db) {
+		var row localSaleRow
+		if err := r.db.GetContext(ctx, &row, query, invoiceNumber); err != nil {
+			return nil, err
+		}
+		sale, err := row.sale()
+		if err != nil {
+			return nil, err
+		}
+		return &sale, nil
+	}
 	var sale Sale
 	err := r.db.GetContext(ctx, &sale, query, invoiceNumber)
 	if err != nil {
@@ -183,12 +206,12 @@ func (r *Repository) ListSales(ctx context.Context, page, perPage int, filters m
 
 // UpdateSale updates a sale
 func (r *Repository) UpdateSale(ctx context.Context, sale *Sale) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE sales SET
 			customer_id = $2, payment_method = $3, payment_status = $4,
-			status = $5, notes = $6, paid_amount = $7, updated_at = NOW()
+			status = $5, notes = $6, paid_amount = $7, updated_at = %s
 		WHERE id = $1
-	`
+	`, dbutil.NowSQL(r.db))
 	_, err := r.db.ExecContext(ctx, query,
 		sale.ID, sale.CustomerID, sale.PaymentMethod, sale.PaymentStatus,
 		sale.Status, sale.Notes, sale.PaidAmount)
@@ -225,6 +248,54 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 		LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
 		WHERE si.sale_id = $1
 	`
+	if dbutil.IsSQLite(r.db) {
+		var rows []struct {
+			ID              string  `db:"id"`
+			SaleID          string  `db:"sale_id"`
+			ProductID       string  `db:"product_id"`
+			InventoryItemID string  `db:"inventory_item_id"`
+			SerialNumber    string  `db:"serial_number"`
+			Quantity        int     `db:"quantity"`
+			UnitPrice       float64 `db:"unit_price"`
+			UnitCost        float64 `db:"unit_cost"`
+			DiscountAmount  float64 `db:"discount_amount"`
+			TaxAmount       float64 `db:"tax_amount"`
+			TotalAmount     float64 `db:"total_amount"`
+			CreatedAt       string  `db:"created_at"`
+		}
+		if err := r.db.SelectContext(ctx, &rows, query, saleID); err != nil {
+			return nil, err
+		}
+		items := make([]SaleItem, 0, len(rows))
+		for _, row := range rows {
+			created, err := parseSaleTime(row.CreatedAt)
+			if err != nil {
+				return nil, err
+			}
+			item := SaleItem{Quantity: row.Quantity, UnitPrice: row.UnitPrice, UnitCost: row.UnitCost, DiscountAmount: row.DiscountAmount, TaxAmount: row.TaxAmount, TotalAmount: row.TotalAmount, CreatedAt: created}
+			if item.ID, err = uuid.Parse(row.ID); err != nil {
+				return nil, err
+			}
+			if item.SaleID, err = uuid.Parse(row.SaleID); err != nil {
+				return nil, err
+			}
+			if item.ProductID, err = uuid.Parse(row.ProductID); err != nil {
+				return nil, err
+			}
+			if row.InventoryItemID != "" {
+				v, parseErr := uuid.Parse(row.InventoryItemID)
+				if parseErr == nil {
+					item.InventoryItemID = &v
+				}
+			}
+			if row.SerialNumber != "" {
+				serial := row.SerialNumber
+				item.SerialNumber = &serial
+			}
+			items = append(items, item)
+		}
+		return items, nil
+	}
 	var items []SaleItem
 	err := r.db.SelectContext(ctx, &items, query, saleID)
 	return items, err

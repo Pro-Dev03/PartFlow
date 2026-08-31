@@ -49,8 +49,12 @@ var snapshotTables = []struct {
 	{key: "inspections", table: "inspections"},
 	{key: "inspection_items", table: "inspection_items"},
 	{key: "part_types", table: "part_types"},
+	{key: "part_specifications", table: "part_specifications"},
+	{key: "type_specifications", table: "type_specifications"},
 	{key: "acquisitions", table: "acquisitions"},
 	{key: "acquisition_items", table: "acquisition_items"},
+	{key: "trade_ins", table: "trade_ins"},
+	{key: "item_specification_values", table: "item_specification_values"},
 	{key: "returns", table: "returns"},
 	{key: "return_items", table: "return_items"},
 	{key: "notifications", table: "notifications"},
@@ -77,7 +81,13 @@ func (h *Handler) GetInitialData(c *gin.Context) {
 
 	data := make(gin.H, len(snapshotTables))
 	for _, item := range snapshotTables {
-		rows, err := h.getSnapshotTable(item.table)
+		var rows []map[string]interface{}
+		var err error
+		if item.table == "notifications" || item.table == "notification_preferences" {
+			rows, err = h.getUserSnapshotTable(item.table, userID)
+		} else {
+			rows, err = h.getSnapshotTable(item.table)
+		}
 		if err != nil {
 			// Optional tables may not exist on older cloud deployments. They do
 			// not prevent the core customer/sales snapshot from being imported.
@@ -97,6 +107,32 @@ func (h *Handler) GetInitialData(c *gin.Context) {
 		"success": true,
 		"data":    data,
 	})
+}
+
+func (h *Handler) getUserSnapshotTable(table, userID string) ([]map[string]interface{}, error) {
+	if table != "notifications" && table != "notification_preferences" {
+		return nil, fmt.Errorf("unsupported user snapshot table %q", table)
+	}
+	query := fmt.Sprintf(`SELECT * FROM "%s" WHERE user_id = $1 ORDER BY 1 ASC`, strings.ReplaceAll(table, `"`, `""`))
+	rows, err := h.db.Queryx(query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]map[string]interface{}, 0)
+	for rows.Next() {
+		record := make(map[string]interface{})
+		if err := rows.MapScan(record); err != nil {
+			return nil, err
+		}
+		for key, value := range record {
+			if bytes, ok := value.([]byte); ok {
+				record[key] = string(bytes)
+			}
+		}
+		result = append(result, record)
+	}
+	return result, rows.Err()
 }
 
 // getSnapshotTable returns complete rows. SeedLocalSnapshot filters each row

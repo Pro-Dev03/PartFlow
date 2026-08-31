@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { syncApi } from '../services/api/endpoints';
-import { getCloudApiUrl } from '../lib/config/app';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { settingsApi } from '../services/api/endpoints';
 import { toast } from 'sonner';
 
 interface InitialDataSyncState {
@@ -14,43 +13,47 @@ interface InitialDataSyncState {
 export function useInitialDataSync(
   enabled: boolean = false,
   onSuccess?: () => void,
-  onError?: (error: Error) => void
+  onError?: (error: Error) => void,
+  userId?: string
 ): InitialDataSyncState {
   const [progress, setProgress] = useState(0);
+  const queryClient = useQueryClient();
 
   const { isLoading, isError, error } = useQuery({
-    queryKey: ['sync', 'initial-data'],
+    queryKey: ['sync', 'initial-data', userId ?? 'default'],
     queryFn: async () => {
       setProgress(10);
 
       try {
-        // Fetch initial data from cloud
-        const response = await syncApi.getInitialData();
+        // Ask the local API to perform the authenticated cloud -> SQLite sync.
+        // The browser must not keep a second, stale copy of the operational
+        // database in localStorage.
+        const response = await settingsApi.syncCloudData();
         setProgress(50);
 
         if (!response.success) {
           throw new Error(response.error || 'Failed to fetch initial data');
         }
 
-        const data = response.data;
-        
-        // Store data in localStorage (or IndexedDB for large datasets)
-        const syncData = {
-          timestamp: new Date().toISOString(),
-          data,
-        };
-
-        localStorage.setItem('partflow-initial-sync-data', JSON.stringify(syncData));
+        const data = response.data || {};
         setProgress(80);
 
         // Mark sync as complete
-        localStorage.setItem('partflow-initial-sync-complete', 'true');
+        localStorage.setItem(initialSyncStorageKey(userId), 'true');
         setProgress(100);
 
+        // The sync mutates SQLite behind React Query's back. Invalidate every
+        // operational query so dashboard, customers, debts and reports read
+        // the newly downloaded snapshot instead of an older cached response.
+        await queryClient.invalidateQueries();
+
         // Show success message
-        const totalItems = Object.values(data)
-          .filter(Array.isArray)
-          .reduce((sum, arr) => sum + arr.length, 0);
+        const tables = (data as { tables?: Record<string, number> }).tables;
+        const totalItems = tables
+          ? Object.values(tables).reduce((sum, count) => sum + (Number(count) || 0), 0)
+          : Object.values(data as Record<string, unknown>)
+              .filter(Array.isArray)
+              .reduce((sum, arr) => sum + (arr as unknown[]).length, 0);
         
         toast.success(`✓ تم تحميل ${totalItems} عنصر من الخادم`);
 
@@ -97,28 +100,27 @@ export function useInitialDataSync(
 }
 
 // Helper function to check if initial sync is needed
-export function isInitialSyncNeeded(): boolean {
-  const mode = localStorage.getItem('partflow-operating-mode');
-  const syncComplete = localStorage.getItem('partflow-initial-sync-complete');
-  
-  return mode === 'online' && syncComplete !== 'true';
+function initialSyncStorageKey(userId?: string): string {
+  return userId ? `partflow-initial-sync-complete:${userId}` : 'partflow-initial-sync-complete';
+}
+
+export function isInitialSyncNeeded(userId?: string): boolean {
+  const syncComplete = localStorage.getItem(initialSyncStorageKey(userId));
+
+  // The desktop business database is SQLite in both operating modes.  The
+  // first authenticated launch must therefore hydrate it from the cloud
+  // regardless of the UI's legacy mode flag.
+  return syncComplete !== 'true';
 }
 
 // Helper function to get cached initial sync data
 export function getCachedInitialSyncData(): any {
-  try {
-    const data = localStorage.getItem('partflow-initial-sync-data');
-    if (data) {
-      return JSON.parse(data);
-    }
-  } catch (error) {
-    console.error('Failed to parse cached initial sync data:', error);
-  }
+  // Kept as a compatibility no-op for older callers. Operational rows live
+  // in SQLite and are never reconstructed from browser storage.
   return null;
 }
 
 // Helper function to clear initial sync data
-export function clearInitialSyncData(): void {
-  localStorage.removeItem('partflow-initial-sync-data');
-  localStorage.removeItem('partflow-initial-sync-complete');
+export function clearInitialSyncData(userId?: string): void {
+  localStorage.removeItem(initialSyncStorageKey(userId));
 }

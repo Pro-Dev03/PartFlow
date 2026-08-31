@@ -138,6 +138,13 @@ func (r *Repository) CreateExpense(ctx context.Context, expense *Expense) error 
 	if err := r.db.GetContext(ctx, &categoryName, `SELECT name FROM expense_categories WHERE id = $1`, expense.CategoryID); err != nil {
 		return fmt.Errorf("failed to resolve expense category: %w", err)
 	}
+	if dbutil.IsSQLite(r.db) {
+		_, err := r.db.ExecContext(ctx, `INSERT INTO expenses (id, title, category_id, amount, currency, reference, notes, expense_date, status, is_recurring, recurring_period, approved_by, created_by, created_at, updated_at, description, payment_method, receipt_url) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $7, $15, $16)`, expense.ID, expense.Title, expense.CategoryID, expense.Amount, expense.Currency, expense.Reference, expense.Description, expense.ExpenseDate, expense.Status, expense.IsRecurring, expense.RecurringPeriod, expense.ApprovedBy, expense.CreatedBy, expense.CreatedAt, expense.PaymentMethod, expense.ReceiptURL)
+		if err != nil {
+			return fmt.Errorf("failed to create local expense: %w", err)
+		}
+		return nil
+	}
 	query := `
 		INSERT INTO expenses (id, reference_number, category, category_id, title, description,
 		amount, currency, expense_date, payment_method, reference, receipt_url, 
@@ -340,7 +347,7 @@ func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) (
 		baseQuery += fmt.Sprintf(" AND (LOWER(title) LIKE LOWER($%d) OR LOWER(description) LIKE LOWER($%d) OR LOWER(reference) LIKE LOWER($%d))", argCount, argCount, argCount)
 		countQuery += fmt.Sprintf(" AND (LOWER(title) LIKE LOWER($%d) OR LOWER(description) LIKE LOWER($%d) OR LOWER(reference) LIKE LOWER($%d))", argCount, argCount, argCount)
 		searchPattern := "%" + req.Search + "%"
-		args = append(args, searchPattern, searchPattern, searchPattern)
+		args = append(args, searchPattern)
 	}
 
 	// Get total count
@@ -384,11 +391,23 @@ func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) (
 
 // UpdateExpense updates an expense
 func (r *Repository) UpdateExpense(ctx context.Context, expense *Expense) error {
+	if dbutil.IsSQLite(r.db) {
+		result, err := r.db.ExecContext(ctx, `UPDATE expenses SET category_id = $2, title = $3, description = $4, amount = $5, currency = $6, expense_date = $7, payment_method = $8, reference = $9, receipt_url = $10, is_recurring = $11, recurring_period = $12, approved_by = $13, status = $14, updated_at = $15 WHERE id = $1`, expense.ID, expense.CategoryID, expense.Title, expense.Description, expense.Amount, expense.Currency, expense.ExpenseDate, expense.PaymentMethod, expense.Reference, expense.ReceiptURL, expense.IsRecurring, expense.RecurringPeriod, expense.ApprovedBy, expense.Status, expense.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to update local expense: %w", err)
+		}
+		count, _ := result.RowsAffected()
+		if count == 0 {
+			return ErrExpenseNotFound
+		}
+		return nil
+	}
 	query := `
 		UPDATE expenses
 		SET category_id = $2, title = $3, description = $4, amount = $5, currency = $6,
 			expense_date = $7, payment_method = $8, reference = $9, receipt_url = $10,
 			is_recurring = $11, recurring_period = $12, approved_by = $13, status = $14, updated_at = $15
+		WHERE id = $1
 		RETURNING updated_at
 	`
 
@@ -396,6 +415,7 @@ func (r *Repository) UpdateExpense(ctx context.Context, expense *Expense) error 
 		expense.ID, expense.CategoryID, expense.Title, expense.Description, expense.Amount,
 		expense.Currency, expense.ExpenseDate, expense.PaymentMethod, expense.Reference,
 		expense.ReceiptURL, expense.IsRecurring, expense.RecurringPeriod, expense.ApprovedBy,
+		expense.Status, expense.UpdatedAt,
 	).Scan(&expense.UpdatedAt)
 
 	if err != nil {
@@ -426,6 +446,13 @@ func (r *Repository) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 
 // CreateExpenseCategory creates a new expense category
 func (r *Repository) CreateExpenseCategory(ctx context.Context, category *ExpenseCategory) error {
+	if dbutil.IsSQLite(r.db) {
+		_, err := r.db.ExecContext(ctx, `INSERT INTO expense_categories (id, name, description, color, icon, budget, is_active, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, category.ID, category.Name, category.Description, category.Color, category.Icon, category.Budget, category.IsActive, category.CreatedAt, category.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to create local expense category: %w", err)
+		}
+		return nil
+	}
 	query := `
 		INSERT INTO expense_categories (id, name, description, color, icon, budget, is_active, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -565,7 +592,7 @@ func (r *Repository) ListExpenseCategories(ctx context.Context, req ExpenseCateg
 		baseQuery += fmt.Sprintf(" AND (name ILIKE $%d OR description ILIKE $%d)", argCount, argCount)
 		countQuery += fmt.Sprintf(" AND (name ILIKE $%d OR description ILIKE $%d)", argCount, argCount)
 		searchPattern := "%" + req.Search + "%"
-		args = append(args, searchPattern, searchPattern)
+		args = append(args, searchPattern)
 	}
 
 	// Get total count
@@ -601,9 +628,21 @@ func (r *Repository) ListExpenseCategories(ctx context.Context, req ExpenseCateg
 
 // UpdateExpenseCategory updates an expense category
 func (r *Repository) UpdateExpenseCategory(ctx context.Context, category *ExpenseCategory) error {
+	if dbutil.IsSQLite(r.db) {
+		result, err := r.db.ExecContext(ctx, `UPDATE expense_categories SET name = $2, description = $3, color = $4, icon = $5, budget = $6, is_active = $7, updated_at = $8 WHERE id = $1`, category.ID, category.Name, category.Description, category.Color, category.Icon, category.Budget, category.IsActive, category.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to update local expense category: %w", err)
+		}
+		count, _ := result.RowsAffected()
+		if count == 0 {
+			return ErrExpenseCategoryNotFound
+		}
+		return nil
+	}
 	query := `
 		UPDATE expense_categories
 		SET name = $2, description = $3, color = $4, icon = $5, budget = $6, is_active = $7, updated_at = $8
+		WHERE id = $1
 		RETURNING updated_at
 	`
 
@@ -640,6 +679,20 @@ func (r *Repository) DeleteExpenseCategory(ctx context.Context, id uuid.UUID) er
 
 // GetExpenseCategoryByName retrieves an expense category by name
 func (r *Repository) GetExpenseCategoryByName(ctx context.Context, name string) (*ExpenseCategory, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row localExpenseCategoryRow
+		if err := r.db.GetContext(ctx, &row, `SELECT id, name, description, color, icon, budget, is_active, created_at, updated_at FROM expense_categories WHERE name = $1`, name); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrExpenseCategoryNotFound
+			}
+			return nil, err
+		}
+		category, err := localExpenseCategoryFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		return &category, nil
+	}
 	var category ExpenseCategory
 	query := `
 		SELECT id, name, description, color, icon, budget, is_active, created_at, updated_at
@@ -703,9 +756,14 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 	}
 
 	// This month expenses
+	monthExpr := `DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE)`
+	previousMonthExpr := `DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')`
+	if dbutil.IsSQLite(r.db) {
+		monthExpr = `strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now')`
+		previousMonthExpr = `strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now', '-1 month')`
+	}
 	err = r.db.GetContext(ctx, &summary.ThisMonth,
-		`SELECT COALESCE(SUM(amount), 0) FROM expenses 
-		 WHERE DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE)`)
+		fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE %s`, monthExpr))
 	if err != nil {
 		if err.Error() == `pq: relation "expenses" does not exist` {
 			summary.ThisMonth = 0
@@ -716,8 +774,7 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 
 	// Last month expenses
 	err = r.db.GetContext(ctx, &summary.LastMonth,
-		`SELECT COALESCE(SUM(amount), 0) FROM expenses 
-		 WHERE DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')`)
+		fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE %s`, previousMonthExpr))
 	if err != nil {
 		if err.Error() == `pq: relation "expenses" does not exist` {
 			summary.LastMonth = 0

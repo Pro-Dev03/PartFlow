@@ -185,19 +185,18 @@ func toFloat64(raw any) float64 {
 // CreateInventoryItem creates a new inventory item
 func (r *Repository) CreateInventoryItem(ctx context.Context, item *InventoryItem) error {
 	query := `
-		INSERT INTO inventory_items (product_id, part_type_id, item_code, barcode, serial_number,
-		 condition, grade, purchase_cost, selling_price, status, location_id,
-		 supplier_id, purchase_date, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-		RETURNING id, created_at, updated_at
+		INSERT INTO inventory_items (id, product_id, part_type_id, item_code, barcode, serial_number,
+			condition, grade, purchase_cost, selling_price, status, location_id,
+			supplier_id, purchase_date, notes, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
-		item.ProductID, item.PartTypeID, item.ItemCode, item.Barcode, item.SerialNumber,
+	_, err := r.db.ExecContext(ctx, query,
+		item.ID, item.ProductID, item.PartTypeID, item.ItemCode, item.Barcode, item.SerialNumber,
 		item.Condition, item.Grade, item.PurchaseCost, item.SellingPrice,
 		item.Status, item.LocationID, item.SupplierID, item.PurchaseDate, item.Notes,
 		item.CreatedAt, item.UpdatedAt,
-	).Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt)
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create inventory item: %w", err)
@@ -360,11 +359,11 @@ func (r *Repository) UpdateInventoryItem(ctx context.Context, item *InventoryIte
 
 // UpdateItemStatus updates the status of an inventory item
 func (r *Repository) UpdateItemStatus(ctx context.Context, id uuid.UUID, status string) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE inventory_items
-		SET status = $2, updated_at = NOW()
+		SET status = $2, updated_at = %s
 		WHERE id = $1
-	`
+	`, dbutil.NowSQL(r.db))
 
 	result, err := r.db.ExecContext(ctx, query, id, status)
 	if err != nil {
@@ -669,25 +668,25 @@ func inventoryItemWithSupplierFromMap(record map[string]any) (*InventoryItemWith
 		return nil, err
 	}
 	out := &InventoryItemWithSupplier{
-		ID:               item.ID,
-		ProductID:        item.ProductID,
-		PartTypeID:       item.PartTypeID,
-		ItemCode:         item.ItemCode,
-		Barcode:          item.Barcode,
-		SerialNumber:     item.SerialNumber,
-		Condition:        item.Condition,
-		Grade:            item.Grade,
-		PurchaseCost:     item.PurchaseCost,
-		SellingPrice:     item.SellingPrice,
-		Status:           item.Status,
-		LocationID:       item.LocationID,
-		SupplierID:       item.SupplierID,
-		PurchaseDate:     item.PurchaseDate,
-		SoldAt:           item.SoldAt,
-		Notes:            item.Notes,
-		CreatedAt:        item.CreatedAt,
-		UpdatedAt:        item.UpdatedAt,
-		CurrentQuantity:  item.CurrentQuantity,
+		ID:                item.ID,
+		ProductID:         item.ProductID,
+		PartTypeID:        item.PartTypeID,
+		ItemCode:          item.ItemCode,
+		Barcode:           item.Barcode,
+		SerialNumber:      item.SerialNumber,
+		Condition:         item.Condition,
+		Grade:             item.Grade,
+		PurchaseCost:      item.PurchaseCost,
+		SellingPrice:      item.SellingPrice,
+		Status:            item.Status,
+		LocationID:        item.LocationID,
+		SupplierID:        item.SupplierID,
+		PurchaseDate:      item.PurchaseDate,
+		SoldAt:            item.SoldAt,
+		Notes:             item.Notes,
+		CreatedAt:         item.CreatedAt,
+		UpdatedAt:         item.UpdatedAt,
+		CurrentQuantity:   item.CurrentQuantity,
 		AvailableQuantity: item.AvailableQuantity,
 	}
 	if raw, ok := record["product_name"]; ok && raw != nil && raw != "" {
@@ -707,15 +706,14 @@ func inventoryItemWithSupplierFromMap(record map[string]any) (*InventoryItemWith
 
 func (r *Repository) CreateLocation(ctx context.Context, location *Location) error {
 	query := `
-		INSERT INTO locations (name, type, parent_id, warehouse_id, description, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, created_at, updated_at
+		INSERT INTO locations (id, name, type, parent_id, warehouse_id, description, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
-		location.Name, location.Type, location.ParentID, location.WarehouseID, location.Description,
+	_, err := r.db.ExecContext(ctx, query,
+		location.ID, location.Name, location.Type, location.ParentID, location.WarehouseID, location.Description,
 		location.IsActive, location.CreatedAt, location.UpdatedAt,
-	).Scan(&location.ID, &location.CreatedAt, &location.UpdatedAt)
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create location: %w", err)
@@ -732,16 +730,19 @@ func (r *Repository) GetLocationByID(ctx context.Context, id uuid.UUID) (*Locati
 		WHERE id = $1
 	`
 
-	var location Location
-	err := r.db.GetContext(ctx, &location, query, id)
+	record := map[string]any{}
+	err := r.db.QueryRowxContext(ctx, query, id).MapScan(record)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrLocationNotFound
 		}
 		return nil, fmt.Errorf("failed to get location: %w", err)
 	}
-
-	return &location, nil
+	location, err := locationFromMap(record)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse location: %w", err)
+	}
+	return location, nil
 }
 
 // ListLocations retrieves all locations
@@ -752,29 +753,58 @@ func (r *Repository) ListLocations(ctx context.Context) ([]*Location, error) {
 		ORDER BY name ASC
 	`
 
-	var locations []*Location
-	err := r.db.SelectContext(ctx, &locations, query)
+	rows, err := r.db.QueryxContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list locations: %w", err)
 	}
-
+	defer rows.Close()
+	locations := make([]*Location, 0)
+	for rows.Next() {
+		record := map[string]any{}
+		if err := rows.MapScan(record); err != nil {
+			return nil, fmt.Errorf("failed to scan location: %w", err)
+		}
+		location, err := locationFromMap(record)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse location: %w", err)
+		}
+		locations = append(locations, location)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to list locations: %w", err)
+	}
 	return locations, nil
+}
+
+func locationFromMap(record map[string]any) (*Location, error) {
+	location := &Location{ID: parseInventoryUUID(record["id"]), Name: strings.TrimSpace(fmt.Sprint(record["name"])), Type: strings.TrimSpace(fmt.Sprint(record["type"])), Description: parseInventoryNullableString(record["description"])}
+	location.ParentID = parseInventoryNullableUUID(record["parent_id"])
+	location.WarehouseID = parseInventoryNullableUUID(record["warehouse_id"])
+	if raw, ok := record["is_active"]; ok {
+		location.IsActive = fmt.Sprint(raw) == "1" || strings.EqualFold(fmt.Sprint(raw), "true")
+	}
+	if value, err := dbutil.ParseTimestamp(record["created_at"]); err == nil {
+		location.CreatedAt = value
+	}
+	if value, err := dbutil.ParseTimestamp(record["updated_at"]); err == nil {
+		location.UpdatedAt = value
+	}
+	return location, nil
 }
 
 // CreateMovement creates a new inventory movement
 func (r *Repository) CreateMovement(ctx context.Context, movement *InventoryMovement) error {
 	query := `
-		INSERT INTO inventory_movements (item_id, movement_type, quantity,
+		INSERT INTO inventory_movements (id, item_id, movement_type, quantity,
 		 before_quantity, after_quantity, reference_type, reference_id, reason, created_by, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING id, created_at
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
-		movement.ItemID, movement.MovementType, movement.Quantity, movement.BeforeQuantity,
+	_, err := r.db.ExecContext(ctx, query,
+		movement.ID, movement.ItemID, movement.MovementType, movement.Quantity, movement.BeforeQuantity,
 		movement.AfterQuantity, movement.ReferenceType, movement.ReferenceID,
 		movement.Reason, movement.CreatedBy, movement.CreatedAt,
-	).Scan(&movement.ID, &movement.CreatedAt)
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create movement: %w", err)
@@ -806,28 +836,49 @@ func (r *Repository) GetMovementsByItem(ctx context.Context, itemID uuid.UUID, l
 		return nil, 0, fmt.Errorf("failed to count movements: %w", err)
 	}
 
-	var movements []*InventoryMovement
-	err = r.db.SelectContext(ctx, &movements, query, itemID, limit, offset)
+	rows, err := r.db.QueryxContext(ctx, query, itemID, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get movements: %w", err)
 	}
-
+	defer rows.Close()
+	movements := make([]*InventoryMovement, 0)
+	for rows.Next() {
+		record := map[string]any{}
+		if err := rows.MapScan(record); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan movement: %w", err)
+		}
+		movement, err := movementFromMap(record)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to parse movement: %w", err)
+		}
+		movements = append(movements, movement)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to get movements: %w", err)
+	}
 	return movements, total, nil
+}
+
+func movementFromMap(record map[string]any) (*InventoryMovement, error) {
+	movement := &InventoryMovement{ID: parseInventoryUUID(record["id"]), ItemID: parseInventoryNullableUUID(record["item_id"]), ProductID: parseInventoryNullableUUID(record["product_id"]), MovementType: MovementType(strings.TrimSpace(fmt.Sprint(record["movement_type"]))), Quantity: int(toFloat64(record["quantity"])), BeforeQuantity: int(toFloat64(record["before_quantity"])), AfterQuantity: int(toFloat64(record["after_quantity"])), ReferenceType: strings.TrimSpace(fmt.Sprint(record["reference_type"])), ReferenceID: parseInventoryNullableUUID(record["reference_id"]), Reason: parseInventoryNullableString(record["reason"]), CreatedBy: parseInventoryUUID(record["created_by"])}
+	if value, err := dbutil.ParseTimestamp(record["created_at"]); err == nil {
+		movement.CreatedAt = value
+	}
+	return movement, nil
 }
 
 // CreateReservation creates a new reservation
 func (r *Repository) CreateReservation(ctx context.Context, reservation *Reservation) error {
 	query := `
-		INSERT INTO reservations (item_id, customer_id, user_id, reserved_at, expires_at, status, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, created_at, updated_at
+		INSERT INTO reservations (id, item_id, customer_id, user_id, reserved_at, expires_at, status, notes, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
-		reservation.ItemID, reservation.CustomerID, reservation.UserID, reservation.ReservedAt,
+	_, err := r.db.ExecContext(ctx, query,
+		reservation.ID, reservation.ItemID, reservation.CustomerID, reservation.UserID, reservation.ReservedAt,
 		reservation.ExpiresAt, reservation.Status, reservation.Notes,
 		reservation.CreatedAt, reservation.UpdatedAt,
-	).Scan(&reservation.ID, &reservation.CreatedAt, &reservation.UpdatedAt)
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create reservation: %w", err)
@@ -847,8 +898,8 @@ func (r *Repository) GetActiveReservationByItem(ctx context.Context, itemID uuid
 		LIMIT 1
 	`
 
-	var reservation Reservation
-	err := r.db.GetContext(ctx, &reservation, query, itemID)
+	record := map[string]any{}
+	err := r.db.QueryRowxContext(ctx, query, itemID).MapScan(record)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // No active reservation
@@ -856,16 +907,68 @@ func (r *Repository) GetActiveReservationByItem(ctx context.Context, itemID uuid
 		return nil, fmt.Errorf("failed to get active reservation: %w", err)
 	}
 
-	return &reservation, nil
+	reservation, err := reservationFromMap(record)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse active reservation: %w", err)
+	}
+	return reservation, nil
+}
+
+func reservationFromMap(record map[string]any) (*Reservation, error) {
+	reservation := &Reservation{ID: parseInventoryUUID(record["id"]), ItemID: parseInventoryUUID(record["item_id"]), CustomerID: parseInventoryNullableUUID(record["customer_id"]), UserID: parseInventoryUUID(record["user_id"]), Status: strings.TrimSpace(fmt.Sprint(record["status"])), Notes: parseInventoryNullableString(record["notes"])}
+	for field, destination := range map[string]*time.Time{"reserved_at": &reservation.ReservedAt, "expires_at": &reservation.ExpiresAt, "created_at": &reservation.CreatedAt, "updated_at": &reservation.UpdatedAt} {
+		if value, err := dbutil.ParseTimestamp(record[field]); err == nil {
+			*destination = value
+		}
+	}
+	return reservation, nil
+}
+
+func parseInventoryUUID(value any) uuid.UUID {
+	if value == nil {
+		return uuid.Nil
+	}
+	if parsed, ok := value.(uuid.UUID); ok {
+		return parsed
+	}
+	if raw, ok := value.([]byte); ok {
+		if len(raw) == 16 {
+			var parsed uuid.UUID
+			copy(parsed[:], raw)
+			return parsed
+		}
+		value = string(raw)
+	}
+	parsed, _ := uuid.Parse(strings.TrimSpace(fmt.Sprint(value)))
+	return parsed
+}
+
+func parseInventoryNullableUUID(value any) *uuid.UUID {
+	parsed := parseInventoryUUID(value)
+	if parsed == uuid.Nil {
+		return nil
+	}
+	return &parsed
+}
+
+func parseInventoryNullableString(value any) *string {
+	if value == nil {
+		return nil
+	}
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if text == "" || text == "<nil>" {
+		return nil
+	}
+	return &text
 }
 
 // UpdateReservationStatus updates reservation status
 func (r *Repository) UpdateReservationStatus(ctx context.Context, id uuid.UUID, status string) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE reservations
-		SET status = $2, updated_at = NOW()
+		SET status = $2, updated_at = %s
 		WHERE id = $1
-	`
+	`, dbutil.NowSQL(r.db))
 
 	result, err := r.db.ExecContext(ctx, query, id, status)
 	if err != nil {

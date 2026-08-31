@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 	"github.com/partflow/smart-store/pkg/logger"
 )
 
@@ -111,7 +113,6 @@ func (h *Handler) GetInventoryItem(c *gin.Context) {
 		return
 	}
 
-
 	item, err := h.service.GetInventoryItem(c.Request.Context(), id)
 	if err != nil {
 		handleError(c, err)
@@ -176,14 +177,14 @@ func (h *Handler) ListInventoryItems(c *gin.Context) {
 	responseData := gin.H{
 		"success": true,
 		"data": gin.H{
-			"items": items,
-			"total": total,
-			"page":  page,
+			"items":    items,
+			"total":    total,
+			"page":     page,
 			"per_page": perPage,
 		},
 		"meta": gin.H{
-			"total": total,
-			"page":  page,
+			"total":    total,
+			"page":     page,
 			"per_page": perPage,
 		},
 	}
@@ -263,14 +264,14 @@ func (h *Handler) ListInventoryItemsWithSupplierInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"items": items,
-			"total": total,
-			"page":  page,
+			"items":    items,
+			"total":    total,
+			"page":     page,
 			"per_page": perPage,
 		},
 		"meta": gin.H{
-			"total": total,
-			"page":  page,
+			"total":    total,
+			"page":     page,
 			"per_page": perPage,
 		},
 	})
@@ -291,7 +292,6 @@ func (h *Handler) UpdateItemStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 
 	if err := h.service.UpdateItemStatus(c.Request.Context(), id, req.Status); err != nil {
 		handleError(c, err)
@@ -388,7 +388,6 @@ func (h *Handler) GetItemHistory(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "10"))
 
-
 	movements, total, err := h.service.GetItemHistory(c.Request.Context(), id, page, perPage)
 	if err != nil {
 		handleError(c, err)
@@ -427,36 +426,38 @@ func (h *Handler) CreateLocation(c *gin.Context) {
 		return
 	}
 
-
-	location := &Location{
-		ID:             uuid.New(),
-		Name:           req.Name,
-		Type:           req.Type,
-		ParentID:       req.ParentID,
-		WarehouseID:    req.WarehouseID,
-		Description:    req.Description,
-		IsActive:       true,
+	location, err := h.service.CreateLocation(c.Request.Context(), &req)
+	if err != nil {
+		handleError(c, err)
+		return
 	}
-
-	// This would need repository and service implementation
 	c.JSON(http.StatusCreated, location)
 }
 
 // GetLocation retrieves a location by ID
 func (h *Handler) GetLocation(c *gin.Context) {
-	_, err := uuid.Parse(c.Param("id"))
+	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 
-	// This would need service implementation
+	location, err := h.service.GetLocation(c.Request.Context(), id)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, location)
 }
 
 // ListLocations lists all locations
 func (h *Handler) ListLocations(c *gin.Context) {
-
-	// This would need service implementation
+	locations, err := h.service.ListLocations(c.Request.Context())
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": locations})
 }
 
 // CreateReservation creates a new reservation
@@ -499,19 +500,19 @@ func (h *Handler) ReleaseReservation(c *gin.Context) {
 // CreateTradeIn creates a new inventory item from a customer trade-in (buying used items)
 func (h *Handler) CreateTradeIn(c *gin.Context) {
 	var req struct {
-		CustomerID      *uuid.UUID `json:"customer_id"`
-		CustomerName    string     `json:"customer_name"`
-		ProductID       *uuid.UUID `json:"product_id"`
-		ProductName     string     `json:"product_name"`
-		PartTypeID      *uuid.UUID `json:"part_type_id"`
-		PurchaseCost    float64    `json:"purchase_cost" binding:"required"`
-		SellingPrice    float64    `json:"selling_price"`
-		Notes           *string    `json:"notes"`
-		Specifications  []struct {
-			SpecificationID uuid.UUID  `json:"specification_id"`
-			ValueText       *string    `json:"value_text"`
-			ValueNumber     *float64   `json:"value_number"`
-			ValueBoolean    *bool      `json:"value_boolean"`
+		CustomerID     *uuid.UUID `json:"customer_id"`
+		CustomerName   string     `json:"customer_name"`
+		ProductID      *uuid.UUID `json:"product_id"`
+		ProductName    string     `json:"product_name"`
+		PartTypeID     *uuid.UUID `json:"part_type_id"`
+		PurchaseCost   float64    `json:"purchase_cost" binding:"required"`
+		SellingPrice   float64    `json:"selling_price"`
+		Notes          *string    `json:"notes"`
+		Specifications []struct {
+			SpecificationID uuid.UUID `json:"specification_id"`
+			ValueText       *string   `json:"value_text"`
+			ValueNumber     *float64  `json:"value_number"`
+			ValueBoolean    *bool     `json:"value_boolean"`
 		} `json:"specifications"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -524,7 +525,7 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "either customer_id or customer_name must be provided"})
 		return
 	}
-	
+
 	// Validate that either product or part type is provided
 	if req.ProductID == nil && req.ProductName == "" && req.PartTypeID == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "either product_id/product_name or part_type_id must be provided"})
@@ -536,16 +537,22 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 	// If manual names are provided, we need to create or find the customer/product
 	// For now, we'll use a simple approach: if manual names, store them directly in the item notes
 	// In a production system, you'd want to create the customer/product records first
-	
+
 	// For manual entries, we'll use a placeholder ID and store the name in notes
 	var customerID uuid.UUID
 	var productID uuid.UUID
-	
+
 	if req.CustomerID != nil {
 		customerID = *req.CustomerID
 	} else {
 		// For manual customer, use a nil UUID and store name in notes
-		customerID = uuid.Nil
+		customerID = uuid.New()
+		name := strings.TrimSpace(req.CustomerName)
+		code := "TRD-" + strings.ToUpper(strings.ReplaceAll(customerID.String()[:8], "-", ""))
+		if _, createErr := h.db.ExecContext(c.Request.Context(), fmt.Sprintf(`INSERT INTO customers (id, code, name, is_active, created_at, updated_at) VALUES ($1, $2, $3, 1, %s, %s)`, dbutil.NowSQL(h.db), dbutil.NowSQL(h.db)), customerID, code, name); createErr != nil {
+			handleError(c, fmt.Errorf("failed to create trade-in customer: %w", createErr))
+			return
+		}
 		existingNotes := ""
 		if req.Notes != nil {
 			existingNotes = *req.Notes
@@ -559,7 +566,13 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 		productID = *req.ProductID
 	} else if req.ProductName != "" {
 		// For manual product, use a nil UUID and store name in notes
-		productID = uuid.Nil
+		productID = uuid.New()
+		name := strings.TrimSpace(req.ProductName)
+		sku := "TRD-" + strings.ToUpper(strings.ReplaceAll(productID.String()[:8], "-", ""))
+		if _, createErr := h.db.ExecContext(c.Request.Context(), fmt.Sprintf(`INSERT INTO products (id, sku, name, cost_price, selling_price, min_stock_level, max_stock_level, is_active, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 0, 0, 1, %s, %s)`, dbutil.NowSQL(h.db), dbutil.NowSQL(h.db)), productID, sku, name, req.PurchaseCost, req.SellingPrice); createErr != nil {
+			handleError(c, fmt.Errorf("failed to create trade-in product: %w", createErr))
+			return
+		}
 		existingNotes := ""
 		if req.Notes != nil {
 			existingNotes = *req.Notes
@@ -568,7 +581,16 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 		req.Notes = &productNote
 	} else {
 		// No product, using part type only - add note
-		productID = uuid.Nil
+		productID = uuid.New()
+		name := "Trade-in item"
+		sku := "TRD-" + strings.ToUpper(strings.ReplaceAll(productID.String()[:8], "-", ""))
+		if req.PartTypeID != nil {
+			_ = h.db.GetContext(c.Request.Context(), &name, "SELECT COALESCE(name_en, name_ar) FROM part_types WHERE id = $1", *req.PartTypeID)
+		}
+		if _, createErr := h.db.ExecContext(c.Request.Context(), fmt.Sprintf(`INSERT INTO products (id, sku, name, cost_price, selling_price, min_stock_level, max_stock_level, is_active, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 0, 0, 1, %s, %s)`, dbutil.NowSQL(h.db), dbutil.NowSQL(h.db)), productID, sku, name, req.PurchaseCost, req.SellingPrice); createErr != nil {
+			handleError(c, fmt.Errorf("failed to create trade-in product: %w", createErr))
+			return
+		}
 		if req.PartTypeID != nil {
 			existingNotes := ""
 			if req.Notes != nil {
@@ -586,11 +608,8 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 
 	// Create inventory item request
 	// For used parts, we might not have a product_id, so handle nil case
-	var productIDPtr *uuid.UUID
-	if productID != uuid.Nil {
-		productIDPtr = &productID
-	}
-	
+	productIDPtr := &productID
+
 	grade := GradeGood
 	inventoryReq := &InventoryItemRequest{
 		ProductID:    productIDPtr,
@@ -612,32 +631,29 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 	// Save specifications if provided
 	if len(req.Specifications) > 0 {
 		for _, spec := range req.Specifications {
-			specQuery := `
+			specQuery := fmt.Sprintf(`
 				INSERT INTO item_specification_values (id, inventory_item_id, specification_id, value_text, value_number, value_boolean, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-			`
+				VALUES ($1, $2, $3, $4, $5, $6, %s, %s)
+			`, dbutil.NowSQL(h.db), dbutil.NowSQL(h.db))
 			_, err = h.db.ExecContext(c.Request.Context(), specQuery,
 				uuid.New(), item.ID, spec.SpecificationID, spec.ValueText, spec.ValueNumber, spec.ValueBoolean)
 			if err != nil {
-				// Log but don't fail the operation
-				fmt.Printf("Warning: failed to save specification value: %v\n", err)
+				handleError(c, fmt.Errorf("failed to save specification value: %w", err))
+				return
 			}
 		}
 	}
 
 	// Also save to trade_ins table for tracking
 	// Only save if we have a valid customer ID (not manual entry)
-	if customerID != uuid.Nil {
-		tradeInQuery := `
-			INSERT INTO trade_ins (id, customer_id, item_id, purchase_cost, notes, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-		`
-		_, err = h.db.ExecContext(c.Request.Context(), tradeInQuery,
-			uuid.New(), customerID, item.ID, req.PurchaseCost, req.Notes)
-		if err != nil {
-			// Log but don't fail the operation
-			fmt.Printf("Warning: failed to save trade-in record: %v\n", err)
-		}
+	tradeInQuery := fmt.Sprintf(`
+		INSERT INTO trade_ins (id, customer_id, inventory_item_id, purchase_price, purchase_date, notes, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, %s, $5, %s, %s)
+	`, dbutil.NowSQL(h.db), dbutil.NowSQL(h.db), dbutil.NowSQL(h.db))
+	if _, err = h.db.ExecContext(c.Request.Context(), tradeInQuery,
+		uuid.New(), customerID, item.ID, req.PurchaseCost, req.Notes); err != nil {
+		handleError(c, fmt.Errorf("failed to save trade-in record: %w", err))
+		return
 	}
 
 	c.JSON(http.StatusCreated, item)

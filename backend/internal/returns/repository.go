@@ -28,6 +28,125 @@ func (t *returnTimestamp) Scan(value any) error {
 	return nil
 }
 
+// localReturnRow keeps SQLite's TEXT UUID/timestamp representation out of the
+// public model. SQLite does not have native UUID/timestamp types, so scanning
+// directly into uuid.UUID/time.Time is driver-dependent and fails at runtime.
+type localReturnRow struct {
+	ID                       sql.NullString `db:"id"`
+	ReturnNumber             sql.NullString `db:"return_number"`
+	ReferenceNumber          sql.NullString `db:"reference_number"`
+	SaleID                   sql.NullString `db:"sale_id"`
+	PurchaseID               sql.NullString `db:"purchase_id"`
+	CustomerID               sql.NullString `db:"customer_id"`
+	ReturnDate               sql.NullString `db:"return_date"`
+	ReturnType               sql.NullString `db:"return_type"`
+	Status                   sql.NullString `db:"status"`
+	TotalRefundAmount        float64        `db:"total_refund_amount"`
+	RefundMethod             sql.NullString `db:"refund_method"`
+	RefundDate               sql.NullString `db:"refund_date"`
+	RefundReference          sql.NullString `db:"refund_reference"`
+	DebtID                   sql.NullString `db:"debt_id"`
+	DebtAdjustment           float64        `db:"debt_adjustment"`
+	CustomerCredit           float64        `db:"customer_credit"`
+	Reason                   sql.NullString `db:"reason"`
+	ReasonDetail             sql.NullString `db:"reason_detail"`
+	ItemConditionAfterReturn sql.NullString `db:"item_condition_after_return"`
+	IsWarrantyClaim          int            `db:"is_warranty_claim"`
+	WarrantyID               sql.NullString `db:"warranty_id"`
+	WarrantyValidUntil       sql.NullString `db:"warranty_valid_until"`
+	CreatedBy                sql.NullString `db:"created_by"`
+	ProcessedBy              sql.NullString `db:"processed_by"`
+	ApprovedBy               sql.NullString `db:"approved_by"`
+	ApprovedAt               sql.NullString `db:"approved_at"`
+	Notes                    sql.NullString `db:"notes"`
+	InternalNotes            sql.NullString `db:"internal_notes"`
+	CreatedAt                sql.NullString `db:"created_at"`
+	UpdatedAt                sql.NullString `db:"updated_at"`
+}
+
+func localUUID(value sql.NullString) uuid.UUID {
+	if !value.Valid || value.String == "" {
+		return uuid.Nil
+	}
+	id, _ := uuid.Parse(value.String)
+	return id
+}
+func localUUIDPtr(value sql.NullString) *uuid.UUID {
+	id := localUUID(value)
+	if id == uuid.Nil {
+		return nil
+	}
+	return &id
+}
+func localTime(value sql.NullString) time.Time {
+	if !value.Valid || value.String == "" {
+		return time.Time{}
+	}
+	parsed, _ := dbutil.ParseTimestamp(value.String)
+	return parsed
+}
+func localTimePtr(value sql.NullString) *time.Time {
+	t := localTime(value)
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
+func (row localReturnRow) model() Return {
+	return Return{ID: localUUID(row.ID), ReturnNumber: row.ReturnNumber.String, ReferenceNumber: row.ReferenceNumber.String,
+		SaleID: localUUID(row.SaleID), PurchaseID: localUUID(row.PurchaseID), CustomerID: localUUID(row.CustomerID),
+		ReturnDate: localTime(row.ReturnDate), ReturnType: row.ReturnType.String, Status: row.Status.String,
+		TotalRefundAmount: row.TotalRefundAmount, RefundMethod: row.RefundMethod.String, RefundDate: localTimePtr(row.RefundDate), RefundReference: row.RefundReference.String,
+		DebtID: localUUIDPtr(row.DebtID), DebtAdjustment: row.DebtAdjustment, CustomerCredit: row.CustomerCredit,
+		Reason: row.Reason.String, ReasonDetail: row.ReasonDetail.String, ItemConditionAfterReturn: row.ItemConditionAfterReturn.String,
+		IsWarrantyClaim: row.IsWarrantyClaim != 0, WarrantyID: localUUIDPtr(row.WarrantyID), WarrantyValidUntil: localTimePtr(row.WarrantyValidUntil),
+		CreatedBy: localUUIDPtr(row.CreatedBy), ProcessedBy: localUUIDPtr(row.ProcessedBy), ApprovedBy: localUUIDPtr(row.ApprovedBy), ApprovedAt: localTimePtr(row.ApprovedAt),
+		Notes: row.Notes.String, InternalNotes: row.InternalNotes.String, CreatedAt: localTime(row.CreatedAt), UpdatedAt: localTime(row.UpdatedAt)}
+}
+
+const localReturnColumns = `id, return_number, COALESCE(reference_number,'') AS reference_number, COALESCE(sale_id,'') AS sale_id, COALESCE(purchase_id,'') AS purchase_id, COALESCE(customer_id,'') AS customer_id, return_date, return_type, status, total_refund_amount, COALESCE(refund_method,'') AS refund_method, refund_date, COALESCE(refund_reference,'') AS refund_reference, debt_id, debt_adjustment, customer_credit, COALESCE(reason,'') AS reason, COALESCE(reason_detail,'') AS reason_detail, COALESCE(item_condition_after_return,'') AS item_condition_after_return, is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at, COALESCE(notes,'') AS notes, COALESCE(internal_notes,'') AS internal_notes, created_at, updated_at`
+
+type localReturnItemRow struct {
+	ID                 sql.NullString  `db:"id"`
+	ReturnID           sql.NullString  `db:"return_id"`
+	SaleItemID         sql.NullString  `db:"sale_item_id"`
+	ProductID          sql.NullString  `db:"product_id"`
+	InventoryItemID    sql.NullString  `db:"inventory_item_id"`
+	SerialNumber       sql.NullString  `db:"serial_number"`
+	Barcode            sql.NullString  `db:"barcode"`
+	QuantityReturned   int             `db:"quantity_returned"`
+	OriginalQuantity   sql.NullInt64   `db:"original_quantity"`
+	UnitPrice          float64         `db:"unit_price"`
+	TotalRefundAmount  float64         `db:"total_refund_amount"`
+	OriginalCondition  sql.NullString  `db:"original_condition"`
+	ReturnedCondition  sql.NullString  `db:"returned_condition"`
+	ConditionNotes     sql.NullString  `db:"condition_notes"`
+	Resolution         sql.NullString  `db:"resolution"`
+	InventoryStatus    sql.NullString  `db:"inventory_status"`
+	InspectionRequired int             `db:"inspection_required"`
+	InspectionDate     sql.NullString  `db:"inspection_date"`
+	InspectionResult   sql.NullString  `db:"inspection_result"`
+	InspectionNotes    sql.NullString  `db:"inspection_notes"`
+	OriginalCost       sql.NullFloat64 `db:"original_cost"`
+	RepairCost         float64         `db:"repair_cost"`
+	CreatedAt          sql.NullString  `db:"created_at"`
+	UpdatedAt          sql.NullString  `db:"updated_at"`
+}
+
+func (row localReturnItemRow) model() ReturnItem {
+	item := ReturnItem{ID: localUUID(row.ID), ReturnID: localUUID(row.ReturnID), SaleItemID: localUUIDPtr(row.SaleItemID), ProductID: localUUIDPtr(row.ProductID), InventoryItemID: localUUIDPtr(row.InventoryItemID), SerialNumber: row.SerialNumber.String, Barcode: row.Barcode.String, QuantityReturned: row.QuantityReturned, UnitPrice: row.UnitPrice, TotalRefundAmount: row.TotalRefundAmount, OriginalCondition: row.OriginalCondition.String, ReturnedCondition: row.ReturnedCondition.String, ConditionNotes: row.ConditionNotes.String, Resolution: row.Resolution.String, InventoryStatus: row.InventoryStatus.String, InspectionRequired: row.InspectionRequired != 0, InspectionDate: localTimePtr(row.InspectionDate), InspectionResult: row.InspectionResult.String, InspectionNotes: row.InspectionNotes.String, RepairCost: row.RepairCost, CreatedAt: localTime(row.CreatedAt), UpdatedAt: localTime(row.UpdatedAt)}
+	if row.OriginalQuantity.Valid {
+		v := int(row.OriginalQuantity.Int64)
+		item.OriginalQuantity = &v
+	}
+	if row.OriginalCost.Valid {
+		v := row.OriginalCost.Float64
+		item.OriginalCost = &v
+	}
+	return item
+}
+
 // NewRepository creates a new return repository
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
@@ -35,6 +154,32 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // CreateReturn creates a new return
 func (r *Repository) CreateReturn(ctx context.Context, returnRecord *Return) error {
+	if dbutil.IsSQLite(r.db) {
+		if returnRecord.ID == uuid.Nil {
+			returnRecord.ID = uuid.New()
+		}
+		if returnRecord.CreatedAt.IsZero() {
+			returnRecord.CreatedAt = time.Now().UTC()
+		}
+		if returnRecord.UpdatedAt.IsZero() {
+			returnRecord.UpdatedAt = returnRecord.CreatedAt
+		}
+		idArg := func(id uuid.UUID) interface{} {
+			if id == uuid.Nil {
+				return nil
+			}
+			return id.String()
+		}
+		var createdBy interface{}
+		if returnRecord.CreatedBy != nil {
+			createdBy = returnRecord.CreatedBy.String()
+		}
+		_, err := r.db.ExecContext(ctx, `INSERT INTO returns (id,return_number,reference_number,sale_id,purchase_id,customer_id,return_date,return_type,status,total_refund_amount,refund_method,refund_date,refund_reference,debt_id,debt_adjustment,customer_credit,reason,reason_detail,item_condition_after_return,is_warranty_claim,warranty_id,warranty_valid_until,created_by,processed_by,approved_by,approved_at,notes,internal_notes,created_at,updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, returnRecord.ID.String(), returnRecord.ReturnNumber, returnRecord.ReferenceNumber, idArg(returnRecord.SaleID), idArg(returnRecord.PurchaseID), idArg(returnRecord.CustomerID), returnRecord.ReturnDate.Format(time.RFC3339Nano), returnRecord.ReturnType, returnRecord.Status, returnRecord.TotalRefundAmount, returnRecord.RefundMethod, returnRecord.RefundDate, returnRecord.RefundReference, idArgPtr(returnRecord.DebtID), returnRecord.DebtAdjustment, returnRecord.CustomerCredit, returnRecord.Reason, returnRecord.ReasonDetail, returnRecord.ItemConditionAfterReturn, returnRecord.IsWarrantyClaim, idArgPtr(returnRecord.WarrantyID), returnRecord.WarrantyValidUntil, createdBy, idArgPtr(returnRecord.ProcessedBy), idArgPtr(returnRecord.ApprovedBy), returnRecord.ApprovedAt, returnRecord.Notes, returnRecord.InternalNotes, returnRecord.CreatedAt.Format(time.RFC3339Nano), returnRecord.UpdatedAt.Format(time.RFC3339Nano))
+		if err != nil {
+			return fmt.Errorf("failed to create return: %w", err)
+		}
+		return nil
+	}
 	var purchaseID interface{} = returnRecord.PurchaseID
 	if returnRecord.PurchaseID == uuid.Nil {
 		purchaseID = nil
@@ -81,8 +226,26 @@ func (r *Repository) CreateReturn(ctx context.Context, returnRecord *Return) err
 	return nil
 }
 
+func idArgPtr(id *uuid.UUID) interface{} {
+	if id == nil || *id == uuid.Nil {
+		return nil
+	}
+	return id.String()
+}
+
 // GetReturnByID retrieves a return by ID
 func (r *Repository) GetReturnByID(ctx context.Context, id uuid.UUID) (*Return, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row localReturnRow
+		if err := r.db.GetContext(ctx, &row, `SELECT `+localReturnColumns+` FROM returns WHERE id = ?`, id.String()); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrReturnNotFound
+			}
+			return nil, fmt.Errorf("failed to get return: %w", err)
+		}
+		model := row.model()
+		return &model, nil
+	}
 	var returnRecord Return
 	query := `
 		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
@@ -106,6 +269,74 @@ func (r *Repository) GetReturnByID(ctx context.Context, id uuid.UUID) (*Return, 
 
 // ListReturns retrieves returns with pagination and filters
 func (r *Repository) ListReturns(ctx context.Context, req ReturnListRequest) ([]Return, int, error) {
+	if dbutil.IsSQLite(r.db) {
+		if req.Page < 1 {
+			req.Page = 1
+		}
+		if req.PerPage < 1 {
+			req.PerPage = 20
+		}
+		where := " WHERE 1=1"
+		args := make([]interface{}, 0)
+		if req.CustomerID != nil {
+			where += " AND customer_id = ?"
+			args = append(args, req.CustomerID.String())
+		}
+		if req.SaleID != nil {
+			where += " AND sale_id = ?"
+			args = append(args, req.SaleID.String())
+		}
+		if req.Status != "" {
+			where += " AND status = ?"
+			args = append(args, req.Status)
+		}
+		if req.ReturnType != "" {
+			where += " AND return_type = ?"
+			args = append(args, req.ReturnType)
+		}
+		if req.RefundMethod != "" {
+			where += " AND refund_method = ?"
+			args = append(args, req.RefundMethod)
+		}
+		if req.StartDate != nil {
+			where += " AND return_date >= ?"
+			args = append(args, req.StartDate.Format(time.RFC3339Nano))
+		}
+		if req.EndDate != nil {
+			where += " AND return_date <= ?"
+			args = append(args, req.EndDate.Format(time.RFC3339Nano))
+		}
+		if req.Search != "" {
+			pattern := "%" + req.Search + "%"
+			where += " AND (return_number LIKE ? OR reference_number LIKE ? OR reason LIKE ? OR notes LIKE ?)"
+			args = append(args, pattern, pattern, pattern, pattern)
+		}
+		var count int
+		if err := r.db.GetContext(ctx, &count, "SELECT COUNT(*) FROM returns"+where, args...); err != nil {
+			return nil, 0, fmt.Errorf("failed to count returns: %w", err)
+		}
+		sortBy := "return_date"
+		for _, allowed := range []string{"return_date", "created_at", "status", "total_refund_amount", "return_number"} {
+			if req.SortBy == allowed {
+				sortBy = allowed
+			}
+		}
+		sortOrder := "DESC"
+		if strings.EqualFold(req.SortOrder, "ASC") {
+			sortOrder = "ASC"
+		}
+		query := "SELECT " + localReturnColumns + " FROM returns" + where + " ORDER BY " + sortBy + " " + sortOrder + " LIMIT ? OFFSET ?"
+		args = append(args, req.PerPage, (req.Page-1)*req.PerPage)
+		var rows []localReturnRow
+		if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+			return nil, 0, fmt.Errorf("failed to list returns: %w", err)
+		}
+		result := make([]Return, 0, len(rows))
+		for _, row := range rows {
+			result = append(result, row.model())
+		}
+		return result, count, nil
+	}
 	var returns []Return
 	var count int
 
@@ -220,6 +451,19 @@ func (r *Repository) ListReturns(ctx context.Context, req ReturnListRequest) ([]
 
 // UpdateReturn updates a return
 func (r *Repository) UpdateReturn(ctx context.Context, returnRecord *Return) error {
+	if dbutil.IsSQLite(r.db) {
+		now := time.Now().UTC()
+		result, err := r.db.ExecContext(ctx, `UPDATE returns SET return_date=?,return_type=?,status=?,total_refund_amount=?,refund_method=?,refund_date=?,refund_reference=?,debt_id=?,debt_adjustment=?,customer_credit=?,reason=?,reason_detail=?,item_condition_after_return=?,is_warranty_claim=?,warranty_id=?,warranty_valid_until=?,processed_by=?,approved_by=?,approved_at=?,notes=?,internal_notes=?,updated_at=? WHERE id=?`, returnRecord.ReturnDate.Format(time.RFC3339Nano), returnRecord.ReturnType, returnRecord.Status, returnRecord.TotalRefundAmount, returnRecord.RefundMethod, returnRecord.RefundDate, returnRecord.RefundReference, idArgPtr(returnRecord.DebtID), returnRecord.DebtAdjustment, returnRecord.CustomerCredit, returnRecord.Reason, returnRecord.ReasonDetail, returnRecord.ItemConditionAfterReturn, returnRecord.IsWarrantyClaim, idArgPtr(returnRecord.WarrantyID), returnRecord.WarrantyValidUntil, idArgPtr(returnRecord.ProcessedBy), idArgPtr(returnRecord.ApprovedBy), returnRecord.ApprovedAt, returnRecord.Notes, returnRecord.InternalNotes, now.Format(time.RFC3339Nano), returnRecord.ID.String())
+		if err != nil {
+			return fmt.Errorf("failed to update return: %w", err)
+		}
+		affected, _ := result.RowsAffected()
+		if affected == 0 {
+			return ErrReturnNotFound
+		}
+		returnRecord.UpdatedAt = now
+		return nil
+	}
 	query := `
 		UPDATE returns
 		SET return_date = $2, return_type = $3, status = $4, total_refund_amount = $5, 
@@ -251,8 +495,13 @@ func (r *Repository) UpdateReturn(ctx context.Context, returnRecord *Return) err
 // DeleteReturn deletes a return
 func (r *Repository) DeleteReturn(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM returns WHERE id = $1`
+	arg := interface{}(id)
+	if dbutil.IsSQLite(r.db) {
+		query = `DELETE FROM returns WHERE id = ?`
+		arg = id.String()
+	}
 
-	result, err := r.db.ExecContext(ctx, query, id)
+	result, err := r.db.ExecContext(ctx, query, arg)
 	if err != nil {
 		return fmt.Errorf("failed to delete return: %w", err)
 	}
@@ -267,6 +516,23 @@ func (r *Repository) DeleteReturn(ctx context.Context, id uuid.UUID) error {
 
 // CreateReturnItem creates a new return item
 func (r *Repository) CreateReturnItem(ctx context.Context, item *ReturnItem) error {
+	if dbutil.IsSQLite(r.db) {
+		if item.ID == uuid.Nil {
+			item.ID = uuid.New()
+		}
+		now := time.Now().UTC()
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = now
+		}
+		if item.UpdatedAt.IsZero() {
+			item.UpdatedAt = item.CreatedAt
+		}
+		_, err := r.db.ExecContext(ctx, `INSERT INTO return_items (id,return_id,sale_item_id,product_id,inventory_item_id,serial_number,barcode,quantity_returned,original_quantity,unit_price,total_refund_amount,original_condition,returned_condition,condition_notes,resolution,inventory_status,inspection_required,inspection_date,inspection_result,inspection_notes,original_cost,repair_cost,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, item.ID.String(), item.ReturnID.String(), idArgPtr(item.SaleItemID), idArgPtr(item.ProductID), idArgPtr(item.InventoryItemID), item.SerialNumber, item.Barcode, item.QuantityReturned, item.OriginalQuantity, item.UnitPrice, item.TotalRefundAmount, item.OriginalCondition, item.ReturnedCondition, item.ConditionNotes, item.Resolution, item.InventoryStatus, item.InspectionRequired, item.InspectionDate, item.InspectionResult, item.InspectionNotes, item.OriginalCost, item.RepairCost, item.CreatedAt.Format(time.RFC3339Nano), item.UpdatedAt.Format(time.RFC3339Nano))
+		if err != nil {
+			return fmt.Errorf("failed to create return item: %w", err)
+		}
+		return nil
+	}
 	var inventoryStatus interface{} = item.InventoryStatus
 	if item.InventoryStatus == "" {
 		inventoryStatus = nil
@@ -301,6 +567,17 @@ func (r *Repository) CreateReturnItem(ctx context.Context, item *ReturnItem) err
 
 // GetReturnItems retrieves items for a return
 func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]ReturnItem, error) {
+	if dbutil.IsSQLite(r.db) {
+		var rows []localReturnItemRow
+		if err := r.db.SelectContext(ctx, &rows, `SELECT id,return_id,sale_item_id,product_id,inventory_item_id,serial_number,barcode,quantity_returned,original_quantity,unit_price,total_refund_amount,original_condition,returned_condition,condition_notes,resolution,inventory_status,inspection_required,inspection_date,inspection_result,inspection_notes,original_cost,repair_cost,created_at,updated_at FROM return_items WHERE return_id = ? ORDER BY created_at`, returnID.String()); err != nil {
+			return nil, fmt.Errorf("failed to get return items: %w", err)
+		}
+		items := make([]ReturnItem, 0, len(rows))
+		for _, row := range rows {
+			items = append(items, row.model())
+		}
+		return items, nil
+	}
 	var items []ReturnItem
 	query := `
 		SELECT id, return_id, sale_item_id, product_id, inventory_item_id, serial_number, barcode,
@@ -325,6 +602,19 @@ func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]
 
 // UpdateReturnItem updates a return item
 func (r *Repository) UpdateReturnItem(ctx context.Context, item *ReturnItem) error {
+	if dbutil.IsSQLite(r.db) {
+		now := time.Now().UTC()
+		result, err := r.db.ExecContext(ctx, `UPDATE return_items SET quantity_returned=?,original_quantity=?,unit_price=?,total_refund_amount=?,original_condition=?,returned_condition=?,condition_notes=?,resolution=?,inventory_status=?,inspection_required=?,inspection_date=?,inspection_result=?,inspection_notes=?,original_cost=?,repair_cost=?,updated_at=? WHERE id=?`, item.QuantityReturned, item.OriginalQuantity, item.UnitPrice, item.TotalRefundAmount, item.OriginalCondition, item.ReturnedCondition, item.ConditionNotes, item.Resolution, item.InventoryStatus, item.InspectionRequired, item.InspectionDate, item.InspectionResult, item.InspectionNotes, item.OriginalCost, item.RepairCost, now.Format(time.RFC3339Nano), item.ID.String())
+		if err != nil {
+			return fmt.Errorf("failed to update return item: %w", err)
+		}
+		affected, _ := result.RowsAffected()
+		if affected == 0 {
+			return ErrReturnItemNotFound
+		}
+		item.UpdatedAt = now
+		return nil
+	}
 	query := `
 		UPDATE return_items
 		SET quantity_returned = $2, original_quantity = $3, unit_price = $4, total_refund_amount = $5,
@@ -354,8 +644,13 @@ func (r *Repository) UpdateReturnItem(ctx context.Context, item *ReturnItem) err
 // DeleteReturnItem deletes a return item
 func (r *Repository) DeleteReturnItem(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM return_items WHERE id = $1`
+	arg := interface{}(id)
+	if dbutil.IsSQLite(r.db) {
+		query = `DELETE FROM return_items WHERE id = ?`
+		arg = id.String()
+	}
 
-	result, err := r.db.ExecContext(ctx, query, id)
+	result, err := r.db.ExecContext(ctx, query, arg)
 	if err != nil {
 		return fmt.Errorf("failed to delete return item: %w", err)
 	}
@@ -370,6 +665,22 @@ func (r *Repository) DeleteReturnItem(ctx context.Context, id uuid.UUID) error {
 
 // GetCustomerInfo retrieves customer information
 func (r *Repository) GetCustomerInfo(ctx context.Context, customerID uuid.UUID) (*CustomerInfo, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row struct {
+			ID    string `db:"id"`
+			Name  string `db:"name"`
+			Phone string `db:"phone"`
+			Email string `db:"email"`
+		}
+		if err := r.db.GetContext(ctx, &row, `SELECT id,name,COALESCE(phone,''),COALESCE(email,'') FROM customers WHERE id = ?`, customerID.String()); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrCustomerNotFound
+			}
+			return nil, fmt.Errorf("failed to get customer info: %w", err)
+		}
+		id, _ := uuid.Parse(row.ID)
+		return &CustomerInfo{ID: id, Name: row.Name, Phone: row.Phone, Email: row.Email}, nil
+	}
 	var customer CustomerInfo
 	query := `SELECT id, name, COALESCE(phone, '') AS phone, COALESCE(email, '') AS email FROM customers WHERE id = $1`
 
@@ -385,6 +696,24 @@ func (r *Repository) GetCustomerInfo(ctx context.Context, customerID uuid.UUID) 
 
 // GetSaleInfo retrieves sale information
 func (r *Repository) GetSaleInfo(ctx context.Context, saleID uuid.UUID) (*SaleInfo, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row struct {
+			ID            string  `db:"id"`
+			InvoiceNumber string  `db:"invoice_number"`
+			SaleDate      string  `db:"sale_date"`
+			TotalAmount   float64 `db:"total_amount"`
+			CustomerID    string  `db:"customer_id"`
+		}
+		if err := r.db.GetContext(ctx, &row, `SELECT id,invoice_number,sale_date,total_amount,customer_id FROM sales WHERE id = ?`, saleID.String()); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrSaleNotFound
+			}
+			return nil, fmt.Errorf("failed to get sale info: %w", err)
+		}
+		id, _ := uuid.Parse(row.ID)
+		cid, _ := uuid.Parse(row.CustomerID)
+		return &SaleInfo{ID: id, InvoiceNumber: row.InvoiceNumber, SaleDate: localTime(sql.NullString{String: row.SaleDate, Valid: row.SaleDate != ""}), TotalAmount: row.TotalAmount, CustomerID: cid}, nil
+	}
 	var sale SaleInfo
 	query := `SELECT id, invoice_number, sale_date, total_amount, customer_id FROM sales WHERE id = $1`
 
@@ -407,6 +736,23 @@ type SaleItemInfo struct {
 
 // GetSaleItemInfo retrieves sale item information
 func (r *Repository) GetSaleItemInfo(ctx context.Context, saleItemID uuid.UUID) (SaleItemInfo, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row struct {
+			ID        string  `db:"id"`
+			ProductID string  `db:"product_id"`
+			Quantity  int     `db:"quantity"`
+			UnitPrice float64 `db:"unit_price"`
+		}
+		if err := r.db.GetContext(ctx, &row, `SELECT id,product_id,quantity,unit_price FROM sale_items WHERE id = ?`, saleItemID.String()); err != nil {
+			if err == sql.ErrNoRows {
+				return SaleItemInfo{}, ErrSaleItemNotFound
+			}
+			return SaleItemInfo{}, fmt.Errorf("failed to get sale item info: %w", err)
+		}
+		id, _ := uuid.Parse(row.ID)
+		pid, _ := uuid.Parse(row.ProductID)
+		return SaleItemInfo{ID: id, ProductID: pid, Quantity: row.Quantity, UnitPrice: row.UnitPrice}, nil
+	}
 	var item SaleItemInfo
 
 	query := `SELECT id, product_id, quantity, unit_price FROM sale_items WHERE id = $1`
@@ -423,6 +769,17 @@ func (r *Repository) GetSaleItemInfo(ctx context.Context, saleItemID uuid.UUID) 
 
 // GetReturnByReturnNumber retrieves a return by return number
 func (r *Repository) GetReturnByReturnNumber(ctx context.Context, returnNumber string) (*Return, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row localReturnRow
+		if err := r.db.GetContext(ctx, &row, `SELECT `+localReturnColumns+` FROM returns WHERE return_number = ?`, returnNumber); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrReturnNotFound
+			}
+			return nil, fmt.Errorf("failed to get return by return number: %w", err)
+		}
+		model := row.model()
+		return &model, nil
+	}
 	var returnRecord Return
 	query := `
 		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
@@ -446,6 +803,17 @@ func (r *Repository) GetReturnByReturnNumber(ctx context.Context, returnNumber s
 
 // GetReturnsBySaleID retrieves returns for a specific sale
 func (r *Repository) GetReturnsBySaleID(ctx context.Context, saleID uuid.UUID) ([]Return, error) {
+	if dbutil.IsSQLite(r.db) {
+		var rows []localReturnRow
+		if err := r.db.SelectContext(ctx, &rows, `SELECT `+localReturnColumns+` FROM returns WHERE sale_id = ? ORDER BY return_date DESC`, saleID.String()); err != nil {
+			return nil, fmt.Errorf("failed to get returns by sale: %w", err)
+		}
+		result := make([]Return, 0, len(rows))
+		for _, row := range rows {
+			result = append(result, row.model())
+		}
+		return result, nil
+	}
 	var returns []Return
 	query := `
 		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
@@ -467,6 +835,17 @@ func (r *Repository) GetReturnsBySaleID(ctx context.Context, saleID uuid.UUID) (
 
 // GetReturnItemByID retrieves a return item by ID
 func (r *Repository) GetReturnItemByID(ctx context.Context, itemID uuid.UUID) (*ReturnItem, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row localReturnItemRow
+		if err := r.db.GetContext(ctx, &row, `SELECT id,return_id,sale_item_id,product_id,inventory_item_id,serial_number,barcode,quantity_returned,original_quantity,unit_price,total_refund_amount,original_condition,returned_condition,condition_notes,resolution,inventory_status,inspection_required,inspection_date,inspection_result,inspection_notes,original_cost,repair_cost,created_at,updated_at FROM return_items WHERE id = ?`, itemID.String()); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrReturnItemNotFound
+			}
+			return nil, fmt.Errorf("failed to get return item: %w", err)
+		}
+		model := row.model()
+		return &model, nil
+	}
 	var item ReturnItem
 	query := `
 		SELECT id, return_id, sale_item_id, product_id, inventory_item_id, serial_number, barcode,
@@ -497,7 +876,12 @@ func (r *Repository) GetReturnedQuantity(ctx context.Context, saleItemID uuid.UU
 		WHERE sale_item_id = $1
 	`
 
-	err := r.db.GetContext(ctx, &returnedQty, query, saleItemID)
+	arg := interface{}(saleItemID)
+	if dbutil.IsSQLite(r.db) {
+		query = `SELECT COALESCE(SUM(quantity_returned),0) FROM return_items WHERE sale_item_id = ?`
+		arg = saleItemID.String()
+	}
+	err := r.db.GetContext(ctx, &returnedQty, query, arg)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get returned quantity: %w", err)
 	}
@@ -533,6 +917,17 @@ func (r *Repository) GetReturnSummary(ctx context.Context) ([]map[string]interfa
 
 // ReverseReturn reverses a return (instead of deleting it)
 func (r *Repository) ReverseReturn(ctx context.Context, id uuid.UUID, reversedBy uuid.UUID) error {
+	if dbutil.IsSQLite(r.db) {
+		result, err := r.db.ExecContext(ctx, `UPDATE returns SET status='REVERSED',processed_by=?,updated_at=? WHERE id=?`, idArgPtr(&reversedBy), time.Now().UTC().Format(time.RFC3339Nano), id.String())
+		if err != nil {
+			return fmt.Errorf("failed to reverse return: %w", err)
+		}
+		affected, _ := result.RowsAffected()
+		if affected == 0 {
+			return ErrReturnNotFound
+		}
+		return nil
+	}
 	query := `
 		UPDATE returns 
 		SET status = 'REVERSED', 
@@ -554,6 +949,17 @@ func (r *Repository) ReverseReturn(ctx context.Context, id uuid.UUID, reversedBy
 
 // GetReturnsByCustomer retrieves returns for a specific customer
 func (r *Repository) GetReturnsByCustomer(ctx context.Context, customerID uuid.UUID) ([]Return, error) {
+	if dbutil.IsSQLite(r.db) {
+		var rows []localReturnRow
+		if err := r.db.SelectContext(ctx, &rows, `SELECT `+localReturnColumns+` FROM returns WHERE customer_id = ? ORDER BY return_date DESC`, customerID.String()); err != nil {
+			return nil, fmt.Errorf("failed to get returns by customer: %w", err)
+		}
+		result := make([]Return, 0, len(rows))
+		for _, row := range rows {
+			result = append(result, row.model())
+		}
+		return result, nil
+	}
 	var returns []Return
 	query := `
 		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
@@ -575,6 +981,17 @@ func (r *Repository) GetReturnsByCustomer(ctx context.Context, customerID uuid.U
 
 // GetReturnBySale retrieves a return for a specific sale (for validation)
 func (r *Repository) GetReturnBySale(ctx context.Context, saleID uuid.UUID) (*Return, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row localReturnRow
+		if err := r.db.GetContext(ctx, &row, `SELECT `+localReturnColumns+` FROM returns WHERE sale_id = ? ORDER BY created_at DESC LIMIT 1`, saleID.String()); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrReturnNotFound
+			}
+			return nil, fmt.Errorf("failed to get return by sale: %w", err)
+		}
+		model := row.model()
+		return &model, nil
+	}
 	var returnRecord Return
 	query := `
 		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
@@ -752,6 +1169,17 @@ func (r *Repository) GetSalesReturnsAnalysis(ctx context.Context) ([]SalesReturn
 
 // GetPendingReturns retrieves returns that are pending approval
 func (r *Repository) GetPendingReturns(ctx context.Context) ([]Return, error) {
+	if dbutil.IsSQLite(r.db) {
+		var rows []localReturnRow
+		if err := r.db.SelectContext(ctx, &rows, `SELECT `+localReturnColumns+` FROM returns WHERE UPPER(status) = 'PENDING' ORDER BY return_date ASC`); err != nil {
+			return nil, fmt.Errorf("failed to get pending returns: %w", err)
+		}
+		result := make([]Return, 0, len(rows))
+		for _, row := range rows {
+			result = append(result, row.model())
+		}
+		return result, nil
+	}
 	var returns []Return
 	query := `
 		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
@@ -788,6 +1216,17 @@ func (r *Repository) GetReturnWithItems(ctx context.Context, returnID uuid.UUID)
 
 // ProcessReturnStatusChange handles status changes and their effects
 func (r *Repository) ProcessReturnStatusChange(ctx context.Context, returnID uuid.UUID, newStatus string, processedBy uuid.UUID) error {
+	if dbutil.IsSQLite(r.db) {
+		result, err := r.db.ExecContext(ctx, `UPDATE returns SET status=?,processed_by=?,updated_at=? WHERE id=?`, newStatus, idArgPtr(&processedBy), time.Now().UTC().Format(time.RFC3339Nano), returnID.String())
+		if err != nil {
+			return fmt.Errorf("failed to process return status change: %w", err)
+		}
+		affected, _ := result.RowsAffected()
+		if affected == 0 {
+			return ErrReturnNotFound
+		}
+		return nil
+	}
 	query := `
 		UPDATE returns 
 		SET status = $2, 
@@ -809,6 +1248,17 @@ func (r *Repository) ProcessReturnStatusChange(ctx context.Context, returnID uui
 
 // UpdateReturnItemStatus updates the inventory status of a return item
 func (r *Repository) UpdateReturnItemStatus(ctx context.Context, itemID uuid.UUID, newStatus string) error {
+	if dbutil.IsSQLite(r.db) {
+		result, err := r.db.ExecContext(ctx, `UPDATE return_items SET inventory_status=?,updated_at=? WHERE id=?`, newStatus, time.Now().UTC().Format(time.RFC3339Nano), itemID.String())
+		if err != nil {
+			return fmt.Errorf("failed to update return item status: %w", err)
+		}
+		affected, _ := result.RowsAffected()
+		if affected == 0 {
+			return ErrReturnItemNotFound
+		}
+		return nil
+	}
 	query := `
 		UPDATE return_items
 		SET inventory_status = $2, updated_at = NOW()

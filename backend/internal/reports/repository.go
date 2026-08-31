@@ -147,8 +147,12 @@ func (r *Repository) ListReports(ctx context.Context, req ReportListRequest) ([]
 
 	if req.Search != "" {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND (title ILIKE $%d OR description ILIKE $%d)", argCount, argCount)
-		countQuery += fmt.Sprintf(" AND (title ILIKE $%d OR description ILIKE $%d)", argCount, argCount)
+		like := "ILIKE"
+		if dbutil.IsSQLite(r.db) {
+			like = "LIKE"
+		}
+		baseQuery += fmt.Sprintf(" AND (title %s $%d OR description %s $%d)", like, argCount, like, argCount)
+		countQuery += fmt.Sprintf(" AND (title %s $%d OR description %s $%d)", like, argCount, like, argCount)
 		searchPattern := "%" + req.Search + "%"
 		args = append(args, searchPattern)
 	}
@@ -887,13 +891,21 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 		report.ByCustomer = append(report.ByCustomer, item)
 	}
 	rows.Close()
-	rows, err = r.db.QueryContext(ctx,
-		`SELECT CASE
+	ageQuery := `SELECT CASE
 			WHEN due_date >= CURRENT_DATE THEN 'current'
 			WHEN CURRENT_DATE - due_date <= 7 THEN 'overdue_1_7'
 			WHEN CURRENT_DATE - due_date <= 30 THEN 'overdue_8_30'
 			ELSE 'overdue_30_plus' END, COUNT(*)
-		 FROM debts WHERE remaining_amount > 0 GROUP BY 1`)
+		 FROM debts WHERE remaining_amount > 0 GROUP BY 1`
+	if dbutil.IsSQLite(r.db) {
+		ageQuery = `SELECT CASE
+			WHEN date(due_date) >= date('now') THEN 'current'
+			WHEN julianday('now') - julianday(due_date) <= 7 THEN 'overdue_1_7'
+			WHEN julianday('now') - julianday(due_date) <= 30 THEN 'overdue_8_30'
+			ELSE 'overdue_30_plus' END, COUNT(*)
+		 FROM debts WHERE remaining_amount > 0 GROUP BY 1`
+	}
+	rows, err = r.db.QueryContext(ctx, ageQuery)
 	if err == nil {
 		for rows.Next() {
 			var age string
@@ -1002,8 +1014,8 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 			 FROM purchases
 		 WHERE purchase_date >= $1 AND purchase_date < $2
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
-			 GROUP BY strftime('%Y-%m', purchase_date)
-			 ORDER BY strftime('%Y-%m', purchase_date)`
+			 GROUP BY DATE_TRUNC('month', purchase_date)
+			 ORDER BY DATE_TRUNC('month', purchase_date)`
 	if dbutil.IsSQLite(r.db) {
 		monthlyPurchasesQuery = `SELECT strftime('%Y-%m-01', purchase_date), COALESCE(SUM(total_amount), 0), COUNT(*)
 			 FROM purchases

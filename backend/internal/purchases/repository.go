@@ -72,6 +72,23 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // Create creates a new purchase
 func (r *Repository) Create(ctx context.Context, purchase *Purchase) error {
+	if dbutil.IsSQLite(r.db) {
+		return createPurchaseSQLite(ctx, r.db, purchase)
+	}
+	return createPurchase(ctx, r.db, purchase)
+}
+
+// CreateTx creates a purchase using the caller's transaction. Keeping this
+// operation on the same executor as its child rows makes purchase creation
+// atomic when a ledger or audit insert fails.
+func (r *Repository) CreateTx(ctx context.Context, tx *sqlx.Tx, purchase *Purchase) error {
+	if dbutil.IsSQLite(r.db) {
+		return createPurchaseSQLite(ctx, tx, purchase)
+	}
+	return createPurchase(ctx, tx, purchase)
+}
+
+func createPurchase(ctx context.Context, executor sqlx.ExtContext, purchase *Purchase) error {
 	query := `
 		INSERT INTO purchases (id, supplier_id, invoice_number, purchase_date, expected_delivery_date,
 			total_amount, paid_amount, status, notes, user_id, created_at, updated_at)
@@ -79,7 +96,7 @@ func (r *Repository) Create(ctx context.Context, purchase *Purchase) error {
 		RETURNING id, created_at, updated_at
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
+	err := executor.QueryRowxContext(ctx, query,
 		purchase.ID, purchase.SupplierID, purchase.InvoiceNumber, purchase.PurchaseDate,
 		purchase.ExpectedDeliveryDate, purchase.TotalAmount, purchase.PaidAmount, purchase.Status,
 		purchase.Notes, purchase.UserID, purchase.CreatedAt, purchase.UpdatedAt,
@@ -91,11 +108,25 @@ func (r *Repository) Create(ctx context.Context, purchase *Purchase) error {
 	return nil
 }
 
+func createPurchaseSQLite(ctx context.Context, executor sqlx.ExtContext, purchase *Purchase) error {
+	_, err := executor.ExecContext(ctx, `
+		INSERT INTO purchases (id, purchase_number, supplier_id, total_amount, paid_amount,
+			remaining_amount, status, notes, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, purchase.ID, purchase.InvoiceNumber, purchase.SupplierID, purchase.TotalAmount,
+		purchase.PaidAmount, purchase.TotalAmount-purchase.PaidAmount, purchase.Status,
+		purchase.Notes, purchase.CreatedAt, purchase.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to create local purchase: %w", err)
+	}
+	return nil
+}
+
 // GetByID retrieves a purchase by ID
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Purchase, error) {
 	if dbutil.IsSQLite(r.db) {
 		var row localPurchaseRow
-		err := r.db.GetContext(ctx, &row, `SELECT id, supplier_id, invoice_number, purchase_date, expected_delivery_date, total_amount, paid_amount, status, notes, user_id, created_at, updated_at FROM purchases WHERE id = $1`, id)
+		err := r.db.GetContext(ctx, &row, `SELECT id, supplier_id, purchase_number AS invoice_number, created_at AS purchase_date, NULL AS expected_delivery_date, total_amount, paid_amount, status, notes, NULL AS user_id, created_at, updated_at FROM purchases WHERE id = $1`, id)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				return nil, ErrPurchaseNotFound
@@ -259,7 +290,7 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 	}
 	if dbutil.IsSQLite(r.db) {
 		query := `
-			SELECT p.id AS id, p.invoice_number, p.purchase_date, p.expected_delivery_date,
+			SELECT p.id AS id, p.purchase_number AS invoice_number, p.created_at AS purchase_date, NULL AS expected_delivery_date,
 			       p.total_amount, p.paid_amount, p.total_amount - p.paid_amount AS remaining,
 			       p.status, COALESCE(s.name, '') AS supplier_name, COUNT(pi.id) AS total_items,
 			       p.created_at, COUNT(*) OVER() AS total_count
@@ -281,21 +312,21 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 			addFilter("p.status =", req.Status)
 		}
 		if req.StartDate != nil {
-			addFilter("p.purchase_date >=", *req.StartDate)
+			addFilter("date(p.created_at) >=", req.StartDate.Format("2006-01-02"))
 		}
 		if req.EndDate != nil {
-			addFilter("p.purchase_date <=", *req.EndDate)
+			addFilter("date(p.created_at) <=", req.EndDate.Format("2006-01-02"))
 		}
 		if req.Search != "" {
 			argCount++
-			query += fmt.Sprintf(" AND (LOWER(COALESCE(p.invoice_number, '')) LIKE LOWER($%d) OR LOWER(COALESCE(p.notes, '')) LIKE LOWER($%d))", argCount, argCount)
+			query += fmt.Sprintf(" AND (LOWER(COALESCE(p.purchase_number, '')) LIKE LOWER($%d) OR LOWER(COALESCE(p.notes, '')) LIKE LOWER($%d))", argCount, argCount)
 			args = append(args, "%"+req.Search+"%")
 		}
 		if req.AvailableForReturn {
 			query += ` AND EXISTS (SELECT 1 FROM purchase_items return_pi JOIN inventory_items return_ii ON return_ii.product_id = return_pi.product_id WHERE return_pi.purchase_id = p.id AND return_ii.status = 'AVAILABLE')`
 		}
-		query += ` GROUP BY p.id, p.invoice_number, p.purchase_date, p.expected_delivery_date, p.total_amount, p.paid_amount, p.status, p.created_at, s.name`
-		sortColumns := map[string]string{"purchase_date": "p.purchase_date", "created_at": "p.created_at", "total_amount": "p.total_amount", "status": "p.status"}
+		query += ` GROUP BY p.id, p.purchase_number, p.created_at, p.total_amount, p.paid_amount, p.status, s.name`
+		sortColumns := map[string]string{"purchase_date": "p.created_at", "created_at": "p.created_at", "total_amount": "p.total_amount", "status": "p.status"}
 		sortColumn := sortColumns[req.SortBy]
 		if sortColumn == "" {
 			sortColumn = "p.purchase_date"
@@ -427,6 +458,17 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 
 // Update updates a purchase
 func (r *Repository) Update(ctx context.Context, purchase *Purchase) error {
+	if dbutil.IsSQLite(r.db) {
+		result, err := r.db.ExecContext(ctx, `UPDATE purchases SET purchase_number = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?`, purchase.InvoiceNumber, purchase.Status, purchase.Notes, purchase.UpdatedAt, purchase.ID)
+		if err != nil {
+			return fmt.Errorf("failed to update local purchase: %w", err)
+		}
+		count, _ := result.RowsAffected()
+		if count == 0 {
+			return ErrPurchaseNotFound
+		}
+		return nil
+	}
 	query := `
 		UPDATE purchases
 		SET invoice_number = $2, purchase_date = $3, status = $4, notes = $5, updated_at = $6
@@ -467,6 +509,21 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 
 // CreatePurchaseItem creates a new purchase item
 func (r *Repository) CreatePurchaseItem(ctx context.Context, item *PurchaseItem) error {
+	if dbutil.IsSQLite(r.db) {
+		return createPurchaseItemSQLite(ctx, r.db, item)
+	}
+	return createPurchaseItem(ctx, r.db, item)
+}
+
+// CreatePurchaseItemTx creates a purchase item using the caller's transaction.
+func (r *Repository) CreatePurchaseItemTx(ctx context.Context, tx *sqlx.Tx, item *PurchaseItem) error {
+	if dbutil.IsSQLite(r.db) {
+		return createPurchaseItemSQLite(ctx, tx, item)
+	}
+	return createPurchaseItem(ctx, tx, item)
+}
+
+func createPurchaseItem(ctx context.Context, executor sqlx.ExtContext, item *PurchaseItem) error {
 	query := `
 		INSERT INTO purchase_items (id, purchase_id, product_id, quantity, unit_price,
 			total_amount, created_at)
@@ -474,13 +531,24 @@ func (r *Repository) CreatePurchaseItem(ctx context.Context, item *PurchaseItem)
 		RETURNING id, created_at
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
+	err := executor.QueryRowxContext(ctx, query,
 		item.ID, item.PurchaseID, item.ProductID, item.Quantity, item.UnitCost,
 		item.TotalCost, item.CreatedAt,
 	).Scan(&item.ID, &item.CreatedAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to create purchase item: %w", err)
+	}
+	return nil
+}
+
+func createPurchaseItemSQLite(ctx context.Context, executor sqlx.ExtContext, item *PurchaseItem) error {
+	_, err := executor.ExecContext(ctx, `
+		INSERT INTO purchase_items (id, purchase_id, product_id, quantity, unit_price, item_total, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, item.ID, item.PurchaseID, item.ProductID, item.Quantity, item.UnitCost, item.TotalCost, item.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to create local purchase item: %w", err)
 	}
 	return nil
 }
@@ -548,6 +616,17 @@ func (r *Repository) GetPurchaseItems(ctx context.Context, purchaseID uuid.UUID)
 
 // UpdatePurchaseItem updates a purchase item
 func (r *Repository) UpdatePurchaseItem(ctx context.Context, item *PurchaseItem) error {
+	if dbutil.IsSQLite(r.db) {
+		result, err := r.db.ExecContext(ctx, `UPDATE purchase_items SET quantity = ?, unit_price = ?, item_total = ? WHERE id = ?`, item.Quantity, item.UnitCost, item.TotalCost, item.ID.String())
+		if err != nil {
+			return fmt.Errorf("failed to update local purchase item: %w", err)
+		}
+		count, _ := result.RowsAffected()
+		if count == 0 {
+			return ErrPurchaseItemNotFound
+		}
+		return nil
+	}
 	query := `
 		UPDATE purchase_items
 		SET quantity = $2, unit_cost = $3, total_cost = $4, serial_number = $5, 
@@ -589,6 +668,28 @@ func (r *Repository) DeletePurchaseItem(ctx context.Context, id uuid.UUID) error
 
 // GetSupplierInfo retrieves supplier information
 func (r *Repository) GetSupplierInfo(ctx context.Context, supplierID uuid.UUID) (*SupplierInfo, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row struct {
+			ID    string         `db:"id"`
+			Name  string         `db:"name"`
+			Phone sql.NullString `db:"phone"`
+		}
+		if err := r.db.GetContext(ctx, &row, `SELECT id, name, phone FROM suppliers WHERE id = ?`, supplierID.String()); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrSupplierNotFound
+			}
+			return nil, fmt.Errorf("failed to get supplier info: %w", err)
+		}
+		id, err := uuid.Parse(row.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse supplier id: %w", err)
+		}
+		var phone *string
+		if row.Phone.Valid {
+			phone = &row.Phone.String
+		}
+		return &SupplierInfo{ID: id, Name: row.Name, Phone: phone}, nil
+	}
 	var supplier SupplierInfo
 	query := `SELECT id, name, phone FROM suppliers WHERE id = $1`
 
@@ -604,6 +705,17 @@ func (r *Repository) GetSupplierInfo(ctx context.Context, supplierID uuid.UUID) 
 
 // UpdatePaidAmount updates the paid amount for a purchase
 func (r *Repository) UpdatePaidAmount(ctx context.Context, purchaseID uuid.UUID, amount float64) error {
+	if dbutil.IsSQLite(r.db) {
+		result, err := r.db.ExecContext(ctx, `UPDATE purchases SET paid_amount = paid_amount + ?, remaining_amount = CASE WHEN total_amount - (paid_amount + ?) > 0 THEN total_amount - (paid_amount + ?) ELSE 0 END, updated_at = ? WHERE id = ?`, amount, amount, amount, time.Now().UTC().Format(time.RFC3339Nano), purchaseID.String())
+		if err != nil {
+			return fmt.Errorf("failed to update local paid amount: %w", err)
+		}
+		count, _ := result.RowsAffected()
+		if count == 0 {
+			return ErrPurchaseNotFound
+		}
+		return nil
+	}
 	query := `
 		UPDATE purchases
 		SET paid_amount = paid_amount + $2, updated_at = $3
@@ -621,6 +733,36 @@ func (r *Repository) UpdatePaidAmount(ctx context.Context, purchaseID uuid.UUID,
 
 // GetPurchaseByInvoiceNumber retrieves a purchase by invoice number
 func (r *Repository) GetPurchaseByInvoiceNumber(ctx context.Context, invoiceNumber string) (*Purchase, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row localPurchaseRow
+		if err := r.db.GetContext(ctx, &row, `SELECT id, supplier_id, purchase_number AS invoice_number, created_at AS purchase_date, NULL AS expected_delivery_date, total_amount, paid_amount, status, notes, NULL AS user_id, created_at, updated_at FROM purchases WHERE purchase_number = $1`, invoiceNumber); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrPurchaseNotFound
+			}
+			return nil, fmt.Errorf("failed to get local purchase by invoice number: %w", err)
+		}
+		purchaseID, err := uuid.Parse(row.ID)
+		if err != nil {
+			return nil, err
+		}
+		supplierID, err := uuid.Parse(row.SupplierID)
+		if err != nil {
+			return nil, err
+		}
+		purchaseDate, err := parsePurchaseTime(row.PurchaseDate)
+		if err != nil {
+			return nil, err
+		}
+		createdAt, err := parsePurchaseTime(row.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		updatedAt, err := parsePurchaseTime(row.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		return &Purchase{ID: purchaseID, SupplierID: supplierID, InvoiceNumber: row.InvoiceNumber, PurchaseDate: purchaseDate, TotalAmount: row.TotalAmount, PaidAmount: row.PaidAmount, Status: row.Status, CreatedAt: createdAt, UpdatedAt: updatedAt}, nil
+	}
 	var purchase Purchase
 	query := `
 		SELECT id, supplier_id, invoice_number, purchase_date,

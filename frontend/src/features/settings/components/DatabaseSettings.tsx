@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { authApi, settingsApi } from '../../../services/api/endpoints';
@@ -18,6 +18,7 @@ const getHealthUrl = (baseUrl: string) => {
 };
 
 export function DatabaseSettings() {
+  const queryClient = useQueryClient();
   const [confirmationText, setConfirmationText] = useState('');
   const [showConfirmation, setShowConfirmation] = useState(false);
 
@@ -32,6 +33,7 @@ export function DatabaseSettings() {
       return true;
     },
     onSuccess: () => {
+      void queryClient.invalidateQueries();
       toast.success('تم التحقق من اشتراكك بنجاح. لا توجد مشكلة في صلاحية الحساب.');
     },
     onError: (error: any) => {
@@ -43,6 +45,7 @@ export function DatabaseSettings() {
   const syncMutation = useMutation({
     mutationFn: () => settingsApi.syncCloudData(),
     onSuccess: () => {
+      void queryClient.invalidateQueries();
       toast.success('تم تنزيل أحدث نسخة من السحابة إلى SQLite المحلية.');
     },
     onError: (error: any) => {

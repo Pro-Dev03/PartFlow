@@ -27,31 +27,59 @@ func SeedLocalDatabaseFromOnline(postgresDB *sqlx.DB, sqliteDB *sql.DB) error {
 	}
 
 	queries := []struct {
-		key   string
-		query string
+		key      string
+		query    string
+		required bool
 	}{
-		{key: "categories", query: `SELECT * FROM categories ORDER BY created_at ASC`},
-		{key: "products", query: `SELECT * FROM products ORDER BY created_at ASC`},
-		{key: "customers", query: `SELECT * FROM customers ORDER BY created_at ASC`},
-		{key: "suppliers", query: `SELECT * FROM suppliers ORDER BY created_at ASC`},
-		{key: "sales", query: `SELECT * FROM sales ORDER BY created_at ASC`},
-		{key: "sale_items", query: `SELECT * FROM sale_items ORDER BY created_at ASC`},
-		{key: "purchases", query: `SELECT * FROM purchases ORDER BY created_at ASC`},
-		{key: "purchase_items", query: `SELECT * FROM purchase_items ORDER BY created_at ASC`},
-		{key: "payments", query: `SELECT * FROM payments ORDER BY created_at ASC`},
-		{key: "debts", query: `SELECT * FROM debts ORDER BY created_at ASC`},
-		{key: "expenses", query: `SELECT * FROM expenses ORDER BY created_at ASC`},
+		{key: "categories", query: `SELECT * FROM categories ORDER BY created_at ASC`, required: true},
+		{key: "brands", query: `SELECT * FROM brands ORDER BY created_at ASC`},
+		{key: "products", query: `SELECT * FROM products ORDER BY created_at ASC`, required: true},
+		{key: "customers", query: `SELECT * FROM customers ORDER BY created_at ASC`, required: true},
+		{key: "suppliers", query: `SELECT * FROM suppliers ORDER BY created_at ASC`, required: true},
+		{key: "customer_ledger", query: `SELECT * FROM customer_ledger ORDER BY created_at ASC`},
+		{key: "supplier_ledger", query: `SELECT * FROM supplier_ledger ORDER BY created_at ASC`},
+		{key: "ledger_entries", query: `SELECT * FROM ledger_entries ORDER BY created_at ASC`},
+		{key: "inventory", query: `SELECT * FROM inventory ORDER BY created_at ASC`},
+		{key: "locations", query: `SELECT * FROM locations ORDER BY created_at ASC`},
+		{key: "inventory_items", query: `SELECT * FROM inventory_items ORDER BY created_at ASC`, required: true},
+		{key: "inventory_movements", query: `SELECT * FROM inventory_movements ORDER BY created_at ASC`},
+		{key: "reservations", query: `SELECT * FROM reservations ORDER BY created_at ASC`},
+		{key: "barcodes", query: `SELECT * FROM barcodes ORDER BY created_at ASC`},
+		{key: "sales", query: `SELECT * FROM sales ORDER BY created_at ASC`, required: true},
+		{key: "sale_items", query: `SELECT * FROM sale_items ORDER BY created_at ASC`, required: true},
+		{key: "purchases", query: `SELECT * FROM purchases ORDER BY created_at ASC`, required: true},
+		{key: "purchase_items", query: `SELECT * FROM purchase_items ORDER BY created_at ASC`, required: true},
+		{key: "payments", query: `SELECT * FROM payments ORDER BY created_at ASC`, required: true},
+		{key: "debts", query: `SELECT * FROM debts ORDER BY created_at ASC`, required: true},
+		{key: "expenses", query: `SELECT * FROM expenses ORDER BY created_at ASC`, required: true},
+		{key: "expense_categories", query: `SELECT * FROM expense_categories ORDER BY created_at ASC`},
 		{key: "inspections", query: `SELECT * FROM inspections ORDER BY created_at ASC`},
+		{key: "inspection_items", query: `SELECT * FROM inspection_items ORDER BY created_at ASC`},
 		{key: "part_types", query: `SELECT * FROM part_types ORDER BY created_at ASC`},
+		{key: "part_specifications", query: `SELECT * FROM part_specifications ORDER BY created_at ASC`},
+		{key: "type_specifications", query: `SELECT * FROM type_specifications ORDER BY created_at ASC`},
+		{key: "acquisitions", query: `SELECT * FROM acquisitions ORDER BY created_at ASC`},
+		{key: "acquisition_items", query: `SELECT * FROM acquisition_items ORDER BY created_at ASC`},
+		{key: "trade_ins", query: `SELECT * FROM trade_ins ORDER BY created_at ASC`},
+		{key: "item_specification_values", query: `SELECT * FROM item_specification_values ORDER BY created_at ASC`},
 		{key: "returns", query: `SELECT * FROM returns ORDER BY created_at ASC`},
 		{key: "return_items", query: `SELECT * FROM return_items ORDER BY created_at ASC`},
-		{key: "inventory_items", query: `SELECT * FROM inventory_items ORDER BY created_at ASC`},
+		{key: "supplier_returns", query: `SELECT * FROM supplier_returns ORDER BY created_at ASC`},
+		{key: "supplier_return_items", query: `SELECT * FROM supplier_return_items ORDER BY created_at ASC`},
+		{key: "notifications", query: `SELECT * FROM notifications ORDER BY created_at ASC`},
+		{key: "notification_preferences", query: `SELECT * FROM notification_preferences ORDER BY created_at ASC`},
+		{key: "reports", query: `SELECT * FROM reports ORDER BY created_at ASC`},
+		{key: "settings", query: `SELECT * FROM settings ORDER BY created_at ASC`},
+		{key: "held_sales", query: `SELECT * FROM held_sales ORDER BY created_at ASC`},
 	}
 
 	snapshot := make(map[string]any, len(queries))
 	for _, item := range queries {
 		rows, err := fetchRowsAsMaps(postgresDB, item.query)
 		if err != nil {
+			if !item.required && isMissingTableError(err) {
+				continue
+			}
 			return fmt.Errorf("fetch %s from online db: %w", item.key, err)
 		}
 		snapshot[item.key] = rows
@@ -129,6 +157,9 @@ func syncOneItem(postgresDB *sqlx.DB, sqliteDB *sql.DB, entry localdb.SyncQueueE
 
 	tableName, err := tableNameForEntity(entry.EntityType)
 	if err != nil {
+		return err
+	}
+	if err := validateSyncPayload(tableName, payloadMap); err != nil {
 		return err
 	}
 	if err := detectSyncConflict(postgresDB, sqliteDB, tableName, entry, payloadMap); err != nil {
@@ -291,6 +322,7 @@ func upsertEntity(postgresDB *sqlx.DB, tableName string, payload map[string]any)
 	values := make([]any, 0, len(payload))
 	placeholders := make([]string, 0, len(payload))
 	updates := make([]string, 0, len(payload))
+	allowed := syncColumns(tableName)
 	index := 1
 	for key, value := range payload {
 		switch value.(type) {
@@ -298,6 +330,9 @@ func upsertEntity(postgresDB *sqlx.DB, tableName string, payload map[string]any)
 			continue
 		}
 		column := normalizeFieldName(key)
+		if _, ok := allowed[column]; !ok {
+			continue
+		}
 		columns = append(columns, column)
 		values = append(values, value)
 		placeholders = append(placeholders, fmt.Sprintf("$%d", index))
@@ -319,6 +354,70 @@ func upsertEntity(postgresDB *sqlx.DB, tableName string, payload map[string]any)
 
 	if _, err := postgresDB.Exec(query, values...); err != nil {
 		return fmt.Errorf("upsert into %s: %w", tableName, err)
+	}
+	return nil
+}
+
+func syncColumns(tableName string) map[string]struct{} {
+	columns := map[string]string{
+		"products":                  "id sku barcode name description category_id brand_id preferred_supplier_id cost_price selling_price min_stock_level max_stock_level is_active created_at updated_at",
+		"customers":                 "id code name email phone address city country tax_id credit_limit current_balance notes is_active created_at updated_at",
+		"suppliers":                 "id code name email phone address city country tax_id payment_terms credit_limit current_balance notes is_active created_at updated_at",
+		"inventory_items":           "id product_id part_type_id item_code barcode serial_number condition grade purchase_cost selling_price status location_id supplier_id purchase_date sold_at notes created_at updated_at",
+		"sales":                     "id invoice_number customer_id user_id sale_date subtotal tax_amount discount_amount total_amount paid_amount remaining_amount payment_method payment_status status notes created_at updated_at",
+		"purchases":                 "id invoice_number supplier_id user_id purchase_date subtotal tax_amount discount_amount total_amount paid_amount remaining_amount payment_method payment_status status notes created_at updated_at",
+		"payments":                  "id reference_number sale_id purchase_id customer_id supplier_id amount payment_method payment_date notes created_at updated_at",
+		"categories":                "id name description parent_id icon color is_active created_at updated_at",
+		"brands":                    "id name description logo_url created_at updated_at",
+		"sale_items":                "id sale_id inventory_item_id product_id quantity unit_price item_total total_amount unit_cost created_at",
+		"purchase_items":            "id purchase_id product_id quantity unit_price item_total total_amount unit_cost created_at",
+		"expenses":                  "id title category_id reference_number category amount description expense_date payment_method receipt_url created_by currency reference notes status is_recurring recurring_period approved_by created_at updated_at",
+		"expense_categories":        "id name description color icon budget is_active created_at updated_at",
+		"inventory":                 "id product_id quantity reserved_quantity location warehouse_id current_quantity available_quantity current_cost current_value last_movement_id last_restocked_at created_at updated_at",
+		"inventory_movements":       "id item_id product_id movement_type quantity before_quantity after_quantity reference_type reference_id reason created_by created_at is_reversed reversed_by reversed_at reversal_reason",
+		"locations":                 "id name type parent_id warehouse_id description is_active created_at updated_at",
+		"reservations":              "id item_id customer_id user_id reserved_at expires_at status notes created_at updated_at",
+		"barcodes":                  "id code product_id inventory_item_id type is_active generated_at created_at updated_at",
+		"returns":                   "id return_number reference_number sale_id purchase_id customer_id return_date return_type status total_refund_amount refund_method refund_date refund_reference debt_id debt_adjustment customer_credit reason reason_detail item_condition_after_return is_warranty_claim warranty_id warranty_valid_until created_by processed_by approved_by approved_at notes internal_notes refund_status created_at updated_at",
+		"return_items":              "id return_id sale_item_id product_id inventory_item_id quantity quantity_returned original_quantity serial_number barcode unit_price total_refund_amount reason original_condition returned_condition condition_notes resolution inventory_status inspection_required inspection_date inspection_result inspection_notes original_cost repair_cost created_at updated_at",
+		"acquisitions":              "id type acquisition_date supplier_id customer_id total_cost paid_amount payment_status status notes user_id created_at updated_at reversed_at reversed_by reversal_reason",
+		"acquisition_items":         "id acquisition_id product_id inventory_item_id inspection_id item_code serial_number condition grade unit_cost total_cost inspection_status item_status notes created_at updated_at",
+		"trade_ins":                 "id customer_id inventory_item_id purchase_price purchase_date notes created_at updated_at",
+		"inspections":               "id product_id inventory_item_id inspector_id inspection_date result condition grade notes images created_at updated_at",
+		"inspection_items":          "id inspection_id item_id checkpoint_name status notes images created_at",
+		"supplier_returns":          "id purchase_id supplier_id return_number status reason refund_amount notes created_by created_at updated_at",
+		"supplier_return_items":     "id supplier_return_id purchase_item_id product_id quantity unit_cost created_at",
+		"seller_payments":           "id acquisition_id customer_id amount payment_method payment_date notes user_id created_at",
+		"part_types":                "id name_ar name_en icon color is_active sort_order created_at updated_at",
+		"part_specifications":       "id name_ar name_en data_type options is_required created_at",
+		"type_specifications":       "id part_type_id specification_id sort_order created_at",
+		"item_specification_values": "id inventory_item_id specification_id value_text value_number value_boolean created_at updated_at",
+	}
+	set := make(map[string]struct{})
+	for _, column := range strings.Fields(columns[tableName]) {
+		set[column] = struct{}{}
+	}
+	return set
+}
+
+func validateSyncPayload(tableName string, payload map[string]any) error {
+	allowed := syncColumns(tableName)
+	if len(allowed) == 0 {
+		return fmt.Errorf("no sync schema registered for %s", tableName)
+	}
+	if id, ok := payload["id"]; !ok || strings.TrimSpace(fmt.Sprint(id)) == "" {
+		return fmt.Errorf("sync payload for %s is missing id", tableName)
+	}
+	for key, value := range payload {
+		if _, ok := allowed[normalizeFieldName(key)]; !ok {
+			return fmt.Errorf("field %q is not allowed for %s", key, tableName)
+		}
+		if _, nested := value.(map[string]any); nested {
+			return fmt.Errorf("nested field %q is not allowed", key)
+		}
+		if _, nested := value.([]any); nested {
+			return fmt.Errorf("array field %q is not allowed", key)
+		}
 	}
 	return nil
 }
@@ -353,6 +452,54 @@ func tableNameForEntity(entityType string) (string, error) {
 		return "payments", nil
 	case "category", "categories":
 		return "categories", nil
+	case "brand", "brands":
+		return "brands", nil
+	case "sale_item", "sale_items":
+		return "sale_items", nil
+	case "purchase_item", "purchase_items":
+		return "purchase_items", nil
+	case "expense", "expenses":
+		return "expenses", nil
+	case "expense_category", "expense_categories":
+		return "expense_categories", nil
+	case "inventory", "inventories":
+		return "inventory", nil
+	case "inventory_movement", "inventory_movements":
+		return "inventory_movements", nil
+	case "location", "locations":
+		return "locations", nil
+	case "reservation", "reservations":
+		return "reservations", nil
+	case "barcode", "barcodes":
+		return "barcodes", nil
+	case "return", "returns":
+		return "returns", nil
+	case "return_item", "return_items":
+		return "return_items", nil
+	case "acquisition", "acquisitions":
+		return "acquisitions", nil
+	case "acquisition_item", "acquisition_items":
+		return "acquisition_items", nil
+	case "trade_in", "trade_ins":
+		return "trade_ins", nil
+	case "inspection", "inspections":
+		return "inspections", nil
+	case "inspection_item", "inspection_items":
+		return "inspection_items", nil
+	case "supplier_return", "supplier_returns":
+		return "supplier_returns", nil
+	case "supplier_return_item", "supplier_return_items":
+		return "supplier_return_items", nil
+	case "seller_payment", "seller_payments":
+		return "seller_payments", nil
+	case "part_type", "part_types":
+		return "part_types", nil
+	case "part_specification", "part_specifications":
+		return "part_specifications", nil
+	case "type_specification", "type_specifications":
+		return "type_specifications", nil
+	case "item_specification_value", "item_specification_values":
+		return "item_specification_values", nil
 	default:
 		return "", fmt.Errorf("unsupported entity type %q for sync", entityType)
 	}

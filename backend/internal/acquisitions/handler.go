@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	apperrors "github.com/partflow/smart-store/pkg/errors"
 )
 
 // Handler handles HTTP requests for acquisitions
@@ -22,20 +23,20 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) CreateAcquisition(c *gin.Context) {
 	var req AcquisitionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
 	// Get user ID from context (assuming middleware sets it)
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		apperrors.HandleError(c, apperrors.NewUnauthorizedError("User not authenticated", nil))
 		return
 	}
 
 	acquisition, err := h.service.CreateAcquisition(c.Request.Context(), &req, userID.(uuid.UUID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to create acquisition"))
 		return
 	}
 
@@ -46,13 +47,13 @@ func (h *Handler) CreateAcquisition(c *gin.Context) {
 func (h *Handler) GetAcquisition(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid acquisition ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("Invalid acquisition ID", err))
 		return
 	}
 
 	response, err := h.service.GetAcquisitionWithItems(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.NewNotFoundError("Acquisition", err))
 		return
 	}
 
@@ -95,7 +96,7 @@ func (h *Handler) ListAcquisitions(c *gin.Context) {
 
 	acquisitions, total, err := h.service.ListAcquisitions(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to list acquisitions"))
 		return
 	}
 	if acquisitions == nil {
@@ -116,7 +117,7 @@ func (h *Handler) ListAcquisitions(c *gin.Context) {
 func (h *Handler) UpdateAcquisitionStatus(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid acquisition ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("Invalid acquisition ID", err))
 		return
 	}
 
@@ -124,13 +125,13 @@ func (h *Handler) UpdateAcquisitionStatus(c *gin.Context) {
 		Status string `json:"status" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
 	err = h.service.UpdateAcquisitionStatus(c.Request.Context(), id, req.Status)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to update acquisition status"))
 		return
 	}
 
@@ -141,13 +142,13 @@ func (h *Handler) UpdateAcquisitionStatus(c *gin.Context) {
 func (h *Handler) CreateSellerPayment(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid acquisition ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("Invalid acquisition ID", err))
 		return
 	}
 
 	var req SellerPaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
@@ -157,13 +158,13 @@ func (h *Handler) CreateSellerPayment(c *gin.Context) {
 	// Get user ID from context
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		apperrors.HandleError(c, apperrors.NewUnauthorizedError("User not authenticated", nil))
 		return
 	}
 
 	payment, err := h.service.CreateSellerPayment(c.Request.Context(), &req, userID.(uuid.UUID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to create seller payment"))
 		return
 	}
 
@@ -174,7 +175,7 @@ func (h *Handler) CreateSellerPayment(c *gin.Context) {
 func (h *Handler) AddRepairCost(c *gin.Context) {
 	itemID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid item ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("Invalid item ID", err))
 		return
 	}
 
@@ -185,20 +186,20 @@ func (h *Handler) AddRepairCost(c *gin.Context) {
 		Description       string    `json:"description"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
 	// Get user ID from context
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		apperrors.HandleError(c, apperrors.NewUnauthorizedError("User not authenticated", nil))
 		return
 	}
 
 	err = h.service.AddRepairCost(c.Request.Context(), itemID, req.AcquisitionItemID, req.RepairType, req.Cost, req.Description, userID.(uuid.UUID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to add repair cost"))
 		return
 	}
 
@@ -210,13 +211,13 @@ func (h *Handler) AddRepairCost(c *gin.Context) {
 func (h *Handler) GetItemHistory(c *gin.Context) {
 	itemID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid item ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("Invalid item ID", err))
 		return
 	}
 
 	history, err := h.service.GetItemHistory(c.Request.Context(), itemID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve item history"))
 		return
 	}
 
@@ -229,7 +230,7 @@ func (h *Handler) GetUsedPartsAging(c *gin.Context) {
 
 	aging, err := h.service.GetUsedPartsAging(c.Request.Context(), alertLevel)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve item aging"))
 		return
 	}
 	if aging == nil {
@@ -243,7 +244,7 @@ func (h *Handler) GetUsedPartsAging(c *gin.Context) {
 func (h *Handler) GetSellerBalances(c *gin.Context) {
 	balances, err := h.service.GetSellerBalances(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve seller balances"))
 		return
 	}
 

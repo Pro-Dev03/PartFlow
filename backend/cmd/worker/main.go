@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
-	"github.com/partflow/smart-store/internal/sync"
+	dbutil "github.com/partflow/smart-store/internal/database"
 	"github.com/partflow/smart-store/pkg/config"
 	"github.com/partflow/smart-store/pkg/database"
 	"github.com/partflow/smart-store/pkg/logger"
@@ -48,7 +48,6 @@ func main() {
 	go startDebtScanWorker(ctx, database.GetDB())
 	go startLowStockScanWorker(ctx, database.GetDB())
 	go startDailyInsightsWorker(ctx, database.GetDB())
-	go sync.StartOfflineSyncWorker(ctx, database.GetDB())
 
 	logger.Info("Worker service started successfully", nil)
 
@@ -65,8 +64,11 @@ func main() {
 }
 
 func notifyAllUsers(ctx context.Context, db *sqlx.DB, notifType, title, message string, data string) {
-	var users []uuid.UUID
+	var users []string
 	userQuery := `SELECT id FROM users WHERE is_active = true`
+	if dbutil.IsSQLite(db) {
+		userQuery = `SELECT id FROM users WHERE is_active = 1`
+	}
 	if err := db.SelectContext(ctx, &users, userQuery); err != nil {
 		logger.Error("Failed to fetch active users for notification", err, nil)
 		return
@@ -77,10 +79,22 @@ func notifyAllUsers(ctx context.Context, db *sqlx.DB, notifType, title, message 
 			data, is_read, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
 	`
+	if dbutil.IsSQLite(db) {
+		notificationQuery = `INSERT INTO notifications (id, user_id, type, title, message, data, priority, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, 'medium', 'unread', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+	}
 
-	for _, userID := range users {
-		_, err := db.ExecContext(ctx, notificationQuery,
-			uuid.New(), userID, notifType, title, message, data, false)
+	for _, userIDValue := range users {
+		userID, parseErr := uuid.Parse(userIDValue)
+		if parseErr != nil {
+			logger.Error("Failed to parse active user ID", parseErr, nil)
+			continue
+		}
+		var err error
+		if dbutil.IsSQLite(db) {
+			_, err = db.ExecContext(ctx, notificationQuery, uuid.New(), userID, notifType, title, message, data)
+		} else {
+			_, err = db.ExecContext(ctx, notificationQuery, uuid.New(), userID, notifType, title, message, data, false)
+		}
 		if err != nil {
 			logger.Error("Failed to create notification", err, nil)
 		}
@@ -105,14 +119,20 @@ func startReservationExpirationWorker(ctx context.Context, db *sqlx.DB) {
 
 func processExpiredReservations(ctx context.Context, db *sqlx.DB) {
 	query := `
-		SELECT id, item_id
-		FROM reservations
-		WHERE status = 'active' AND expires_at < NOW()
+		SELECT r.id, r.item_id, ii.product_id, r.user_id
+		FROM reservations r
+		JOIN inventory_items ii ON ii.id = r.item_id
+		WHERE r.status = 'active' AND r.expires_at < NOW()
 	`
+	if dbutil.IsSQLite(db) {
+		query = `SELECT r.id, r.item_id, ii.product_id, r.user_id FROM reservations r JOIN inventory_items ii ON ii.id = r.item_id WHERE r.status = 'active' AND r.expires_at < CURRENT_TIMESTAMP`
+	}
 
 	var expiredReservations []struct {
-		ID     uuid.UUID `db:"id"`
-		ItemID uuid.UUID `db:"item_id"`
+		ID        string `db:"id"`
+		ItemID    string `db:"item_id"`
+		ProductID string `db:"product_id"`
+		CreatedBy string `db:"user_id"`
 	}
 
 	err := db.SelectContext(ctx, &expiredReservations, query)
@@ -122,25 +142,44 @@ func processExpiredReservations(ctx context.Context, db *sqlx.DB) {
 	}
 
 	for _, reservation := range expiredReservations {
+		reservationID, parseErr := uuid.Parse(reservation.ID)
+		itemID, itemErr := uuid.Parse(reservation.ItemID)
+		productID, productErr := uuid.Parse(reservation.ProductID)
+		createdBy, userErr := uuid.Parse(reservation.CreatedBy)
+		if parseErr != nil || itemErr != nil || productErr != nil || userErr != nil {
+			logger.Error("Failed to parse reservation identifiers", fmt.Errorf("reservation=%s", reservation.ID), nil)
+			continue
+		}
 		tx, err := db.BeginTxx(ctx, nil)
 		if err != nil {
 			logger.Error("Failed to begin transaction", err, nil)
 			continue
 		}
 
-		updateQuery := `UPDATE reservations SET status = 'expired', updated_at = NOW() WHERE id = $1`
-		_, err = tx.ExecContext(ctx, updateQuery, reservation.ID)
+		updateQuery := fmt.Sprintf(`UPDATE reservations SET status = 'expired', updated_at = %s WHERE id = $1`, dbutil.NowSQL(db))
+		_, err = tx.ExecContext(ctx, updateQuery, reservationID)
 		if err != nil {
 			tx.Rollback()
 			logger.Error("Failed to update reservation status", err, nil)
 			continue
 		}
 
-		updateItemQuery := `UPDATE inventory_items SET status = 'AVAILABLE', updated_at = NOW() WHERE id = $1`
-		_, err = tx.ExecContext(ctx, updateItemQuery, reservation.ItemID)
+		updateItemQuery := fmt.Sprintf(`UPDATE inventory_items SET status = 'AVAILABLE', updated_at = %s WHERE id = $1`, dbutil.NowSQL(db))
+		_, err = tx.ExecContext(ctx, updateItemQuery, itemID)
 		if err != nil {
 			tx.Rollback()
 			logger.Error("Failed to update item status", err, nil)
+			continue
+		}
+		var beforeAvailable int
+		if err = tx.GetContext(ctx, &beforeAvailable, `SELECT COUNT(*) FROM inventory_items WHERE product_id = $1 AND status = 'AVAILABLE'`, productID); err != nil {
+			tx.Rollback()
+			logger.Error("Failed to read available quantity", err, nil)
+			continue
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE inventory SET reserved_quantity = CASE WHEN COALESCE(reserved_quantity, 0) > 0 THEN reserved_quantity - 1 ELSE 0 END WHERE product_id = $1`, productID); err != nil {
+			tx.Rollback()
+			logger.Error("Failed to update reserved quantity", err, nil)
 			continue
 		}
 
@@ -148,11 +187,11 @@ func processExpiredReservations(ctx context.Context, db *sqlx.DB) {
 			INSERT INTO inventory_movements (id, item_id, movement_type,
 				quantity, before_quantity, after_quantity, reference_type, reference_id,
 				reason, created_by, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		`
 		_, err = tx.ExecContext(ctx, movementQuery,
-			uuid.New(), reservation.ItemID, "RELEASE",
-			1, 0, 1, "reservation", reservation.ID, "Reservation expired", uuid.Nil, time.Now())
+			uuid.New(), itemID, "RELEASE",
+			1, beforeAvailable, beforeAvailable+1, "reservation", reservationID, "Reservation expired", createdBy, time.Now())
 		if err != nil {
 			tx.Rollback()
 			logger.Error("Failed to create movement record", err, nil)
@@ -164,7 +203,7 @@ func processExpiredReservations(ctx context.Context, db *sqlx.DB) {
 			continue
 		}
 
-		logger.Info(fmt.Sprintf("Processed expired reservation %s", reservation.ID), nil)
+		logger.Info(fmt.Sprintf("Processed expired reservation %s", reservationID), nil)
 	}
 
 	logger.Info(fmt.Sprintf("Processed %d expired reservations", len(expiredReservations)), nil)
@@ -192,12 +231,15 @@ func processOverdueDebts(ctx context.Context, db *sqlx.DB) {
 		FROM debts
 		WHERE status = 'pending' AND due_date < NOW()
 	`
+	if dbutil.IsSQLite(db) {
+		query = `SELECT id, customer_id, remaining_amount, due_date FROM debts WHERE status = 'pending' AND date(due_date) < date('now')`
+	}
 
 	var overdueDebts []struct {
-		ID              uuid.UUID `db:"id"`
-		CustomerID      uuid.UUID `db:"customer_id"`
-		RemainingAmount float64   `db:"remaining_amount"`
-		DueDate         time.Time `db:"due_date"`
+		ID              string  `db:"id"`
+		CustomerID      string  `db:"customer_id"`
+		RemainingAmount float64 `db:"remaining_amount"`
+		DueDate         string  `db:"due_date"`
 	}
 
 	err := db.SelectContext(ctx, &overdueDebts, query)
@@ -207,8 +249,15 @@ func processOverdueDebts(ctx context.Context, db *sqlx.DB) {
 	}
 
 	for _, debt := range overdueDebts {
-		updateQuery := `UPDATE debts SET status = 'overdue', updated_at = NOW() WHERE id = $1`
-		_, err = db.ExecContext(ctx, updateQuery, debt.ID)
+		debtID, parseErr := uuid.Parse(debt.ID)
+		customerID, customerErr := uuid.Parse(debt.CustomerID)
+		dueDate, dueErr := dbutil.ParseTimestamp(debt.DueDate)
+		if parseErr != nil || customerErr != nil || dueErr != nil {
+			logger.Error("Failed to parse overdue debt identifiers", fmt.Errorf("debt=%s", debt.ID), nil)
+			continue
+		}
+		updateQuery := fmt.Sprintf(`UPDATE debts SET status = 'overdue', updated_at = %s WHERE id = $1`, dbutil.NowSQL(db))
+		_, err = db.ExecContext(ctx, updateQuery, debtID)
 		if err != nil {
 			logger.Error("Failed to update debt status", err, nil)
 			continue
@@ -216,10 +265,10 @@ func processOverdueDebts(ctx context.Context, db *sqlx.DB) {
 
 		notifyAllUsers(ctx, db, "debt_overdue",
 			"Overdue Payment Alert",
-			fmt.Sprintf("Customer has overdue payment of %.2f due on %s", debt.RemainingAmount, debt.DueDate.Format("2006-01-02")),
-			fmt.Sprintf(`{"debt_id": "%s", "customer_id": "%s", "amount": %.2f}`, debt.ID, debt.CustomerID, debt.RemainingAmount))
+			fmt.Sprintf("Customer has overdue payment of %.2f due on %s", debt.RemainingAmount, dueDate.Format("2006-01-02")),
+			fmt.Sprintf(`{"debt_id": "%s", "customer_id": "%s", "amount": %.2f}`, debtID, customerID, debt.RemainingAmount))
 
-		logger.Info(fmt.Sprintf("Processed overdue debt %s", debt.ID), nil)
+		logger.Info(fmt.Sprintf("Processed overdue debt %s", debtID), nil)
 	}
 
 	logger.Info(fmt.Sprintf("Processed %d overdue debts", len(overdueDebts)), nil)
@@ -244,19 +293,22 @@ func startLowStockScanWorker(ctx context.Context, db *sqlx.DB) {
 func processLowStockItems(ctx context.Context, db *sqlx.DB) {
 	query := `
 		SELECT p.id, p.name, p.min_stock_level,
-		       COALESCE(SUM(ii.quantity), 0) as current_stock
+		       COUNT(ii.id) as current_stock
 		FROM products p
 		LEFT JOIN inventory_items ii ON p.id = ii.product_id AND ii.status = 'AVAILABLE'
 		WHERE p.is_active = true
 		GROUP BY p.id, p.name, p.min_stock_level
-		HAVING COALESCE(SUM(ii.quantity), 0) <= p.min_stock_level
+		HAVING COUNT(ii.id) <= p.min_stock_level
 	`
+	if dbutil.IsSQLite(db) {
+		query = `SELECT p.id, p.name, p.min_stock_level, COUNT(ii.id) AS current_stock FROM products p LEFT JOIN inventory_items ii ON p.id = ii.product_id AND ii.status = 'AVAILABLE' WHERE p.is_active = 1 GROUP BY p.id, p.name, p.min_stock_level HAVING COUNT(ii.id) <= p.min_stock_level`
+	}
 
 	var lowStockItems []struct {
-		ID            uuid.UUID `db:"id"`
-		Name          string    `db:"name"`
-		MinStockLevel int       `db:"min_stock_level"`
-		CurrentStock  int       `db:"current_stock"`
+		ID            string `db:"id"`
+		Name          string `db:"name"`
+		MinStockLevel int    `db:"min_stock_level"`
+		CurrentStock  int    `db:"current_stock"`
 	}
 
 	err := db.SelectContext(ctx, &lowStockItems, query)
@@ -266,14 +318,19 @@ func processLowStockItems(ctx context.Context, db *sqlx.DB) {
 	}
 
 	for _, item := range lowStockItems {
+		productID, parseErr := uuid.Parse(item.ID)
+		if parseErr != nil {
+			logger.Error("Failed to parse low stock product ID", parseErr, nil)
+			continue
+		}
 		notifyAllUsers(ctx, db, "low_stock",
 			"Low Stock Alert",
 			fmt.Sprintf("Product '%s' is running low on stock (current: %d, minimum: %d)",
 				item.Name, item.CurrentStock, item.MinStockLevel),
 			fmt.Sprintf(`{"product_id": "%s", "product_name": "%s", "current_stock": %d, "min_stock_level": %d}`,
-				item.ID, item.Name, item.CurrentStock, item.MinStockLevel))
+				productID, item.Name, item.CurrentStock, item.MinStockLevel))
 
-		logger.Info(fmt.Sprintf("Processed low stock item %s", item.ID), nil)
+		logger.Info(fmt.Sprintf("Processed low stock item %s", productID), nil)
 	}
 
 	logger.Info(fmt.Sprintf("Processed %d low stock items", len(lowStockItems)), nil)
@@ -311,6 +368,9 @@ func generateDailyInsights(ctx context.Context, db *sqlx.DB) {
 		FROM sales
 		WHERE sale_date = $1 AND status = 'completed'
 	`
+	if dbutil.IsSQLite(db) {
+		salesQuery = `SELECT COUNT(*) AS total_sales, COALESCE(SUM(total_amount), 0) AS total_revenue, COALESCE(SUM(COALESCE(gross_profit, total_amount - cost_amount, 0)), 0) AS total_profit FROM sales WHERE date(COALESCE(sale_date, created_at)) = $1 AND lower(COALESCE(status, 'completed')) = 'completed'`
+	}
 	err := db.GetContext(ctx, &salesSummary, salesQuery, today)
 	if err != nil {
 		logger.Error("Failed to fetch sales summary", err, nil)
@@ -319,12 +379,18 @@ func generateDailyInsights(ctx context.Context, db *sqlx.DB) {
 
 	var lowStockCount int
 	lowStockQuery := `
-		SELECT COUNT(DISTINCT p.id)
-		FROM products p
-		LEFT JOIN inventory_items ii ON p.id = ii.product_id AND ii.status = 'AVAILABLE'
-		WHERE p.is_active = true
-		HAVING COALESCE(SUM(ii.quantity), 0) <= p.min_stock_level
+		SELECT COUNT(*) FROM (
+			SELECT p.id
+			FROM products p
+			LEFT JOIN inventory_items ii ON p.id = ii.product_id AND ii.status = 'AVAILABLE'
+			WHERE p.is_active = true
+			GROUP BY p.id, p.min_stock_level
+			HAVING COUNT(ii.id) <= p.min_stock_level
+		) low_stock
 	`
+	if dbutil.IsSQLite(db) {
+		lowStockQuery = `SELECT COUNT(*) FROM (SELECT p.id FROM products p LEFT JOIN inventory_items ii ON p.id = ii.product_id AND ii.status = 'AVAILABLE' WHERE p.is_active = 1 GROUP BY p.id, p.min_stock_level HAVING COUNT(ii.id) <= p.min_stock_level) low_stock`
+	}
 	err = db.GetContext(ctx, &lowStockCount, lowStockQuery)
 	if err != nil {
 		logger.Error("Failed to fetch low stock count for insights", err, nil)

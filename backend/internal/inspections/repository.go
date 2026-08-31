@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Repository handles inspection data operations
@@ -25,7 +28,7 @@ func mustMarshalTestResults(results TestResults) []byte {
 
 // LinkAcquisitionItemInspection associates an inspection with its acquisition item.
 func (r *Repository) LinkAcquisitionItemInspection(ctx context.Context, itemID, inspectionID uuid.UUID, inventoryItemID *uuid.UUID, status string) error {
-	result, err := r.db.ExecContext(ctx, `
+	result, err := r.db.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE acquisition_items
 		SET inspection_id = $1, inventory_item_id = COALESCE($2, inventory_item_id),
 		    inspection_status = $3,
@@ -34,9 +37,9 @@ func (r *Repository) LinkAcquisitionItemInspection(ctx context.Context, itemID, 
 		        WHEN $3 = 'failed' THEN 'rejected'
 		        ELSE 'inspection'
 		    END,
-		    updated_at = NOW()
+		    updated_at = %s
 		WHERE id = $4
-	`, inspectionID, inventoryItemID, status, itemID)
+	`, dbutil.NowSQL(r.db)), inspectionID, inventoryItemID, status, itemID)
 	if err != nil {
 		return fmt.Errorf("failed to link acquisition item inspection: %w", err)
 	}
@@ -46,43 +49,91 @@ func (r *Repository) LinkAcquisitionItemInspection(ctx context.Context, itemID, 
 	return nil
 }
 
-// UpdateAcquisitionItemInspectionStatus keeps acquisition workflow state in sync.
-func (r *Repository) UpdateAcquisitionItemInspectionStatus(ctx context.Context, itemID, inspectionID uuid.UUID, status string) error {
+func updateAcquisitionItemInspectionStatusTx(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, itemID, inspectionID uuid.UUID, inventoryItemID *uuid.UUID, status string) error {
 	itemStatus := "inspection"
 	if status == "passed" {
 		itemStatus = "available"
 	} else if status == "failed" {
 		itemStatus = "rejected"
 	}
-	result, err := r.db.ExecContext(ctx, `
+	nowSQL := dbutil.NowSQL(db)
+	result, err := tx.ExecContext(ctx, fmt.Sprintf(`UPDATE acquisition_items SET inspection_id = $1, inventory_item_id = COALESCE($2, inventory_item_id), inspection_status = $3, item_status = $4, updated_at = %s WHERE id = $5`, nowSQL), inspectionID, inventoryItemID, status, itemStatus, itemID)
+	if err != nil {
+		return fmt.Errorf("failed to link acquisition item inspection: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return fmt.Errorf("acquisition item not found")
+	}
+	if inventoryItemID != nil {
+		inventoryStatus := "INSPECTION"
+		if status == "passed" {
+			inventoryStatus = "AVAILABLE"
+		} else if status == "failed" {
+			inventoryStatus = "DAMAGED"
+		}
+		if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE inventory_items SET status = $1, updated_at = %s WHERE id = $2`, nowSQL), inventoryStatus, *inventoryItemID); err != nil {
+			return fmt.Errorf("failed to update inventory item status: %w", err)
+		}
+	}
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE acquisitions SET status = CASE WHEN EXISTS (SELECT 1 FROM acquisition_items WHERE acquisition_id = acquisitions.id AND inspection_status = 'failed') THEN 'rejected' WHEN NOT EXISTS (SELECT 1 FROM acquisition_items WHERE acquisition_id = acquisitions.id AND inspection_status IN ('pending', 'needs_repair')) THEN 'approved' ELSE 'inspection' END, updated_at = %s WHERE id = (SELECT acquisition_id FROM acquisition_items WHERE id = $1)`, nowSQL), itemID); err != nil {
+		return fmt.Errorf("failed to update acquisition status: %w", err)
+	}
+	return nil
+}
+
+// UpdateAcquisitionItemInspectionStatus keeps acquisition workflow state in sync.
+func (r *Repository) UpdateAcquisitionItemInspectionStatus(ctx context.Context, itemID, inspectionID uuid.UUID, status string) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin inspection workflow transaction: %w", err)
+	}
+	if err := r.updateAcquisitionItemInspectionStatus(ctx, tx, itemID, inspectionID, status); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit inspection workflow transaction: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) updateAcquisitionItemInspectionStatus(ctx context.Context, exec sqlx.ExtContext, itemID, inspectionID uuid.UUID, status string) error {
+	itemStatus := "inspection"
+	if status == "passed" {
+		itemStatus = "available"
+	} else if status == "failed" {
+		itemStatus = "rejected"
+	}
+	nowSQL := dbutil.NowSQL(r.db)
+	result, err := exec.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE acquisition_items
 		SET inspection_id = $1,
 		    inventory_item_id = COALESCE(inventory_item_id,
 		        (SELECT inventory_item_id FROM inspections WHERE id = $1)),
-		    inspection_status = $2, item_status = $3, updated_at = NOW()
+		    inspection_status = $2, item_status = $3, updated_at = %s
 		WHERE id = $4
-	`, inspectionID, status, itemStatus, itemID)
+	`, nowSQL), inspectionID, status, itemStatus, itemID)
 	if err != nil {
 		return fmt.Errorf("failed to update acquisition item inspection status: %w", err)
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return fmt.Errorf("acquisition item not found")
 	}
-	_, err = r.db.ExecContext(ctx, `
+	_, err = exec.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE inventory_items
 		SET status = CASE WHEN $2 = 'passed' THEN 'AVAILABLE' ELSE 'DAMAGED' END,
-		    updated_at = NOW()
+		    updated_at = %s
 		WHERE id = (
 		    SELECT COALESCE(i.inventory_item_id, ai.inventory_item_id)
 		    FROM inspections i
 		    LEFT JOIN acquisition_items ai ON ai.id = i.acquisition_item_id
 		    WHERE i.id = $1
 		)
-	`, inspectionID, status)
+	`, nowSQL), inspectionID, status)
 	if err != nil {
 		return fmt.Errorf("failed to update inventory item status: %w", err)
 	}
-	_, err = r.db.ExecContext(ctx, `
+	_, err = exec.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE acquisitions
 		SET status = CASE
 			WHEN EXISTS (
@@ -96,9 +147,9 @@ func (r *Repository) UpdateAcquisitionItemInspectionStatus(ctx context.Context, 
 			) THEN 'approved'
 			ELSE 'inspection'
 		END,
-		updated_at = NOW()
+		updated_at = %s
 		WHERE id = (SELECT acquisition_id FROM acquisition_items WHERE id = $1)
-	`, itemID)
+	`, nowSQL), itemID)
 	if err != nil {
 		return fmt.Errorf("failed to update acquisition status: %w", err)
 	}
@@ -119,17 +170,16 @@ func (r *Repository) CreateInspection(ctx context.Context, inspection *Inspectio
 
 	query := `
 		INSERT INTO inspections
-			(product_id, inventory_item_id, inspector_id, inspection_date, result, condition, grade,
+			(id, product_id, inventory_item_id, inspector_id, inspection_date, result, condition, grade,
 			 notes, images, test_results, acquisition_item_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
-		RETURNING id, created_at, updated_at
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
 	`
 
-	err = r.db.QueryRowContext(ctx, query,
-		inspection.ProductID, inspection.InventoryItemID, inspection.InspectedBy, inspection.InspectionDate,
+	_, err = r.db.ExecContext(ctx, query,
+		inspection.ID, inspection.ProductID, inspection.InventoryItemID, inspection.InspectedBy, inspection.InspectionDate,
 		inspection.Status, inspection.Condition, inspection.Grade, inspection.Notes, photosJSON,
 		mustMarshalTestResults(inspection.TestResults), inspection.AcquisitionItemID, inspection.CreatedAt,
-	).Scan(&inspection.ID, &inspection.CreatedAt, &inspection.UpdatedAt)
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to create inspection: %w", err)
@@ -137,12 +187,37 @@ func (r *Repository) CreateInspection(ctx context.Context, inspection *Inspectio
 	return nil
 }
 
+// CreateInspectionWithWorkflow persists an inspection and links its
+// acquisition item atomically. It is used by the API so a failed link cannot
+// leave an orphan inspection record.
+func (r *Repository) CreateInspectionWithWorkflow(ctx context.Context, inspection *Inspection) error {
+	photosJSON, err := json.Marshal(inspection.Photos)
+	if err != nil {
+		return fmt.Errorf("failed to marshal photos: %w", err)
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin inspection creation transaction: %w", err)
+	}
+	query := `INSERT INTO inspections (id, product_id, inventory_item_id, inspector_id, inspection_date, result, condition, grade, notes, images, test_results, acquisition_item_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)`
+	if _, err = tx.ExecContext(ctx, query, inspection.ID, inspection.ProductID, inspection.InventoryItemID, inspection.InspectedBy, inspection.InspectionDate, inspection.Status, inspection.Condition, inspection.Grade, inspection.Notes, photosJSON, mustMarshalTestResults(inspection.TestResults), inspection.AcquisitionItemID, inspection.CreatedAt); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("failed to create inspection: %w", err)
+	}
+	if inspection.AcquisitionItemID != nil {
+		if err := updateAcquisitionItemInspectionStatusTx(ctx, tx, r.db, *inspection.AcquisitionItemID, inspection.ID, inspection.InventoryItemID, inspection.Status); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit inspection creation transaction: %w", err)
+	}
+	return nil
+}
+
 // GetInspectionByID retrieves an inspection by ID
 func (r *Repository) GetInspectionByID(ctx context.Context, id uuid.UUID) (*Inspection, error) {
-	var inspection Inspection
-	var testResultsJSON, photosJSON []byte
-	var condition, grade, notes sql.NullString
-
 	query := `
 		SELECT i.id, i.product_id, i.inventory_item_id, i.inspection_date,
 		       i.inspector_id AS inspected_by,
@@ -154,37 +229,88 @@ func (r *Repository) GetInspectionByID(ctx context.Context, id uuid.UUID) (*Insp
 		LEFT JOIN inventory_items ii ON ii.id = i.inventory_item_id
 		WHERE i.id = $1
 	`
-
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&inspection.ID, &inspection.ProductID, &inspection.InventoryItemID,
-		&inspection.InspectionDate, &inspection.InspectedBy, &inspection.SerialNumber,
-		&inspection.Status,
-		&condition, &grade, &notes, &photosJSON, &testResultsJSON,
-		&inspection.AcquisitionItemID, &inspection.CreatedAt, &inspection.UpdatedAt,
-	)
+	record := map[string]any{}
+	err := r.db.QueryRowxContext(ctx, query, id).MapScan(record)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrInspectionNotFound
 		}
 		return nil, fmt.Errorf("failed to get inspection: %w", err)
 	}
+	inspection, err := inspectionFromMap(record)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse inspection: %w", err)
+	}
+	return inspection, nil
+}
 
-	inspection.Condition = condition.String
-	inspection.Grade = grade.String
-	inspection.Notes = notes.String
-	if len(testResultsJSON) > 0 {
-		if err := json.Unmarshal(testResultsJSON, &inspection.TestResults); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal test results: %w", err)
+func inspectionFromMap(record map[string]any) (*Inspection, error) {
+	inspection := &Inspection{
+		ID:                parseInspectionUUID(record["id"]),
+		ProductID:         parseInspectionNullableUUID(record["product_id"]),
+		InventoryItemID:   parseInspectionNullableUUID(record["inventory_item_id"]),
+		AcquisitionItemID: parseInspectionNullableUUID(record["acquisition_item_id"]),
+		SerialNumber:      strings.TrimSpace(fmt.Sprint(record["serial_number"])),
+		Status:            strings.TrimSpace(fmt.Sprint(record["status"])),
+		Condition:         strings.TrimSpace(fmt.Sprint(record["condition"])),
+		Grade:             strings.TrimSpace(fmt.Sprint(record["grade"])),
+		Notes:             strings.TrimSpace(fmt.Sprint(record["notes"])),
+	}
+	inspection.InspectedBy = parseInspectionUUID(record["inspected_by"])
+	for field, destination := range map[string]*time.Time{"inspection_date": &inspection.InspectionDate, "created_at": &inspection.CreatedAt, "updated_at": &inspection.UpdatedAt} {
+		if value, err := dbutil.ParseTimestamp(record[field]); err == nil {
+			*destination = value
 		}
 	}
-
-	if len(photosJSON) > 0 {
-		if err := json.Unmarshal(photosJSON, &inspection.Photos); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal photos: %w", err)
+	if raw := inspectionJSONBytes(record["test_results"]); len(raw) > 0 {
+		if err := json.Unmarshal(raw, &inspection.TestResults); err != nil {
+			return nil, fmt.Errorf("unmarshal test results: %w", err)
 		}
 	}
+	if raw := inspectionJSONBytes(record["images"]); len(raw) > 0 {
+		if err := json.Unmarshal(raw, &inspection.Photos); err != nil {
+			return nil, fmt.Errorf("unmarshal images: %w", err)
+		}
+	}
+	return inspection, nil
+}
 
-	return &inspection, nil
+func parseInspectionUUID(value any) uuid.UUID {
+	if value == nil {
+		return uuid.Nil
+	}
+	if parsed, ok := value.(uuid.UUID); ok {
+		return parsed
+	}
+	if bytes, ok := value.([]byte); ok {
+		if len(bytes) == 16 {
+			var parsed uuid.UUID
+			copy(parsed[:], bytes)
+			return parsed
+		}
+		value = string(bytes)
+	}
+	parsed, _ := uuid.Parse(strings.TrimSpace(fmt.Sprint(value)))
+	return parsed
+}
+
+func parseInspectionNullableUUID(value any) *uuid.UUID {
+	parsed := parseInspectionUUID(value)
+	if parsed == uuid.Nil {
+		return nil
+	}
+	return &parsed
+}
+
+func inspectionJSONBytes(value any) []byte {
+	switch raw := value.(type) {
+	case []byte:
+		return raw
+	case string:
+		return []byte(raw)
+	default:
+		return nil
+	}
 }
 
 // ListInspections retrieves inspections with pagination and filters
@@ -279,14 +405,21 @@ func (r *Repository) ListInspections(ctx context.Context, req InspectionListRequ
 		return nil, 0, fmt.Errorf("failed to count inspections: %w", err)
 	}
 
-	// Add sorting
-	sortBy := "inspection_date"
-	if req.SortBy != "" {
-		sortBy = req.SortBy
+	// Add sorting from a fixed allow-list; sort_by is user input.
+	sortColumns := map[string]string{
+		"inspection_date": "i.inspection_date",
+		"created_at":      "i.created_at",
+		"status":          "i.result",
+		"condition":       "i.condition",
+		"grade":           "i.grade",
+	}
+	sortBy := sortColumns[req.SortBy]
+	if sortBy == "" {
+		sortBy = "i.inspection_date"
 	}
 	sortOrder := "DESC"
-	if req.SortOrder != "" {
-		sortOrder = req.SortOrder
+	if strings.EqualFold(req.SortOrder, "asc") {
+		sortOrder = "ASC"
 	}
 	baseQuery += fmt.Sprintf(" ORDER BY %s %s", sortBy, sortOrder)
 
@@ -296,40 +429,22 @@ func (r *Repository) ListInspections(ctx context.Context, req InspectionListRequ
 	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argCount, argCount+1)
 	args = append(args, req.PerPage, offset)
 
-	rows, err := r.db.QueryContext(ctx, baseQuery, args...)
+	rows, err := r.db.QueryxContext(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list inspections: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var inspection Inspection
-		var testResultsJSON, photosJSON []byte
-		var condition, grade, notes sql.NullString
-
-		err := rows.Scan(
-			&inspection.ID, &inspection.ProductID, &inspection.InventoryItemID,
-			&inspection.InspectionDate, &inspection.InspectedBy, &inspection.SerialNumber,
-			&inspection.Status,
-			&condition, &grade, &notes, &photosJSON, &testResultsJSON,
-			&inspection.AcquisitionItemID, &inspection.CreatedAt, &inspection.UpdatedAt,
-		)
+		record := map[string]any{}
+		if err := rows.MapScan(record); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan inspection: %w", err)
+		}
+		inspection, err := inspectionFromMap(record)
 		if err != nil {
-			continue
+			return nil, 0, fmt.Errorf("failed to parse inspection: %w", err)
 		}
-		inspection.Condition = condition.String
-		inspection.Grade = grade.String
-		inspection.Notes = notes.String
-
-		// Parse JSON fields
-		if len(testResultsJSON) > 0 {
-			json.Unmarshal(testResultsJSON, &inspection.TestResults)
-		}
-		if len(photosJSON) > 0 {
-			json.Unmarshal(photosJSON, &inspection.Photos)
-		}
-
-		inspections = append(inspections, inspection)
+		inspections = append(inspections, *inspection)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, fmt.Errorf("failed to iterate inspections: %w", err)
@@ -340,30 +455,60 @@ func (r *Repository) ListInspections(ctx context.Context, req InspectionListRequ
 
 // UpdateInspection updates an inspection
 func (r *Repository) UpdateInspection(ctx context.Context, inspection *Inspection) error {
+	if err := r.updateInspection(ctx, r.db, inspection); err != nil {
+		return err
+	}
+	return nil
+}
+
+// UpdateInspectionWithWorkflow updates the inspection and all acquisition/
+// inventory state in one transaction so a partial inspection can never leave
+// the item and its acquisition out of sync.
+func (r *Repository) UpdateInspectionWithWorkflow(ctx context.Context, inspection *Inspection) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin inspection update transaction: %w", err)
+	}
+	if err := r.updateInspection(ctx, tx, inspection); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if inspection.AcquisitionItemID != nil {
+		if err := r.updateAcquisitionItemInspectionStatus(ctx, tx, *inspection.AcquisitionItemID, inspection.ID, inspection.Status); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit inspection update transaction: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) updateInspection(ctx context.Context, exec sqlx.ExtContext, inspection *Inspection) error {
 	photosJSON, err := json.Marshal(inspection.Photos)
 	if err != nil {
 		return fmt.Errorf("failed to marshal photos: %w", err)
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE inspections
 		SET inspection_date = $2, result = $3, condition = $4, grade = $5, notes = $6,
-		    images = $7, test_results = $8, updated_at = NOW()
+		    images = $7, test_results = $8, updated_at = %s
 		WHERE id = $1
-		RETURNING updated_at
-	`
-
-	err = r.db.QueryRowContext(ctx, query,
+	`, dbutil.NowSQL(r.db))
+	result, err := exec.ExecContext(ctx, query,
 		inspection.ID, inspection.InspectionDate, inspection.Status, inspection.Condition,
 		inspection.Grade, inspection.Notes, photosJSON, mustMarshalTestResults(inspection.TestResults),
-	).Scan(&inspection.UpdatedAt)
+	)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return ErrInspectionNotFound
-		}
 		return fmt.Errorf("failed to update inspection: %w", err)
 	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrInspectionNotFound
+	}
+	inspection.UpdatedAt = time.Now().UTC()
 	return nil
 }
 
@@ -449,17 +594,21 @@ func (r *Repository) GetInspectionSummary(ctx context.Context) (*InspectionSumma
 	}
 
 	// This week inspections
-	err = r.db.GetContext(ctx, &summary.ThisWeek,
-		`SELECT COUNT(*) FROM inspections
-		 WHERE inspection_date >= DATE_TRUNC('week', CURRENT_DATE)`)
+	weekQuery := `SELECT COUNT(*) FROM inspections WHERE inspection_date >= DATE_TRUNC('week', CURRENT_DATE)`
+	monthQuery := `SELECT COUNT(*) FROM inspections WHERE DATE_TRUNC('month', inspection_date) = DATE_TRUNC('month', CURRENT_DATE)`
+	if dbutil.IsSQLite(r.db) {
+		// SQLite stores local timestamps as TEXT.  Using a half-open date range
+		// keeps the query index-friendly and avoids PostgreSQL-only DATE_TRUNC.
+		weekQuery = `SELECT COUNT(*) FROM inspections WHERE date(inspection_date) >= date('now', 'weekday 1', '-7 days')`
+		monthQuery = `SELECT COUNT(*) FROM inspections WHERE strftime('%Y-%m', inspection_date) = strftime('%Y-%m', 'now')`
+	}
+	err = r.db.GetContext(ctx, &summary.ThisWeek, weekQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this week inspections: %w", err)
 	}
 
 	// This month inspections
-	err = r.db.GetContext(ctx, &summary.ThisMonth,
-		`SELECT COUNT(*) FROM inspections
-		 WHERE DATE_TRUNC('month', inspection_date) = DATE_TRUNC('month', CURRENT_DATE)`)
+	err = r.db.GetContext(ctx, &summary.ThisMonth, monthQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this month inspections: %w", err)
 	}

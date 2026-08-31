@@ -207,7 +207,7 @@ func (r *Repository) GetCategoryByID(ctx context.Context, id uuid.UUID) (*Catego
 }
 
 // ListCategories retrieves all categories
-func (r *Repository) ListCategories(ctx context.Context, ) ([]Category, error) {
+func (r *Repository) ListCategories(ctx context.Context) ([]Category, error) {
 	query := `
 		SELECT id, name, description, parent_id, icon, color, is_active, created_at, updated_at
 		FROM categories
@@ -296,7 +296,7 @@ func (r *Repository) UpdateCategory(ctx context.Context, category *Category) err
 }
 
 // DeleteCategory deletes a category
-func (r *Repository) DeleteCategory(ctx context.Context, id uuid.UUID, ) error {
+func (r *Repository) DeleteCategory(ctx context.Context, id uuid.UUID) error {
 	// First, set category_id to NULL for all products in this category
 	updateQuery := `UPDATE products SET category_id = NULL WHERE category_id = $1`
 	_, err := r.db.ExecContext(ctx, updateQuery, id)
@@ -365,7 +365,7 @@ func (r *Repository) GetBrandByID(ctx context.Context, id uuid.UUID) (*Brand, er
 }
 
 // ListBrands retrieves all brands
-func (r *Repository) ListBrands(ctx context.Context, ) ([]Brand, error) {
+func (r *Repository) ListBrands(ctx context.Context) ([]Brand, error) {
 	query := `
 		SELECT id, name, description, logo_url, created_at, updated_at
 		FROM brands
@@ -407,7 +407,7 @@ func (r *Repository) UpdateBrand(ctx context.Context, brand *Brand) error {
 }
 
 // DeleteBrand deletes a brand
-func (r *Repository) DeleteBrand(ctx context.Context, id uuid.UUID, ) error {
+func (r *Repository) DeleteBrand(ctx context.Context, id uuid.UUID) error {
 	// Check if brand has products
 	var count int
 	checkQuery := `SELECT COUNT(*) FROM products WHERE brand_id = $1`
@@ -493,7 +493,7 @@ func (r *Repository) GetProductByID(ctx context.Context, id uuid.UUID) (*Product
 }
 
 // GetProductByBarcode retrieves a product by barcode
-func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string, ) (*Product, error) {
+func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string) (*Product, error) {
 	query := `
 		SELECT id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
 		FROM products
@@ -519,6 +519,10 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 
 	args := []interface{}{}
 	argCount := 0
+	likeOperator := "ILIKE"
+	if r.db.DriverName() == "sqlite" {
+		likeOperator = "LIKE"
+	}
 
 	// Add filters
 	if req.CategoryID != nil {
@@ -540,8 +544,8 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 	if req.Search != "" {
 		argCount++
 		searchPattern := "%" + req.Search + "%"
-		baseQuery += ` AND (name ILIKE $` + fmt.Sprint(argCount) + ` OR model ILIKE $` + fmt.Sprint(argCount) + ` OR sku ILIKE $` + fmt.Sprint(argCount) + ` OR description ILIKE $` + fmt.Sprint(argCount) + `)`
-		countQuery += ` AND (name ILIKE $` + fmt.Sprint(argCount) + ` OR model ILIKE $` + fmt.Sprint(argCount) + ` OR sku ILIKE $` + fmt.Sprint(argCount) + ` OR description ILIKE $` + fmt.Sprint(argCount) + `)`
+		baseQuery += ` AND (name ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR model ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR sku ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR description ` + likeOperator + ` $` + fmt.Sprint(argCount) + `)`
+		countQuery += ` AND (name ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR model ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR sku ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR description ` + likeOperator + ` $` + fmt.Sprint(argCount) + `)`
 		args = append(args, searchPattern)
 	}
 
@@ -778,17 +782,35 @@ func (r *Repository) GetReservedItemCount(ctx context.Context, productID uuid.UU
 
 // SearchProducts searches products by name, SKU, or barcode
 func (r *Repository) SearchProducts(ctx context.Context, query string, limit int) ([]Product, error) {
+	likeOperator := "ILIKE"
+	if r.db.DriverName() == "sqlite" {
+		likeOperator = "LIKE"
+	}
 	searchQuery := `
 		SELECT id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
 		FROM products
-		WHERE (name ILIKE $1 OR model ILIKE $1 OR sku ILIKE $1 OR barcode ILIKE $1)
+		WHERE (name ` + likeOperator + ` $1 OR model ` + likeOperator + ` $1 OR sku ` + likeOperator + ` $1 OR barcode ` + likeOperator + ` $1)
 		AND is_active = true
 		AND deleted_at IS NULL
 		ORDER BY name
 		LIMIT $2
 	`
 
-	var products []Product
-	err := r.db.SelectContext(ctx, &products, searchQuery, "%"+query+"%", limit)
-	return products, err
+	rows, err := r.db.QueryContext(ctx, searchQuery, "%"+query+"%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	products := make([]Product, 0)
+	for rows.Next() {
+		product, scanErr := scanProductRow(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		products = append(products, product)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return products, nil
 }

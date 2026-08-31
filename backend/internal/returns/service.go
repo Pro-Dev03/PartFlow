@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/dashboard"
 )
 
 // Service handles return business logic
@@ -84,6 +85,7 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
 		return nil, fmt.Errorf("failed to update return: %w", err)
 	}
+	dashboard.InvalidateDashboardCacheWithReason("return_created")
 
 	// Get customer info
 	customer, err := s.repo.GetCustomerInfo(ctx, returnRecord.CustomerID)
@@ -193,13 +195,18 @@ func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, req *ReturnUpd
 	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
 		return nil, err
 	}
+	dashboard.InvalidateDashboardCacheWithReason("return_updated")
 
 	return s.GetReturn(ctx, id)
 }
 
 // DeleteReturn deletes a return
 func (s *Service) DeleteReturn(ctx context.Context, id uuid.UUID) error {
-	return s.repo.DeleteReturn(ctx, id)
+	if err := s.repo.DeleteReturn(ctx, id); err != nil {
+		return err
+	}
+	dashboard.InvalidateDashboardCacheWithReason("return_deleted")
+	return nil
 }
 
 // ApproveReturn approves a return
@@ -219,6 +226,7 @@ func (s *Service) ApproveReturn(ctx context.Context, id uuid.UUID) (*ReturnRespo
 	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
 		return nil, err
 	}
+	dashboard.InvalidateDashboardCacheWithReason("return_approved")
 
 	return s.GetReturn(ctx, id)
 }
@@ -240,6 +248,7 @@ func (s *Service) RejectReturn(ctx context.Context, id uuid.UUID) (*ReturnRespon
 	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
 		return nil, err
 	}
+	dashboard.InvalidateDashboardCacheWithReason("return_rejected")
 
 	return s.GetReturn(ctx, id)
 }
@@ -263,6 +272,7 @@ func (s *Service) ProcessRefund(ctx context.Context, id uuid.UUID) (*ReturnRespo
 	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
 		return nil, err
 	}
+	dashboard.InvalidateDashboardCacheWithReason("return_refund_processing")
 
 	return s.GetReturn(ctx, id)
 }
@@ -305,6 +315,7 @@ func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, req Ret
 	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
 		return nil, err
 	}
+	dashboard.InvalidateDashboardCacheWithReason("return_item_added")
 
 	return item, nil
 }
@@ -347,13 +358,18 @@ func (s *Service) UpdateReturnItem(ctx context.Context, itemID uuid.UUID, req Re
 	if err := s.repo.UpdateReturnItem(ctx, item); err != nil {
 		return nil, err
 	}
+	dashboard.InvalidateDashboardCacheWithReason("return_item_updated")
 
 	return item, nil
 }
 
 // DeleteReturnItem deletes a return item
 func (s *Service) DeleteReturnItem(ctx context.Context, itemID uuid.UUID) error {
-	return s.repo.DeleteReturnItem(ctx, itemID)
+	if err := s.repo.DeleteReturnItem(ctx, itemID); err != nil {
+		return err
+	}
+	dashboard.InvalidateDashboardCacheWithReason("return_item_deleted")
+	return nil
 }
 
 // ProcessReturnItemInspection processes inspection for a return item
@@ -374,6 +390,7 @@ func (s *Service) ProcessReturnItemInspection(ctx context.Context, itemID uuid.U
 	if err := s.repo.UpdateReturnItem(ctx, item); err != nil {
 		return nil, fmt.Errorf("failed to update return item: %w", err)
 	}
+	dashboard.InvalidateDashboardCacheWithReason("return_item_inspected")
 
 	return item, nil
 }
@@ -433,6 +450,7 @@ func (s *Service) CompleteReturn(ctx context.Context, id uuid.UUID, approvedBy u
 	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
 		return nil, fmt.Errorf("failed to complete return: %w", err)
 	}
+	dashboard.InvalidateDashboardCacheWithReason("return_completed")
 
 	// The database trigger will handle the actual debt adjustment
 	// This ensures consistency and prevents race conditions
@@ -509,6 +527,7 @@ func (s *Service) ReverseReturn(ctx context.Context, id uuid.UUID, userID uuid.U
 	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
 		return nil, fmt.Errorf("failed to update original return: %w", err)
 	}
+	dashboard.InvalidateDashboardCacheWithReason("return_reversed")
 
 	return s.GetReturn(ctx, id)
 }

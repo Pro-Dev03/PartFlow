@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	apperrors "github.com/partflow/smart-store/pkg/errors"
 	"github.com/partflow/smart-store/pkg/middleware"
 )
 
@@ -35,7 +36,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) CreateInspection(c *gin.Context) {
 	var req InspectionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
@@ -43,7 +44,7 @@ func (h *Handler) CreateInspection(c *gin.Context) {
 
 	response, err := h.service.CreateInspection(c.Request.Context(), userID, &req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to create inspection"))
 		return
 	}
 
@@ -66,14 +67,13 @@ func (h *Handler) CreateInspection(c *gin.Context) {
 func (h *Handler) GetInspection(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid inspection ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid inspection ID", err))
 		return
 	}
 
-
 	response, err := h.service.GetInspection(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.NewNotFoundError("Inspection", err))
 		return
 	}
 
@@ -105,7 +105,7 @@ func (h *Handler) GetInspection(c *gin.Context) {
 // @Router /api/v1/inspections [get]
 func (h *Handler) ListInspections(c *gin.Context) {
 	req := InspectionListRequest{Page: 1, PerPage: 20}
-	
+
 	// Parse query parameters
 	if page, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil {
 		req.Page = page
@@ -113,42 +113,41 @@ func (h *Handler) ListInspections(c *gin.Context) {
 	if perPage, err := strconv.Atoi(c.DefaultQuery("per_page", "20")); err == nil {
 		req.PerPage = perPage
 	}
-	
+
 	if productID := c.Query("product_id"); productID != "" {
 		if id, err := uuid.Parse(productID); err == nil {
 			req.ProductID = &id
 		}
 	}
-	
+
 	if inspectedBy := c.Query("inspected_by"); inspectedBy != "" {
 		if id, err := uuid.Parse(inspectedBy); err == nil {
 			req.InspectedBy = &id
 		}
 	}
-	
+
 	req.Status = c.Query("status")
 	req.Condition = c.Query("condition")
 	req.Grade = c.Query("grade")
 	req.Search = c.Query("search")
 	req.SortBy = c.DefaultQuery("sort_by", "inspection_date")
 	req.SortOrder = c.DefaultQuery("sort_order", "DESC")
-	
+
 	if startDate := c.Query("start_date"); startDate != "" {
 		if t, err := time.Parse(time.RFC3339, startDate); err == nil {
 			req.StartDate = &t
 		}
 	}
-	
+
 	if endDate := c.Query("end_date"); endDate != "" {
 		if t, err := time.Parse(time.RFC3339, endDate); err == nil {
 			req.EndDate = &t
 		}
 	}
 
-
 	inspections, total, err := h.service.ListInspections(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to list inspections"))
 		return
 	}
 
@@ -180,20 +179,19 @@ func (h *Handler) ListInspections(c *gin.Context) {
 func (h *Handler) UpdateInspection(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid inspection ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid inspection ID", err))
 		return
 	}
 
 	var req InspectionUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
-
 	response, err := h.service.UpdateInspection(c.Request.Context(), id, &req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to update inspection"))
 		return
 	}
 
@@ -216,13 +214,12 @@ func (h *Handler) UpdateInspection(c *gin.Context) {
 func (h *Handler) DeleteInspection(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid inspection ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid inspection ID", err))
 		return
 	}
 
-
 	if err := h.service.DeleteInspection(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}
 
@@ -245,14 +242,13 @@ func (h *Handler) DeleteInspection(c *gin.Context) {
 func (h *Handler) PassInspection(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid inspection ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid inspection ID", err))
 		return
 	}
 
-
 	response, err := h.service.PassInspection(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to pass inspection"))
 		return
 	}
 
@@ -275,14 +271,13 @@ func (h *Handler) PassInspection(c *gin.Context) {
 func (h *Handler) FailInspection(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid inspection ID"})
+		apperrors.HandleError(c, apperrors.NewValidationError("invalid inspection ID", err))
 		return
 	}
 
-
 	response, err := h.service.FailInspection(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to fail inspection"))
 		return
 	}
 
@@ -304,7 +299,7 @@ func (h *Handler) GetInspectionSummary(c *gin.Context) {
 
 	summary, err := h.service.GetInspectionSummary(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve inspection summary"))
 		return
 	}
 

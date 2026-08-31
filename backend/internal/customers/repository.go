@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Repository handles customer data operations
@@ -75,6 +76,13 @@ func nullableString(value sql.NullString) *string {
 	return &out
 }
 
+func nullableUUID(value uuid.UUID) interface{} {
+	if value == uuid.Nil {
+		return nil
+	}
+	return value
+}
+
 // GetByID retrieves a customer by ID
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Customer, error) {
 	query := `
@@ -84,17 +92,17 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Customer, erro
 	`
 
 	var (
-		idValue            string
-		code, name         string
-		email, phone       sql.NullString
-		address, city      sql.NullString
-		country, taxID     sql.NullString
-		notes              sql.NullString
-		creditLimit        float64
-		currentBalance     float64
-		isActive           bool
-		createdAtRaw       any
-		updatedAtRaw       any
+		idValue        string
+		code, name     string
+		email, phone   sql.NullString
+		address, city  sql.NullString
+		country, taxID sql.NullString
+		notes          sql.NullString
+		creditLimit    float64
+		currentBalance float64
+		isActive       bool
+		createdAtRaw   any
+		updatedAtRaw   any
 	)
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
@@ -338,17 +346,17 @@ func (r *Repository) List(ctx context.Context, req *CustomerListRequest) ([]Cust
 	var customers []Customer
 	for rows.Next() {
 		var (
-			idValue            string
-			code, name         string
-			email, phone       sql.NullString
-			address, city      sql.NullString
-			country, taxID     sql.NullString
-			notes              sql.NullString
-			creditLimit        float64
-			currentBalance     float64
-			isActive           bool
-			createdAtRaw       any
-			updatedAtRaw       any
+			idValue        string
+			code, name     string
+			email, phone   sql.NullString
+			address, city  sql.NullString
+			country, taxID sql.NullString
+			notes          sql.NullString
+			creditLimit    float64
+			currentBalance float64
+			isActive       bool
+			createdAtRaw   any
+			updatedAtRaw   any
 		)
 
 		if err := rows.Scan(
@@ -449,9 +457,14 @@ func (r *Repository) HasActiveTransactions(ctx context.Context, customerID uuid.
 			SELECT 1 FROM sales 
 			WHERE customer_id = $1 
 			AND status != 'cancelled'
-			AND created_at > NOW() - INTERVAL '1 year'
+			AND created_at > %s
 		)
 	`
+	if dbutil.IsSQLite(r.db) {
+		query = fmt.Sprintf(query, "datetime('now', '-1 year')")
+	} else {
+		query = fmt.Sprintf(query, "NOW() - INTERVAL '1 year'")
+	}
 
 	var hasTransactions bool
 	err := r.db.GetContext(ctx, &hasTransactions, query, customerID)
@@ -468,6 +481,16 @@ func (r *Repository) HasActiveTransactions(ctx context.Context, customerID uuid.
 
 // HasActiveWarranties checks if customer has active warranties
 func (r *Repository) HasActiveWarranties(ctx context.Context, customerID uuid.UUID) (bool, error) {
+	if dbutil.IsSQLite(r.db) {
+		// The local schema keeps warranty claims (rather than the optional
+		// cloud warranties view). Treat pending/in-progress claims as active.
+		var active bool
+		err := r.db.GetContext(ctx, &active, `SELECT EXISTS(SELECT 1 FROM warranty_claims WHERE customer_id = $1 AND status IN ('pending', 'in_progress', 'approved'))`, customerID)
+		if err == nil {
+			return active, nil
+		}
+		return false, nil
+	}
 	query := `
 		SELECT EXISTS(
 			SELECT 1 FROM warranties 
@@ -492,11 +515,11 @@ func (r *Repository) HasActiveWarranties(ctx context.Context, customerID uuid.UU
 
 // UpdateBalance updates customer balance
 func (r *Repository) UpdateBalance(ctx context.Context, customerID uuid.UUID, amount float64) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE customers
-		SET current_balance = current_balance + $1, updated_at = NOW()
+		SET current_balance = current_balance + $1, updated_at = %s
 		WHERE id = $2
-	`
+	`, dbutil.NowSQL(r.db))
 	result, err := r.db.ExecContext(ctx, query, amount, customerID)
 	if err != nil {
 		return fmt.Errorf("failed to update customer balance: %w", err)
@@ -520,7 +543,54 @@ func (r *Repository) GetCustomerLedger(ctx context.Context, customerID uuid.UUID
 		ORDER BY created_at ASC
 	`
 	var entries []LedgerEntry
-	err := r.db.SelectContext(ctx, &entries, query, customerID)
+	var err error
+	if dbutil.IsSQLite(r.db) {
+		var rows []struct {
+			ID              string         `db:"id"`
+			CustomerID      string         `db:"customer_id"`
+			Type            string         `db:"type"`
+			TransactionType sql.NullString `db:"transaction_type"`
+			Amount          float64        `db:"amount"`
+			Balance         float64        `db:"balance"`
+			Description     sql.NullString `db:"description"`
+			ReferenceID     sql.NullString `db:"reference_id"`
+			CreatedAt       string         `db:"created_at"`
+		}
+		err = r.db.SelectContext(ctx, &rows, `SELECT id, customer_id, COALESCE(type, '') AS type, transaction_type, amount, balance, description, reference_id, created_at FROM customer_ledger WHERE customer_id = $1 ORDER BY created_at ASC`, customerID)
+		if err == nil {
+			entries = make([]LedgerEntry, 0, len(rows))
+			for _, row := range rows {
+				entryID, parseErr := uuid.Parse(row.ID)
+				if parseErr != nil {
+					return nil, 0, 0, 0, parseErr
+				}
+				entryCustomer, parseErr := uuid.Parse(row.CustomerID)
+				if parseErr != nil {
+					return nil, 0, 0, 0, parseErr
+				}
+				created, parseErr := dbutil.ParseTimestamp(row.CreatedAt)
+				if parseErr != nil {
+					return nil, 0, 0, 0, parseErr
+				}
+				typ := row.Type
+				if typ == "" {
+					typ = strings.ToLower(row.TransactionType.String)
+				}
+				entry := LedgerEntry{ID: entryID, CustomerID: entryCustomer, Type: typ, Amount: row.Amount, Balance: row.Balance, CreatedAt: created}
+				if row.Description.Valid {
+					entry.Description = row.Description.String
+				}
+				if row.ReferenceID.Valid && row.ReferenceID.String != "" {
+					if ref, e := uuid.Parse(row.ReferenceID.String); e == nil {
+						entry.ReferenceID = &ref
+					}
+				}
+				entries = append(entries, entry)
+			}
+		}
+	} else {
+		err = r.db.SelectContext(ctx, &entries, query, customerID)
+	}
 	if err != nil {
 		return nil, 0, 0, 0, fmt.Errorf("failed to get customer ledger: %w", err)
 	}
@@ -545,6 +615,10 @@ func (r *Repository) GetCustomerLedger(ctx context.Context, customerID uuid.UUID
 
 // GetFinancialTimeline retrieves comprehensive financial timeline including sales, payments, returns, etc.
 func (r *Repository) GetFinancialTimeline(ctx context.Context, customerID uuid.UUID) ([]LedgerEntry, error) {
+	if dbutil.IsSQLite(r.db) {
+		entries, _, _, _, err := r.GetCustomerLedger(ctx, customerID)
+		return entries, err
+	}
 	query := `
 		SELECT id, customer_id, type, amount, balance, description, reference_id, created_at
 		FROM customer_ledger
@@ -562,6 +636,26 @@ func (r *Repository) GetFinancialTimeline(ctx context.Context, customerID uuid.U
 
 // AddPayment adds a payment to customer ledger
 func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) error {
+	if dbutil.IsSQLite(r.db) {
+		method := payment.Method
+		ref := payment.Reference
+		_, err := r.db.ExecContext(ctx, `INSERT INTO payments (id, transaction_number, customer_id, amount, payment_method, reference, notes, payment_date, created_at, updated_at, payment_status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, 'completed')`, payment.ID, "PAY-"+payment.ID.String()[:8], payment.CustomerID, payment.Amount, method, ref, payment.Notes, payment.PaymentDate, payment.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to add payment: %w", err)
+		}
+		_, err = r.db.ExecContext(ctx, `INSERT INTO customer_ledger (id, customer_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT $1, $2, 'credit', 'PAYMENT', $3, COALESCE((SELECT balance FROM customer_ledger WHERE customer_id = $2 ORDER BY created_at DESC LIMIT 1), 0) - $3, $4, $5, $6`, uuid.New(), payment.CustomerID, payment.Amount, "Payment: "+method, payment.ID, payment.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to add ledger entry: %w", err)
+		}
+		// Apply the payment to the oldest open debt. SQLite uses MAX instead of
+		// PostgreSQL's GREATEST and does not support UPDATE ... RETURNING in all
+		// supported builds.
+		var debtID string
+		if err := r.db.GetContext(ctx, &debtID, `SELECT id FROM debts WHERE customer_id = $1 AND remaining_amount > 0 AND status IN ('pending','partial','overdue') ORDER BY due_date ASC, created_at ASC LIMIT 1`, payment.CustomerID); err == nil {
+			_, _ = r.db.ExecContext(ctx, `UPDATE debts SET remaining_amount = MAX(0, remaining_amount - $1), status = CASE WHEN remaining_amount - $1 <= 0 THEN 'paid' ELSE 'partial' END, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, payment.Amount, debtID)
+		}
+		return nil
+	}
 	query := `
 		INSERT INTO customer_payments (id, customer_id, amount, payment_date, method, reference, notes, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -634,6 +728,13 @@ func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) e
 
 // AddLedgerEntry adds a ledger entry
 func (r *Repository) AddLedgerEntry(ctx context.Context, customerID uuid.UUID, entryType string, amount float64, description string, referenceID uuid.UUID) error {
+	if dbutil.IsSQLite(r.db) {
+		_, err := r.db.ExecContext(ctx, `INSERT INTO customer_ledger (id, customer_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT $1, $2, $3, CASE WHEN $3 = 'debit' THEN 'SALE' ELSE 'ADJUSTMENT' END, $4, COALESCE((SELECT balance FROM customer_ledger WHERE customer_id = $2 ORDER BY created_at DESC LIMIT 1), 0) + CASE WHEN $3 = 'debit' THEN $4 ELSE -$4 END, $5, $6, CURRENT_TIMESTAMP`, uuid.New(), customerID, entryType, amount, description, referenceID)
+		if err != nil {
+			return fmt.Errorf("failed to add ledger entry: %w", err)
+		}
+		return nil
+	}
 	ledgerQuery := `
 		INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at)
 		SELECT $1, $2, $3, $4, 
@@ -653,6 +754,17 @@ func (r *Repository) AddLedgerEntry(ctx context.Context, customerID uuid.UUID, e
 
 // CreateDebtEntry creates a new debt entry
 func (r *Repository) CreateDebtEntry(ctx context.Context, debt *DebtEntry) error {
+	if dbutil.IsSQLite(r.db) {
+		status := "pending"
+		if debt.IsPaid {
+			status = "paid"
+		}
+		_, err := r.db.ExecContext(ctx, `INSERT INTO debts (id, customer_id, sale_id, amount, paid_amount, remaining_amount, due_date, status, notes, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)`, debt.ID, debt.CustomerID, nullableUUID(debt.ReferenceID), debt.Amount, debt.PaidAmount, debt.Amount-debt.PaidAmount, debt.DueDate, status, debt.ReferenceType, debt.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to create debt entry: %w", err)
+		}
+		return nil
+	}
 	query := `
 		INSERT INTO customer_debts (id, customer_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -669,6 +781,47 @@ func (r *Repository) CreateDebtEntry(ctx context.Context, debt *DebtEntry) error
 
 // GetDebtEntries retrieves debt entries for a customer
 func (r *Repository) GetDebtEntries(ctx context.Context, customerID uuid.UUID) ([]DebtEntry, error) {
+	if dbutil.IsSQLite(r.db) {
+		var rows []struct {
+			ID         string         `db:"id"`
+			CustomerID string         `db:"customer_id"`
+			SaleID     sql.NullString `db:"sale_id"`
+			Amount     float64        `db:"amount"`
+			Paid       float64        `db:"paid_amount"`
+			Remaining  float64        `db:"remaining_amount"`
+			DueDate    string         `db:"due_date"`
+			Status     string         `db:"status"`
+			CreatedAt  string         `db:"created_at"`
+		}
+		if err := r.db.SelectContext(ctx, &rows, `SELECT id, customer_id, sale_id, amount, paid_amount, remaining_amount, due_date, status, created_at FROM debts WHERE customer_id = $1 ORDER BY due_date ASC`, customerID); err != nil {
+			return nil, fmt.Errorf("failed to get debt entries: %w", err)
+		}
+		out := make([]DebtEntry, 0, len(rows))
+		for _, row := range rows {
+			id, err := uuid.Parse(row.ID)
+			if err != nil {
+				return nil, err
+			}
+			cid, err := uuid.Parse(row.CustomerID)
+			if err != nil {
+				return nil, err
+			}
+			due, err := dbutil.ParseTimestamp(row.DueDate)
+			if err != nil {
+				return nil, err
+			}
+			created, err := dbutil.ParseTimestamp(row.CreatedAt)
+			if err != nil {
+				return nil, err
+			}
+			ref := uuid.Nil
+			if row.SaleID.Valid && row.SaleID.String != "" {
+				ref, _ = uuid.Parse(row.SaleID.String)
+			}
+			out = append(out, DebtEntry{ID: id, CustomerID: cid, Amount: row.Amount, PaidAmount: row.Paid, ReferenceID: ref, ReferenceType: "sale", DueDate: due, IsPaid: row.Status == "paid" || row.Remaining <= 0, CreatedAt: created})
+		}
+		return out, nil
+	}
 	query := `
 		SELECT id, customer_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at
 		FROM customer_debts
@@ -685,6 +838,13 @@ func (r *Repository) GetDebtEntries(ctx context.Context, customerID uuid.UUID) (
 
 // UpdateDebtPayment updates payment for a debt entry
 func (r *Repository) UpdateDebtPayment(ctx context.Context, debtID uuid.UUID, paymentAmount float64) error {
+	if dbutil.IsSQLite(r.db) {
+		_, err := r.db.ExecContext(ctx, `UPDATE debts SET paid_amount = MIN(amount, paid_amount + $1), remaining_amount = MAX(0, remaining_amount - $1), status = CASE WHEN remaining_amount - $1 <= 0 THEN 'paid' ELSE 'partial' END, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, paymentAmount, debtID)
+		if err != nil {
+			return fmt.Errorf("failed to update debt payment: %w", err)
+		}
+		return nil
+	}
 	query := `
 		UPDATE customer_debts
 		SET paid_amount = paid_amount + $1,
@@ -732,14 +892,14 @@ func (r *Repository) GetDebtCollections(ctx context.Context, customerID uuid.UUI
 
 // GetPendingDebtCollections retrieves pending debt collection actions
 func (r *Repository) GetPendingDebtCollections(ctx context.Context) ([]DebtCollection, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT dc.id, dc.customer_id, dc.type, dc.status, dc.notes, dc.scheduled_date, dc.completed_date, dc.created_at
 		FROM debt_collections dc
 		JOIN customers c ON dc.customer_id = c.id
 		WHERE dc.status = 'pending'
-		AND dc.scheduled_date <= NOW()
+		AND dc.scheduled_date <= %s
 		ORDER BY dc.scheduled_date ASC
-	`
+	`, dbutil.NowSQL(r.db))
 	var collections []DebtCollection
 	err := r.db.SelectContext(ctx, &collections, query)
 	if err != nil {

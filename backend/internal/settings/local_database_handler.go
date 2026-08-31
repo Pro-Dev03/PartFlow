@@ -1,7 +1,9 @@
 package settings
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -100,7 +102,9 @@ func (h *LocalDatabaseHandler) SetOperatingMode(c *gin.Context) {
 		return
 	}
 
-	if request.Mode == "offline" {
+	// Synchronization is deliberately explicit via POST /settings/sync. Do not
+	// use the local SQLite connection as the online source during a mode switch.
+	if request.Mode == "offline" && strings.EqualFold(os.Getenv("PARTFLOW_LEGACY_MODE_SEED"), "true") {
 		postgresDB := database.GetDB()
 		if postgresDB == nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "قاعدة البيانات الرئيسية غير متاحة"})
@@ -274,7 +278,8 @@ func (h *LocalDatabaseHandler) ResolveSyncConflict(c *gin.Context) {
 	}
 
 	var request struct {
-		Policy string `json:"policy"`
+		Policy     string         `json:"policy"`
+		MergedData map[string]any `json:"merged_data"`
 	}
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "تعذر قراءة سياسة حل التعارض", "details": err.Error()})
@@ -296,6 +301,48 @@ func (h *LocalDatabaseHandler) ResolveSyncConflict(c *gin.Context) {
 		return
 	}
 	defer db.DB.Close()
+	conflict, err := localdb.GetSyncConflict(db.DB, conflictID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ØªØ¹Ø°Ø± Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„ØªØ¹Ø§Ø±Ø¶", "details": err.Error()})
+		return
+	}
+	if conflict == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Ø§Ù„ØªØ¹Ø§Ø±Ø¶ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯"})
+		return
+	}
+
+	// Apply the chosen policy before removing the conflict record. This makes
+	// resolution durable and retryable if the cloud is unavailable.
+	switch policy {
+	case "server_wins":
+		if err := h.applyCloudSnapshot(c, db.DB); err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "ÙØ´Ù„ ØªØ·Ø¨ÙŠÙ‚ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø®Ø§Ø¯Ù… Ø§Ù„Ø³Ø­Ø§Ø¨ÙŠ", "details": err.Error()})
+			return
+		}
+	case "client_wins":
+		var payload map[string]any
+		if strings.TrimSpace(conflict["payload"]) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Ø¨ÙŠØ§Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯ Ù„Ù„ØªØ¹Ø§Ø±Ø¶"})
+			return
+		}
+		if err := json.Unmarshal([]byte(conflict["payload"]), &payload); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Ø¨ÙŠØ§Ù† Ø§Ù„ØªØ¹Ø§Ø±Ø¶ ØºÙŠØ± ØµØ§Ù„Ø­", "details": err.Error()})
+			return
+		}
+		if err := localdb.SeedLocalSnapshot(db.DB, map[string]any{conflict["entity_table"]: []any{payload}}); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªØ·Ø¨ÙŠÙ‚ ØªØºÙŠÙŠØ± Ø§Ù„Ø¹Ù…ÙŠÙ„ Ù…Ø­Ù„ÙŠØ§Ù‹", "details": err.Error()})
+			return
+		}
+	case "manual_merge":
+		if len(request.MergedData) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "manual_merge يتطلب merged_data"})
+			return
+		}
+		if err := localdb.SeedLocalSnapshot(db.DB, map[string]any{conflict["entity_table"]: []any{request.MergedData}}); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ø¯Ù…Ø¬ Ø§Ù„ÙŠØ¯ÙˆÙŠ", "details": err.Error()})
+			return
+		}
+	}
 
 	if err := localdb.DeleteSyncConflict(db.DB, conflictID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل حل التعارض", "details": err.Error()})
@@ -310,6 +357,42 @@ func (h *LocalDatabaseHandler) ResolveSyncConflict(c *gin.Context) {
 			"id":       conflictID,
 		},
 	})
+}
+
+func (h *LocalDatabaseHandler) applyCloudSnapshot(c *gin.Context, sqliteDB *sql.DB) error {
+	authorization := strings.TrimSpace(c.GetHeader("Authorization"))
+	if authorization == "" {
+		return fmt.Errorf("missing authorization")
+	}
+	cloudBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PARTFLOW_CLOUD_API_URL")), "/")
+	if cloudBaseURL == "" {
+		cloudBaseURL = "https://partflow-api.onrender.com/api/v1"
+	}
+	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, cloudBaseURL+"/sync/initial-data", nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", authorization)
+	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	var payload struct {
+		Success bool           `json:"success"`
+		Data    map[string]any `json:"data"`
+		Error   string         `json:"error"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return err
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices || !payload.Success {
+		return fmt.Errorf("cloud snapshot rejected: %s", payload.Error)
+	}
+	if err := localdb.SeedLocalSnapshot(sqliteDB, payload.Data); err != nil {
+		return err
+	}
+	return localdb.SetMetadata(sqliteDB, "last_cloud_sync_at", time.Now().UTC().Format(time.RFC3339))
 }
 
 func (h *LocalDatabaseHandler) GetOfflineSession(c *gin.Context) {

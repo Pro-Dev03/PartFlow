@@ -2,11 +2,13 @@ package suppliers
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Service handles supplier business logic
@@ -213,6 +215,9 @@ func (s *Service) GetSupplierDebtSummary(ctx context.Context, supplierID uuid.UU
 		AND type = 'debit'
 		AND created_at < NOW() - INTERVAL '30 days'
 	`
+	if dbutil.IsSQLite(s.repo.db) {
+		overdueQuery = `SELECT COALESCE(SUM(amount), 0) FROM supplier_ledger WHERE supplier_id = $1 AND (type = 'debit' OR transaction_type = 'PURCHASE') AND created_at < datetime('now','-30 days')`
+	}
 	var overdueAmount float64
 	err = s.repo.db.QueryRowContext(ctx, overdueQuery, supplierID).Scan(&overdueAmount)
 	if err != nil {
@@ -276,6 +281,9 @@ func (s *Service) GetOverdueSuppliers(ctx context.Context) ([]OverdueSupplier, e
 		HAVING COALESCE(SUM(CASE WHEN sl.type = 'debit' AND sl.created_at < NOW() - INTERVAL '30 days' THEN sl.amount ELSE 0 END), 0) > 0
 		ORDER BY overdue_amount DESC
 	`
+	if dbutil.IsSQLite(s.repo.db) {
+		query = `SELECT s.id, s.name, s.code, s.current_balance, s.credit_limit, s.email, s.phone, COALESCE(SUM(CASE WHEN (sl.type = 'debit' OR sl.transaction_type = 'PURCHASE') AND sl.created_at < datetime('now','-30 days') THEN sl.amount ELSE 0 END), 0) AS overdue_amount FROM suppliers s LEFT JOIN supplier_ledger sl ON s.id = sl.supplier_id WHERE s.is_active = 1 AND s.current_balance > 0 GROUP BY s.id, s.name, s.code, s.current_balance, s.credit_limit, s.email, s.phone HAVING COALESCE(SUM(CASE WHEN (sl.type = 'debit' OR sl.transaction_type = 'PURCHASE') AND sl.created_at < datetime('now','-30 days') THEN sl.amount ELSE 0 END), 0) > 0 ORDER BY overdue_amount DESC`
+	}
 
 	var overdueSuppliers []OverdueSupplier
 	err := s.repo.db.SelectContext(ctx, &overdueSuppliers, query)
@@ -296,6 +304,9 @@ func (s *Service) calculateDaysUntilOverdue(ctx context.Context, supplierID uuid
 		AND created_at >= NOW() - INTERVAL '30 days'
 		HAVING MIN(created_at) IS NOT NULL
 	`
+	if dbutil.IsSQLite(s.repo.db) {
+		query = `SELECT CAST(julianday(datetime('now')) - julianday(MIN(created_at)) AS INTEGER) FROM supplier_ledger WHERE supplier_id = $1 AND (type = 'debit' OR transaction_type = 'PURCHASE') AND created_at >= datetime('now','-30 days') HAVING MIN(created_at) IS NOT NULL`
+	}
 
 	var days int
 	err := s.repo.db.GetContext(ctx, &days, query, supplierID)
@@ -477,9 +488,50 @@ func (s *Service) GetSupplierInventory(ctx context.Context, supplierID uuid.UUID
 		GROUP BY p.id, p.name, p.sku
 		ORDER BY p.name
 	`
+	if dbutil.IsSQLite(s.db) {
+		query = `SELECT p.id AS product_id, p.name AS product_name, p.sku, COUNT(ii.id) AS total_received, COUNT(CASE WHEN ii.status = 'AVAILABLE' THEN 1 END) AS available, COUNT(CASE WHEN ii.status = 'SOLD' THEN 1 END) AS sold, COUNT(CASE WHEN ii.status = 'RESERVED' THEN 1 END) AS reserved, COUNT(CASE WHEN ii.status = 'DAMAGED' THEN 1 END) AS damaged, COALESCE(AVG(ii.purchase_cost), 0) AS avg_cost, COALESCE(AVG(ii.selling_price), 0) AS avg_price, MIN(COALESCE(ii.purchase_date, ii.created_at)) AS first_purchase_date, MAX(ii.sold_at) AS last_sale_date FROM inventory_items ii JOIN products p ON ii.product_id = p.id WHERE ii.supplier_id = $1 GROUP BY p.id, p.name, p.sku ORDER BY p.name`
+	}
 
 	var items []SupplierInventoryItem
-	err = s.db.SelectContext(ctx, &items, query, supplierID)
+	if dbutil.IsSQLite(s.db) {
+		rows, queryErr := s.db.QueryxContext(ctx, query, supplierID)
+		if queryErr != nil {
+			return nil, fmt.Errorf("failed to get supplier inventory: %w", queryErr)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var row struct {
+				ProductID, ProductName, SKU                       string
+				TotalReceived, Available, Sold, Reserved, Damaged int
+				AvgCost, AvgPrice                                 float64
+				FirstPurchaseDate, LastSaleDate                   sql.NullString
+			}
+			if err := rows.StructScan(&row); err != nil {
+				return nil, err
+			}
+			productID, err := uuid.Parse(row.ProductID)
+			if err != nil {
+				return nil, err
+			}
+			first, err := dbutil.ParseTimestamp(row.FirstPurchaseDate.String)
+			if err != nil {
+				return nil, err
+			}
+			item := SupplierInventoryItem{ProductID: productID, ProductName: row.ProductName, SKU: row.SKU, TotalReceived: row.TotalReceived, Available: row.Available, Sold: row.Sold, Reserved: row.Reserved, Damaged: row.Damaged, AvgCost: row.AvgCost, AvgPrice: row.AvgPrice, FirstPurchaseDate: first}
+			if row.LastSaleDate.Valid && row.LastSaleDate.String != "" {
+				parsed, e := dbutil.ParseTimestamp(row.LastSaleDate.String)
+				if e == nil {
+					item.LastSaleDate = &parsed
+				}
+			}
+			items = append(items, item)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	} else {
+		err = s.db.SelectContext(ctx, &items, query, supplierID)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get supplier inventory: %w", err)
 	}
@@ -490,15 +542,15 @@ func (s *Service) GetSupplierInventory(ctx context.Context, supplierID uuid.UUID
 // SupplierInventoryItem represents inventory item summary for a supplier
 type SupplierInventoryItem struct {
 	ProductID         uuid.UUID  `json:"product_id" db:"product_id"`
-	ProductName        string    `json:"product_name" db:"product_name"`
-	SKU                string    `json:"sku" db:"sku"`
-	TotalReceived      int       `json:"total_received" db:"total_received"`
-	Available          int       `json:"available" db:"available"`
-	Sold               int       `json:"sold" db:"sold"`
-	Reserved           int       `json:"reserved" db:"reserved"`
-	Damaged            int       `json:"damaged" db:"damaged"`
-	AvgCost            float64   `json:"avg_cost" db:"avg_cost"`
-	AvgPrice           float64   `json:"avg_price" db:"avg_price"`
-	FirstPurchaseDate   time.Time `json:"first_purchase_date" db:"first_purchase_date"`
-	LastSaleDate       *time.Time `json:"last_sale_date" db:"last_sale_date"`
+	ProductName       string     `json:"product_name" db:"product_name"`
+	SKU               string     `json:"sku" db:"sku"`
+	TotalReceived     int        `json:"total_received" db:"total_received"`
+	Available         int        `json:"available" db:"available"`
+	Sold              int        `json:"sold" db:"sold"`
+	Reserved          int        `json:"reserved" db:"reserved"`
+	Damaged           int        `json:"damaged" db:"damaged"`
+	AvgCost           float64    `json:"avg_cost" db:"avg_cost"`
+	AvgPrice          float64    `json:"avg_price" db:"avg_price"`
+	FirstPurchaseDate time.Time  `json:"first_purchase_date" db:"first_purchase_date"`
+	LastSaleDate      *time.Time `json:"last_sale_date" db:"last_sale_date"`
 }

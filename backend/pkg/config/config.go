@@ -14,39 +14,39 @@ import (
 // Config represents application configuration
 type Config struct {
 	// Server
-	ServerPort         string
-	ServerMode         string // debug, release, test
-	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
+	ServerPort   string
+	ServerMode   string // debug, release, test
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
 
 	// Database
-	DatabaseMode      string
-	DatabaseSource    string
-	DatabaseURL       string
-	DatabaseURLLocal  string
-	DatabaseURLCloud  string
-	DatabaseMaxOpenConns int
-	DatabaseMaxIdleConns int
+	DatabaseMode            string
+	DatabaseSource          string
+	DatabaseURL             string
+	DatabaseURLLocal        string
+	DatabaseURLCloud        string
+	DatabaseMaxOpenConns    int
+	DatabaseMaxIdleConns    int
 	DatabaseConnMaxLifetime time.Duration
 
 	// Supabase
-	SupabaseURL       string
-	SupabaseKey       string
-	UseSupabaseAuth   bool
+	SupabaseURL     string
+	SupabaseKey     string
+	UseSupabaseAuth bool
 
 	// JWT
-	JWTSecret         string
-	JWTAccessTokenTTL time.Duration
+	JWTSecret          string
+	JWTAccessTokenTTL  time.Duration
 	JWTRefreshTokenTTL time.Duration
 
 	// Redis
-	RedisURL          string
-	RedisPassword     string
-	RedisDB           int
+	RedisURL      string
+	RedisPassword string
+	RedisDB       int
 
 	// Logging
-	LogLevel          string
-	LogFormat         string // json, text
+	LogLevel  string
+	LogFormat string // json, text
 
 	// CORS
 	CORSAllowedOrigins []string
@@ -54,22 +54,22 @@ type Config struct {
 	CORSAllowedHeaders []string
 
 	// Rate Limiting
-	RateLimitEnabled   bool
-	RateLimitRPS       int // requests per second
-	RateLimitBurst     int
+	RateLimitEnabled bool
+	RateLimitRPS     int // requests per second
+	RateLimitBurst   int
 
 	// Auth
-	DisableAuth       bool // Disable authentication for development
+	DisableAuth bool // Disable authentication for development
 
 	// File Upload
-	MaxUploadSize      int64
-	AllowedFileTypes   []string
+	MaxUploadSize    int64
+	AllowedFileTypes []string
 
 	// Timezone
-	DefaultTimezone    string
+	DefaultTimezone string
 
 	// Currency
-	DefaultCurrency    string
+	DefaultCurrency string
 }
 
 // Load loads configuration from environment variables
@@ -84,39 +84,39 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		// Server
-		ServerPort:         getEnv("SERVER_PORT", "8080"),
-		ServerMode:         getEnv("SERVER_MODE", "debug"),
-		ReadTimeout:       getDurationEnv("READ_TIMEOUT", 15*time.Second),
-		WriteTimeout:      getDurationEnv("WRITE_TIMEOUT", 15*time.Second),
+		ServerPort:   getEnv("SERVER_PORT", "8080"),
+		ServerMode:   getEnv("SERVER_MODE", "debug"),
+		ReadTimeout:  getDurationEnv("READ_TIMEOUT", 15*time.Second),
+		WriteTimeout: getDurationEnv("WRITE_TIMEOUT", 15*time.Second),
 
 		// Database
-		DatabaseMode:      getEnv("DB_CONNECTION_MODE", getEnv("DATABASE_MODE", "default")),
-		DatabaseSource:    selectedSource,
-		DatabaseURL:       selectedURL,
-		DatabaseURLLocal:  getEnv("DATABASE_URL_LOCAL", getEnv("DB_LOCAL_URL", getEnv("LOCAL_DATABASE_URL", ""))),
-		DatabaseURLCloud:  getEnv("DATABASE_URL_CLOUD", getEnv("DB_CLOUD_URL", getEnv("CLOUD_DATABASE_URL", ""))),
-		DatabaseMaxOpenConns: getIntEnv("DB_MAX_OPEN_CONNS", 25),
-		DatabaseMaxIdleConns: getIntEnv("DB_MAX_IDLE_CONNS", 5),
+		DatabaseMode:            getEnv("DB_CONNECTION_MODE", getEnv("DATABASE_MODE", "default")),
+		DatabaseSource:          selectedSource,
+		DatabaseURL:             selectedURL,
+		DatabaseURLLocal:        getEnv("DATABASE_URL_LOCAL", getEnv("DB_LOCAL_URL", getEnv("LOCAL_DATABASE_URL", ""))),
+		DatabaseURLCloud:        getEnv("DATABASE_URL_CLOUD", getEnv("DB_CLOUD_URL", getEnv("CLOUD_DATABASE_URL", ""))),
+		DatabaseMaxOpenConns:    getIntEnv("DB_MAX_OPEN_CONNS", 25),
+		DatabaseMaxIdleConns:    getIntEnv("DB_MAX_IDLE_CONNS", 5),
 		DatabaseConnMaxLifetime: getDurationEnv("DB_CONN_MAX_LIFETIME", 5*time.Minute),
 
 		// Supabase
-		SupabaseURL:       getEnv("SUPABASE_URL", ""),
-		SupabaseKey:       getEnv("SUPABASE_KEY", ""),
-		UseSupabaseAuth:   getBoolEnv("USE_SUPABASE_AUTH", false),
+		SupabaseURL:     getEnv("SUPABASE_URL", ""),
+		SupabaseKey:     getEnv("SUPABASE_KEY", ""),
+		UseSupabaseAuth: getBoolEnv("USE_SUPABASE_AUTH", false),
 
 		// JWT
-		JWTSecret:         getEnv("JWT_SECRET", "change-this-secret-in-production"),
-		JWTAccessTokenTTL: getDurationEnv("JWT_ACCESS_TOKEN_TTL", 15*time.Minute),
+		JWTSecret:          getEnv("JWT_SECRET", "change-this-secret-in-production"),
+		JWTAccessTokenTTL:  getDurationEnv("JWT_ACCESS_TOKEN_TTL", 15*time.Minute),
 		JWTRefreshTokenTTL: getDurationEnv("JWT_REFRESH_TOKEN_TTL", 7*24*time.Hour),
 
 		// Redis
-		RedisURL:          getEnv("REDIS_URL", "localhost:6379"),
-		RedisPassword:     getEnv("REDIS_PASSWORD", ""),
-		RedisDB:           getIntEnv("REDIS_DB", 0),
+		RedisURL:      getEnv("REDIS_URL", "localhost:6379"),
+		RedisPassword: getEnv("REDIS_PASSWORD", ""),
+		RedisDB:       getIntEnv("REDIS_DB", 0),
 
 		// Logging
-		LogLevel:          getEnv("LOG_LEVEL", "info"),
-		LogFormat:         getEnv("LOG_FORMAT", "json"),
+		LogLevel:  getEnv("LOG_LEVEL", "info"),
+		LogFormat: getEnv("LOG_FORMAT", "json"),
 
 		// CORS
 		CORSAllowedOrigins: []string{getEnv("CORS_ALLOWED_ORIGINS", "*")},
@@ -124,22 +124,22 @@ func Load() (*Config, error) {
 		CORSAllowedHeaders: []string{"Origin", "Content-Type", "Authorization", "X-Request-ID"},
 
 		// Rate Limiting
-		RateLimitEnabled:   getBoolEnv("RATE_LIMIT_ENABLED", false),
-		RateLimitRPS:       getIntEnv("RATE_LIMIT_RPS", 100),
-		RateLimitBurst:     getIntEnv("RATE_LIMIT_BURST", 10),
+		RateLimitEnabled: getBoolEnv("RATE_LIMIT_ENABLED", true),
+		RateLimitRPS:     getIntEnv("RATE_LIMIT_RPS", 100),
+		RateLimitBurst:   getIntEnv("RATE_LIMIT_BURST", 10),
 
 		// Auth
-		DisableAuth:       getBoolEnv("DISABLE_AUTH", false),
+		DisableAuth: getBoolEnv("DISABLE_AUTH", false),
 
 		// File Upload
-		MaxUploadSize:      getInt64Env("MAX_UPLOAD_SIZE", 10*1024*1024), // 10MB
-		AllowedFileTypes:   []string{"image/jpeg", "image/png", "image/gif", "application/pdf"},
+		MaxUploadSize:    getInt64Env("MAX_UPLOAD_SIZE", 10*1024*1024), // 10MB
+		AllowedFileTypes: []string{"image/jpeg", "image/png", "image/gif", "application/pdf"},
 
 		// Timezone
-		DefaultTimezone:    getEnv("DEFAULT_TIMEZONE", "Asia/Jerusalem"),
+		DefaultTimezone: getEnv("DEFAULT_TIMEZONE", "Asia/Jerusalem"),
 
 		// Currency
-		DefaultCurrency:    getEnv("DEFAULT_CURRENCY", "ILS"),
+		DefaultCurrency: getEnv("DEFAULT_CURRENCY", "ILS"),
 	}
 
 	// Persist the resolved active connection so the rest of the codebase and scripts continue to use it.
