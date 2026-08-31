@@ -8,6 +8,7 @@ describe('auth store logout behavior', () => {
     localStorage.clear();
     useAuthStore.setState({
       isAuthenticated: false,
+      sessionVerified: false,
       user: null,
       token: null,
       refreshToken: null,
