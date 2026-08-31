@@ -16,6 +16,10 @@ frontend/build/
 **/build/
 **/dist/
 
+# Browser test output
+frontend/playwright-report/
+frontend/test-results/
+
 # IDE / local environment
 .vscode/
 .idea/
