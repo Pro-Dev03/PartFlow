@@ -213,14 +213,15 @@ func main() {
 }
 
 func loadConfig() (*Config, error) {
-	// Prefer the provider's direct PostgreSQL endpoint when it is supplied.
-	// DATABASE_URL remains a backwards-compatible fallback for local/admin use.
-	dbURL := os.Getenv("DATABASE_URL_DIRECT")
+	// This administrative tool must target Supabase directly. Keep the generic
+	// DATABASE_URL out of the priority chain so it cannot silently hit SQLite or
+	// another local database by mistake.
+	dbURL := os.Getenv("SUPABASE_DATABASE_URL")
 	if strings.TrimSpace(dbURL) == "" {
-		dbURL = os.Getenv("DATABASE_URL")
+		dbURL = os.Getenv("DATABASE_URL_DIRECT")
 	}
 	if strings.TrimSpace(dbURL) == "" {
-		return nil, errors.New("المتغير DATABASE_URL_DIRECT أو DATABASE_URL مطلوب")
+		return nil, errors.New("المتغير SUPABASE_DATABASE_URL أو DATABASE_URL_DIRECT مطلوب")
 	}
 	return &Config{DBURL: dbURL}, nil
 }

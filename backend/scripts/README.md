@@ -44,6 +44,17 @@ go run scripts/seed_data.go
 
 ## قاعدة البيانات
 
+### مدير الاشتراكات عبر Supabase
+
+```powershell
+$env:SUPABASE_DATABASE_URL = '<رابط PostgreSQL المباشر من Supabase>'
+go run .\scripts\subscription-manager.go summary
+go run .\scripts\subscription-manager.go disable --email user@example.com
+```
+
+يُستخدم `DATABASE_URL_DIRECT` كاسم بديل. لا تضع الرابط أو كلمة المرور داخل
+الملفات أو Git.
+
 ### Migration Files
 - `migrations/001_fix_users_schema.sql`: إصلاح Schema جدول users
 
@@ -93,9 +104,9 @@ curl -X POST http://localhost:8080/api/v1/auth/register \
 
 ## ملاحظات هامة
 
-- تأكد من أن `DATABASE_URL` معرف في `.env` أو كمتغير بيئة
-- لفرض الاتصال المباشر بقاعدة PostgreSQL (بدون pooler)، عرّف `DATABASE_URL_DIRECT`؛ له الأولوية على `DATABASE_URL`.
-- السكريبتات تتصل بقاعدة البيانات المحددة في `DATABASE_URL`
+- عرّف `SUPABASE_DATABASE_URL` لرابط PostgreSQL المباشر من Supabase.
+- يمكن استخدام `DATABASE_URL_DIRECT` كاسم بديل؛ لا يستخدم مدير الاشتراكات قاعدة محلية.
+- مدير الاشتراكات يتصل مباشرة بعنوان Supabase المحدد في `SUPABASE_DATABASE_URL` أو `DATABASE_URL_DIRECT`
 - السكريبتات تتعامل مع Schema الموجود وتضيف التوافقيات اللازمة
 - كلمات المرور مشفرة دائماً باستخدام bcrypt
 - لا يُنشأ Owner محلي افتراضي في نسخة Desktop؛ استخدم `PARTFLOW_BOOTSTRAP_OWNER_PASSWORD` للاختبارات أو الإعداد المحلي المقصود فقط.
