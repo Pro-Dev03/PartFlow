@@ -1,0 +1,92 @@
+package dashboard
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jmoiron/sqlx"
+)
+
+// todayMetrics contains values for the current business day only. It is kept
+// separate from the dashboard's lifetime totals so the frontend cannot mistake
+// cumulative purchases for today's cost of goods sold.
+type todayMetrics struct {
+	Sales  float64 `db:"today_sales"`
+	Profit float64 `db:"today_profit"`
+}
+
+func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMetrics, error) {
+	if db == nil {
+		return todayMetrics{}, fmt.Errorf("dashboard database is nil")
+	}
+
+	date := now.Format("2006-01-02")
+	query := `
+		WITH sale_costs AS (
+			SELECT s.id, s.total_amount,
+				COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost
+			FROM sales s
+			LEFT JOIN sale_items si ON si.sale_id = s.id
+			LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
+			LEFT JOIN products p ON p.id = si.product_id
+			WHERE COALESCE(s.sale_date::date, s.created_at::date) = $1::date
+			  AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
+			GROUP BY s.id, s.total_amount
+		), totals AS (
+			SELECT COALESCE(SUM(total_amount), 0) AS revenue,
+			       COALESCE(SUM(total_cost), 0) AS cost
+			FROM sale_costs
+		), expenses_total AS (
+			SELECT COALESCE(SUM(amount), 0) AS amount
+			FROM expenses
+			WHERE expense_date::date = $1::date
+			  AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')
+		)
+		SELECT totals.revenue AS today_sales,
+		       totals.revenue - totals.cost - expenses_total.amount AS today_profit
+		FROM totals, expenses_total
+	`
+	args := []any{date}
+
+	if isSQLiteDriver(db.DriverName()) {
+		query = `
+			WITH sale_costs AS (
+				SELECT s.id, s.total_amount,
+					COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) AS total_cost
+				FROM sales s
+				LEFT JOIN sale_items si ON si.sale_id = s.id
+				LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
+				LEFT JOIN products p ON p.id = si.product_id
+				WHERE date(s.created_at) = ?
+				  AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
+				GROUP BY s.id, s.total_amount
+			), totals AS (
+				SELECT COALESCE(SUM(total_amount), 0) AS revenue,
+				       COALESCE(SUM(total_cost), 0) AS cost
+				FROM sale_costs
+			), expenses_total AS (
+				SELECT COALESCE(SUM(amount), 0) AS amount
+				FROM expenses
+				WHERE date(expense_date) = ?
+				  AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')
+			)
+			SELECT totals.revenue AS today_sales,
+			       totals.revenue - totals.cost - expenses_total.amount AS today_profit
+			FROM totals, expenses_total
+		`
+		args = []any{date, date}
+	}
+
+	var metrics todayMetrics
+	if err := db.GetContext(ctx, &metrics, query, args...); err != nil {
+		return todayMetrics{}, fmt.Errorf("calculate today's dashboard metrics: %w", err)
+	}
+	return metrics, nil
+}
+
+func isSQLiteDriver(driver string) bool {
+	driver = strings.ToLower(strings.TrimSpace(driver))
+	return driver == "sqlite" || driver == "sqlite3"
+}

@@ -114,8 +114,12 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 	stats.TotalProfit = stats.TotalSales - stats.TotalPurchases - stats.TotalExpenses
 
 	// Populate frontend-compatible fields
-	stats.TodaySales = result.TotalSales
-	stats.TodayProfit = stats.TotalProfit
+	// These fields are date-scoped. Do not reuse the lifetime totals above:
+	// purchases are cash outflows, not today's cost of goods sold.
+	if today, todayErr := fetchTodayMetrics(ctx, s.db, time.Now()); todayErr == nil {
+		stats.TodaySales = today.Sales
+		stats.TodayProfit = today.Profit
+	}
 	stats.OutstandingDebts = result.OverdueDebts
 	stats.ActiveCustomers = result.TotalCustomers
 	stats.LowStockCount = result.LowStockItems

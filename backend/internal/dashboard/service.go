@@ -208,8 +208,12 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 	stats.TotalProfit = stats.NetRevenue - stats.TotalPurchases - stats.TotalExpenses
 
 	// Populate frontend-compatible fields
-	stats.TodaySales = result.TotalSales // Using total sales as today's sales for now
-	stats.TodayProfit = stats.TotalProfit
+	// Keep today's indicators date-scoped. Lifetime purchases must not be
+	// subtracted from today's sales.
+	if today, todayErr := fetchTodayMetrics(ctx, s.db, time.Now()); todayErr == nil {
+		stats.TodaySales = today.Sales
+		stats.TodayProfit = today.Profit
+	}
 	stats.OutstandingDebts = result.OverdueDebts
 	stats.ActiveCustomers = result.TotalCustomers
 	stats.LowStockCount = result.LowStockItems
