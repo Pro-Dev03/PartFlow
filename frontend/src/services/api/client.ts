@@ -183,8 +183,10 @@ class ApiClient {
         // Handle 401 Unauthorized - try to refresh token
         if (response.status === 401 && this.token) {
           try {
-            // Try to refresh token using auth API directly
-            const refreshResponse = await fetch(`${baseURL}/auth/refresh`, {
+            // Tokens belong to the cloud authority even though business data
+            // is served by the local SQLite API. Refresh against Render so a
+            // valid cloud session can continue using local operations.
+            const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',

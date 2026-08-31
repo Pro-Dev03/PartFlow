@@ -51,7 +51,33 @@ export const authApi = {
       return Promise.reject(new Error('No refresh token available'));
     }
 
-    return apiClient.post('/auth/refresh', { refresh_token: refreshToken });
+    // Access and refresh tokens are issued by the cloud authority. Business
+    // requests use the local SQLite API, but token renewal must go directly to
+    // Render; the local API intentionally does not own cloud sessions.
+    return fetch(`${getCloudApiUrl()}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    }).then(async (response) => {
+      const payload = typeof response.json === 'function'
+        ? await response.json().catch(() => ({}))
+        : await response.text().then((text) => {
+            try {
+              return JSON.parse(text);
+            } catch {
+              return {};
+            }
+          });
+      if (!response.ok) {
+        const error: any = new Error(
+          payload?.error?.message || payload?.error || 'Session refresh failed'
+        );
+        error.status = response.status;
+        error.response = payload;
+        throw error;
+      }
+      return payload;
+    });
   },
   forgotPassword: (email: string) =>
     apiClient.post('/auth/forgot-password', { email }),

@@ -55,7 +55,7 @@ describe('auth store logout behavior', () => {
     await authApi.refreshToken();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/auth/refresh'),
+      expect.stringContaining('partflow-api.onrender.com/api/v1/auth/refresh'),
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ refresh_token: 'old-refresh-token' }),
