@@ -8,6 +8,7 @@ import (
 func TestOpenInitializesLocalDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "partflow.db")
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", path)
+	t.Setenv("PARTFLOW_BOOTSTRAP_OWNER_PASSWORD", "test-only-owner-password")
 
 	database, err := Open()
 	if err != nil {

@@ -49,9 +49,13 @@ func main() {
 	fmt.Println("✅ Connected to database successfully")
 
 	// Default owner config
+	ownerPassword := os.Getenv("OWNER_PASSWORD")
+	if ownerPassword == "" {
+		log.Fatal("OWNER_PASSWORD environment variable is required")
+	}
 	config := OwnerConfig{
 		Email:     getEnv("OWNER_EMAIL", "owner@partflow.com"),
-		Password:  getEnv("OWNER_PASSWORD", "Owner123456"),
+		Password:  ownerPassword,
 		FirstName: getEnv("OWNER_FIRST_NAME", "Admin"),
 		LastName:  getEnv("OWNER_LAST_NAME", "Owner"),
 		Phone:     getEnv("OWNER_PHONE", "+970599000000"),
@@ -66,7 +70,7 @@ func main() {
 
 	fmt.Println("\n🎉 Owner account created successfully!")
 	fmt.Println("📧 Email:", config.Email)
-	fmt.Println("🔑 Password:", config.Password)
+	fmt.Println("🔑 Password: supplied through OWNER_PASSWORD")
 	fmt.Println("🌐 Login at: http://localhost:5173/")
 }
 

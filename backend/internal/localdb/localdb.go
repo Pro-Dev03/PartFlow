@@ -62,7 +62,14 @@ func ensureDefaultOwnerUser(db *sql.DB) error {
 		return nil
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte("Owner123456"), bcrypt.DefaultCost)
+	bootstrapPassword := strings.TrimSpace(os.Getenv("PARTFLOW_BOOTSTRAP_OWNER_PASSWORD"))
+	if bootstrapPassword == "" {
+		// Production/Desktop builds must receive users from the authenticated cloud
+		// snapshot; never create a predictable local account automatically.
+		return nil
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(bootstrapPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("hash default owner password: %w", err)
 	}

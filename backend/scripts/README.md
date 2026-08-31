@@ -16,7 +16,7 @@ go run scripts/create_owner.go
 #### المتغيرات البيئية (اختياري):
 ```bash
 OWNER_EMAIL=owner@partflow.com
-OWNER_PASSWORD=Owner123456
+OWNER_PASSWORD=<strong-random-password>
 OWNER_FIRST_NAME=Admin
 OWNER_LAST_NAME=Owner
 OWNER_PHONE=+970599000000
@@ -94,9 +94,11 @@ curl -X POST http://localhost:8080/api/v1/auth/register \
 ## ملاحظات هامة
 
 - تأكد من أن `DATABASE_URL` معرف في `.env` أو كمتغير بيئة
+- لفرض الاتصال المباشر بقاعدة PostgreSQL (بدون pooler)، عرّف `DATABASE_URL_DIRECT`؛ له الأولوية على `DATABASE_URL`.
 - السكريبتات تتصل بقاعدة البيانات المحددة في `DATABASE_URL`
 - السكريبتات تتعامل مع Schema الموجود وتضيف التوافقيات اللازمة
 - كلمات المرور مشفرة دائماً باستخدام bcrypt
+- لا يُنشأ Owner محلي افتراضي في نسخة Desktop؛ استخدم `PARTFLOW_BOOTSTRAP_OWNER_PASSWORD` للاختبارات أو الإعداد المحلي المقصود فقط.
 
 ## استكشاف الأخطاء
 

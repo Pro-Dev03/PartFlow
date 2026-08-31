@@ -17,7 +17,7 @@ func main() {
 	// Database connection
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgresql://postgres:postgres@localhost:5432/partflow?sslmode=disable"
+		log.Fatal("DATABASE_URL is required")
 	}
 
 	db, err := sql.Open("postgres", dbURL)

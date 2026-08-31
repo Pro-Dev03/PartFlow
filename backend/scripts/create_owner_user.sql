@@ -62,7 +62,7 @@ BEGIN
         RAISE NOTICE 'User owner@partflow.com already exists. Skipping creation.';
     ELSE
         -- Step 4: Create the owner user
-        -- Password: OwnerPass123! (change this in production)
+        -- Pass OWNER_PASSWORD through psql; never store a password in this file.
         INSERT INTO users (
             id,
             organization_id,
@@ -81,7 +81,7 @@ BEGIN
             gen_random_uuid(),
             org_id,
             'owner@partflow.com',
-            crypt('OwnerPass123!', gen_salt('bf', 12)),  -- Password: OwnerPass123!
+            crypt(:'OWNER_PASSWORD', gen_salt('bf', 12)),
             'System',
             'Owner',
             '+1234567890',
@@ -92,8 +92,7 @@ BEGIN
             NOW();
             
         RAISE NOTICE 'Successfully created owner user: owner@partflow.com';
-        RAISE NOTICE 'Password: OwnerPass123!';
-        RAISE NOTICE 'IMPORTANT: Change this password in production!';
+        RAISE NOTICE 'Owner password was supplied through the OWNER_PASSWORD psql variable.';
     END IF;
     
 END $$;

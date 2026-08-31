@@ -3,14 +3,18 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 )
 
 func main() {
-	// Direct database URL for Supabase
-	databaseURL := "postgresql://postgres.vjaokclajtvpdjmdrybu:9IyxKnou9CUgrj5k@aws-0-eu-central-1.pooler.supabase.com:5432/postgres"
+	// Supply the connection string through the environment; never hard-code credentials.
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		log.Fatal("DATABASE_URL is required")
+	}
 
 	// Connect to database
 	db, err := sqlx.Connect("postgres", databaseURL)
