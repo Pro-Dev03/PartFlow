@@ -1,13 +1,12 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryProvider } from './app/providers/QueryProvider';
 import { AppLayout, AuthLayout } from './layouts';
-import { useAuthStore } from './stores/authStore';
+import { useAuthStore, validateSubscriptionWithCloud } from './stores/authStore';
 import { ErrorBoundary } from './components/ui/error-boundary';
 import { ToastContainer } from './components/ui/ToastContainer';
 import { appRoutes, PageLoader } from './app/router';
 import { LayoutProvider } from './contexts/LayoutContext';
-import { isOfflineSubscriptionBlocked } from './lib/subscription-guard';
 import AIAssistantWrapper from './components/ui/ai-assistant-wrapper';
 
 // Lazy load auth pages separately
@@ -17,12 +16,8 @@ const SubscriptionExpiredPage = lazy(() => import('./features/auth/pages/Subscri
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, token } = useAuthStore();
 
-  if (!isAuthenticated || !token) {
+  if (!isAuthenticated || !token || !navigator.onLine) {
     return <Navigate to="/login" replace />;
-  }
-
-  if (isOfflineSubscriptionBlocked(token)) {
-    return <Navigate to="/subscription-expired" replace />;
   }
 
   return <>{children}</>;
@@ -56,6 +51,38 @@ function App() {
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  // Keep cloud subscription authority active even while business data remains
+  // local. A browser/Electron "online" event is only a trigger; the cloud
+  // response is the actual authority.
+  useEffect(() => {
+    const validate = () => {
+      void validateSubscriptionWithCloud();
+    };
+    const handleOffline = () => {
+      const state = useAuthStore.getState();
+      if (state.isAuthenticated) {
+        state.logout();
+      }
+      window.location.hash = '#/login';
+    };
+    window.addEventListener('online', validate);
+    window.addEventListener('offline', handleOffline);
+    if (navigator.onLine) validate();
+    // The cloud is the subscription authority. If connectivity disappears, the
+    // protected route stops new operations until it returns.
+    const interval = window.setInterval(() => {
+      const state = useAuthStore.getState();
+      if (!state.isAuthenticated || !state.token) return;
+      if (navigator.onLine) validate();
+    }, 5 * 60 * 1000);
+
+    return () => {
+      window.removeEventListener('online', validate);
+      window.removeEventListener('offline', handleOffline);
+      window.clearInterval(interval);
+    };
+  }, []);
 
   return (
     <ErrorBoundary>

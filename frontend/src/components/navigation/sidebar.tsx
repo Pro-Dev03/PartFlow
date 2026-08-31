@@ -138,7 +138,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
               }}
             >
               <img
-                src="/favicon.svg?v=3"
+                src="./favicon.svg?v=3"
                 alt=""
                 aria-hidden="true"
                 className="block h-5 w-5 shrink-0"

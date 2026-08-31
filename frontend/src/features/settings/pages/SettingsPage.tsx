@@ -2,17 +2,13 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Button } from '../../../components/ui/button';
-import { buildSubscriptionGuardFromToken } from '../../../lib/subscription-guard';
 import { useAuthStore } from '../../../stores/authStore';
 import {
   Store,
   Palette,
   Bell,
-  Lock,
   FileText,
-  Zap,
   DollarSign,
-  Save,
   Trash2,
   User,
   ShieldCheck,
@@ -23,7 +19,6 @@ import {
 import { StoreSettings } from '../components/StoreSettings';
 import { NotificationSettings } from '../components/NotificationSettings';
 import { AppearanceSettings } from '../components/AppearanceSettings';
-import { SecuritySettings } from '../components/SecuritySettings';
 import { FinancialSettings } from '../components/FinancialSettings';
 import { AuditSettings } from '../components/AuditSettings';
 import { DatabaseSettings } from '../components/DatabaseSettings';
@@ -31,7 +26,6 @@ import { DatabaseSettings } from '../components/DatabaseSettings';
 export function SettingsPage() {
   const { t } = useTranslation();
   const user = useAuthStore((state) => state.user);
-  const token = useAuthStore((state) => state.token);
   const [activeTab, setActiveTab] = useState('store');
   const [now, setNow] = useState(Date.now());
 
@@ -40,19 +34,14 @@ export function SettingsPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const subscriptionGuard = buildSubscriptionGuardFromToken(token, {
-    subscriptionStatus: user?.subscription_status || 'active',
-    subscriptionExpiresAt: user?.subscription_expires_at || null,
-  });
-
-  const expiryDate = subscriptionGuard?.subscriptionExpiresAt ? new Date(subscriptionGuard.subscriptionExpiresAt) : null;
+  const expiryDate = user?.subscription_expires_at ? new Date(user.subscription_expires_at) : null;
   const remainingMs = expiryDate ? expiryDate.getTime() - now : null;
   const remainingDays = remainingMs === null ? 0 : Math.max(0, Math.ceil(remainingMs / (1000 * 60 * 60 * 24)));
   const remainingText = remainingMs === null ? 'غير محدد' : `${remainingDays} يوم`;
   const displayName = user?.first_name || user?.name || 'مستخدم';
   const displayEmail = user?.email || 'غير متوفر';
   const displayPhone = user?.phone || 'غير متوفر';
-  const subscriptionStatus = (subscriptionGuard?.subscriptionStatus || 'active').toLowerCase();
+  const subscriptionStatus = (user?.subscription_status || 'active').toLowerCase();
   const isActiveSubscription = subscriptionStatus === 'active' || subscriptionStatus === 'trial';
 
   const tabs = [
@@ -60,7 +49,6 @@ export function SettingsPage() {
     { id: 'financial', label: t('settings.financial'), icon: DollarSign },
     { id: 'appearance', label: t('settings.appearance'), icon: Palette },
     { id: 'notifications', label: t('settings.notifications'), icon: Bell },
-    { id: 'security', label: t('settings.security'), icon: Lock },
     { id: 'audit', label: t('settings.audit'), icon: FileText },
     { id: 'database', label: 'قاعدة البيانات', icon: Trash2 },
   ];
@@ -72,18 +60,6 @@ export function SettingsPage() {
         eyebrow="System Control"
         title={t('settings.title')}
         description="إدارة إعدادات النظام"
-        actions={
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <Button variant="secondary" className="gap-2">
-              <Zap className="w-4 h-4" />
-              تحديث
-            </Button>
-            <Button variant="primary" className="gap-2">
-              <Save className="w-4 h-4" />
-              حفظ
-            </Button>
-          </div>
-        }
       />
 
       <div className="mb-6 grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -184,7 +160,6 @@ export function SettingsPage() {
           {activeTab === 'financial' && <FinancialSettings />}
           {activeTab === 'appearance' && <AppearanceSettings />}
           {activeTab === 'notifications' && <NotificationSettings />}
-          {activeTab === 'security' && <SecuritySettings />}
           {activeTab === 'audit' && <AuditSettings />}
           {activeTab === 'database' && <DatabaseSettings />}
         </div>

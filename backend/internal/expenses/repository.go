@@ -4,14 +4,127 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Repository handles expense data operations
 type Repository struct {
 	db *sqlx.DB
+}
+
+type localExpenseRow struct {
+	ID              string         `db:"id"`
+	CategoryID      sql.NullString `db:"category_id"`
+	Title           string         `db:"title"`
+	Description     sql.NullString `db:"description"`
+	Amount          float64        `db:"amount"`
+	Currency        string         `db:"currency"`
+	ExpenseDate     string         `db:"expense_date"`
+	PaymentMethod   sql.NullString `db:"payment_method"`
+	Reference       sql.NullString `db:"reference"`
+	ReceiptURL      sql.NullString `db:"receipt_url"`
+	IsRecurring     int            `db:"is_recurring"`
+	RecurringPeriod sql.NullString `db:"recurring_period"`
+	ApprovedBy      sql.NullString `db:"approved_by"`
+	Status          string         `db:"status"`
+	CreatedBy       sql.NullString `db:"created_by"`
+	CreatedAt       string         `db:"created_at"`
+	UpdatedAt       string         `db:"updated_at"`
+}
+
+type localExpenseCategoryRow struct {
+	ID          string         `db:"id"`
+	Name        string         `db:"name"`
+	Description sql.NullString `db:"description"`
+	Color       sql.NullString `db:"color"`
+	Icon        sql.NullString `db:"icon"`
+	Budget      float64        `db:"budget"`
+	IsActive    int            `db:"is_active"`
+	CreatedAt   string         `db:"created_at"`
+	UpdatedAt   string         `db:"updated_at"`
+}
+
+func localExpenseCategoryFromRow(row localExpenseCategoryRow) (ExpenseCategory, error) {
+	id, err := uuid.Parse(row.ID)
+	if err != nil {
+		return ExpenseCategory{}, fmt.Errorf("parse expense category id: %w", err)
+	}
+	createdAt, err := dbutil.ParseTimestamp(row.CreatedAt)
+	if err != nil {
+		return ExpenseCategory{}, fmt.Errorf("parse category created_at: %w", err)
+	}
+	updatedAt, err := dbutil.ParseTimestamp(row.UpdatedAt)
+	if err != nil {
+		return ExpenseCategory{}, fmt.Errorf("parse category updated_at: %w", err)
+	}
+	category := ExpenseCategory{ID: id, Name: row.Name, Budget: row.Budget, IsActive: row.IsActive != 0, CreatedAt: createdAt, UpdatedAt: updatedAt}
+	if row.Description.Valid {
+		category.Description = row.Description.String
+	}
+	if row.Color.Valid {
+		category.Color = row.Color.String
+	}
+	if row.Icon.Valid {
+		category.Icon = row.Icon.String
+	}
+	return category, nil
+}
+
+func localExpenseFromRow(row localExpenseRow) (Expense, error) {
+	id, err := uuid.Parse(row.ID)
+	if err != nil {
+		return Expense{}, fmt.Errorf("parse expense id: %w", err)
+	}
+	categoryID := uuid.Nil
+	if row.CategoryID.Valid && row.CategoryID.String != "" {
+		categoryID, err = uuid.Parse(row.CategoryID.String)
+		if err != nil {
+			return Expense{}, fmt.Errorf("parse category id: %w", err)
+		}
+	}
+	expenseDate, err := dbutil.ParseTimestamp(row.ExpenseDate)
+	if err != nil {
+		return Expense{}, fmt.Errorf("parse expense date: %w", err)
+	}
+	createdAt, err := dbutil.ParseTimestamp(row.CreatedAt)
+	if err != nil {
+		return Expense{}, fmt.Errorf("parse created_at: %w", err)
+	}
+	updatedAt, err := dbutil.ParseTimestamp(row.UpdatedAt)
+	if err != nil {
+		return Expense{}, fmt.Errorf("parse updated_at: %w", err)
+	}
+	expense := Expense{ID: id, CategoryID: categoryID, Title: row.Title, Amount: row.Amount, Currency: row.Currency, ExpenseDate: expenseDate, IsRecurring: row.IsRecurring != 0, Status: row.Status, CreatedAt: createdAt, UpdatedAt: updatedAt}
+	if row.Description.Valid {
+		expense.Description = row.Description.String
+	}
+	if row.PaymentMethod.Valid {
+		expense.PaymentMethod = row.PaymentMethod.String
+	}
+	if row.Reference.Valid {
+		expense.Reference = row.Reference.String
+	}
+	if row.ReceiptURL.Valid {
+		expense.ReceiptURL = row.ReceiptURL.String
+	}
+	if row.RecurringPeriod.Valid {
+		expense.RecurringPeriod = row.RecurringPeriod.String
+	}
+	if row.ApprovedBy.Valid && row.ApprovedBy.String != "" {
+		if id, e := uuid.Parse(row.ApprovedBy.String); e == nil {
+			expense.ApprovedBy = &id
+		}
+	}
+	if row.CreatedBy.Valid && row.CreatedBy.String != "" {
+		if id, e := uuid.Parse(row.CreatedBy.String); e == nil {
+			expense.CreatedBy = id
+		}
+	}
+	return expense, nil
 }
 
 // NewRepository creates a new expense repository
@@ -48,6 +161,20 @@ func (r *Repository) CreateExpense(ctx context.Context, expense *Expense) error 
 
 // GetExpenseByID retrieves an expense by ID
 func (r *Repository) GetExpenseByID(ctx context.Context, id uuid.UUID) (*Expense, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row localExpenseRow
+		if err := r.db.GetContext(ctx, &row, `SELECT id, category_id, title, description, amount, currency, expense_date, payment_method, reference, receipt_url, is_recurring, recurring_period, approved_by, status, created_by, created_at, updated_at FROM expenses WHERE id = $1`, id); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrExpenseNotFound
+			}
+			return nil, fmt.Errorf("failed to get expense: %w", err)
+		}
+		expense, err := localExpenseFromRow(row)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse expense: %w", err)
+		}
+		return &expense, nil
+	}
 	var expense Expense
 	query := `
 		SELECT id, category_id, title, COALESCE(description, ''),
@@ -69,6 +196,81 @@ func (r *Repository) GetExpenseByID(ctx context.Context, id uuid.UUID) (*Expense
 
 // ListExpenses retrieves expenses with pagination and filters
 func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) ([]Expense, int, error) {
+	if dbutil.IsSQLite(r.db) {
+		if req.Page <= 0 {
+			req.Page = 1
+		}
+		if req.PerPage <= 0 || req.PerPage > 100 {
+			req.PerPage = 20
+		}
+		query := `SELECT id, category_id, title, description, amount, currency, expense_date, payment_method, reference, receipt_url, is_recurring, recurring_period, approved_by, status, created_by, created_at, updated_at FROM expenses WHERE 1=1`
+		countQuery := `SELECT COUNT(*) FROM expenses WHERE 1=1`
+		args := make([]interface{}, 0, 8)
+		argCount := 0
+		add := func(condition string, value interface{}) {
+			argCount++
+			query += fmt.Sprintf(" AND %s $%d", condition, argCount)
+			countQuery += fmt.Sprintf(" AND %s $%d", condition, argCount)
+			args = append(args, value)
+		}
+		if req.CategoryID != nil {
+			add("category_id =", *req.CategoryID)
+		}
+		if req.Status != "" {
+			add("status =", req.Status)
+		}
+		if req.PaymentMethod != "" {
+			add("payment_method =", req.PaymentMethod)
+		}
+		if req.IsRecurring != nil {
+			value := 0
+			if *req.IsRecurring {
+				value = 1
+			}
+			add("is_recurring =", value)
+		}
+		if req.StartDate != nil {
+			add("expense_date >=", *req.StartDate)
+		}
+		if req.EndDate != nil {
+			add("expense_date <=", *req.EndDate)
+		}
+		if req.Search != "" {
+			argCount++
+			condition := fmt.Sprintf("(LOWER(COALESCE(title, '')) LIKE LOWER($%d) OR LOWER(COALESCE(description, '')) LIKE LOWER($%d) OR LOWER(COALESCE(reference, '')) LIKE LOWER($%d))", argCount, argCount, argCount)
+			query += " AND " + condition
+			countQuery += " AND " + condition
+			args = append(args, "%"+req.Search+"%")
+		}
+		var count int
+		if err := r.db.GetContext(ctx, &count, countQuery, args...); err != nil {
+			return nil, 0, fmt.Errorf("failed to count expenses: %w", err)
+		}
+		sortColumns := map[string]string{"expense_date": "expense_date", "created_at": "created_at", "amount": "amount", "status": "status"}
+		sortBy := sortColumns[req.SortBy]
+		if sortBy == "" {
+			sortBy = "expense_date"
+		}
+		sortOrder := "DESC"
+		if strings.EqualFold(req.SortOrder, "asc") {
+			sortOrder = "ASC"
+		}
+		query += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", sortBy, sortOrder, argCount+1, argCount+2)
+		args = append(args, req.PerPage, (req.Page-1)*req.PerPage)
+		var rows []localExpenseRow
+		if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+			return nil, 0, fmt.Errorf("failed to list expenses: %w", err)
+		}
+		result := make([]Expense, 0, len(rows))
+		for _, row := range rows {
+			expense, err := localExpenseFromRow(row)
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to parse expense: %w", err)
+			}
+			result = append(result, expense)
+		}
+		return result, count, nil
+	}
 	var expenses []Expense
 	var count int
 
@@ -243,6 +445,20 @@ func (r *Repository) CreateExpenseCategory(ctx context.Context, category *Expens
 
 // GetExpenseCategoryByID retrieves an expense category by ID
 func (r *Repository) GetExpenseCategoryByID(ctx context.Context, id uuid.UUID) (*ExpenseCategory, error) {
+	if dbutil.IsSQLite(r.db) {
+		var row localExpenseCategoryRow
+		if err := r.db.GetContext(ctx, &row, `SELECT id, name, description, color, icon, budget, is_active, created_at, updated_at FROM expense_categories WHERE id = $1`, id); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrExpenseCategoryNotFound
+			}
+			return nil, fmt.Errorf("failed to get expense category: %w", err)
+		}
+		category, err := localExpenseCategoryFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		return &category, nil
+	}
 	var category ExpenseCategory
 	query := `
 		SELECT id, name, description, color, icon, budget, is_active, created_at, updated_at
@@ -262,6 +478,61 @@ func (r *Repository) GetExpenseCategoryByID(ctx context.Context, id uuid.UUID) (
 
 // ListExpenseCategories retrieves expense categories with pagination and filters
 func (r *Repository) ListExpenseCategories(ctx context.Context, req ExpenseCategoryListRequest) ([]ExpenseCategory, int, error) {
+	if dbutil.IsSQLite(r.db) {
+		if req.Page <= 0 {
+			req.Page = 1
+		}
+		if req.PerPage <= 0 || req.PerPage > 100 {
+			req.PerPage = 20
+		}
+		query := `SELECT id, name, description, color, icon, budget, is_active, created_at, updated_at FROM expense_categories WHERE 1=1`
+		countQuery := `SELECT COUNT(*) FROM expense_categories WHERE 1=1`
+		args := make([]interface{}, 0, 3)
+		argCount := 0
+		if req.IsActive != nil {
+			argCount++
+			query += fmt.Sprintf(" AND is_active = $%d", argCount)
+			countQuery += fmt.Sprintf(" AND is_active = $%d", argCount)
+			value := 0
+			if *req.IsActive {
+				value = 1
+			}
+			args = append(args, value)
+		}
+		if req.Search != "" {
+			argCount++
+			query += fmt.Sprintf(" AND (LOWER(COALESCE(name, '')) LIKE LOWER($%d) OR LOWER(COALESCE(description, '')) LIKE LOWER($%d))", argCount, argCount)
+			countQuery += fmt.Sprintf(" AND (LOWER(COALESCE(name, '')) LIKE LOWER($%d) OR LOWER(COALESCE(description, '')) LIKE LOWER($%d))", argCount, argCount)
+			args = append(args, "%"+req.Search+"%")
+		}
+		var count int
+		if err := r.db.GetContext(ctx, &count, countQuery, args...); err != nil {
+			return nil, 0, fmt.Errorf("failed to count expense categories: %w", err)
+		}
+		sortBy := "name"
+		if req.SortBy == "created_at" {
+			sortBy = "created_at"
+		}
+		sortOrder := "ASC"
+		if strings.EqualFold(req.SortOrder, "desc") {
+			sortOrder = "DESC"
+		}
+		query += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", sortBy, sortOrder, argCount+1, argCount+2)
+		args = append(args, req.PerPage, (req.Page-1)*req.PerPage)
+		var rows []localExpenseCategoryRow
+		if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+			return nil, 0, fmt.Errorf("failed to list expense categories: %w", err)
+		}
+		result := make([]ExpenseCategory, 0, len(rows))
+		for _, row := range rows {
+			category, err := localExpenseCategoryFromRow(row)
+			if err != nil {
+				return nil, 0, err
+			}
+			result = append(result, category)
+		}
+		return result, count, nil
+	}
 	var categories []ExpenseCategory
 	var count int
 

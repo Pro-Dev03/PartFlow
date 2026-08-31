@@ -197,6 +197,11 @@ func (h *LocalDatabaseHandler) SyncCloudData(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل حفظ بيانات السحابة محلياً", "details": err.Error()})
 		return
 	}
+	syncCompletedAt := time.Now().UTC().Format(time.RFC3339)
+	if err := localdb.SetMetadata(sqliteDB.DB, "last_cloud_sync_at", syncCompletedAt); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تسجيل اكتمال المزامنة المحلية", "details": err.Error()})
+		return
+	}
 
 	rowCounts := make(map[string]int, len(payload.Data))
 	for table, rawRows := range payload.Data {
@@ -207,9 +212,10 @@ func (h *LocalDatabaseHandler) SyncCloudData(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"source":      "cloud",
-			"destination": "local_sqlite",
-			"tables":      rowCounts,
+			"source":       "cloud",
+			"destination":  "local_sqlite",
+			"completed_at": syncCompletedAt,
+			"tables":       rowCounts,
 		},
 	})
 }

@@ -103,7 +103,7 @@ export default function UnifiedAIChat({
         };
         setMessages(prev => [...prev, assistantMessage]);
         setIsTyping(false);
-      }, 500 + Math.random() * 500);
+      }, 50);
 
       onSendMessage?.(userMessage.text);
     }
@@ -131,7 +131,7 @@ export default function UnifiedAIChat({
       };
       setMessages(prev => [...prev, assistantMessage]);
       setIsTyping(false);
-    }, 500 + Math.random() * 500);
+    }, 50);
 
     onSendMessage?.(question);
   };

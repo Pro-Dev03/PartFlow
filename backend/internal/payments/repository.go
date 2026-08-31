@@ -2,6 +2,7 @@ package payments
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -146,6 +147,21 @@ func (r *Repository) Create(ctx context.Context, payment *Payment) error {
 
 // GetByID retrieves a payment by ID
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Payment, error) {
+	if dbutil.IsSQLite(r.db) {
+		row := r.db.QueryRowxContext(ctx, `SELECT id, CASE WHEN customer_id IS NOT NULL THEN 'customer' WHEN supplier_id IS NOT NULL THEN 'supplier' ELSE '' END AS type, COALESCE(customer_id, supplier_id, '00000000-0000-0000-0000-000000000000') AS reference_id, amount, created_at AS payment_date, COALESCE(payment_method, '') AS method, reference, notes, 'completed' AS status, '00000000-0000-0000-0000-000000000000' AS created_by, created_at, created_at, 0 AS is_reversed, NULL AS reversed_at, NULL AS reversed_by, NULL AS reversal_reason, NULL AS reversal_payment_id FROM payments WHERE id = $1`, id)
+		record := map[string]any{}
+		if err := row.MapScan(record); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrPaymentNotFound
+			}
+			return nil, fmt.Errorf("failed to get payment: %w", err)
+		}
+		payment, err := parsePaymentMap(record)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse payment: %w", err)
+		}
+		return &payment, nil
+	}
 	query := `
 		SELECT id, COALESCE(type, '') AS type, COALESCE(reference_id, '00000000-0000-0000-0000-000000000000') AS reference_id,
 			amount, payment_date, COALESCE(method, payment_method) AS method,
@@ -172,6 +188,72 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Payment, error
 
 // List retrieves payments with pagination and filters
 func (r *Repository) List(ctx context.Context, page, perPage int, filters map[string]interface{}) ([]Payment, int, error) {
+	if dbutil.IsSQLite(r.db) {
+		if page <= 0 {
+			page = 1
+		}
+		if perPage <= 0 || perPage > 100 {
+			perPage = 20
+		}
+		query := `SELECT id, CASE WHEN customer_id IS NOT NULL THEN 'customer' WHEN supplier_id IS NOT NULL THEN 'supplier' ELSE '' END AS type, COALESCE(customer_id, supplier_id, '00000000-0000-0000-0000-000000000000') AS reference_id, amount, created_at AS payment_date, COALESCE(payment_method, '') AS method, reference, notes, 'completed' AS status, '00000000-0000-0000-0000-000000000000' AS created_by, created_at, created_at, 0 AS is_reversed, NULL AS reversed_at, NULL AS reversed_by, NULL AS reversal_reason, NULL AS reversal_payment_id FROM payments WHERE 1=1`
+		countQuery := `SELECT COUNT(*) FROM payments WHERE 1=1`
+		args := make([]interface{}, 0, 5)
+		argCount := 0
+		add := func(condition string, value interface{}) {
+			argCount++
+			query += fmt.Sprintf(" AND %s $%d", condition, argCount)
+			countQuery += fmt.Sprintf(" AND %s $%d", condition, argCount)
+			args = append(args, value)
+		}
+		if paymentType, ok := filters["type"].(string); ok && paymentType != "" {
+			switch paymentType {
+			case "customer":
+				query += " AND customer_id IS NOT NULL"
+				countQuery += " AND customer_id IS NOT NULL"
+			case "supplier":
+				query += " AND supplier_id IS NOT NULL"
+				countQuery += " AND supplier_id IS NOT NULL"
+			}
+		}
+		if referenceID, ok := filters["reference_id"].(uuid.UUID); ok {
+			add("(customer_id =", referenceID)
+			query += fmt.Sprintf(" OR supplier_id = $%d)", argCount)
+			countQuery += fmt.Sprintf(" OR supplier_id = $%d)", argCount)
+		}
+		if status, ok := filters["status"].(string); ok && status != "" && status != "completed" {
+			return []Payment{}, 0, nil
+		}
+		if method, ok := filters["method"].(string); ok && method != "" {
+			add("payment_method =", method)
+		}
+		var total int
+		if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
+			return nil, 0, fmt.Errorf("failed to count payments: %w", err)
+		}
+		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argCount+1, argCount+2)
+		args = append(args, perPage, (page-1)*perPage)
+		rows, err := r.db.QueryxContext(ctx, query, args...)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to list payments: %w", err)
+		}
+		defer rows.Close()
+		result := make([]Payment, 0)
+		for rows.Next() {
+			record := map[string]any{}
+			if err := rows.MapScan(record); err != nil {
+				return nil, 0, fmt.Errorf("failed to scan payment: %w", err)
+			}
+			payment, err := parsePaymentMap(record)
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to parse payment: %w", err)
+			}
+			result = append(result, payment)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, 0, fmt.Errorf("failed to iterate payments: %w", err)
+		}
+		return result, total, nil
+	}
 	offset := (page - 1) * perPage
 
 	query := `
@@ -298,6 +380,13 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 
 // GetPaymentSummary retrieves payment summary statistics
 func (r *Repository) GetPaymentSummary(ctx context.Context) (*PaymentSummary, error) {
+	if dbutil.IsSQLite(r.db) {
+		var summary PaymentSummary
+		if err := r.db.GetContext(ctx, &summary, `SELECT COALESCE(SUM(amount), 0) AS total_payments, COALESCE(SUM(amount), 0) AS completed_payments, 0 AS pending_payments, 0 AS cancelled_payments, 0 AS failed_payments, COUNT(*) AS total_count FROM payments`); err != nil {
+			return nil, fmt.Errorf("failed to get payment summary: %w", err)
+		}
+		return &summary, nil
+	}
 	query := `
 		SELECT 
 			COALESCE(SUM(amount), 0) as total_payments,

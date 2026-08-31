@@ -73,26 +73,13 @@ describe('auth store logout behavior', () => {
     expect(shouldRedirectToSubscriptionExpired(expiredError, '/app')).toBe(true);
   });
 
-  it('shows the subscription expired page without logging out when the local guard says the subscription has ended', () => {
+  it('requires internet verification before restoring a session', async () => {
     window.history.pushState({}, '', '/app');
+    vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    TokenManager.setToken('abc.def.ghi');
 
-    localStorage.setItem('auth_token', 'abc.def.ghi');
-    localStorage.setItem('partflow-subscription-guard', JSON.stringify({
-      subscriptionStatus: 'expired',
-      subscriptionExpiresAt: new Date(Date.now() - 60000).toISOString(),
-      token: 'abc.def.ghi',
-    }));
+    await useAuthStore.getState().checkAuth();
 
-    useAuthStore.setState({
-      isAuthenticated: true,
-      user: { id: '1', email: 'owner@partflow.com' } as any,
-      token: 'abc.def.ghi',
-      refreshTokenValue: 'refresh-xyz',
-    });
-
-    useAuthStore.getState().checkAuth();
-
-    expect(window.location.pathname).toBe('/subscription-expired');
-    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 });

@@ -106,7 +106,6 @@ export function POSPage() {
   const [manualProduct, setManualProduct] = useState({ name: '', price: '', quantity: '1', barcode: '' });
   const [unknownBarcode, setUnknownBarcode] = useState('');
   const [isHeldSalesOpen, setIsHeldSalesOpen] = useState(false);
-
   // Debounce search queries for better performance
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const debouncedCustomerSearchQuery = useDebounce(customerSearchQuery, 300);
@@ -257,13 +256,17 @@ export function POSPage() {
   });
 
   const createProductMutation = useMutation({
-    mutationFn: () => productsApi.create({
-      name: manualProduct.name.trim(),
-      selling_price: Number(manualProduct.price) || 0,
-      barcode: manualProduct.barcode.trim() || undefined,
-      condition: 'new',
-      stock: Number(manualProduct.quantity) || 1,
-    }),
+    mutationFn: async () => {
+      const payload = {
+        name: manualProduct.name.trim(),
+        selling_price: Number(manualProduct.price) || 0,
+        barcode: manualProduct.barcode.trim() || undefined,
+        condition: 'new',
+        stock: Number(manualProduct.quantity) || 1,
+      };
+
+      return productsApi.create(payload);
+    },
     onSuccess: (response) => {
       const product = (response?.data as { product?: PosCartProduct } | PosCartProduct)?.product ?? response?.data;
       if (product?.id) {
@@ -274,11 +277,24 @@ export function POSPage() {
       setManualProduct({ name: '', price: '', quantity: '1', barcode: '' });
       setIsManualProductOpen(false);
     },
+    onError: (error) => {
+      console.error('Product creation failed:', error);
+      const payload = {
+        name: manualProduct.name.trim(),
+        selling_price: Number(manualProduct.price) || 0,
+        barcode: manualProduct.barcode.trim() || undefined,
+        condition: 'new',
+        stock: Number(manualProduct.quantity) || 1,
+      };
+      toast.error('تعذر إضافة المنتج. تحقق من البيانات وحاول مرة أخرى.', 'فشل إضافة المنتج', 4000);
+    },
   });
 
   // Create sale mutation
   const createSaleMutation = useMutation({
-    mutationFn: (data: SaleRequest) => salesApi.create(data),
+    mutationFn: async (data: SaleRequest) => {
+      return salesApi.create(data);
+    },
     onSuccess: (response: SaleResponse) => {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -305,7 +321,6 @@ export function POSPage() {
       const apiError = error as { response?: { error?: { message?: string } }; arabicMessage?: string; message?: string };
       const message = apiError.response?.error?.message || apiError.arabicMessage || apiError.message || 'فشل إتمام البيع';
       const normalizedMessage = String(message).toLowerCase();
-
       if (normalizedMessage.includes('insufficient stock') || normalizedMessage.includes('نفذ') || normalizedMessage.includes('مخزون')) {
         toast.error('هذا النوع قد نفذ من المخزون', 'مخزون غير كافٍ', 4000);
       } else {
@@ -327,6 +342,7 @@ export function POSPage() {
       toast.error('أضف منتجًا إلى السلة قبل تعليق البيع', 'السلة فارغة');
       return;
     }
+
     holdSaleMutation.mutate();
   };
 

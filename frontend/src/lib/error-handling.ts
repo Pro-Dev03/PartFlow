@@ -110,13 +110,15 @@ export class AppError extends Error {
 
 export function handleApiError(error: any): string {
   console.error('API Error:', error);
-  
+
   if (isAuthError(error)) {
     // Redirect to login or trigger re-auth
     setTimeout(() => {
-      window.location.href = '/login';
+      const currentUrl = new URL(window.location.href);
+      currentUrl.hash = '#/login';
+      window.location.href = currentUrl.toString();
     }, 2000);
   }
-  
+
   return getErrorMessage(error);
 }

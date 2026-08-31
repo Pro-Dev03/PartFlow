@@ -131,7 +131,9 @@ export function LoginPage() {
                 {isDark ? <Sun style={{ width: '18px', height: '18px' }} /> : <Moon style={{ width: '18px', height: '18px' }} />}
               </button>
             </div>
-            <LoginForm isDark={isDark} isLoading={isLoading} onSubmit={handleSubmit} />
+            <div style={{ width: '100%', maxWidth: '360px', margin: '0 auto' }}>
+              <LoginForm isDark={isDark} isLoading={isLoading} onSubmit={handleSubmit} />
+            </div>
           </div>
         </div>
       </div>

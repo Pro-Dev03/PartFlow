@@ -1,5 +1,5 @@
 import { getArabicErrorMessage, isRetryableError } from '../../lib/error-messages';
-import { appConfig } from '../../lib/config/app';
+import { appConfig, getActiveApiUrl, getCloudApiUrl } from '../../lib/config/app';
 import { TokenManager } from '../../lib/token-manager';
 
 const API_BASE_URL = appConfig.apiUrl;
@@ -46,8 +46,14 @@ class ApiClient {
     this.clearCache();
   }
 
+  private getBaseURL(): string {
+    const nextBaseUrl = getActiveApiUrl() || this.baseURL;
+    this.baseURL = nextBaseUrl;
+    return nextBaseUrl;
+  }
+
   private getCacheKey(endpoint: string, options: RequestInit): string {
-    return `${endpoint}:${JSON.stringify(options)}`;
+    return `${this.getBaseURL()}:${endpoint}:${JSON.stringify(options)}`;
   }
 
   private getFromCache<T>(key: string): ApiResponse<T> | null {
@@ -141,7 +147,13 @@ class ApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
-    const url = `${this.baseURL}${endpoint}`;
+    const baseURL = this.getBaseURL();
+    const url = `${baseURL}${endpoint}`;
+    const authHeader = TokenManager.getToken();
+
+    if (authHeader && !this.token) {
+      this.token = authHeader;
+    }
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -172,7 +184,7 @@ class ApiClient {
         if (response.status === 401 && this.token) {
           try {
             // Try to refresh token using auth API directly
-            const refreshResponse = await fetch(`${this.baseURL}/auth/refresh`, {
+            const refreshResponse = await fetch(`${baseURL}/auth/refresh`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -227,18 +239,20 @@ class ApiClient {
         }
 
         if (response.status === 403) {
-          if (typeof window !== 'undefined' && !window.location.pathname.includes('/subscription-expired')) {
+          if (typeof window !== 'undefined' && !window.location.hash.includes('/subscription-expired')) {
             try {
-              window.history.pushState({}, '', '/subscription-expired');
-              window.dispatchEvent(new PopStateEvent('popstate'));
+              window.location.hash = '#/subscription-expired';
+              window.dispatchEvent(new HashChangeEvent('hashchange'));
             } catch {
-              window.location.href = '/subscription-expired';
+              const currentUrl = new URL(window.location.href);
+              currentUrl.hash = '#/subscription-expired';
+              window.location.href = currentUrl.toString();
             }
           }
-          const subscriptionError: any = new Error('انتهت مدة اشتراكك. يرجى التواصل مع المطور لتجديد الاشتراك.');
+          const subscriptionError: any = new Error('اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة.');
           subscriptionError.status = 403;
           subscriptionError.code = 'SUBSCRIPTION_EXPIRED';
-          subscriptionError.arabicMessage = 'انتهت مدة اشتراكك. يرجى التواصل مع المطور لتجديد الاشتراك.';
+          subscriptionError.arabicMessage = 'اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة.';
           throw subscriptionError;
         }
         
@@ -275,6 +289,43 @@ class ApiClient {
       }
 
       throw error;
+    }
+  }
+
+  private async ensureMutationAllowed(endpoint: string): Promise<void> {
+    // Business data may be written to the local API/SQLite database, but the
+    // cloud remains the authority for whether the account may use the app.
+    if (endpoint.startsWith('/auth/')) return;
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error('يلزم اتصال بالإنترنت للتحقق من الاشتراك قبل تنفيذ العملية.');
+    }
+
+    const token = TokenManager.getToken();
+    if (!token) {
+      throw new Error('يلزم تسجيل الدخول قبل تنفيذ العملية.');
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`${getCloudApiUrl()}/auth/validate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: '{}',
+      });
+    } catch {
+      throw new Error('تعذر الاتصال بالخادم للتحقق من الاشتراك. لم تُنفذ العملية.');
+    }
+
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        this.logout();
+        if (typeof window !== 'undefined') window.location.hash = '#/subscription-expired';
+      }
+      throw new Error('الحساب غير نشط أو أن الاشتراك منتهٍ. لم تُنفذ العملية.');
     }
   }
 
@@ -316,6 +367,7 @@ class ApiClient {
   }
 
   async post<T = any>(endpoint: string, body: any): Promise<ApiResponse<T>> {
+    await this.ensureMutationAllowed(endpoint);
     this.clearCachePattern(endpoint.split('/')[1]); // Clear cache for related endpoints
     return this.requestWithRetry<T>(endpoint, {
       method: 'POST',
@@ -324,6 +376,7 @@ class ApiClient {
   }
 
   async put<T = any>(endpoint: string, body: any): Promise<ApiResponse<T>> {
+    await this.ensureMutationAllowed(endpoint);
     this.clearCachePattern(endpoint.split('/')[1]); // Clear cache for related endpoints
     return this.requestWithRetry<T>(endpoint, {
       method: 'PUT',
@@ -332,6 +385,7 @@ class ApiClient {
   }
 
   async patch<T = any>(endpoint: string, body: any): Promise<ApiResponse<T>> {
+    await this.ensureMutationAllowed(endpoint);
     this.clearCachePattern(endpoint.split('/')[1]); // Clear cache for related endpoints
     return this.requestWithRetry<T>(endpoint, {
       method: 'PATCH',
@@ -340,6 +394,7 @@ class ApiClient {
   }
 
   async delete<T = any>(endpoint: string, params?: any): Promise<ApiResponse<T>> {
+    await this.ensureMutationAllowed(endpoint);
     // Build URL with query parameters
     let url = endpoint;
     if (params && Object.keys(params).length > 0) {

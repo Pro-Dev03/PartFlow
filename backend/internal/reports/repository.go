@@ -9,11 +9,27 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Repository handles report data operations
 type Repository struct {
 	db *sqlx.DB
+}
+
+// reportTimestamp accepts both PostgreSQL timestamps and the TEXT timestamps
+// used by the local SQLite store.  SQLite returns TEXT values for date
+// expressions (DATE/strftime), so scanning directly into time.Time silently
+// dropped rows from several reports.
+type reportTimestamp struct{ time.Time }
+
+func (t *reportTimestamp) Scan(value any) error {
+	parsed, err := dbutil.ParseTimestamp(value)
+	if err != nil {
+		return err
+	}
+	t.Time = parsed
+	return nil
 }
 
 // NewRepository creates a new report repository
@@ -301,9 +317,11 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 
 		for rows.Next() {
 			var daily DailySales
-			if err := rows.Scan(&daily.Date, &daily.Sales, &daily.Revenue); err != nil {
+			var date reportTimestamp
+			if err := rows.Scan(&date, &daily.Sales, &daily.Revenue); err != nil {
 				continue
 			}
+			daily.Date = date.Time
 			report.ByDay = append(report.ByDay, daily)
 		}
 	}
@@ -463,8 +481,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 	}
 	rows.Close()
 
-	rows, err = r.db.QueryContext(ctx,
-		`SELECT p.id, p.name,
+	overstockQuery := `SELECT p.id, p.name,
 		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'),
 		        (SELECT COALESCE(SUM(si.quantity), 0) / 3 FROM sale_items si
 		         JOIN sales s ON s.id = si.sale_id
@@ -487,7 +504,34 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		                  JOIN sales s ON s.id = si.sale_id
 		                  WHERE si.product_id = p.id AND s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
 		                    AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 1) >= 6)
-		 ORDER BY 3 DESC`)
+		 ORDER BY 3 DESC`
+	if dbutil.IsSQLite(r.db) {
+		overstockQuery = `SELECT p.id, p.name,
+		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'),
+		        (SELECT COALESCE(SUM(si.quantity), 0) / 3.0 FROM sale_items si
+		         JOIN sales s ON s.id = si.sale_id
+		         WHERE si.product_id = p.id AND s.sale_date >= datetime('now', '-90 days')
+		           AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')),
+		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE') /
+		        MAX((SELECT COALESCE(SUM(si.quantity), 0) / 3.0 FROM sale_items si
+		                  JOIN sales s ON s.id = si.sale_id
+		                  WHERE si.product_id = p.id AND s.sale_date >= datetime('now', '-90 days')
+		                    AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 1)
+		 FROM products p
+		 WHERE p.is_active = 1 AND p.deleted_at IS NULL
+		   AND (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE') > 0
+		   AND ((SELECT COALESCE(SUM(si.quantity), 0) FROM sale_items si
+		         JOIN sales s ON s.id = si.sale_id
+		         WHERE si.product_id = p.id AND s.sale_date >= datetime('now', '-90 days')
+		           AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) = 0 OR
+		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE') /
+		        MAX((SELECT COALESCE(SUM(si.quantity), 0) / 3.0 FROM sale_items si
+		                  JOIN sales s ON s.id = si.sale_id
+		                  WHERE si.product_id = p.id AND s.sale_date >= datetime('now', '-90 days')
+		                    AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 1) >= 6)
+		 ORDER BY 3 DESC`
+	}
+	rows, err = r.db.QueryContext(ctx, overstockQuery)
 	if err == nil {
 		for rows.Next() {
 			var item OverstockItem
@@ -498,8 +542,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		rows.Close()
 	}
 
-	rows, err = r.db.QueryContext(ctx,
-		`SELECT p.id, p.name, COUNT(ii.id), COALESCE(MAX(s.sale_date), DATE '0001-01-01'),
+	stagnantQuery := `SELECT p.id, p.name, COUNT(ii.id), COALESCE(MAX(s.sale_date), DATE '0001-01-01'),
 		        CURRENT_DATE - COALESCE(MAX(s.sale_date), DATE '0001-01-01'),
 		        COALESCE(SUM(ii.purchase_cost), 0)
 		 FROM products p
@@ -510,11 +553,28 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		 WHERE p.is_active = true AND p.deleted_at IS NULL
 		 GROUP BY p.id, p.name
 		 HAVING CURRENT_DATE - COALESCE(MAX(s.sale_date), DATE '0001-01-01') >= 30
-		 ORDER BY CURRENT_DATE - COALESCE(MAX(s.sale_date), DATE '0001-01-01') DESC`)
+		 ORDER BY CURRENT_DATE - COALESCE(MAX(s.sale_date), DATE '0001-01-01') DESC`
+	if dbutil.IsSQLite(r.db) {
+		stagnantQuery = `SELECT p.id, p.name, COUNT(ii.id), COALESCE(MAX(s.sale_date), '0001-01-01T00:00:00Z'),
+		        CAST(julianday('now') - julianday(COALESCE(MAX(s.sale_date), '0001-01-01T00:00:00Z')) AS INTEGER),
+		        COALESCE(SUM(ii.purchase_cost), 0)
+		 FROM products p
+		 JOIN inventory_items ii ON ii.product_id = p.id AND ii.status = 'AVAILABLE'
+		 LEFT JOIN sale_items si ON si.product_id = p.id
+		 LEFT JOIN sales s ON s.id = si.sale_id
+		   AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
+		 WHERE p.is_active = 1 AND p.deleted_at IS NULL
+		 GROUP BY p.id, p.name
+		 HAVING julianday('now') - julianday(COALESCE(MAX(s.sale_date), '0001-01-01T00:00:00Z')) >= 30
+		 ORDER BY julianday('now') - julianday(COALESCE(MAX(s.sale_date), '0001-01-01T00:00:00Z')) DESC`
+	}
+	rows, err = r.db.QueryContext(ctx, stagnantQuery)
 	if err == nil {
 		for rows.Next() {
 			var item StagnantItem
-			if err := rows.Scan(&item.ProductID, &item.ProductName, &item.CurrentStock, &item.LastSaleDate, &item.DaysSinceSale, &item.Value); err == nil {
+			var lastSale reportTimestamp
+			if err := rows.Scan(&item.ProductID, &item.ProductName, &item.CurrentStock, &lastSale, &item.DaysSinceSale, &item.Value); err == nil {
+				item.LastSaleDate = lastSale.Time
 				report.StagnantItems = append(report.StagnantItems, item)
 			}
 		}
@@ -583,18 +643,27 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 		}
 	}
 
-	rows, err = r.db.QueryContext(ctx,
-		`SELECT DATE_TRUNC('month', expense_date), COALESCE(SUM(amount), 0)
+	monthlyExpensesQuery := `SELECT DATE_TRUNC('month', expense_date), COALESCE(SUM(amount), 0)
 		 FROM expenses
 		 WHERE expense_date >= $1 AND expense_date < $2
 		   AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
 		 GROUP BY DATE_TRUNC('month', expense_date)
-		 ORDER BY DATE_TRUNC('month', expense_date)`,
-		startDate, endDate)
+		 ORDER BY DATE_TRUNC('month', expense_date)`
+	if dbutil.IsSQLite(r.db) {
+		monthlyExpensesQuery = `SELECT strftime('%Y-%m-01', expense_date), COALESCE(SUM(amount), 0)
+		 FROM expenses
+		 WHERE expense_date >= $1 AND expense_date < $2
+		   AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
+		 GROUP BY strftime('%Y-%m', expense_date)
+		 ORDER BY strftime('%Y-%m', expense_date)`
+	}
+	rows, err = r.db.QueryContext(ctx, monthlyExpensesQuery, startDate, endDate)
 	if err == nil {
 		for rows.Next() {
 			var monthly MonthlyExpenses
-			if err := rows.Scan(&monthly.Month, &monthly.Amount); err == nil {
+			var month reportTimestamp
+			if err := rows.Scan(&month, &monthly.Amount); err == nil {
+				monthly.Month = month.Time
 				report.ByMonth = append(report.ByMonth, monthly)
 			}
 		}
@@ -653,8 +722,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		report.ProfitMargin = 0
 	}
 	report.ByMonth = []MonthlyProfit{}
-	rows, err := r.db.QueryContext(ctx,
-		`WITH sales_by_month AS (
+	monthlyProfitsQuery := `WITH sales_by_month AS (
 		        SELECT DATE_TRUNC('month', s.sale_date) AS month,
 		               COALESCE(SUM(s.total_amount), 0) AS revenue
 		        FROM sales s
@@ -683,13 +751,46 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		FROM sales_by_month s
 		LEFT JOIN cogs_by_month c ON c.month = s.month
 		LEFT JOIN expenses_by_month e ON e.month = s.month
-		ORDER BY s.month`,
-		startDate, endDate)
+		ORDER BY s.month`
+	if dbutil.IsSQLite(r.db) {
+		monthlyProfitsQuery = `WITH sales_by_month AS (
+		        SELECT strftime('%Y-%m', s.sale_date) AS month,
+		               COALESCE(SUM(s.total_amount), 0) AS revenue
+		        FROM sales s
+		        WHERE s.sale_date >= $1 AND s.sale_date < $2
+		          AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
+		        GROUP BY strftime('%Y-%m', s.sale_date)
+		),
+		cogs_by_month AS (
+		        SELECT strftime('%Y-%m', s.sale_date) AS month,
+		               COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, 0)), 0) AS cogs
+		        FROM sales s JOIN sale_items si ON si.sale_id = s.id
+		        WHERE s.sale_date >= $1 AND s.sale_date < $2
+		          AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
+		        GROUP BY strftime('%Y-%m', s.sale_date)
+		),
+		expenses_by_month AS (
+		        SELECT strftime('%Y-%m', expense_date) AS month,
+		               COALESCE(SUM(amount), 0) AS expenses
+		        FROM expenses
+		        WHERE expense_date >= $1 AND expense_date < $2
+		          AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
+		        GROUP BY strftime('%Y-%m', expense_date)
+		)
+		SELECT s.month || '-01', s.revenue, COALESCE(c.cogs, 0), COALESCE(e.expenses, 0)
+		FROM sales_by_month s
+		LEFT JOIN cogs_by_month c ON c.month = s.month
+		LEFT JOIN expenses_by_month e ON e.month = s.month
+		ORDER BY s.month`
+	}
+	rows, err := r.db.QueryContext(ctx, monthlyProfitsQuery, startDate, endDate)
 	if err == nil {
 		for rows.Next() {
 			var month MonthlyProfit
 			var cogs, expenses float64
-			if err := rows.Scan(&month.Month, &month.Revenue, &cogs, &expenses); err == nil {
+			var monthDate reportTimestamp
+			if err := rows.Scan(&monthDate, &month.Revenue, &cogs, &expenses); err == nil {
+				month.Month = monthDate.Time
 				month.COGS = cogs
 				month.GrossProfit = month.Revenue - cogs
 				month.Expenses = expenses
@@ -777,10 +878,12 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 	}
 	for rows.Next() {
 		var item CustomerDebt
-		if err := rows.Scan(&item.CustomerID, &item.CustomerName, &item.TotalDebt, &item.PaidAmount, &item.Outstanding, &item.OverdueAmount, &item.LastPayment); err != nil {
+		var lastPayment reportTimestamp
+		if err := rows.Scan(&item.CustomerID, &item.CustomerName, &item.TotalDebt, &item.PaidAmount, &item.Outstanding, &item.OverdueAmount, &lastPayment); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("failed to scan debt customer: %w", err)
 		}
+		item.LastPayment = lastPayment.Time
 		report.ByCustomer = append(report.ByCustomer, item)
 	}
 	rows.Close()
@@ -808,7 +911,9 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 	if err == nil {
 		for rows.Next() {
 			var payment PaymentRecord
-			if err := rows.Scan(&payment.Date, &payment.CustomerID, &payment.CustomerName, &payment.Amount); err == nil {
+			var paymentDate reportTimestamp
+			if err := rows.Scan(&paymentDate, &payment.CustomerID, &payment.CustomerName, &payment.Amount); err == nil {
+				payment.Date = paymentDate.Time
 				report.PaymentHistory = append(report.PaymentHistory, payment)
 			}
 		}
@@ -893,18 +998,27 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 		rows.Close()
 	}
 	report.ByMonth = []MonthlyPurchases{}
-	rows, err = r.db.QueryContext(ctx,
-		`SELECT DATE_TRUNC('month', purchase_date), COALESCE(SUM(total_amount), 0), COUNT(*)
+	monthlyPurchasesQuery := `SELECT DATE_TRUNC('month', purchase_date), COALESCE(SUM(total_amount), 0), COUNT(*)
 			 FROM purchases
 		 WHERE purchase_date >= $1 AND purchase_date < $2
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 			 GROUP BY strftime('%Y-%m', purchase_date)
-			 ORDER BY strftime('%Y-%m', purchase_date)`,
-		startDate, endDate)
+			 ORDER BY strftime('%Y-%m', purchase_date)`
+	if dbutil.IsSQLite(r.db) {
+		monthlyPurchasesQuery = `SELECT strftime('%Y-%m-01', purchase_date), COALESCE(SUM(total_amount), 0), COUNT(*)
+			 FROM purchases
+		 WHERE purchase_date >= $1 AND purchase_date < $2
+		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
+		 GROUP BY strftime('%Y-%m', purchase_date)
+		 ORDER BY strftime('%Y-%m', purchase_date)`
+	}
+	rows, err = r.db.QueryContext(ctx, monthlyPurchasesQuery, startDate, endDate)
 	if err == nil {
 		for rows.Next() {
 			var month MonthlyPurchases
-			if err := rows.Scan(&month.Month, &month.Cost, &month.Count); err == nil {
+			var monthDate reportTimestamp
+			if err := rows.Scan(&monthDate, &month.Cost, &month.Count); err == nil {
+				month.Month = monthDate.Time
 				report.ByMonth = append(report.ByMonth, month)
 			}
 		}
@@ -986,18 +1100,27 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 	}
 
 	report.ByMonth = []MonthlyReturns{}
-	rows, err = r.db.QueryContext(ctx,
-		`SELECT DATE_TRUNC('month', return_date), COUNT(*), COALESCE(SUM(total_refund_amount), 0)
+	monthlyReturnsQuery := `SELECT DATE_TRUNC('month', return_date), COUNT(*), COALESCE(SUM(total_refund_amount), 0)
 			 FROM returns
 			 WHERE return_date >= $1 AND return_date <= $2
 			   AND status = 'COMPLETED'
 			 GROUP BY strftime('%Y-%m', return_date)
-			 ORDER BY strftime('%Y-%m', return_date)`,
-		startDate, endDate)
+			 ORDER BY strftime('%Y-%m', return_date)`
+	if dbutil.IsSQLite(r.db) {
+		monthlyReturnsQuery = `SELECT strftime('%Y-%m-01', return_date), COUNT(*), COALESCE(SUM(total_refund_amount), 0)
+			 FROM returns
+		 WHERE return_date >= $1 AND return_date <= $2
+		   AND status = 'COMPLETED'
+		 GROUP BY strftime('%Y-%m', return_date)
+		 ORDER BY strftime('%Y-%m', return_date)`
+	}
+	rows, err = r.db.QueryContext(ctx, monthlyReturnsQuery, startDate, endDate)
 	if err == nil {
 		for rows.Next() {
 			var monthly MonthlyReturns
-			if err := rows.Scan(&monthly.Month, &monthly.Count, &monthly.Amount); err == nil {
+			var month reportTimestamp
+			if err := rows.Scan(&month, &monthly.Count, &monthly.Amount); err == nil {
+				monthly.Month = month.Time
 				report.ByMonth = append(report.ByMonth, monthly)
 			}
 		}
@@ -1096,9 +1219,11 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 
 		for rows.Next() {
 			var daily DailyNetSales
-			if err := rows.Scan(&daily.Date, &daily.GrossSales, &daily.GrossRevenue, &daily.Returns, &daily.Refunded); err != nil {
+			var date reportTimestamp
+			if err := rows.Scan(&date, &daily.GrossSales, &daily.GrossRevenue, &daily.Returns, &daily.Refunded); err != nil {
 				continue
 			}
+			daily.Date = date.Time
 			daily.NetSales = daily.GrossSales - daily.Returns
 			daily.NetRevenue = daily.GrossRevenue - daily.Refunded
 			report.ByDay = append(report.ByDay, daily)

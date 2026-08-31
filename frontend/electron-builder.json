@@ -1,0 +1,64 @@
+{
+  "appId": "com.partflow.desktop",
+  "productName": "PartFlow",
+  "artifactName": "PartFlow-${version}-${arch}.${ext}",
+  "directories": {
+    "output": "dist-electron",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "../dist/windows-release/partflow-api.exe",
+      "to": "backend/partflow-api.exe"
+    },
+    {
+      "from": "../local-partflow.db",
+      "to": "partflow.db"
+    }
+  ],
+  "extraMetadata": {
+    "main": "electron/main.js"
+  },
+  "icon": "build/icon",
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "build/icon.ico",
+    "requestedExecutionLevel": "asInvoker",
+    "signAndEditExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "deleteAppDataOnUninstall": false,
+    "installerIcon": "build/icon.ico",
+    "uninstallerIcon": "build/icon.ico",
+    "shortcutName": "PartFlow",
+    "artifactName": "PartFlow-${version}-setup.exe"
+  },
+  "portable": {
+    "artifactName": "PartFlow-${version}-portable.exe"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "icon": "build/icon.png",
+    "category": "Office"
+  },
+  "mac": {
+    "target": ["dmg"],
+    "icon": "build/icon.icns"
+  }
+}

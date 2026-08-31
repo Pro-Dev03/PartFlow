@@ -100,6 +100,8 @@ func TestOpenInitializesLocalDatabase(t *testing.T) {
 		"inventory_items", "sales", "sale_items",
 		"purchases", "purchase_items", "payments", "debts",
 		"expense_categories", "expenses", "returns", "return_items", "warranty_claims",
+		"locations", "inventory_movements", "reservations", "customer_ledger",
+		"supplier_ledger", "ledger_entries", "inspection_items",
 	}
 
 	for _, table := range requiredTables {
@@ -191,12 +193,12 @@ func TestSeedLocalSnapshotFromOnlineData(t *testing.T) {
 
 	dataset := map[string]any{
 		"products": []map[string]any{{
-			"id":         "prod-1",
-			"sku":        "SKU-1",
-			"name":       "Oil Filter",
+			"id":            "prod-1",
+			"sku":           "SKU-1",
+			"name":          "Oil Filter",
 			"selling_price": 120.5,
-			"created_at": "2026-08-30T00:00:00Z",
-			"updated_at": "2026-08-30T00:00:00Z",
+			"created_at":    "2026-08-30T00:00:00Z",
+			"updated_at":    "2026-08-30T00:00:00Z",
 		}},
 		"customers": []map[string]any{{
 			"id":         "cust-1",
@@ -204,6 +206,14 @@ func TestSeedLocalSnapshotFromOnlineData(t *testing.T) {
 			"name":       "Ahmad",
 			"created_at": "2026-08-30T00:00:00Z",
 			"updated_at": "2026-08-30T00:00:00Z",
+		}},
+		"customer_ledger": []map[string]any{{
+			"id": "customer-ledger-1", "customer_id": "cust-1", "type": "debit", "amount": 25,
+			"balance": 25, "description": "Invoice", "created_at": "2026-08-30T00:00:00Z",
+		}},
+		"locations": []map[string]any{{
+			"id": "location-1", "name": "Main", "type": "warehouse", "is_active": true,
+			"created_at": "2026-08-30T00:00:00Z", "updated_at": "2026-08-30T00:00:00Z",
 		}},
 	}
 
@@ -219,5 +229,74 @@ func TestSeedLocalSnapshotFromOnlineData(t *testing.T) {
 	var customerCount int
 	if err := database.DB.QueryRow("SELECT COUNT(*) FROM customers WHERE id = ?", "cust-1").Scan(&customerCount); err != nil || customerCount != 1 {
 		t.Fatalf("customers row not synced: count=%d err=%v", customerCount, err)
+	}
+
+	var ledgerCount, locationCount int
+	if err := database.DB.QueryRow("SELECT COUNT(*) FROM customer_ledger WHERE id = ?", "customer-ledger-1").Scan(&ledgerCount); err != nil || ledgerCount != 1 {
+		t.Fatalf("customer ledger row not synced: count=%d err=%v", ledgerCount, err)
+	}
+	if err := database.DB.QueryRow("SELECT COUNT(*) FROM locations WHERE id = ?", "location-1").Scan(&locationCount); err != nil || locationCount != 1 {
+		t.Fatalf("location row not synced: count=%d err=%v", locationCount, err)
+	}
+}
+
+func TestSeedLocalSnapshotCloudSchemaAliases(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cloud-shape.db")
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", path)
+
+	database, err := Open()
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer database.DB.Close()
+
+	dataset := map[string]any{
+		"categories": []map[string]any{{
+			"id": "cat-1", "name": "Filters", "created_at": "2026-08-30T00:00:00Z", "updated_at": "2026-08-30T00:00:00Z",
+		}},
+		"products": []map[string]any{{
+			"id": "prod-1", "sku": "SKU-1", "name": "Oil Filter", "barcode": "123", "category_id": "cat-1",
+			"cost_price": 50, "selling_price": 80, "created_at": "2026-08-30T00:00:00Z", "updated_at": "2026-08-30T00:00:00Z",
+		}},
+		"customers": []map[string]any{{
+			"id": "cust-1", "code": "C-001", "name": "Ahmad", "created_at": "2026-08-30T00:00:00Z", "updated_at": "2026-08-30T00:00:00Z",
+		}},
+		"sales": []map[string]any{{
+			"id": "sale-1", "invoice_number": "INV-1", "customer_id": "cust-1", "sale_date": "2026-08-30",
+			"subtotal": 80, "total_amount": 80, "paid_amount": 80, "remaining_amount": 0, "status": "completed",
+			"created_at": "2026-08-30T00:00:00Z", "updated_at": "2026-08-30T00:00:00Z",
+		}},
+		"sale_items": []map[string]any{{
+			"id": "sale-item-1", "sale_id": "sale-1", "product_id": "prod-1", "quantity": 1, "unit_price": 80,
+			"total_amount": 80, "created_at": "2026-08-30T00:00:00Z",
+		}},
+		"expenses": []map[string]any{{
+			"id": "expense-1", "reference_number": "EXP-1", "category": "Rent", "amount": 100,
+			"description": "Monthly rent", "expense_date": "2026-08-30", "created_at": "2026-08-30T00:00:00Z", "updated_at": "2026-08-30T00:00:00Z",
+		}},
+		"debts": []map[string]any{{
+			"id": "debt-1", "customer_id": "cust-1", "amount": 25, "remaining_amount": 25,
+			"due_date": "2026-09-30", "status": "pending", "created_at": "2026-08-30T00:00:00Z", "updated_at": "2026-08-30T00:00:00Z",
+		}},
+	}
+
+	if err := SeedLocalSnapshot(database.DB, dataset); err != nil {
+		t.Fatalf("SeedLocalSnapshot() error = %v", err)
+	}
+
+	var saleNumber, productBarcode, expenseTitle string
+	if err := database.DB.QueryRow("SELECT sale_number FROM sales WHERE id = ?", "sale-1").Scan(&saleNumber); err != nil || saleNumber != "INV-1" {
+		t.Fatalf("sale alias not synced: value=%q err=%v", saleNumber, err)
+	}
+	if err := database.DB.QueryRow("SELECT barcode FROM products WHERE id = ?", "prod-1").Scan(&productBarcode); err != nil || productBarcode != "123" {
+		t.Fatalf("product barcode not synced: value=%q err=%v", productBarcode, err)
+	}
+	if err := database.DB.QueryRow("SELECT title FROM expenses WHERE id = ?", "expense-1").Scan(&expenseTitle); err != nil || expenseTitle != "Monthly rent" {
+		t.Fatalf("expense title fallback not synced: value=%q err=%v", expenseTitle, err)
+	}
+
+	var debtPaid float64
+	if err := database.DB.QueryRow("SELECT paid_amount FROM debts WHERE id = ?", "debt-1").Scan(&debtPaid); err != nil || debtPaid != 0 {
+		t.Fatalf("debt paid amount default incorrect: value=%v err=%v", debtPaid, err)
 	}
 }

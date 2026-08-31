@@ -1,7 +1,9 @@
 package sync
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -9,6 +11,53 @@ import (
 
 type Handler struct {
 	db *sqlx.DB
+}
+
+// The cloud schema is single-tenant: most operational tables do not have a
+// user_id column. The protected route already validates the subscriber, so
+// filtering those tables by user_id would silently return an empty snapshot.
+var snapshotTables = []struct {
+	key      string
+	table    string
+	required bool
+}{
+	{key: "categories", table: "categories", required: true},
+	{key: "brands", table: "brands"},
+	{key: "suppliers", table: "suppliers", required: true},
+	{key: "customers", table: "customers", required: true},
+	{key: "customer_ledger", table: "customer_ledger"},
+	{key: "supplier_ledger", table: "supplier_ledger"},
+	{key: "ledger_entries", table: "ledger_entries"},
+	{key: "products", table: "products", required: true},
+	{key: "inventory", table: "inventory"},
+	{key: "locations", table: "locations"},
+	{key: "inventory_items", table: "inventory_items", required: true},
+	{key: "inventory_movements", table: "inventory_movements"},
+	{key: "reservations", table: "reservations"},
+	{key: "barcodes", table: "barcodes"},
+	{key: "sales", table: "sales", required: true},
+	{key: "sale_items", table: "sale_items", required: true},
+	{key: "purchases", table: "purchases", required: true},
+	{key: "purchase_items", table: "purchase_items", required: true},
+	{key: "payments", table: "payments", required: true},
+	{key: "debts", table: "debts", required: true},
+	{key: "expenses", table: "expenses", required: true},
+	{key: "expense_categories", table: "expense_categories"},
+	{key: "seller_payments", table: "seller_payments"},
+	{key: "supplier_returns", table: "supplier_returns"},
+	{key: "supplier_return_items", table: "supplier_return_items"},
+	{key: "inspections", table: "inspections"},
+	{key: "inspection_items", table: "inspection_items"},
+	{key: "part_types", table: "part_types"},
+	{key: "acquisitions", table: "acquisitions"},
+	{key: "acquisition_items", table: "acquisition_items"},
+	{key: "returns", table: "returns"},
+	{key: "return_items", table: "return_items"},
+	{key: "notifications", table: "notifications"},
+	{key: "notification_preferences", table: "notification_preferences"},
+	{key: "reports", table: "reports"},
+	{key: "settings", table: "settings"},
+	{key: "held_sales", table: "held_sales"},
 }
 
 func NewHandler(db *sqlx.DB) *Handler {
@@ -26,21 +75,22 @@ func (h *Handler) GetInitialData(c *gin.Context) {
 		return
 	}
 
-	data := gin.H{
-		"customers":    h.getCustomersData(userID),
-		"products":     h.getProductsData(userID),
-		"categories":   h.getCategoriesData(userID),
-		"suppliers":    h.getSuppliersData(userID),
-		"sales":        h.getSalesData(userID),
-		"purchases":    h.getPurchasesData(userID),
-		"debts":        h.getDebtsData(userID),
-		"payments":     h.getPaymentsData(userID),
-		"expenses":     h.getExpensesData(userID),
-		"inspections":  h.getInspectionsData(userID),
-		"part_types":   h.getPartTypesData(userID),
-		"acquisitions": h.getAcquisitionsData(userID),
-		"returns":      h.getReturnsData(userID),
-		"used_parts":   h.getUsedPartsData(userID),
+	data := make(gin.H, len(snapshotTables))
+	for _, item := range snapshotTables {
+		rows, err := h.getSnapshotTable(item.table)
+		if err != nil {
+			// Optional tables may not exist on older cloud deployments. They do
+			// not prevent the core customer/sales snapshot from being imported.
+			if !item.required && isMissingTableError(err) {
+				continue
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   fmt.Sprintf("failed to fetch cloud table %s", item.table),
+			})
+			return
+		}
+		data[item.key] = rows
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -49,344 +99,42 @@ func (h *Handler) GetInitialData(c *gin.Context) {
 	})
 }
 
-// Helper functions to fetch data from database
-// Note: These are simplified - adjust based on actual database schema
-
-func (h *Handler) getCustomersData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, name, phone, email, address, balance, created_at, updated_at
-		FROM customers
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
+// getSnapshotTable returns complete rows. SeedLocalSnapshot filters each row
+// against the local SQLite schema, so cloud fields from later migrations do
+// not cause the row to be dropped.
+func (h *Handler) getSnapshotTable(table string) ([]map[string]interface{}, error) {
+	query := fmt.Sprintf(`SELECT * FROM "%s" ORDER BY 1 ASC`, strings.ReplaceAll(table, `"`, `""`))
+	rows, err := h.db.Queryx(query)
 	if err != nil {
-		return results
+		return nil, err
 	}
 	defer rows.Close()
 
+	result := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		record := make(map[string]interface{})
 		if err := rows.MapScan(record); err != nil {
-			continue
+			return nil, err
 		}
-		results = append(results, record)
+		// PostgreSQL returns JSON/JSONB values as []byte. Sending them as UTF-8
+		// strings avoids encoding them as base64 in the HTTP response.
+		for key, value := range record {
+			if bytes, ok := value.([]byte); ok {
+				record[key] = string(bytes)
+			}
+		}
+		result = append(result, record)
 	}
-	return results
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
-func (h *Handler) getProductsData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, name, barcode, category_id, quantity, min_quantity, price, cost, 
-		       description, active, created_at, updated_at
-		FROM products
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
+func isMissingTableError(err error) bool {
+	if err == nil {
+		return false
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getCategoriesData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, name, description, created_at, updated_at
-		FROM categories
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getSuppliersData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, name, phone, email, address, city, balance, created_at, updated_at
-		FROM suppliers
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getSalesData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, customer_id, total_amount, discount, tax, notes, payment_status, 
-		       created_at, updated_at
-		FROM sales
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getPurchasesData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, supplier_id, total_amount, tax, status, received_at, created_at, updated_at
-		FROM purchases
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getDebtsData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, customer_id, amount, remaining_amount, due_date, notes, status, 
-		       created_at, updated_at
-		FROM debts
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getPaymentsData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, debt_id, customer_id, amount, payment_method, notes, created_at, updated_at
-		FROM payments
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getExpensesData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, category, amount, description, created_at, updated_at
-		FROM expenses
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getInspectionsData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, product_id, quantity, status, notes, created_at, updated_at
-		FROM inspections
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getPartTypesData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, name, description, created_at, updated_at
-		FROM part_types
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getAcquisitionsData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, product_id, quantity, cost, source, created_at, updated_at
-		FROM acquisitions
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getReturnsData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, sale_id, product_id, quantity, reason, notes, created_at, updated_at
-		FROM returns
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
-}
-
-func (h *Handler) getUsedPartsData(userID string) []map[string]interface{} {
-	var results []map[string]interface{}
-	query := `
-		SELECT id, name, description, quantity, price, created_at, updated_at
-		FROM used_parts
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := h.db.Queryx(query, userID)
-	if err != nil {
-		return results
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(map[string]interface{})
-		if err := rows.MapScan(record); err != nil {
-			continue
-		}
-		results = append(results, record)
-	}
-	return results
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "does not exist") || strings.Contains(message, "no such table")
 }

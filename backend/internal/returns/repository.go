@@ -9,11 +9,23 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Repository handles return data operations
 type Repository struct {
 	db *sqlx.DB
+}
+
+type returnTimestamp struct{ time.Time }
+
+func (t *returnTimestamp) Scan(value any) error {
+	parsed, err := dbutil.ParseTimestamp(value)
+	if err != nil {
+		return err
+	}
+	t.Time = parsed
+	return nil
 }
 
 // NewRepository creates a new return repository
@@ -636,6 +648,30 @@ func (r *Repository) GetMonthlyReturnsAnalysis(ctx context.Context) ([]MonthlyRe
 		if err := r.db.GetContext(ctx, &exists, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'view' AND name = 'monthly_returns_analysis'`); err != nil || exists == 0 {
 			return []MonthlyReturnsAnalysis{}, nil
 		}
+		var rows []struct {
+			Month                  returnTimestamp `db:"month"`
+			TotalReturns           int             `db:"total_returns"`
+			UniqueCustomers        int             `db:"unique_customers"`
+			TotalRefundAmount      float64         `db:"total_refund_amount"`
+			AvgRefundAmount        float64         `db:"avg_refund_amount"`
+			FullReturns            int             `db:"full_returns"`
+			PartialReturns         int             `db:"partial_returns"`
+			QuantityPartialReturns int             `db:"quantity_partial_returns"`
+			DefectiveReturns       int             `db:"defective_returns"`
+			WarrantyReturns        int             `db:"warranty_returns"`
+			WarrantyClaims         int             `db:"warranty_claims"`
+			SellableItems          int             `db:"sellable_items"`
+			RepairNeeded           int             `db:"repair_needed"`
+			WrittenOff             int             `db:"written_off"`
+		}
+		if err := r.db.SelectContext(ctx, &rows, `SELECT month, total_returns, unique_customers, total_refund_amount, avg_refund_amount, full_returns, partial_returns, quantity_partial_returns, defective_returns, warranty_returns, warranty_claims, sellable_items, repair_needed, written_off FROM monthly_returns_analysis ORDER BY month DESC LIMIT 12`); err != nil {
+			return nil, fmt.Errorf("failed to get monthly returns analysis: %w", err)
+		}
+		analysis = make([]MonthlyReturnsAnalysis, 0, len(rows))
+		for _, row := range rows {
+			analysis = append(analysis, MonthlyReturnsAnalysis{Month: row.Month.Time, TotalReturns: row.TotalReturns, UniqueCustomers: row.UniqueCustomers, TotalRefundAmount: row.TotalRefundAmount, AvgRefundAmount: row.AvgRefundAmount, FullReturns: row.FullReturns, PartialReturns: row.PartialReturns, QuantityPartialReturns: row.QuantityPartialReturns, DefectiveReturns: row.DefectiveReturns, WarrantyReturns: row.WarrantyReturns, WarrantyClaims: row.WarrantyClaims, SellableItems: row.SellableItems, RepairNeeded: row.RepairNeeded, WrittenOff: row.WrittenOff})
+		}
+		return analysis, nil
 	}
 	query := `
 		SELECT 
@@ -673,6 +709,24 @@ func (r *Repository) GetSalesReturnsAnalysis(ctx context.Context) ([]SalesReturn
 		if err := r.db.GetContext(ctx, &exists, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'view' AND name = 'sales_returns_analysis'`); err != nil || exists == 0 {
 			return []SalesReturnsAnalysis{}, nil
 		}
+		var rows []struct {
+			Month         returnTimestamp `db:"month"`
+			TotalSales    int             `db:"total_sales"`
+			GrossSales    float64         `db:"gross_sales"`
+			TotalCost     float64         `db:"total_cost"`
+			GrossProfit   float64         `db:"gross_profit"`
+			ReturnsAmount float64         `db:"returns_amount"`
+			ReturnCount   int             `db:"return_count"`
+			NetSales      float64         `db:"net_sales"`
+		}
+		if err := r.db.SelectContext(ctx, &rows, `SELECT month, total_sales, gross_sales, total_cost, gross_profit, returns_amount, return_count, net_sales FROM sales_returns_analysis ORDER BY month DESC LIMIT 12`); err != nil {
+			return nil, fmt.Errorf("failed to get sales returns analysis: %w", err)
+		}
+		analysis = make([]SalesReturnsAnalysis, 0, len(rows))
+		for _, row := range rows {
+			analysis = append(analysis, SalesReturnsAnalysis{Month: row.Month.Time, TotalSales: row.TotalSales, GrossSales: row.GrossSales, TotalCost: row.TotalCost, GrossProfit: row.GrossProfit, ReturnsAmount: row.ReturnsAmount, ReturnCount: row.ReturnCount, NetSales: row.NetSales})
+		}
+		return analysis, nil
 	}
 	query := `
 		SELECT 

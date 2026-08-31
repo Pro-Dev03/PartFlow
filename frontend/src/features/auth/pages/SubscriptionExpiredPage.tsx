@@ -40,11 +40,11 @@ export default function SubscriptionExpiredPage() {
         </div>
 
         <h1 style={{ textAlign: 'center', fontSize: '30px', fontWeight: 800, marginBottom: '12px', color: 'var(--color-text-primary)' }}>
-          انتهت مدة اشتراكك
+          اشتراكك منتهي
         </h1>
 
         <p style={{ textAlign: 'center', lineHeight: 1.8, color: 'var(--color-text-secondary)', marginBottom: '18px' }}>
-          تم إيقاف الوصول إلى النظام لأن مدة اشتراكك انتهت. لمتابعة استخدام PartFlow، يرجى التواصل مع المطور لتجديد الخدمة.
+          تم إيقاف الوصول إلى النظام لأن الحساب غير نشط أو أن الاشتراك منتهي. لمتابعة استخدام PartFlow، يرجى التواصل مع الإدارة لتجديد الخدمة.
         </p>
 
         <div
@@ -61,9 +61,11 @@ export default function SubscriptionExpiredPage() {
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '6px', fontWeight: 700 }}>
             <AlertTriangle size={18} />
-            <span>تواصل مع المطور</span>
+            <span>تواصل مع الإدارة</span>
           </div>
-          <div>تم تعطيل الحساب مؤقتًا حتى يتم تجديد الاشتراك.</div>
+          <div>
+            تم تعطيل الحساب مؤقتًا حتى يتم تجديد الخدمة.
+          </div>
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'center' }}>

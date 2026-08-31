@@ -45,7 +45,6 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const welcomeMessage = t(getWelcomeKey());
-
   const { data: dashboardData, isLoading, error } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => dashboardApi.getStats(),

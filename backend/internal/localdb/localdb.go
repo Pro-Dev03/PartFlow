@@ -11,8 +11,8 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
-	_ "modernc.org/sqlite"
 	"golang.org/x/crypto/bcrypt"
+	_ "modernc.org/sqlite"
 )
 
 type Database struct {
@@ -577,6 +577,17 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 	compatibilitySchema := []string{
 		`CREATE TABLE IF NOT EXISTS settings (id TEXT PRIMARY KEY, key TEXT NOT NULL UNIQUE, value TEXT, value_type TEXT DEFAULT 'string', category TEXT DEFAULT 'general', description TEXT, is_public INTEGER DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS barcodes (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, product_id TEXT, inventory_item_id TEXT, type TEXT NOT NULL, is_active INTEGER DEFAULT 1, generated_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		// Operational support tables used by the inventory and customer/supplier
+		// ledger endpoints. They are kept in SQLite as well so a local build does
+		// not lose history just because it cannot reach PostgreSQL.
+		`CREATE TABLE IF NOT EXISTS locations (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, parent_id TEXT, warehouse_id TEXT, description TEXT, is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS inventory_movements (id TEXT PRIMARY KEY, item_id TEXT, product_id TEXT, movement_type TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0, before_quantity INTEGER NOT NULL DEFAULT 0, after_quantity INTEGER NOT NULL DEFAULT 0, reference_type TEXT, reference_id TEXT, reason TEXT, created_by TEXT, created_at TEXT NOT NULL, is_reversed INTEGER NOT NULL DEFAULT 0, reversed_by TEXT, reversed_at TEXT, reversal_reason TEXT)`,
+		`CREATE TABLE IF NOT EXISTS reservations (id TEXT PRIMARY KEY, item_id TEXT NOT NULL, customer_id TEXT, user_id TEXT NOT NULL, reserved_at TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, type TEXT, transaction_type TEXT, amount REAL NOT NULL DEFAULT 0, balance REAL NOT NULL DEFAULT 0, description TEXT, reference_id TEXT, reference_type TEXT, created_by TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS supplier_ledger (id TEXT PRIMARY KEY, supplier_id TEXT NOT NULL, type TEXT, transaction_type TEXT, amount REAL NOT NULL DEFAULT 0, balance REAL NOT NULL DEFAULT 0, description TEXT, reference_id TEXT, reference_type TEXT, created_by TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS ledger_entries (id TEXT PRIMARY KEY, ledger_type TEXT NOT NULL, entity_id TEXT NOT NULL, transaction_type TEXT NOT NULL, reference_id TEXT, reference_type TEXT, amount REAL NOT NULL DEFAULT 0, balance REAL NOT NULL DEFAULT 0, previous_balance REAL DEFAULT 0, description TEXT, metadata TEXT DEFAULT '{}', created_by TEXT, created_at TEXT NOT NULL, cost_before REAL DEFAULT 0, cost_after REAL DEFAULT 0, value_before REAL DEFAULT 0, value_after REAL DEFAULT 0, is_reversed INTEGER NOT NULL DEFAULT 0, reversed_by TEXT, reversed_at TEXT, reversal_reason TEXT, product_id TEXT)`,
+		`CREATE TABLE IF NOT EXISTS inspection_items (id TEXT PRIMARY KEY, inspection_id TEXT NOT NULL, item_id TEXT, checkpoint_name TEXT NOT NULL, status TEXT NOT NULL, notes TEXT, images TEXT DEFAULT '[]', created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS held_sales (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, items TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
 		`CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, type TEXT NOT NULL, title TEXT NOT NULL, message TEXT NOT NULL, data TEXT DEFAULT '{}', priority TEXT DEFAULT 'medium', status TEXT DEFAULT 'unread', action_url TEXT, action_text TEXT, expires_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, read_at TEXT)`,
 		`CREATE TABLE IF NOT EXISTS notification_preferences (id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE, email_enabled INTEGER DEFAULT 1, push_enabled INTEGER DEFAULT 1, low_stock INTEGER DEFAULT 1, debt_overdue INTEGER DEFAULT 1, return_requests INTEGER DEFAULT 1, expense_approval INTEGER DEFAULT 1, sales_updates INTEGER DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS inspections (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, inventory_item_id TEXT, inspector_id TEXT NOT NULL, inspection_date TEXT NOT NULL, result TEXT NOT NULL, condition TEXT, grade TEXT, notes TEXT, images TEXT DEFAULT '[]', test_results TEXT DEFAULT '{}', acquisition_item_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
@@ -667,9 +678,9 @@ func ensureIndexExists(db *sql.DB, indexName, tableName, columnName string) erro
 
 func migrateLegacySchema(db *sql.DB) error {
 	migrations := []struct {
-		tableName      string
-		columnName     string
-		columnDef      string
+		tableName  string
+		columnName string
+		columnDef  string
 	}{
 		{tableName: "products", columnName: "preferred_supplier_id", columnDef: "preferred_supplier_id TEXT"},
 		{tableName: "products", columnName: "brand_id", columnDef: "brand_id TEXT"},
@@ -789,7 +800,12 @@ func SeedLocalSnapshot(db *sql.DB, snapshot map[string]any) error {
 		{key: "brands", table: "brands"},
 		{key: "suppliers", table: "suppliers"},
 		{key: "customers", table: "customers"},
+		{key: "customer_ledger", table: "customer_ledger"},
+		{key: "supplier_ledger", table: "supplier_ledger"},
+		{key: "ledger_entries", table: "ledger_entries"},
 		{key: "products", table: "products"},
+		{key: "inventory", table: "inventory"},
+		{key: "locations", table: "locations"},
 		{key: "sales", table: "sales"},
 		{key: "sale_items", table: "sale_items"},
 		{key: "purchases", table: "purchases"},
@@ -797,13 +813,26 @@ func SeedLocalSnapshot(db *sql.DB, snapshot map[string]any) error {
 		{key: "payments", table: "payments"},
 		{key: "debts", table: "debts"},
 		{key: "expenses", table: "expenses"},
+		{key: "expense_categories", table: "expense_categories"},
+		{key: "seller_payments", table: "seller_payments"},
+		{key: "supplier_returns", table: "supplier_returns"},
+		{key: "supplier_return_items", table: "supplier_return_items"},
 		{key: "inspections", table: "inspections"},
+		{key: "inspection_items", table: "inspection_items"},
 		{key: "part_types", table: "part_types"},
 		{key: "acquisitions", table: "acquisitions"},
 		{key: "returns", table: "returns"},
 		{key: "return_items", table: "return_items"},
 		{key: "used_parts", table: "used_parts"},
 		{key: "inventory_items", table: "inventory_items"},
+		{key: "inventory_movements", table: "inventory_movements"},
+		{key: "reservations", table: "reservations"},
+		{key: "barcodes", table: "barcodes"},
+		{key: "notifications", table: "notifications"},
+		{key: "notification_preferences", table: "notification_preferences"},
+		{key: "reports", table: "reports"},
+		{key: "settings", table: "settings"},
+		{key: "held_sales", table: "held_sales"},
 	}
 
 	for _, item := range tableOrder {
@@ -846,30 +875,54 @@ func normalizeSnapshotRows(raw any) ([]map[string]any, error) {
 }
 
 func upsertSnapshotRows(db *sql.DB, tableName string, rows []map[string]any) error {
-	allowedFields := fieldMapForTable(tableName)
+	allowedFields, err := localSnapshotFields(db, tableName)
+	if err != nil {
+		return err
+	}
 	for _, row := range rows {
 		normalized := normalizeSnapshotRow(row)
-		if tableName == "sales" {
-			if _, ok := normalized["sale_number"]; !ok {
-				normalized["sale_number"] = normalized["invoice_number"]
-			}
+		if tableName == "sales" && isBlankSnapshotValue(normalized["sale_number"]) {
+			normalized["sale_number"] = normalized["invoice_number"]
 		}
-		if tableName == "purchases" {
-			if _, ok := normalized["purchase_number"]; !ok {
-				normalized["purchase_number"] = normalized["invoice_number"]
-			}
+		if tableName == "purchases" && isBlankSnapshotValue(normalized["purchase_number"]) {
+			normalized["purchase_number"] = normalized["invoice_number"]
 		}
 		if tableName == "sale_items" || tableName == "purchase_items" {
 			if _, ok := normalized["item_total"]; !ok {
 				normalized["item_total"] = normalized["total_amount"]
 			}
 		}
-		if tableName == "payments" {
-			if _, ok := normalized["transaction_number"]; !ok {
-				normalized["transaction_number"] = normalized["reference_number"]
-			}
+		if tableName == "payments" && isBlankSnapshotValue(normalized["transaction_number"]) {
+			normalized["transaction_number"] = normalized["reference_number"]
 			if normalized["transaction_number"] == nil || normalized["transaction_number"] == "" {
 				normalized["transaction_number"] = normalized["id"]
+			}
+		}
+		if tableName == "customer_ledger" || tableName == "supplier_ledger" {
+			if isBlankSnapshotValue(normalized["type"]) {
+				normalized["type"] = ledgerTypeAlias(normalized["transaction_type"])
+			}
+		}
+		if tableName == "expenses" {
+			// The cloud schema calls this field description/category, while the
+			// local schema requires a non-null title.
+			if value, ok := normalized["title"]; !ok || strings.TrimSpace(fmt.Sprint(value)) == "" {
+				for _, fallback := range []string{"description", "category", "reference_number"} {
+					if value, ok := normalized[fallback]; ok && strings.TrimSpace(fmt.Sprint(value)) != "" {
+						normalized["title"] = value
+						break
+					}
+				}
+			}
+			if value, ok := normalized["title"]; !ok || strings.TrimSpace(fmt.Sprint(value)) == "" {
+				normalized["title"] = "Expense"
+			}
+		}
+		if tableName == "return_items" {
+			// The enhanced cloud schema uses quantity_returned; SQLite keeps the
+			// legacy quantity column for the list/repository queries.
+			if value, ok := normalized["quantity"]; !ok || strings.TrimSpace(fmt.Sprint(value)) == "" {
+				normalized["quantity"] = normalized["quantity_returned"]
 			}
 		}
 		if len(normalized) == 0 {
@@ -901,13 +954,12 @@ func upsertSnapshotRows(db *sql.DB, tableName string, rows []map[string]any) err
 			}
 			updates = append(updates, fmt.Sprintf("%s = excluded.%s", field, field))
 		}
-		query := fmt.Sprintf(
-			"INSERT INTO %s (%s) VALUES (%s) ON CONFLICT(id) DO UPDATE SET %s",
-			tableName,
-			strings.Join(fields, ", "),
-			strings.Join(placeholders, ", "),
-			strings.Join(updates, ", "),
-		)
+		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", tableName, strings.Join(fields, ", "), strings.Join(placeholders, ", "))
+		if len(updates) > 0 {
+			query += " ON CONFLICT(id) DO UPDATE SET " + strings.Join(updates, ", ")
+		} else {
+			query += " ON CONFLICT(id) DO NOTHING"
+		}
 		if _, err := db.Exec(query, values...); err != nil {
 			return fmt.Errorf("insert row into %s: %w", tableName, err)
 		}
@@ -915,40 +967,131 @@ func upsertSnapshotRows(db *sql.DB, tableName string, rows []map[string]any) err
 	return nil
 }
 
+func localSnapshotFields(db *sql.DB, tableName string) ([]string, error) {
+	available := make(map[string]struct{})
+	quotedTable := strings.ReplaceAll(tableName, "'", "''")
+	rows, err := db.Query("PRAGMA table_info('" + quotedTable + "')")
+	if err != nil {
+		return nil, fmt.Errorf("inspect local table %s: %w", tableName, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return nil, fmt.Errorf("inspect local table %s columns: %w", tableName, err)
+		}
+		available[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("inspect local table %s columns: %w", tableName, err)
+	}
+	if len(available) == 0 {
+		return nil, fmt.Errorf("local snapshot table %s does not exist", tableName)
+	}
+
+	fields := make([]string, 0, len(available))
+	for _, field := range fieldMapForTable(tableName) {
+		if _, ok := available[field]; ok {
+			fields = append(fields, field)
+		}
+	}
+	return fields, nil
+}
+
+func isBlankSnapshotValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	return strings.TrimSpace(fmt.Sprint(value)) == ""
+}
+
+func ledgerTypeAlias(value any) string {
+	switch strings.ToLower(strings.TrimSpace(fmt.Sprint(value))) {
+	case "sale", "payment", "return", "refund", "adjustment", "purchase":
+		if strings.EqualFold(strings.TrimSpace(fmt.Sprint(value)), "sale") || strings.EqualFold(strings.TrimSpace(fmt.Sprint(value)), "purchase") {
+			return "debit"
+		}
+		return "credit"
+	default:
+		return ""
+	}
+}
+
 func fieldMapForTable(tableName string) []string {
 	switch tableName {
 	case "categories":
 		return []string{"id", "name", "description", "parent_id", "icon", "color", "is_active", "created_at", "updated_at"}
 	case "products":
-		return []string{"id", "sku", "name", "description", "category_id", "brand", "unit", "cost_price", "selling_price", "min_stock_level", "max_stock_level", "weight", "dimensions", "images", "attributes", "is_active", "created_at", "updated_at"}
+		return []string{"id", "sku", "name", "description", "category_id", "brand_id", "preferred_supplier_id", "model", "barcode", "purchase_price", "cost_price", "selling_price", "currency", "min_stock_level", "max_stock_level", "warranty_days", "track_serial", "track_individual", "is_active", "deleted_at", "created_at", "updated_at"}
 	case "customers":
 		return []string{"id", "code", "name", "email", "phone", "address", "city", "country", "tax_id", "credit_limit", "current_balance", "notes", "is_active", "created_at", "updated_at"}
 	case "suppliers":
-		return []string{"id", "code", "name", "email", "phone", "address", "city", "country", "tax_id", "payment_terms", "notes", "is_active", "created_at", "updated_at"}
+		return []string{"id", "code", "name", "email", "phone", "address", "city", "country", "tax_id", "credit_limit", "payment_terms", "current_balance", "notes", "is_active", "created_at", "updated_at"}
+	case "customer_ledger":
+		return []string{"id", "customer_id", "type", "transaction_type", "amount", "balance", "description", "reference_id", "reference_type", "created_by", "created_at"}
+	case "supplier_ledger":
+		return []string{"id", "supplier_id", "type", "transaction_type", "amount", "balance", "description", "reference_id", "reference_type", "created_by", "created_at"}
+	case "ledger_entries":
+		return []string{"id", "ledger_type", "entity_id", "transaction_type", "reference_id", "reference_type", "amount", "balance", "previous_balance", "description", "metadata", "created_by", "created_at", "cost_before", "cost_after", "value_before", "value_after", "is_reversed", "reversed_by", "reversed_at", "reversal_reason", "product_id"}
+	case "inventory":
+		return []string{"id", "product_id", "quantity", "reserved_quantity", "location", "warehouse_id", "current_quantity", "available_quantity", "current_cost", "current_value", "last_movement_id", "last_restocked_at", "created_at", "updated_at"}
 	case "sales":
-		return []string{"id", "sale_number", "invoice_number", "customer_id", "user_id", "sale_date", "subtotal", "tax_amount", "discount_amount", "total_amount", "paid_amount", "remaining_amount", "payment_method", "payment_status", "status", "notes", "created_at", "updated_at"}
+		return []string{"id", "sale_number", "invoice_number", "customer_id", "sale_date", "subtotal", "tax_amount", "discount_amount", "total_amount", "paid_amount", "remaining_amount", "payment_method", "payment_status", "status", "notes", "created_at", "updated_at"}
 	case "sale_items":
-		return []string{"id", "sale_id", "inventory_item_id", "product_id", "quantity", "unit_price", "discount_amount", "tax_amount", "item_total", "total_amount", "created_at"}
+		return []string{"id", "sale_id", "inventory_item_id", "product_id", "quantity", "unit_price", "item_total", "total_amount", "unit_cost", "created_at"}
 	case "purchases":
-		return []string{"id", "purchase_number", "invoice_number", "supplier_id", "user_id", "purchase_date", "subtotal", "tax_amount", "discount_amount", "total_amount", "paid_amount", "remaining_amount", "payment_method", "payment_status", "status", "notes", "created_at", "updated_at"}
+		return []string{"id", "purchase_number", "invoice_number", "supplier_id", "user_id", "purchase_date", "expected_delivery_date", "discount_amount", "tax_amount", "total_amount", "paid_amount", "remaining_amount", "status", "notes", "created_at", "updated_at"}
 	case "purchase_items":
-		return []string{"id", "purchase_id", "product_id", "quantity", "unit_price", "discount_amount", "tax_amount", "item_total", "total_amount", "created_at"}
+		return []string{"id", "purchase_id", "product_id", "quantity", "unit_price", "item_total", "total_amount", "unit_cost", "created_at"}
 	case "payments":
-		return []string{"id", "transaction_number", "reference_number", "customer_id", "supplier_id", "amount", "payment_method", "reference", "notes", "created_at", "payment_date"}
+		return []string{"id", "transaction_number", "customer_id", "supplier_id", "amount", "payment_method", "reference", "notes", "created_at", "payment_date"}
 	case "debts":
-		return []string{"id", "customer_id", "amount", "remaining_amount", "due_date", "status", "notes", "created_at", "updated_at"}
+		return []string{"id", "customer_id", "sale_id", "amount", "paid_amount", "remaining_amount", "due_date", "status", "notes", "created_at", "updated_at"}
 	case "expenses":
-		return []string{"id", "title", "reference_number", "category", "amount", "description", "expense_date", "payment_method", "receipt_url", "created_by", "created_at", "updated_at"}
+		return []string{"id", "title", "category_id", "reference_number", "category", "amount", "description", "expense_date", "payment_method", "receipt_url", "created_by", "currency", "reference", "notes", "status", "is_recurring", "recurring_period", "approved_by", "created_at", "updated_at"}
+	case "expense_categories":
+		return []string{"id", "name", "description", "color", "icon", "budget", "is_active", "created_at", "updated_at"}
+	case "locations":
+		return []string{"id", "name", "type", "parent_id", "warehouse_id", "description", "is_active", "created_at", "updated_at"}
+	case "inventory_movements":
+		return []string{"id", "item_id", "product_id", "movement_type", "quantity", "before_quantity", "after_quantity", "reference_type", "reference_id", "reason", "created_by", "created_at", "is_reversed", "reversed_by", "reversed_at", "reversal_reason"}
+	case "reservations":
+		return []string{"id", "item_id", "customer_id", "user_id", "reserved_at", "expires_at", "status", "notes", "created_at", "updated_at"}
+	case "barcodes":
+		return []string{"id", "code", "product_id", "inventory_item_id", "type", "is_active", "generated_at", "created_at", "updated_at"}
 	case "inspections":
 		return []string{"id", "product_id", "inventory_item_id", "inspector_id", "inspection_date", "result", "condition", "grade", "notes", "images", "created_at", "updated_at"}
+	case "inspection_items":
+		return []string{"id", "inspection_id", "item_id", "checkpoint_name", "status", "notes", "images", "created_at"}
+	case "notifications":
+		return []string{"id", "user_id", "type", "title", "message", "data", "priority", "status", "action_url", "action_text", "expires_at", "created_at", "updated_at", "read_at"}
+	case "notification_preferences":
+		return []string{"id", "user_id", "email_enabled", "push_enabled", "low_stock", "debt_overdue", "return_requests", "expense_approval", "sales_updates", "created_at", "updated_at"}
+	case "reports":
+		return []string{"id", "type", "title", "description", "parameters", "data", "status", "generated_by", "generated_at", "created_at", "updated_at"}
+	case "settings":
+		return []string{"id", "key", "value", "value_type", "category", "description", "is_public", "created_at", "updated_at"}
+	case "held_sales":
+		return []string{"id", "user_id", "items", "created_at"}
 	case "part_types":
 		return []string{"id", "name_ar", "name_en", "icon", "color", "is_active", "sort_order", "created_at", "updated_at"}
 	case "acquisitions":
-		return []string{"id", "type", "acquisition_date", "supplier_id", "customer_id", "notes", "status", "created_at", "updated_at"}
+		return []string{"id", "type", "acquisition_date", "supplier_id", "customer_id", "total_cost", "paid_amount", "payment_status", "status", "notes", "user_id", "created_at", "updated_at", "reversed_at", "reversed_by", "reversal_reason"}
+	case "acquisition_items":
+		return []string{"id", "acquisition_id", "product_id", "inventory_item_id", "inspection_id", "item_code", "serial_number", "inspection_status", "item_status", "created_at", "updated_at"}
+	case "seller_payments":
+		return []string{"id", "acquisition_id", "customer_id", "amount", "payment_method", "payment_date", "notes", "user_id", "created_at"}
+	case "supplier_returns":
+		return []string{"id", "purchase_id", "supplier_id", "return_number", "status", "reason", "refund_amount", "notes", "created_by", "created_at", "updated_at"}
+	case "supplier_return_items":
+		return []string{"id", "supplier_return_id", "purchase_item_id", "product_id", "quantity", "unit_cost", "created_at"}
 	case "returns":
-		return []string{"id", "return_number", "reference_number", "sale_id", "purchase_id", "customer_id", "product_id", "quantity", "reason", "status", "total_refund_amount", "refund_status", "return_date", "created_at", "updated_at"}
+		return []string{"id", "return_number", "reference_number", "sale_id", "purchase_id", "customer_id", "return_date", "return_type", "status", "total_refund_amount", "refund_method", "refund_date", "refund_reference", "debt_id", "debt_adjustment", "customer_credit", "reason", "reason_detail", "item_condition_after_return", "is_warranty_claim", "warranty_id", "warranty_valid_until", "created_by", "processed_by", "approved_by", "approved_at", "notes", "internal_notes", "refund_status", "created_at", "updated_at"}
 	case "return_items":
-		return []string{"id", "return_id", "product_id", "quantity", "unit_price", "total_refund_amount", "reason", "created_at"}
+		return []string{"id", "return_id", "sale_item_id", "product_id", "quantity", "quantity_returned", "unit_price", "total_refund_amount", "reason", "created_at"}
 	case "used_parts":
 		return []string{"id", "product_id", "quantity", "status", "created_at", "updated_at"}
 	case "inventory_items":

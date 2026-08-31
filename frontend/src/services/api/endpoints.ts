@@ -1,5 +1,6 @@
 import { apiClient } from './client';
 import { TokenManager } from '../../lib/token-manager';
+import { getCloudApiUrl } from '../../lib/config/app';
 import type {
   ProductCreateRequest,
   ProductUpdateRequest,
@@ -28,6 +29,21 @@ import type {
 export const authApi = {
   login: (email: string, password: string) =>
     apiClient.post('/auth/login', { email, password }),
+  loginWithCloud: async (email: string, password: string) => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new Error('يلزم اتصال بالإنترنت لتسجيل الدخول.');
+    }
+    const response = await fetch(`${getCloudApiUrl()}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.error?.message || payload?.error || 'تعذر تسجيل الدخول.');
+    }
+    return payload?.data ?? payload;
+  },
   logout: () => apiClient.post('/auth/logout', {}),
   refreshToken: () => {
     const refreshToken = TokenManager.getRefreshToken();
@@ -255,8 +271,8 @@ export const reportsApi = {
 
 // Settings endpoints
 export const settingsApi = {
-  setOperatingMode: (mode: 'offline' | 'online') =>
-    apiClient.put('/settings/operating-mode', { mode }),
+  syncCloudData: () =>
+    apiClient.post('/settings/sync', {}),
   getUsers: (params?: { page?: number; per_page?: number }) =>
     apiClient.get('/settings/users', params),
   getSubscribers: (params?: { page?: number; per_page?: number; search?: string; is_active?: boolean }) =>
@@ -275,10 +291,15 @@ export const settingsApi = {
   getPublicSettings: () => apiClient.get('/settings/public'),
   getSetting: (key: string) => apiClient.get(`/settings/${key}`),
   updateSetting: (key: string, value: string) => apiClient.put(`/settings/${key}`, { value }),
-  deleteAllData: (confirmation: string, target: 'offline' | 'online' | 'current' = 'current') => {
-    const resetTarget = target === 'current' ? 'current' : target;
-    return apiClient.delete('/settings/database', { confirmation, target: resetTarget });
-  },
+  // The desktop application owns the operational SQLite database. Never expose
+  // a client-side option that can target the cloud database for deletion.
+  deleteAllData: (confirmation: string) =>
+    apiClient.delete('/settings/database', { confirmation, target: 'offline' }),
+};
+
+// Sync endpoints
+export const syncApi = {
+  getInitialData: () => apiClient.get('/sync/initial-data'),
 };
 
 // Barcode endpoints

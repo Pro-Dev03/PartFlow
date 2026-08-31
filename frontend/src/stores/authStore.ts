@@ -3,8 +3,8 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { authApi } from '../services/api/endpoints';
 import { apiClient } from '../services/api/client';
 import { TokenManager } from '../lib/token-manager';
-import { clearSubscriptionGuard, isOfflineSubscriptionBlocked, syncSubscriptionGuard } from '../lib/subscription-guard';
 import { User } from '../types/models';
+import { getCloudApiUrl } from '../lib/config/app';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -14,7 +14,7 @@ interface AuthState {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
-  checkAuth: () => void;
+  checkAuth: () => Promise<void>;
   refreshToken: () => Promise<void>;
 }
 
@@ -79,19 +79,112 @@ export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = w
   return isSubscriptionExpired && !pathname.includes('/subscription-expired');
 }
 
+/**
+ * Validate the local session against the cloud authority when connectivity is
+ * restored. This intentionally bypasses the active local API URL: Desktop can
+ * continue using SQLite for business operations while subscription authority
+ * remains on Render.
+ */
+export async function validateSubscriptionWithCloud(): Promise<boolean> {
+  if (typeof window === 'undefined' || !navigator.onLine) return false;
+
+  const token = TokenManager.getToken();
+  if (!token) return false;
+
+  try {
+    const response = await fetch(`${getCloudApiUrl()}/auth/validate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (!response.ok) {
+      if (response.status === 403) {
+        clearPersistedAuthStorage();
+        goToSubscriptionExpiredPage();
+      } else if (response.status === 401) {
+        forceLogoutToLogin('Cloud session is no longer valid');
+      }
+      return false;
+    }
+
+    const payload = await response.json();
+    const data = payload?.data ?? payload;
+    const nextToken = data?.token || data?.access_token || token;
+    const nextRefreshToken = data?.refresh_token || TokenManager.getRefreshToken();
+    if (nextToken) {
+      TokenManager.setToken(nextToken);
+      apiClient.setToken(nextToken);
+    }
+    if (nextRefreshToken) TokenManager.setRefreshToken(nextRefreshToken);
+
+    const currentUser = useAuthStore.getState().user;
+    useAuthStore.setState({
+      token: nextToken,
+      refreshTokenValue: nextRefreshToken || null,
+      user: data?.user || currentUser,
+      isAuthenticated: true,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function goToSubscriptionExpiredPage(): void {
   if (typeof window === 'undefined') return;
 
-  if (window.location.pathname.includes('/subscription-expired')) {
+  if (window.location.hash.includes('/subscription-expired')) {
     return;
   }
 
   try {
     window.history.pushState({}, '', '/subscription-expired');
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    window.location.hash = '#/subscription-expired';
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
   } catch {
-    window.location.href = '/subscription-expired';
+    const currentUrl = new URL(window.location.href);
+    currentUrl.hash = '#/subscription-expired';
+    window.location.href = currentUrl.toString();
   }
+}
+
+function isInvalidTokenError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const anyError = error as {
+    message?: string;
+    code?: string;
+    status?: number;
+    response?: { status?: number; error?: { code?: string; message?: string } };
+  };
+
+  const combined = [
+    anyError.message,
+    anyError.code,
+    anyError.response?.error?.code,
+    anyError.response?.error?.message,
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  return (
+    anyError.status === 401 ||
+    anyError.response?.status === 401 ||
+    /invalid token|signature is invalid|token expired|jwt|unauthorized/.test(combined)
+  );
+}
+
+function forceLogoutToLogin(reason = 'Session expired') {
+  if (typeof window === 'undefined') return;
+
+  clearPersistedAuthStorage();
+  if (!window.location.hash.includes('/login')) {
+    window.location.hash = '#/login';
+  }
+
+  console.warn('Clearing stale auth session:', reason);
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -104,10 +197,10 @@ export const useAuthStore = create<AuthState>()(
       isLoading: false,
 
       login: async (email: string, password: string) => {
+        clearPersistedAuthStorage();
         set({ isLoading: true });
         try {
-          const response = await authApi.login(email, password);
-          const data = response.data as {
+          const data = await authApi.loginWithCloud(email, password) as {
             user: User;
             token: string;
             refresh_token?: string;
@@ -123,13 +216,6 @@ export const useAuthStore = create<AuthState>()(
             TokenManager.setRefreshToken(refreshToken);
           }
           apiClient.setToken(token);
-
-          syncSubscriptionGuard(token, {
-            userId: user.id,
-            email: user.email,
-            subscriptionStatus: data.subscription_status || 'active',
-            subscriptionExpiresAt: data.subscription_expires_at || null,
-          });
 
           set({
             isAuthenticated: true,
@@ -154,7 +240,6 @@ export const useAuthStore = create<AuthState>()(
         TokenManager.clearRefreshToken();
         apiClient.logout();
         clearPersistedAuthStorage();
-        clearSubscriptionGuard();
         set({
           isAuthenticated: false,
           user: null,
@@ -163,76 +248,25 @@ export const useAuthStore = create<AuthState>()(
         });
       },
 
-      checkAuth: () => {
+      checkAuth: async () => {
         const token = TokenManager.getToken();
-        if (token) {
-          apiClient.setToken(token);
-
-          if (isOfflineSubscriptionBlocked(token)) {
-            goToSubscriptionExpiredPage();
-            return;
-          }
-
-          void authApi.refreshToken()
-            .then((response) => {
-              const data = response.data as { user?: User; token?: string; subscription_status?: string; subscription_expires_at?: string | null };
-              const liveToken = data.token || token;
-              const activeUser = data.user || get().user;
-
-              syncSubscriptionGuard(liveToken, {
-                userId: activeUser?.id,
-                email: activeUser?.email,
-                subscriptionStatus: data.subscription_status || activeUser?.subscription_status || 'active',
-                subscriptionExpiresAt: data.subscription_expires_at || activeUser?.subscription_expires_at || null,
-              });
-
-              const nextRefreshToken = data.refresh_token || TokenManager.getRefreshToken();
-              if (nextRefreshToken) {
-                TokenManager.setRefreshToken(nextRefreshToken);
-              }
-
-              set({
-                isAuthenticated: true,
-                user: activeUser || null,
-                token: liveToken,
-                refreshTokenValue: nextRefreshToken || null,
-              });
-
-              startTokenRefresh();
-            })
-            .catch((error) => {
-              if (shouldRedirectToSubscriptionExpired(error, window.location.pathname)) {
-                goToSubscriptionExpiredPage();
-                return;
-              }
-
-              // Generic refresh failures (network/server issues) should not destroy a valid session.
-              // Keep the existing auth state and let the user continue to use the app.
-              if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/subscription-expired')) {
-                return;
-              }
-
-              // If the user is already on login screen, we can clear state there.
-              clearPersistedAuthStorage();
-              clearSubscriptionGuard();
-              set({
-                isAuthenticated: false,
-                user: null,
-                token: null,
-                refreshTokenValue: null,
-              });
-            });
+        if (!token || !navigator.onLine) {
+          forceLogoutToLogin('Cloud verification requires an internet connection');
+          set({ isAuthenticated: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
           return;
         }
 
-        clearPersistedAuthStorage();
-        clearSubscriptionGuard();
-        set({
-          isAuthenticated: false,
-          user: null,
-          token: null,
-          refreshTokenValue: null,
-        });
+        apiClient.setToken(token);
+        const valid = await validateSubscriptionWithCloud();
+        if (!valid) {
+          if (!window.location.hash.includes('/subscription-expired')) {
+            forceLogoutToLogin('Cloud verification failed');
+          }
+          set({ isAuthenticated: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
+          return;
+        }
+
+        startTokenRefresh();
       },
 
       refreshToken: async () => {
@@ -258,6 +292,17 @@ export const useAuthStore = create<AuthState>()(
 
           if (shouldRedirectToSubscriptionExpired(error, window.location.pathname)) {
             goToSubscriptionExpiredPage();
+            return;
+          }
+
+          if (isInvalidTokenError(error)) {
+            forceLogoutToLogin('Refresh failed due to invalid token');
+            set({
+              isAuthenticated: false,
+              user: null,
+              token: null,
+              refreshTokenValue: null,
+            });
             return;
           }
 

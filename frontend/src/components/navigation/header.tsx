@@ -128,7 +128,7 @@ export function Header({ onToggleSidebar }: HeaderProps) {
           <div className="hidden lg:block w-px h-4" style={{ background: 'var(--border-default)' }} />
 
            {/* System Actions */}
-           <div className="flex items-center gap-1">
+           <div className="relative flex items-center gap-1">
              {/* Language */}
              <div className="relative" ref={langDropdownRef}>
                <IconButton
