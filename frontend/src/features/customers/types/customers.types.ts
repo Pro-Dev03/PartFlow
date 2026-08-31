@@ -6,7 +6,9 @@ export interface Customer {
   email?: string;
   address?: string;
   totalPurchases: number;
+  paidAmount?: number;
   outstanding: number;
+  lastPurchase?: string;
   credit_limit?: number;
   is_active?: boolean;
   financial_timeline?: any[];

@@ -47,9 +47,19 @@ func parseDatabaseTimestamp(value any) (time.Time, error) {
 	case time.Time:
 		return v, nil
 	case string:
+		// database/sql may serialize a Go time.Time using time.String(),
+		// which includes a monotonic-clock suffix ("m=+…"). That suffix is
+		// not part of the persisted wall-clock value and must be removed before
+		// parsing SQLite rows written by runtime updates.
+		v = strings.TrimSpace(v)
+		if monotonic := strings.Index(v, " m="); monotonic >= 0 {
+			v = strings.TrimSpace(v[:monotonic])
+		}
 		for _, layout := range []string{
 			time.RFC3339Nano,
 			time.RFC3339,
+			"2006-01-02 15:04:05.999999999 -0700 MST",
+			"2006-01-02 15:04:05 -0700 MST",
 			"2006-01-02 15:04:05.999999999-07:00",
 			"2006-01-02 15:04:05.999999999",
 			"2006-01-02 15:04:05-07:00",
@@ -81,6 +91,17 @@ func nullableUUID(value uuid.UUID) interface{} {
 		return nil
 	}
 	return value
+}
+
+// sqliteTableExists keeps list queries compatible with the small SQLite
+// schemas used by migrations and unit tests. The production local database
+// has both tables and receives the calculated financial fields below.
+func sqliteTableExists(db *sqlx.DB, table string) bool {
+	var exists int
+	if err := db.Get(&exists, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $1)`, table); err != nil {
+		return false
+	}
+	return exists == 1
 }
 
 // GetByID retrieves a customer by ID
@@ -227,11 +248,33 @@ func (r *Repository) List(ctx context.Context, req *CustomerListRequest) ([]Cust
 	isActive := req.IsActive
 	offset := (page - 1) * perPage
 
-	query := `
-		SELECT id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at
+	// Customer cards display transaction totals. Calculate them from the
+	// source tables so they cannot become stale when a sale or debt changes.
+	// Keep a fallback for minimal/legacy SQLite schemas used by migrations and
+	// unit tests where those source tables are not present yet.
+	withFinancialSummary := !dbutil.IsSQLite(r.db) ||
+		(sqliteTableExists(r.db, "sales") && sqliteTableExists(r.db, "debts"))
+	selectColumns := `id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at`
+	if withFinancialSummary {
+		selectColumns += `,
+			COALESCE((SELECT SUM(s.total_amount) FROM sales s
+				WHERE s.customer_id = customers.id
+				  AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 0) AS total_purchases,
+			COALESCE((SELECT SUM(COALESCE(s.paid_amount, 0)) FROM sales s
+				WHERE s.customer_id = customers.id
+				  AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 0) AS paid_amount,
+			COALESCE((SELECT SUM(CASE WHEN d.remaining_amount > 0 THEN d.remaining_amount ELSE 0 END)
+				FROM debts d WHERE d.customer_id = customers.id
+				  AND LOWER(COALESCE(d.status, 'pending')) NOT IN ('paid', 'completed', 'settled', 'cancelled', 'canceled', 'reversed')), 0) AS outstanding,
+			(SELECT MAX(s.sale_date) FROM sales s
+				WHERE s.customer_id = customers.id
+				  AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) AS last_purchase`
+	}
+	query := fmt.Sprintf(`
+		SELECT %s
 		FROM customers
 		WHERE 1=1
-	`
+	`, selectColumns)
 	countQuery := `SELECT COUNT(*) FROM customers WHERE 1=1`
 
 	args := []interface{}{}
@@ -346,27 +389,35 @@ func (r *Repository) List(ctx context.Context, req *CustomerListRequest) ([]Cust
 	var customers []Customer
 	for rows.Next() {
 		var (
-			idValue        string
-			code, name     string
-			email, phone   sql.NullString
-			address, city  sql.NullString
-			country, taxID sql.NullString
-			notes          sql.NullString
-			creditLimit    float64
-			currentBalance float64
-			isActive       bool
-			createdAtRaw   any
-			updatedAtRaw   any
+			idValue         string
+			code, name      string
+			email, phone    sql.NullString
+			address, city   sql.NullString
+			country, taxID  sql.NullString
+			notes           sql.NullString
+			creditLimit     float64
+			currentBalance  float64
+			isActive        bool
+			createdAtRaw    any
+			updatedAtRaw    any
+			totalPurchases  float64
+			paidAmount      float64
+			outstanding     float64
+			lastPurchaseRaw any
 		)
 
-		if err := rows.Scan(
+		scanArgs := []any{
 			&idValue, &code, &name,
 			&email, &phone,
 			&address, &city, &country,
 			&taxID, &creditLimit, &currentBalance,
 			&notes, &isActive,
 			&createdAtRaw, &updatedAtRaw,
-		); err != nil {
+		}
+		if withFinancialSummary {
+			scanArgs = append(scanArgs, &totalPurchases, &paidAmount, &outstanding, &lastPurchaseRaw)
+		}
+		if err := rows.Scan(scanArgs...); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan customer row: %w", err)
 		}
 
@@ -377,6 +428,16 @@ func (r *Repository) List(ctx context.Context, req *CustomerListRequest) ([]Cust
 		updatedAt, err := parseDatabaseTimestamp(updatedAtRaw)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to parse updated_at: %w", err)
+		}
+		var lastPurchase *time.Time
+		if withFinancialSummary && lastPurchaseRaw != nil {
+			parsed, parseErr := parseDatabaseTimestamp(lastPurchaseRaw)
+			if parseErr != nil {
+				return nil, 0, fmt.Errorf("failed to parse last_purchase: %w", parseErr)
+			}
+			if !parsed.IsZero() {
+				lastPurchase = &parsed
+			}
 		}
 
 		parsedID, err := uuid.Parse(idValue)
@@ -396,6 +457,10 @@ func (r *Repository) List(ctx context.Context, req *CustomerListRequest) ([]Cust
 			TaxID:          nullableString(taxID),
 			CreditLimit:    creditLimit,
 			CurrentBalance: currentBalance,
+			TotalPurchases: totalPurchases,
+			PaidAmount:     paidAmount,
+			Outstanding:    outstanding,
+			LastPurchase:   lastPurchase,
 			Notes:          nullableString(notes),
 			IsActive:       isActive,
 			CreatedAt:      createdAt,

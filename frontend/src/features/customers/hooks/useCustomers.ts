@@ -30,7 +30,22 @@ export function useCustomers() {
     enabled: true, // Always enabled, but will refetch when search changes
   });
 
-  const customers = (customersData?.data as Customer[]) || [];
+  // The backend uses snake_case for persisted fields while the customer UI
+  // historically used camelCase summary fields. Normalize both shapes here
+  // so cards, sorting, exports and statistics all use the same real values.
+  const customers = useMemo(() => {
+    const rows = Array.isArray(customersData?.data) ? customersData.data : [];
+    return rows.map((row: any) => ({
+      ...row,
+      totalPurchases: Number(row.totalPurchases ?? row.total_purchases ?? 0),
+      paidAmount: Number(row.paidAmount ?? row.paid_amount ?? 0),
+      outstanding: Number(row.outstanding ?? row.current_balance ?? 0),
+      is_active: row.is_active === undefined
+        ? true
+        : row.is_active === true || row.is_active === 1 || String(row.is_active).toLowerCase() === 'true',
+      lastPurchase: row.lastPurchase ?? row.last_purchase ?? undefined,
+    })) as Customer[];
+  }, [customersData]);
 
   // Mutations
   const createMutation = useMutation({
@@ -132,7 +147,7 @@ export function useCustomers() {
   // Stats
   const stats = useMemo(() => ({
     totalCustomers: customers.length,
-    activeCustomers: customers.filter((c: Customer) => (c.totalPurchases || 0) > 0).length,
+    activeCustomers: customers.filter((c: Customer) => c.is_active !== false && (c.totalPurchases || 0) > 0).length,
     customersWithDebt: customers.filter((c: Customer) => (c.outstanding || 0) > 0).length,
     totalOutstanding: customers.reduce((sum: number, c: Customer) => sum + (c.outstanding || 0), 0),
   }), [customers]);

@@ -86,8 +86,8 @@ export function CustomerList({
                         </span>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={customer.outstanding > 0 ? 'warning' : 'success'}>
-                          {customer.outstanding > 0 ? 'بديون' : 'نشط'}
+                        <Badge variant={customer.is_active === false ? 'danger' : customer.outstanding > 0 ? 'warning' : 'success'}>
+                          {customer.is_active === false ? 'غير نشط' : 'نشط'}
                         </Badge>
                       </TableCell>
                       <TableCell style={{ textAlign: 'right' }}>
@@ -128,7 +128,7 @@ export function CustomerList({
                     <TableCardItem label="البريد" value={customer.email || '-'} />
                     <TableCardItem label="المشتريات" value={<span className="numeric-price">₪{customer.totalPurchases?.toLocaleString() || 0}</span>} variant="success" />
                     <TableCardItem label="الديون" value={<span className="numeric-price">₪{customer.outstanding?.toLocaleString() || 0}</span>} variant={customer.outstanding > 0 ? 'danger' : 'success'} />
-                    <TableCardItem label="الحالة" value={<Badge variant={customer.outstanding > 0 ? 'warning' : 'success'}>{customer.outstanding > 0 ? 'بديون' : 'نشط'}</Badge>} />
+                    <TableCardItem label="الحالة" value={<Badge variant={customer.is_active === false ? 'danger' : customer.outstanding > 0 ? 'warning' : 'success'}>{customer.is_active === false ? 'غير نشط' : 'نشط'}</Badge>} />
                     <TableCardActions>
                       <Button
                         variant="ghost"
