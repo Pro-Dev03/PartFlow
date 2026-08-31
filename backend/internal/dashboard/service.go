@@ -57,6 +57,7 @@ type DashboardStats struct {
 	// Chart data fields
 	SalesChart            []SalesChartData           `json:"salesChart,omitempty"`
 	InventoryDistribution *InventoryDistributionData `json:"inventoryDistribution,omitempty"`
+	RecentActivity        []RecentActivityItem       `json:"recent_activity,omitempty"`
 }
 
 // SalesChartData represents sales chart data point
@@ -64,6 +65,17 @@ type SalesChartData struct {
 	Name   string  `json:"name"`
 	Sales  float64 `json:"sales"`
 	Profit float64 `json:"profit"`
+}
+
+// RecentActivityItem represents a recent sale or purchase for the dashboard.
+type RecentActivityItem struct {
+	ID          string  `json:"id"`
+	Type        string  `json:"type"`
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
+	Amount      float64 `json:"amount"`
+	Time        string  `json:"time"`
+	Status      string  `json:"status"`
 }
 
 // InventoryDistributionData represents inventory distribution

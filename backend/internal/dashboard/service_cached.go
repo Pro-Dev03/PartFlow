@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -147,7 +148,160 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 	// Alerts disabled for performance
 	stats.Alerts = []Alert{}
 
+	// Populate the data used by the dashboard charts and activity panel. These
+	// reads are intentionally best-effort: a missing optional table must not
+	// make the main dashboard request fail in an existing local database.
+	stats.SalesChart = s.fetchSalesChart(ctx)
+	stats.InventoryDistribution = s.fetchInventoryDistribution(ctx)
+	stats.RecentActivity = s.fetchRecentActivity(ctx)
+
 	return stats, nil
+}
+
+func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
+	query := `
+		WITH sale_costs AS (
+			SELECT s.id, s.created_at, s.total_amount,
+			       COALESCE(SUM(COALESCE(ii.purchase_cost, 0) * COALESCE(si.quantity, 0)), 0) AS cost
+			FROM sales s
+			LEFT JOIN sale_items si ON si.sale_id = s.id
+			LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
+			WHERE LOWER(COALESCE(s.status, '')) = 'completed'
+			  AND datetime(s.created_at) >= datetime('now', '-30 days')
+			GROUP BY s.id, s.created_at, s.total_amount
+		)
+		SELECT strftime('%Y-%m-%d', created_at) AS name,
+		       COALESCE(SUM(total_amount), 0) AS sales,
+		       COALESCE(SUM(total_amount - cost), 0) AS profit
+		FROM sale_costs
+		GROUP BY strftime('%Y-%m-%d', created_at)
+		ORDER BY name
+	`
+	if s.db.DriverName() != "sqlite" {
+		query = `
+			WITH sale_costs AS (
+				SELECT s.id, s.created_at, s.total_amount,
+				       COALESCE(SUM(COALESCE(ii.purchase_cost, 0) * COALESCE(si.quantity, 0)), 0) AS cost
+				FROM sales s
+				LEFT JOIN sale_items si ON si.sale_id = s.id
+				LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
+				WHERE LOWER(COALESCE(s.status, '')) = 'completed'
+				  AND s.created_at >= NOW() - INTERVAL '30 days'
+				GROUP BY s.id, s.created_at, s.total_amount
+			)
+			SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS name,
+			       COALESCE(SUM(total_amount), 0) AS sales,
+			       COALESCE(SUM(total_amount - cost), 0) AS profit
+			FROM sale_costs
+			GROUP BY DATE(created_at)
+			ORDER BY DATE(created_at)
+		`
+	}
+
+	var rows []SalesChartData
+	if err := s.db.SelectContext(ctx, &rows, query); err != nil {
+		return []SalesChartData{}
+	}
+	return rows
+}
+
+func (s *CachedService) fetchInventoryDistribution(ctx context.Context) *InventoryDistributionData {
+	query := `
+		SELECT UPPER(COALESCE(status, 'UNKNOWN')) AS status,
+		       COUNT(*) AS count,
+		       COALESCE(SUM(selling_price), 0) AS value
+		FROM inventory_items
+		GROUP BY UPPER(COALESCE(status, 'UNKNOWN'))
+		ORDER BY status
+	`
+
+	var rows []struct {
+		Status string  `db:"status"`
+		Count  int     `db:"count"`
+		Value  float64 `db:"value"`
+	}
+	if err := s.db.SelectContext(ctx, &rows, query); err != nil {
+		return nil
+	}
+
+	data := make([]InventoryDistributionItem, 0, len(rows))
+	var totalValue float64
+	var totalItems int
+	for _, row := range rows {
+		name, color, health := inventoryStatusPresentation(row.Status)
+		data = append(data, InventoryDistributionItem{
+			Name:   name,
+			Count:  row.Count,
+			Value:  row.Value,
+			Color:  color,
+			Status: health,
+		})
+		totalItems += row.Count
+		totalValue += row.Value
+	}
+
+	return &InventoryDistributionData{
+		TotalValue: totalValue,
+		TotalItems: totalItems,
+		Data:       data,
+	}
+}
+
+func inventoryStatusPresentation(status string) (name, color, health string) {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "AVAILABLE", "IN_STOCK", "IN STOCK":
+		return "متاح", "#10b981", "good"
+	case "RESERVED", "RETURNED":
+		return "محجوز/مرتجع", "#f59e0b", "low"
+	case "SOLD":
+		return "مباع", "#64748b", "low"
+	case "DAMAGED", "IN_REPAIR", "IN REPAIR":
+		return "تالف/قيد الإصلاح", "#ef4444", "critical"
+	default:
+		if strings.TrimSpace(status) == "" {
+			return "غير محدد", "#94a3b8", "low"
+		}
+		return status, "#94a3b8", "low"
+	}
+}
+
+func (s *CachedService) fetchRecentActivity(ctx context.Context) []RecentActivityItem {
+	query := `
+		SELECT id, type, title, description, amount, activity_time AS time, status
+		FROM (
+			SELECT id, 'sale' AS type, 'بيع' AS title, 'عملية بيع' AS description,
+			       total_amount AS amount, datetime(created_at) AS activity_time, status
+			FROM sales
+			UNION ALL
+			SELECT id, 'purchase' AS type, 'شراء' AS title, 'عملية شراء' AS description,
+			       total_amount AS amount, datetime(created_at) AS activity_time, status
+			FROM purchases
+		) AS activity
+		ORDER BY activity_time DESC
+		LIMIT 10
+	`
+	if s.db.DriverName() != "sqlite" {
+		query = `
+			SELECT id, type, title, description, amount, activity_time AS time, status
+			FROM (
+				SELECT id, 'sale' AS type, 'بيع' AS title, 'عملية بيع' AS description,
+				       total_amount AS amount, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS activity_time, status
+				FROM sales
+				UNION ALL
+				SELECT id, 'purchase' AS type, 'شراء' AS title, 'عملية شراء' AS description,
+				       total_amount AS amount, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS activity_time, status
+				FROM purchases
+			) AS activity
+			ORDER BY activity_time DESC
+			LIMIT 10
+		`
+	}
+
+	var activities []RecentActivityItem
+	if err := s.db.SelectContext(ctx, &activities, query); err != nil {
+		return []RecentActivityItem{}
+	}
+	return activities
 }
 
 // InvalidateCache clears the cache (call after data changes)
