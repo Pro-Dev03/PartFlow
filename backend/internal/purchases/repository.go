@@ -113,8 +113,8 @@ func (r *Repository) List(ctx context.Context, req PurchaseListRequest) ([]Purch
 
 	if req.Search != "" {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND (invoice_number ILIKE $%d OR notes ILIKE $%d)", argCount, argCount)
-		countQuery += fmt.Sprintf(" AND (invoice_number ILIKE $%d OR notes ILIKE $%d)", argCount, argCount)
+		baseQuery += fmt.Sprintf(" AND (LOWER(invoice_number) LIKE LOWER($%d) OR LOWER(notes) LIKE LOWER($%d))", argCount, argCount)
+		countQuery += fmt.Sprintf(" AND (LOWER(invoice_number) LIKE LOWER($%d) OR LOWER(notes) LIKE LOWER($%d))", argCount, argCount)
 		searchPattern := "%" + req.Search + "%"
 		args = append(args, searchPattern)
 	}
@@ -163,7 +163,7 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 
 	query := `
 		SELECT
-			p.id::text AS id,
+			p.id AS id,
 			p.invoice_number,
 			p.purchase_date,
 			p.expected_delivery_date,
@@ -172,9 +172,9 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 			p.total_amount - p.paid_amount AS remaining,
 			p.status,
 			COALESCE(s.name, '') AS supplier_name,
-			COUNT(pi.id)::int AS total_items,
+			COUNT(pi.id) AS total_items,
 			p.created_at,
-			COUNT(*) OVER()::int AS total_count
+			COUNT(*) OVER() AS total_count
 		FROM purchases p
 		LEFT JOIN suppliers s ON s.id = p.supplier_id
 		LEFT JOIN purchase_items pi ON pi.purchase_id = p.id
@@ -202,7 +202,7 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 	}
 	if req.Search != "" {
 		argCount++
-		query += fmt.Sprintf(" AND (p.invoice_number ILIKE $%d OR p.notes ILIKE $%d)", argCount, argCount)
+		query += fmt.Sprintf(" AND (LOWER(p.invoice_number) LIKE LOWER($%d) OR LOWER(p.notes) LIKE LOWER($%d))", argCount, argCount)
 		args = append(args, "%"+req.Search+"%")
 	}
 	if req.AvailableForReturn {

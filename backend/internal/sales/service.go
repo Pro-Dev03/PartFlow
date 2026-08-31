@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/partflow/smart-store/internal/dashboard"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 type Service struct {
@@ -33,6 +34,11 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			tx.Rollback()
 		}
 	}()
+	sqlNow := dbutil.NowSQL(s.db)
+	metadataValue := "$4::jsonb"
+	if dbutil.IsSQLite(s.db) {
+		metadataValue = "$4"
+	}
 
 	// Generate invoice number
 	invoiceNumber := s.generateInvoiceNumber()
@@ -232,11 +238,11 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 				return nil, fmt.Errorf("failed to check item condition: %w", err)
 			}
 
-			updateItemQuery := `
+			updateItemQuery := fmt.Sprintf(`
 				UPDATE inventory_items
-					SET status = 'SOLD', sold_at = NOW(), updated_at = NOW()
+					SET status = 'SOLD', sold_at = %s, updated_at = %s
 					WHERE id = $1 AND status = 'AVAILABLE'
-			`
+			`, sqlNow, sqlNow)
 			result, err := tx.ExecContext(ctx, updateItemQuery, itemID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to update inventory item: %w", err)
@@ -267,33 +273,33 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 				return nil, fmt.Errorf("failed to create inventory movement: %w", err)
 			}
 
-			_, err = tx.ExecContext(ctx, `
+			_, err = tx.ExecContext(ctx, fmt.Sprintf(`
 				INSERT INTO item_history
 					(inventory_item_id, event_type, event_date, reference_type, reference_id,
 					 description, metadata, created_by, created_at)
-				VALUES ($1, 'sold', NOW(), 'sale', $2, $3, $4::jsonb, $5, NOW())
-			`, itemID, sale.ID, reason,
+				VALUES ($1, 'sold', %s, 'sale', $2, $3, %s, $5, %s)
+			`, sqlNow, metadataValue, sqlNow), itemID, sale.ID, reason,
 				fmt.Sprintf(`{"sale_id":"%s","unit_price":%.2f}`, sale.ID, items[i].UnitPrice), userID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create item history: %w", err)
 			}
 
-			_, err = tx.ExecContext(ctx, `
+			_, err = tx.ExecContext(ctx, fmt.Sprintf(`
 				UPDATE acquisition_items
-				SET item_status = 'sold', updated_at = NOW()
+				SET item_status = 'sold', updated_at = %s
 				WHERE inventory_item_id = $1
-			`, itemID)
+			`, sqlNow), itemID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to update acquired item status: %w", err)
 			}
 		}
 
 		// Also update the aggregate inventory table for backward compatibility
-		inventoryUpdateQuery := `
+		inventoryUpdateQuery := fmt.Sprintf(`
 			UPDATE inventory
-			SET quantity = quantity - $1, updated_at = NOW()
+			SET quantity = quantity - $1, updated_at = %s
 			WHERE product_id = $2
-		`
+		`, sqlNow)
 		_, inventoryErr := tx.ExecContext(ctx, inventoryUpdateQuery, items[i].Quantity, items[i].ProductID)
 		if inventoryErr != nil {
 			// Log but don't fail if inventory table doesn't exist or has no record

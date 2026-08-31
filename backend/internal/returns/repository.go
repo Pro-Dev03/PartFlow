@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -608,7 +609,7 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 			COUNT(CASE WHEN reason = 'DEFECTIVE' THEN 1 END) as defective_returns,
 			COUNT(CASE WHEN reason = 'WARRANTY' THEN 1 END) as warranty_returns
 		FROM returns
-		WHERE return_date >= CURRENT_DATE - INTERVAL '30 days'
+		WHERE return_date >= date('now', '-30 days')
 	`
 
 	err := r.db.GetContext(ctx, &row, query)
@@ -630,6 +631,12 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 // GetMonthlyReturnsAnalysis gets monthly returns analysis
 func (r *Repository) GetMonthlyReturnsAnalysis(ctx context.Context) ([]MonthlyReturnsAnalysis, error) {
 	var analysis []MonthlyReturnsAnalysis
+	if strings.EqualFold(r.db.DriverName(), "sqlite") {
+		var exists int
+		if err := r.db.GetContext(ctx, &exists, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'view' AND name = 'monthly_returns_analysis'`); err != nil || exists == 0 {
+			return []MonthlyReturnsAnalysis{}, nil
+		}
+	}
 	query := `
 		SELECT 
 			month,
@@ -661,6 +668,12 @@ func (r *Repository) GetMonthlyReturnsAnalysis(ctx context.Context) ([]MonthlyRe
 // GetSalesReturnsAnalysis gets sales vs returns analysis
 func (r *Repository) GetSalesReturnsAnalysis(ctx context.Context) ([]SalesReturnsAnalysis, error) {
 	var analysis []SalesReturnsAnalysis
+	if strings.EqualFold(r.db.DriverName(), "sqlite") {
+		var exists int
+		if err := r.db.GetContext(ctx, &exists, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'view' AND name = 'sales_returns_analysis'`); err != nil || exists == 0 {
+			return []SalesReturnsAnalysis{}, nil
+		}
+	}
 	query := `
 		SELECT 
 			month,

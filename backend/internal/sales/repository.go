@@ -13,6 +13,51 @@ type Repository struct {
 	db *sqlx.DB
 }
 
+type localSaleRow struct {
+	ID             uuid.UUID  `db:"id"`
+	SaleDate       string     `db:"sale_date"`
+	CustomerID     *uuid.UUID `db:"customer_id"`
+	InvoiceNumber  string     `db:"invoice_number"`
+	Subtotal       float64    `db:"subtotal"`
+	TaxAmount      float64    `db:"tax_amount"`
+	DiscountAmount float64    `db:"discount_amount"`
+	TotalAmount    float64    `db:"total_amount"`
+	CostAmount     float64    `db:"cost_amount"`
+	GrossProfit    float64    `db:"gross_profit"`
+	NetProfit      float64    `db:"net_profit"`
+	PaidAmount     float64    `db:"paid_amount"`
+	PaymentMethod  *string    `db:"payment_method"`
+	PaymentStatus  string     `db:"payment_status"`
+	Status         string     `db:"status"`
+	Notes          *string    `db:"notes"`
+	CreatedAt      string     `db:"created_at"`
+	UpdatedAt      string     `db:"updated_at"`
+}
+
+func parseSaleTime(value string) (time.Time, error) {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported local timestamp %q", value)
+}
+
+func (r localSaleRow) sale() (Sale, error) {
+	sale := Sale{ID: r.ID, InvoiceNumber: r.InvoiceNumber, CustomerID: r.CustomerID, SaleDate: time.Time{}, Subtotal: r.Subtotal, TaxAmount: r.TaxAmount, DiscountAmount: r.DiscountAmount, TotalAmount: r.TotalAmount, CostAmount: r.CostAmount, GrossProfit: r.GrossProfit, NetProfit: r.NetProfit, PaidAmount: r.PaidAmount, PaymentMethod: r.PaymentMethod, PaymentStatus: r.PaymentStatus, Status: r.Status, Notes: r.Notes}
+	var err error
+	sale.SaleDate, err = parseSaleTime(r.SaleDate)
+	if err != nil {
+		return Sale{}, err
+	}
+	sale.CreatedAt, err = parseSaleTime(r.CreatedAt)
+	if err != nil {
+		return Sale{}, err
+	}
+	sale.UpdatedAt, err = parseSaleTime(r.UpdatedAt)
+	return sale, err
+}
+
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
 }
@@ -113,10 +158,18 @@ func (r *Repository) ListSales(ctx context.Context, page, perPage int, filters m
 	baseQuery += fmt.Sprintf(" ORDER BY sale_date DESC, id DESC LIMIT $%d OFFSET $%d", argCount+1, argCount+2)
 	args = append(args, perPage, offset)
 
-	var sales []Sale
-	err := r.db.SelectContext(ctx, &sales, baseQuery, args...)
+	var rows []localSaleRow
+	err := r.db.SelectContext(ctx, &rows, baseQuery, args...)
 	if err != nil {
 		return nil, 0, err
+	}
+	sales := make([]Sale, 0, len(rows))
+	for _, row := range rows {
+		sale, parseErr := row.sale()
+		if parseErr != nil {
+			return nil, 0, parseErr
+		}
+		sales = append(sales, sale)
 	}
 
 	var total int

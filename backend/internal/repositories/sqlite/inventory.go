@@ -33,6 +33,46 @@ type InventoryRepository struct {
 	db *sql.DB
 }
 
+func scanInventoryItem(row interface{ Scan(...any) error }) (InventoryItem, error) {
+	var item InventoryItem
+	var barcode, serialNumber, condition, supplierID, purchaseDate, soldAt, notes sql.NullString
+	var createdAt, updatedAt string
+	if err := row.Scan(&item.ID, &item.ProductID, &item.ItemCode, &barcode, &serialNumber, &condition, &item.PurchaseCost, &item.SellingPrice, &item.Status, &supplierID, &purchaseDate, &soldAt, &notes, &createdAt, &updatedAt); err != nil {
+		return InventoryItem{}, err
+	}
+	if barcode.Valid {
+		item.Barcode = &barcode.String
+	}
+	if serialNumber.Valid {
+		item.SerialNumber = &serialNumber.String
+	}
+	if condition.Valid {
+		item.Condition = &condition.String
+	}
+	if supplierID.Valid {
+		item.SupplierID = &supplierID.String
+	}
+	if purchaseDate.Valid {
+		item.PurchaseDate = &purchaseDate.String
+	}
+	if soldAt.Valid {
+		item.SoldAt = &soldAt.String
+	}
+	if notes.Valid {
+		item.Notes = &notes.String
+	}
+	var err error
+	item.CreatedAt, err = parseLocalTime(createdAt)
+	if err != nil {
+		return InventoryItem{}, err
+	}
+	item.UpdatedAt, err = parseLocalTime(updatedAt)
+	if err != nil {
+		return InventoryItem{}, err
+	}
+	return item, nil
+}
+
 // NewInventoryRepository creates a new SQLite inventory repository
 func NewInventoryRepository(db *sql.DB) *InventoryRepository {
 	return &InventoryRepository{db: db}
@@ -71,10 +111,7 @@ func (r *InventoryRepository) GetByID(ctx context.Context, id string) (interface
 		WHERE id = ?
 	`
 
-	var item InventoryItem
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&item.ID, &item.ProductID, &item.ItemCode, &item.Barcode, &item.SerialNumber, &item.Condition,
-		&item.PurchaseCost, &item.SellingPrice, &item.Status, &item.SupplierID, &item.PurchaseDate, &item.SoldAt, &item.Notes, &item.CreatedAt, &item.UpdatedAt)
+	item, err := scanInventoryItem(r.db.QueryRowContext(ctx, query, id))
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -126,9 +163,8 @@ func (r *InventoryRepository) List(ctx context.Context, limit, offset int) ([]in
 
 	var items []interface{}
 	for rows.Next() {
-		var item InventoryItem
-		if err := rows.Scan(&item.ID, &item.ProductID, &item.ItemCode, &item.Barcode, &item.SerialNumber, &item.Condition,
-			&item.PurchaseCost, &item.SellingPrice, &item.Status, &item.SupplierID, &item.PurchaseDate, &item.SoldAt, &item.Notes, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		item, err := scanInventoryItem(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan inventory item: %w", err)
 		}
 		items = append(items, &item)
@@ -155,9 +191,8 @@ func (r *InventoryRepository) ListByProduct(ctx context.Context, productID strin
 
 	var items []interface{}
 	for rows.Next() {
-		var item InventoryItem
-		if err := rows.Scan(&item.ID, &item.ProductID, &item.ItemCode, &item.Barcode, &item.SerialNumber, &item.Condition,
-			&item.PurchaseCost, &item.SellingPrice, &item.Status, &item.SupplierID, &item.PurchaseDate, &item.SoldAt, &item.Notes, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		item, err := scanInventoryItem(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan inventory item: %w", err)
 		}
 		items = append(items, &item)

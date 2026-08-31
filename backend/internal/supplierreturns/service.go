@@ -3,6 +3,7 @@ package supplierreturns
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,23 +65,116 @@ func NewService(db *sqlx.DB) *Service      { return &Service{db: db} }
 func NewHandler(service *Service) *Handler { return &Handler{service: service} }
 
 func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, error) {
-	var rows []SupplierReturn
+	var rows []struct {
+		ID           string  `db:"id"`
+		PurchaseID   string  `db:"purchase_id"`
+		SupplierID   string  `db:"supplier_id"`
+		ReturnNumber string  `db:"return_number"`
+		Status       string  `db:"status"`
+		Reason       string  `db:"reason"`
+		RefundAmount float64 `db:"refund_amount"`
+		Notes        string  `db:"notes"`
+		CreatedAt    string  `db:"created_at"`
+	}
 	query := `SELECT id, purchase_id, supplier_id, return_number, status, reason,
 		refund_amount, COALESCE(notes, '') AS notes, created_at FROM supplier_returns`
 	args := []interface{}{}
 	if status != "" {
-		query += " WHERE status = $1"
+		if strings.EqualFold(s.db.DriverName(), "sqlite") {
+			query += " WHERE status = ?"
+		} else {
+			query += " WHERE status = $1"
+		}
 		args = append(args, status)
 	}
 	query += " ORDER BY created_at DESC LIMIT 100"
 	if err := s.db.SelectContext(ctx, &rows, query, args...); err != nil {
 		return nil, fmt.Errorf("list supplier returns: %w", err)
 	}
-	return rows, nil
+	out := make([]SupplierReturn, 0, len(rows))
+	for _, row := range rows {
+		createdAt, err := parseSQLiteTime(row.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse supplier return created_at: %w", err)
+		}
+		purchaseID, err := uuid.Parse(row.PurchaseID)
+		if err != nil {
+			return nil, fmt.Errorf("parse supplier return purchase_id: %w", err)
+		}
+		supplierID, err := uuid.Parse(row.SupplierID)
+		if err != nil {
+			return nil, fmt.Errorf("parse supplier return supplier_id: %w", err)
+		}
+		id, err := uuid.Parse(row.ID)
+		if err != nil {
+			return nil, fmt.Errorf("parse supplier return id: %w", err)
+		}
+		out = append(out, SupplierReturn{
+			ID:           id,
+			PurchaseID:   purchaseID,
+			SupplierID:   supplierID,
+			ReturnNumber: row.ReturnNumber,
+			Status:       row.Status,
+			Reason:       row.Reason,
+			RefundAmount: row.RefundAmount,
+			Notes:        row.Notes,
+			CreatedAt:    createdAt,
+		})
+	}
+	return out, nil
 }
 
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, req CreateRequest) (*SupplierReturn, error) {
 	var r SupplierReturn
+	if strings.EqualFold(s.db.DriverName(), "sqlite") {
+		id := uuid.New()
+		returnNumber := "SRET-" + strings.ToUpper(strings.ReplaceAll(id.String()[:10], "-", ""))
+		query := `INSERT INTO supplier_returns
+			(id, purchase_id, supplier_id, return_number, status, reason, notes, created_by, created_at, updated_at)
+			SELECT ?, ?, supplier_id, ?, 'PENDING', ?, ?, ?, datetime('now'), datetime('now')
+			FROM purchases WHERE id = ? AND status IN ('received', 'partially_received', 'completed')`
+		result, err := s.db.ExecContext(ctx, query, id.String(), req.PurchaseID.String(), returnNumber, req.Reason, req.Notes, userID.String(), req.PurchaseID.String())
+		if err != nil {
+			return nil, fmt.Errorf("create supplier return: %w", err)
+		}
+		rows, err := result.RowsAffected()
+		if err != nil || rows == 0 {
+			return nil, fmt.Errorf("create supplier return: purchase is not eligible for supplier return")
+		}
+		purchaseRow := struct {
+			ID           string `db:"id"`
+			PurchaseID   string `db:"purchase_id"`
+			SupplierID   string `db:"supplier_id"`
+			ReturnNumber string `db:"return_number"`
+			Status       string `db:"status"`
+			Reason       string `db:"reason"`
+			RefundAmount float64 `db:"refund_amount"`
+			Notes        string `db:"notes"`
+			CreatedAt    string `db:"created_at"`
+		}{
+			ID: id.String(),
+			PurchaseID: req.PurchaseID.String(),
+			SupplierID: "",
+			ReturnNumber: returnNumber,
+			Status: "PENDING",
+			Reason: req.Reason,
+			RefundAmount: 0,
+			Notes: req.Notes,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+		var supplierID string
+		if err := s.db.GetContext(ctx, &supplierID, `SELECT supplier_id FROM purchases WHERE id = ?`, req.PurchaseID); err != nil {
+			return nil, fmt.Errorf("fetch supplier id for supplier return: %w", err)
+		}
+		purchaseRow.SupplierID = supplierID
+		createdAt, err := parseSQLiteTime(purchaseRow.CreatedAt)
+		if err != nil { return nil, fmt.Errorf("parse supplier return created_at: %w", err) }
+		pid, err := uuid.Parse(purchaseRow.PurchaseID); if err != nil { return nil, fmt.Errorf("parse purchase_id: %w", err) }
+		sid, err := uuid.Parse(purchaseRow.SupplierID); if err != nil { return nil, fmt.Errorf("parse supplier_id: %w", err) }
+		rid, err := uuid.Parse(purchaseRow.ID); if err != nil { return nil, fmt.Errorf("parse id: %w", err) }
+		return &SupplierReturn{ID: rid, PurchaseID: pid, SupplierID: sid, ReturnNumber: purchaseRow.ReturnNumber, Status: purchaseRow.Status, Reason: purchaseRow.Reason, RefundAmount: purchaseRow.RefundAmount, Notes: purchaseRow.Notes, CreatedAt: createdAt}, nil
+	}
+
 	err := s.db.GetContext(ctx, &r, `INSERT INTO supplier_returns
 		(purchase_id, supplier_id, return_number, status, reason, notes, created_by)
 		SELECT $1, supplier_id, 'SRET-' || upper(substr(replace(uuid_generate_v4()::text, '-', ''), 1, 10)),
@@ -93,6 +187,19 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, req CreateReques
 	}
 
 	return &r, nil
+}
+
+func parseSQLiteTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, nil
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported sqlite timestamp %q", value)
 }
 
 func (s *Service) AddItem(ctx context.Context, id uuid.UUID, req AddItemRequest) error {

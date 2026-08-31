@@ -2,7 +2,9 @@ package customers
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,6 +39,42 @@ func (r *Repository) Create(ctx context.Context, customer *Customer) error {
 	return nil
 }
 
+func parseDatabaseTimestamp(value any) (time.Time, error) {
+	switch v := value.(type) {
+	case nil:
+		return time.Time{}, nil
+	case time.Time:
+		return v, nil
+	case string:
+		for _, layout := range []string{
+			time.RFC3339Nano,
+			time.RFC3339,
+			"2006-01-02 15:04:05.999999999-07:00",
+			"2006-01-02 15:04:05.999999999",
+			"2006-01-02 15:04:05-07:00",
+			"2006-01-02 15:04:05",
+			"2006-01-02",
+		} {
+			if parsed, err := time.Parse(layout, v); err == nil {
+				return parsed, nil
+			}
+		}
+		return time.Time{}, fmt.Errorf("unsupported timestamp format: %q", v)
+	case []byte:
+		return parseDatabaseTimestamp(string(v))
+	default:
+		return time.Time{}, fmt.Errorf("unsupported timestamp type %T", value)
+	}
+}
+
+func nullableString(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	out := value.String
+	return &out
+}
+
 // GetByID retrieves a customer by ID
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Customer, error) {
 	query := `
@@ -44,12 +82,65 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Customer, erro
 		FROM customers
 		WHERE id = $1
 	`
-	var customer Customer
-	err := r.db.GetContext(ctx, &customer, query, id)
+
+	var (
+		idValue            string
+		code, name         string
+		email, phone       sql.NullString
+		address, city      sql.NullString
+		country, taxID     sql.NullString
+		notes              sql.NullString
+		creditLimit        float64
+		currentBalance     float64
+		isActive           bool
+		createdAtRaw       any
+		updatedAtRaw       any
+	)
+
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&idValue, &code, &name,
+		&email, &phone,
+		&address, &city, &country,
+		&taxID, &creditLimit, &currentBalance,
+		&notes, &isActive,
+		&createdAtRaw, &updatedAtRaw,
+	)
 	if err != nil {
 		return nil, ErrCustomerNotFound
 	}
-	return &customer, nil
+
+	createdAt, err := parseDatabaseTimestamp(createdAtRaw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse created_at: %w", err)
+	}
+	updatedAt, err := parseDatabaseTimestamp(updatedAtRaw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse updated_at: %w", err)
+	}
+
+	parsedID, err := uuid.Parse(idValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse customer id: %w", err)
+	}
+
+	customer := &Customer{
+		ID:             parsedID,
+		Code:           code,
+		Name:           name,
+		Email:          nullableString(email),
+		Phone:          nullableString(phone),
+		Address:        nullableString(address),
+		City:           nullableString(city),
+		Country:        nullableString(country),
+		TaxID:          nullableString(taxID),
+		CreditLimit:    creditLimit,
+		CurrentBalance: currentBalance,
+		Notes:          nullableString(notes),
+		IsActive:       isActive,
+		CreatedAt:      createdAt,
+		UpdatedAt:      updatedAt,
+	}
+	return customer, nil
 }
 
 // GetByCode retrieves a customer by code
@@ -59,12 +150,65 @@ func (r *Repository) GetByCode(ctx context.Context, code string) (*Customer, err
 		FROM customers
 		WHERE code = $1
 	`
-	var customer Customer
-	err := r.db.GetContext(ctx, &customer, query, code)
+
+	var (
+		idValue            string
+		customerCode, name string
+		email, phone       sql.NullString
+		address, city      sql.NullString
+		country, taxID     sql.NullString
+		notes              sql.NullString
+		creditLimit        float64
+		currentBalance     float64
+		isActive           bool
+		createdAtRaw       any
+		updatedAtRaw       any
+	)
+
+	err := r.db.QueryRowContext(ctx, query, code).Scan(
+		&idValue, &customerCode, &name,
+		&email, &phone,
+		&address, &city, &country,
+		&taxID, &creditLimit, &currentBalance,
+		&notes, &isActive,
+		&createdAtRaw, &updatedAtRaw,
+	)
 	if err != nil {
 		return nil, ErrCustomerNotFound
 	}
-	return &customer, nil
+
+	createdAt, err := parseDatabaseTimestamp(createdAtRaw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse created_at: %w", err)
+	}
+	updatedAt, err := parseDatabaseTimestamp(updatedAtRaw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse updated_at: %w", err)
+	}
+
+	parsedID, err := uuid.Parse(idValue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse customer id: %w", err)
+	}
+
+	customer := &Customer{
+		ID:             parsedID,
+		Code:           customerCode,
+		Name:           name,
+		Email:          nullableString(email),
+		Phone:          nullableString(phone),
+		Address:        nullableString(address),
+		City:           nullableString(city),
+		Country:        nullableString(country),
+		TaxID:          nullableString(taxID),
+		CreditLimit:    creditLimit,
+		CurrentBalance: currentBalance,
+		Notes:          nullableString(notes),
+		IsActive:       isActive,
+		CreatedAt:      createdAt,
+		UpdatedAt:      updatedAt,
+	}
+	return customer, nil
 }
 
 // List retrieves customers with pagination and filters
@@ -106,12 +250,12 @@ func (r *Repository) List(ctx context.Context, req *CustomerListRequest) ([]Cust
 		searchConditions := []string{}
 		for _, word := range searchWords {
 			if len(word) >= 2 { // Only search for words with 2+ characters
-				searchConditions = append(searchConditions, `name ILIKE '%`+word+`%'`)
-				searchConditions = append(searchConditions, `code ILIKE '%`+word+`%'`)
-				searchConditions = append(searchConditions, `email ILIKE '%`+word+`%'`)
-				searchConditions = append(searchConditions, `phone ILIKE '%`+word+`%'`)
-				searchConditions = append(searchConditions, `address ILIKE '%`+word+`%'`)
-				searchConditions = append(searchConditions, `city ILIKE '%`+word+`%'`)
+				searchConditions = append(searchConditions, `LOWER(name) LIKE '%`+strings.ToLower(word)+`%'`)
+				searchConditions = append(searchConditions, `LOWER(code) LIKE '%`+strings.ToLower(word)+`%'`)
+				searchConditions = append(searchConditions, `LOWER(email) LIKE '%`+strings.ToLower(word)+`%'`)
+				searchConditions = append(searchConditions, `LOWER(phone) LIKE '%`+strings.ToLower(word)+`%'`)
+				searchConditions = append(searchConditions, `LOWER(address) LIKE '%`+strings.ToLower(word)+`%'`)
+				searchConditions = append(searchConditions, `LOWER(city) LIKE '%`+strings.ToLower(word)+`%'`)
 			}
 		}
 
@@ -162,14 +306,14 @@ func (r *Repository) List(ctx context.Context, req *CustomerListRequest) ([]Cust
 		query += ` AND id IN (
 			SELECT DISTINCT customer_id FROM debts
 			WHERE remaining_amount > 0
-			AND due_date < NOW()
+				AND due_date < date('now')
 			AND status = 'pending'
 		)`
 		countQuery += ` AND EXISTS (
 			SELECT 1 FROM debts d
 			WHERE d.customer_id = customers.id
 			AND d.remaining_amount > 0
-			AND d.due_date < NOW()
+				AND d.due_date < date('now')
 			AND d.status = 'pending'
 		)`
 	}
@@ -185,10 +329,74 @@ func (r *Repository) List(ctx context.Context, req *CustomerListRequest) ([]Cust
 	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", paramNum, paramNum+1)
 	args = append(args, perPage, offset)
 
-	var customers []Customer
-	err = r.db.SelectContext(ctx, &customers, query, args...)
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list customers: %w", err)
+	}
+	defer rows.Close()
+
+	var customers []Customer
+	for rows.Next() {
+		var (
+			idValue            string
+			code, name         string
+			email, phone       sql.NullString
+			address, city      sql.NullString
+			country, taxID     sql.NullString
+			notes              sql.NullString
+			creditLimit        float64
+			currentBalance     float64
+			isActive           bool
+			createdAtRaw       any
+			updatedAtRaw       any
+		)
+
+		if err := rows.Scan(
+			&idValue, &code, &name,
+			&email, &phone,
+			&address, &city, &country,
+			&taxID, &creditLimit, &currentBalance,
+			&notes, &isActive,
+			&createdAtRaw, &updatedAtRaw,
+		); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan customer row: %w", err)
+		}
+
+		createdAt, err := parseDatabaseTimestamp(createdAtRaw)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to parse created_at: %w", err)
+		}
+		updatedAt, err := parseDatabaseTimestamp(updatedAtRaw)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to parse updated_at: %w", err)
+		}
+
+		parsedID, err := uuid.Parse(idValue)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to parse customer id: %w", err)
+		}
+
+		customers = append(customers, Customer{
+			ID:             parsedID,
+			Code:           code,
+			Name:           name,
+			Email:          nullableString(email),
+			Phone:          nullableString(phone),
+			Address:        nullableString(address),
+			City:           nullableString(city),
+			Country:        nullableString(country),
+			TaxID:          nullableString(taxID),
+			CreditLimit:    creditLimit,
+			CurrentBalance: currentBalance,
+			Notes:          nullableString(notes),
+			IsActive:       isActive,
+			CreatedAt:      createdAt,
+			UpdatedAt:      updatedAt,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate customer rows: %w", err)
 	}
 
 	return customers, total, nil

@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"database/sql"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +23,100 @@ type User struct {
 	UpdatedAt             time.Time  `json:"updated_at" db:"updated_at"`
 	SubscriptionStatus    string     `json:"subscription_status" db:"subscription_status"`
 	SubscriptionExpiresAt *time.Time `json:"subscription_expires_at" db:"subscription_expires_at"`
+}
+
+type userRow struct {
+	ID                    string         `db:"id"`
+	Email                 string         `db:"email"`
+	PasswordHash          string         `db:"password_hash"`
+	FirstName             string         `db:"first_name"`
+	LastName              string         `db:"last_name"`
+	Phone                 sql.NullString `db:"phone"`
+	IsActive              bool           `db:"is_active"`
+	LastLoginAt           sql.NullString `db:"last_login_at"`
+	CreatedAt             string         `db:"created_at"`
+	UpdatedAt             string         `db:"updated_at"`
+	SubscriptionStatus    sql.NullString `db:"subscription_status"`
+	SubscriptionExpiresAt sql.NullString `db:"subscription_expires_at"`
+}
+
+func parseSQLiteTimestamp(raw string) (time.Time, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, nil
+	}
+
+	if idx := strings.Index(trimmed, " m="); idx > 0 {
+		trimmed = strings.TrimSpace(trimmed[:idx])
+	}
+
+	layouts := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05.999999999 -0700",
+		"2006-01-02 15:04:05 -0700",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, trimmed); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported SQLite timestamp format: %q", raw)
+}
+
+func userFromRow(row userRow) (User, error) {
+	userID, err := uuid.Parse(row.ID)
+	if err != nil {
+		return User{}, fmt.Errorf("parse user id %q: %w", row.ID, err)
+	}
+
+	user := User{
+		ID:                 userID,
+		Email:              row.Email,
+		PasswordHash:       row.PasswordHash,
+		FirstName:          row.FirstName,
+		LastName:           row.LastName,
+		IsActive:           row.IsActive,
+		SubscriptionStatus: "active",
+	}
+	if row.Phone.Valid {
+		user.Phone = row.Phone.String
+	}
+	if row.SubscriptionStatus.Valid && strings.TrimSpace(row.SubscriptionStatus.String) != "" {
+		user.SubscriptionStatus = row.SubscriptionStatus.String
+	}
+	if row.CreatedAt != "" {
+		parsedCreatedAt, err := parseSQLiteTimestamp(row.CreatedAt)
+		if err != nil {
+			return User{}, err
+		}
+		user.CreatedAt = parsedCreatedAt
+	}
+	if row.UpdatedAt != "" {
+		parsedUpdatedAt, err := parseSQLiteTimestamp(row.UpdatedAt)
+		if err != nil {
+			return User{}, err
+		}
+		user.UpdatedAt = parsedUpdatedAt
+	}
+	if row.LastLoginAt.Valid && strings.TrimSpace(row.LastLoginAt.String) != "" {
+		parsedLoginAt, err := parseSQLiteTimestamp(row.LastLoginAt.String)
+		if err == nil {
+			user.LastLoginAt = &parsedLoginAt
+		}
+	}
+	if row.SubscriptionExpiresAt.Valid && strings.TrimSpace(row.SubscriptionExpiresAt.String) != "" {
+		parsedExpiresAt, err := parseSQLiteTimestamp(row.SubscriptionExpiresAt.String)
+		if err == nil {
+			user.SubscriptionExpiresAt = &parsedExpiresAt
+		}
+	}
+	return user, nil
 }
 
 // RefreshToken represents a refresh token for JWT

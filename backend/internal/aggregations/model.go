@@ -4,7 +4,7 @@ import "time"
 
 // DailySalesSummary represents daily sales aggregation (ARCHITECTURE-PRINCIPLES.md)
 type DailySalesSummary struct {
-	Date              time.Time `json:"date" db:"date"`
+	Date              string    `json:"date" db:"date"`
 	TotalSales        int       `json:"total_sales" db:"total_sales"`
 	TotalRevenue      float64   `json:"total_revenue" db:"total_revenue"`
 	TotalProfit       float64   `json:"total_profit" db:"total_profit"`
@@ -14,7 +14,7 @@ type DailySalesSummary struct {
 	CashSales         float64   `json:"cash_sales" db:"cash_sales"`
 	CardSales         float64   `json:"card_sales" db:"card_sales"`
 	DebtSales         float64   `json:"debt_sales" db:"debt_sales"`
-	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
+	UpdatedAt         string    `json:"updated_at" db:"updated_at"`
 }
 
 // MonthlySalesSummary represents monthly sales aggregation (ARCHITECTURE-PRINCIPLES.md)
@@ -30,7 +30,7 @@ type MonthlySalesSummary struct {
 	CashSales         float64   `json:"cash_sales" db:"cash_sales"`
 	CardSales         float64   `json:"card_sales" db:"card_sales"`
 	DebtSales         float64   `json:"debt_sales" db:"debt_sales"`
-	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
+	UpdatedAt         string    `json:"updated_at" db:"updated_at"`
 }
 
 // DailyInventorySummary represents daily inventory aggregation (ARCHITECTURE-PRINCIPLES.md)

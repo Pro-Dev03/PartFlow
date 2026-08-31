@@ -47,18 +47,30 @@ func AuthMiddleware(jwtService *auth.JWTService, db *sqlx.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Verify user exists in database
-		var userExists bool
+		// Verify the account still exists and is allowed to use the service. This
+		// runs on every protected cloud request, so an administrator's manual
+		// disable/delete takes effect without waiting for a token to expire.
+		var userActive bool
+		var subscriptionStatus string
 		err = db.QueryRowContext(c.Request.Context(),
-			"SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", userID).Scan(&userExists)
-		if err != nil || !userExists {
+			"SELECT is_active, COALESCE(subscription_status, 'active') FROM users WHERE id = $1", userID).Scan(&userActive, &subscriptionStatus)
+		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+			c.Abort()
+			return
+		}
+		status := strings.ToLower(strings.TrimSpace(subscriptionStatus))
+		if !userActive || status == "expired" || status == "canceled" || status == "cancelled" || status == "deleted" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "subscription expired or account disabled", "code": "SUBSCRIPTION_EXPIRED"})
 			c.Abort()
 			return
 		}
 
 		// Set user context
 		c.Set("user_id", userID)
+		if deviceID := strings.TrimSpace(c.GetHeader("X-PartFlow-Device-ID")); deviceID != "" {
+			c.Set("device_id", deviceID)
+		}
 
 		c.Next()
 	}

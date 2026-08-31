@@ -122,9 +122,10 @@ CREATE TABLE IF NOT EXISTS sale_items (
 );
 
 CREATE TABLE IF NOT EXISTS purchases (
+        supplier_id TEXT NOT NULL,
     id TEXT PRIMARY KEY,
     purchase_number TEXT NOT NULL UNIQUE,
-    supplier_id TEXT NOT NULL,
+    supplier_id TEXT,
     total_amount REAL NOT NULL,
     tax_amount REAL DEFAULT 0,
     discount_amount REAL DEFAULT 0,

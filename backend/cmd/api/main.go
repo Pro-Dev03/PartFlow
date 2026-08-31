@@ -65,8 +65,18 @@ func main() {
 	// Create router
 	router := gin.New()
 
-	// Register middleware
+	// Health checker (initialize early for health routes)
+	healthChecker := health.NewHealthChecker(db)
+
+	// Apply CORS before health routes so browser-origin fetches (like localhost:5173) can access /health.
 	router.Use(middleware.CORS())
+
+	// Register health check routes after CORS but before auth/repo middleware so they remain public and healthy.
+	router.GET("/health", healthChecker.Check)
+	router.GET("/ready", healthChecker.Readiness)
+	router.GET("/alive", healthChecker.Liveness)
+
+	// Register remaining middleware after the public health routes.
 	router.Use(repoMiddleware.RepositoryFactoryMiddleware(db, sqliteDB.DB))
 	router.Use(middleware.LoggingMiddleware())
 	router.Use(middleware.ErrorLoggingMiddleware())
@@ -92,14 +102,6 @@ func main() {
 
 	// Inventory service initialization
 	_ = inventory.NewRepository(db) // Initialize inventory repository
-
-	// Health checker
-	healthChecker := health.NewHealthChecker(db)
-
-	// Register health check routes
-	router.GET("/health", healthChecker.Check)
-	router.GET("/ready", healthChecker.Readiness)
-	router.GET("/alive", healthChecker.Liveness)
 
 	// Log application startup
 	logger.LogSystemEvent("application_start", "api", map[string]interface{}{

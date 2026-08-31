@@ -1,6 +1,7 @@
 package debts
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 type Handler struct {
@@ -208,10 +210,10 @@ func (h *Handler) CreateDebt(c *gin.Context) {
 	}
 
 	id := uuid.New()
-	query := `
+	query := fmt.Sprintf(`
 		INSERT INTO debts (id, customer_id, amount, remaining_amount, due_date, status, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, $3, $4, 'pending', $5, NOW(), NOW())
-	`
+		VALUES ($1, $2, $3, $3, $4, 'pending', $5, %s, %s)
+	`, dbutil.NowSQL(h.db), dbutil.NowSQL(h.db))
 
 	_, err := h.db.Exec(query, id, req.CustomerID, req.Amount, req.DueDate, req.Notes)
 	if err != nil {
@@ -249,16 +251,16 @@ func (h *Handler) UpdateDebt(c *gin.Context) {
 		return
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE debts 
 		SET amount = COALESCE($2, amount),
 		    remaining_amount = COALESCE($3, remaining_amount),
 		    due_date = COALESCE($4, due_date),
 		    status = COALESCE($5, status),
 		    notes = COALESCE($6, notes),
-		    updated_at = NOW()
+		    updated_at = %s
 		WHERE id = $1
-	`
+	`, dbutil.NowSQL(h.db))
 
 	_, err = h.db.Exec(query, id, req.Amount, req.RemainingAmount, req.DueDate, req.Status, req.Notes)
 	if err != nil {

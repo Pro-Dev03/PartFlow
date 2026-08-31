@@ -54,12 +54,32 @@ func (r *Repository) GetUserByEmail(ctx context.Context, email string) (*User, e
 		FROM users
 		WHERE email = $1
 	`
-	var user User
-	err := r.db.GetContext(ctx, &user, query, email)
+	var row userRow
+	err := r.db.QueryRowxContext(ctx, query, email).Scan(
+		&row.ID,
+		&row.Email,
+		&row.PasswordHash,
+		&row.FirstName,
+		&row.LastName,
+		&row.Phone,
+		&row.IsActive,
+		&row.LastLoginAt,
+		&row.CreatedAt,
+		&row.UpdatedAt,
+		&row.SubscriptionStatus,
+		&row.SubscriptionExpiresAt,
+	)
 	if err == sql.ErrNoRows {
 		return nil, ErrUserNotFound
 	}
-	return &user, err
+	if err != nil {
+		return nil, err
+	}
+	user, err := userFromRow(row)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 // GetUserByID retrieves a user by ID
@@ -69,12 +89,32 @@ func (r *Repository) GetUserByID(ctx context.Context, id uuid.UUID) (*User, erro
 		FROM users
 		WHERE id = $1
 	`
-	var user User
-	err := r.db.GetContext(ctx, &user, query, id)
+	var row userRow
+	err := r.db.QueryRowxContext(ctx, query, id).Scan(
+		&row.ID,
+		&row.Email,
+		&row.PasswordHash,
+		&row.FirstName,
+		&row.LastName,
+		&row.Phone,
+		&row.IsActive,
+		&row.LastLoginAt,
+		&row.CreatedAt,
+		&row.UpdatedAt,
+		&row.SubscriptionStatus,
+		&row.SubscriptionExpiresAt,
+	)
 	if err == sql.ErrNoRows {
 		return nil, ErrUserNotFound
 	}
-	return &user, err
+	if err != nil {
+		return nil, err
+	}
+	user, err := userFromRow(row)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
 
 // UpdateLastLogin updates the last login timestamp

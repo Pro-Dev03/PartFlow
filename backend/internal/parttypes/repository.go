@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 type Repository struct {
@@ -18,6 +19,68 @@ func NewRepository(db *sqlx.DB) *Repository {
 }
 
 // Part Types CRUD
+func parsePartTypeMap(record map[string]any) (PartType, error) {
+	var partType PartType
+	if raw, ok := record["id"]; ok && raw != nil {
+		parsed, err := uuid.Parse(raw.(string))
+		if err != nil {
+			return partType, fmt.Errorf("parse part type id: %w", err)
+		}
+		partType.ID = parsed
+	}
+	if raw, ok := record["name_ar"]; ok && raw != nil {
+		partType.NameAr = raw.(string)
+	}
+	if raw, ok := record["name_en"]; ok && raw != nil {
+		partType.NameEn = raw.(string)
+	}
+	if raw, ok := record["icon"]; ok && raw != nil {
+		partType.Icon = raw.(string)
+	}
+	if raw, ok := record["color"]; ok && raw != nil {
+		partType.Color = raw.(string)
+	}
+	if raw, ok := record["is_active"]; ok && raw != nil {
+		switch v := raw.(type) {
+		case bool:
+			partType.IsActive = v
+		case int:
+			partType.IsActive = v != 0
+		case int64:
+			partType.IsActive = v != 0
+		case string:
+			partType.IsActive = v == "1" || v == "true" || v == "TRUE"
+		}
+	}
+	if raw, ok := record["sort_order"]; ok && raw != nil {
+		switch v := raw.(type) {
+		case int64:
+			partType.SortOrder = int(v)
+		case int32:
+			partType.SortOrder = int(v)
+		case float64:
+			partType.SortOrder = int(v)
+		case int:
+			partType.SortOrder = v
+		}
+	}
+	if raw, ok := record["created_at"]; ok && raw != nil {
+		parsed, err := dbutil.ParseTimestamp(raw)
+		if err != nil {
+			return partType, fmt.Errorf("parse created_at: %w", err)
+		}
+		partType.CreatedAt = parsed
+	}
+	if raw, ok := record["updated_at"]; ok && raw != nil {
+		parsed, err := dbutil.ParseTimestamp(raw)
+		if err != nil {
+			return partType, fmt.Errorf("parse updated_at: %w", err)
+		}
+		partType.UpdatedAt = parsed
+	}
+	return partType, nil
+}
+
 func (r *Repository) ListPartTypes(ctx context.Context) ([]PartType, error) {
 	query := `
 		SELECT id, name_ar, name_en, icon, color, is_active, sort_order, created_at, updated_at
@@ -25,13 +88,25 @@ func (r *Repository) ListPartTypes(ctx context.Context) ([]PartType, error) {
 		ORDER BY sort_order ASC, name_ar ASC
 	`
 
-	var types []PartType
-	err := r.db.SelectContext(ctx, &types, query)
+	rows, err := r.db.QueryxContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list part types: %w", err)
 	}
+	defer rows.Close()
 
-	return types, nil
+	var types []PartType
+	for rows.Next() {
+		record := map[string]any{}
+		if err := rows.MapScan(record); err != nil {
+			return nil, fmt.Errorf("failed to scan part type: %w", err)
+		}
+		partType, err := parsePartTypeMap(record)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse part type: %w", err)
+		}
+		types = append(types, partType)
+	}
+	return types, rows.Err()
 }
 
 func (r *Repository) GetPartType(ctx context.Context, id uuid.UUID) (*PartType, error) {
@@ -41,12 +116,18 @@ func (r *Repository) GetPartType(ctx context.Context, id uuid.UUID) (*PartType, 
 		WHERE id = $1
 	`
 
-	var partType PartType
-	err := r.db.GetContext(ctx, &partType, query, id)
-	if err != nil {
+	row := r.db.QueryRowxContext(ctx, query, id)
+	if row == nil {
+		return nil, fmt.Errorf("failed to get part type: %w", sql.ErrNoRows)
+	}
+	record := map[string]any{}
+	if err := row.MapScan(record); err != nil {
 		return nil, fmt.Errorf("failed to get part type: %w", err)
 	}
-
+	partType, err := parsePartTypeMap(record)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse part type: %w", err)
+	}
 	return &partType, nil
 }
 

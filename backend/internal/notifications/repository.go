@@ -44,7 +44,7 @@ func (r *Repository) CreateNotification(ctx context.Context, notification *Notif
 func (r *Repository) GetNotificationByID(ctx context.Context, id uuid.UUID) (*Notification, error) {
 	var notification Notification
 	query := `
-		SELECT id, user_id, type, title, message, COALESCE(data, '{}'::jsonb)::text AS data, priority, status,
+		SELECT id, user_id, type, title, message, COALESCE(CAST(data AS TEXT), '{}') AS data, priority, status,
 			COALESCE(action_url, '') AS action_url, COALESCE(action_text, '') AS action_text,
 			expires_at, created_at, read_at
 		FROM notifications
@@ -68,7 +68,7 @@ func (r *Repository) ListNotifications(ctx context.Context, userID uuid.UUID, re
 
 	// Build base query
 	baseQuery := `
-		SELECT id, user_id, type, title, message, COALESCE(data, '{}'::jsonb)::text AS data, priority, status,
+		SELECT id, user_id, type, title, message, COALESCE(CAST(data AS TEXT), '{}') AS data, priority, status,
 			COALESCE(action_url, '') AS action_url, COALESCE(action_text, '') AS action_text,
 			expires_at, created_at, read_at
 		FROM notifications

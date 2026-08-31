@@ -186,6 +186,14 @@ func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
 
 // DeleteAllData يحذف جميع البيانات من قاعدة البيانات
 func (h *DatabaseHandler) DeleteAllData(c *gin.Context) {
+	// The embedded desktop backend owns SQLite. A client must never be able to
+	// select an "online" target and accidentally clear cloud data (or use the
+	// old operating-mode switch as a destructive escape hatch).
+	if h.db != nil && (strings.EqualFold(h.db.DriverName(), "sqlite") || strings.EqualFold(h.db.DriverName(), "sqlite3")) {
+		h.resetSQLite(c)
+		return
+	}
+
 	currentMode, err := getOperatingModeFromLocalDB()
 	if err != nil {
 		log.Printf("Unable to read current operating mode: %v", err)

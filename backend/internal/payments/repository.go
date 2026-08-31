@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Repository handles payment data operations
@@ -16,6 +17,114 @@ type Repository struct {
 // NewRepository creates a new payment repository
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
+}
+
+// parsePaymentMap converts a map result from SQLite into a Payment struct
+func parsePaymentMap(record map[string]any) (Payment, error) {
+	var payment Payment
+	if raw, ok := record["id"]; ok && raw != nil {
+		parsed, err := uuid.Parse(raw.(string))
+		if err != nil {
+			return payment, fmt.Errorf("parse payment id: %w", err)
+		}
+		payment.ID = parsed
+	}
+	if raw, ok := record["type"]; ok && raw != nil {
+		payment.Type = fmt.Sprint(raw)
+	}
+	if raw, ok := record["reference_id"]; ok && raw != nil && raw != "" {
+		parsed, err := uuid.Parse(raw.(string))
+		if err != nil {
+			return payment, fmt.Errorf("parse reference_id: %w", err)
+		}
+		payment.ReferenceID = parsed
+	}
+	if raw, ok := record["amount"]; ok && raw != nil {
+		switch v := raw.(type) {
+		case float64:
+			payment.Amount = v
+		case int64:
+			payment.Amount = float64(v)
+		}
+	}
+	if raw, ok := record["payment_date"]; ok && raw != nil && raw != "" {
+		parsed, err := dbutil.ParseTimestamp(raw)
+		if err != nil {
+			return payment, fmt.Errorf("parse payment_date: %w", err)
+		}
+		payment.PaymentDate = parsed
+	}
+	if raw, ok := record["method"]; ok && raw != nil {
+		payment.Method = fmt.Sprint(raw)
+	}
+	if raw, ok := record["reference"]; ok && raw != nil && raw != "" {
+		value := fmt.Sprint(raw)
+		payment.Reference = &value
+	}
+	if raw, ok := record["notes"]; ok && raw != nil && raw != "" {
+		value := fmt.Sprint(raw)
+		payment.Notes = &value
+	}
+	if raw, ok := record["status"]; ok && raw != nil {
+		payment.Status = fmt.Sprint(raw)
+	}
+	if raw, ok := record["created_by"]; ok && raw != nil && raw != "" {
+		parsed, err := uuid.Parse(raw.(string))
+		if err != nil {
+			return payment, fmt.Errorf("parse created_by: %w", err)
+		}
+		payment.CreatedBy = parsed
+	}
+	if raw, ok := record["created_at"]; ok && raw != nil && raw != "" {
+		parsed, err := dbutil.ParseTimestamp(raw)
+		if err != nil {
+			return payment, fmt.Errorf("parse created_at: %w", err)
+		}
+		payment.CreatedAt = parsed
+	}
+	if raw, ok := record["updated_at"]; ok && raw != nil && raw != "" {
+		parsed, err := dbutil.ParseTimestamp(raw)
+		if err != nil {
+			return payment, fmt.Errorf("parse updated_at: %w", err)
+		}
+		payment.UpdatedAt = parsed
+	}
+	if raw, ok := record["is_reversed"]; ok && raw != nil {
+		switch v := raw.(type) {
+		case bool:
+			payment.IsReversed = v
+		case int:
+			payment.IsReversed = v != 0
+		case int64:
+			payment.IsReversed = v != 0
+		}
+	}
+	if raw, ok := record["reversed_at"]; ok && raw != nil && raw != "" {
+		parsed, err := dbutil.ParseTimestamp(raw)
+		if err != nil {
+			return payment, fmt.Errorf("parse reversed_at: %w", err)
+		}
+		payment.ReversedAt = &parsed
+	}
+	if raw, ok := record["reversed_by"]; ok && raw != nil && raw != "" {
+		parsed, err := uuid.Parse(raw.(string))
+		if err != nil {
+			return payment, fmt.Errorf("parse reversed_by: %w", err)
+		}
+		payment.ReversedBy = &parsed
+	}
+	if raw, ok := record["reversal_reason"]; ok && raw != nil && raw != "" {
+		value := fmt.Sprint(raw)
+		payment.ReversalReason = &value
+	}
+	if raw, ok := record["reversal_payment_id"]; ok && raw != nil && raw != "" {
+		parsed, err := uuid.Parse(raw.(string))
+		if err != nil {
+			return payment, fmt.Errorf("parse reversal_payment_id: %w", err)
+		}
+		payment.ReversalPaymentID = &parsed
+	}
+	return payment, nil
 }
 
 // Create creates a new payment
@@ -41,14 +150,22 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Payment, error
 		SELECT id, COALESCE(type, '') AS type, COALESCE(reference_id, '00000000-0000-0000-0000-000000000000') AS reference_id,
 			amount, payment_date, COALESCE(method, payment_method) AS method,
 			COALESCE(reference, reference_number) AS reference, notes, COALESCE(status, 'completed') AS status,
-			COALESCE(created_by, '00000000-0000-0000-0000-000000000000') AS created_by, created_at, updated_at
+			COALESCE(created_by, '00000000-0000-0000-0000-000000000000') AS created_by, created_at, updated_at,
+			COALESCE(is_reversed, 0) AS is_reversed, reversed_at, reversed_by, reversal_reason, reversal_payment_id
 		FROM payments
 		WHERE id = $1
 	`
-	var payment Payment
-	err := r.db.GetContext(ctx, &payment, query, id)
-	if err != nil {
+	row := r.db.QueryRowxContext(ctx, query, id)
+	if row == nil {
 		return nil, ErrPaymentNotFound
+	}
+	record := map[string]any{}
+	if err := row.MapScan(record); err != nil {
+		return nil, fmt.Errorf("failed to get payment: %w", err)
+	}
+	payment, err := parsePaymentMap(record)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse payment: %w", err)
 	}
 	return &payment, nil
 }
@@ -61,7 +178,8 @@ func (r *Repository) List(ctx context.Context, page, perPage int, filters map[st
 		SELECT id, COALESCE(type, '') AS type, COALESCE(reference_id, '00000000-0000-0000-0000-000000000000') AS reference_id,
 			amount, payment_date, COALESCE(method, payment_method) AS method,
 			COALESCE(reference, reference_number) AS reference, notes, COALESCE(status, 'completed') AS status,
-			COALESCE(created_by, '00000000-0000-0000-0000-000000000000') AS created_by, created_at, updated_at
+			COALESCE(created_by, '00000000-0000-0000-0000-000000000000') AS created_by, created_at, updated_at,
+			COALESCE(is_reversed, 0) AS is_reversed, reversed_at, reversed_by, reversal_reason, reversal_payment_id
 		FROM payments
 		WHERE 1=1
 	`
@@ -114,10 +232,26 @@ func (r *Repository) List(ctx context.Context, page, perPage int, filters map[st
 	query += fmt.Sprintf(" ORDER BY payment_date DESC LIMIT $%d OFFSET $%d", argCount+1, argCount+2)
 	args = append(args, perPage, offset)
 
-	var payments []Payment
-	err = r.db.SelectContext(ctx, &payments, query, args...)
+	rows, err := r.db.QueryxContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list payments: %w", err)
+	}
+	defer rows.Close()
+
+	var payments []Payment
+	for rows.Next() {
+		record := map[string]any{}
+		if err := rows.MapScan(record); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan payment: %w", err)
+		}
+		payment, err := parsePaymentMap(record)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to parse payment: %w", err)
+		}
+		payments = append(payments, payment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate payments: %w", err)
 	}
 
 	return payments, total, nil

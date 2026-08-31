@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,116 @@ type Repository struct {
 // NewRepository creates a new products repository
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
+}
+
+func parseSQLiteTimestamp(raw string) (time.Time, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, nil
+	}
+
+	layouts := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05.999999999 -0700",
+		"2006-01-02 15:04:05 -0700",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.Parse(layout, trimmed); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported SQLite timestamp format: %q", raw)
+}
+
+func scanProductRow(rows *sql.Rows) (Product, error) {
+	var product Product
+	var description, model, barcode, deletedAt, createdAt, updatedAt sql.NullString
+	var categoryID, brandID, preferredSupplierID sql.NullString
+
+	if err := rows.Scan(
+		&product.ID,
+		&categoryID,
+		&brandID,
+		&preferredSupplierID,
+		&product.Name,
+		&description,
+		&model,
+		&product.SKU,
+		&barcode,
+		&product.CostPrice,
+		&product.SellingPrice,
+		&product.TrackSerial,
+		&product.TrackIndividual,
+		&product.MinStockLevel,
+		&product.WarrantyDays,
+		&product.IsActive,
+		&deletedAt,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
+		return Product{}, err
+	}
+
+	if categoryID.Valid {
+		id, err := uuid.Parse(categoryID.String)
+		if err != nil {
+			return Product{}, fmt.Errorf("parse category id: %w", err)
+		}
+		product.CategoryID = &id
+	}
+	if brandID.Valid {
+		id, err := uuid.Parse(brandID.String)
+		if err != nil {
+			return Product{}, fmt.Errorf("parse brand id: %w", err)
+		}
+		product.BrandID = &id
+	}
+	if preferredSupplierID.Valid {
+		id, err := uuid.Parse(preferredSupplierID.String)
+		if err != nil {
+			return Product{}, fmt.Errorf("parse preferred supplier id: %w", err)
+		}
+		product.PreferredSupplierID = &id
+	}
+	if description.Valid && strings.TrimSpace(description.String) != "" {
+		v := description.String
+		product.Description = &v
+	}
+	if model.Valid && strings.TrimSpace(model.String) != "" {
+		v := model.String
+		product.Model = &v
+	}
+	if barcode.Valid && strings.TrimSpace(barcode.String) != "" {
+		product.Barcode = barcode.String
+	}
+	if deletedAt.Valid && strings.TrimSpace(deletedAt.String) != "" {
+		parsed, err := parseSQLiteTimestamp(deletedAt.String)
+		if err != nil {
+			return Product{}, fmt.Errorf("parse deleted_at: %w", err)
+		}
+		product.DeletedAt = &parsed
+	}
+	if createdAt.Valid && strings.TrimSpace(createdAt.String) != "" {
+		parsed, err := parseSQLiteTimestamp(createdAt.String)
+		if err != nil {
+			return Product{}, fmt.Errorf("parse created_at: %w", err)
+		}
+		product.CreatedAt = parsed
+	}
+	if updatedAt.Valid && strings.TrimSpace(updatedAt.String) != "" {
+		parsed, err := parseSQLiteTimestamp(updatedAt.String)
+		if err != nil {
+			return Product{}, fmt.Errorf("parse updated_at: %w", err)
+		}
+		product.UpdatedAt = parsed
+	}
+	return product, nil
 }
 
 // Category CRUD operations
@@ -57,9 +168,40 @@ func (r *Repository) GetCategoryByID(ctx context.Context, id uuid.UUID) (*Catego
 		WHERE id = $1
 	`
 	var category Category
-	err := r.db.GetContext(ctx, &category, query, id)
+	var description, parentID, icon, color, createdAt, updatedAt sql.NullString
+	err := r.db.QueryRowxContext(ctx, query, id).Scan(
+		&category.ID, &category.Name, &description, &parentID, &icon, &color,
+		&category.IsActive, &createdAt, &updatedAt,
+	)
 	if err == sql.ErrNoRows {
 		return nil, ErrCategoryNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if description.Valid {
+		category.Description = description.String
+	}
+	if parentID.Valid && strings.TrimSpace(parentID.String) != "" {
+		parsed, parseErr := uuid.Parse(parentID.String)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse parent id: %w", parseErr)
+		}
+		category.ParentID = &parsed
+	}
+	if icon.Valid {
+		category.Icon = &icon.String
+	}
+	if color.Valid {
+		category.Color = &color.String
+	}
+	category.CreatedAt, err = parseSQLiteTimestamp(createdAt.String)
+	if err != nil {
+		return nil, fmt.Errorf("parse created_at: %w", err)
+	}
+	category.UpdatedAt, err = parseSQLiteTimestamp(updatedAt.String)
+	if err != nil {
+		return nil, fmt.Errorf("parse updated_at: %w", err)
 	}
 	return &category, err
 }
@@ -71,9 +213,52 @@ func (r *Repository) ListCategories(ctx context.Context, ) ([]Category, error) {
 		FROM categories
 		ORDER BY name
 	`
-	var categories []Category
-	err := r.db.SelectContext(ctx, &categories, query)
-	return categories, err
+	rows, err := r.db.QueryxContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	categories := make([]Category, 0)
+	for rows.Next() {
+		var category Category
+		var description, parentID, icon, color, createdAt, updatedAt sql.NullString
+		if err := rows.Scan(
+			&category.ID, &category.Name, &description, &parentID, &icon, &color,
+			&category.IsActive, &createdAt, &updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if description.Valid {
+			category.Description = description.String
+		}
+		if parentID.Valid && strings.TrimSpace(parentID.String) != "" {
+			parsed, parseErr := uuid.Parse(parentID.String)
+			if parseErr != nil {
+				return nil, fmt.Errorf("parse parent id: %w", parseErr)
+			}
+			category.ParentID = &parsed
+		}
+		if icon.Valid {
+			category.Icon = &icon.String
+		}
+		if color.Valid {
+			category.Color = &color.String
+		}
+		category.CreatedAt, err = parseSQLiteTimestamp(createdAt.String)
+		if err != nil {
+			return nil, fmt.Errorf("parse created_at: %w", err)
+		}
+		category.UpdatedAt, err = parseSQLiteTimestamp(updatedAt.String)
+		if err != nil {
+			return nil, fmt.Errorf("parse updated_at: %w", err)
+		}
+		categories = append(categories, category)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return categories, nil
 }
 
 // UpdateCategory updates a category
@@ -378,24 +563,32 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 
 	// Advanced filtering: low stock only
 	if req.LowStockOnly != nil && *req.LowStockOnly {
-		baseQuery += ` AND (COALESCE(SUM(i.quantity), 0) < p.min_stock_level AND p.min_stock_level > 0)`
-		countQuery += ` AND EXISTS (
-			SELECT 1 FROM inventory inv 
-			WHERE inv.product_id = p.id 
-			GROUP BY inv.product_id, p.min_stock_level
-			HAVING COALESCE(SUM(inv.quantity), 0) < p.min_stock_level AND p.min_stock_level > 0
-		)`
+		baseQuery += ` AND (
+			SELECT COALESCE(COUNT(*), 0)
+			FROM inventory_items ii
+			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'
+		) < p.min_stock_level
+		AND p.min_stock_level > 0`
+		countQuery += ` AND (
+			SELECT COALESCE(COUNT(*), 0)
+			FROM inventory_items ii
+			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'
+		) < p.min_stock_level
+		AND p.min_stock_level > 0`
 	}
 
 	// Advanced filtering: in stock only
 	if req.InStockOnly != nil && *req.InStockOnly {
-		baseQuery += ` AND COALESCE(SUM(i.quantity), 0) > 0`
-		countQuery += ` AND EXISTS (
-			SELECT 1 FROM inventory inv 
-			WHERE inv.product_id = p.id 
-			GROUP BY inv.product_id
-			HAVING COALESCE(SUM(inv.quantity), 0) > 0
-		)`
+		baseQuery += ` AND (
+			SELECT COALESCE(COUNT(*), 0)
+			FROM inventory_items ii
+			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'
+		) > 0`
+		countQuery += ` AND (
+			SELECT COALESCE(COUNT(*), 0)
+			FROM inventory_items ii
+			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'
+		) > 0`
 	}
 
 	// Get total count
@@ -422,10 +615,21 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 	baseQuery += ` ORDER BY ` + sortBy + ` ` + sortOrder + ` LIMIT $` + fmt.Sprint(paramNum) + ` OFFSET $` + fmt.Sprint(paramNum+1)
 	args = append(args, req.PerPage, offset)
 
-	// Execute query
-	var products []Product
-	err = r.db.SelectContext(ctx, &products, baseQuery, args...)
+	rows, err := r.db.QueryContext(ctx, baseQuery, args...)
 	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	products := make([]Product, 0, req.PerPage)
+	for rows.Next() {
+		product, err := scanProductRow(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		products = append(products, product)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, 0, err
 	}
 

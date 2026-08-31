@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -46,12 +48,16 @@ func (s *Service) checkSubscriptionStatus(subscriptionStatus string, expiresAt *
 
 // validatePassword checks password with bcrypt and PostgreSQL crypt fallback (from worktrack)
 func (s *Service) validatePassword(password, storedHash, email string) bool {
-	// Try bcrypt first
 	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)); err == nil {
 		return true
 	}
 
-	// Fallback to PostgreSQL crypt function
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	mode := strings.TrimSpace(strings.ToLower(os.Getenv("DB_CONNECTION_MODE")))
+	if strings.HasPrefix(databaseURL, "sqlite://") || mode == "local" {
+		return false
+	}
+
 	var passwordMatches bool
 	err := s.db.QueryRow(`SELECT crypt($1, password_hash) = password_hash FROM users WHERE email = $2`, password, email).Scan(&passwordMatches)
 	if err != nil {
@@ -153,8 +159,6 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResp
 
 // Login authenticates an admin user (from worktrack)
 func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, error) {
-	// Get user by email with subscription info
-	var user User
 	query := `
 		SELECT id, email, password_hash, first_name, last_name,
 		       phone, is_active, last_login_at, created_at, updated_at,
@@ -162,9 +166,28 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 		FROM users WHERE email = $1 AND is_active = TRUE
 	`
 
-	err := s.db.GetContext(ctx, &user, query, req.Email)
+	var row userRow
+	err := s.db.QueryRowxContext(ctx, query, req.Email).Scan(
+		&row.ID,
+		&row.Email,
+		&row.PasswordHash,
+		&row.FirstName,
+		&row.LastName,
+		&row.Phone,
+		&row.IsActive,
+		&row.LastLoginAt,
+		&row.CreatedAt,
+		&row.UpdatedAt,
+		&row.SubscriptionStatus,
+		&row.SubscriptionExpiresAt,
+	)
 	if err != nil {
 		return nil, ErrUserNotFound
+	}
+
+	user, err := userFromRow(row)
+	if err != nil {
+		return nil, fmt.Errorf("read user profile: %w", err)
 	}
 
 	// Check if user is active
@@ -217,8 +240,6 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 		return nil, ErrInvalidToken
 	}
 
-	// Get user
-	var user User
 	query := `
 		SELECT id, email, password_hash, first_name, last_name,
 		       phone, is_active, last_login_at, created_at, updated_at,
@@ -226,9 +247,28 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 		FROM users WHERE id = $1
 	`
 
-	err = s.db.GetContext(ctx, &user, query, claims.UserID)
+	var row userRow
+	err = s.db.QueryRowxContext(ctx, query, claims.UserID).Scan(
+		&row.ID,
+		&row.Email,
+		&row.PasswordHash,
+		&row.FirstName,
+		&row.LastName,
+		&row.Phone,
+		&row.IsActive,
+		&row.LastLoginAt,
+		&row.CreatedAt,
+		&row.UpdatedAt,
+		&row.SubscriptionStatus,
+		&row.SubscriptionExpiresAt,
+	)
 	if err != nil {
 		return nil, ErrUserNotFound
+	}
+
+	user, err := userFromRow(row)
+	if err != nil {
+		return nil, fmt.Errorf("read user profile: %w", err)
 	}
 
 	if err := s.checkSubscriptionStatus(user.SubscriptionStatus, user.SubscriptionExpiresAt); err != nil {
@@ -260,7 +300,7 @@ func (s *Service) ValidateToken(ctx context.Context, token string) (*Claims, err
 
 // GetUserByID retrieves a user by ID
 func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (*User, error) {
-	var user User
+	var row userRow
 	query := `
 		SELECT id, email, password_hash, first_name, last_name,
 		       phone, is_active, last_login_at, created_at, updated_at,
@@ -268,11 +308,15 @@ func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (*User, err
 		FROM users WHERE id = $1
 	`
 
-	err := s.db.GetContext(ctx, &user, query, userID)
+	err := s.db.GetContext(ctx, &row, query, userID.String())
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
 
+	user, err := userFromRow(row)
+	if err != nil {
+		return nil, ErrUserNotFound
+	}
 	return &user, nil
 }
 

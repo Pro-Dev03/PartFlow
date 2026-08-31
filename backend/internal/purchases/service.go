@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Import InventoryItem from inventory package
@@ -524,11 +525,11 @@ func (s *Service) ReversePurchase(ctx context.Context, id uuid.UUID, userID uuid
 	}
 
 	for _, item := range items {
-		updateItemQuery := `
+		updateItemQuery := fmt.Sprintf(`
 			UPDATE inventory_items
-			SET status = 'RETURNED', updated_at = NOW()
+			SET status = 'RETURNED', updated_at = %s
 			WHERE id = $1
-		`
+		`, dbutil.NowSQL(s.db))
 		if _, err = tx.ExecContext(ctx, updateItemQuery, item.ID); err != nil {
 			return nil, fmt.Errorf("failed to update item status: %w", err)
 		}
@@ -565,31 +566,31 @@ func (s *Service) ReversePurchase(ctx context.Context, id uuid.UUID, userID uuid
 			return nil, fmt.Errorf("failed to create reverse movement: %w", err)
 		}
 
-		inventoryUpdateQuery := `
+		inventoryUpdateQuery := fmt.Sprintf(`
 			UPDATE inventory
-			SET quantity = quantity - 1, updated_at = NOW()
+			SET quantity = quantity - 1, updated_at = %s
 			WHERE product_id = $1
-		`
+		`, dbutil.NowSQL(s.db))
 		result, execErr := tx.ExecContext(ctx, inventoryUpdateQuery, item.ProductID)
 		if execErr != nil {
 			return nil, fmt.Errorf("failed to update inventory: %w", execErr)
 		}
 		if rowsAffected, _ := result.RowsAffected(); rowsAffected == 0 {
-			createInventoryQuery := `
+			createInventoryQuery := fmt.Sprintf(`
 				INSERT INTO inventory (id, product_id, quantity, created_at, updated_at)
-				VALUES ($1, $2, 0, NOW(), NOW())
-			`
+				VALUES ($1, $2, 0, %s, %s)
+			`, dbutil.NowSQL(s.db), dbutil.NowSQL(s.db))
 			if _, execErr = tx.ExecContext(ctx, createInventoryQuery, uuid.New(), item.ProductID); execErr != nil {
 				return nil, fmt.Errorf("failed to create inventory record: %w", execErr)
 			}
 		}
 	}
 
-	updatePurchaseQuery := `
+	updatePurchaseQuery := fmt.Sprintf(`
 		UPDATE purchases
-		SET status = $1, updated_at = NOW()
+		SET status = $1, updated_at = %s
 		WHERE id = $2
-	`
+	`, dbutil.NowSQL(s.db))
 	if _, err = tx.ExecContext(ctx, updatePurchaseQuery, StatusReversed, purchase.ID); err != nil {
 		return nil, fmt.Errorf("failed to update purchase status: %w", err)
 	}
@@ -668,7 +669,7 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 
 	// Update paid amount
 	newPaidAmount := purchase.PaidAmount + amount
-	updatePaidQuery := `UPDATE purchases SET paid_amount = $1, updated_at = NOW() WHERE id = $2`
+	updatePaidQuery := fmt.Sprintf(`UPDATE purchases SET paid_amount = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db))
 	_, err = tx.ExecContext(ctx, updatePaidQuery, newPaidAmount, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update paid amount: %w", err)

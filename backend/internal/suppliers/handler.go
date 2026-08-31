@@ -62,7 +62,7 @@ func (h *Handler) GetSupplier(c *gin.Context) {
 
 // ListSuppliers handles supplier listing
 func (h *Handler) ListSuppliers(c *gin.Context) {
-	var req SupplierListRequest
+	req := SupplierListRequest{Page: 1, PerPage: 20}
 	if err := c.ShouldBindQuery(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid query parameters", err.Error())
 		return

@@ -50,9 +50,9 @@ func (r *Repository) CreateExpense(ctx context.Context, expense *Expense) error 
 func (r *Repository) GetExpenseByID(ctx context.Context, id uuid.UUID) (*Expense, error) {
 	var expense Expense
 	query := `
-		SELECT id, category_id, title, description,
-			amount, currency, expense_date, payment_method, reference, receipt_url, is_recurring, 
-			recurring_period, approved_by, status, created_by, created_at, updated_at
+		SELECT id, category_id, title, COALESCE(description, ''),
+			amount, currency, expense_date, COALESCE(payment_method, ''), COALESCE(reference, ''), COALESCE(receipt_url, ''), is_recurring,
+			COALESCE(recurring_period, ''), COALESCE(approved_by, ''), status, COALESCE(created_by, ''), created_at, updated_at
 		FROM expenses
 		WHERE id = $1
 	`
@@ -74,9 +74,9 @@ func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) (
 
 	// Build base query
 	baseQuery := `
-		SELECT id, category_id, title, description,
-			amount, currency, expense_date, payment_method, reference, receipt_url, is_recurring, 
-			recurring_period, approved_by, status, created_by, created_at, updated_at
+		SELECT id, category_id, title, COALESCE(description, ''),
+			amount, currency, expense_date, COALESCE(payment_method, ''), COALESCE(reference, ''), COALESCE(receipt_url, ''), is_recurring,
+			COALESCE(recurring_period, ''), COALESCE(approved_by, ''), status, COALESCE(created_by, ''), created_at, updated_at
 		FROM expenses
 	`
 
@@ -135,8 +135,8 @@ func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) (
 
 	if req.Search != "" {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND (title ILIKE $%d OR description ILIKE $%d OR reference ILIKE $%d)", argCount, argCount, argCount)
-		countQuery += fmt.Sprintf(" AND (title ILIKE $%d OR description ILIKE $%d OR reference ILIKE $%d)", argCount, argCount, argCount)
+		baseQuery += fmt.Sprintf(" AND (LOWER(title) LIKE LOWER($%d) OR LOWER(description) LIKE LOWER($%d) OR LOWER(reference) LIKE LOWER($%d))", argCount, argCount, argCount)
+		countQuery += fmt.Sprintf(" AND (LOWER(title) LIKE LOWER($%d) OR LOWER(description) LIKE LOWER($%d) OR LOWER(reference) LIKE LOWER($%d))", argCount, argCount, argCount)
 		searchPattern := "%" + req.Search + "%"
 		args = append(args, searchPattern, searchPattern, searchPattern)
 	}

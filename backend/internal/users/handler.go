@@ -77,7 +77,7 @@ func (h *Handler) GetUser(c *gin.Context) {
 
 // ListUsers handles user listing
 func (h *Handler) ListUsers(c *gin.Context) {
-	var req UserListRequest
+	req := UserListRequest{Page: 1, PerPage: 20}
 	if err := c.ShouldBindQuery(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid query parameters", err.Error())
 		return

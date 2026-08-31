@@ -20,6 +20,45 @@ func NewAggregationHandler(db *sqlx.DB) *AggregationHandler {
 	return &AggregationHandler{db: db}
 }
 
+func buildDailySalesSummaryQuery() string {
+	return `
+		SELECT
+			? AS date,
+			COALESCE(s.total_sales, 0) AS total_sales,
+			COALESCE(s.total_revenue, 0) AS total_revenue,
+			COALESCE(s.total_profit, 0) AS total_profit,
+			COALESCE(s.total_customers, 0) AS total_customers,
+			COALESCE(s.average_order_value, 0) AS average_order_value,
+			COALESCE(s.total_items_sold, 0) AS total_items_sold,
+			COALESCE(s.cash_sales, 0) AS cash_sales,
+			COALESCE(s.card_sales, 0) AS card_sales,
+			COALESCE(s.debt_sales, 0) AS debt_sales,
+			COALESCE(s.updated_at, datetime('now')) AS updated_at
+		FROM (SELECT ? AS summary_date) dates
+		LEFT JOIN daily_sales_summary s ON s.date = dates.summary_date
+	`
+}
+
+func buildMonthlySalesSummaryQuery() string {
+	return `
+		SELECT
+			? AS year,
+			? AS month,
+			COALESCE(s.total_sales, 0) AS total_sales,
+			COALESCE(s.total_revenue, 0) AS total_revenue,
+			COALESCE(s.total_profit, 0) AS total_profit,
+			COALESCE(s.total_customers, 0) AS total_customers,
+			COALESCE(s.average_order_value, 0) AS average_order_value,
+			COALESCE(s.total_items_sold, 0) AS total_items_sold,
+			COALESCE(s.cash_sales, 0) AS cash_sales,
+			COALESCE(s.card_sales, 0) AS card_sales,
+			COALESCE(s.debt_sales, 0) AS debt_sales,
+			COALESCE(s.updated_at, datetime('now')) AS updated_at
+		FROM (SELECT ? AS summary_year, ? AS summary_month) dates
+		LEFT JOIN monthly_sales_summary s ON s.year = dates.summary_year AND s.month = dates.summary_month
+	`
+}
+
 // GetDailySalesSummary returns daily sales summary
 func (h *AggregationHandler) GetDailySalesSummary(c *gin.Context) {
 	dateStr := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
@@ -30,16 +69,10 @@ func (h *AggregationHandler) GetDailySalesSummary(c *gin.Context) {
 	}
 
 	summary := aggregations.DailySalesSummary{
-		Date: date,
+		Date: date.Format("2006-01-02"),
 	}
-	err = h.db.GetContext(c.Request.Context(), &summary, `
-		SELECT dates.summary_date AS date, COALESCE(s.total_orders, 0) AS total_sales,
-			COALESCE(s.total_sales, 0) AS total_revenue, 0 AS total_profit, COALESCE(s.total_customers, 0) AS total_customers,
-			COALESCE(s.avg_order_value, 0) AS average_order_value, 0 AS total_items_sold,
-			COALESCE(s.total_paid, 0) AS cash_sales, 0 AS card_sales,
-			COALESCE(s.total_credit, 0) AS debt_sales, COALESCE(s.updated_at, NOW()) AS updated_at
-		FROM (SELECT $1::date AS summary_date) dates
-		LEFT JOIN daily_sales_summary s ON s.summary_date = dates.summary_date`, date)
+	dateValue := date.Format("2006-01-02")
+	err = h.db.GetContext(c.Request.Context(), &summary, buildDailySalesSummaryQuery(), dateValue, dateValue)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve daily sales summary"})
 		return
@@ -65,16 +98,7 @@ func (h *AggregationHandler) GetMonthlySalesSummary(c *gin.Context) {
 		}
 	}
 	summary := aggregations.MonthlySalesSummary{Year: year, Month: month}
-	err := h.db.GetContext(c.Request.Context(), &summary, `
-		SELECT $1 AS year, $2 AS month, COALESCE(s.total_orders, 0) AS total_sales,
-			COALESCE(s.total_sales, 0) AS total_revenue, 0 AS total_profit, COALESCE(s.total_customers, 0) AS total_customers,
-			COALESCE(s.avg_order_value, 0) AS average_order_value, 0 AS total_items_sold,
-			COALESCE(s.total_paid, 0) AS cash_sales, 0 AS card_sales,
-			COALESCE(s.total_credit, 0) AS debt_sales, COALESCE(s.updated_at, NOW()) AS updated_at
-		FROM (SELECT make_date($1, $2, 1) AS summary_month) dates
-		LEFT JOIN monthly_sales_summary s
-			ON EXTRACT(YEAR FROM s.summary_month) = $1 AND EXTRACT(MONTH FROM s.summary_month) = $2`,
-		year, month)
+	err := h.db.GetContext(c.Request.Context(), &summary, buildMonthlySalesSummaryQuery(), year, month, year, month)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve monthly sales summary"})
 		return

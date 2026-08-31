@@ -104,7 +104,7 @@ func (h *Handler) GetInspection(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/inspections [get]
 func (h *Handler) ListInspections(c *gin.Context) {
-	var req InspectionListRequest
+	req := InspectionListRequest{Page: 1, PerPage: 20}
 	
 	// Parse query parameters
 	if page, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil {

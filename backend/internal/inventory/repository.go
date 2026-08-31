@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 type Repository struct {
@@ -15,6 +18,168 @@ type Repository struct {
 
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
+}
+
+func parseNullableUUID(raw any) (*uuid.UUID, error) {
+	if raw == nil {
+		return nil, nil
+	}
+
+	value, ok := raw.(string)
+	if !ok {
+		return nil, fmt.Errorf("unsupported uuid type %T", raw)
+	}
+	if value == "" {
+		return nil, nil
+	}
+
+	parsed, err := uuid.Parse(value)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+func parseNullableTime(raw any) (*time.Time, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	parsed, err := dbutil.ParseTimestamp(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+func inventoryItemFromMap(record map[string]any) (*InventoryItem, error) {
+	item := &InventoryItem{}
+	if raw, ok := record["id"]; ok && raw != nil {
+		id, err := uuid.Parse(raw.(string))
+		if err != nil {
+			return nil, fmt.Errorf("parse item id: %w", err)
+		}
+		item.ID = id
+	}
+
+	if raw, ok := record["product_id"]; ok && raw != nil && raw != "" {
+		parsed, err := uuid.Parse(raw.(string))
+		if err != nil {
+			return nil, fmt.Errorf("parse product_id: %w", err)
+		}
+		item.ProductID = &parsed
+	}
+
+	if raw, ok := record["part_type_id"]; ok && raw != nil && raw != "" {
+		parsed, err := uuid.Parse(raw.(string))
+		if err != nil {
+			return nil, fmt.Errorf("parse part_type_id: %w", err)
+		}
+		item.PartTypeID = &parsed
+	}
+
+	if raw, ok := record["item_code"]; ok && raw != nil && raw != "" {
+		value := raw.(string)
+		item.ItemCode = &value
+	}
+	if raw, ok := record["barcode"]; ok && raw != nil && raw != "" {
+		value := raw.(string)
+		item.Barcode = &value
+	}
+	if raw, ok := record["serial_number"]; ok && raw != nil && raw != "" {
+		value := raw.(string)
+		item.SerialNumber = &value
+	}
+	if raw, ok := record["condition"]; ok && raw != nil {
+		item.Condition = fmt.Sprint(raw)
+	}
+	if raw, ok := record["grade"]; ok && raw != nil && raw != "" {
+		value := fmt.Sprint(raw)
+		item.Grade = &value
+	}
+	if raw, ok := record["purchase_cost"]; ok && raw != nil {
+		item.PurchaseCost = toFloat64(raw)
+	}
+	if raw, ok := record["selling_price"]; ok && raw != nil {
+		item.SellingPrice = toFloat64(raw)
+	}
+	if raw, ok := record["status"]; ok && raw != nil {
+		item.Status = fmt.Sprint(raw)
+	}
+	if raw, ok := record["location_id"]; ok && raw != nil && raw != "" {
+		parsed, err := uuid.Parse(raw.(string))
+		if err != nil {
+			return nil, fmt.Errorf("parse location_id: %w", err)
+		}
+		item.LocationID = &parsed
+	}
+	if raw, ok := record["supplier_id"]; ok && raw != nil && raw != "" {
+		parsed, err := uuid.Parse(raw.(string))
+		if err != nil {
+			return nil, fmt.Errorf("parse supplier_id: %w", err)
+		}
+		item.SupplierID = &parsed
+	}
+	if raw, ok := record["purchase_date"]; ok && raw != nil && raw != "" {
+		parsed, err := dbutil.ParseTimestamp(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse purchase_date: %w", err)
+		}
+		item.PurchaseDate = &parsed
+	}
+	if raw, ok := record["sold_at"]; ok && raw != nil && raw != "" {
+		parsed, err := dbutil.ParseTimestamp(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse sold_at: %w", err)
+		}
+		item.SoldAt = &parsed
+	}
+	if raw, ok := record["notes"]; ok && raw != nil && raw != "" {
+		value := fmt.Sprint(raw)
+		item.Notes = &value
+	}
+	if raw, ok := record["created_at"]; ok && raw != nil && raw != "" {
+		parsed, err := dbutil.ParseTimestamp(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse created_at: %w", err)
+		}
+		item.CreatedAt = parsed
+	}
+	if raw, ok := record["updated_at"]; ok && raw != nil && raw != "" {
+		parsed, err := dbutil.ParseTimestamp(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse updated_at: %w", err)
+		}
+		item.UpdatedAt = parsed
+	}
+	if raw, ok := record["current_quantity"]; ok && raw != nil {
+		item.CurrentQuantity = int(toFloat64(raw))
+	}
+	if raw, ok := record["available_quantity"]; ok && raw != nil {
+		item.AvailableQuantity = int(toFloat64(raw))
+	}
+	return item, nil
+}
+
+func toFloat64(raw any) float64 {
+	switch v := raw.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return 0
+		}
+		var out float64
+		_, _ = fmt.Sscan(v, &out)
+		return out
+	default:
+		return 0
+	}
 }
 
 // CreateInventoryItem creates a new inventory item
@@ -62,16 +227,23 @@ func (r *Repository) GetInventoryItemByID(ctx context.Context, id uuid.UUID) (*I
 		WHERE id = $1
 	`
 
-	var item InventoryItem
-	err := r.db.GetContext(ctx, &item, query, id)
-	if err != nil {
+	row := r.db.QueryRowxContext(ctx, query, id)
+	if row == nil {
+		return nil, ErrItemNotFound
+	}
+
+	record := map[string]any{}
+	if err := row.MapScan(record); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrItemNotFound
 		}
 		return nil, fmt.Errorf("failed to get inventory item: %w", err)
 	}
-
-	return &item, nil
+	item, err := inventoryItemFromMap(record)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse inventory item: %w", err)
+	}
+	return item, nil
 }
 
 // GetInventoryItemByBarcode retrieves an inventory item by barcode
@@ -95,16 +267,22 @@ func (r *Repository) GetInventoryItemByBarcode(ctx context.Context, barcode stri
 		WHERE barcode = $1
 	`
 
-	var item InventoryItem
-	err := r.db.GetContext(ctx, &item, query, barcode)
-	if err != nil {
+	row := r.db.QueryRowxContext(ctx, query, barcode)
+	if row == nil {
+		return nil, ErrItemNotFound
+	}
+	record := map[string]any{}
+	if err := row.MapScan(record); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrItemNotFound
 		}
 		return nil, fmt.Errorf("failed to get inventory item by barcode: %w", err)
 	}
-
-	return &item, nil
+	item, err := inventoryItemFromMap(record)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse inventory item: %w", err)
+	}
+	return item, nil
 }
 
 // GetInventoryItemBySerialNumber retrieves an inventory item by serial number
@@ -128,16 +306,22 @@ func (r *Repository) GetInventoryItemBySerialNumber(ctx context.Context, serialN
 		WHERE serial_number = $1
 	`
 
-	var item InventoryItem
-	err := r.db.GetContext(ctx, &item, query, serialNumber)
-	if err != nil {
+	row := r.db.QueryRowxContext(ctx, query, serialNumber)
+	if row == nil {
+		return nil, ErrItemNotFound
+	}
+	record := map[string]any{}
+	if err := row.MapScan(record); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrItemNotFound
 		}
 		return nil, fmt.Errorf("failed to get inventory item by serial number: %w", err)
 	}
-
-	return &item, nil
+	item, err := inventoryItemFromMap(record)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse inventory item: %w", err)
+	}
+	return item, nil
 }
 
 // UpdateInventoryItem updates an inventory item
@@ -285,10 +469,26 @@ func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, 
 	args = append(args, offset)
 
 	// Execute query
-	var items []*InventoryItem
-	err = r.db.SelectContext(ctx, &items, baseQuery, args...)
+	rows, err := r.db.QueryxContext(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list inventory items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*InventoryItem
+	for rows.Next() {
+		record := map[string]any{}
+		if err := rows.MapScan(record); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan inventory item: %w", err)
+		}
+		item, err := inventoryItemFromMap(record)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to parse inventory item: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate inventory items: %w", err)
 	}
 
 	return items, total, nil
@@ -437,16 +637,74 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 	args = append(args, offset)
 
 	// Execute query
-	var items []*InventoryItemWithSupplier
-	err = r.db.SelectContext(ctx, &items, baseQuery, args...)
+	rows, err := r.db.QueryxContext(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list inventory items with supplier info: %w", err)
+	}
+	defer rows.Close()
+
+	var items []*InventoryItemWithSupplier
+	for rows.Next() {
+		record := map[string]any{}
+		if err := rows.MapScan(record); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan inventory item with supplier info: %w", err)
+		}
+		item, err := inventoryItemWithSupplierFromMap(record)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to parse inventory item with supplier info: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate inventory items with supplier info: %w", err)
 	}
 
 	return items, total, nil
 }
 
 // CreateLocation creates a new location
+func inventoryItemWithSupplierFromMap(record map[string]any) (*InventoryItemWithSupplier, error) {
+	item, err := inventoryItemFromMap(record)
+	if err != nil {
+		return nil, err
+	}
+	out := &InventoryItemWithSupplier{
+		ID:               item.ID,
+		ProductID:        item.ProductID,
+		PartTypeID:       item.PartTypeID,
+		ItemCode:         item.ItemCode,
+		Barcode:          item.Barcode,
+		SerialNumber:     item.SerialNumber,
+		Condition:        item.Condition,
+		Grade:            item.Grade,
+		PurchaseCost:     item.PurchaseCost,
+		SellingPrice:     item.SellingPrice,
+		Status:           item.Status,
+		LocationID:       item.LocationID,
+		SupplierID:       item.SupplierID,
+		PurchaseDate:     item.PurchaseDate,
+		SoldAt:           item.SoldAt,
+		Notes:            item.Notes,
+		CreatedAt:        item.CreatedAt,
+		UpdatedAt:        item.UpdatedAt,
+		CurrentQuantity:  item.CurrentQuantity,
+		AvailableQuantity: item.AvailableQuantity,
+	}
+	if raw, ok := record["product_name"]; ok && raw != nil && raw != "" {
+		value := fmt.Sprint(raw)
+		out.ProductName = &value
+	}
+	if raw, ok := record["supplier_name"]; ok && raw != nil && raw != "" {
+		value := fmt.Sprint(raw)
+		out.SupplierName = &value
+	}
+	if raw, ok := record["supplier_phone"]; ok && raw != nil && raw != "" {
+		value := fmt.Sprint(raw)
+		out.SupplierPhone = &value
+	}
+	return out, nil
+}
+
 func (r *Repository) CreateLocation(ctx context.Context, location *Location) error {
 	query := `
 		INSERT INTO locations (name, type, parent_id, warehouse_id, description, is_active, created_at, updated_at)

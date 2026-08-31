@@ -2,7 +2,9 @@ package suppliers
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +19,53 @@ type Repository struct {
 // NewRepository creates a new supplier repository
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
+}
+
+func scanSupplier(row interface{ Scan(...any) error }) (Supplier, error) {
+	var supplier Supplier
+	var email, phone, address, city, country, taxID, paymentTerms, notes sql.NullString
+	var createdAt, updatedAt string
+	if err := row.Scan(
+		&supplier.ID, &supplier.Code, &supplier.Name, &email, &phone, &address, &city,
+		&country, &taxID, &paymentTerms, &supplier.CreditLimit, &supplier.CurrentBalance,
+		&supplier.TotalPurchases, &supplier.PaidAmount, &supplier.Outstanding, &notes,
+		&supplier.IsActive, &createdAt, &updatedAt,
+	); err != nil {
+		return Supplier{}, err
+	}
+	for value, target := range map[*sql.NullString]**string{
+		&email: &supplier.Email, &phone: &supplier.Phone, &address: &supplier.Address,
+		&city: &supplier.City, &country: &supplier.Country, &taxID: &supplier.TaxID,
+		&paymentTerms: &supplier.PaymentTerms, &notes: &supplier.Notes,
+	} {
+		if value.Valid && strings.TrimSpace(value.String) != "" {
+			copied := value.String
+			*target = &copied
+		}
+	}
+	var err error
+	supplier.CreatedAt, err = parseSQLiteTimestamp(createdAt)
+	if err != nil {
+		return Supplier{}, fmt.Errorf("parse created_at: %w", err)
+	}
+	supplier.UpdatedAt, err = parseSQLiteTimestamp(updatedAt)
+	if err != nil {
+		return Supplier{}, fmt.Errorf("parse updated_at: %w", err)
+	}
+	return supplier, nil
+}
+
+func parseSQLiteTimestamp(raw string) (time.Time, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, nil
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02"} {
+		if parsed, err := time.Parse(layout, trimmed); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported SQLite timestamp format: %q", raw)
 }
 
 // Create creates a new supplier
@@ -44,7 +93,7 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Supplier, erro
 			payment_terms, credit_limit, current_balance,
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
 			COALESCE((SELECT SUM(COALESCE(paid_amount, 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS paid_amount,
-			COALESCE((SELECT SUM(GREATEST(total_amount - COALESCE(paid_amount, 0), 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS outstanding,
+			COALESCE((SELECT SUM(CASE WHEN total_amount - COALESCE(paid_amount, 0) > 0 THEN total_amount - COALESCE(paid_amount, 0) ELSE 0 END) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS outstanding,
 			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE id = $1
@@ -64,7 +113,7 @@ func (r *Repository) GetByCode(ctx context.Context, code string) (*Supplier, err
 			payment_terms, credit_limit, current_balance,
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
 			COALESCE((SELECT SUM(COALESCE(paid_amount, 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS paid_amount,
-			COALESCE((SELECT SUM(GREATEST(total_amount - COALESCE(paid_amount, 0), 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS outstanding,
+			COALESCE((SELECT SUM(CASE WHEN total_amount - COALESCE(paid_amount, 0) > 0 THEN total_amount - COALESCE(paid_amount, 0) ELSE 0 END) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS outstanding,
 			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE code = $1
@@ -86,7 +135,7 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 			payment_terms, credit_limit, current_balance,
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
 			COALESCE((SELECT SUM(COALESCE(paid_amount, 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS paid_amount,
-			COALESCE((SELECT SUM(GREATEST(total_amount - COALESCE(paid_amount, 0), 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS outstanding,
+			COALESCE((SELECT SUM(CASE WHEN total_amount - COALESCE(paid_amount, 0) > 0 THEN total_amount - COALESCE(paid_amount, 0) ELSE 0 END) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS outstanding,
 			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE 1=1
@@ -99,8 +148,8 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 
 	if search != "" {
 		argCount++
-		query += fmt.Sprintf(" AND (name ILIKE $%d OR code ILIKE $%d OR email ILIKE $%d OR phone ILIKE $%d)", argCount, argCount, argCount, argCount)
-		countQuery += fmt.Sprintf(" AND (name ILIKE $%d OR code ILIKE $%d OR email ILIKE $%d OR phone ILIKE $%d)", argCount, argCount, argCount, argCount)
+		query += fmt.Sprintf(" AND (LOWER(name) LIKE LOWER($%d) OR LOWER(code) LIKE LOWER($%d) OR LOWER(email) LIKE LOWER($%d) OR LOWER(phone) LIKE LOWER($%d))", argCount, argCount, argCount, argCount)
+		countQuery += fmt.Sprintf(" AND (LOWER(name) LIKE LOWER($%d) OR LOWER(code) LIKE LOWER($%d) OR LOWER(email) LIKE LOWER($%d) OR LOWER(phone) LIKE LOWER($%d))", argCount, argCount, argCount, argCount)
 		searchPattern := "%" + search + "%"
 		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
 		argCount += 3
@@ -119,7 +168,7 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 
 	if search != "" {
 		countArgCount++
-		countQuery += fmt.Sprintf(" AND (name ILIKE $%d OR code ILIKE $%d OR email ILIKE $%d OR phone ILIKE $%d)", countArgCount, countArgCount, countArgCount, countArgCount)
+		countQuery += fmt.Sprintf(" AND (LOWER(name) LIKE LOWER($%d) OR LOWER(code) LIKE LOWER($%d) OR LOWER(email) LIKE LOWER($%d) OR LOWER(phone) LIKE LOWER($%d))", countArgCount, countArgCount, countArgCount, countArgCount)
 		searchPattern := "%" + search + "%"
 		countArgs = append(countArgs, searchPattern, searchPattern, searchPattern, searchPattern)
 		countArgCount += 3
@@ -141,10 +190,21 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argCount+1, argCount+2)
 	args = append(args, perPage, offset)
 
-	var suppliers []Supplier
-	err = r.db.SelectContext(ctx, &suppliers, query, args...)
+	rows, err := r.db.QueryxContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list suppliers: %w", err)
+	}
+	defer rows.Close()
+	suppliers := make([]Supplier, 0)
+	for rows.Next() {
+		supplier, scanErr := scanSupplier(rows)
+		if scanErr != nil {
+			return nil, 0, fmt.Errorf("failed to scan supplier: %w", scanErr)
+		}
+		suppliers = append(suppliers, supplier)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate suppliers: %w", err)
 	}
 
 	return suppliers, total, nil

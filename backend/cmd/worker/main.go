@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
+	"github.com/partflow/smart-store/internal/sync"
 	"github.com/partflow/smart-store/pkg/config"
 	"github.com/partflow/smart-store/pkg/database"
 	"github.com/partflow/smart-store/pkg/logger"
@@ -47,6 +48,7 @@ func main() {
 	go startDebtScanWorker(ctx, database.GetDB())
 	go startLowStockScanWorker(ctx, database.GetDB())
 	go startDailyInsightsWorker(ctx, database.GetDB())
+	go sync.StartOfflineSyncWorker(ctx, database.GetDB())
 
 	logger.Info("Worker service started successfully", nil)
 

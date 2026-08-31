@@ -170,12 +170,39 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
+// ValidateSubscription confirms the account is currently permitted by the
+// cloud. The authentication middleware has already checked account activity
+// and subscription expiry.
+func (h *Handler) ValidateSubscription(c *gin.Context) {
+	userID := getUserIDFromContext(c)
+	user, err := h.service.GetUserByID(c.Request.Context(), userID)
+	if err != nil {
+		handleAuthError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"valid":                   true,
+			"user":                    user,
+			"subscription_status":     user.SubscriptionStatus,
+			"subscription_expires_at": user.SubscriptionExpiresAt,
+		},
+	})
+}
+
 // Helper functions
 
 func getUserIDFromContext(c *gin.Context) uuid.UUID {
-	// This would extract user ID from JWT token in middleware
-	// For now, return a placeholder
-	return uuid.MustParse(c.GetHeader("X-User-ID"))
+	if userID, exists := c.Get("user_id"); exists {
+		if parsed, ok := userID.(uuid.UUID); ok {
+			return parsed
+		}
+		if value, ok := userID.(string); ok {
+			return uuid.MustParse(value)
+		}
+	}
+	return uuid.Nil
 }
 
 func handleAuthError(c *gin.Context, err error) {

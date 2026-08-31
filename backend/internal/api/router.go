@@ -27,6 +27,7 @@ import (
 	"github.com/partflow/smart-store/internal/settings"
 	"github.com/partflow/smart-store/internal/supplierreturns"
 	"github.com/partflow/smart-store/internal/suppliers"
+	"github.com/partflow/smart-store/internal/sync"
 	"github.com/partflow/smart-store/internal/users"
 	"github.com/partflow/smart-store/pkg/middleware"
 )
@@ -89,6 +90,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 
 	// Aggregation handler (ARCHITECTURE-PRINCIPLES.md)
 	aggregationHandler := NewAggregationHandler(db)
+	syncHandler := sync.NewHandler(db)
 
 	// SmartDelete handler (PRODUCT-PHILOSOPHY.md)
 	purchaseSmartDeleteHandler := NewPurchaseSmartDeleteHandler(db)
@@ -137,6 +139,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			auth := protected.Group("/auth")
 			{
 				auth.POST("/logout", authHandler.Logout)
+				auth.POST("/validate", authHandler.ValidateSubscription)
 			}
 
 			// User routes (current user info)
@@ -374,10 +377,16 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			// Debts routes
 			debtsHandler.RegisterRoutes(protected)
 
+			// Sync routes
+			sync := protected.Group("/sync")
+			{
+				sync.GET("/initial-data", syncHandler.GetInitialData)
+			}
+
 			// Settings routes
 			settings := protected.Group("/settings")
 			{
-				settings.PUT("/operating-mode", localDatabaseHandler.SetOperatingMode)
+				settings.POST("/sync", localDatabaseHandler.SyncCloudData)
 				settings.GET("/public", settingsHandler.GetPublicSettings)
 				settings.GET("/:key", settingsHandler.GetSetting)
 				settings.PUT("/:key", settingsHandler.UpdateSetting)

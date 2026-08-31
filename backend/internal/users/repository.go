@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -78,6 +80,9 @@ func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error
 // List retrieves users with pagination and filters
 func (r *Repository) List(ctx context.Context, page, perPage int, search string, isActive *bool) ([]User, int, error) {
 	offset := (page - 1) * perPage
+	if r.db.DriverName() == "sqlite" {
+		return r.listSQLite(ctx, page, perPage, search, isActive, offset)
+	}
 
 	query := `
 		SELECT id, email, password_hash, first_name, last_name, phone, avatar_url,
@@ -92,7 +97,7 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 
 	if search != "" {
 		argCount++
-		query += fmt.Sprintf(" AND (first_name ILIKE $%d OR last_name ILIKE $%d OR email ILIKE $%d)", argCount, argCount, argCount)
+		query += fmt.Sprintf(" AND (LOWER(first_name) LIKE LOWER($%d) OR LOWER(last_name) LIKE LOWER($%d) OR LOWER(email) LIKE LOWER($%d))", argCount, argCount, argCount)
 		searchPattern := "%" + search + "%"
 		args = append(args, searchPattern, searchPattern, searchPattern)
 		argCount += 2
@@ -110,7 +115,7 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 
 	if search != "" {
 		countArgCount++
-		countQuery += fmt.Sprintf(" AND (first_name ILIKE $%d OR last_name ILIKE $%d OR email ILIKE $%d)", countArgCount, countArgCount, countArgCount)
+		countQuery += fmt.Sprintf(" AND (LOWER(first_name) LIKE LOWER($%d) OR LOWER(last_name) LIKE LOWER($%d) OR LOWER(email) LIKE LOWER($%d))", countArgCount, countArgCount, countArgCount)
 		searchPattern := "%" + search + "%"
 		countArgs = append(countArgs, searchPattern, searchPattern, searchPattern)
 		countArgCount += 2
@@ -139,6 +144,79 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 	}
 
 	return users, total, nil
+}
+
+func (r *Repository) listSQLite(ctx context.Context, page, perPage int, search string, isActive *bool, offset int) ([]User, int, error) {
+	query := `SELECT id, email, password_hash, first_name, last_name, phone, avatar_url,
+		is_active, is_verified, last_login_at, subscription_status, subscription_expires_at, created_at, updated_at
+		FROM users WHERE 1=1`
+	countQuery := `SELECT COUNT(*) FROM users WHERE 1=1`
+	args := []interface{}{}
+	if search != "" {
+		query += " AND (LOWER(first_name) LIKE LOWER(?) OR LOWER(last_name) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?))"
+		countQuery += " AND (LOWER(first_name) LIKE LOWER(?) OR LOWER(last_name) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?))"
+		pattern := "%" + search + "%"
+		args = append(args, pattern, pattern, pattern)
+	}
+	if isActive != nil {
+		query += " AND is_active = ?"
+		countQuery += " AND is_active = ?"
+		args = append(args, *isActive)
+	}
+	countArgs := append([]interface{}{}, args...)
+	var total int
+	if err := r.db.GetContext(ctx, &total, countQuery, countArgs...); err != nil {
+		return nil, 0, fmt.Errorf("failed to count users: %w", err)
+	}
+	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, perPage, offset)
+	var rows []struct {
+		ID string `db:"id"`
+		Email string `db:"email"`
+		PasswordHash string `db:"password_hash"`
+		FirstName string `db:"first_name"`
+		LastName string `db:"last_name"`
+		Phone sql.NullString `db:"phone"`
+		AvatarURL sql.NullString `db:"avatar_url"`
+		LastLoginAt sql.NullString `db:"last_login_at"`
+		SubscriptionExpiresAt sql.NullString `db:"subscription_expires_at"`
+		IsActive bool `db:"is_active"`
+		IsVerified bool `db:"is_verified"`
+		SubscriptionStatus sql.NullString `db:"subscription_status"`
+		CreatedAt string `db:"created_at"`
+		UpdatedAt string `db:"updated_at"`
+	}
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, 0, fmt.Errorf("failed to list users: %w", err)
+	}
+	users := make([]User, 0, len(rows))
+	for _, row := range rows {
+		createdAt, err := parseLocalUserTime(row.CreatedAt)
+		if err != nil { return nil, 0, fmt.Errorf("parse user created_at: %w", err) }
+		updatedAt, err := parseLocalUserTime(row.UpdatedAt)
+		if err != nil { return nil, 0, fmt.Errorf("parse user updated_at: %w", err) }
+		user := User{Email: row.Email, PasswordHash: row.PasswordHash, FirstName: row.FirstName, LastName: row.LastName, IsActive: row.IsActive, IsVerified: row.IsVerified, CreatedAt: createdAt, UpdatedAt: updatedAt}
+		user.ID, err = uuid.Parse(row.ID)
+		if err != nil { return nil, 0, fmt.Errorf("parse user id: %w", err) }
+		if row.Phone.Valid { user.Phone = &row.Phone.String }
+		if row.AvatarURL.Valid { user.AvatarURL = &row.AvatarURL.String }
+		if row.SubscriptionStatus.Valid { user.SubscriptionStatus = row.SubscriptionStatus.String }
+		if row.SubscriptionExpiresAt.Valid { value, parseErr := parseLocalUserTime(row.SubscriptionExpiresAt.String); if parseErr == nil { user.SubscriptionExpiresAt = &value } }
+		if row.LastLoginAt.Valid { value, parseErr := parseLocalUserTime(row.LastLoginAt.String); if parseErr == nil { user.LastLoginAt = &value } }
+		users = append(users, user)
+	}
+	return users, total, nil
+}
+
+func parseLocalUserTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if index := strings.Index(value, " m="); index > 0 {
+		value = strings.TrimSpace(value[:index])
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999 -0700 MST", "2006-01-02 15:04:05 -0700 MST", "2006-01-02 15:04:05", "2006-01-02"} {
+		if parsed, err := time.Parse(layout, value); err == nil { return parsed, nil }
+	}
+	return time.Time{}, fmt.Errorf("unsupported timestamp %q", value)
 }
 
 // Update updates a user

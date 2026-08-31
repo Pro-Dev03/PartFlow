@@ -23,6 +23,15 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // CreateReport creates a new report
 func (r *Repository) CreateReport(ctx context.Context, report *Report) error {
+	if strings.EqualFold(r.db.DriverName(), "sqlite") {
+		_, err := r.db.ExecContext(ctx, `
+			INSERT INTO reports (id, type, title, description, parameters,
+				data, status, generated_by, generated_at, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			report.ID, report.Type, report.Title, report.Description, report.Parameters,
+			report.Data, report.Status, report.GeneratedBy, report.GeneratedAt, report.CreatedAt, report.UpdatedAt)
+		return err
+	}
 	query := `
 		INSERT INTO reports (type, title, description, parameters,
 			data, status, generated_by, generated_at, created_at, updated_at)
@@ -169,6 +178,16 @@ func (r *Repository) ListReports(ctx context.Context, req ReportListRequest) ([]
 
 // UpdateReport updates a report
 func (r *Repository) UpdateReport(ctx context.Context, report *Report) error {
+	if strings.EqualFold(r.db.DriverName(), "sqlite") {
+		result, err := r.db.ExecContext(ctx, `UPDATE reports SET data = $2, status = $3, updated_at = $4 WHERE id = $1`, report.ID, report.Data, report.Status, report.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to update report: %w", err)
+		}
+		if affected, _ := result.RowsAffected(); affected == 0 {
+			return ErrReportNotFound
+		}
+		return nil
+	}
 	query := `
 		UPDATE reports
 		SET data = $2, status = $3, updated_at = $4
@@ -403,14 +422,14 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT p.id, p.name,
-		        COALESCE(COUNT(ii.id) FILTER (WHERE ii.status = 'AVAILABLE'), 0),
+				 COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' THEN 1 ELSE 0 END), 0),
 		        p.min_stock_level, p.min_stock_level
 		 FROM products p
 		 LEFT JOIN inventory_items ii ON ii.product_id = p.id
 		 WHERE p.is_active = true AND p.deleted_at IS NULL AND p.min_stock_level > 0
 		 GROUP BY p.id, p.name, p.min_stock_level
-		 HAVING COALESCE(COUNT(ii.id) FILTER (WHERE ii.status = 'AVAILABLE'), 0) < p.min_stock_level
-		 ORDER BY (p.min_stock_level - COALESCE(COUNT(ii.id) FILTER (WHERE ii.status = 'AVAILABLE'), 0)) DESC`)
+			 HAVING COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' THEN 1 ELSE 0 END), 0) < p.min_stock_level
+			 ORDER BY (p.min_stock_level - COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' THEN 1 ELSE 0 END), 0)) DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve low stock items: %w", err)
 	}
@@ -748,7 +767,7 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 		        COALESCE(SUM(d.amount - d.remaining_amount), 0),
 		        COALESCE(SUM(d.remaining_amount), 0),
 		        COALESCE(SUM(CASE WHEN d.due_date < CURRENT_DATE THEN d.remaining_amount ELSE 0 END), 0),
-		        COALESCE(MAX(p.payment_date), DATE '0001-01-01')
+		        COALESCE(MAX(p.payment_date), '0001-01-01')
 		 FROM debts d JOIN customers c ON c.id = d.customer_id
 		 LEFT JOIN payments p ON p.customer_id = d.customer_id
 		 GROUP BY d.customer_id, c.name ORDER BY SUM(d.remaining_amount) DESC`,
@@ -876,11 +895,11 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 	report.ByMonth = []MonthlyPurchases{}
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT DATE_TRUNC('month', purchase_date), COALESCE(SUM(total_amount), 0), COUNT(*)
-		 FROM purchases
+			 FROM purchases
 		 WHERE purchase_date >= $1 AND purchase_date < $2
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
-		 GROUP BY DATE_TRUNC('month', purchase_date)
-		 ORDER BY DATE_TRUNC('month', purchase_date)`,
+			 GROUP BY strftime('%Y-%m', purchase_date)
+			 ORDER BY strftime('%Y-%m', purchase_date)`,
 		startDate, endDate)
 	if err == nil {
 		for rows.Next() {
@@ -972,8 +991,8 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 			 FROM returns
 			 WHERE return_date >= $1 AND return_date <= $2
 			   AND status = 'COMPLETED'
-			 GROUP BY DATE_TRUNC('month', return_date)
-			 ORDER BY DATE_TRUNC('month', return_date)`,
+			 GROUP BY strftime('%Y-%m', return_date)
+			 ORDER BY strftime('%Y-%m', return_date)`,
 		startDate, endDate)
 	if err == nil {
 		for rows.Next() {

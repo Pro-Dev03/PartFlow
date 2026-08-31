@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -183,6 +184,18 @@ func ResolveDatabaseURL() (string, string, error) {
 		return ""
 	}
 
+	defaultLocalSQLiteURL := func() string {
+		if path := strings.TrimSpace(getEnv("PARTFLOW_LOCAL_DB_PATH", "")); path != "" {
+			return "sqlite://" + filepath.Clean(path)
+		}
+		configDir, err := os.UserConfigDir()
+		if err != nil {
+			return "sqlite://partflow.db"
+		}
+		path := filepath.Join(configDir, "PartFlow", "data", "partflow.db")
+		return "sqlite://" + filepath.Clean(path)
+	}
+
 	switch mode {
 	case "local":
 		if url := choose(localCandidates...); url != "" {
@@ -191,7 +204,7 @@ func ResolveDatabaseURL() (string, string, error) {
 		if primaryURL != "" {
 			return primaryURL, "database_url", nil
 		}
-		return "", "", fmt.Errorf("No local database URL configured. Set DATABASE_URL_LOCAL or DB_LOCAL_URL")
+		return defaultLocalSQLiteURL(), "local", nil
 	case "cloud":
 		if url := choose(cloudCandidates...); url != "" {
 			return url, "cloud", nil
@@ -210,7 +223,7 @@ func ResolveDatabaseURL() (string, string, error) {
 		if url := choose(cloudCandidates...); url != "" {
 			return url, "cloud", nil
 		}
-		return "", "", fmt.Errorf("No database connection configured. Set DATABASE_URL, or configure local/cloud alternatives")
+		return defaultLocalSQLiteURL(), "local", nil
 	default:
 		if primaryURL != "" {
 			return primaryURL, "database_url", nil
@@ -221,7 +234,7 @@ func ResolveDatabaseURL() (string, string, error) {
 		if url := choose(cloudCandidates...); url != "" {
 			return url, "cloud", nil
 		}
-		return "", "", fmt.Errorf("No database connection configured. Set DATABASE_URL, or configure local/cloud alternatives")
+		return defaultLocalSQLiteURL(), "local", nil
 	}
 }
 

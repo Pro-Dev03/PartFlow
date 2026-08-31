@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,6 +42,44 @@ type SaleItem struct {
 // SalesRepository implements repositories.SalesRepository for SQLite
 type SalesRepository struct {
 	db *sql.DB
+}
+
+func parseLocalTime(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported local timestamp %q", value)
+}
+
+func scanSale(row interface{ Scan(...any) error }) (Sale, error) {
+	var sale Sale
+	var customerID, paymentMethod, notes sql.NullString
+	var createdAt, updatedAt string
+	if err := row.Scan(&sale.ID, &sale.SaleNumber, &customerID, &sale.TotalAmount, &sale.TaxAmount, &sale.DiscountAmount, &sale.PaidAmount, &sale.RemainingAmount, &paymentMethod, &sale.Status, &notes, &createdAt, &updatedAt); err != nil {
+		return Sale{}, err
+	}
+	if customerID.Valid {
+		sale.CustomerID = &customerID.String
+	}
+	if paymentMethod.Valid {
+		sale.PaymentMethod = &paymentMethod.String
+	}
+	if notes.Valid {
+		sale.Notes = &notes.String
+	}
+	var err error
+	sale.CreatedAt, err = parseLocalTime(createdAt)
+	if err != nil {
+		return Sale{}, err
+	}
+	sale.UpdatedAt, err = parseLocalTime(updatedAt)
+	if err != nil {
+		return Sale{}, err
+	}
+	return sale, nil
 }
 
 // NewSalesRepository creates a new SQLite sales repository
@@ -81,10 +120,7 @@ func (r *SalesRepository) GetByID(ctx context.Context, id string) (interface{}, 
 		WHERE id = ?
 	`
 
-	var sale Sale
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&sale.ID, &sale.SaleNumber, &sale.CustomerID, &sale.TotalAmount, &sale.TaxAmount, &sale.DiscountAmount,
-		&sale.PaidAmount, &sale.RemainingAmount, &sale.PaymentMethod, &sale.Status, &sale.Notes, &sale.CreatedAt, &sale.UpdatedAt)
+	sale, err := scanSale(r.db.QueryRowContext(ctx, query, id))
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -113,9 +149,8 @@ func (r *SalesRepository) List(ctx context.Context, limit, offset int) ([]interf
 
 	var sales []interface{}
 	for rows.Next() {
-		var sale Sale
-		if err := rows.Scan(&sale.ID, &sale.SaleNumber, &sale.CustomerID, &sale.TotalAmount, &sale.TaxAmount, &sale.DiscountAmount,
-			&sale.PaidAmount, &sale.RemainingAmount, &sale.PaymentMethod, &sale.Status, &sale.Notes, &sale.CreatedAt, &sale.UpdatedAt); err != nil {
+		sale, err := scanSale(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan sale: %w", err)
 		}
 		sales = append(sales, &sale)
@@ -142,9 +177,8 @@ func (r *SalesRepository) ListByCustomer(ctx context.Context, customerID string,
 
 	var sales []interface{}
 	for rows.Next() {
-		var sale Sale
-		if err := rows.Scan(&sale.ID, &sale.SaleNumber, &sale.CustomerID, &sale.TotalAmount, &sale.TaxAmount, &sale.DiscountAmount,
-			&sale.PaidAmount, &sale.RemainingAmount, &sale.PaymentMethod, &sale.Status, &sale.Notes, &sale.CreatedAt, &sale.UpdatedAt); err != nil {
+		sale, err := scanSale(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan sale: %w", err)
 		}
 		sales = append(sales, &sale)

@@ -123,7 +123,7 @@ func (h *Handler) ListCustomers(c *gin.Context) {
 		}
 	}
 
-	var req CustomerListRequest
+	req := CustomerListRequest{Page: page, PerPage: perPage}
 	if err := c.ShouldBindQuery(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid query parameters", err.Error())
 		return
@@ -132,6 +132,7 @@ func (h *Handler) ListCustomers(c *gin.Context) {
 	// Override with our parsed values for caching consistency
 	req.Page = page
 	req.PerPage = perPage
+	req.Search = search
 
 	customers, total, err := h.service.ListCustomers(c.Request.Context(), &req)
 	if err != nil {

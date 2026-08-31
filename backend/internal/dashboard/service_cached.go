@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/business"
 )
 
 type CachedService struct {
@@ -125,8 +126,17 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 		FROM debts
 		WHERE remaining_amount > 0
 		  AND due_date < NOW()
-		  AND status IN ('pending', 'partial', 'overdue')
+		  AND ` + business.OpenDebtStatusSQL("status") + `
 	`
+	if s.db.DriverName() == "sqlite" {
+		countQuery = `
+			SELECT COUNT(DISTINCT customer_id)
+			FROM debts
+			WHERE remaining_amount > 0
+			  AND julianday(due_date) < julianday('now')
+			  AND ` + business.OpenDebtStatusSQL("status") + `
+		`
+	}
 	err = s.db.GetContext(ctx, &overdueDebtsCount, countQuery)
 	if err != nil {
 		// Fallback to 0 if query fails
@@ -151,7 +161,7 @@ func (s *CachedService) GetLowStockItems(ctx context.Context) ([]LowStockItem, e
 		SELECT 
 			p.id,
 			p.name as product_name,
-			COUNT(i.id) FILTER (WHERE i.status = 'AVAILABLE') as quantity,
+			COUNT(CASE WHEN i.status = 'AVAILABLE' THEN i.id END) as quantity,
 			p.min_stock_level,
 			p.cost_price,
 			p.selling_price,
@@ -162,8 +172,8 @@ func (s *CachedService) GetLowStockItems(ctx context.Context) ([]LowStockItem, e
 		AND p.deleted_at IS NULL
 		AND p.min_stock_level > 0
 		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
-		HAVING COUNT(i.id) FILTER (WHERE i.status = 'AVAILABLE') < p.min_stock_level
-		ORDER BY (p.min_stock_level - COUNT(i.id) FILTER (WHERE i.status = 'AVAILABLE')) DESC
+		HAVING COUNT(CASE WHEN i.status = 'AVAILABLE' THEN i.id END) < p.min_stock_level
+		ORDER BY (p.min_stock_level - COUNT(CASE WHEN i.status = 'AVAILABLE' THEN i.id END)) DESC
 		LIMIT 10
 	`
 
@@ -195,6 +205,18 @@ func (s *CachedService) GetOverdueDebts(ctx context.Context) ([]OverdueDebtItem,
 		ORDER BY d.due_date ASC
 		LIMIT 10
 	`
+	if s.db.DriverName() == "sqlite" {
+		query = `
+			SELECT d.id, d.customer_id, c.name AS customer_name, d.remaining_amount, d.due_date,
+			CAST((julianday('now') - julianday(d.due_date)) AS INTEGER) AS days_overdue,
+			COALESCE(c.phone, '') AS phone
+			FROM debts d JOIN customers c ON d.customer_id = c.id
+			WHERE d.remaining_amount > 0
+			  AND julianday(d.due_date) < julianday('now')
+			  AND ` + business.OpenDebtStatusSQL("d.status") + `
+			ORDER BY d.due_date ASC LIMIT 10
+		`
+	}
 
 	var debts []OverdueDebtItem
 	err := s.db.SelectContext(ctx, &debts, query)

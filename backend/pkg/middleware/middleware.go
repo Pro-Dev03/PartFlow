@@ -1,7 +1,11 @@
 package middleware
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -16,6 +20,114 @@ var jwtSecret = []byte("your-secret-key-change-in-production")
 var db *sqlx.DB
 var disableAuth = false
 
+const defaultCloudAPIURL = "https://partflow-api.onrender.com/api/v1"
+
+type cloudAuthError struct {
+	status int
+	err    error
+}
+
+func requiresCloudAuth() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")))
+	if value == "" {
+		return true
+	}
+	return value == "1" || value == "true" || value == "yes"
+}
+
+// validateWithCloud keeps the local SQLite API subject to the same cloud
+// account decision as the renderer. The local service never receives cloud
+// business data; it only forwards the bearer token for account validation.
+func validateWithCloud(ctx context.Context, tokenString string) (uuid.UUID, *cloudAuthError) {
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PARTFLOW_CLOUD_API_URL")), "/")
+	if baseURL == "" {
+		baseURL = defaultCloudAPIURL
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/auth/validate", strings.NewReader("{}"))
+	if err != nil {
+		return uuid.Nil, &cloudAuthError{status: http.StatusServiceUnavailable, err: err}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tokenString)
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return uuid.Nil, &cloudAuthError{status: http.StatusServiceUnavailable, err: err}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		status := http.StatusServiceUnavailable
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			status = resp.StatusCode
+		}
+		return uuid.Nil, &cloudAuthError{status: status, err: fmt.Errorf("cloud validation returned HTTP %d", resp.StatusCode)}
+	}
+
+	var envelope struct {
+		Data struct {
+			Valid bool `json:"valid"`
+			User  struct {
+				ID string `json:"id"`
+			} `json:"user"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		return uuid.Nil, &cloudAuthError{status: http.StatusServiceUnavailable, err: err}
+	}
+	if !envelope.Data.Valid {
+		return uuid.Nil, &cloudAuthError{status: http.StatusForbidden, err: fmt.Errorf("cloud account is not valid")}
+	}
+	userID, err := uuid.Parse(envelope.Data.User.ID)
+	if err != nil {
+		return uuid.Nil, &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("cloud response did not contain a valid user id")}
+	}
+	return userID, nil
+}
+
+func parseSubscriptionExpiry(value interface{}) (*time.Time, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	if parsed, ok := value.(time.Time); ok {
+		return &parsed, nil
+	}
+
+	raw, ok := value.(string)
+	if !ok {
+		if bytes, bytesOK := value.([]byte); bytesOK {
+			raw = string(bytes)
+		} else {
+			return nil, fmt.Errorf("unsupported subscription expiry type %T", value)
+		}
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	if idx := strings.Index(raw, " m="); idx > 0 {
+		raw = strings.TrimSpace(raw[:idx])
+	}
+
+	for _, layout := range []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return &parsed, nil
+		}
+	}
+
+	return nil, fmt.Errorf("unsupported subscription expiry format %q", raw)
+}
+
 // SetDatabase sets the database connection for middleware
 func SetDatabase(database *sqlx.DB) {
 	db = database
@@ -24,6 +136,39 @@ func SetDatabase(database *sqlx.DB) {
 // SetDisableAuth sets the disable auth flag for development
 func SetDisableAuth(disable bool) {
 	disableAuth = disable
+}
+
+func isLocalDatabaseMode() bool {
+	mode := strings.TrimSpace(strings.ToLower(os.Getenv("DB_CONNECTION_MODE")))
+	if mode == "" {
+		mode = strings.TrimSpace(strings.ToLower(os.Getenv("DATABASE_MODE")))
+	}
+	if mode == "local" || mode == "sqlite" {
+		return true
+	}
+
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	return strings.HasPrefix(databaseURL, "sqlite://")
+}
+
+func ensureUserAuthorized(ctx context.Context, userUUID uuid.UUID) (bool, error) {
+	if db == nil {
+		return true, nil
+	}
+
+	var userExists bool
+	err := db.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", userUUID).Scan(&userExists)
+	if err == nil {
+		return userExists, nil
+	}
+
+	msg := err.Error()
+	if isLocalDatabaseMode() || strings.Contains(msg, "no such table: users") || strings.Contains(msg, "does not exist") {
+		return true, nil
+	}
+
+	return false, err
 }
 
 // CORS middleware
@@ -80,6 +225,28 @@ func Auth() gin.HandlerFunc {
 			return
 		}
 
+		// The embedded/local API uses SQLite for business data but delegates account
+		// authorization to Render. This prevents a direct local API call from
+		// bypassing the cloud subscription decision.
+		if isLocalDatabaseMode() && requiresCloudAuth() {
+			userUUID, cloudErr := validateWithCloud(c.Request.Context(), tokenString)
+			if cloudErr != nil {
+				message := "تعذر التحقق من الحساب عبر الخادم السحابي"
+				if cloudErr.status == http.StatusUnauthorized {
+					message = "جلسة الدخول غير صالحة"
+				} else if cloudErr.status == http.StatusForbidden {
+					message = "الحساب غير نشط أو أن الاشتراك منتهٍ"
+				}
+				c.JSON(cloudErr.status, gin.H{"error": message, "code": "CLOUD_AUTH_REQUIRED"})
+				c.Abort()
+				return
+			}
+			c.Set("user_id", userUUID)
+			c.Set("user_id_string", userUUID.String())
+			c.Next()
+			return
+		}
+
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			return jwtSecret, nil
 		})
@@ -107,33 +274,43 @@ func Auth() gin.HandlerFunc {
 				return
 			}
 
-			// Verify user exists in database
-			var userExists bool
-			err = db.QueryRowContext(c.Request.Context(),
-				"SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", userUUID).Scan(&userExists)
-			if err != nil || !userExists {
+			allowsUser, err := ensureUserAuthorized(c.Request.Context(), userUUID)
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+				c.Abort()
+				return
+			}
+			if !allowsUser && !isLocalDatabaseMode() {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
 				c.Abort()
 				return
 			}
 
-			var subscriptionStatus string
-			var subscriptionExpiresAt *time.Time
-			err = db.QueryRowContext(c.Request.Context(),
-				"SELECT subscription_status, subscription_expires_at FROM users WHERE id = $1", userUUID).
-				Scan(&subscriptionStatus, &subscriptionExpiresAt)
-			if err != nil {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Unable to verify subscription status"})
-				c.Abort()
-				return
-			}
+			if !isLocalDatabaseMode() && db != nil {
+				var subscriptionStatus string
+				var subscriptionExpiresAtRaw interface{}
+				err = db.QueryRowContext(c.Request.Context(),
+					"SELECT subscription_status, subscription_expires_at FROM users WHERE id = $1", userUUID).
+					Scan(&subscriptionStatus, &subscriptionExpiresAtRaw)
+				if err != nil {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Unable to verify subscription status"})
+					c.Abort()
+					return
+				}
+				subscriptionExpiresAt, err := parseSubscriptionExpiry(subscriptionExpiresAtRaw)
+				if err != nil {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Unable to verify subscription status"})
+					c.Abort()
+					return
+				}
 
-			if subscriptionStatus == "canceled" || subscriptionStatus == "cancelled" || subscriptionStatus == "expired" || (subscriptionExpiresAt != nil && time.Now().After(*subscriptionExpiresAt)) {
-				c.JSON(http.StatusForbidden, gin.H{
-					"error": "انتهت مدة اشتراكك. يرجى التواصل مع المطور لتجديد الاشتراك.",
-				})
-				c.Abort()
-				return
+				if subscriptionStatus == "canceled" || subscriptionStatus == "cancelled" || subscriptionStatus == "expired" || (subscriptionExpiresAt != nil && time.Now().After(*subscriptionExpiresAt)) {
+					c.JSON(http.StatusForbidden, gin.H{
+						"error": "اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة.",
+					})
+					c.Abort()
+					return
+				}
 			}
 
 			// Set user context

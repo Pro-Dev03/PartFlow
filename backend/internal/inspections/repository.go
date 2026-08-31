@@ -267,8 +267,8 @@ func (r *Repository) ListInspections(ctx context.Context, req InspectionListRequ
 
 	if req.Search != "" {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND (COALESCE(ai.serial_number, ii.serial_number, '') ILIKE $%d OR i.notes ILIKE $%d)", argCount, argCount)
-		countQuery += fmt.Sprintf(" AND (COALESCE(ai.serial_number, ii.serial_number, '') ILIKE $%d OR i.notes ILIKE $%d)", argCount, argCount)
+		baseQuery += fmt.Sprintf(" AND (LOWER(COALESCE(ai.serial_number, ii.serial_number, '')) LIKE LOWER($%d) OR LOWER(i.notes) LIKE LOWER($%d))", argCount, argCount)
+		countQuery += fmt.Sprintf(" AND (LOWER(COALESCE(ai.serial_number, ii.serial_number, '')) LIKE LOWER($%d) OR LOWER(i.notes) LIKE LOWER($%d))", argCount, argCount)
 		searchPattern := "%" + req.Search + "%"
 		args = append(args, searchPattern)
 	}
