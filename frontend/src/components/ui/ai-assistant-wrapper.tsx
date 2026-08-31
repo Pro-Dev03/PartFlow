@@ -30,8 +30,8 @@ function writeOfflineSnapshot(data: Record<string, unknown>) {
 }
 
 export default function AIAssistantWrapper() {
-  const { isAuthenticated, token } = useAuthStore();
-  const isAuthReady = Boolean(isAuthenticated && token);
+  const { isAuthenticated, token, sessionVerified, isLoading } = useAuthStore();
+  const isAuthReady = Boolean(isAuthenticated && token && sessionVerified);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatAnchor, setChatAnchor] = useState({ x: 20, y: 20 });
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -57,7 +57,7 @@ export default function AIAssistantWrapper() {
     queryKey: ['assistant-dashboard'],
     queryFn: () => dashboardApi.getStats(),
     staleTime: 60000,
-    enabled: isAuthReady && isOnline,
+    enabled: isAuthReady && !isLoading && isOnline,
     retry: 1,
     onSuccess: (response) => {
       const stats = response?.data as {
@@ -80,7 +80,7 @@ export default function AIAssistantWrapper() {
     queryKey: ['assistant-low-stock'],
     queryFn: () => dashboardApi.getLowStockItems(),
     staleTime: 60000,
-    enabled: isAuthReady && isOnline,
+    enabled: isAuthReady && !isLoading && isOnline,
     retry: 1,
     onSuccess: (response) => {
       writeOfflineSnapshot({
@@ -93,7 +93,7 @@ export default function AIAssistantWrapper() {
     queryKey: ['assistant-overdue-debts'],
     queryFn: () => dashboardApi.getOverdueDebts(),
     staleTime: 60000,
-    enabled: isAuthReady && isOnline,
+    enabled: isAuthReady && !isLoading && isOnline,
     retry: 1,
     onSuccess: (response) => {
       writeOfflineSnapshot({
@@ -106,7 +106,7 @@ export default function AIAssistantWrapper() {
     queryKey: ['assistant-customers-count'],
     queryFn: () => customersApi.list({ page: 1, per_page: 1 }),
     staleTime: 120000,
-    enabled: isAuthReady && isOnline,
+    enabled: isAuthReady && !isLoading && isOnline,
     retry: 1,
   });
 
@@ -114,7 +114,7 @@ export default function AIAssistantWrapper() {
     queryKey: ['assistant-daily-sales'],
     queryFn: () => dashboardApi.getDailySalesSummary(),
     staleTime: 60000,
-    enabled: isAuthReady && isOnline,
+    enabled: isAuthReady && !isLoading && isOnline,
     retry: 1,
   });
 
@@ -202,7 +202,7 @@ export default function AIAssistantWrapper() {
     setIsChatOpen(false);
   };
 
-  if (!isAuthReady) {
+  if (!isAuthReady || isLoading) {
     return null;
   }
 

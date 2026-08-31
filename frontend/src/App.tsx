@@ -14,9 +14,9 @@ const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m =>
 const SubscriptionExpiredPage = lazy(() => import('./features/auth/pages/SubscriptionExpiredPage').then(m => ({ default: m.default })));
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, token } = useAuthStore();
+  const { isAuthenticated, token, sessionVerified } = useAuthStore();
 
-  if (!isAuthenticated || !token || !navigator.onLine) {
+  if (!isAuthenticated || !token || !sessionVerified || !navigator.onLine) {
     return <Navigate to="/login" replace />;
   }
 
@@ -24,9 +24,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, sessionVerified } = useAuthStore();
   
-  if (isAuthenticated) {
+  if (isAuthenticated && sessionVerified) {
     return <Navigate to="/app" replace />;
   }
   
@@ -68,7 +68,6 @@ function App() {
     };
     window.addEventListener('online', validate);
     window.addEventListener('offline', handleOffline);
-    if (navigator.onLine) validate();
     // The cloud is the subscription authority. If connectivity disappears, the
     // protected route stops new operations until it returns.
     const interval = window.setInterval(() => {
