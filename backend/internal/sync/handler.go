@@ -70,7 +70,14 @@ func NewHandler(db *sqlx.DB) *Handler {
 
 // GetInitialData returns all user data for initial sync
 func (h *Handler) GetInitialData(c *gin.Context) {
-	userID := c.GetString("user_id")
+	// The authentication middleware stores the canonical string form under
+	// user_id_string, while older tests/integrations may still provide a plain
+	// user_id string. Accept both keys so an authenticated local request is not
+	// rejected with a misleading 401.
+	userID := c.GetString("user_id_string")
+	if userID == "" {
+		userID = c.GetString("user_id")
+	}
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
