@@ -52,6 +52,13 @@ go run .\scripts\subscription-manager.go summary
 go run .\scripts\subscription-manager.go disable --email user@example.com
 ```
 
+يمكن بدلاً من تعيين المتغير في كل جلسة وضعه في ملف `.env` داخل `backend` أو جذر المشروع؛
+سيقرأه مدير الاشتراكات تلقائياً عند تشغيله من `backend\scripts`. متغيرات البيئة الموجودة
+في PowerShell لها الأولوية، ولا تُحفظ أي كلمة مرور داخل الكود أو Git.
+
+إذا أغلق Supabase اتصال المنفذ `5432`، استخدم Transaction Pooler على المنفذ `6543`
+مع إضافة `?sslmode=require` إلى نهاية الرابط.
+
 يُستخدم `DATABASE_URL_DIRECT` كاسم بديل. لا تضع الرابط أو كلمة المرور داخل
 الملفات أو Git.
 

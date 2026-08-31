@@ -6,12 +6,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -213,6 +215,8 @@ func main() {
 }
 
 func loadConfig() (*Config, error) {
+	loadDotEnv()
+
 	// This administrative tool must target Supabase directly. Keep the generic
 	// DATABASE_URL out of the priority chain so it cannot silently hit SQLite or
 	// another local database by mistake.
@@ -220,10 +224,39 @@ func loadConfig() (*Config, error) {
 	if strings.TrimSpace(dbURL) == "" {
 		dbURL = os.Getenv("DATABASE_URL_DIRECT")
 	}
-	if strings.TrimSpace(dbURL) == "" {
+	dbURL = strings.TrimSpace(dbURL)
+	if dbURL == "" {
 		return nil, errors.New("المتغير SUPABASE_DATABASE_URL أو DATABASE_URL_DIRECT مطلوب")
 	}
+	if strings.HasPrefix(dbURL, "=") {
+		return nil, errors.New("تنسيق رابط قاعدة البيانات غير صحيح: استخدم SUPABASE_DATABASE_URL=postgresql://...")
+	}
 	return &Config{DBURL: dbURL}, nil
+}
+
+// loadDotEnv loads the first .env file found while walking from the current
+// directory up to the project root. This lets the script work when launched
+// from backend/scripts, backend, or the repository root without putting
+// credentials in source code. Existing environment variables always win.
+func loadDotEnv() {
+	directory, err := os.Getwd()
+	if err != nil {
+		return
+	}
+
+	for level := 0; level < 3; level++ {
+		envPath := filepath.Join(directory, ".env")
+		if _, err := os.Stat(envPath); err == nil {
+			_ = godotenv.Load(envPath)
+			return
+		}
+
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			return
+		}
+		directory = parent
+	}
 }
 
 func createAccount(db *sqlx.DB, email, password, firstName, lastName, phone string, days int) error {
