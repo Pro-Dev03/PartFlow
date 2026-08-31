@@ -213,9 +213,14 @@ func main() {
 }
 
 func loadConfig() (*Config, error) {
-	dbURL := os.Getenv("DATABASE_URL")
+	// Prefer the provider's direct PostgreSQL endpoint when it is supplied.
+	// DATABASE_URL remains a backwards-compatible fallback for local/admin use.
+	dbURL := os.Getenv("DATABASE_URL_DIRECT")
 	if strings.TrimSpace(dbURL) == "" {
-		return nil, errors.New("المتغير DATABASE_URL مطلوب. مثال: export DATABASE_URL='postgres://postgres:password@localhost:5432/partflow?sslmode=disable'")
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if strings.TrimSpace(dbURL) == "" {
+		return nil, errors.New("المتغير DATABASE_URL_DIRECT أو DATABASE_URL مطلوب")
 	}
 	return &Config{DBURL: dbURL}, nil
 }
