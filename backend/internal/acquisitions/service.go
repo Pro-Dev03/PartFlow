@@ -926,6 +926,42 @@ func (s *Service) GetUsedPartsAging(ctx context.Context, alertLevel string) ([]I
 	}
 
 	query += " ORDER BY days_in_stock DESC"
+	// SQLite stores timestamps as TEXT. Scanning the view directly into
+	// time.Time therefore fails even though the rows are valid. Use the same
+	// compatibility scanner used by seller balances and map the rows explicitly.
+	if strings.EqualFold(s.db.DriverName(), "sqlite") {
+		type sqliteAgingRow struct {
+			ItemID          uuid.UUID       `db:"item_id"`
+			AcquisitionID   uuid.UUID       `db:"acquisition_id"`
+			AcquisitionDate nullableSQLTime `db:"acquisition_date"`
+			DaysInStock     int             `db:"days_in_stock"`
+			Status          string          `db:"status"`
+			Condition       string          `db:"condition"`
+			Cost            float64         `db:"cost"`
+			CurrentPrice    float64         `db:"current_price"`
+			AgingCategory   string          `db:"aging_category"`
+			AlertLevel      string          `db:"alert_level"`
+		}
+		var rows []sqliteAgingRow
+		if err := s.db.SelectContext(ctx, &rows, query, args...); err != nil {
+			return nil, fmt.Errorf("failed to get used parts aging: %w", err)
+		}
+		aging := make([]ItemAging, 0, len(rows))
+		for _, row := range rows {
+			item := ItemAging{
+				ItemID: row.ItemID, AcquisitionID: row.AcquisitionID,
+				DaysInStock: row.DaysInStock, Status: row.Status,
+				Condition: row.Condition, Cost: row.Cost,
+				CurrentPrice: row.CurrentPrice, AgingCategory: row.AgingCategory,
+				AlertLevel: row.AlertLevel,
+			}
+			if row.AcquisitionDate.Valid {
+				item.AcquisitionDate = row.AcquisitionDate.Time
+			}
+			aging = append(aging, item)
+		}
+		return aging, nil
+	}
 
 	var aging []ItemAging
 	err := s.db.Select(&aging, query, args...)
@@ -1031,6 +1067,7 @@ func (t *nullableSQLTime) parse(raw string) error {
 	layouts := []string{
 		time.RFC3339Nano,
 		time.RFC3339,
+		"2006-01-02",
 		"2006-01-02 15:04:05.999999999-07:00",
 		"2006-01-02 15:04:05.999999999",
 		"2006-01-02 15:04:05-07:00",

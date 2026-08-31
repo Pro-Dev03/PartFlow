@@ -1030,13 +1030,13 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 	query := `
 		SELECT 
 			COUNT(*) as total_returns,
-			COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completed_returns,
-			COUNT(CASE WHEN status = 'PENDING' THEN 1 END) as pending_returns,
-			COUNT(CASE WHEN return_type = 'FULL' THEN 1 END) as full_returns,
-			COUNT(CASE WHEN return_type = 'PARTIAL' THEN 1 END) as partial_returns,
-			COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN total_refund_amount ELSE 0 END), 0) as total_refunded,
-			COUNT(CASE WHEN reason = 'DEFECTIVE' THEN 1 END) as defective_returns,
-			COUNT(CASE WHEN reason = 'WARRANTY' THEN 1 END) as warranty_returns
+			COUNT(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' THEN 1 END) as completed_returns,
+			COUNT(CASE WHEN UPPER(COALESCE(status, '')) = 'PENDING' THEN 1 END) as pending_returns,
+			COUNT(CASE WHEN UPPER(COALESCE(return_type, '')) = 'FULL' THEN 1 END) as full_returns,
+			COUNT(CASE WHEN UPPER(COALESCE(return_type, '')) IN ('PARTIAL', 'QUANTITY_PARTIAL') THEN 1 END) as partial_returns,
+			COALESCE(SUM(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' THEN total_refund_amount ELSE 0 END), 0) as total_refunded,
+			COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) as defective_returns,
+			COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) as warranty_returns
 		FROM returns
 		WHERE return_date >= date('now', '-30 days')
 	`

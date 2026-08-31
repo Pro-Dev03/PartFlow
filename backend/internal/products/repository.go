@@ -16,6 +16,31 @@ type Repository struct {
 	db *sqlx.DB
 }
 
+// scanBrandRow keeps SQLite TEXT timestamps compatible with the time.Time
+// fields exposed by the API. PostgreSQL and SQLite both safely scan their
+// UUID/timestamp values into strings here, after which they are parsed once.
+func scanBrandRow(scanner interface{ Scan(...any) error }) (Brand, error) {
+	var brand Brand
+	var idRaw, createdRaw, updatedRaw string
+	if err := scanner.Scan(&idRaw, &brand.Name, &brand.Description, &brand.LogoURL, &createdRaw, &updatedRaw); err != nil {
+		return Brand{}, err
+	}
+	id, err := uuid.Parse(idRaw)
+	if err != nil {
+		return Brand{}, fmt.Errorf("parse brand id: %w", err)
+	}
+	brand.ID = id
+	brand.CreatedAt, err = parseSQLiteTimestamp(createdRaw)
+	if err != nil {
+		return Brand{}, fmt.Errorf("parse brand created_at: %w", err)
+	}
+	brand.UpdatedAt, err = parseSQLiteTimestamp(updatedRaw)
+	if err != nil {
+		return Brand{}, fmt.Errorf("parse brand updated_at: %w", err)
+	}
+	return brand, nil
+}
+
 // NewRepository creates a new products repository
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
@@ -352,28 +377,45 @@ func (r *Repository) CreateBrand(ctx context.Context, brand *Brand) error {
 // GetBrandByID retrieves a brand by ID
 func (r *Repository) GetBrandByID(ctx context.Context, id uuid.UUID) (*Brand, error) {
 	query := `
-		SELECT id, name, description, logo_url, created_at, updated_at
+		SELECT id, name, COALESCE(description, '') AS description, COALESCE(logo_url, '') AS logo_url, created_at, updated_at
 		FROM brands
 		WHERE id = $1
 	`
-	var brand Brand
-	err := r.db.GetContext(ctx, &brand, query, id)
+	row := r.db.QueryRowxContext(ctx, query, id)
+	brand, err := scanBrandRow(row)
 	if err == sql.ErrNoRows {
 		return nil, ErrBrandNotFound
 	}
-	return &brand, err
+	if err != nil {
+		return nil, err
+	}
+	return &brand, nil
 }
 
 // ListBrands retrieves all brands
 func (r *Repository) ListBrands(ctx context.Context) ([]Brand, error) {
 	query := `
-		SELECT id, name, description, logo_url, created_at, updated_at
+		SELECT id, name, COALESCE(description, '') AS description, COALESCE(logo_url, '') AS logo_url, created_at, updated_at
 		FROM brands
 		ORDER BY name
 	`
-	var brands []Brand
-	err := r.db.SelectContext(ctx, &brands, query)
-	return brands, err
+	rows, err := r.db.QueryxContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	brands := make([]Brand, 0)
+	for rows.Next() {
+		brand, scanErr := scanBrandRow(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		brands = append(brands, brand)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return brands, nil
 }
 
 // UpdateBrand updates a brand

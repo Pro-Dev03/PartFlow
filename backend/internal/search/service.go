@@ -15,6 +15,20 @@ type Service struct {
 	db *sqlx.DB
 }
 
+// searchTimestamp accepts SQLite's TEXT timestamps as well as PostgreSQL
+// timestamp values. Without this scanner SQLite search rows were skipped
+// while the count still reported matches, resulting in "results: null".
+type searchTimestamp struct{ time.Time }
+
+func (t *searchTimestamp) Scan(value any) error {
+	parsed, err := dbutil.ParseTimestamp(value)
+	if err != nil {
+		return err
+	}
+	t.Time = parsed
+	return nil
+}
+
 // NewService creates a new search service
 func NewService(db *sqlx.DB) *Service {
 	return &Service{db: db}
@@ -101,7 +115,7 @@ func (s *Service) searchProducts(ctx context.Context, query string, limit, offse
 	for rows.Next() {
 		var id uuid.UUID
 		var name, sku, model, barcode string
-		var createdAt time.Time
+		var createdAt searchTimestamp
 
 		if err := rows.Scan(&id, &name, &sku, &model, &barcode, &createdAt); err != nil {
 			continue
@@ -120,7 +134,7 @@ func (s *Service) searchProducts(ctx context.Context, query string, limit, offse
 			Subtitle:  fmt.Sprintf("SKU: %s", sku),
 			Metadata:  metadata,
 			Score:     1.0,
-			CreatedAt: createdAt,
+			CreatedAt: createdAt.Time,
 		})
 	}
 
@@ -161,7 +175,7 @@ func (s *Service) searchCustomers(ctx context.Context, query string, limit, offs
 	for rows.Next() {
 		var id uuid.UUID
 		var name, email, phone string
-		var createdAt time.Time
+		var createdAt searchTimestamp
 
 		if err := rows.Scan(&id, &name, &email, &phone, &createdAt); err != nil {
 			continue
@@ -179,7 +193,7 @@ func (s *Service) searchCustomers(ctx context.Context, query string, limit, offs
 			Subtitle:  fmt.Sprintf("Email: %s", email),
 			Metadata:  metadata,
 			Score:     1.0,
-			CreatedAt: createdAt,
+			CreatedAt: createdAt.Time,
 		})
 	}
 
@@ -220,7 +234,7 @@ func (s *Service) searchSuppliers(ctx context.Context, query string, limit, offs
 	for rows.Next() {
 		var id uuid.UUID
 		var name, email, phone string
-		var createdAt time.Time
+		var createdAt searchTimestamp
 
 		if err := rows.Scan(&id, &name, &email, &phone, &createdAt); err != nil {
 			continue
@@ -238,7 +252,7 @@ func (s *Service) searchSuppliers(ctx context.Context, query string, limit, offs
 			Subtitle:  fmt.Sprintf("Email: %s", email),
 			Metadata:  metadata,
 			Score:     1.0,
-			CreatedAt: createdAt,
+			CreatedAt: createdAt.Time,
 		})
 	}
 
@@ -279,7 +293,7 @@ func (s *Service) searchSales(ctx context.Context, query string, limit, offset i
 		var id uuid.UUID
 		var invoiceNumber string
 		var totalAmount float64
-		var saleDate, createdAt time.Time
+		var saleDate, createdAt searchTimestamp
 
 		if err := rows.Scan(&id, &invoiceNumber, &totalAmount, &saleDate, &createdAt); err != nil {
 			continue
@@ -287,7 +301,7 @@ func (s *Service) searchSales(ctx context.Context, query string, limit, offset i
 
 		metadata := map[string]interface{}{
 			"total_amount": totalAmount,
-			"sale_date":    saleDate,
+			"sale_date":    saleDate.Time,
 		}
 
 		results = append(results, SearchResult{
@@ -297,7 +311,7 @@ func (s *Service) searchSales(ctx context.Context, query string, limit, offset i
 			Subtitle:  fmt.Sprintf("Amount: %.2f", totalAmount),
 			Metadata:  metadata,
 			Score:     1.0,
-			CreatedAt: createdAt,
+			CreatedAt: createdAt.Time,
 		})
 	}
 
@@ -337,7 +351,7 @@ func (s *Service) searchPurchases(ctx context.Context, query string, limit, offs
 		var id uuid.UUID
 		var invoiceNumber string
 		var totalAmount float64
-		var purchaseDate, createdAt time.Time
+		var purchaseDate, createdAt searchTimestamp
 
 		if err := rows.Scan(&id, &invoiceNumber, &totalAmount, &purchaseDate, &createdAt); err != nil {
 			continue
@@ -345,7 +359,7 @@ func (s *Service) searchPurchases(ctx context.Context, query string, limit, offs
 
 		metadata := map[string]interface{}{
 			"total_amount":  totalAmount,
-			"purchase_date": purchaseDate,
+			"purchase_date": purchaseDate.Time,
 		}
 
 		results = append(results, SearchResult{
@@ -355,7 +369,7 @@ func (s *Service) searchPurchases(ctx context.Context, query string, limit, offs
 			Subtitle:  fmt.Sprintf("Amount: %.2f", totalAmount),
 			Metadata:  metadata,
 			Score:     1.0,
-			CreatedAt: createdAt,
+			CreatedAt: createdAt.Time,
 		})
 	}
 

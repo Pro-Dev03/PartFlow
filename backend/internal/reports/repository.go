@@ -280,7 +280,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 				COALESCE(SUM(CASE WHEN LOWER(COALESCE(payment_method, '')) IN ('cash', 'card') THEN total_amount ELSE 0 END), 0) AS cash_revenue,
 				COALESCE(SUM(CASE WHEN LOWER(COALESCE(payment_method, '')) IN ('credit', 'debt') THEN total_amount ELSE 0 END), 0) AS credit_revenue
 			FROM sales
-			WHERE sale_date >= $1 AND sale_date < $2
+			WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) < date(substr($2, 1, 10))
 				AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		) st
 		CROSS JOIN (
@@ -288,7 +288,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 				COALESCE(SUM(si.quantity), 0) AS total_items_sold
 			FROM sale_items si
 			JOIN sales s ON s.id = si.sale_id
-			WHERE s.sale_date >= $1 AND s.sale_date < $2
+			WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
 				AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		) it`,
 		startDate, endDate)
@@ -311,7 +311,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT DATE(sale_date) as date, COUNT(*) as sales, COALESCE(SUM(total_amount), 0) as revenue
 		 FROM sales 
-		 WHERE sale_date >= $1 AND sale_date < $2
+		 WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY DATE(sale_date)
 		 ORDER BY date`,
@@ -338,7 +338,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 		FROM sale_items si
 		JOIN sales s ON s.id = si.sale_id
 		JOIN products p ON p.id = si.product_id
-		WHERE s.sale_date >= $1 AND s.sale_date < $2
+		WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
 			AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		GROUP BY p.id, p.name
 		ORDER BY SUM(si.total_amount) DESC
@@ -364,7 +364,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT COALESCE(payment_method, 'غير محدد'), COALESCE(SUM(total_amount), 0) as total
 		 FROM sales
-		 WHERE sale_date >= $1 AND sale_date < $2
+		 WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY payment_method`,
 		startDate, endDate)
@@ -600,7 +600,7 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 
 	err := r.db.GetContext(ctx, &report.TotalExpenses,
 		`SELECT COALESCE(SUM(amount), 0) FROM expenses
-		 WHERE expense_date >= $1 AND expense_date < $2
+		 WHERE date(expense_date) >= date(substr($1, 1, 10)) AND date(expense_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')`,
 		startDate, endDate)
 	if err != nil {
@@ -610,7 +610,7 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT category, COALESCE(SUM(amount), 0) as total
 		 FROM expenses
-		 WHERE expense_date >= $1 AND expense_date < $2
+		 WHERE date(expense_date) >= date(substr($1, 1, 10)) AND date(expense_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
 		 GROUP BY category`,
 		startDate, endDate)
@@ -630,7 +630,7 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT payment_method, COALESCE(SUM(amount), 0) as total
 		 FROM expenses
-		 WHERE expense_date >= $1 AND expense_date < $2
+		 WHERE date(expense_date) >= date(substr($1, 1, 10)) AND date(expense_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
 		 GROUP BY payment_method`,
 		startDate, endDate)
@@ -649,14 +649,14 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 
 	monthlyExpensesQuery := `SELECT DATE_TRUNC('month', expense_date), COALESCE(SUM(amount), 0)
 		 FROM expenses
-		 WHERE expense_date >= $1 AND expense_date < $2
+		 WHERE date(expense_date) >= date(substr($1, 1, 10)) AND date(expense_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
 		 GROUP BY DATE_TRUNC('month', expense_date)
 		 ORDER BY DATE_TRUNC('month', expense_date)`
 	if dbutil.IsSQLite(r.db) {
 		monthlyExpensesQuery = `SELECT strftime('%Y-%m-01', expense_date), COALESCE(SUM(amount), 0)
 		 FROM expenses
-		 WHERE expense_date >= $1 AND expense_date < $2
+		 WHERE date(expense_date) >= date(substr($1, 1, 10)) AND date(expense_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
 		 GROUP BY strftime('%Y-%m', expense_date)
 		 ORDER BY strftime('%Y-%m', expense_date)`
@@ -684,7 +684,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 
 	err := r.db.GetContext(ctx, &report.TotalRevenue,
 		`SELECT COALESCE(SUM(total_amount), 0) FROM sales
-		 WHERE sale_date >= $1 AND sale_date < $2
+		 WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`,
 		startDate, endDate)
 	if err != nil {
@@ -701,7 +701,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 	err = r.db.GetContext(ctx, &report.TotalCOGS,
 		`SELECT COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, 0)), 0)
 		 FROM sale_items si JOIN sales s ON s.id = si.sale_id
-		 WHERE s.sale_date >= $1 AND s.sale_date < $2
+		 WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`,
 		startDate, endDate)
 	if err != nil {
@@ -712,7 +712,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 
 	err = r.db.GetContext(ctx, &report.TotalExpenses,
 		`SELECT COALESCE(SUM(amount), 0) FROM expenses
-		 WHERE expense_date >= $1 AND expense_date < $2
+		 WHERE date(expense_date) >= date(substr($1, 1, 10)) AND date(expense_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')`,
 		startDate, endDate)
 	if err != nil {
@@ -730,7 +730,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		        SELECT DATE_TRUNC('month', s.sale_date) AS month,
 		               COALESCE(SUM(s.total_amount), 0) AS revenue
 		        FROM sales s
-		        WHERE s.sale_date >= $1 AND s.sale_date < $2
+		        WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
 		          AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		        GROUP BY DATE_TRUNC('month', s.sale_date)
 		),
@@ -739,7 +739,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		               COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, 0)), 0) AS cogs
 		        FROM sales s
 		        JOIN sale_items si ON si.sale_id = s.id
-		        WHERE s.sale_date >= $1 AND s.sale_date < $2
+		        WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
 		          AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		        GROUP BY DATE_TRUNC('month', s.sale_date)
 		),
@@ -747,7 +747,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		        SELECT DATE_TRUNC('month', expense_date) AS month,
 		               COALESCE(SUM(amount), 0) AS expenses
 		        FROM expenses
-		        WHERE expense_date >= $1 AND expense_date < $2
+		        WHERE date(expense_date) >= date(substr($1, 1, 10)) AND date(expense_date) < date(substr($2, 1, 10))
 		          AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
 		        GROUP BY DATE_TRUNC('month', expense_date)
 		)
@@ -761,7 +761,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		        SELECT strftime('%Y-%m', s.sale_date) AS month,
 		               COALESCE(SUM(s.total_amount), 0) AS revenue
 		        FROM sales s
-		        WHERE s.sale_date >= $1 AND s.sale_date < $2
+		        WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
 		          AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		        GROUP BY strftime('%Y-%m', s.sale_date)
 		),
@@ -769,7 +769,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		        SELECT strftime('%Y-%m', s.sale_date) AS month,
 		               COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, 0)), 0) AS cogs
 		        FROM sales s JOIN sale_items si ON si.sale_id = s.id
-		        WHERE s.sale_date >= $1 AND s.sale_date < $2
+		        WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
 		          AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		        GROUP BY strftime('%Y-%m', s.sale_date)
 		),
@@ -777,7 +777,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		        SELECT strftime('%Y-%m', expense_date) AS month,
 		               COALESCE(SUM(amount), 0) AS expenses
 		        FROM expenses
-		        WHERE expense_date >= $1 AND expense_date < $2
+		        WHERE date(expense_date) >= date(substr($1, 1, 10)) AND date(expense_date) < date(substr($2, 1, 10))
 		          AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
 		        GROUP BY strftime('%Y-%m', expense_date)
 		)
@@ -813,7 +813,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		 JOIN sales s ON s.id = si.sale_id
 		 JOIN products p ON p.id = si.product_id
 		 LEFT JOIN categories c ON c.id = p.category_id
-		 WHERE s.sale_date >= $1 AND s.sale_date < $2
+		 WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY c.name ORDER BY SUM(si.total_amount) DESC`,
 		startDate, endDate)
@@ -942,7 +942,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 
 	err := r.db.GetContext(ctx, &report.TotalPurchases,
 		`SELECT COUNT(*) FROM purchases
-		 WHERE purchase_date >= $1 AND purchase_date < $2
+		 WHERE date(purchase_date) >= date(substr($1, 1, 10)) AND date(purchase_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`,
 		startDate, endDate)
 	if err != nil {
@@ -955,7 +955,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 
 	err = r.db.GetContext(ctx, &report.TotalCost,
 		`SELECT COALESCE(SUM(total_amount), 0) FROM purchases
-		 WHERE purchase_date >= $1 AND purchase_date < $2
+		 WHERE date(purchase_date) >= date(substr($1, 1, 10)) AND date(purchase_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`,
 		startDate, endDate)
 	if err != nil {
@@ -971,7 +971,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 		 LEFT JOIN (
 		   SELECT purchase_id, SUM(quantity) AS item_count FROM purchase_items GROUP BY purchase_id
 		 ) pi ON pi.purchase_id = p.id
-		 WHERE p.purchase_date >= $1 AND p.purchase_date < $2
+		 WHERE date(p.purchase_date) >= date(substr($1, 1, 10)) AND date(p.purchase_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY p.supplier_id, s.name ORDER BY SUM(p.total_amount) DESC`,
 		startDate, endDate)
@@ -995,7 +995,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 		 JOIN purchases p ON p.id = pi.purchase_id
 		 JOIN products pr ON pr.id = pi.product_id
 		 LEFT JOIN categories c ON c.id = pr.category_id
-		 WHERE p.purchase_date >= $1 AND p.purchase_date < $2
+		 WHERE date(p.purchase_date) >= date(substr($1, 1, 10)) AND date(p.purchase_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY c.name ORDER BY SUM(pi.quantity) DESC`,
 		startDate, endDate)
@@ -1012,14 +1012,14 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 	report.ByMonth = []MonthlyPurchases{}
 	monthlyPurchasesQuery := `SELECT DATE_TRUNC('month', purchase_date), COALESCE(SUM(total_amount), 0), COUNT(*)
 			 FROM purchases
-		 WHERE purchase_date >= $1 AND purchase_date < $2
+		 WHERE date(purchase_date) >= date(substr($1, 1, 10)) AND date(purchase_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 			 GROUP BY DATE_TRUNC('month', purchase_date)
 			 ORDER BY DATE_TRUNC('month', purchase_date)`
 	if dbutil.IsSQLite(r.db) {
 		monthlyPurchasesQuery = `SELECT strftime('%Y-%m-01', purchase_date), COALESCE(SUM(total_amount), 0), COUNT(*)
 			 FROM purchases
-		 WHERE purchase_date >= $1 AND purchase_date < $2
+		 WHERE date(purchase_date) >= date(substr($1, 1, 10)) AND date(purchase_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY strftime('%Y-%m', purchase_date)
 		 ORDER BY strftime('%Y-%m', purchase_date)`
@@ -1049,7 +1049,7 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 	// Only completed returns affect financial reports.
 	err := r.db.GetContext(ctx, &report.TotalReturns,
 		`SELECT COUNT(*) FROM returns
-		 WHERE return_date >= $1 AND return_date <= $2
+		 WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10))
 		   AND status = 'COMPLETED'`,
 		startDate, endDate)
 	if err != nil {
@@ -1062,7 +1062,7 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 
 	err = r.db.GetContext(ctx, &report.TotalRefunded,
 		`SELECT COALESCE(SUM(total_refund_amount), 0) FROM returns
-		 WHERE return_date >= $1 AND return_date <= $2
+		 WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10))
 		   AND status = 'COMPLETED'`,
 		startDate, endDate)
 	if err != nil {
@@ -1072,7 +1072,7 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 	report.ByReason = make(map[string]int)
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT reason, COUNT(*) FROM returns
-		 WHERE return_date >= $1 AND return_date <= $2
+		 WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10))
 		   AND status = 'COMPLETED'
 		 GROUP BY reason`,
 		startDate, endDate)
@@ -1096,7 +1096,7 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 			 FROM returns r
 			 JOIN return_items ri ON ri.return_id = r.id
 			 LEFT JOIN products p ON p.id = ri.product_id
-			 WHERE r.return_date >= $1 AND r.return_date <= $2
+			 WHERE date(r.return_date) >= date(substr($1, 1, 10)) AND date(r.return_date) <= date(substr($2, 1, 10))
 			   AND r.status = 'COMPLETED'
 			 GROUP BY ri.product_id, p.name
 			 ORDER BY SUM(ri.total_refund_amount) DESC`,
@@ -1114,14 +1114,14 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 	report.ByMonth = []MonthlyReturns{}
 	monthlyReturnsQuery := `SELECT DATE_TRUNC('month', return_date), COUNT(*), COALESCE(SUM(total_refund_amount), 0)
 			 FROM returns
-			 WHERE return_date >= $1 AND return_date <= $2
+			 WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10))
 			   AND status = 'COMPLETED'
 			 GROUP BY strftime('%Y-%m', return_date)
 			 ORDER BY strftime('%Y-%m', return_date)`
 	if dbutil.IsSQLite(r.db) {
 		monthlyReturnsQuery = `SELECT strftime('%Y-%m-01', return_date), COUNT(*), COALESCE(SUM(total_refund_amount), 0)
 			 FROM returns
-		 WHERE return_date >= $1 AND return_date <= $2
+			 WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10))
 		   AND status = 'COMPLETED'
 		 GROUP BY strftime('%Y-%m', return_date)
 		 ORDER BY strftime('%Y-%m', return_date)`
@@ -1151,7 +1151,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	// Get gross sales data
 	var grossSales, grossRevenue float64
 	err := r.db.GetContext(ctx, &grossSales,
-		`SELECT COUNT(*) FROM sales WHERE sale_date >= $1 AND sale_date <= $2
+		`SELECT COUNT(*) FROM sales WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) <= date(substr($2, 1, 10))
 			AND LOWER(COALESCE(status, 'completed')) = 'completed'`,
 		startDate, endDate)
 	if err != nil {
@@ -1168,7 +1168,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	report.GrossSales = int(grossSales)
 
 	err = r.db.GetContext(ctx, &grossRevenue,
-		`SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE sale_date >= $1 AND sale_date <= $2
+		`SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) <= date(substr($2, 1, 10))
 			AND LOWER(COALESCE(status, 'completed')) = 'completed'`,
 		startDate, endDate)
 	if err != nil {
@@ -1180,7 +1180,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	var totalReturns, totalRefunded float64
 	err = r.db.GetContext(ctx, &totalReturns,
 		`SELECT COUNT(*) FROM returns
-		 WHERE return_date >= $1 AND return_date <= $2
+		 WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10))
 		   AND status = 'COMPLETED'`,
 		startDate, endDate)
 	if err != nil {
@@ -1190,7 +1190,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 
 	err = r.db.GetContext(ctx, &totalRefunded,
 		`SELECT COALESCE(SUM(total_refund_amount), 0) FROM returns
-		 WHERE return_date >= $1 AND return_date <= $2
+		 WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10))
 		   AND status = 'COMPLETED'`,
 		startDate, endDate)
 	if err != nil {
@@ -1217,14 +1217,14 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 			COALESCE(SUM(total_amount), 0) as gross_revenue,
 			COALESCE((SELECT COUNT(*) FROM returns r
 				WHERE DATE(r.return_date) = DATE(s.sale_date)
-				  AND r.return_date >= $1 AND r.return_date <= $2
+				  AND date(r.return_date) >= date(substr($1, 1, 10)) AND date(r.return_date) <= date(substr($2, 1, 10))
 				  AND r.status = 'COMPLETED'), 0) as returns,
 			COALESCE((SELECT SUM(total_refund_amount) FROM returns r
 				WHERE DATE(r.return_date) = DATE(s.sale_date)
-				  AND r.return_date >= $1 AND r.return_date <= $2
+				  AND date(r.return_date) >= date(substr($1, 1, 10)) AND date(r.return_date) <= date(substr($2, 1, 10))
 				  AND r.status = 'COMPLETED'), 0) as refunded
 			 FROM sales s
-			 WHERE s.sale_date >= $1 AND s.sale_date <= $2
+			 WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) <= date(substr($2, 1, 10))
 			   AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
 			 GROUP BY DATE(s.sale_date)
 		 ORDER BY date`,
@@ -1253,7 +1253,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 		 JOIN sales s ON s.id = si.sale_id
 		 JOIN products p ON p.id = si.product_id
 			 LEFT JOIN categories c ON c.id = p.category_id
-			 WHERE s.sale_date >= $1 AND s.sale_date <= $2
+				 WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) <= date(substr($2, 1, 10))
 			   AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
 			 GROUP BY c.name
 		 ORDER BY total DESC`,
@@ -1275,7 +1275,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT payment_method, COALESCE(SUM(total_amount), 0) as total
 			 FROM sales
-			 WHERE sale_date >= $1 AND sale_date <= $2
+			 WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) <= date(substr($2, 1, 10))
 			   AND LOWER(COALESCE(status, 'completed')) = 'completed'
 			 GROUP BY payment_method`,
 		startDate, endDate)
@@ -1300,13 +1300,13 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 			p.name as product_name,
 			COALESCE(SUM(si.quantity), 0) as gross_quantity,
 			COALESCE(SUM(si.quantity * si.unit_price), 0) as gross_revenue,
-			COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE return_date >= $1 AND return_date <= $2 AND status = 'COMPLETED')), 0) as returned_quantity,
-			COALESCE((SELECT SUM(ri.total_refund_amount) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE return_date >= $1 AND return_date <= $2 AND status = 'COMPLETED')), 0) as refunded_amount
+			COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10)) AND status = 'COMPLETED')), 0) as returned_quantity,
+			COALESCE((SELECT SUM(ri.total_refund_amount) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10)) AND status = 'COMPLETED')), 0) as refunded_amount
 		 FROM products p
-			 LEFT JOIN sale_items si ON p.id = si.product_id AND si.sale_id IN (SELECT id FROM sales WHERE sale_date >= $1 AND sale_date <= $2 AND LOWER(COALESCE(status, 'completed')) = 'completed')
+			 LEFT JOIN sale_items si ON p.id = si.product_id AND si.sale_id IN (SELECT id FROM sales WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) <= date(substr($2, 1, 10)) AND LOWER(COALESCE(status, 'completed')) = 'completed')
 		 WHERE p.is_active = true
 		 GROUP BY p.id, p.name
-		 HAVING COALESCE(SUM(si.quantity), 0) > 0 OR COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE return_date >= $1 AND return_date <= $2 AND status = 'COMPLETED')), 0) > 0
+		 HAVING COALESCE(SUM(si.quantity), 0) > 0 OR COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10)) AND status = 'COMPLETED')), 0) > 0
 		 ORDER BY returned_quantity DESC
 		 LIMIT 10`,
 		startDate, endDate)

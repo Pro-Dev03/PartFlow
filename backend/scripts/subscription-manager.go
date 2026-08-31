@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 const banner = `
@@ -41,6 +43,57 @@ type Account struct {
 
 type Config struct {
 	DBURL string
+}
+
+// normalizeEmail keeps the administrator allow-list and database lookups
+// consistent with the authentication middleware.
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// configuredAdminEmails mirrors the backend's PARTFLOW_ADMIN_EMAILS policy.
+// The owner address remains the backwards-compatible bootstrap administrator.
+func configuredAdminEmails() []string {
+	raw := strings.TrimSpace(os.Getenv("PARTFLOW_ADMIN_EMAILS"))
+
+	seen := make(map[string]struct{})
+	admins := make([]string, 0, 2)
+	for _, value := range strings.Split(raw, ",") {
+		email := normalizeEmail(value)
+		if email == "" {
+			continue
+		}
+		if _, exists := seen[email]; exists {
+			continue
+		}
+		seen[email] = struct{}{}
+		admins = append(admins, email)
+	}
+	if len(admins) == 0 {
+		admins = append(admins, "owner@partflow.com")
+	}
+	return admins
+}
+
+func defaultAdminEmail() string {
+	return configuredAdminEmails()[0]
+}
+
+func isAdminEmail(email string) bool {
+	normalized := normalizeEmail(email)
+	for _, configured := range configuredAdminEmails() {
+		if normalized == configured {
+			return true
+		}
+	}
+	return false
+}
+
+func accountKind(email string) string {
+	if isAdminEmail(email) {
+		return "أدمن"
+	}
+	return "مشترك"
 }
 
 func main() {
@@ -69,6 +122,8 @@ func main() {
 	statusEmail := statusCmd.String("email", "", "البريد الإلكتروني للحساب")
 
 	summaryCmd := flag.NewFlagSet("summary", flag.ContinueOnError)
+	adminPasswordCmd := flag.NewFlagSet("change-admin-password", flag.ContinueOnError)
+	adminPasswordEmail := adminPasswordCmd.String("email", "", "admin account email (defaults to PARTFLOW_ADMIN_EMAILS)")
 
 	if len(os.Args) < 2 {
 		printBanner()
@@ -102,7 +157,7 @@ func main() {
 
 	if os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help" {
 		printBanner()
-		printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd)
+		printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd)
 	}
 
 	cfg, err := loadConfig()
@@ -117,7 +172,7 @@ func main() {
 	defer db.Close()
 
 	switch os.Args[1] {
-	case "create":
+	case "create", "create-subscriber", "subscriber", "مشترك":
 		if err := createCmd.Parse(os.Args[2:]); err != nil {
 			fatalError(err)
 		}
@@ -207,10 +262,27 @@ func main() {
 		if err := printSummaryOverview(db); err != nil {
 			fatalError(err)
 		}
+	case "change-admin-password", "admin-password", "change-admin", "تغيير-كلمة-مرور-الأدمن":
+		if err := adminPasswordCmd.Parse(os.Args[2:]); err != nil {
+			fatalError(err)
+		}
+		email := normalizeEmail(*adminPasswordEmail)
+		if email == "" {
+			email = defaultAdminEmail()
+		}
+		fmt.Printf("حساب الإدارة المستهدف: %s\n", email)
+		password, err := promptPassword("كلمة المرور الجديدة (لن تظهر أثناء الكتابة): ")
+		if err != nil {
+			fatalError(fmt.Errorf("فشل في قراءة كلمة المرور: %w", err))
+		}
+		if err := changeAdminPassword(db, email, password); err != nil {
+			fatalError(err)
+		}
+		fmt.Println("✅ تم تغيير كلمة مرور حساب الإدارة وإبطال جلساته القديمة.")
 	case "help", "-h", "--help":
-		printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd)
+		printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd)
 	default:
-		printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd)
+		printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd)
 	}
 }
 
@@ -260,11 +332,19 @@ func loadDotEnv() {
 }
 
 func createAccount(db *sqlx.DB, email, password, firstName, lastName, phone string, days int) error {
+	email = normalizeEmail(email)
 	if strings.TrimSpace(email) == "" {
 		return errors.New("البريد الإلكتروني مطلوب")
 	}
 	if strings.TrimSpace(password) == "" {
 		return errors.New("كلمة المرور مطلوبة")
+	}
+
+	if len([]rune(password)) < 6 {
+		return errors.New("password must be at least 6 characters")
+	}
+	if days <= 0 {
+		return errors.New("subscription days must be greater than zero")
 	}
 
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -273,9 +353,13 @@ func createAccount(db *sqlx.DB, email, password, firstName, lastName, phone stri
 	}
 
 	var userID string
-	err = db.Get(&userID, "SELECT id FROM users WHERE email = $1 LIMIT 1", strings.ToLower(email))
+	err = db.Get(&userID, "SELECT id FROM users WHERE email = $1 LIMIT 1", email)
 	if err == nil {
 		return fmt.Errorf("الحساب موجود بالفعل: %s", email)
+	}
+
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to check existing account: %w", err)
 	}
 
 	expiresAt := time.Now().AddDate(0, 0, days)
@@ -288,7 +372,7 @@ func createAccount(db *sqlx.DB, email, password, firstName, lastName, phone stri
 			created_at, updated_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, true, 'active', $7, NOW(), NOW())
-	`, accountID, strings.ToLower(email), string(hashed), firstName, lastName, phone, expiresAt)
+	`, accountID, email, string(hashed), strings.TrimSpace(firstName), strings.TrimSpace(lastName), strings.TrimSpace(phone), expiresAt)
 	if err != nil {
 		return fmt.Errorf("فشل في إدخال الحساب: %w", err)
 	}
@@ -298,6 +382,7 @@ func createAccount(db *sqlx.DB, email, password, firstName, lastName, phone stri
 }
 
 func renewAccount(db *sqlx.DB, email string, days int) error {
+	email = normalizeEmail(email)
 	var account Account
 	err := db.Get(&account, `
 		SELECT id, email, first_name, last_name, phone, is_active,
@@ -330,6 +415,7 @@ func renewAccount(db *sqlx.DB, email string, days int) error {
 }
 
 func disableAccount(db *sqlx.DB, email, reason string) error {
+	email = normalizeEmail(email)
 	var exists int
 	err := db.Get(&exists, `SELECT 1 FROM users WHERE email = $1 LIMIT 1`, strings.ToLower(email))
 	if err != nil {
@@ -352,6 +438,7 @@ func disableAccount(db *sqlx.DB, email, reason string) error {
 }
 
 func deleteAccount(db *sqlx.DB, email string) error {
+	email = normalizeEmail(email)
 	result, err := db.Exec(`DELETE FROM users WHERE email = $1`, strings.ToLower(email))
 	if err != nil {
 		return fmt.Errorf("فشل في حذف الحساب: %w", err)
@@ -386,10 +473,15 @@ func printAccounts(db *sqlx.DB) error {
 	}
 
 	fmt.Println("\n📋 الحسابات")
+	fmt.Printf("Configured admin accounts: %s\n", strings.Join(configuredAdminEmails(), ", "))
 	fmt.Println("--------------------------------------------------------------------------------------------------------------------------------")
 	fmt.Printf("%-28s %-12s %-12s %-18s %-16s %-12s\n", "البريد", "الحالة", "الاشتراك", "تاريخ الانتهاء", "الأيام المتبقية", "الاسم")
 	fmt.Println("--------------------------------------------------------------------------------------------------------------------------------")
 	for _, account := range accounts {
+		displayEmail := account.Email
+		if isAdminEmail(account.Email) {
+			displayEmail += " [ADMIN]"
+		}
 		expires := "غير محدد"
 		daysLeft := "-"
 		if account.SubscriptionExpiresAt != nil {
@@ -407,7 +499,7 @@ func printAccounts(db *sqlx.DB) error {
 		if fullName == "" {
 			fullName = "-"
 		}
-		fmt.Printf("%-28s %-12s %-12s %-18s %-16s %-12s\n", account.Email, status, account.SubscriptionStatus, expires, daysLeft, fullName)
+		fmt.Printf("%-28s %-12s %-12s %-18s %-16s %-12s\n", displayEmail, status, account.SubscriptionStatus, expires, daysLeft, fullName)
 	}
 	fmt.Println("--------------------------------------------------------------------------------------------------------------------------------")
 	return nil
@@ -434,7 +526,12 @@ func printSubscribers(db *sqlx.DB) error {
 	fmt.Println("--------------------------------------------------------------------")
 	fmt.Printf("%-28s %-14s %-18s %-20s\n", "البريد", "الحالة", "الاشتراك", "ينتهي في")
 	fmt.Println("--------------------------------------------------------------------")
+	subscriberCount := 0
 	for _, account := range accounts {
+		if isAdminEmail(account.Email) {
+			continue
+		}
+		subscriberCount++
 		expires := "غير محدد"
 		if account.SubscriptionExpiresAt != nil {
 			expires = account.SubscriptionExpiresAt.Format(time.RFC3339)
@@ -442,7 +539,7 @@ func printSubscribers(db *sqlx.DB) error {
 		fmt.Printf("%-28s %-14s %-18s %-20s\n", account.Email, account.SubscriptionStatus, account.SubscriptionStatus, expires)
 	}
 	fmt.Println("--------------------------------------------------------------------")
-	fmt.Printf("إجمالي المشتركين النشطين: %d\n", len(accounts))
+	fmt.Printf("Subscriber count (excluding admins): %d\n", subscriberCount)
 	return nil
 }
 
@@ -473,6 +570,7 @@ func printSummaryOverview(db *sqlx.DB) error {
 }
 
 func printAccountStatus(db *sqlx.DB, email string) error {
+	email = normalizeEmail(email)
 	var account Account
 	err := db.Get(&account, `
 		SELECT id, email, first_name, last_name, phone, is_active,
@@ -490,6 +588,7 @@ func printAccountStatus(db *sqlx.DB, email string) error {
 	fmt.Printf("الهاتف: %s\n", account.Phone)
 	fmt.Printf("نشط: %t\n", account.IsActive)
 	fmt.Printf("حالة الاشتراك: %s\n", account.SubscriptionStatus)
+	fmt.Printf("Account type: %s\n", accountKind(account.Email))
 	if account.SubscriptionExpiresAt != nil {
 		fmt.Printf("تاريخ الانتهاء: %s\n", account.SubscriptionExpiresAt.Format(time.RFC3339))
 	} else {
@@ -503,7 +602,7 @@ func printBanner() {
 	fmt.Print(banner)
 }
 
-func printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd *flag.FlagSet) {
+func printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd *flag.FlagSet) {
 	fmt.Println("الاستخدام:")
 	fmt.Println("  go run ./scripts/subscription-manager.go app")
 	fmt.Println("  go run ./scripts/subscription-manager.go summary")
@@ -514,6 +613,10 @@ func printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subs
 	fmt.Println("  go run ./scripts/subscription-manager.go list")
 	fmt.Println("  go run ./scripts/subscription-manager.go subscribers")
 	fmt.Println("  go run ./scripts/subscription-manager.go status --email user@example.com")
+	fmt.Println("  go run ./scripts/subscription-manager.go create-subscriber --email user@example.com --password Pass123 --first-name Ali --last-name User --days 30")
+	fmt.Println("  go run ./scripts/subscription-manager.go change-admin-password --email owner@partflow.com")
+	fmt.Println("  تُدخل كلمة مرور الأدمن تفاعلياً ولا تُرسل داخل سطر الأوامر.")
+	fmt.Println("  حسابات الأدمن تُحدد عبر PARTFLOW_ADMIN_EMAILS؛ والافتراضي owner@partflow.com")
 	fmt.Println("")
 	fmt.Println("الخيارات:")
 	createCmd.PrintDefaults()
@@ -524,6 +627,7 @@ func printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subs
 	subscribersCmd.PrintDefaults()
 	statusCmd.PrintDefaults()
 	summaryCmd.PrintDefaults()
+	adminPasswordCmd.PrintDefaults()
 	os.Exit(1)
 }
 
@@ -541,17 +645,18 @@ func connectDB(cfg *Config) (*sqlx.DB, error) {
 
 func runInteractiveApp(db *sqlx.DB) {
 	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("Administrator account: %s (admin)\n", defaultAdminEmail())
 	for {
 		fmt.Println("\n========================================")
 		fmt.Println("   لوحة إدارة اشتراكات PartFlow")
 		fmt.Println("========================================")
 		fmt.Println("1) عرض جميع الحسابات")
 		fmt.Println("2) عرض المشتركين النشطين")
-		fmt.Println("3) إنشاء حساب جديد")
+		fmt.Println("3) إنشاء مشترك جديد")
 		fmt.Println("4) تجديد اشتراك")
 		fmt.Println("5) إيقاف حساب")
 		fmt.Println("6) حذف حساب")
-		fmt.Println("7) تغيير كلمة المرور")
+		fmt.Println("7) تغيير كلمة مرور الأدمن")
 		fmt.Println("8) حالة حساب")
 		fmt.Println("9) الخروج")
 		fmt.Println("========================================")
@@ -585,7 +690,7 @@ func runInteractiveApp(db *sqlx.DB) {
 		case "6":
 			deleteInteractiveAccount(db, reader)
 		case "7":
-			changeInteractivePassword(db, reader)
+			changeInteractiveAdminPassword(db, reader)
 		case "8":
 			showInteractiveStatus(db, reader)
 		case "9", "exit", "خروج":
@@ -600,8 +705,11 @@ func runInteractiveApp(db *sqlx.DB) {
 func createInteractiveAccount(db *sqlx.DB, reader *bufio.Reader) {
 	fmt.Print("البريد الإلكتروني: ")
 	email, _ := reader.ReadString('\n')
-	fmt.Print("كلمة المرور: ")
-	password, _ := reader.ReadString('\n')
+	password, err := promptPassword("Subscriber password (hidden): ", reader)
+	if err != nil {
+		fmt.Printf("Failed to read password: %v\n", err)
+		return
+	}
 	fmt.Print("الاسم الأول: ")
 	firstName, _ := reader.ReadString('\n')
 	fmt.Print("اسم العائلة: ")
@@ -663,6 +771,32 @@ func deleteInteractiveAccount(db *sqlx.DB, reader *bufio.Reader) {
 	fmt.Println("تم حذف الحساب بنجاح.")
 }
 
+func changeInteractiveAdminPassword(db *sqlx.DB, reader *bufio.Reader) {
+	email := defaultAdminEmail()
+	fmt.Printf("Administrator account: %s\n", email)
+	password, err := promptPassword("New admin password (hidden): ", reader)
+	if err != nil {
+		fmt.Printf("Failed to read password: %v\n", err)
+		return
+	}
+	confirmation, err := promptPassword("Repeat new admin password (hidden): ", reader)
+	if err != nil {
+		fmt.Printf("Failed to read password confirmation: %v\n", err)
+		return
+	}
+	if password != confirmation {
+		fmt.Println("Passwords do not match.")
+		return
+	}
+	if err := changeAdminPassword(db, email, password); err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("Admin password changed successfully; old sessions were revoked.")
+}
+
+// changeInteractivePassword is kept for backwards compatibility with older
+// callers. The interactive menu intentionally uses the admin-only function.
 func changeInteractivePassword(db *sqlx.DB, reader *bufio.Reader) {
 	fmt.Print("البريد الإلكتروني للحساب: ")
 	email, _ := reader.ReadString('\n')
@@ -675,6 +809,41 @@ func changeInteractivePassword(db *sqlx.DB, reader *bufio.Reader) {
 	fmt.Println("تم تغيير كلمة المرور بنجاح.")
 }
 
+// promptPassword hides input when the script is attached to a terminal. When
+// stdin is piped (for automation), it safely falls back to reading one line.
+func promptPassword(prompt string, readers ...*bufio.Reader) (string, error) {
+	fmt.Print(prompt)
+	if terminal.IsTerminal(int(os.Stdin.Fd())) {
+		value, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		return string(value), err
+	}
+
+	reader := (*bufio.Reader)(nil)
+	if len(readers) > 0 {
+		reader = readers[0]
+	}
+	if reader == nil {
+		reader = bufio.NewReader(os.Stdin)
+	}
+	line, err := reader.ReadString('\n')
+	if err != nil && len(line) == 0 {
+		return "", err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
+}
+
+func changeAdminPassword(db *sqlx.DB, email, password string) error {
+	email = normalizeEmail(email)
+	if !isAdminEmail(email) {
+		return fmt.Errorf("%s is not configured as an administrator; set PARTFLOW_ADMIN_EMAILS first (configured: %s)", email, strings.Join(configuredAdminEmails(), ", "))
+	}
+	if err := changePassword(db, email, password); err != nil {
+		return err
+	}
+	return nil
+}
+
 func showInteractiveStatus(db *sqlx.DB, reader *bufio.Reader) {
 	fmt.Print("البريد الإلكتروني للحساب: ")
 	email, _ := reader.ReadString('\n')
@@ -685,11 +854,16 @@ func showInteractiveStatus(db *sqlx.DB, reader *bufio.Reader) {
 }
 
 func changePassword(db *sqlx.DB, email, password string) error {
+	email = normalizeEmail(email)
 	if strings.TrimSpace(email) == "" {
 		return errors.New("البريد الإلكتروني مطلوب")
 	}
 	if strings.TrimSpace(password) == "" {
 		return errors.New("كلمة المرور الجديدة مطلوبة")
+	}
+
+	if len([]rune(password)) < 6 {
+		return errors.New("password must be at least 6 characters")
 	}
 
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -702,7 +876,7 @@ func changePassword(db *sqlx.DB, email, password string) error {
 		SET password_hash = $1,
 		    updated_at = NOW()
 		WHERE email = $2
-	`, string(hashed), strings.ToLower(email))
+	`, string(hashed), email)
 	if err != nil {
 		return fmt.Errorf("فشل في تحديث كلمة المرور: %w", err)
 	}
@@ -715,7 +889,31 @@ func changePassword(db *sqlx.DB, email, password string) error {
 		return fmt.Errorf("الحساب غير موجود: %s", email)
 	}
 
+	if err := revokeRefreshTokens(db, email); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func revokeRefreshTokens(db *sqlx.DB, email string) error {
+	_, err := db.Exec(`
+		DELETE FROM refresh_tokens
+		WHERE user_id = (SELECT id FROM users WHERE email = $1 LIMIT 1)
+	`, normalizeEmail(email))
+	if err != nil && !isMissingRefreshTokenTable(err) {
+		return fmt.Errorf("failed to revoke old sessions: %w", err)
+	}
+	return nil
+}
+
+func isMissingRefreshTokenTable(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "refresh_tokens") &&
+		(strings.Contains(message, "does not exist") || strings.Contains(message, "no such table"))
 }
 
 func validateRequired(name, value string) error {

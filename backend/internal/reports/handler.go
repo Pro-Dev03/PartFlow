@@ -219,8 +219,14 @@ func parseDate(dateStr string) (time.Time, error) {
 // Invalid dates are rejected instead of silently falling back to the default
 // range, which could otherwise produce a report for the wrong period.
 func parseReportDateRange(c *gin.Context) (time.Time, time.Time, error) {
-	startDate := time.Now().AddDate(0, -1, 0).Truncate(24 * time.Hour)
-	endDate := time.Now().Truncate(24 * time.Hour).Add(24 * time.Hour)
+	// Truncate works on the absolute instant (UTC), not the local calendar
+	// day.  That caused the default report window to start at 17:00 on the
+	// previous day for western time zones.  Build boundaries from the local
+	// calendar instead so today's records are always included.
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	startDate := todayStart.AddDate(0, -1, 0)
+	endDate := todayStart.AddDate(0, 0, 1)
 
 	if raw := c.Query("start_date"); raw != "" {
 		parsed, err := parseDate(raw)

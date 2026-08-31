@@ -54,8 +54,13 @@ func (s *CachedService) GetDashboardStats(ctx context.Context) (*DashboardStats,
 func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats, error) {
 	stats := &DashboardStats{}
 
-	// Query to get real statistics
-	query := `
+	// Query to get real statistics. Keep outstanding and overdue balances
+	// separate: a future-dated debt must not appear in the overdue card.
+	overdueDebtExpr := `(SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE remaining_amount > 0 AND due_date < NOW())`
+	if strings.EqualFold(s.db.DriverName(), "sqlite") {
+		overdueDebtExpr = `(SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE remaining_amount > 0 AND date(due_date) < date('now'))`
+	}
+	query := fmt.Sprintf(`
 		SELECT
 			(SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) as total_sales,
 			(SELECT COUNT(*) FROM sales WHERE status = 'pending') as pending_orders,
@@ -72,23 +77,25 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 			      WHERE ii.product_id = p.id
 			      AND ii.condition <> 'USED'
 			      AND ii.status = 'AVAILABLE') < p.min_stock_level) as low_stock_items,
-			(SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE remaining_amount > 0) as overdue_debts,
+			%s as overdue_debts,
+			(SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE remaining_amount > 0) as outstanding_debts,
 			(SELECT COUNT(*) FROM returns WHERE LOWER(COALESCE(status, 'pending')) IN ('pending', 'approved', 'processing')) as pending_returns,
 			0 as pending_claims
-	`
+	`, overdueDebtExpr)
 
 	var result struct {
-		TotalSales     float64 `db:"total_sales"`
-		PendingOrders  int     `db:"pending_orders"`
-		TotalPurchases float64 `db:"total_purchases"`
-		TotalExpenses  float64 `db:"total_expenses"`
-		TotalProducts  int     `db:"total_products"`
-		TotalCustomers int     `db:"total_customers"`
-		TotalSuppliers int     `db:"total_suppliers"`
-		LowStockItems  int     `db:"low_stock_items"`
-		OverdueDebts   float64 `db:"overdue_debts"`
-		PendingReturns int     `db:"pending_returns"`
-		PendingClaims  int     `db:"pending_claims"`
+		TotalSales       float64 `db:"total_sales"`
+		PendingOrders    int     `db:"pending_orders"`
+		TotalPurchases   float64 `db:"total_purchases"`
+		TotalExpenses    float64 `db:"total_expenses"`
+		TotalProducts    int     `db:"total_products"`
+		TotalCustomers   int     `db:"total_customers"`
+		TotalSuppliers   int     `db:"total_suppliers"`
+		LowStockItems    int     `db:"low_stock_items"`
+		OverdueDebts     float64 `db:"overdue_debts"`
+		OutstandingDebts float64 `db:"outstanding_debts"`
+		PendingReturns   int     `db:"pending_returns"`
+		PendingClaims    int     `db:"pending_claims"`
 	}
 
 	err := s.db.GetContext(ctx, &result, query)
@@ -108,10 +115,49 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 	stats.OverdueDebts = result.OverdueDebts
 	stats.PendingReturns = result.PendingReturns
 	stats.PendingClaims = result.PendingClaims
+	// Keep return counters in sync with the cards when the enhanced returns
+	// schema is present. Legacy local databases simply report zero here.
+	var returnSummary struct {
+		TotalReturns int     `db:"total_returns"`
+		Refunded     float64 `db:"refunded"`
+		GrossSales   int     `db:"gross_sales"`
+	}
+	if err := s.db.GetContext(ctx, &returnSummary, `
+		SELECT COUNT(*) AS total_returns,
+		       COALESCE(SUM(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' THEN total_refund_amount ELSE 0 END), 0) AS refunded
+		       ,(SELECT COUNT(*) FROM sales WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) AS gross_sales
+		FROM returns`); err == nil {
+		stats.TotalReturns = float64(returnSummary.TotalReturns)
+		stats.TotalRefunded = returnSummary.Refunded
+		// Both fields are monetary amounts; the return count is exposed by
+		// total_returns and must not be subtracted from currency.
+		stats.NetSales = stats.TotalSales - stats.TotalRefunded
+		stats.NetRevenue = stats.TotalSales - stats.TotalRefunded
+		if returnSummary.GrossSales > 0 {
+			stats.ReturnRate = (stats.TotalReturns / float64(returnSummary.GrossSales)) * 100
+		}
+	}
 
-	// Calculate totals
+	// Calculate lifetime profit from sold-item cost, not purchase cash outflow.
+	// Subtract completed refunds and restore the cost of returned items so this
+	// field remains a real profit metric even when a return is processed.
 	stats.TotalRevenue = stats.TotalSales
-	stats.TotalProfit = stats.TotalSales - stats.TotalPurchases - stats.TotalExpenses
+	var grossProfit, refunded, returnedCost float64
+	if err := s.db.GetContext(ctx, &grossProfit, `
+		SELECT COALESCE(SUM(si.total_amount - si.quantity * COALESCE(si.unit_cost, p.cost_price, 0)), 0)
+		FROM sale_items si JOIN sales sl ON sl.id = si.sale_id JOIN products p ON p.id = si.product_id
+		WHERE LOWER(COALESCE(sl.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`); err == nil {
+		_ = s.db.GetContext(ctx, &refunded, `SELECT COALESCE(SUM(total_refund_amount), 0) FROM returns WHERE UPPER(COALESCE(status, '')) = 'COMPLETED'`)
+		_ = s.db.GetContext(ctx, &returnedCost, `
+			SELECT COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0)
+			FROM return_items ri JOIN returns r ON r.id = ri.return_id
+			LEFT JOIN sale_items si ON si.id = ri.sale_item_id
+			LEFT JOIN products p ON p.id = ri.product_id
+			WHERE UPPER(COALESCE(r.status, '')) = 'COMPLETED'`)
+		stats.TotalProfit = grossProfit - stats.TotalExpenses - refunded + returnedCost
+	} else {
+		stats.TotalProfit = stats.TotalSales - stats.TotalExpenses
+	}
 
 	// Populate frontend-compatible fields
 	// These fields are date-scoped. Do not reuse the lifetime totals above:
@@ -120,7 +166,7 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 		stats.TodaySales = today.Sales
 		stats.TodayProfit = today.Profit
 	}
-	stats.OutstandingDebts = result.OverdueDebts
+	stats.OutstandingDebts = result.OutstandingDebts
 	stats.ActiveCustomers = result.TotalCustomers
 	stats.LowStockCount = result.LowStockItems
 

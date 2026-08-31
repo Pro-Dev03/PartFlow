@@ -12,5 +12,6 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 
 	// Search routes
 	router.POST("/search", handler.Search)
+	router.GET("/search", handler.SearchGET)
 	router.GET("/search/stats", handler.GetSearchStats)
 }

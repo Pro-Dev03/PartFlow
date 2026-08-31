@@ -574,21 +574,21 @@ func (r *Repository) GetInspectionSummary(ctx context.Context) (*InspectionSumma
 
 	// Passed inspections
 	err = r.db.GetContext(ctx, &summary.PassedInspections,
-		`SELECT COUNT(*) FROM inspections WHERE result = 'passed'`)
+		`SELECT COUNT(*) FROM inspections WHERE LOWER(COALESCE(result, '')) = 'passed'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get passed inspections: %w", err)
 	}
 
 	// Failed inspections
 	err = r.db.GetContext(ctx, &summary.FailedInspections,
-		`SELECT COUNT(*) FROM inspections WHERE result = 'failed'`)
+		`SELECT COUNT(*) FROM inspections WHERE LOWER(COALESCE(result, '')) = 'failed'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get failed inspections: %w", err)
 	}
 
 	// Pending inspections
 	err = r.db.GetContext(ctx, &summary.PendingInspections,
-		`SELECT COUNT(*) FROM inspections WHERE result = 'pending'`)
+		`SELECT COUNT(*) FROM inspections WHERE LOWER(COALESCE(result, '')) = 'pending'`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pending inspections: %w", err)
 	}

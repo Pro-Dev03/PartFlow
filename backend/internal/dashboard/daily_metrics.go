@@ -43,10 +43,19 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			FROM expenses
 			WHERE expense_date::date = $1::date
 			  AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')
+		), returns_total AS (
+			SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded,
+			       COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost
+			FROM returns r
+			JOIN return_items ri ON ri.return_id = r.id
+			LEFT JOIN sale_items si ON si.id = ri.sale_item_id
+			LEFT JOIN products p ON p.id = ri.product_id
+			WHERE r.return_date::date = $1::date
+			  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 		)
 		SELECT totals.revenue AS today_sales,
-		       totals.revenue - totals.cost - expenses_total.amount AS today_profit
-		FROM totals, expenses_total
+		       totals.revenue - totals.cost - expenses_total.amount - returns_total.refunded + returns_total.returned_cost AS today_profit
+		FROM totals, expenses_total, returns_total
 	`
 	args := []any{date}
 
@@ -71,12 +80,52 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 				FROM expenses
 				WHERE date(expense_date) = ?
 				  AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')
+			), returns_total AS (
+				SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded,
+				       COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost
+				FROM returns r
+				JOIN return_items ri ON ri.return_id = r.id
+				LEFT JOIN sale_items si ON si.id = ri.sale_item_id
+				LEFT JOIN products p ON p.id = ri.product_id
+				WHERE date(r.return_date) = ?
+				  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 			)
 			SELECT totals.revenue AS today_sales,
-			       totals.revenue - totals.cost - expenses_total.amount AS today_profit
-			FROM totals, expenses_total
+			       totals.revenue - totals.cost - expenses_total.amount - returns_total.refunded + returns_total.returned_cost AS today_profit
+			FROM totals, expenses_total, returns_total
 		`
-		args = []any{date, date}
+		args = []any{date, date, date}
+		// Older local databases (and lightweight unit-test schemas) may not
+		// have the returns tables yet. Keep the dashboard usable there while
+		// using the return-aware calculation on the current schema.
+		if !sqliteHasColumns(db, "returns", "total_refund_amount", "return_date", "status") || !sqliteHasColumns(db, "return_items", "quantity_returned", "sale_item_id", "original_cost") {
+			query = `
+				WITH sale_costs AS (
+					SELECT s.id, s.total_amount,
+						COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) AS total_cost
+					FROM sales s
+					LEFT JOIN sale_items si ON si.sale_id = s.id
+					LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
+					LEFT JOIN products p ON p.id = si.product_id
+					WHERE date(s.created_at) = ?
+					  AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
+					GROUP BY s.id, s.total_amount
+				), totals AS (
+					SELECT COALESCE(SUM(total_amount), 0) AS revenue,
+					       COALESCE(SUM(total_cost), 0) AS cost
+					FROM sale_costs
+				), expenses_total AS (
+					SELECT COALESCE(SUM(amount), 0) AS amount
+					FROM expenses
+					WHERE date(expense_date) = ?
+					  AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')
+				)
+				SELECT totals.revenue AS today_sales,
+				       totals.revenue - totals.cost - expenses_total.amount AS today_profit
+				FROM totals, expenses_total
+			`
+			args = []any{date, date}
+		}
 	}
 
 	var metrics todayMetrics
@@ -89,4 +138,28 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 func isSQLiteDriver(driver string) bool {
 	driver = strings.ToLower(strings.TrimSpace(driver))
 	return driver == "sqlite" || driver == "sqlite3"
+}
+
+func sqliteHasColumns(db *sqlx.DB, table string, required ...string) bool {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	found := make(map[string]bool, len(required))
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, dataType string
+		var defaultValue interface{}
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return false
+		}
+		found[strings.ToLower(name)] = true
+	}
+	for _, column := range required {
+		if !found[strings.ToLower(column)] {
+			return false
+		}
+	}
+	return true
 }
