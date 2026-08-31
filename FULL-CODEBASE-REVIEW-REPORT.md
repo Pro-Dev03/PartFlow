@@ -79,4 +79,4 @@
 - تصحيح تعريف خدمة Redis الاختيارية في `render.yaml` إلى Render Key Value (`keyvalue`) ومطابقة مراجع `fromService`.
 - ربط `JWT_SECRET` في Worker مباشرة بمتغير Backend عبر `fromService.envVarKey` لمنع اختلاف مفتاح التوقيع بين الخدمتين.
 
-التحقق المحلي الأخير: `go test ./...` و`go vet ./...` و`npm run test:run` (47 اختباراً) و`npm run build:check` نجحت. تم تطبيق `054_refresh_token_revocation` على قاعدة Supabase. تم بناء Installer وPortable لـWindows بنجاح في مجلد مؤقت؛ إعادة نشر Backend/Worker ثم توزيع نسخة Electron هما الخطوتان الخارجيتان المتبقيتان.
+التحقق المحلي الأخير: `go test ./...` و`go vet ./...` و`npm run test:run` (47 اختباراً) و`npm run build:check` نجحت. تم تطبيق `054_refresh_token_revocation` على قاعدة Supabase. أُعيد بناء Backend ثم بُني Installer وPortable لـWindows، وتحققت مطابقة Backend المضمّن داخل الحزمة مع النسخة الجديدة. اختبارات Smoke المحلية والسحابية للمسارات الصحية والحماية نجحت؛ المتبقي الخارجي هو تأكيد نشر Render وتوزيع Electron.
