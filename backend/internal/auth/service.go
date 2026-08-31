@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -18,6 +20,65 @@ type Service struct {
 	db         *sqlx.DB
 	jwtService *JWTService
 	supabase   *SupabaseAuthService
+}
+
+// refreshTokenDigest stores only a one-way digest in the database. A database
+// read alone must not be enough to replay a refresh token.
+func refreshTokenDigest(token string) string {
+	digest := sha256.Sum256([]byte(token))
+	return fmt.Sprintf("%x", digest[:])
+}
+
+func isMissingRefreshTokenTable(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "refresh_tokens") &&
+		(strings.Contains(message, "does not exist") || strings.Contains(message, "no such table"))
+}
+
+// persistRefreshToken returns false only when running against a legacy
+// database that has not received the refresh-token migration yet. This keeps
+// old installations compatible while enabling revocation as soon as the
+// migration is applied.
+func (s *Service) persistRefreshToken(ctx context.Context, userID uuid.UUID, token string) (bool, error) {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO refresh_tokens (id, user_id, token, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, uuid.New(), userID, refreshTokenDigest(token), time.Now().Add(s.jwtService.refreshTokenT), time.Now())
+	if isMissingRefreshTokenTable(err) {
+		log.Printf("refresh token revocation is disabled until refresh_tokens migration is applied")
+		return false, nil
+	}
+	return true, err
+}
+
+// checkPersistedRefreshToken returns whether the store exists and whether the
+// supplied token is currently registered for the user.
+func (s *Service) checkPersistedRefreshToken(ctx context.Context, userID uuid.UUID, token string) (available, exists bool, err error) {
+	var marker int
+	err = s.db.QueryRowContext(ctx, `
+		SELECT 1 FROM refresh_tokens WHERE user_id = $1 AND token = $2 LIMIT 1
+	`, userID, refreshTokenDigest(token)).Scan(&marker)
+	if isMissingRefreshTokenTable(err) {
+		return false, true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, false, nil
+	}
+	if err != nil {
+		return true, false, err
+	}
+	return true, true, nil
+}
+
+func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE token = $1`, refreshTokenDigest(token))
+	if isMissingRefreshTokenTable(err) {
+		return nil
+	}
+	return err
 }
 
 // IsSubscriptionExpired reports whether the user's subscription is no longer valid.
@@ -148,6 +209,9 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResp
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
+	if _, err := s.persistRefreshToken(ctx, user.ID, refreshToken); err != nil {
+		return nil, fmt.Errorf("failed to persist refresh token: %w", err)
+	}
 
 	return &AuthResponse{
 		AccessToken:  accessToken,
@@ -223,6 +287,9 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
+	if _, err := s.persistRefreshToken(ctx, user.ID, refreshToken); err != nil {
+		return nil, fmt.Errorf("failed to persist refresh token: %w", err)
+	}
 
 	return &AuthResponse{
 		AccessToken:  accessToken,
@@ -237,6 +304,17 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 	// Validate refresh token
 	claims, err := s.jwtService.ValidateToken(refreshToken)
 	if err != nil {
+		return nil, ErrInvalidToken
+	}
+	userID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+	storeAvailable, tokenExists, err := s.checkPersistedRefreshToken(ctx, userID, refreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("check refresh token: %w", err)
+	}
+	if storeAvailable && !tokenExists {
 		return nil, ErrInvalidToken
 	}
 
@@ -285,9 +363,26 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 		return nil, fmt.Errorf("failed to refresh access token: %w", err)
 	}
 
+	// Rotate the refresh token when durable storage is available. This makes a
+	// stolen token single-use after a successful refresh and lets Logout revoke
+	// all remaining sessions from the cloud database.
+	nextRefreshToken := refreshToken
+	if storeAvailable {
+		nextRefreshToken, err = s.jwtService.GenerateRefreshToken(user.ID.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to rotate refresh token: %w", err)
+		}
+		if _, err := s.persistRefreshToken(ctx, user.ID, nextRefreshToken); err != nil {
+			return nil, fmt.Errorf("failed to persist rotated refresh token: %w", err)
+		}
+		if err := s.revokeRefreshToken(ctx, refreshToken); err != nil {
+			return nil, fmt.Errorf("failed to revoke previous refresh token: %w", err)
+		}
+	}
+
 	return &AuthResponse{
 		AccessToken:  newAccessToken,
-		RefreshToken: refreshToken,
+		RefreshToken: nextRefreshToken,
 		ExpiresIn:    int64(15 * time.Minute / time.Second),
 		User:         user,
 	}, nil
@@ -353,9 +448,11 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, req *Cha
 
 // Logout handles user logout
 func (s *Service) Logout(ctx context.Context, userID uuid.UUID) error {
-	// This would invalidate refresh tokens
-	// For now, this is a placeholder
-	return nil
+	_, err := s.db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID)
+	if isMissingRefreshTokenTable(err) {
+		return nil
+	}
+	return err
 }
 
 // RequestPasswordReset initiates a password reset request

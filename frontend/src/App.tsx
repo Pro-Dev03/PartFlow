@@ -10,6 +10,7 @@ import { LayoutProvider } from './contexts/LayoutContext';
 import AIAssistantWrapper from './components/ui/ai-assistant-wrapper';
 import { InitialDataSyncModal } from './features/settings/components/InitialDataSyncModal';
 import { isInitialSyncNeeded } from './hooks/useInitialDataSync';
+import { authApi } from './services/api/endpoints';
 
 // Lazy load auth pages separately
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -61,14 +62,32 @@ function PagePreloader() {
 function InitialSyncController() {
   const { isAuthenticated, sessionVerified, user } = useAuthStore();
   const [isOpen, setIsOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated && sessionVerified && navigator.onLine && isInitialSyncNeeded(user?.id)) {
+    let mounted = true;
+    if (!isAuthenticated || !sessionVerified) {
+      setIsAdmin(false);
+      setIsOpen(false);
+      return () => { mounted = false; };
+    }
+
+    // Operational cloud snapshots are global in the current schema. Only the
+    // configured administrator may download one until tenant isolation exists.
+    void authApi.checkAdminAccess()
+      .then(() => { if (mounted) setIsAdmin(true); })
+      .catch(() => { if (mounted) setIsAdmin(false); });
+
+    return () => { mounted = false; };
+  }, [isAuthenticated, sessionVerified]);
+
+  useEffect(() => {
+    if (isAdmin && isAuthenticated && sessionVerified && navigator.onLine && isInitialSyncNeeded(user?.id)) {
       setIsOpen(true);
-    } else if (!isAuthenticated || !sessionVerified) {
+    } else if (!isAuthenticated || !sessionVerified || !isAdmin) {
       setIsOpen(false);
     }
-  }, [isAuthenticated, sessionVerified, user?.id]);
+  }, [isAdmin, isAuthenticated, sessionVerified, user?.id]);
 
   return (
     <InitialDataSyncModal

@@ -232,6 +232,9 @@ export const useAuthStore = create<AuthState>()(
 
       login: async (email: string, password: string) => {
         clearPersistedAuthStorage();
+        // A different account may be signing in in the same renderer. Drop
+        // the previous API cache before the first request for the new user.
+        apiClient.logout();
         set({ isLoading: true });
         try {
           const data = await authApi.loginWithCloud(email, password) as {
@@ -269,6 +272,13 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        const accessToken = TokenManager.getToken();
+        if (accessToken && (typeof navigator === 'undefined' || navigator.onLine)) {
+          // Revoke the cloud refresh-token family when possible. The local
+          // state must still be cleared immediately, so a network failure
+          // cannot trap the user in a logged-in screen.
+          void authApi.logoutWithCloud(accessToken).catch(() => undefined);
+        }
         // Stop auto-refresh
         stopTokenRefresh();
         TokenManager.clearToken();
@@ -348,8 +358,11 @@ export const useAuthStore = create<AuthState>()(
             return;
           }
 
-          // For transient refresh failures, preserve the current session instead of forcing logout.
-          return;
+          // For transient refresh failures, preserve the current session instead
+          // of forcing logout, but still reject the operation so an explicit
+          // "verify subscription" action can show the real failure. The
+          // background timer catches this rejection and keeps the session.
+          throw error;
         }
       },
     }),

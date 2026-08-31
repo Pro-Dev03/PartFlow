@@ -46,8 +46,7 @@ self.addEventListener('activate', (event: ExtendableEvent) => {
       caches.keys().then((cacheNames: string[]) => {
         return Promise.all(
           cacheNames
-            .filter(cacheName => cacheName !== 'api-cache' && 
-                                cacheName !== 'image-cache' && 
+            .filter(cacheName => cacheName !== 'image-cache' &&
                                 cacheName !== 'static-cache')
             .map(cacheName => caches.delete(cacheName))
         );
@@ -56,14 +55,21 @@ self.addEventListener('activate', (event: ExtendableEvent) => {
   );
 });
 
-// Handle API requests with Network First strategy
+// Handle API requests without caching. API responses contain authenticated
+// business data and must never be replayed from a shared service-worker cache.
 self.addEventListener('fetch', (event: FetchEvent) => {
   const url = new URL(event.request.url);
   
-  // API calls - Network First with timeout
+  // API calls - network only
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
-      networkFirst(event.request)
+      fetch(event.request).catch(() => new Response(JSON.stringify({
+        success: false,
+        error: { code: 'OFFLINE', message: 'Offline' }
+      }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' }
+      }))
     );
   }
   // Static assets - Cache First
@@ -79,48 +85,6 @@ self.addEventListener('fetch', (event: FetchEvent) => {
     );
   }
 });
-
-async function networkFirst(request: Request): Promise<Response> {
-  const cache = await caches.open('api-cache');
-  
-  try {
-    // Try network first with timeout
-    const networkPromise = fetch(request);
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Timeout')), 3000)
-    );
-    
-    const response = await Promise.race([
-      networkPromise,
-      timeoutPromise
-    ]) as Response;
-    
-    // Cache successful responses
-    if (response.ok) {
-      cache.put(request, response.clone());
-    }
-    
-    return response;
-  } catch (error) {
-    // Fallback to cache
-    const cachedResponse = await cache.match(request);
-    if (cachedResponse) {
-      return cachedResponse;
-    }
-    
-    // Return offline fallback
-    return new Response(JSON.stringify({
-      success: false,
-      error: {
-        code: 'OFFLINE',
-        message: 'أنت غير متصل بالإنترنت'
-      }
-    }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
 
 async function cacheFirst(request: Request): Promise<Response> {
   const cache = await caches.open('image-cache');

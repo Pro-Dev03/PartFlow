@@ -44,12 +44,14 @@ type cloudAuthError struct {
 
 type cloudValidationCacheEntry struct {
 	userID    uuid.UUID
+	email     string
 	expiresAt time.Time
 }
 
 type cloudValidationCall struct {
 	done    chan struct{}
 	userID  uuid.UUID
+	email   string
 	authErr *cloudAuthError
 }
 
@@ -68,7 +70,7 @@ func requiresCloudAuth() bool {
 // validateWithCloud keeps the local SQLite API subject to the same cloud
 // account decision as the renderer. The local service never receives cloud
 // business data; it only forwards the bearer token for account validation.
-func validateWithCloud(ctx context.Context, tokenString string) (uuid.UUID, *cloudAuthError) {
+func validateWithCloud(ctx context.Context, tokenString string) (uuid.UUID, string, *cloudAuthError) {
 	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PARTFLOW_CLOUD_API_URL")), "/")
 	if baseURL == "" {
 		baseURL = defaultCloudAPIURL
@@ -81,7 +83,7 @@ func validateWithCloud(ctx context.Context, tokenString string) (uuid.UUID, *clo
 	if cached, ok := cloudValidationCache[cacheKey]; ok {
 		if now.Before(cached.expiresAt) {
 			cloudValidationMu.Unlock()
-			return cached.userID, nil
+			return cached.userID, cached.email, nil
 		}
 		delete(cloudValidationCache, cacheKey)
 	}
@@ -89,46 +91,48 @@ func validateWithCloud(ctx context.Context, tokenString string) (uuid.UUID, *clo
 		cloudValidationMu.Unlock()
 		select {
 		case <-call.done:
-			return call.userID, call.authErr
+			return call.userID, call.email, call.authErr
 		case <-ctx.Done():
-			return uuid.Nil, &cloudAuthError{status: http.StatusServiceUnavailable, err: ctx.Err()}
+			return uuid.Nil, "", &cloudAuthError{status: http.StatusServiceUnavailable, err: ctx.Err()}
 		}
 	}
 	call := &cloudValidationCall{done: make(chan struct{})}
 	cloudValidationInFlight[cacheKey] = call
 	cloudValidationMu.Unlock()
 
-	userID, authErr := validateWithCloudRemote(ctx, baseURL, tokenString)
+	userID, email, authErr := validateWithCloudRemote(ctx, baseURL, tokenString)
 	cloudValidationMu.Lock()
 	delete(cloudValidationInFlight, cacheKey)
 	call.userID = userID
+	call.email = email
 	call.authErr = authErr
 	if authErr == nil {
 		cloudValidationCache[cacheKey] = cloudValidationCacheEntry{
 			userID:    userID,
+			email:     email,
 			expiresAt: time.Now().Add(cloudValidationCacheTTL),
 		}
 	}
 	close(call.done)
 	cloudValidationMu.Unlock()
-	return userID, authErr
+	return userID, email, authErr
 }
 
-func validateWithCloudRemote(ctx context.Context, baseURL, tokenString string) (uuid.UUID, *cloudAuthError) {
+func validateWithCloudRemote(ctx context.Context, baseURL, tokenString string) (uuid.UUID, string, *cloudAuthError) {
 	select {
 	case cloudValidationSlots <- struct{}{}:
 		defer func() { <-cloudValidationSlots }()
 	case <-ctx.Done():
-		return uuid.Nil, &cloudAuthError{status: http.StatusServiceUnavailable, err: ctx.Err()}
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusServiceUnavailable, err: ctx.Err()}
 	}
 	return validateWithCloudRemoteOnce(ctx, baseURL, tokenString)
 }
 
-func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString string) (uuid.UUID, *cloudAuthError) {
+func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString string) (uuid.UUID, string, *cloudAuthError) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/auth/validate", strings.NewReader("{}"))
 	if err != nil {
-		return uuid.Nil, &cloudAuthError{status: http.StatusServiceUnavailable, err: err}
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusServiceUnavailable, err: err}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+tokenString)
@@ -136,7 +140,7 @@ func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString strin
 	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return uuid.Nil, &cloudAuthError{status: http.StatusServiceUnavailable, err: err}
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusServiceUnavailable, err: err}
 	}
 	defer resp.Body.Close()
 
@@ -145,28 +149,29 @@ func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString strin
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			status = resp.StatusCode
 		}
-		return uuid.Nil, &cloudAuthError{status: status, err: fmt.Errorf("cloud validation returned HTTP %d", resp.StatusCode)}
+		return uuid.Nil, "", &cloudAuthError{status: status, err: fmt.Errorf("cloud validation returned HTTP %d", resp.StatusCode)}
 	}
 
 	var envelope struct {
 		Data struct {
 			Valid bool `json:"valid"`
 			User  struct {
-				ID string `json:"id"`
+				ID    string `json:"id"`
+				Email string `json:"email"`
 			} `json:"user"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
-		return uuid.Nil, &cloudAuthError{status: http.StatusServiceUnavailable, err: err}
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusServiceUnavailable, err: err}
 	}
 	if !envelope.Data.Valid {
-		return uuid.Nil, &cloudAuthError{status: http.StatusForbidden, err: fmt.Errorf("cloud account is not valid")}
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusForbidden, err: fmt.Errorf("cloud account is not valid")}
 	}
 	userID, err := uuid.Parse(envelope.Data.User.ID)
 	if err != nil {
-		return uuid.Nil, &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("cloud response did not contain a valid user id")}
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("cloud response did not contain a valid user id")}
 	}
-	return userID, nil
+	return userID, strings.TrimSpace(envelope.Data.User.Email), nil
 }
 
 func parseSubscriptionExpiry(value interface{}) (*time.Time, error) {
@@ -255,23 +260,56 @@ func ensureUserAuthorized(ctx context.Context, userUUID uuid.UUID) (bool, error)
 
 // CORS middleware
 func CORS() gin.HandlerFunc {
+	allowedOrigins := configuredCORSOrigins()
 	return func(c *gin.Context) {
-		origin := c.Request.Header.Get("Origin")
-		if origin == "" {
-			origin = "*"
+		origin := strings.TrimSpace(c.Request.Header.Get("Origin"))
+		allowed := origin == "" || corsOriginAllowed(origin, allowedOrigins)
+		if origin != "" && corsOriginAllowed(origin, allowedOrigins) {
+			// Reflect only an explicitly allowed origin. This is important when
+			// Authorization headers are used by the browser client.
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Add("Vary", "Origin")
 		}
-		c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
 		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == "OPTIONS" {
+			if !allowed {
+				c.AbortWithStatus(http.StatusForbidden)
+				return
+			}
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
 
 		c.Next()
 	}
+}
+
+func configuredCORSOrigins() []string {
+	raw := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
+	if raw == "" {
+		// Development and Electron defaults. Production should set an explicit
+		// comma-separated allowlist in Render/environment configuration.
+		raw = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,null"
+	}
+	origins := make([]string, 0)
+	for _, value := range strings.Split(raw, ",") {
+		if value = strings.TrimSpace(value); value != "" {
+			origins = append(origins, value)
+		}
+	}
+	return origins
+}
+
+func corsOriginAllowed(origin string, allowedOrigins []string) bool {
+	for _, allowed := range allowedOrigins {
+		if allowed == "*" || strings.EqualFold(allowed, origin) {
+			return true
+		}
+	}
+	return false
 }
 
 // Auth middleware for JWT authentication (based on worktrack)
@@ -311,7 +349,7 @@ func Auth() gin.HandlerFunc {
 		// authorization to Render. This prevents a direct local API call from
 		// bypassing the cloud subscription decision.
 		if isLocalDatabaseMode() && requiresCloudAuth() {
-			userUUID, cloudErr := validateWithCloud(c.Request.Context(), tokenString)
+			userUUID, cloudEmail, cloudErr := validateWithCloud(c.Request.Context(), tokenString)
 			if cloudErr != nil {
 				message := "تعذر التحقق من الحساب عبر الخادم السحابي"
 				if cloudErr.status == http.StatusUnauthorized {
@@ -325,6 +363,9 @@ func Auth() gin.HandlerFunc {
 			}
 			c.Set("user_id", userUUID)
 			c.Set("user_id_string", userUUID.String())
+			if cloudEmail != "" {
+				c.Set("cloud_user_email", cloudEmail)
+			}
 			c.Next()
 			return
 		}

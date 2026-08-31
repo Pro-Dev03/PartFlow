@@ -73,9 +73,10 @@ func main() {
 		filename := filepath.Base(file)
 		version := strings.TrimSuffix(filename, ".sql")
 
-		// Check if migration already applied
-		var appliedAt string
-		err := db.QueryRow("SELECT applied_at FROM schema_migrations WHERE version = $1", version).Scan(&appliedAt)
+		// Check both the current canonical name (without .sql) and the legacy
+		// name used by older scripts (with .sql). This prevents a deployment
+		// with an existing schema from trying to replay the initial migration.
+		appliedVersion, appliedAt, err := findAppliedMigration(db, version, filename)
 		if err == sql.ErrNoRows {
 			// Migration not applied, run it
 			fmt.Printf("Applying migration: %s\n", filename)
@@ -85,25 +86,62 @@ func main() {
 				log.Fatalf("Failed to read migration file %s: %v", filename, err)
 			}
 
-			// Execute migration
-			_, err = db.Exec(string(content))
+			// Execute the migration and record it atomically. PostgreSQL DDL is
+			// transactional, so a failed statement cannot leave a migration
+			// half-applied while its version is marked as complete.
+			tx, err := db.Begin()
 			if err != nil {
+				log.Fatalf("Failed to begin migration %s: %v", filename, err)
+			}
+			if _, err = tx.Exec(stripTransactionControlStatements(string(content))); err != nil {
+				_ = tx.Rollback()
 				log.Fatalf("Failed to execute migration %s: %v", filename, err)
 			}
-
-			// Record migration
-			_, err = db.Exec("INSERT INTO schema_migrations (version) VALUES ($1)", version)
-			if err != nil {
+			if _, err = tx.Exec("INSERT INTO schema_migrations (version) VALUES ($1)", version); err != nil {
+				_ = tx.Rollback()
 				log.Fatalf("Failed to record migration %s: %v", filename, err)
+			}
+			if err = tx.Commit(); err != nil {
+				log.Fatalf("Failed to commit migration %s: %v", filename, err)
 			}
 
 			fmt.Printf("Successfully applied migration: %s\n", filename)
 		} else if err != nil {
 			log.Fatalf("Failed to check migration status: %v", err)
 		} else {
-			fmt.Printf("Migration already applied: %s (at %s)\n", filename, appliedAt)
+			fmt.Printf("Migration already applied: %s (recorded as %s at %s)\n", filename, appliedVersion, appliedAt)
 		}
 	}
 
 	fmt.Println("All migrations completed successfully")
+}
+
+func findAppliedMigration(db *sql.DB, version, filename string) (appliedVersion, appliedAt string, err error) {
+	err = db.QueryRow(`
+		SELECT version, applied_at
+		FROM schema_migrations
+		WHERE version = $1 OR version = $2
+		ORDER BY CASE WHEN version = $1 THEN 0 ELSE 1 END
+		LIMIT 1
+	`, version, filename).Scan(&appliedVersion, &appliedAt)
+	return
+}
+
+// stripTransactionControlStatements keeps migration files that historically
+// wrapped themselves in BEGIN/COMMIT compatible with the migrator's outer
+// transaction. PostgreSQL treats a nested COMMIT as a commit of the outer
+// transaction, which would make the schema_migrations record non-atomic.
+// Only standalone transaction-control lines are removed; procedural BEGIN
+// blocks and statements containing these words remain untouched.
+func stripTransactionControlStatements(sqlText string) string {
+	lines := strings.Split(sqlText, "\n")
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		statement := strings.ToUpper(strings.TrimSpace(strings.TrimSuffix(line, "\r")))
+		if statement == "BEGIN;" || statement == "COMMIT;" || statement == "ROLLBACK;" {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return strings.Join(filtered, "\n")
 }

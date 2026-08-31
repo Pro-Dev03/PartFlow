@@ -1151,7 +1151,8 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	// Get gross sales data
 	var grossSales, grossRevenue float64
 	err := r.db.GetContext(ctx, &grossSales,
-		`SELECT COUNT(*) FROM sales WHERE sale_date >= $1 AND sale_date <= $2`,
+		`SELECT COUNT(*) FROM sales WHERE sale_date >= $1 AND sale_date <= $2
+			AND LOWER(COALESCE(status, 'completed')) = 'completed'`,
 		startDate, endDate)
 	if err != nil {
 		// If sales table doesn't exist, return empty report
@@ -1167,7 +1168,8 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	report.GrossSales = int(grossSales)
 
 	err = r.db.GetContext(ctx, &grossRevenue,
-		`SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE sale_date >= $1 AND sale_date <= $2`,
+		`SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE sale_date >= $1 AND sale_date <= $2
+			AND LOWER(COALESCE(status, 'completed')) = 'completed'`,
 		startDate, endDate)
 	if err != nil {
 		grossRevenue = 0
@@ -1221,9 +1223,10 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 				WHERE DATE(r.return_date) = DATE(s.sale_date)
 				  AND r.return_date >= $1 AND r.return_date <= $2
 				  AND r.status = 'COMPLETED'), 0) as refunded
-		 FROM sales s
-		 WHERE s.sale_date >= $1 AND s.sale_date <= $2
-		 GROUP BY DATE(s.sale_date)
+			 FROM sales s
+			 WHERE s.sale_date >= $1 AND s.sale_date <= $2
+			   AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
+			 GROUP BY DATE(s.sale_date)
 		 ORDER BY date`,
 		startDate, endDate)
 	if err == nil {
@@ -1249,9 +1252,10 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 		 FROM sale_items si
 		 JOIN sales s ON s.id = si.sale_id
 		 JOIN products p ON p.id = si.product_id
-		 LEFT JOIN categories c ON c.id = p.category_id
-		 WHERE s.sale_date >= $1 AND s.sale_date <= $2
-		 GROUP BY c.name
+			 LEFT JOIN categories c ON c.id = p.category_id
+			 WHERE s.sale_date >= $1 AND s.sale_date <= $2
+			   AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
+			 GROUP BY c.name
 		 ORDER BY total DESC`,
 		startDate, endDate)
 	if err == nil {
@@ -1270,9 +1274,10 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	report.ByPaymentMethod = make(map[string]float64)
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT payment_method, COALESCE(SUM(total_amount), 0) as total
-		 FROM sales
-		 WHERE sale_date >= $1 AND sale_date <= $2
-		 GROUP BY payment_method`,
+			 FROM sales
+			 WHERE sale_date >= $1 AND sale_date <= $2
+			   AND LOWER(COALESCE(status, 'completed')) = 'completed'
+			 GROUP BY payment_method`,
 		startDate, endDate)
 	if err == nil {
 		defer rows.Close()
@@ -1298,7 +1303,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 			COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE return_date >= $1 AND return_date <= $2 AND status = 'COMPLETED')), 0) as returned_quantity,
 			COALESCE((SELECT SUM(ri.total_refund_amount) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE return_date >= $1 AND return_date <= $2 AND status = 'COMPLETED')), 0) as refunded_amount
 		 FROM products p
-		 LEFT JOIN sale_items si ON p.id = si.product_id AND si.sale_id IN (SELECT id FROM sales WHERE sale_date >= $1 AND sale_date <= $2)
+			 LEFT JOIN sale_items si ON p.id = si.product_id AND si.sale_id IN (SELECT id FROM sales WHERE sale_date >= $1 AND sale_date <= $2 AND LOWER(COALESCE(status, 'completed')) = 'completed')
 		 WHERE p.is_active = true
 		 GROUP BY p.id, p.name
 		 HAVING COALESCE(SUM(si.quantity), 0) > 0 OR COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri WHERE ri.product_id = p.id AND ri.return_id IN (SELECT id FROM returns WHERE return_date >= $1 AND return_date <= $2 AND status = 'COMPLETED')), 0) > 0

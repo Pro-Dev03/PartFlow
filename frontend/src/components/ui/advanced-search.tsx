@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Search, Filter, X } from 'lucide-react';
 import { Button } from './button';
 import { SearchInput } from './search-input';
+import { Input } from './input';
 import { Badge } from './badge';
 import { cn } from '../../utils/helpers';
 

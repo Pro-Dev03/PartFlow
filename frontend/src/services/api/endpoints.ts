@@ -45,6 +45,32 @@ export const authApi = {
     return payload?.data ?? payload;
   },
   logout: () => apiClient.post('/auth/logout', {}),
+  logoutWithCloud: (accessToken: string) => {
+    if (!accessToken || typeof fetch !== 'function') {
+      return Promise.resolve();
+    }
+
+    // The desktop API is local-first, so its logout handler cannot revoke a
+    // cloud refresh token. Best-effort call Render directly before local
+    // state is cleared; failures are intentionally ignored by the caller so
+    // logout still works while offline.
+    return fetch(`${getCloudApiUrl()}/auth/logout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({}),
+    }).then(async (response) => {
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        const error: any = new Error(payload?.error?.message || payload?.error || 'Cloud logout failed');
+        error.status = response.status;
+        throw error;
+      }
+    });
+  },
+  checkAdminAccess: () => apiClient.get('/auth/admin-check', undefined, false),
   refreshToken: () => {
     const refreshToken = TokenManager.getRefreshToken();
     if (!refreshToken) {
@@ -300,7 +326,7 @@ export const settingsApi = {
   syncCloudData: () =>
     apiClient.post('/settings/sync', {}),
   getUsers: (params?: { page?: number; per_page?: number }) =>
-    apiClient.get('/settings/users', params),
+    apiClient.get('/users', params),
   getSubscribers: (params?: { page?: number; per_page?: number; search?: string; is_active?: boolean }) =>
     apiClient.get('/users/subscriptions', params),
   getSubscriptionSummary: () =>
@@ -309,9 +335,9 @@ export const settingsApi = {
     apiClient.put(`/users/${id}/subscription`, payload),
   renewSubscription: (id: string, days: number) =>
     apiClient.post(`/users/${id}/subscription/renew`, { days }),
-  createUser: (data: any) => apiClient.post('/settings/users', data),
-  updateUser: (id: string, data: any) => apiClient.put(`/settings/users/${id}`, data),
-  deleteUser: (id: string) => apiClient.delete(`/settings/users/${id}`),
+  createUser: (data: any) => apiClient.post('/users', data),
+  updateUser: (id: string, data: any) => apiClient.put(`/users/${id}`, data),
+  deleteUser: (id: string) => apiClient.delete(`/users/${id}`),
   getTaxRate: () => apiClient.get('/settings/tax-rate'),
   updateTaxRate: (taxRate: number) => apiClient.put('/settings/tax-rate', { tax_rate: taxRate }),
   getPublicSettings: () => apiClient.get('/settings/public'),
@@ -330,7 +356,9 @@ export const syncApi = {
 
 // Barcode endpoints
 export const barcodeApi = {
-  scan: (barcode: string) => apiClient.post('/barcode/scan', { barcode }),
+  // Barcode lookup is read-only; use the backend's canonical product lookup
+  // route instead of the removed /barcode/scan endpoint.
+  scan: (barcode: string) => apiClient.get(`/barcodes/product/${encodeURIComponent(barcode)}`),
   lookup: (barcode: string) => apiClient.get(`/barcodes/${barcode}`),
   lookupProduct: (barcode: string) => apiClient.get<BarcodeLookupResponse>(`/barcodes/product/${barcode}`),
   lookupBySKU: (sku: string) => apiClient.get(`/barcodes/sku/${sku}`),
@@ -381,8 +409,8 @@ export const returnsApi = {
   getMonthlyAnalysis: () => apiClient.get('/returns/analysis/monthly'),
   getSalesReturnsAnalysis: () => apiClient.get('/returns/analysis/sales-returns'),
   addItem: (returnId: string, data: any) => apiClient.post(`/returns/${returnId}/items`, data),
-  updateItem: (itemId: string, data: any) => apiClient.put(`/returns/items/${itemId}`, data),
-  deleteItem: (itemId: string) => apiClient.delete(`/returns/items/${itemId}`),
+  updateItem: (returnId: string, itemId: string, data: any) => apiClient.put(`/returns/${returnId}/items/${itemId}`, data),
+  deleteItem: (returnId: string, itemId: string) => apiClient.delete(`/returns/${returnId}/items/${itemId}`),
   processInspection: (itemId: string, data: any) => apiClient.post(`/returns/items/${itemId}/inspection`, data),
   validateQuantity: (saleItemId: string, quantity: number) => 
     apiClient.get(`/returns/validate/${saleItemId}`, { quantity }),

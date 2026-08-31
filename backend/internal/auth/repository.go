@@ -140,7 +140,7 @@ func (r *Repository) CreateRefreshToken(ctx context.Context, token *RefreshToken
 	_, err := r.db.ExecContext(ctx, query,
 		token.ID,
 		token.UserID,
-		token.Token,
+		refreshTokenDigest(token.Token),
 		token.ExpiresAt,
 		token.CreatedAt,
 	)
@@ -155,7 +155,7 @@ func (r *Repository) GetRefreshToken(ctx context.Context, token string) (*Refres
 		WHERE token = $1
 	`
 	var refreshToken RefreshToken
-	err := r.db.GetContext(ctx, &refreshToken, query, token)
+	err := r.db.GetContext(ctx, &refreshToken, query, refreshTokenDigest(token))
 	if err == sql.ErrNoRows {
 		return nil, ErrInvalidToken
 	}
@@ -165,7 +165,7 @@ func (r *Repository) GetRefreshToken(ctx context.Context, token string) (*Refres
 // DeleteRefreshToken deletes a refresh token
 func (r *Repository) DeleteRefreshToken(ctx context.Context, token string) error {
 	query := `DELETE FROM refresh_tokens WHERE token = $1`
-	_, err := r.db.ExecContext(ctx, query, token)
+	_, err := r.db.ExecContext(ctx, query, refreshTokenDigest(token))
 	return err
 }
 

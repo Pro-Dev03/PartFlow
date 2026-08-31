@@ -287,7 +287,24 @@ class ApiClient {
           throw refreshError;
         }
 
-        if (response.status === 403) {
+        // Create error object with status
+        const responseError = data.error as ApiResponse<T>['error'] | string | undefined;
+        const errorMessage = typeof responseError === 'string'
+          ? responseError
+          : responseError?.message || 'An error occurred';
+        const error: any = new Error(errorMessage);
+        error.status = response.status;
+        error.code = data.error?.code;
+        error.response = data;
+
+        // A 403 is not always a subscription expiry (for example, the
+        // administrator-only settings routes intentionally return
+        // ADMIN_REQUIRED). Redirect only for an explicit subscription/cloud
+        // authorization decision and leave ordinary permission errors to the
+        // caller.
+        const subscriptionErrorCode = data.error?.code === 'SUBSCRIPTION_EXPIRED' ||
+          data.error?.code === 'CLOUD_AUTH_REQUIRED';
+        if (response.status === 403 && subscriptionErrorCode) {
           if (typeof window !== 'undefined' && !window.location.hash.includes('/subscription-expired')) {
             try {
               window.location.hash = '#/subscription-expired';
@@ -298,22 +315,11 @@ class ApiClient {
               window.location.href = currentUrl.toString();
             }
           }
-          const subscriptionError: any = new Error('اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة.');
-          subscriptionError.status = 403;
-          subscriptionError.code = 'SUBSCRIPTION_EXPIRED';
-          subscriptionError.arabicMessage = 'اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة.';
-          throw subscriptionError;
+          error.message = 'اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة.';
+          error.code = 'SUBSCRIPTION_EXPIRED';
+          error.arabicMessage = error.message;
+          throw error;
         }
-        
-        // Create error object with status
-        const responseError = data.error as ApiResponse<T>['error'] | string | undefined;
-        const errorMessage = typeof responseError === 'string'
-          ? responseError
-          : responseError?.message || 'An error occurred';
-        const error: any = new Error(errorMessage);
-        error.status = response.status;
-        error.code = data.error?.code;
-        error.response = data;
         
         // Add Arabic message
         error.arabicMessage = getArabicErrorMessage(error);

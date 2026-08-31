@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 // Claims represents JWT claims (based on worktrack)
@@ -56,6 +57,7 @@ func (s *JWTService) GenerateRefreshToken(userID string) (string, error) {
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Issuer:    "partflow",
 			Subject:   userID,
+			ID:        uuid.NewString(),
 		},
 	}
 
@@ -67,7 +69,7 @@ func (s *JWTService) GenerateRefreshToken(userID string) (string, error) {
 func (s *JWTService) ValidateToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-		return nil, errors.New("invalid token signing method")
+			return nil, errors.New("invalid token signing method")
 		}
 		return s.secretKey, nil
 	})

@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
-import { authApi, settingsApi } from '../../../services/api/endpoints';
+import { settingsApi } from '../../../services/api/endpoints';
+import { useAuthStore } from '../../../stores/authStore';
 import { RefreshCw, Wifi, Check, X, HardDrive } from 'lucide-react';
 import { toast } from 'sonner';
 import { getLocalApiUrl } from '../../../lib/config/app';
@@ -29,7 +30,10 @@ export function DatabaseSettings() {
 
   const validateSubscriptionMutation = useMutation({
     mutationFn: async () => {
-      await authApi.refreshToken();
+      // Refresh through the auth store so the rotated cloud refresh token and
+      // access token are persisted consistently. Calling the endpoint directly
+      // would revoke the old token on the server while leaving it in storage.
+      await useAuthStore.getState().refreshToken();
       return true;
     },
     onSuccess: () => {

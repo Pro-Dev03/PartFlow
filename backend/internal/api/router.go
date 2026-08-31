@@ -1,6 +1,8 @@
 package api
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 
@@ -140,6 +142,9 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			{
 				auth.POST("/logout", authHandler.Logout)
 				auth.POST("/validate", authHandler.ValidateSubscription)
+				auth.GET("/admin-check", middleware.Admin(), func(c *gin.Context) {
+					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"is_admin": true}})
+				})
 			}
 
 			// User routes (current user info)
@@ -380,13 +385,16 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			// Sync routes
 			sync := protected.Group("/sync")
 			{
-				sync.GET("/initial-data", syncHandler.GetInitialData)
+				// The current cloud schema is single-tenant. Never expose a global
+				// operational snapshot to an ordinary subscriber until tenant
+				// columns/database-per-store isolation is deployed.
+				sync.GET("/initial-data", middleware.Admin(), syncHandler.GetInitialData)
 			}
 
 			// Settings routes
 			settings := protected.Group("/settings")
 			{
-				settings.POST("/sync", localDatabaseHandler.SyncCloudData)
+				settings.POST("/sync", middleware.Admin(), localDatabaseHandler.SyncCloudData)
 				settings.GET("/sync/conflicts", localDatabaseHandler.GetSyncConflicts)
 				settings.DELETE("/sync/conflicts", localDatabaseHandler.ClearSyncConflicts)
 				settings.POST("/sync/conflicts/:id/resolve", localDatabaseHandler.ResolveSyncConflict)
@@ -397,8 +405,12 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				settings.PUT("/:key", settingsHandler.UpdateSetting)
 				settings.GET("/tax-rate", settingsHandler.GetTaxRate)
 				settings.PUT("/tax-rate", settingsHandler.UpdateTaxRate)
-				settings.DELETE("/database", databaseHandler.DeleteAllData)
-				settings.POST("/migrate", databaseHandler.ApplyMigration)
+				// Database reset and runtime migrations are destructive/operational
+				// actions. Keep ordinary subscribers out even when authenticated.
+				adminSettings := settings.Group("")
+				adminSettings.Use(middleware.Admin())
+				adminSettings.DELETE("/database", databaseHandler.DeleteAllData)
+				adminSettings.POST("/migrate", databaseHandler.ApplyMigration)
 			}
 		}
 	}

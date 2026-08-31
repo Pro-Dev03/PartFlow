@@ -11,7 +11,7 @@ describe('auth store logout behavior', () => {
       sessionVerified: false,
       user: null,
       token: null,
-      refreshToken: null,
+      refreshTokenValue: null,
       isLoading: false,
     });
     vi.restoreAllMocks();
@@ -22,7 +22,7 @@ describe('auth store logout behavior', () => {
       isAuthenticated: true,
       user: { id: '1', name: 'Test User', email: 'test@example.com' } as any,
       token: 'abc.def.ghi',
-      refreshToken: 'refresh-xyz',
+      refreshTokenValue: 'refresh-xyz',
     });
 
     useAuthStore.getState().logout();
@@ -34,6 +34,30 @@ describe('auth store logout behavior', () => {
     expect(localStorage.getItem('auth_token')).toBeNull();
     expect(localStorage.getItem('token')).toBeNull();
     expect(localStorage.getItem('refresh_token')).toBeNull();
+  });
+
+  it('best-effort revokes the cloud session before local logout', () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetchMock);
+    TokenManager.setToken('cloud-access-token');
+    TokenManager.setRefreshToken('cloud-refresh-token');
+    useAuthStore.setState({
+      isAuthenticated: true,
+      sessionVerified: true,
+      token: 'cloud-access-token',
+      refreshTokenValue: 'cloud-refresh-token',
+    });
+
+    useAuthStore.getState().logout();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('partflow-api.onrender.com/api/v1/auth/logout'),
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer cloud-access-token' }),
+      }),
+    );
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 
   it('sends the stored refresh token when refreshing the session', async () => {
@@ -61,6 +85,42 @@ describe('auth store logout behavior', () => {
         method: 'POST',
         body: JSON.stringify({ refresh_token: 'old-refresh-token' }),
       })
+    );
+  });
+
+  it('updates the store when the cloud rotates the refresh token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          token: 'rotated-access-token',
+          refresh_token: 'rotated-refresh-token',
+          user: { id: '1', email: 'test@example.com' },
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    TokenManager.setToken('old-access-token');
+    TokenManager.setRefreshToken('old-refresh-token');
+    useAuthStore.setState({
+      isAuthenticated: true,
+      sessionVerified: true,
+      token: 'old-access-token',
+      refreshTokenValue: 'old-refresh-token',
+      user: { id: '1', email: 'test@example.com' } as any,
+    });
+
+    await useAuthStore.getState().refreshToken();
+
+    expect(TokenManager.getToken()).toBe('rotated-access-token');
+    expect(TokenManager.getRefreshToken()).toBe('rotated-refresh-token');
+    expect(useAuthStore.getState().refreshTokenValue).toBe('rotated-refresh-token');
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('partflow-api.onrender.com/api/v1/auth/refresh'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ refresh_token: 'old-refresh-token' }),
+      }),
     );
   });
 

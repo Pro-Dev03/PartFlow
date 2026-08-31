@@ -3,6 +3,9 @@ node_modules/
 package-lock.json
 yarn.lock
 
+# Keep the frontend lockfile for reproducible CI/Electron builds.
+!frontend/package-lock.json
+
 # Build outputs
 /dist
 /build

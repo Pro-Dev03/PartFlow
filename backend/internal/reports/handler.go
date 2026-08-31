@@ -129,15 +129,21 @@ func (h *Handler) ListReports(c *gin.Context) {
 	req.SortOrder = c.DefaultQuery("sort_order", "DESC")
 
 	if startDate := c.Query("start_date"); startDate != "" {
-		if t, err := time.Parse(time.RFC3339, startDate); err == nil {
-			req.StartDate = &t
+		t, err := parseDate(startDate)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start_date: use RFC3339 or YYYY-MM-DD", "code": "INVALID_DATE"})
+			return
 		}
+		req.StartDate = &t
 	}
 
 	if endDate := c.Query("end_date"); endDate != "" {
-		if t, err := time.Parse(time.RFC3339, endDate); err == nil {
-			req.EndDate = &t
+		t, err := parseDate(endDate)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end_date: use RFC3339 or YYYY-MM-DD", "code": "INVALID_DATE"})
+			return
 		}
+		req.EndDate = &t
 	}
 
 	reports, total, err := h.service.ListReports(c.Request.Context(), req)
@@ -209,6 +215,38 @@ func parseDate(dateStr string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("invalid date format")
 }
 
+// parseReportDateRange parses the optional date range used by report endpoints.
+// Invalid dates are rejected instead of silently falling back to the default
+// range, which could otherwise produce a report for the wrong period.
+func parseReportDateRange(c *gin.Context) (time.Time, time.Time, error) {
+	startDate := time.Now().AddDate(0, -1, 0).Truncate(24 * time.Hour)
+	endDate := time.Now().Truncate(24 * time.Hour).Add(24 * time.Hour)
+
+	if raw := c.Query("start_date"); raw != "" {
+		parsed, err := parseDate(raw)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid start_date: use RFC3339 or YYYY-MM-DD")
+		}
+		startDate = parsed
+	}
+
+	if raw := c.Query("end_date"); raw != "" {
+		parsed, err := parseDate(raw)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid end_date: use RFC3339 or YYYY-MM-DD")
+		}
+		// Date-only end dates are inclusive for callers, so make the upper
+		// bound exclusive by advancing one day as the existing API expects.
+		endDate = parsed.Add(24 * time.Hour)
+	}
+
+	if !endDate.After(startDate) {
+		return time.Time{}, time.Time{}, fmt.Errorf("end_date must be after start_date")
+	}
+
+	return startDate, endDate, nil
+}
+
 // GenerateSalesReport handles generating a sales report
 // @Summary Generate sales report
 // @Description Generate a sales report for specified date range
@@ -223,23 +261,10 @@ func parseDate(dateStr string) (time.Time, error) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/reports/sales [get]
 func (h *Handler) GenerateSalesReport(c *gin.Context) {
-	startDateStr := c.Query("start_date")
-	endDateStr := c.Query("end_date")
-
-	// Default to this month if no dates provided
-	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
-	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
-
-	if startDateStr != "" {
-		if parsed, err := parseDate(startDateStr); err == nil {
-			startDate = parsed
-		}
-	}
-
-	if endDateStr != "" {
-		if parsed, err := parseDate(endDateStr); err == nil {
-			endDate = parsed.Add(24 * time.Hour)
-		}
+	startDate, endDate, err := parseReportDateRange(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_DATE_RANGE"})
+		return
 	}
 
 	userID := middleware.GetUserID(c)
@@ -298,23 +323,10 @@ func (h *Handler) GenerateInventoryReport(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/reports/expenses [get]
 func (h *Handler) GenerateExpensesReport(c *gin.Context) {
-	startDateStr := c.Query("start_date")
-	endDateStr := c.Query("end_date")
-
-	// Default to this month if no dates provided
-	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
-	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
-
-	if startDateStr != "" {
-		if parsed, err := parseDate(startDateStr); err == nil {
-			startDate = parsed
-		}
-	}
-
-	if endDateStr != "" {
-		if parsed, err := parseDate(endDateStr); err == nil {
-			endDate = parsed.Add(24 * time.Hour)
-		}
+	startDate, endDate, err := parseReportDateRange(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_DATE_RANGE"})
+		return
 	}
 
 	userID := middleware.GetUserID(c)
@@ -346,23 +358,10 @@ func (h *Handler) GenerateExpensesReport(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/reports/profits [get]
 func (h *Handler) GenerateProfitsReport(c *gin.Context) {
-	startDateStr := c.Query("start_date")
-	endDateStr := c.Query("end_date")
-
-	// Default to this month if no dates provided
-	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
-	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
-
-	if startDateStr != "" {
-		if parsed, err := parseDate(startDateStr); err == nil {
-			startDate = parsed
-		}
-	}
-
-	if endDateStr != "" {
-		if parsed, err := parseDate(endDateStr); err == nil {
-			endDate = parsed.Add(24 * time.Hour)
-		}
+	startDate, endDate, err := parseReportDateRange(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_DATE_RANGE"})
+		return
 	}
 
 	userID := middleware.GetUserID(c)
@@ -421,23 +420,10 @@ func (h *Handler) GenerateDebtsReport(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/reports/purchases [get]
 func (h *Handler) GeneratePurchasesReport(c *gin.Context) {
-	startDateStr := c.Query("start_date")
-	endDateStr := c.Query("end_date")
-
-	// Default to this month if no dates provided
-	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
-	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
-
-	if startDateStr != "" {
-		if parsed, err := parseDate(startDateStr); err == nil {
-			startDate = parsed
-		}
-	}
-
-	if endDateStr != "" {
-		if parsed, err := parseDate(endDateStr); err == nil {
-			endDate = parsed.Add(24 * time.Hour)
-		}
+	startDate, endDate, err := parseReportDateRange(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_DATE_RANGE"})
+		return
 	}
 
 	userID := middleware.GetUserID(c)
@@ -469,23 +455,10 @@ func (h *Handler) GeneratePurchasesReport(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/reports/returns [get]
 func (h *Handler) GenerateReturnsReport(c *gin.Context) {
-	startDateStr := c.Query("start_date")
-	endDateStr := c.Query("end_date")
-
-	// Default to this month if no dates provided
-	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
-	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
-
-	if startDateStr != "" {
-		if parsed, err := parseDate(startDateStr); err == nil {
-			startDate = parsed
-		}
-	}
-
-	if endDateStr != "" {
-		if parsed, err := parseDate(endDateStr); err == nil {
-			endDate = parsed.Add(24 * time.Hour)
-		}
+	startDate, endDate, err := parseReportDateRange(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_DATE_RANGE"})
+		return
 	}
 
 	userID := middleware.GetUserID(c)
@@ -517,23 +490,10 @@ func (h *Handler) GenerateReturnsReport(c *gin.Context) {
 // @Failure 500 {object} middleware.ErrorResponse
 // @Router /api/v1/reports/net-sales [get]
 func (h *Handler) GenerateNetSalesReport(c *gin.Context) {
-	startDateStr := c.Query("start_date")
-	endDateStr := c.Query("end_date")
-
-	// Default to this month if no dates provided
-	startDate := time.Now().AddDate(0, -1, 0).Truncate(time.Hour * 24)
-	endDate := time.Now().Truncate(time.Hour * 24).Add(24 * time.Hour)
-
-	if startDateStr != "" {
-		if parsed, err := parseDate(startDateStr); err == nil {
-			startDate = parsed
-		}
-	}
-
-	if endDateStr != "" {
-		if parsed, err := parseDate(endDateStr); err == nil {
-			endDate = parsed.Add(24 * time.Hour)
-		}
+	startDate, endDate, err := parseReportDateRange(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_DATE_RANGE"})
+		return
 	}
 
 	userID := middleware.GetUserID(c)

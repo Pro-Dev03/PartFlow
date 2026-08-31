@@ -3,6 +3,7 @@ import { useTranslation } from '../../../hooks/useTranslation';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Button } from '../../../components/ui/button';
 import { useAuthStore } from '../../../stores/authStore';
+import { authApi } from '../../../services/api/endpoints';
 import {
   Store,
   Palette,
@@ -28,10 +29,28 @@ export function SettingsPage() {
   const user = useAuthStore((state) => state.user);
   const [activeTab, setActiveTab] = useState('store');
   const [now, setNow] = useState(Date.now());
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void authApi.checkAdminAccess()
+      .then(() => {
+        if (mounted) setIsAdmin(true);
+      })
+      .catch(() => {
+        // A regular subscriber is expected to receive 403 here. Keep the
+        // administrator-only controls out of the settings UI in that case.
+        if (mounted) setIsAdmin(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const expiryDate = user?.subscription_expires_at ? new Date(user.subscription_expires_at) : null;
@@ -50,8 +69,14 @@ export function SettingsPage() {
     { id: 'appearance', label: t('settings.appearance'), icon: Palette },
     { id: 'notifications', label: t('settings.notifications'), icon: Bell },
     { id: 'audit', label: t('settings.audit'), icon: FileText },
-    { id: 'database', label: 'قاعدة البيانات', icon: Trash2 },
+    ...(isAdmin ? [{ id: 'database', label: 'قاعدة البيانات', icon: Trash2 }] : []),
   ];
+
+  useEffect(() => {
+    if (!isAdmin && activeTab === 'database') {
+      setActiveTab('store');
+    }
+  }, [activeTab, isAdmin]);
 
   return (
     <div>

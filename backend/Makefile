@@ -16,16 +16,13 @@ seed-db: ## Seed database with initial data
 
 migrate: ## Run database migrations
 	@echo "🔄 Running database migrations..."
-	@psql $(DATABASE_URL) -f migrations/001_fix_users_schema.sql
+	@go run ./cmd/migrate
 
 init: migrate seed-db setup-owner ## Initialize database (migrate + seed + setup owner)
 	@echo "✅ Database initialization complete!"
 
 test-api: ## Test API registration
-	@echo "🧪 Testing API registration..."
-	@curl -X POST http://localhost:8080/api/v1/auth/register \
-		-H "Content-Type: application/json" \
-		-d '{"email": "test@partflow.com", "password": "Test123456", "first_name": "Test", "last_name": "User", "phone": "+970599000000"}'
+	@echo "🧪 Public registration is disabled by default. Set PARTFLOW_ALLOW_PUBLIC_REGISTRATION=true only for development."
 
 clean: ## Clean temporary files
 	@echo "🧹 Cleaning temporary files..."

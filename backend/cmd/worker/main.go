@@ -102,6 +102,10 @@ func notifyAllUsers(ctx context.Context, db *sqlx.DB, notifType, title, message 
 }
 
 func startReservationExpirationWorker(ctx context.Context, db *sqlx.DB) {
+	// Run once at startup so items that expired while the service was stopped
+	// are released immediately instead of waiting for the first tick.
+	processExpiredReservations(ctx, db)
+
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
@@ -164,17 +168,17 @@ func processExpiredReservations(ctx context.Context, db *sqlx.DB) {
 			continue
 		}
 
+		var beforeAvailable int
+		if err = tx.GetContext(ctx, &beforeAvailable, `SELECT COUNT(*) FROM inventory_items WHERE product_id = $1 AND status = 'AVAILABLE'`, productID); err != nil {
+			tx.Rollback()
+			logger.Error("Failed to read available quantity", err, nil)
+			continue
+		}
 		updateItemQuery := fmt.Sprintf(`UPDATE inventory_items SET status = 'AVAILABLE', updated_at = %s WHERE id = $1`, dbutil.NowSQL(db))
 		_, err = tx.ExecContext(ctx, updateItemQuery, itemID)
 		if err != nil {
 			tx.Rollback()
 			logger.Error("Failed to update item status", err, nil)
-			continue
-		}
-		var beforeAvailable int
-		if err = tx.GetContext(ctx, &beforeAvailable, `SELECT COUNT(*) FROM inventory_items WHERE product_id = $1 AND status = 'AVAILABLE'`, productID); err != nil {
-			tx.Rollback()
-			logger.Error("Failed to read available quantity", err, nil)
 			continue
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE inventory SET reserved_quantity = CASE WHEN COALESCE(reserved_quantity, 0) > 0 THEN reserved_quantity - 1 ELSE 0 END WHERE product_id = $1`, productID); err != nil {
@@ -210,6 +214,10 @@ func processExpiredReservations(ctx context.Context, db *sqlx.DB) {
 }
 
 func startDebtScanWorker(ctx context.Context, db *sqlx.DB) {
+	// Run once at startup so overdue debts are marked without waiting an hour
+	// after every deployment or restart.
+	processOverdueDebts(ctx, db)
+
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 

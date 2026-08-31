@@ -52,7 +52,7 @@ export function useBarcodeContext(initialContext?: BarcodeContext): UseBarcodeCo
     
     try {
       const response = await barcodeApi.scan(barcode);
-      const result = response as any;
+      const result = response.data as any;
       
       // Add context information to the result
       return {

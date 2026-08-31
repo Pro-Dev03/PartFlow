@@ -46,4 +46,22 @@ describe('apiClient auth refresh', () => {
     expect(localStorage.getItem('refresh_token')).toBe('new-refresh-token');
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it('keeps ordinary permission errors separate from subscription expiry', async () => {
+    window.location.hash = '#/app/settings';
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      text: async () => JSON.stringify({
+        error: { code: 'ADMIN_REQUIRED', message: 'administrator privileges required' },
+      }),
+    } as Response);
+
+    await expect(apiClient.get('/auth/admin-check', undefined, false)).rejects.toMatchObject({
+      status: 403,
+      code: 'ADMIN_REQUIRED',
+    });
+    expect(window.location.hash).toBe('#/app/settings');
+  });
 });
