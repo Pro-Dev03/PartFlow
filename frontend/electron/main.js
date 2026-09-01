@@ -329,7 +329,7 @@ function createWindow() {
   updateWindowTitle(mainWindow);
 
   const loadRenderer = isDev
-    ? mainWindow.loadURL('http://localhost:5173')
+    ? mainWindow.loadURL('http://localhost:5174')
     : mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 
   loadRenderer.catch(() => {

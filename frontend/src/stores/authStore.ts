@@ -4,7 +4,7 @@ import { authApi } from '../services/api/endpoints';
 import { apiClient } from '../services/api/client';
 import { TokenManager } from '../lib/token-manager';
 import { User } from '../types/models';
-import { getCloudApiUrl } from '../lib/config/app';
+import { getCloudApiUrl, getOperatingMode, shouldUseLocalApi } from '../lib/config/app';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -90,10 +90,14 @@ export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = w
  * remains on Render.
  */
 export async function validateSubscriptionWithCloud(): Promise<boolean> {
-  if (typeof window === 'undefined' || !navigator.onLine) return false;
+  if (typeof window === 'undefined') return false;
 
   const token = TokenManager.getToken();
   if (!token) return false;
+
+  if (!navigator.onLine) {
+    return false;
+  }
 
   if (cloudValidationInFlight) {
     return cloudValidationInFlight;
@@ -295,12 +299,18 @@ export const useAuthStore = create<AuthState>()(
       },
 
       checkAuth: async () => {
-        // Persisted tokens are only a candidate session. Do not let any
-        // protected query use them until the cloud authority confirms them.
+        // SQLite stores business data locally, but the cloud subscription
+        // authority remains mandatory for all protected sessions.
         set({ isLoading: true, sessionVerified: false });
         const token = TokenManager.getToken();
-        if (!token || !navigator.onLine) {
-          forceLogoutToLogin(token ? 'Cloud verification requires an internet connection' : 'No active cloud session');
+        if (!token) {
+          forceLogoutToLogin('No active cloud session');
+          set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
+          return;
+        }
+
+        if (!navigator.onLine) {
+          forceLogoutToLogin('Cloud verification requires an internet connection');
           set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
           return;
         }
@@ -322,8 +332,15 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: async () => {
         try {
           const response = await authApi.refreshToken();
-          const data = response.data as { user: User; token: string; refresh_token?: string };
-          const { user, token } = data;
+          const payload = (response && typeof response === 'object' && 'data' in response && response.data)
+            ? response.data
+            : response;
+          const data = payload as { user?: User; token?: string; refresh_token?: string };
+          const user = data.user;
+          const token = data.token;
+          if (!user || !token) {
+            throw new Error('Refresh response did not include user and token');
+          }
           const refreshToken = data.refresh_token || TokenManager.getRefreshToken();
 
           TokenManager.setToken(token);

@@ -4,7 +4,7 @@
  */
 import { chromium } from '@playwright/test';
 
-const BASE_URL = 'http://localhost:5173';
+const BASE_URL = 'http://localhost:5174';
 
 // Monitoring collectors
 const consoleErrors = [];

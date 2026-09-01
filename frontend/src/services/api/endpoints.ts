@@ -27,12 +27,15 @@ import type {
 
 // Auth endpoints
 export const authApi = {
-  login: (email: string, password: string) =>
-    apiClient.post('/auth/login', { email, password }),
+  login: async (email: string, password: string) => {
+    const response = await apiClient.post('/auth/login', { email, password });
+    return response.data ?? response;
+  },
   loginWithCloud: async (email: string, password: string) => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       throw new Error('يلزم اتصال بالإنترنت لتسجيل الدخول.');
     }
+
     const response = await fetch(`${getCloudApiUrl()}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -71,39 +74,14 @@ export const authApi = {
     });
   },
   checkAdminAccess: () => apiClient.get('/auth/admin-check', undefined, false),
-  refreshToken: () => {
+  refreshToken: async () => {
     const refreshToken = TokenManager.getRefreshToken();
     if (!refreshToken) {
       return Promise.reject(new Error('No refresh token available'));
     }
 
-    // Access and refresh tokens are issued by the cloud authority. Business
-    // requests use the local SQLite API, but token renewal must go directly to
-    // Render; the local API intentionally does not own cloud sessions.
-    return fetch(`${getCloudApiUrl()}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    }).then(async (response) => {
-      const payload = typeof response.json === 'function'
-        ? await response.json().catch(() => ({}))
-        : await response.text().then((text) => {
-            try {
-              return JSON.parse(text);
-            } catch {
-              return {};
-            }
-          });
-      if (!response.ok) {
-        const error: any = new Error(
-          payload?.error?.message || payload?.error || 'Session refresh failed'
-        );
-        error.status = response.status;
-        error.response = payload;
-        throw error;
-      }
-      return payload;
-    });
+    const response = await apiClient.post('/auth/refresh', { refresh_token: refreshToken });
+    return response.data ?? response;
   },
   forgotPassword: (email: string) =>
     apiClient.post('/auth/forgot-password', { email }),
