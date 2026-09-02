@@ -70,6 +70,19 @@ export function DatabaseSettings() {
     },
   });
 
+  const deleteLocalDataMutation = useMutation({
+    mutationFn: () => settingsApi.deleteAllData(confirmationText),
+    onSuccess: () => {
+      setConfirmationText('');
+      setShowConfirmation(false);
+      void queryClient.invalidateQueries();
+      toast.success('تم حذف بيانات التشغيل المحلية بنجاح. بقيت بنية قاعدة SQLite وإعدادات الحساب محفوظة.');
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || 'فشل حذف البيانات المحلية');
+    },
+  });
+
   // Test local backend connection
   const testLocalConnection = async () => {
     setIsTestingConnection(true);
@@ -223,10 +236,10 @@ export function DatabaseSettings() {
             <div className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-4">
               <div className="flex items-center gap-2 text-red-800">
                 <Trash2 className="h-5 w-5" />
-                <h3 className="font-semibold">حذف بيانات الاختبار السحابية</h3>
+                <h3 className="font-semibold">حذف بيانات التشغيل</h3>
               </div>
               <p className="text-sm text-red-800">
-                يحذف هذا الإجراء بيانات التشغيل من PostgreSQL السحابية فقط، مثل المبيعات والمخزون والعملاء والتنبيهات. لن يحذف حساب المالك أو الإعدادات أو قاعدة SQLite المحلية.
+                اختر نطاق الحذف بعناية: بيانات PostgreSQL السحابية أو بيانات SQLite المحلية. لا يحذف أي خيار حساب المالك أو الإعدادات أو بنية قواعد البيانات.
               </p>
               {!showConfirmation ? (
                 <Button
@@ -250,13 +263,20 @@ export function DatabaseSettings() {
                     autoComplete="off"
                     spellCheck={false}
                   />
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       variant="destructive"
                       onClick={() => deleteCloudDataMutation.mutate()}
-                      disabled={confirmationText !== 'DELETE ALL DATA' || deleteCloudDataMutation.isPending}
+                      disabled={confirmationText !== 'DELETE ALL DATA' || deleteCloudDataMutation.isPending || deleteLocalDataMutation.isPending}
                     >
                       {deleteCloudDataMutation.isPending ? 'جارِ الحذف...' : 'حذف نهائي من السحابة'}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => deleteLocalDataMutation.mutate()}
+                      disabled={confirmationText !== 'DELETE ALL DATA' || deleteCloudDataMutation.isPending || deleteLocalDataMutation.isPending}
+                    >
+                      {deleteLocalDataMutation.isPending ? 'جارِ الحذف...' : 'حذف نهائي من SQLite المحلية'}
                     </Button>
                     <Button
                       variant="secondary"

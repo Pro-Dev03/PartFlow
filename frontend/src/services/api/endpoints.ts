@@ -419,7 +419,7 @@ export const settingsApi = {
   // The desktop application owns the operational SQLite database. Never expose
   // a client-side option that can target the cloud database for deletion.
   deleteAllData: (confirmation: string) =>
-    apiClient.delete('/settings/database', { confirmation, target: 'offline' }),
+    apiClient.delete('/settings/database', { confirmation_token: confirmation, target: 'offline' }),
   deleteCloudData: async (confirmation: string) => {
     const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
     if (!cloudToken) throw new Error('No active cloud session');
