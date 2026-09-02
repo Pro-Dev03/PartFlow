@@ -398,6 +398,8 @@ export const reportsApi = {
 export const settingsApi = {
   syncCloudData: () =>
     apiClient.post('/settings/sync', {}),
+  syncLocalDataToCloud: () =>
+    apiClient.post('/settings/sync/push', {}),
   getUsers: (params?: { page?: number; per_page?: number }) =>
     apiClient.get('/users', params),
   getSubscribers: (params?: { page?: number; per_page?: number; search?: string; is_active?: boolean }) =>

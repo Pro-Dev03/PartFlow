@@ -396,6 +396,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			settings := protected.Group("/settings")
 			{
 				settings.POST("/sync", middleware.Admin(), localDatabaseHandler.SyncCloudData)
+				settings.POST("/sync/push", middleware.Admin(), localDatabaseHandler.SyncLocalDataToCloud)
 				settings.GET("/sync/conflicts", localDatabaseHandler.GetSyncConflicts)
 				settings.DELETE("/sync/conflicts", localDatabaseHandler.ClearSyncConflicts)
 				settings.POST("/sync/conflicts/:id/resolve", localDatabaseHandler.ResolveSyncConflict)

@@ -57,6 +57,19 @@ export function DatabaseSettings() {
     },
   });
 
+  const pushSyncMutation = useMutation({
+    mutationFn: () => settingsApi.syncLocalDataToCloud(),
+    onSuccess: (result: any) => {
+      void queryClient.invalidateQueries();
+      const processed = Number(result?.processed || 0);
+      const failed = Number(result?.failed || 0);
+      toast.success(`تمت مزامنة ${processed} عملية محلية إلى السحابة${failed ? `، وفشلت ${failed}` : ''}.`);
+    },
+    onError: (error: any) => {
+      toast.error('فشل رفع التغييرات المحلية: ' + (error?.message || 'تحقق من اتصال الإنترنت وصلاحية الحساب'));
+    },
+  });
+
   const deleteCloudDataMutation = useMutation({
     mutationFn: () => settingsApi.deleteCloudData(confirmationText),
     onSuccess: () => {
@@ -154,6 +167,14 @@ export function DatabaseSettings() {
                 disabled={syncMutation.isPending || typeof navigator !== 'undefined' && !navigator.onLine}
               >
                 {syncMutation.isPending ? 'جارِ المزامنة...' : 'مزامنة سحابية الآن'}
+              </Button>
+              <Button
+                variant="secondary"
+                className="min-h-10"
+                onClick={() => pushSyncMutation.mutate()}
+                disabled={pushSyncMutation.isPending || typeof navigator !== 'undefined' && !navigator.onLine}
+              >
+                {pushSyncMutation.isPending ? 'جارِ رفع التغييرات...' : 'رفع التغييرات المحلية'}
               </Button>
             </div>
           </div>

@@ -233,6 +233,40 @@ func (h *LocalDatabaseHandler) SyncCloudData(c *gin.Context) {
 	})
 }
 
+// SyncLocalDataToCloud pushes only pending local operations after the caller
+// has passed the cloud-backed admin middleware. Full SQLite snapshots are
+// never uploaded by this endpoint.
+func (h *LocalDatabaseHandler) SyncLocalDataToCloud(c *gin.Context) {
+	sqliteDB, err := localdb.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل فتح قاعدة البيانات المحلية", "details": err.Error()})
+		return
+	}
+	defer sqliteDB.DB.Close()
+
+	postgresDB := database.GetDB()
+	if postgresDB == nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "قاعدة البيانات السحابية غير متاحة"})
+		return
+	}
+
+	result, err := sync.ProcessPendingOfflineQueue(postgresDB, sqliteDB.DB, 50)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل قراءة طابور المزامنة المحلي", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"processed": result.Processed,
+			"failed":    result.Failed,
+			"errors":    result.Errors,
+			"direction": "local_to_cloud",
+		},
+	})
+}
+
 // SyncOfflineQueue is kept as a compatibility alias for older clients. The
 // current policy is cloud-to-local synchronization, so it delegates to the
 // same safe implementation.
