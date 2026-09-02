@@ -100,10 +100,14 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 		// have the returns tables yet. Keep the dashboard usable there while
 		// using the return-aware calculation on the current schema.
 		if !sqliteHasColumns(db, "returns", "total_refund_amount", "return_date", "status") || !sqliteHasColumns(db, "return_items", "quantity_returned", "sale_item_id", "original_cost") {
-			query = `
+			productCostRef := "p.cost_price"
+			if !sqliteHasColumns(db, "products", "cost_price") {
+				productCostRef = "p.purchase_price"
+			}
+			query = fmt.Sprintf(`
 				WITH sale_costs AS (
 					SELECT s.id, s.total_amount,
-						COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) AS total_cost
+						COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, %s, 0)), 0) AS total_cost
 					FROM sales s
 					LEFT JOIN sale_items si ON si.sale_id = s.id
 					LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
@@ -124,7 +128,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 				SELECT totals.revenue AS today_sales,
 				       totals.revenue - totals.cost - expenses_total.amount AS today_profit
 				FROM totals, expenses_total
-			`
+			`, productCostRef)
 			args = []any{date, date}
 		}
 	}

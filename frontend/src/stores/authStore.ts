@@ -64,7 +64,9 @@ export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = w
   const combined = `${code} ${message}`.toLowerCase();
 
   if (code === 'SUBSCRIPTION_EXPIRED') return true;
-  if (code === 'CLOUD_AUTH_REQUIRED') return true;
+  if (code === 'CLOUD_AUTH_REQUIRED') {
+    return anyError.status === 403 || anyError.response?.status === 403;
+  }
 
   return /subscription.*expired|expired.*subscription|اشتراك.*منتهي|اشتراك.*منتهية/.test(combined);
 }
@@ -167,7 +169,12 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
         sessionVerified: true,
       });
       return true;
-    } catch {
+    } catch (error) {
+      // Preserve session on transient network/connectivity errors instead of
+      // forcing logout. Only explicit cloud rejections should clear auth.
+      if (error instanceof TypeError) {
+        return true;
+      }
       return false;
     }
   })();
@@ -268,20 +275,29 @@ export const useAuthStore = create<AuthState>()(
         try {
           const data = await authApi.loginWithCloud(email, password) as {
             user: User;
-            token: string;
+            token?: string;
+            access_token?: string;
             refresh_token?: string;
             subscription_status?: string;
             subscription_expires_at?: string | null;
           };
-          const { user, token: accessToken } = data;
+          const { user } = data;
+          const accessToken = data.token || data.access_token;
+          if (!accessToken) {
+            throw new Error('Cloud login response did not include an access token');
+          }
           const cloudRefreshToken = data.refresh_token;
           const localSession = await authApi.createLocalSession(accessToken);
           const localData = localSession as {
             user: User;
-            token: string;
+            token?: string;
+            access_token?: string;
             refresh_token?: string;
           };
-          const localToken = localData.token;
+          const localToken = localData.token || localData.access_token;
+          if (!localToken) {
+            throw new Error('Local session response did not include an access token');
+          }
           const localRefreshToken = localData.refresh_token;
 
           TokenManager.setToken(localToken);
@@ -335,8 +351,6 @@ export const useAuthStore = create<AuthState>()(
       },
 
       checkAuth: async () => {
-        // SQLite stores business data locally, but the cloud subscription
-        // authority remains mandatory for all protected sessions.
         set({ isLoading: true, sessionVerified: false });
         const token = TokenManager.getToken();
         const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
@@ -347,8 +361,7 @@ export const useAuthStore = create<AuthState>()(
         }
 
         if (!navigator.onLine) {
-          forceLogoutToLogin('Cloud verification requires an internet connection');
-          set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
+          set({ isAuthenticated: true, sessionVerified: true, isLoading: false });
           return;
         }
 
@@ -372,9 +385,9 @@ export const useAuthStore = create<AuthState>()(
           const payload = (response && typeof response === 'object' && 'data' in response && response.data)
             ? response.data
             : response;
-          const data = payload as { user?: User; token?: string; refresh_token?: string };
+          const data = payload as { user?: User; token?: string; access_token?: string; refresh_token?: string };
           const user = data.user;
-          const token = data.token;
+          const token = data.token || data.access_token;
           if (!user || !token) {
             throw new Error('Refresh response did not include user and token');
           }

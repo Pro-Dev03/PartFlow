@@ -208,6 +208,9 @@ func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *J
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
+	if _, err := persistCloudRefreshToken(ctx, db, user.ID, refreshToken, jwtService.refreshTokenT); err != nil {
+		return nil, fmt.Errorf("failed to persist refresh token: %w", err)
+	}
 
 	now := time.Now()
 	if status := validation.cloudSubscriptionStatus(); status != "" {
@@ -233,4 +236,16 @@ func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *J
 		ExpiresIn:    int64(15 * time.Minute / time.Second),
 		User:         user,
 	}, nil
+}
+
+func persistCloudRefreshToken(ctx context.Context, db *sqlx.DB, userID uuid.UUID, token string, lifetime time.Duration) (bool, error) {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO refresh_tokens (id, user_id, token, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, uuid.New(), userID, refreshTokenDigest(token), time.Now().Add(lifetime), time.Now())
+	if isMissingRefreshTokenTable(err) {
+		log.Printf("refresh token revocation is disabled until refresh_tokens migration is applied")
+		return false, nil
+	}
+	return true, err
 }

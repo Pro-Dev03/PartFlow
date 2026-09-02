@@ -207,16 +207,13 @@ func (s *Service) ReceiveItem(ctx context.Context, id uuid.UUID, locationID *uui
 	// Create movement record
 	reason := "Item received and made available"
 	movement := &InventoryMovement{
-		ID:             uuid.New(),
-		ItemID:         &id,
-		ProductID:      item.ProductID,
-		MovementType:   MovementPurchase,
-		Quantity:       1,
-		BeforeQuantity: currentQuantity,
-		AfterQuantity:  currentQuantity + 1,
-		Reason:         &reason,
-		CreatedBy:      userID,
-		CreatedAt:      time.Now(),
+		ID:           uuid.New(),
+		ItemID:       &id,
+		ProductID:    item.ProductID,
+		MovementType: MovementPurchase,
+		Quantity:     1,
+		Reason:       &reason,
+		CreatedBy:    userID,
 	}
 
 	movementQuery := fmt.Sprintf(`INSERT INTO inventory_movements (id, item_id, product_id, movement_type, quantity, before_quantity, after_quantity, reason, created_by, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, %s)`, dbutil.NowSQL(s.db))

@@ -177,7 +177,8 @@ func (r *Repository) ListNotifications(ctx context.Context, userID uuid.UUID, re
 			args = append(args, req.EndDate.Format(time.RFC3339Nano))
 		}
 		var count int
-		if err := r.db.GetContext(ctx, &count, "SELECT COUNT(*) FROM notifications"+where, args...); err != nil {
+		countQuery := "SELECT COUNT(*) FROM notifications" + where
+		if err := r.db.GetContext(ctx, &count, r.db.Rebind(countQuery), args...); err != nil {
 			return nil, 0, fmt.Errorf("failed to count notifications: %w", err)
 		}
 		sortBy := "created_at"
@@ -264,11 +265,12 @@ func (r *Repository) ListNotifications(ctx context.Context, userID uuid.UUID, re
 	// Filter out expired notifications
 	argCount++
 	baseQuery += fmt.Sprintf(" AND (expires_at IS NULL OR expires_at > $%d)", argCount)
-	countQuery += fmt.Sprintf(" AND (expires_at IS NULL OR expires_at > $%d)", argCount)
+	countQuery += " AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)"
 	args = append(args, time.Now())
 
 	// Get total count
-	err := r.db.GetContext(ctx, &count, countQuery, args...)
+	countArgs := args[:len(args)-1]
+	err := r.db.GetContext(ctx, &count, countQuery, countArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count notifications: %w", err)
 	}
@@ -613,11 +615,18 @@ func (r *Repository) UpdateNotificationPreferences(ctx context.Context, preferen
 // GetUnreadCount retrieves the count of unread notifications for a user
 func (r *Repository) GetUnreadCount(ctx context.Context, userID uuid.UUID) (int, error) {
 	var count int
-	err := r.db.GetContext(ctx, &count,
-		`SELECT COUNT(*) FROM notifications
-		 WHERE user_id = $1 AND status = 'unread'
-		 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
-		userID)
+	var err error
+
+	if dbutil.IsSQLite(r.db) {
+		err = r.db.GetContext(ctx, &count,
+			`SELECT COUNT(*) FROM notifications WHERE user_id = ? AND status = 'unread' AND (expires_at IS NULL OR expires_at > datetime('now'))`,
+			userID)
+	} else {
+		err = r.db.GetContext(ctx, &count,
+			`SELECT COUNT(*) FROM notifications WHERE user_id = $1 AND status = 'unread' AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
+			userID)
+	}
+
 	if err != nil {
 		return 0, fmt.Errorf("failed to get unread count: %w", err)
 	}

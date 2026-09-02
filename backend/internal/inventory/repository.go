@@ -20,37 +20,6 @@ func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func parseNullableUUID(raw any) (*uuid.UUID, error) {
-	if raw == nil {
-		return nil, nil
-	}
-
-	value, ok := raw.(string)
-	if !ok {
-		return nil, fmt.Errorf("unsupported uuid type %T", raw)
-	}
-	if value == "" {
-		return nil, nil
-	}
-
-	parsed, err := uuid.Parse(value)
-	if err != nil {
-		return nil, err
-	}
-	return &parsed, nil
-}
-
-func parseNullableTime(raw any) (*time.Time, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	parsed, err := dbutil.ParseTimestamp(raw)
-	if err != nil {
-		return nil, err
-	}
-	return &parsed, nil
-}
-
 func inventoryItemFromMap(record map[string]any) (*InventoryItem, error) {
 	item := &InventoryItem{}
 	if raw, ok := record["id"]; ok && raw != nil {

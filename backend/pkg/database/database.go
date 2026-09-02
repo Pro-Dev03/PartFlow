@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
 	"github.com/partflow/smart-store/pkg/config"
 	_ "modernc.org/sqlite"
 )
@@ -42,7 +43,7 @@ func Initialize() error {
 		}
 		log.Println("Using SQLite database for local mode:", connectURL)
 	} else {
-		driver = "postgres"
+		driver = "pgx"
 		connectURL = databaseURL
 		if !strings.Contains(connectURL, "sslmode") {
 			connectURL += "?sslmode=require"
@@ -50,7 +51,17 @@ func Initialize() error {
 		log.Println("Using PostgreSQL database for cloud mode")
 	}
 
-	DB, err = sqlx.Connect(driver, connectURL)
+	if driver == "pgx" {
+		pgxConfig, parseErr := pgx.ParseConfig(connectURL)
+		if parseErr != nil {
+			return fmt.Errorf("failed to parse database URL: %w", parseErr)
+		}
+		pgxConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+		DB = sqlx.NewDb(stdlib.OpenDB(*pgxConfig), driver)
+		err = DB.Ping()
+	} else {
+		DB, err = sqlx.Connect(driver, connectURL)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -79,7 +90,7 @@ func ensureRequiredSchema(db *sqlx.DB) error {
 		return fmt.Errorf("database is nil")
 	}
 
-	if strings.EqualFold(db.DriverName(), "postgres") {
+	if !strings.EqualFold(db.DriverName(), "sqlite") {
 		if _, err := db.Exec(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`); err != nil {
 			return err
 		}
@@ -210,7 +221,7 @@ func ensureRequiredSchema(db *sqlx.DB) error {
 }
 
 func columnExists(db *sqlx.DB, tableName, columnName string) (bool, error) {
-	if strings.EqualFold(db.DriverName(), "postgres") {
+	if strings.EqualFold(db.DriverName(), "postgres") || strings.EqualFold(db.DriverName(), "pgx") {
 		var exists bool
 		query := `
 			SELECT EXISTS (
@@ -236,7 +247,7 @@ func columnExists(db *sqlx.DB, tableName, columnName string) (bool, error) {
 }
 
 func tableExists(db *sqlx.DB, tableName string) (bool, error) {
-	if strings.EqualFold(db.DriverName(), "postgres") {
+	if strings.EqualFold(db.DriverName(), "postgres") || strings.EqualFold(db.DriverName(), "pgx") {
 		var exists bool
 		query := `SELECT EXISTS (
 			SELECT 1 FROM information_schema.tables WHERE table_name = $1

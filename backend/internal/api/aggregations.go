@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -51,6 +52,41 @@ func (h *AggregationHandler) sqliteSaleDateExpression(ctx context.Context) strin
 	return "date(s.created_at)"
 }
 
+func (h *AggregationHandler) sqliteProductCostExpression(ctx context.Context) string {
+	rows, err := h.db.QueryxContext(ctx, "PRAGMA table_info(products)")
+	if err != nil {
+		return "COALESCE(ii.purchase_cost, p.cost_price, p.purchase_price, 0)"
+	}
+	defer rows.Close()
+
+	hasCostPrice := false
+	hasPurchasePrice := false
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, dataType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return "COALESCE(ii.purchase_cost, p.cost_price, p.purchase_price, 0)"
+		}
+		switch {
+		case strings.EqualFold(name, "cost_price"):
+			hasCostPrice = true
+		case strings.EqualFold(name, "purchase_price"):
+			hasPurchasePrice = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "COALESCE(ii.purchase_cost, p.cost_price, p.purchase_price, 0)"
+	}
+	if hasCostPrice {
+		return "COALESCE(ii.purchase_cost, p.cost_price, p.purchase_price, 0)"
+	}
+	if hasPurchasePrice {
+		return "COALESCE(ii.purchase_cost, p.purchase_price, 0)"
+	}
+	return "COALESCE(ii.purchase_cost, p.cost_price, p.purchase_price, 0)"
+}
+
 func buildDailySalesSummaryQuery() string {
 	return `
 		SELECT
@@ -96,8 +132,8 @@ func buildDailySalesSummaryQueryForDB(db *sqlx.DB) string {
 	}
 	return `
 		SELECT
-			$1::date AS date,
-			COALESCE(s.total_sales, 0) AS total_sales,
+			$1::date::text AS date,
+			COALESCE(s.total_sales, 0)::int AS total_sales,
 			COALESCE(s.total_revenue, 0) AS total_revenue,
 			COALESCE(s.total_profit, 0) AS total_profit,
 			COALESCE(s.total_customers, 0) AS total_customers,
@@ -106,7 +142,7 @@ func buildDailySalesSummaryQueryForDB(db *sqlx.DB) string {
 			COALESCE(s.cash_sales, 0) AS cash_sales,
 			COALESCE(s.card_sales, 0) AS card_sales,
 			COALESCE(s.debt_sales, 0) AS debt_sales,
-			COALESCE(s.updated_at, NOW()) AS updated_at
+			COALESCE(s.updated_at::text, NOW()::text) AS updated_at
 		FROM (SELECT $1::date AS summary_date) dates
 		LEFT JOIN daily_sales_summary s ON s.date = dates.summary_date
 	`
@@ -149,6 +185,7 @@ func (h *AggregationHandler) GetDailySalesSummary(c *gin.Context) {
 	}
 	dateValue := date.Format("2006-01-02")
 	if err := h.refreshSQLiteSummaries(c.Request.Context(), date, date); err != nil {
+		log.Printf("daily sales summary refresh failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update sales summary"})
 		return
 	}
@@ -555,6 +592,13 @@ func (h *AggregationHandler) refreshSQLiteSummaries(ctx context.Context, startDa
 	if !dbutil.IsSQLite(h.db) {
 		return h.refreshPostgresSummaries(ctx, startDate, endDate)
 	}
+	if _, err := h.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS inventory_movements (
+		id TEXT PRIMARY KEY,
+		movement_type TEXT NOT NULL,
+		created_at TEXT NOT NULL
+	)`); err != nil {
+		return fmt.Errorf("ensure SQLite aggregation dependencies: %w", err)
+	}
 	for day := startDate.Truncate(24 * time.Hour); !day.After(endDate); day = day.AddDate(0, 0, 1) {
 		if err := h.refreshSQLiteDay(ctx, day); err != nil {
 			return err
@@ -572,25 +616,38 @@ func (h *AggregationHandler) refreshSQLiteSummaries(ctx context.Context, startDa
 // exist before running return-aware summary SQL. This keeps migrations and
 // older local databases backwards compatible.
 func (h *AggregationHandler) sqliteReturnProfitAvailable(ctx context.Context) bool {
-	rows, err := h.db.QueryxContext(ctx, "PRAGMA table_info(returns)")
-	if err != nil {
-		return false
+	requiredColumns := map[string][]string{
+		"returns":      {"total_refund_amount", "status", "return_date"},
+		"return_items": {"quantity_returned", "original_cost", "sale_item_id", "product_id"},
 	}
-	defer rows.Close()
-	columns := map[string]bool{}
-	for rows.Next() {
-		var cid, notNull, pk int
-		var name, dataType string
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+	for table, required := range requiredColumns {
+		rows, err := h.db.QueryxContext(ctx, "PRAGMA table_info("+table+")")
+		if err != nil {
 			return false
 		}
-		columns[strings.ToLower(name)] = true
+		columns := map[string]bool{}
+		for rows.Next() {
+			var cid, notNull, pk int
+			var name, dataType string
+			var defaultValue sql.NullString
+			if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+				rows.Close()
+				return false
+			}
+			columns[strings.ToLower(name)] = true
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return false
+		}
+		rows.Close()
+		for _, column := range required {
+			if !columns[column] {
+				return false
+			}
+		}
 	}
-	if err := rows.Err(); err != nil {
-		return false
-	}
-	return columns["total_refund_amount"] && columns["status"]
+	return true
 }
 
 // refreshPostgresSummaries recomputes the same summaries used by the local
@@ -601,22 +658,25 @@ func (h *AggregationHandler) refreshPostgresSummaries(ctx context.Context, start
 	for day := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, time.UTC); !day.After(endDate); day = day.AddDate(0, 0, 1) {
 		date := day.Format("2006-01-02")
 		queries := []string{
-			`INSERT INTO daily_sales_summary (date,total_sales,total_revenue,total_profit,total_customers,average_order_value,total_items_sold,cash_sales,card_sales,debt_sales,updated_at)
-			 SELECT $1::date,COUNT(s.id),COALESCE(SUM(s.total_amount),0),COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0),COUNT(DISTINCT s.customer_id),COALESCE(SUM(s.total_amount)/NULLIF(COUNT(s.id),0),0),COALESCE(SUM(cost.total_items),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('cash','cash_payment') THEN s.total_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('card','credit_card') THEN s.total_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('debt','credit','on_account') THEN s.total_amount ELSE 0 END),0),NOW()
-			 FROM sales s LEFT JOIN (SELECT si.sale_id,SUM(si.quantity) AS total_items,SUM(si.quantity*COALESCE(p.purchase_price,0)) AS total_cost FROM sale_items si LEFT JOIN products p ON p.id=si.product_id GROUP BY si.sale_id) cost ON cost.sale_id=s.id
+			`INSERT INTO daily_sales_summary (summary_date,date,total_sales,total_revenue,total_profit,total_customers,average_order_value,total_items_sold,cash_sales,card_sales,debt_sales,updated_at)
+				 SELECT $1::date,$1::date,COUNT(s.id),COALESCE(SUM(s.total_amount),0),COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0),COUNT(DISTINCT s.customer_id),COALESCE(SUM(s.total_amount)/NULLIF(COUNT(s.id),0),0),COALESCE(SUM(cost.total_items),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('cash','cash_payment') THEN s.total_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('card','credit_card') THEN s.total_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('debt','credit','on_account') THEN s.total_amount ELSE 0 END),0),NOW()
+			 FROM sales s LEFT JOIN (SELECT si.sale_id,SUM(si.quantity) AS total_items,SUM(si.quantity*COALESCE(p.cost_price,0)) AS total_cost FROM sale_items si LEFT JOIN products p ON p.id=si.product_id GROUP BY si.sale_id) cost ON cost.sale_id=s.id
 				 WHERE s.sale_date::date=$1::date AND LOWER(COALESCE(s.status,'completed'))='completed'
 			 ON CONFLICT (date) DO UPDATE SET total_sales=EXCLUDED.total_sales,total_revenue=EXCLUDED.total_revenue,total_profit=EXCLUDED.total_profit,total_customers=EXCLUDED.total_customers,average_order_value=EXCLUDED.average_order_value,total_items_sold=EXCLUDED.total_items_sold,cash_sales=EXCLUDED.cash_sales,card_sales=EXCLUDED.card_sales,debt_sales=EXCLUDED.debt_sales,updated_at=NOW()`,
-			`INSERT INTO daily_inventory_summary (date,total_items,total_value,low_stock_count,out_of_stock_count,new_items_added,items_sold,items_returned,items_damaged,updated_at)
+			`INSERT INTO daily_inventory_summary (summary_date,date,total_items,total_value,low_stock_count,out_of_stock_count,new_items_added,items_sold,items_returned,items_damaged,updated_at)
 				 SELECT $1::date,(SELECT COUNT(*) FROM inventory_items WHERE UPPER(COALESCE(status,'')) NOT IN ('SOLD','ARCHIVED')),(SELECT COALESCE(SUM(purchase_cost),0) FROM inventory_items WHERE UPPER(COALESCE(status,'')) NOT IN ('SOLD','ARCHIVED')),(SELECT COUNT(*) FROM products p WHERE p.is_active AND p.min_stock_level>0 AND (SELECT COUNT(*) FROM inventory_items i WHERE i.product_id=p.id AND UPPER(i.status)='AVAILABLE') BETWEEN 1 AND p.min_stock_level),(SELECT COUNT(*) FROM products p WHERE p.is_active AND (SELECT COUNT(*) FROM inventory_items i WHERE i.product_id=p.id AND UPPER(i.status)='AVAILABLE')=0),(SELECT COUNT(*) FROM inventory_items WHERE created_at::date=$1::date),(SELECT COALESCE(SUM(si.quantity),0) FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE s.sale_date::date=$1::date AND LOWER(COALESCE(s.status,'completed'))='completed'),(SELECT COALESCE(SUM(ri.quantity_returned),0) FROM return_items ri JOIN returns r ON r.id=ri.return_id WHERE COALESCE(r.return_date,r.created_at)::date=$1::date AND LOWER(COALESCE(r.status,'completed'))='completed'),(SELECT COUNT(*) FROM inventory_movements WHERE created_at::date=$1::date AND UPPER(movement_type)='DAMAGE'),NOW()
 			 ON CONFLICT (date) DO UPDATE SET total_items=EXCLUDED.total_items,total_value=EXCLUDED.total_value,low_stock_count=EXCLUDED.low_stock_count,out_of_stock_count=EXCLUDED.out_of_stock_count,new_items_added=EXCLUDED.new_items_added,items_sold=EXCLUDED.items_sold,items_returned=EXCLUDED.items_returned,items_damaged=EXCLUDED.items_damaged,updated_at=NOW()`,
-			`INSERT INTO daily_debt_summary (date,total_debt,new_debt,payments_received,overdue_debt,overdue_count,paid_debt,updated_at)
+			`INSERT INTO daily_debt_summary (summary_date,date,total_debt,new_debt,payments_received,overdue_debt,overdue_count,paid_debt,updated_at)
 			 SELECT $1::date,COALESCE(SUM(CASE WHEN created_at::date<=$1::date AND remaining_amount>0 THEN remaining_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN created_at::date=$1::date THEN amount ELSE 0 END),0),(SELECT COALESCE(SUM(amount),0) FROM payments WHERE customer_id IS NOT NULL AND payment_date::date=$1::date),COALESCE(SUM(CASE WHEN due_date<$1::date AND remaining_amount>0 THEN remaining_amount ELSE 0 END),0),COUNT(*) FILTER (WHERE due_date<$1::date AND remaining_amount>0),COALESCE(SUM(CASE WHEN remaining_amount<=0 AND updated_at::date=$1::date THEN amount ELSE 0 END),0),NOW() FROM debts
 			 ON CONFLICT (date) DO UPDATE SET total_debt=EXCLUDED.total_debt,new_debt=EXCLUDED.new_debt,payments_received=EXCLUDED.payments_received,overdue_debt=EXCLUDED.overdue_debt,overdue_count=EXCLUDED.overdue_count,paid_debt=EXCLUDED.paid_debt,updated_at=NOW()`,
-			`INSERT INTO daily_profit_summary (date,gross_profit,net_profit,total_revenue,total_cost,profit_margin,updated_at)
-				 SELECT $1::date,COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0),COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0)-COALESCE((SELECT SUM(amount) FROM expenses WHERE expense_date::date=$1::date AND LOWER(COALESCE(status,'approved')) IN ('approved','paid','completed')),0),COALESCE(SUM(s.total_amount),0),COALESCE(SUM(cost.total_cost),0),CASE WHEN COALESCE(SUM(s.total_amount),0)=0 THEN 0 ELSE ((COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0)-COALESCE((SELECT SUM(amount) FROM expenses WHERE expense_date::date=$1::date AND LOWER(COALESCE(status,'approved')) IN ('approved','paid','completed')),0))/SUM(s.total_amount))*100 END,NOW() FROM sales s LEFT JOIN (SELECT si.sale_id,SUM(si.quantity*COALESCE(p.purchase_price,0)) AS total_cost FROM sale_items si LEFT JOIN products p ON p.id=si.product_id GROUP BY si.sale_id) cost ON cost.sale_id=s.id WHERE s.sale_date::date=$1::date AND LOWER(COALESCE(s.status,'completed'))='completed'
+			`INSERT INTO daily_profit_summary (summary_date,date,gross_profit,net_profit,total_revenue,total_cost,profit_margin,updated_at)
+				 SELECT $1::date,COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0),COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0)-COALESCE((SELECT SUM(amount) FROM expenses WHERE expense_date::date=$1::date AND LOWER(COALESCE(status,'approved')) IN ('approved','paid','completed')),0),COALESCE(SUM(s.total_amount),0),COALESCE(SUM(cost.total_cost),0),CASE WHEN COALESCE(SUM(s.total_amount),0)=0 THEN 0 ELSE ((COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0)-COALESCE((SELECT SUM(amount) FROM expenses WHERE expense_date::date=$1::date AND LOWER(COALESCE(status,'approved')) IN ('approved','paid','completed')),0))/SUM(s.total_amount))*100 END,NOW() FROM sales s LEFT JOIN (SELECT si.sale_id,SUM(si.quantity*COALESCE(p.cost_price,0)) AS total_cost FROM sale_items si LEFT JOIN products p ON p.id=si.product_id GROUP BY si.sale_id) cost ON cost.sale_id=s.id WHERE s.sale_date::date=$1::date AND LOWER(COALESCE(s.status,'completed'))='completed'
 			 ON CONFLICT (date) DO UPDATE SET gross_profit=EXCLUDED.gross_profit,net_profit=EXCLUDED.net_profit,total_revenue=EXCLUDED.total_revenue,total_cost=EXCLUDED.total_cost,profit_margin=EXCLUDED.profit_margin,updated_at=NOW()`,
 		}
-		for _, query := range queries {
+		for index, query := range queries {
+			if index > 0 {
+				query = strings.Replace(query, "SELECT $1::date,", "SELECT $1::date,$1::date,", 1)
+			}
 			if _, err := h.db.ExecContext(ctx, query, date); err != nil {
 				return fmt.Errorf("refresh PostgreSQL summaries for %s: %w", date, err)
 			}
@@ -627,12 +687,17 @@ func (h *AggregationHandler) refreshPostgresSummaries(ctx context.Context, start
 		next := month.AddDate(0, 1, 0).Format("2006-01-02")
 		start := month.Format("2006-01-02")
 		queries := []string{
-			`INSERT INTO monthly_sales_summary (year,month,total_sales,total_revenue,total_profit,total_customers,average_order_value,total_items_sold,cash_sales,card_sales,debt_sales,updated_at) SELECT $1,$2,COUNT(s.id),COALESCE(SUM(s.total_amount),0),COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0),COUNT(DISTINCT s.customer_id),COALESCE(SUM(s.total_amount)/NULLIF(COUNT(s.id),0),0),COALESCE(SUM(cost.total_items),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('cash','cash_payment') THEN s.total_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('card','credit_card') THEN s.total_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('debt','credit','on_account') THEN s.total_amount ELSE 0 END),0),NOW() FROM sales s LEFT JOIN (SELECT si.sale_id,SUM(si.quantity) total_items,SUM(si.quantity*COALESCE(p.purchase_price,0)) total_cost FROM sale_items si LEFT JOIN products p ON p.id=si.product_id GROUP BY si.sale_id) cost ON cost.sale_id=s.id WHERE s.sale_date >= $3::date AND s.sale_date < $4::date AND LOWER(COALESCE(s.status,'completed'))='completed' ON CONFLICT(year,month) DO UPDATE SET total_sales=EXCLUDED.total_sales,total_revenue=EXCLUDED.total_revenue,total_profit=EXCLUDED.total_profit,total_customers=EXCLUDED.total_customers,average_order_value=EXCLUDED.average_order_value,total_items_sold=EXCLUDED.total_items_sold,cash_sales=EXCLUDED.cash_sales,card_sales=EXCLUDED.card_sales,debt_sales=EXCLUDED.debt_sales,updated_at=NOW()`,
+			`INSERT INTO monthly_sales_summary (year,month,total_sales,total_revenue,total_profit,total_customers,average_order_value,total_items_sold,cash_sales,card_sales,debt_sales,updated_at) SELECT $1,$2,COUNT(s.id),COALESCE(SUM(s.total_amount),0),COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0),COUNT(DISTINCT s.customer_id),COALESCE(SUM(s.total_amount)/NULLIF(COUNT(s.id),0),0),COALESCE(SUM(cost.total_items),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('cash','cash_payment') THEN s.total_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('card','credit_card') THEN s.total_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('debt','credit','on_account') THEN s.total_amount ELSE 0 END),0),NOW() FROM sales s LEFT JOIN (SELECT si.sale_id,SUM(si.quantity) total_items,SUM(si.quantity*COALESCE(p.cost_price,0)) total_cost FROM sale_items si LEFT JOIN products p ON p.id=si.product_id GROUP BY si.sale_id) cost ON cost.sale_id=s.id WHERE s.sale_date >= $3::date AND s.sale_date < $4::date AND LOWER(COALESCE(s.status,'completed'))='completed' ON CONFLICT(year,month) DO UPDATE SET total_sales=EXCLUDED.total_sales,total_revenue=EXCLUDED.total_revenue,total_profit=EXCLUDED.total_profit,total_customers=EXCLUDED.total_customers,average_order_value=EXCLUDED.average_order_value,total_items_sold=EXCLUDED.total_items_sold,cash_sales=EXCLUDED.cash_sales,card_sales=EXCLUDED.card_sales,debt_sales=EXCLUDED.debt_sales,updated_at=NOW()`,
 			`INSERT INTO monthly_inventory_summary (year,month,total_items,total_value,low_stock_count,out_of_stock_count,new_items_added,items_sold,items_returned,items_damaged,updated_at) SELECT $1,$2,(SELECT COUNT(*) FROM inventory_items WHERE UPPER(COALESCE(status,'')) NOT IN ('SOLD','ARCHIVED')),(SELECT COALESCE(SUM(purchase_cost),0) FROM inventory_items WHERE UPPER(COALESCE(status,'')) NOT IN ('SOLD','ARCHIVED')),(SELECT COUNT(*) FROM products p WHERE p.is_active AND p.min_stock_level>0 AND (SELECT COUNT(*) FROM inventory_items i WHERE i.product_id=p.id AND UPPER(i.status)='AVAILABLE') BETWEEN 1 AND p.min_stock_level),(SELECT COUNT(*) FROM products p WHERE p.is_active AND (SELECT COUNT(*) FROM inventory_items i WHERE i.product_id=p.id AND UPPER(i.status)='AVAILABLE')=0),(SELECT COUNT(*) FROM inventory_items WHERE created_at >= $3::date AND created_at < $4::date),(SELECT COALESCE(SUM(si.quantity),0) FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE s.sale_date >= $3::date AND s.sale_date < $4::date AND LOWER(COALESCE(s.status,'completed'))='completed'),(SELECT COALESCE(SUM(ri.quantity_returned),0) FROM return_items ri JOIN returns r ON r.id=ri.return_id WHERE COALESCE(r.return_date,r.created_at) >= $3::date AND COALESCE(r.return_date,r.created_at) < $4::date AND LOWER(COALESCE(r.status,'completed'))='completed'),(SELECT COUNT(*) FROM inventory_movements WHERE created_at >= $3::date AND created_at < $4::date AND UPPER(movement_type)='DAMAGE'),NOW() ON CONFLICT(year,month) DO UPDATE SET total_items=EXCLUDED.total_items,total_value=EXCLUDED.total_value,low_stock_count=EXCLUDED.low_stock_count,out_of_stock_count=EXCLUDED.out_of_stock_count,new_items_added=EXCLUDED.new_items_added,items_sold=EXCLUDED.items_sold,items_returned=EXCLUDED.items_returned,items_damaged=EXCLUDED.items_damaged,updated_at=NOW()`,
 			`INSERT INTO monthly_debt_summary (year,month,total_debt,new_debt,payments_received,overdue_debt,overdue_count,paid_debt,updated_at) SELECT $1,$2,COALESCE(SUM(CASE WHEN created_at<$4::date AND remaining_amount>0 THEN remaining_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN created_at >= $3::date AND created_at < $4::date THEN amount ELSE 0 END),0),(SELECT COALESCE(SUM(amount),0) FROM payments WHERE customer_id IS NOT NULL AND payment_date >= $3::date AND payment_date < $4::date),COALESCE(SUM(CASE WHEN due_date<$4::date AND remaining_amount>0 THEN remaining_amount ELSE 0 END),0),COUNT(*) FILTER (WHERE due_date<$4::date AND remaining_amount>0),COALESCE(SUM(CASE WHEN remaining_amount<=0 AND updated_at >= $3::date AND updated_at < $4::date THEN amount ELSE 0 END),0),NOW() FROM debts ON CONFLICT(year,month) DO UPDATE SET total_debt=EXCLUDED.total_debt,new_debt=EXCLUDED.new_debt,payments_received=EXCLUDED.payments_received,overdue_debt=EXCLUDED.overdue_debt,overdue_count=EXCLUDED.overdue_count,paid_debt=EXCLUDED.paid_debt,updated_at=NOW()`,
-			`INSERT INTO monthly_profit_summary (year,month,gross_profit,net_profit,total_revenue,total_cost,profit_margin,updated_at) SELECT $1,$2,COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0),COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0)-COALESCE((SELECT SUM(amount) FROM expenses WHERE expense_date >= $3::date AND expense_date < $4::date AND LOWER(COALESCE(status,'approved')) IN ('approved','paid','completed')),0),COALESCE(SUM(s.total_amount),0),COALESCE(SUM(cost.total_cost),0),CASE WHEN COALESCE(SUM(s.total_amount),0)=0 THEN 0 ELSE ((COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0)-COALESCE((SELECT SUM(amount) FROM expenses WHERE expense_date >= $3::date AND expense_date < $4::date AND LOWER(COALESCE(status,'approved')) IN ('approved','paid','completed')),0))/SUM(s.total_amount))*100 END,NOW() FROM sales s LEFT JOIN (SELECT si.sale_id,SUM(si.quantity*COALESCE(p.purchase_price,0)) total_cost FROM sale_items si LEFT JOIN products p ON p.id=si.product_id GROUP BY si.sale_id) cost ON cost.sale_id=s.id WHERE s.sale_date >= $3::date AND s.sale_date < $4::date AND LOWER(COALESCE(s.status,'completed'))='completed' ON CONFLICT(year,month) DO UPDATE SET gross_profit=EXCLUDED.gross_profit,net_profit=EXCLUDED.net_profit,total_revenue=EXCLUDED.total_revenue,total_cost=EXCLUDED.total_cost,profit_margin=EXCLUDED.profit_margin,updated_at=NOW()`,
+			`INSERT INTO monthly_profit_summary (year,month,gross_profit,net_profit,total_revenue,total_cost,profit_margin,updated_at) SELECT $1,$2,COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0),COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0)-COALESCE((SELECT SUM(amount) FROM expenses WHERE expense_date >= $3::date AND expense_date < $4::date AND LOWER(COALESCE(status,'approved')) IN ('approved','paid','completed')),0),COALESCE(SUM(s.total_amount),0),COALESCE(SUM(cost.total_cost),0),CASE WHEN COALESCE(SUM(s.total_amount),0)=0 THEN 0 ELSE ((COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0)-COALESCE((SELECT SUM(amount) FROM expenses WHERE expense_date >= $3::date AND expense_date < $4::date AND LOWER(COALESCE(status,'approved')) IN ('approved','paid','completed')),0))/SUM(s.total_amount))*100 END,NOW() FROM sales s LEFT JOIN (SELECT si.sale_id,SUM(si.quantity*COALESCE(p.cost_price,0)) total_cost FROM sale_items si LEFT JOIN products p ON p.id=si.product_id GROUP BY si.sale_id) cost ON cost.sale_id=s.id WHERE s.sale_date >= $3::date AND s.sale_date < $4::date AND LOWER(COALESCE(s.status,'completed'))='completed' ON CONFLICT(year,month) DO UPDATE SET gross_profit=EXCLUDED.gross_profit,net_profit=EXCLUDED.net_profit,total_revenue=EXCLUDED.total_revenue,total_cost=EXCLUDED.total_cost,profit_margin=EXCLUDED.profit_margin,updated_at=NOW()`,
 		}
 		for _, query := range queries {
+			query = strings.Replace(query, "INSERT INTO monthly_sales_summary (", "INSERT INTO monthly_sales_summary (summary_month,", 1)
+			query = strings.Replace(query, "INSERT INTO monthly_inventory_summary (", "INSERT INTO monthly_inventory_summary (summary_month,", 1)
+			query = strings.Replace(query, "INSERT INTO monthly_debt_summary (", "INSERT INTO monthly_debt_summary (summary_month,", 1)
+			query = strings.Replace(query, "INSERT INTO monthly_profit_summary (", "INSERT INTO monthly_profit_summary (summary_month,", 1)
+			query = strings.Replace(query, "SELECT $1,$2,", "SELECT make_date($1,$2,1),$1,$2,", 1)
 			if _, err := h.db.ExecContext(ctx, query, year, monthNumber, start, next); err != nil {
 				return fmt.Errorf("refresh PostgreSQL monthly summaries for %04d-%02d: %w", year, monthNumber, err)
 			}
@@ -643,6 +708,11 @@ func (h *AggregationHandler) refreshPostgresSummaries(ctx context.Context, start
 
 func (h *AggregationHandler) refreshSQLiteDay(ctx context.Context, day time.Time) error {
 	date := day.Format("2006-01-02")
+	productCostExpr := h.sqliteProductCostExpression(ctx)
+	productPriceRef := "p.cost_price"
+	if !strings.Contains(productCostExpr, "p.cost_price") {
+		productPriceRef = "p.purchase_price"
+	}
 	queries := []struct {
 		query string
 		args  []any
@@ -654,7 +724,7 @@ func (h *AggregationHandler) refreshSQLiteDay(ctx context.Context, day time.Time
 			COALESCE(SUM(CASE WHEN lower(COALESCE(s.payment_method, '')) IN ('cash', 'cash_payment') THEN s.total_amount ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN lower(COALESCE(s.payment_method, '')) IN ('card', 'credit_card') THEN s.total_amount ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN lower(COALESCE(s.payment_method, '')) IN ('debt', 'credit', 'on_account') THEN s.total_amount ELSE 0 END), 0), CURRENT_TIMESTAMP
-			FROM sales s LEFT JOIN (SELECT si.sale_id, SUM(si.quantity) AS total_items, SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, 0)) AS total_cost FROM sale_items si LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id GROUP BY si.sale_id) cost ON cost.sale_id = s.id
+			FROM sales s LEFT JOIN (SELECT si.sale_id, SUM(si.quantity) AS total_items, SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)) AS total_cost FROM sale_items si LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id GROUP BY si.sale_id) cost ON cost.sale_id = s.id
 			WHERE date(COALESCE(s.sale_date, s.created_at)) = ? AND lower(COALESCE(s.status, 'completed')) = 'completed'
 			`, []any{date, date}},
 		{`INSERT OR REPLACE INTO daily_inventory_summary (date, total_items, total_value, low_stock_count, out_of_stock_count, new_items_added, items_sold, items_returned, items_damaged, updated_at)
@@ -671,7 +741,7 @@ func (h *AggregationHandler) refreshSQLiteDay(ctx context.Context, day time.Time
 			COALESCE((SELECT SUM(amount) FROM payments WHERE customer_id IS NOT NULL AND date(created_at) = ?), 0), COALESCE(SUM(CASE WHEN due_date < ? AND remaining_amount > 0 THEN remaining_amount ELSE 0 END), 0), COALESCE(SUM(CASE WHEN due_date < ? AND remaining_amount > 0 THEN 1 ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN remaining_amount <= 0 AND date(updated_at) = ? THEN amount ELSE 0 END), 0), CURRENT_TIMESTAMP FROM debts`, []any{date, date, date, date, date, date, date}},
 		{`INSERT OR REPLACE INTO daily_profit_summary (date, gross_profit, net_profit, total_revenue, total_cost, profit_margin, updated_at)
-			WITH sale_costs AS (SELECT s.id, s.total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) = ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) = ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')), returns_total AS (SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded, COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost FROM returns r JOIN return_items ri ON ri.return_id = r.id LEFT JOIN sale_items si ON si.id = ri.sale_item_id LEFT JOIN products p ON p.id = ri.product_id WHERE date(r.return_date) = ? AND upper(COALESCE(r.status, '')) = 'COMPLETED')
+			WITH sale_costs AS (SELECT s.id, s.total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) = ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) = ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')), returns_total AS (SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded, COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost FROM returns r JOIN return_items ri ON ri.return_id = r.id LEFT JOIN sale_items si ON si.id = ri.sale_item_id LEFT JOIN products p ON p.id = ri.product_id WHERE date(r.return_date) = ? AND upper(COALESCE(r.status, '')) = 'COMPLETED')
 			SELECT ?, totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost, totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost - expenses_total.amount, totals.revenue - returns_total.refunded, totals.cost - returns_total.returned_cost, CASE WHEN totals.revenue - returns_total.refunded = 0 THEN 0 ELSE ((totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost - expenses_total.amount) / (totals.revenue - returns_total.refunded)) * 100 END, CURRENT_TIMESTAMP FROM totals, expenses_total, returns_total
 			`, []any{date, date, date, date}},
 	}
@@ -681,12 +751,14 @@ func (h *AggregationHandler) refreshSQLiteDay(ctx context.Context, day time.Time
 			query string
 			args  []any
 		}{`INSERT OR REPLACE INTO daily_profit_summary (date, gross_profit, net_profit, total_revenue, total_cost, profit_margin, updated_at)
-			WITH sale_costs AS (SELECT s.id, s.total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) = ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) = ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed'))
+			WITH sale_costs AS (SELECT s.id, s.total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) = ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) = ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed'))
 			SELECT ?, totals.revenue - totals.cost, totals.revenue - totals.cost - expenses_total.amount, totals.revenue, totals.cost, CASE WHEN totals.revenue = 0 THEN 0 ELSE ((totals.revenue - totals.cost - expenses_total.amount) / totals.revenue) * 100 END, CURRENT_TIMESTAMP FROM totals, expenses_total
 			`, []any{date, date, date}}
 	}
 	for _, item := range queries {
 		query := strings.ReplaceAll(item.query, "date(COALESCE(s.sale_date, s.created_at))", saleDateExpr)
+		query = strings.ReplaceAll(query, "COALESCE(ii.purchase_cost, p.cost_price, 0)", productCostExpr)
+		query = strings.ReplaceAll(query, "p.cost_price", productPriceRef)
 		if _, err := h.db.ExecContext(ctx, query, item.args...); err != nil {
 			return fmt.Errorf("refresh daily summaries for %s: %w", date, err)
 		}
@@ -698,6 +770,11 @@ func (h *AggregationHandler) refreshSQLiteMonth(ctx context.Context, month time.
 	year, monthNumber := month.Year(), int(month.Month())
 	start := month.Format("2006-01-02")
 	end := month.AddDate(0, 1, 0).Format("2006-01-02")
+	productCostExpr := h.sqliteProductCostExpression(ctx)
+	productPriceRef := "p.cost_price"
+	if !strings.Contains(productCostExpr, "p.cost_price") {
+		productPriceRef = "p.purchase_price"
+	}
 	queries := []struct {
 		query string
 		args  []any
@@ -705,7 +782,7 @@ func (h *AggregationHandler) refreshSQLiteMonth(ctx context.Context, month time.
 		{`INSERT OR REPLACE INTO monthly_sales_summary (year, month, total_sales, total_revenue, total_profit, total_customers, average_order_value, total_items_sold, cash_sales, card_sales, debt_sales, updated_at)
 			SELECT ?, ?, COUNT(s.id), COALESCE(SUM(s.total_amount), 0), COALESCE(SUM(s.total_amount - COALESCE(cost.total_cost, 0)), 0), COUNT(DISTINCT s.customer_id), COALESCE(SUM(s.total_amount) / NULLIF(COUNT(s.id), 0), 0), COALESCE(SUM(cost.total_items), 0),
 			COALESCE(SUM(CASE WHEN lower(COALESCE(s.payment_method, '')) IN ('cash', 'cash_payment') THEN s.total_amount ELSE 0 END), 0), COALESCE(SUM(CASE WHEN lower(COALESCE(s.payment_method, '')) IN ('card', 'credit_card') THEN s.total_amount ELSE 0 END), 0), COALESCE(SUM(CASE WHEN lower(COALESCE(s.payment_method, '')) IN ('debt', 'credit', 'on_account') THEN s.total_amount ELSE 0 END), 0), CURRENT_TIMESTAMP
-			FROM sales s LEFT JOIN (SELECT si.sale_id, SUM(si.quantity) AS total_items, SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, 0)) AS total_cost FROM sale_items si LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id GROUP BY si.sale_id) cost ON cost.sale_id = s.id
+			FROM sales s LEFT JOIN (SELECT si.sale_id, SUM(si.quantity) AS total_items, SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)) AS total_cost FROM sale_items si LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id GROUP BY si.sale_id) cost ON cost.sale_id = s.id
 			WHERE date(COALESCE(s.sale_date, s.created_at)) >= ? AND date(COALESCE(s.sale_date, s.created_at)) < ? AND lower(COALESCE(s.status, 'completed')) = 'completed'
 			`, []any{year, monthNumber, start, end}},
 		{`INSERT OR REPLACE INTO monthly_inventory_summary (year, month, total_items, total_value, low_stock_count, out_of_stock_count, new_items_added, items_sold, items_returned, items_damaged, updated_at)
@@ -715,7 +792,7 @@ func (h *AggregationHandler) refreshSQLiteMonth(ctx context.Context, month time.
 			SELECT ?, ?, COALESCE(SUM(CASE WHEN date(created_at) < ? AND remaining_amount > 0 THEN remaining_amount ELSE 0 END), 0), COALESCE(SUM(CASE WHEN date(created_at) >= ? AND date(created_at) < ? THEN amount ELSE 0 END), 0), COALESCE((SELECT SUM(amount) FROM payments WHERE customer_id IS NOT NULL AND date(created_at) >= ? AND date(created_at) < ?), 0), COALESCE(SUM(CASE WHEN due_date < ? AND remaining_amount > 0 THEN remaining_amount ELSE 0 END), 0), COALESCE(SUM(CASE WHEN due_date < ? AND remaining_amount > 0 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN remaining_amount <= 0 AND date(updated_at) >= ? AND date(updated_at) < ? THEN amount ELSE 0 END), 0), CURRENT_TIMESTAMP FROM debts
 			`, []any{year, monthNumber, end, start, end, start, end, end, end, start, end}},
 		{`INSERT OR REPLACE INTO monthly_profit_summary (year, month, gross_profit, net_profit, total_revenue, total_cost, profit_margin, updated_at)
-			WITH sale_costs AS (SELECT s.id, s.total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) >= ? AND date(COALESCE(s.sale_date, s.created_at)) < ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) >= ? AND date(expense_date) < ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')), returns_total AS (SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded, COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost FROM returns r JOIN return_items ri ON ri.return_id = r.id LEFT JOIN sale_items si ON si.id = ri.sale_item_id LEFT JOIN products p ON p.id = ri.product_id WHERE date(r.return_date) >= ? AND date(r.return_date) < ? AND upper(COALESCE(r.status, '')) = 'COMPLETED')
+			WITH sale_costs AS (SELECT s.id, s.total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) >= ? AND date(COALESCE(s.sale_date, s.created_at)) < ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) >= ? AND date(expense_date) < ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')), returns_total AS (SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded, COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost FROM returns r JOIN return_items ri ON ri.return_id = r.id LEFT JOIN sale_items si ON si.id = ri.sale_item_id LEFT JOIN products p ON p.id = ri.product_id WHERE date(r.return_date) >= ? AND date(r.return_date) < ? AND upper(COALESCE(r.status, '')) = 'COMPLETED')
 			SELECT ?, ?, totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost, totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost - expenses_total.amount, totals.revenue - returns_total.refunded, totals.cost - returns_total.returned_cost, CASE WHEN totals.revenue - returns_total.refunded = 0 THEN 0 ELSE ((totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost - expenses_total.amount) / (totals.revenue - returns_total.refunded)) * 100 END, CURRENT_TIMESTAMP FROM totals, expenses_total, returns_total
 			`, []any{start, end, start, end, start, end, year, monthNumber}},
 	}
@@ -725,12 +802,14 @@ func (h *AggregationHandler) refreshSQLiteMonth(ctx context.Context, month time.
 			query string
 			args  []any
 		}{`INSERT OR REPLACE INTO monthly_profit_summary (year, month, gross_profit, net_profit, total_revenue, total_cost, profit_margin, updated_at)
-			WITH sale_costs AS (SELECT s.id, s.total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) >= ? AND date(COALESCE(s.sale_date, s.created_at)) < ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) >= ? AND date(expense_date) < ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed'))
+			WITH sale_costs AS (SELECT s.id, s.total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) >= ? AND date(COALESCE(s.sale_date, s.created_at)) < ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) >= ? AND date(expense_date) < ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed'))
 			SELECT ?, ?, totals.revenue - totals.cost, totals.revenue - totals.cost - expenses_total.amount, totals.revenue, totals.cost, CASE WHEN totals.revenue = 0 THEN 0 ELSE ((totals.revenue - totals.cost - expenses_total.amount) / totals.revenue) * 100 END, CURRENT_TIMESTAMP FROM totals, expenses_total
 			`, []any{start, end, start, end, year, monthNumber}}
 	}
 	for _, item := range queries {
 		query := strings.ReplaceAll(item.query, "date(COALESCE(s.sale_date, s.created_at))", saleDateExpr)
+		query = strings.ReplaceAll(query, "COALESCE(ii.purchase_cost, p.cost_price, 0)", productCostExpr)
+		query = strings.ReplaceAll(query, "p.cost_price", productPriceRef)
 		if _, err := h.db.ExecContext(ctx, query, item.args...); err != nil {
 			return fmt.Errorf("refresh monthly summaries for %04d-%02d: %w", year, monthNumber, err)
 		}

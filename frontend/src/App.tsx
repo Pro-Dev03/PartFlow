@@ -16,34 +16,6 @@ import { authApi } from './services/api/endpoints';
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
 const SubscriptionExpiredPage = lazy(() => import('./features/auth/pages/SubscriptionExpiredPage').then(m => ({ default: m.default })));
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, token, sessionVerified, isLoading } = useAuthStore();
-
-  // Keep the requested deep link mounted while the persisted token is being
-  // verified. Redirecting immediately on the temporary `sessionVerified=false`
-  // state turns /app/sales into /app and makes a direct browser navigation
-  // appear to load the dashboard instead of POS.
-  if (isLoading) {
-    return <PageLoader />;
-  }
-
-  if (!isAuthenticated || !token || !sessionVerified || !navigator.onLine) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <>{children}</>;
-}
-
-function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, sessionVerified } = useAuthStore();
-  
-  if (isAuthenticated && sessionVerified) {
-    return <Navigate to="/app" replace />;
-  }
-  
-  return <>{children}</>;
-}
-
 // Component to preload critical pages
 function PagePreloader() {
   useEffect(() => {
@@ -102,6 +74,7 @@ function InitialSyncController() {
 
 function App() {
   const checkAuth = useAuthStore((state) => state.checkAuth);
+  const { isAuthenticated, sessionVerified, isLoading } = useAuthStore();
 
   // HashRouter is required by the packaged Electron build, but a normal
   // browser can still open a deep link such as /app/sales directly. Normalize
@@ -154,6 +127,16 @@ function App() {
     };
   }, []);
 
+  if (isLoading) {
+    return (
+      <ErrorBoundary>
+        <QueryProvider>
+          <PageLoader />
+        </QueryProvider>
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <QueryProvider>
@@ -165,13 +148,15 @@ function App() {
             <Route
               path="/login"
               element={
-                <PublicRoute>
+                !isAuthenticated || !sessionVerified ? (
                   <AuthLayout>
                     <Suspense fallback={<PageLoader />}>
                       <LoginPage />
                     </Suspense>
                   </AuthLayout>
-                </PublicRoute>
+                ) : (
+                  <Navigate to="/app" replace />
+                )
               }
             />
 
@@ -188,7 +173,7 @@ function App() {
             <Route
               path="/app/*"
               element={
-                <ProtectedRoute>
+                isAuthenticated && sessionVerified ? (
                   <LayoutProvider>
                     <AppLayout>
                       <Suspense fallback={<PageLoader />}>
@@ -196,13 +181,25 @@ function App() {
                       </Suspense>
                     </AppLayout>
                   </LayoutProvider>
-                </ProtectedRoute>
+                ) : (
+                  <Navigate to="/login" replace />
+                )
               }
             />
 
             {/* Default redirect */}
-            <Route path="/" element={<Navigate to="/app" replace />} />
-            <Route path="*" element={<Navigate to="/app" replace />} />
+            <Route 
+              path="/" 
+              element={
+                <Navigate to={isAuthenticated && sessionVerified ? '/app' : '/login'} replace />
+              } 
+            />
+            <Route 
+              path="*" 
+              element={
+                <Navigate to={isAuthenticated && sessionVerified ? '/app' : '/login'} replace />
+              } 
+            />
           </Routes>
         </Router>
         <ToastContainer />

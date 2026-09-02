@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
 )
 
 // Config holds database configuration
@@ -36,7 +37,13 @@ func DefaultConfig() *Config {
 func Connect(dbURL string) (*sqlx.DB, error) {
 	config := DefaultConfig()
 
-	db, err := sqlx.Connect("postgres", dbURL)
+	pgxConfig, err := pgx.ParseConfig(dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse database URL: %w", err)
+	}
+	pgxConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	db := sqlx.NewDb(stdlib.OpenDB(*pgxConfig), "pgx")
+	err = db.Ping()
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}

@@ -184,6 +184,12 @@ class ApiClient {
         throw error;
       }
 
+      // A failed refresh cannot be fixed by retrying the same request. Let the
+      // auth store handle the invalid session instead of creating a request loop.
+      if (error?.code === 'AUTH_REFRESH_FAILED' || error?.code === 'INVALID_TOKEN') {
+        throw error;
+      }
+
       // Don't retry 400 Bad Request (client errors) - these won't succeed on retry
       if (error?.status === 400) {
         throw error;
@@ -319,6 +325,10 @@ class ApiClient {
             }
           } catch (refreshError) {
             console.error('Token refresh failed:', refreshError);
+
+            if ((refreshError as any)?.status === 401 || (refreshError as any)?.code === 'INVALID_TOKEN') {
+              throw refreshError;
+            }
           }
 
           // Do not automatically log the user out.

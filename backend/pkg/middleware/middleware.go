@@ -16,6 +16,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/pkg/logger"
 )
 
 var jwtSecret = []byte("your-secret-key-change-in-production")
@@ -401,9 +402,20 @@ func Auth() gin.HandlerFunc {
 		}
 
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			// Extract user_id from claims
-			userID, ok := claims["user_id"].(string)
+			// Extract user_id from claims, while also accepting the standard JWT
+			// subject claim (sub) for older or cross-service tokens. This keeps the
+			// auth contract backwards compatible without allowing arbitrary claim
+			// shapes to pass through.
+			userIDValue := claims["user_id"]
+			if userIDValue == nil {
+				userIDValue = claims["sub"]
+			}
+
+			userID, ok := userIDValue.(string)
 			if !ok {
+				logger.Warn("User ID not found in token claims", map[string]interface{}{
+					"claim_keys": getClaimsKeys(claims),
+				})
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID in token"})
 				c.Abort()
 				return
@@ -567,6 +579,15 @@ func minFloat(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+// getClaimsKeys returns the keys in the JWT claims map
+func getClaimsKeys(claims jwt.MapClaims) []string {
+	keys := make([]string, 0, len(claims))
+	for k := range claims {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // SetJWTSecret sets the JWT secret key

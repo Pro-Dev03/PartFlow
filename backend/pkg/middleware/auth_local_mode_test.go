@@ -123,3 +123,41 @@ func TestAuthRejectsLocalJWTWhenCloudHeaderMissing(t *testing.T) {
 		t.Fatalf("expected missing cloud header to be rejected, status=%d body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestAuthAcceptsLegacySubjectClaimWhenUserIDMissing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, err := sqlx.Connect("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("connect sqlite: %v", err)
+	}
+	defer db.Close()
+
+	t.Setenv("DB_CONNECTION_MODE", "local")
+	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "false")
+	SetJWTSecret("test-secret")
+	SetDatabase(db)
+
+	userID := uuid.NewString()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": userID})
+	tokenString, err := token.SignedString([]byte("test-secret"))
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenString)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+
+	Auth()(c)
+
+	if w.Code == http.StatusUnauthorized {
+		t.Fatalf("expected subject claim to be accepted in local mode, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	if got := GetUserID(c); got.String() != userID {
+		t.Fatalf("expected user_id=%s in context, got %s", userID, got.String())
+	}
+}

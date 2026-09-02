@@ -209,10 +209,14 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 }
 
 func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
-	query := `
+	productCostExpr := "COALESCE(ii.purchase_cost, p.cost_price, p.purchase_price, 0)"
+	if s.db.DriverName() == "sqlite" && !sqliteHasColumns(s.db, "products", "cost_price") {
+		productCostExpr = "COALESCE(ii.purchase_cost, p.purchase_price, 0)"
+	}
+	query := fmt.Sprintf(`
 		WITH sale_costs AS (
 			SELECT s.id, s.created_at, s.total_amount,
-				COALESCE(SUM(COALESCE(ii.purchase_cost, p.purchase_price, p.cost_price, 0) * COALESCE(si.quantity, 0)), 0) AS cost
+				COALESCE(SUM(%s * COALESCE(si.quantity, 0)), 0) AS cost
 			FROM sales s
 			LEFT JOIN sale_items si ON si.sale_id = s.id
 			LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
@@ -221,18 +225,18 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 			  AND datetime(s.created_at) >= datetime('now', '-30 days')
 			GROUP BY s.id, s.created_at, s.total_amount
 		)
-		SELECT strftime('%Y-%m-%d', created_at) AS name,
+		SELECT strftime('%%Y-%%m-%%d', created_at) AS name,
 		       COALESCE(SUM(total_amount), 0) AS sales,
 		       COALESCE(SUM(total_amount - cost), 0) AS profit
 		FROM sale_costs
-		GROUP BY strftime('%Y-%m-%d', created_at)
+		GROUP BY strftime('%%Y-%%m-%%d', created_at)
 		ORDER BY name
-	`
+	`, productCostExpr)
 	if s.db.DriverName() != "sqlite" {
-		query = `
+		query = fmt.Sprintf(`
 			WITH sale_costs AS (
 				SELECT s.id, s.created_at, s.total_amount,
-				       COALESCE(SUM(COALESCE(ii.purchase_cost, p.purchase_price, p.cost_price, 0) * COALESCE(si.quantity, 0)), 0) AS cost
+				       COALESCE(SUM(%s * COALESCE(si.quantity, 0)), 0) AS cost
 				FROM sales s
 				LEFT JOIN sale_items si ON si.sale_id = s.id
 				LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
@@ -247,7 +251,7 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 			FROM sale_costs
 			GROUP BY DATE(created_at)
 			ORDER BY DATE(created_at)
-		`
+		`, productCostExpr)
 	}
 
 	var rows []SalesChartData
