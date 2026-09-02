@@ -16,6 +16,8 @@ type DatabaseHandler struct {
 	db *sqlx.DB
 }
 
+const destructiveResetConfirmation = "DELETE ALL DATA"
+
 func NewDatabaseHandler(db *sqlx.DB) *DatabaseHandler {
 	return &DatabaseHandler{db: db}
 }
@@ -50,7 +52,7 @@ func getOperatingModeFromLocalDB() (string, error) {
 }
 
 func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
-	if c.Query("confirmation") != "Ø§Ø­Ø°Ù Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª" {
+	if c.Query("confirmation_token") != destructiveResetConfirmation {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ØªØ£ÙƒÙŠØ¯ Ø§Ù„ØªØµÙÙŠØ± ØºÙŠØ± ØµØ­ÙŠØ­"})
 		return
 	}
@@ -122,7 +124,7 @@ func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
-	if c.Query("confirmation") != "Ø§Ø­Ø°Ù Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª" {
+	if c.Query("confirmation_token") != destructiveResetConfirmation {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ØªØ£ÙƒÙŠØ¯ Ø§Ù„ØªØµÙÙŠØ± ØºÙŠØ± ØµØ­ÙŠØ­"})
 		return
 	}

@@ -420,6 +420,30 @@ export const settingsApi = {
   // a client-side option that can target the cloud database for deletion.
   deleteAllData: (confirmation: string) =>
     apiClient.delete('/settings/database', { confirmation, target: 'offline' }),
+  deleteCloudData: async (confirmation: string) => {
+    const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
+    if (!cloudToken) throw new Error('No active cloud session');
+
+    const response = await fetch(
+      `${getCloudApiUrl()}/settings/database?confirmation_token=${encodeURIComponent(confirmation)}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cloudToken}`,
+          'X-PartFlow-Cloud-Token': cloudToken,
+        },
+      },
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error: any = new Error(payload?.error?.message || payload?.error || 'Cloud data deletion failed');
+      error.status = response.status;
+      error.response = payload;
+      throw error;
+    }
+    return payload?.data ?? payload;
+  },
 };
 
 // Sync endpoints

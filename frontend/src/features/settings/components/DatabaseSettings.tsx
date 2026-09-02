@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui
 import { Button } from '../../../components/ui/button';
 import { settingsApi } from '../../../services/api/endpoints';
 import { useAuthStore } from '../../../stores/authStore';
-import { RefreshCw, Wifi, Check, X, HardDrive } from 'lucide-react';
+import { RefreshCw, Wifi, Check, X, HardDrive, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getLocalApiUrl } from '../../../lib/config/app';
 
@@ -54,6 +54,19 @@ export function DatabaseSettings() {
     },
     onError: (error: any) => {
       toast.error('فشل المزامنة السحابية: ' + (error?.message || 'تحقق من اتصال الإنترنت'));
+    },
+  });
+
+  const deleteCloudDataMutation = useMutation({
+    mutationFn: () => settingsApi.deleteCloudData(confirmationText),
+    onSuccess: () => {
+      setConfirmationText('');
+      setShowConfirmation(false);
+      void queryClient.invalidateQueries();
+      toast.success('تم حذف بيانات التشغيل السحابية بنجاح. بقي حساب المالك والإعدادات محفوظين.');
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || 'فشل حذف بيانات السحابة');
     },
   });
 
@@ -205,6 +218,59 @@ export function DatabaseSettings() {
               <p className="text-xs text-amber-900">
                 ⚠️ <strong>تنبيه:</strong> البيانات محلية فقط. تأكّد من نسخ البيانات احتياطياً قبل مسح التطبيق.
               </p>
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-4">
+              <div className="flex items-center gap-2 text-red-800">
+                <Trash2 className="h-5 w-5" />
+                <h3 className="font-semibold">حذف بيانات الاختبار السحابية</h3>
+              </div>
+              <p className="text-sm text-red-800">
+                يحذف هذا الإجراء بيانات التشغيل من PostgreSQL السحابية فقط، مثل المبيعات والمخزون والعملاء والتنبيهات. لن يحذف حساب المالك أو الإعدادات أو قاعدة SQLite المحلية.
+              </p>
+              {!showConfirmation ? (
+                <Button
+                  variant="destructive"
+                  className="w-full"
+                  onClick={() => setShowConfirmation(true)}
+                >
+                  <Trash2 className="ml-2 h-4 w-4" />
+                  فتح تأكيد الحذف السحابي
+                </Button>
+              ) : (
+                <div className="space-y-2">
+                  <label htmlFor="cloud-delete-confirmation" className="text-sm font-medium text-red-900">
+                    اكتب DELETE ALL DATA للتأكيد
+                  </label>
+                  <input
+                    id="cloud-delete-confirmation"
+                    value={confirmationText}
+                    onChange={(event) => setConfirmationText(event.target.value)}
+                    className="w-full rounded-md border border-red-300 bg-white px-3 py-2 text-sm"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      variant="destructive"
+                      onClick={() => deleteCloudDataMutation.mutate()}
+                      disabled={confirmationText !== 'DELETE ALL DATA' || deleteCloudDataMutation.isPending}
+                    >
+                      {deleteCloudDataMutation.isPending ? 'جارِ الحذف...' : 'حذف نهائي من السحابة'}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setConfirmationText('');
+                        setShowConfirmation(false);
+                      }}
+                      disabled={deleteCloudDataMutation.isPending}
+                    >
+                      إلغاء
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
