@@ -163,8 +163,9 @@ export function AdvancedSearch({ onSearch, customers = [] }: AdvancedSearchProps
             </span>
           </div>
           
-          <div className="relative w-full md:w-[500px] lg:w-[600px]">
+          <div className="relative w-full max-w-full min-w-0 overflow-hidden">
             <SearchInput
+              className="w-full max-w-full min-w-0"
               placeholder={filters.searchType === 'name' ? 'ابحث بالاسم...' :
                filters.searchType === 'code' ? 'ابحث بالكود...' :
                filters.searchType === 'phone' ? 'ابحث برقم الهاتف...' :

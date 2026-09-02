@@ -8,25 +8,25 @@ import (
 
 // Supplier represents a supplier
 type Supplier struct {
-	ID             uuid.UUID  `json:"id" db:"id"`
-	Code           string     `json:"code" db:"code"`
-	Name           string     `json:"name" db:"name"`
-	Email          *string    `json:"email,omitempty" db:"email"`
-	Phone          *string    `json:"phone,omitempty" db:"phone"`
-	Address        *string    `json:"address,omitempty" db:"address"`
-	City           *string    `json:"city,omitempty" db:"city"`
-	Country        *string    `json:"country,omitempty" db:"country"`
-	TaxID          *string    `json:"tax_id,omitempty" db:"tax_id"`
-	PaymentTerms   *string    `json:"payment_terms,omitempty" db:"payment_terms"`
-	CreditLimit    float64    `json:"credit_limit" db:"credit_limit"`
-	CurrentBalance float64    `json:"current_balance" db:"current_balance"`
-	TotalPurchases float64    `json:"totalPurchases" db:"total_purchases"`
-	PaidAmount     float64    `json:"paidAmount" db:"paid_amount"`
-	Outstanding    float64    `json:"outstanding" db:"outstanding"`
-	Notes          *string    `json:"notes,omitempty" db:"notes"`
-	IsActive       bool       `json:"is_active" db:"is_active"`
-	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+	ID             uuid.UUID `json:"id" db:"id"`
+	Code           string    `json:"code" db:"code"`
+	Name           string    `json:"name" db:"name"`
+	Email          *string   `json:"email,omitempty" db:"email"`
+	Phone          *string   `json:"phone,omitempty" db:"phone"`
+	Address        *string   `json:"address,omitempty" db:"address"`
+	City           *string   `json:"city,omitempty" db:"city"`
+	Country        *string   `json:"country,omitempty" db:"country"`
+	TaxID          *string   `json:"tax_id,omitempty" db:"tax_id"`
+	PaymentTerms   *string   `json:"payment_terms,omitempty" db:"payment_terms"`
+	CreditLimit    float64   `json:"credit_limit" db:"credit_limit"`
+	CurrentBalance float64   `json:"current_balance" db:"current_balance"`
+	TotalPurchases float64   `json:"totalPurchases" db:"total_purchases"`
+	PaidAmount     float64   `json:"paidAmount" db:"paid_amount"`
+	Outstanding    float64   `json:"outstanding" db:"outstanding"`
+	Notes          *string   `json:"notes,omitempty" db:"notes"`
+	IsActive       bool      `json:"is_active" db:"is_active"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // TableName returns the table name for the Supplier model
@@ -48,7 +48,6 @@ func NewSupplier(code, name string) *Supplier {
 	}
 }
 
-
 // DebtEntry represents a debt entry with detailed information
 type DebtEntry struct {
 	ID            uuid.UUID `json:"id" db:"id"`
@@ -64,12 +63,12 @@ type DebtEntry struct {
 
 // DebtCollection represents a debt collection action
 type DebtCollection struct {
-	ID             uuid.UUID  `json:"id" db:"id"`
-	SupplierID     uuid.UUID  `json:"supplier_id" db:"supplier_id"`
-	Type           string     `json:"type" db:"type"` // "reminder", "warning", "legal_action"
-	Status         string     `json:"status" db:"status"` // "pending", "sent", "resolved"
-	Notes          *string    `json:"notes,omitempty" db:"notes"`
-	ScheduledDate  time.Time  `json:"scheduled_date" db:"scheduled_date"`
-	CompletedDate  *time.Time `json:"completed_date,omitempty" db:"completed_date"`
-	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
+	ID            uuid.UUID  `json:"id" db:"id"`
+	SupplierID    uuid.UUID  `json:"supplier_id" db:"supplier_id"`
+	Type          string     `json:"type" db:"type"`     // "reminder", "warning", "legal_action"
+	Status        string     `json:"status" db:"status"` // "pending", "sent", "resolved"
+	Notes         *string    `json:"notes,omitempty" db:"notes"`
+	ScheduledDate time.Time  `json:"scheduled_date" db:"scheduled_date"`
+	CompletedDate *time.Time `json:"completed_date,omitempty" db:"completed_date"`
+	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 }

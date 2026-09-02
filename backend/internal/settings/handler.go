@@ -53,6 +53,7 @@ func (h *Handler) GetPublicSettings(c *gin.Context) {
 		}
 		settings = append(settings, setting)
 	}
+	_ = rows.Err()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

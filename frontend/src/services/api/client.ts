@@ -1,5 +1,5 @@
 import { getArabicErrorMessage, isRetryableError } from '../../lib/error-messages';
-import { appConfig, getActiveApiUrl, getCloudApiUrl } from '../../lib/config/app';
+import { appConfig, getActiveApiUrl, getCloudApiUrl, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
 import { TokenManager } from '../../lib/token-manager';
 
 const API_BASE_URL = appConfig.apiUrl;
@@ -23,6 +23,7 @@ class ApiClient {
   private token: string | null = null;
   private cache: Map<string, { data: unknown; timestamp: number }> = new Map();
   private refreshInFlight: Promise<string | null> | null = null;
+  private refreshFailedForSession = false;
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
@@ -32,12 +33,14 @@ class ApiClient {
 
   setToken(token: string) {
     this.token = token;
+    this.refreshFailedForSession = false;
     // Use TokenManager for consistent token storage
     TokenManager.setToken(token);
   }
 
   clearToken() {
     this.token = null;
+    this.refreshFailedForSession = false;
     // Use TokenManager for consistent token clearing
     TokenManager.clearToken();
   }
@@ -45,6 +48,10 @@ class ApiClient {
   logout() {
     this.clearToken();
     this.clearCache();
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('cloud_token');
+      localStorage.removeItem('cloud_refresh_token');
+    }
   }
 
   private getBaseURL(): string {
@@ -92,17 +99,26 @@ class ApiClient {
    * refresh token repeatedly.
    */
   private async refreshAccessToken(): Promise<string | null> {
+    if (this.refreshFailedForSession) {
+      return null;
+    }
+
     if (this.refreshInFlight) {
       return this.refreshInFlight;
     }
 
     const refreshToken = TokenManager.getRefreshToken();
     if (!refreshToken) {
+      this.refreshFailedForSession = true;
       return null;
     }
 
     const refreshPromise = (async () => {
-      const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
+      const baseUrl = typeof window !== 'undefined' && shouldUseLocalApi(window.location.hostname)
+        ? getLocalApiUrl()
+        : getCloudApiUrl();
+
+      const refreshResponse = await fetch(`${baseUrl}/auth/refresh`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -112,6 +128,7 @@ class ApiClient {
 
       const refreshData = await refreshResponse.json().catch(() => ({}));
       if (!refreshResponse.ok) {
+        this.refreshFailedForSession = true;
         const error: any = new Error(
           refreshData?.error?.message || refreshData?.error || 'Session refresh failed'
         );
@@ -129,9 +146,11 @@ class ApiClient {
         || refreshToken;
 
       if (!newToken) {
+        this.refreshFailedForSession = true;
         return null;
       }
 
+      this.refreshFailedForSession = false;
       this.setToken(newToken);
       if (newRefreshToken) {
         TokenManager.setRefreshToken(newRefreshToken);
@@ -142,6 +161,9 @@ class ApiClient {
     this.refreshInFlight = refreshPromise;
     try {
       return await refreshPromise;
+    } catch (error) {
+      this.refreshFailedForSession = true;
+      throw error;
     } finally {
       if (this.refreshInFlight === refreshPromise) {
         this.refreshInFlight = null;
@@ -193,19 +215,38 @@ class ApiClient {
    * التي تُرجعها gin افتراضياً) بدل إطلاق SyntaxError.
    */
   private async parseResponse<T>(response: Response): Promise<ApiResponse<T>> {
-    const text = await response.text();
-    if (!text) {
-      return { success: response.ok, data: undefined as T, error: response.ok ? undefined : { code: String(response.status), message: response.statusText } };
+    if (typeof response.json === 'function') {
+      try {
+        const json = await response.json();
+        if (json && typeof json === 'object') {
+          return json as ApiResponse<T>;
+        }
+      } catch {
+        // Fall back to text parsing below when the response body is not JSON.
+      }
     }
-    try {
-      return JSON.parse(text) as ApiResponse<T>;
-    } catch {
-      return {
-        success: false,
-        data: undefined as T,
-        error: { code: String(response.status), message: text },
-      };
+
+    if (typeof response.text === 'function') {
+      const text = await response.text();
+      if (!text) {
+        return { success: response.ok, data: undefined as T, error: response.ok ? undefined : { code: String(response.status), message: response.statusText } };
+      }
+      try {
+        return JSON.parse(text) as ApiResponse<T>;
+      } catch {
+        return {
+          success: false,
+          data: undefined as T,
+          error: { code: String(response.status), message: text },
+        };
+      }
     }
+
+    return {
+      success: response.ok,
+      data: undefined as T,
+      error: response.ok ? undefined : { code: String(response.status), message: response.statusText || 'Request failed' },
+    };
   }
 
   private async request<T>(
@@ -229,6 +270,11 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
+    const cloudToken = this.getCloudAccessToken();
+    if (cloudToken) {
+      headers['X-PartFlow-Cloud-Token'] = cloudToken;
+    }
+
     // Create abort controller for timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -245,12 +291,10 @@ class ApiClient {
       const data: ApiResponse<T> = await this.parseResponse<T>(response);
 
       if (!response.ok) {
-        // Handle 401 Unauthorized - try to refresh token
+        // Local JWT 401s refresh against the local API; cloud_token refresh is
+        // handled separately by subscription validation.
         if (response.status === 401 && this.token) {
           try {
-            // Tokens belong to the cloud authority even though business data
-            // is served by the local SQLite API. Refresh against Render so a
-            // valid cloud session can continue using local operations.
             const newToken = await this.refreshAccessToken();
             if (newToken) {
               headers['Authorization'] = `Bearer ${newToken}`;
@@ -287,7 +331,7 @@ class ApiClient {
           throw refreshError;
         }
 
-        // Create error object with status
+        // For non-cloud requests or non-401 errors, create error object with status
         const responseError = data.error as ApiResponse<T>['error'] | string | undefined;
         const errorMessage = typeof responseError === 'string'
           ? responseError
@@ -302,9 +346,10 @@ class ApiClient {
         // ADMIN_REQUIRED). Redirect only for an explicit subscription/cloud
         // authorization decision and leave ordinary permission errors to the
         // caller.
-        const subscriptionErrorCode = data.error?.code === 'SUBSCRIPTION_EXPIRED' ||
-          data.error?.code === 'CLOUD_AUTH_REQUIRED';
-        if (response.status === 403 && subscriptionErrorCode) {
+        if (response.status === 403 && (
+          data.error?.code === 'SUBSCRIPTION_EXPIRED' ||
+          data.error?.code === 'CLOUD_AUTH_REQUIRED'
+        )) {
           if (typeof window !== 'undefined' && !window.location.hash.includes('/subscription-expired')) {
             try {
               window.location.hash = '#/subscription-expired';
@@ -347,6 +392,38 @@ class ApiClient {
     }
   }
 
+  private getCloudAccessToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem('cloud_token');
+  }
+
+  private async refreshCloudAccessToken(): Promise<string | null> {
+    if (typeof window === 'undefined') return null;
+    const refreshToken = localStorage.getItem('cloud_refresh_token');
+    if (!refreshToken) return null;
+
+    const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    const refreshData = await refreshResponse.json().catch(() => ({}));
+    if (!refreshResponse.ok) return null;
+
+    const payload = refreshData?.data && typeof refreshData.data === 'object'
+      ? refreshData.data
+      : refreshData;
+    const nextToken = payload?.access_token || payload?.token;
+    if (!nextToken) return null;
+
+    localStorage.setItem('cloud_token', nextToken);
+    const nextRefresh = payload?.refresh_token || payload?.refreshToken;
+    if (nextRefresh) {
+      localStorage.setItem('cloud_refresh_token', nextRefresh);
+    }
+    return nextToken as string;
+  }
+
   private async ensureMutationAllowed(endpoint: string): Promise<void> {
     // Business data may be written to the local API/SQLite database, but the
     // cloud remains the authority for whether the account may use the app.
@@ -356,31 +433,44 @@ class ApiClient {
       throw new Error('يلزم اتصال بالإنترنت للتحقق من الاشتراك قبل تنفيذ العملية.');
     }
 
-    const token = TokenManager.getToken();
-    if (!token) {
+    let cloudToken = this.getCloudAccessToken();
+    if (!cloudToken) {
       throw new Error('يلزم تسجيل الدخول قبل تنفيذ العملية.');
     }
 
+    const validate = (token: string) => fetch(`${getCloudApiUrl()}/auth/validate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: '{}',
+    });
+
     let response: Response;
     try {
-      response = await fetch(`${getCloudApiUrl()}/auth/validate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: '{}',
-      });
+      response = await validate(cloudToken);
+      if (response.status === 401) {
+        const refreshed = await this.refreshCloudAccessToken();
+        if (refreshed) {
+          cloudToken = refreshed;
+          response = await validate(cloudToken);
+        }
+      }
     } catch {
       throw new Error('تعذر الاتصال بالخادم للتحقق من الاشتراك. لم تُنفذ العملية.');
     }
 
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        this.logout();
-        if (typeof window !== 'undefined') window.location.hash = '#/subscription-expired';
+      this.logout();
+      if (typeof window !== 'undefined') {
+        window.location.hash = response.status === 403
+          ? '#/subscription-expired'
+          : '#/login';
       }
-      throw new Error('الحساب غير نشط أو أن الاشتراك منتهٍ. لم تُنفذ العملية.');
+      throw new Error(response.status === 403
+        ? 'الحساب غير نشط أو أن الاشتراك منتهٍ. لم تُنفذ العملية.'
+        : 'يلزم تسجيل الدخول قبل تنفيذ العملية.');
     }
   }
 

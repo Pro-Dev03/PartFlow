@@ -70,7 +70,6 @@ func (h *Handler) GetPurchase(c *gin.Context) {
 		return
 	}
 
-
 	response, err := h.service.GetPurchase(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -102,7 +101,7 @@ func (h *Handler) GetPurchase(c *gin.Context) {
 // @Router /api/v1/purchases [get]
 func (h *Handler) ListPurchases(c *gin.Context) {
 	var req PurchaseListRequest
-	
+
 	// Parse query parameters
 	if page, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil {
 		req.Page = page
@@ -110,30 +109,29 @@ func (h *Handler) ListPurchases(c *gin.Context) {
 	if perPage, err := strconv.Atoi(c.DefaultQuery("per_page", "20")); err == nil {
 		req.PerPage = perPage
 	}
-	
+
 	if supplierID := c.Query("supplier_id"); supplierID != "" {
 		if id, err := uuid.Parse(supplierID); err == nil {
 			req.SupplierID = &id
 		}
 	}
-	
+
 	req.Status = c.Query("status")
 	req.Search = c.Query("search")
 	req.SortBy = c.DefaultQuery("sort_by", "purchase_date")
 	req.SortOrder = c.DefaultQuery("sort_order", "DESC")
-	
+
 	if startDate := c.Query("start_date"); startDate != "" {
 		if t, err := time.Parse(time.RFC3339, startDate); err == nil {
 			req.StartDate = &t
 		}
 	}
-	
+
 	if endDate := c.Query("end_date"); endDate != "" {
 		if t, err := time.Parse(time.RFC3339, endDate); err == nil {
 			req.EndDate = &t
 		}
 	}
-
 
 	purchases, total, err := h.service.ListPurchases(c.Request.Context(), req)
 	if err != nil {
@@ -144,9 +142,9 @@ func (h *Handler) ListPurchases(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"data": purchases,
 		"meta": gin.H{
-			"page":      req.Page,
-			"per_page":  req.PerPage,
-			"total":     total,
+			"page":        req.Page,
+			"per_page":    req.PerPage,
+			"total":       total,
 			"total_pages": (total + req.PerPage - 1) / req.PerPage,
 		},
 	})
@@ -179,7 +177,6 @@ func (h *Handler) UpdatePurchase(c *gin.Context) {
 		return
 	}
 
-
 	response, err := h.service.UpdatePurchase(c.Request.Context(), id, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -208,7 +205,6 @@ func (h *Handler) DeletePurchase(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid purchase ID"})
 		return
 	}
-
 
 	if err := h.service.DeletePurchase(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -268,7 +264,6 @@ func (h *Handler) CancelPurchase(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid purchase ID"})
 		return
 	}
-
 
 	response, err := h.service.CancelPurchase(c.Request.Context(), id)
 	if err != nil {
@@ -387,7 +382,6 @@ func (h *Handler) AddPurchaseItem(c *gin.Context) {
 		return
 	}
 
-
 	item, err := h.service.AddPurchaseItem(c.Request.Context(), purchaseID, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -423,7 +417,6 @@ func (h *Handler) UpdatePurchaseItem(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 
 	item, err := h.service.UpdatePurchaseItem(c.Request.Context(), itemID, &req)
 	if err != nil {

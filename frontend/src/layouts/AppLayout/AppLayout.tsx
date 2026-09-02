@@ -14,7 +14,7 @@ interface AppLayoutProps {
 
 export function AppLayout({ children }: AppLayoutProps) {
   const { direction } = useTranslation();
-  const { sidebarCollapsed, toggleSidebar, theme } = useUIStore();
+  const { sidebarCollapsed, checkoutMode, toggleSidebar, theme } = useUIStore();
   const { fullWidth } = useLayout();
   const [showScrollTop, setShowScrollTop] = useState(false);
   const mainRef = useRef<HTMLDivElement | null>(null);
@@ -66,21 +66,23 @@ export function AppLayout({ children }: AppLayoutProps) {
           onToggleSidebar={toggleSidebar}
         />
         <div style={{ display: 'flex', flex: 1, minWidth: 0, alignItems: 'stretch' }}>
-          <Sidebar
-            isCollapsed={sidebarCollapsed}
-          />
+          {!checkoutMode && (
+            <Sidebar
+              isCollapsed={sidebarCollapsed}
+            />
+          )}
           <main
             ref={mainRef}
             id="main-content"
             style={{
               flex: 1,
               minWidth: 0,
-              maxWidth: fullWidth ? '100%' : '1500px',
-              margin: fullWidth ? '0' : '0 auto',
+              maxWidth: checkoutMode ? '100%' : (fullWidth ? '100%' : '1500px'),
+              margin: checkoutMode ? '0' : (fullWidth ? '0' : '0 auto'),
               width: '100%',
-              padding: '24px 28px'
+              padding: checkoutMode ? '0' : '24px 28px'
             }}
-            className="px-4 md:px-8 lg:px-8"
+            className={cn('px-4 md:px-8 lg:px-8', checkoutMode && 'checkout-mode')}
           >
             {children}
           </main>

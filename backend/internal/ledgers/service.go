@@ -35,19 +35,19 @@ func (s *Service) CreateLedgerEntry(ctx context.Context, req *LedgerEntryRequest
 
 	// Create ledger entry
 	entry := &LedgerEntry{
-		ID:             uuid.New(),
-		LedgerType:     req.LedgerType,
-		EntityID:       req.EntityID,
+		ID:              uuid.New(),
+		LedgerType:      req.LedgerType,
+		EntityID:        req.EntityID,
 		TransactionType: req.TransactionType,
-		ReferenceID:    req.ReferenceID,
-		ReferenceType:  req.ReferenceType,
-		Amount:         req.Amount,
-		Balance:        newBalance,
+		ReferenceID:     req.ReferenceID,
+		ReferenceType:   req.ReferenceType,
+		Amount:          req.Amount,
+		Balance:         newBalance,
 		PreviousBalance: currentBalance,
-		Description:    req.Description,
-		Metadata:       req.Metadata,
-		CreatedBy:      userID,
-		CreatedAt:      time.Now(),
+		Description:     req.Description,
+		Metadata:        req.Metadata,
+		CreatedBy:       userID,
+		CreatedAt:       time.Now(),
 	}
 
 	// Insert using repository (will trigger automatic balance updates)

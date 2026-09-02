@@ -78,3 +78,60 @@ func TestRepositoryListInventoryItemsHandlesSQLiteTextTimestamps(t *testing.T) {
 		t.Fatal("UpdatedAt is zero after SQLite text timestamp scan")
 	}
 }
+
+func TestInventoryItemFromMapHandlesNonStringScalars(t *testing.T) {
+	id := uuid.MustParse("22222222-2222-4222-8222-222222222222")
+	productID := uuid.MustParse("33333333-3333-4333-8333-333333333333")
+	locationID := uuid.MustParse("44444444-4444-4444-8444-444444444444")
+	createdAt := "2024-01-02T03:04:05Z"
+	updatedAt := "2024-01-03T03:04:05Z"
+
+	record := map[string]any{
+		"id":                 []byte(id.String()),
+		"product_id":         []byte(productID.String()),
+		"part_type_id":       nil,
+		"item_code":          []byte("ITEM-001"),
+		"barcode":            []byte("BC-001"),
+		"serial_number":      []byte("SN-001"),
+		"condition":          "NEW",
+		"grade":              "EXCELLENT",
+		"purchase_cost":      float64(99.5),
+		"selling_price":      int64(120),
+		"status":             "AVAILABLE",
+		"location_id":        []byte(locationID.String()),
+		"supplier_id":        nil,
+		"purchase_date":      createdAt,
+		"sold_at":            nil,
+		"notes":              []byte("ok"),
+		"created_at":         createdAt,
+		"updated_at":         updatedAt,
+		"current_quantity":   int64(2),
+		"available_quantity": int64(1),
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("inventoryItemFromMap panicked: %v", r)
+		}
+	}()
+
+	item, err := inventoryItemFromMap(record)
+	if err != nil {
+		t.Fatalf("inventoryItemFromMap returned error: %v", err)
+	}
+	if item.ID != id {
+		t.Fatalf("item ID mismatch: got %s, want %s", item.ID, id)
+	}
+	if item.ProductID == nil || *item.ProductID != productID {
+		t.Fatalf("product ID mismatch: %#v", item.ProductID)
+	}
+	if item.LocationID == nil || *item.LocationID != locationID {
+		t.Fatalf("location ID mismatch: %#v", item.LocationID)
+	}
+	if item.PurchaseCost != 99.5 {
+		t.Fatalf("purchase_cost = %v, want 99.5", item.PurchaseCost)
+	}
+	if item.CurrentQuantity != 2 || item.AvailableQuantity != 1 {
+		t.Fatalf("quantities incorrect: %+v", item)
+	}
+}

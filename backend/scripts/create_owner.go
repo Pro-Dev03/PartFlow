@@ -7,11 +7,11 @@ import (
 	"log"
 	"os"
 
-	"github.com/joho/godotenv"
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/jmoiron/sqlx"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type OwnerConfig struct {
@@ -91,7 +91,7 @@ func createOrUpdateOwner(db *sqlx.DB, config OwnerConfig) (string, error) {
 	// Check if user exists
 	var userID string
 	err = db.Get(&userID, "SELECT id FROM users WHERE email = $1 LIMIT 1", config.Email)
-	
+
 	if err == nil {
 		// Update existing user
 		query := `
@@ -103,7 +103,7 @@ func createOrUpdateOwner(db *sqlx.DB, config OwnerConfig) (string, error) {
 			WHERE email = $5
 			RETURNING id
 		`
-		err = db.QueryRow(query, string(hashedPassword), config.FirstName, config.LastName, 
+		err = db.QueryRow(query, string(hashedPassword), config.FirstName, config.LastName,
 			config.Phone, config.Email).Scan(&userID)
 		if err != nil {
 			return "", fmt.Errorf("failed to update user: %w", err)
@@ -113,10 +113,10 @@ func createOrUpdateOwner(db *sqlx.DB, config OwnerConfig) (string, error) {
 
 	// Create new user
 	userID = uuid.New().String()
-	
+
 	// Make sure role column exists
 	db.Exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'owner'")
-	
+
 	query := `
 		INSERT INTO users (id, email, password_hash, first_name, last_name, 
 		                  phone, role, is_active, subscription_status, subscription_expires_at, created_at, updated_at)

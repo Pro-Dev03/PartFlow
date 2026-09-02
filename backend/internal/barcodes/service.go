@@ -66,14 +66,14 @@ func (s *Service) GenerateBarcode(ctx context.Context, req *BarcodeGenerationReq
 
 	now := time.Now()
 	barcode := &Barcode{
-		ID:             uuid.New(),
-		Code:           code,
-		Type:           req.Type,
-		ProductID:      req.ProductID,
+		ID:              uuid.New(),
+		Code:            code,
+		Type:            req.Type,
+		ProductID:       req.ProductID,
 		InventoryItemID: req.InventoryItemID,
-		IsActive:       true,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		IsActive:        true,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 
 	if err := s.repo.CreateBarcode(ctx, barcode); err != nil {
@@ -105,15 +105,15 @@ func (s *Service) GenerateLabels(ctx context.Context, req *LabelGenerationReques
 		}
 
 		label := &Label{
-			ID:             uuid.New(),
-			BarcodeID:      barcodeID,
-			BarcodeCode:    barcode.Code,
-			ProductName:    req.ProductName,
-			Price:          req.Price,
-			Quantity:       req.Quantity,
-			LabelFormat:    req.LabelFormat,
-			PrintCount:     req.PrintCount,
-			CreatedAt:      time.Now(),
+			ID:          uuid.New(),
+			BarcodeID:   barcodeID,
+			BarcodeCode: barcode.Code,
+			ProductName: req.ProductName,
+			Price:       req.Price,
+			Quantity:    req.Quantity,
+			LabelFormat: req.LabelFormat,
+			PrintCount:  req.PrintCount,
+			CreatedAt:   time.Now(),
 		}
 
 		labels = append(labels, label)

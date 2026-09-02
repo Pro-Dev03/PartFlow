@@ -29,6 +29,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		auth.POST("/refresh", h.RefreshToken)
 		auth.POST("/logout", h.Logout)
 		auth.POST("/change-password", h.ChangePassword)
+		auth.POST("/cloud-session", h.CloudSession)
 		// auth.POST("/password-reset", h.RequestPasswordReset)
 		// auth.POST("/password-reset/confirm", h.ResetPassword)
 	}
@@ -183,6 +184,44 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, user)
+}
+
+// CloudSession creates a local JWT session from a cloud access token
+func (h *Handler) CloudSession(c *gin.Context) {
+	var req CloudSessionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	resp, err := h.service.CreateCloudSession(c.Request.Context(), req.CloudToken)
+	if err != nil {
+		status := http.StatusUnauthorized
+		if strings.Contains(err.Error(), "cloud auth is not configured") {
+			status = http.StatusInternalServerError
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": gin.H{
+			"token":         resp.AccessToken,
+			"access_token":  resp.AccessToken,
+			"refresh_token": resp.RefreshToken,
+			"expires_in":    resp.ExpiresIn,
+			"user": gin.H{
+				"id":                      resp.User.ID.String(),
+				"email":                   resp.User.Email,
+				"first_name":              resp.User.FirstName,
+				"last_name":               resp.User.LastName,
+				"phone":                   resp.User.Phone,
+				"is_active":               resp.User.IsActive,
+				"subscription_status":     resp.User.SubscriptionStatus,
+				"subscription_expires_at": resp.User.SubscriptionExpiresAt,
+			},
+		},
+	})
 }
 
 // ValidateSubscription confirms the account is currently permitted by the

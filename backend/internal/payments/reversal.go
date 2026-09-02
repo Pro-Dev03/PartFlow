@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	ErrPaymentCannotReverse = errors.New("payment cannot be reversed - wrong status")
+	ErrPaymentCannotReverse  = errors.New("payment cannot be reversed - wrong status")
 	ErrInvalidReversalReason = errors.New("reversal reason is required")
 )
 
@@ -140,13 +140,13 @@ func (s *ReversalService) ReversePayment(ctx context.Context, paymentID uuid.UUI
 
 	// Return the reversal record
 	reversal := &PaymentReversal{
-		ID:              reversalID,
-		PaymentID:       paymentID,
-		Reason:          req.Reason,
-		ReversedBy:      userID,
-		ReversedAt:      now,
-		OriginalAmount:  payment.Amount,
-		CreatedAt:       now,
+		ID:             reversalID,
+		PaymentID:      paymentID,
+		Reason:         req.Reason,
+		ReversedBy:     userID,
+		ReversedAt:     now,
+		OriginalAmount: payment.Amount,
+		CreatedAt:      now,
 	}
 
 	return reversal, nil
@@ -185,6 +185,9 @@ func (s *ReversalService) GetReversalHistory(ctx context.Context, paymentID uuid
 		}
 		reversal.DebtAdjustmentID = debtAdjustmentID
 		reversals = append(reversals, reversal)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate payment reversals: %w", err)
 	}
 
 	return reversals, nil

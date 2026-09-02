@@ -7,9 +7,9 @@ import (
 
 // EnhancedCache represents a cache for single-tenant system
 type EnhancedCache struct {
-	data      *CachedData // Single cache entry
-	mu        sync.RWMutex
-	ttl       time.Duration
+	data *CachedData // Single cache entry
+	mu   sync.RWMutex
+	ttl  time.Duration
 }
 
 type CachedData struct {

@@ -270,7 +270,7 @@ func CORS() gin.HandlerFunc {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			c.Writer.Header().Add("Vary", "Origin")
 		}
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-PartFlow-Cloud-Token, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
 		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
 
@@ -349,12 +349,22 @@ func Auth() gin.HandlerFunc {
 		// authorization to Render. This prevents a direct local API call from
 		// bypassing the cloud subscription decision.
 		if isLocalDatabaseMode() && requiresCloudAuth() {
-			userUUID, cloudEmail, cloudErr := validateWithCloud(c.Request.Context(), tokenString)
+			cloudToken := strings.TrimSpace(c.GetHeader("X-PartFlow-Cloud-Token"))
+			if cloudToken == "" {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"error": "يلزم توكن الجلسة السحابية للتحقق من الاشتراك",
+					"code":  "CLOUD_AUTH_REQUIRED",
+				})
+				c.Abort()
+				return
+			}
+			userUUID, cloudEmail, cloudErr := validateWithCloud(c.Request.Context(), cloudToken)
 			if cloudErr != nil {
 				message := "تعذر التحقق من الحساب عبر الخادم السحابي"
-				if cloudErr.status == http.StatusUnauthorized {
+				switch cloudErr.status {
+				case http.StatusUnauthorized:
 					message = "جلسة الدخول غير صالحة"
-				} else if cloudErr.status == http.StatusForbidden {
+				case http.StatusForbidden:
 					message = "الحساب غير نشط أو أن الاشتراك منتهٍ"
 				}
 				c.JSON(cloudErr.status, gin.H{"error": message, "code": "CLOUD_AUTH_REQUIRED"})

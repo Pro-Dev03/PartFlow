@@ -96,7 +96,7 @@ func main() {
 		var connErr error
 		for attempt := 1; attempt <= 3; attempt++ {
 			fmt.Printf("  Attempt %d/3... ", attempt)
-			
+
 			select {
 			case <-ctx.Done():
 				connErr = fmt.Errorf("timeout after %v", test.Timeout)
@@ -117,7 +117,7 @@ func main() {
 
 		if connErr == nil {
 			fmt.Printf("  ✅ Connection successful!\n")
-			
+
 			// Test a simple query
 			var result string
 			err := db.QueryRowContext(ctx, "SELECT current_database()").Scan(&result)
@@ -143,7 +143,7 @@ func main() {
 		fmt.Println("=== RECOMMENDED ACTION ===")
 		fmt.Printf("Update your .env file with this DATABASE_URL:\n")
 		fmt.Printf("DATABASE_URL=%s\n", successfulConfig)
-		
+
 		// Keep the successful connection open for a moment to verify stability
 		fmt.Println("\n=== Testing connection stability ===")
 		for i := 1; i <= 5; i++ {
@@ -155,7 +155,7 @@ func main() {
 				fmt.Printf("  Check %d/5: ✅ OK\n", i)
 			}
 		}
-		
+
 		successfulDB.Close()
 		os.Exit(0)
 	} else {

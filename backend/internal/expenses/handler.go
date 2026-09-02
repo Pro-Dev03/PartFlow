@@ -70,7 +70,6 @@ func (h *Handler) GetExpense(c *gin.Context) {
 		return
 	}
 
-
 	response, err := h.service.GetExpense(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -104,7 +103,7 @@ func (h *Handler) GetExpense(c *gin.Context) {
 // @Router /api/v1/expenses [get]
 func (h *Handler) ListExpenses(c *gin.Context) {
 	var req ExpenseListRequest
-	
+
 	// Parse query parameters
 	if page, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil {
 		req.Page = page
@@ -112,37 +111,36 @@ func (h *Handler) ListExpenses(c *gin.Context) {
 	if perPage, err := strconv.Atoi(c.DefaultQuery("per_page", "20")); err == nil {
 		req.PerPage = perPage
 	}
-	
+
 	if categoryID := c.Query("category_id"); categoryID != "" {
 		if id, err := uuid.Parse(categoryID); err == nil {
 			req.CategoryID = &id
 		}
 	}
-	
+
 	req.Status = c.Query("status")
 	req.PaymentMethod = c.Query("payment_method")
 	req.Search = c.Query("search")
 	req.SortBy = c.DefaultQuery("sort_by", "expense_date")
 	req.SortOrder = c.DefaultQuery("sort_order", "DESC")
-	
+
 	if startDate := c.Query("start_date"); startDate != "" {
 		if t, err := time.Parse(time.RFC3339, startDate); err == nil {
 			req.StartDate = &t
 		}
 	}
-	
+
 	if endDate := c.Query("end_date"); endDate != "" {
 		if t, err := time.Parse(time.RFC3339, endDate); err == nil {
 			req.EndDate = &t
 		}
 	}
-	
+
 	if isRecurring := c.Query("is_recurring"); isRecurring != "" {
 		if val, err := strconv.ParseBool(isRecurring); err == nil {
 			req.IsRecurring = &val
 		}
 	}
-
 
 	expenses, total, err := h.service.ListExpenses(c.Request.Context(), req)
 	if err != nil {
@@ -188,7 +186,6 @@ func (h *Handler) UpdateExpense(c *gin.Context) {
 		return
 	}
 
-
 	response, err := h.service.UpdateExpense(c.Request.Context(), id, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -217,7 +214,6 @@ func (h *Handler) DeleteExpense(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid expense ID"})
 		return
 	}
-
 
 	if err := h.service.DeleteExpense(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -278,7 +274,6 @@ func (h *Handler) RejectExpense(c *gin.Context) {
 		return
 	}
 
-
 	response, err := h.service.RejectExpense(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -306,7 +301,6 @@ func (h *Handler) CreateExpenseCategory(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 
 	category, err := h.service.CreateExpenseCategory(c.Request.Context(), &req)
 	if err != nil {
@@ -337,7 +331,6 @@ func (h *Handler) GetExpenseCategory(c *gin.Context) {
 		return
 	}
 
-
 	category, err := h.service.GetExpenseCategory(c.Request.Context(), id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -366,7 +359,7 @@ func (h *Handler) GetExpenseCategory(c *gin.Context) {
 // @Router /api/v1/expense-categories [get]
 func (h *Handler) ListExpenseCategories(c *gin.Context) {
 	var req ExpenseCategoryListRequest
-	
+
 	// Parse query parameters
 	if page, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil {
 		req.Page = page
@@ -374,17 +367,16 @@ func (h *Handler) ListExpenseCategories(c *gin.Context) {
 	if perPage, err := strconv.Atoi(c.DefaultQuery("per_page", "20")); err == nil {
 		req.PerPage = perPage
 	}
-	
+
 	if isActive := c.Query("is_active"); isActive != "" {
 		if val, err := strconv.ParseBool(isActive); err == nil {
 			req.IsActive = &val
 		}
 	}
-	
+
 	req.Search = c.Query("search")
 	req.SortBy = c.DefaultQuery("sort_by", "name")
 	req.SortOrder = c.DefaultQuery("sort_order", "ASC")
-
 
 	categories, total, err := h.service.ListExpenseCategories(c.Request.Context(), req)
 	if err != nil {
@@ -430,7 +422,6 @@ func (h *Handler) UpdateExpenseCategory(c *gin.Context) {
 		return
 	}
 
-
 	category, err := h.service.UpdateExpenseCategory(c.Request.Context(), id, &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -459,7 +450,6 @@ func (h *Handler) DeleteExpenseCategory(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid expense category ID"})
 		return
 	}
-
 
 	if err := h.service.DeleteExpenseCategory(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

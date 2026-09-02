@@ -111,6 +111,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			public.POST("/auth/register", authHandler.Register)
 			public.POST("/auth/login", authHandler.Login)
 			public.POST("/auth/refresh", authHandler.RefreshToken)
+			public.POST("/auth/cloud-session", authHandler.CloudSession)
 		}
 
 		// Protected routes (auth required)

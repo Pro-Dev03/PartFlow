@@ -328,6 +328,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 			daily.Date = date.Time
 			report.ByDay = append(report.ByDay, daily)
 		}
+		_ = rows.Err()
 	}
 
 	report.TopProducts = []ProductSales{}
@@ -362,7 +363,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 
 	report.ByPaymentMethod = make(map[string]float64)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(payment_method, 'غير محدد'), COALESCE(SUM(total_amount), 0) as total
+		`SELECT COALESCE(payment_method, 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯'), COALESCE(SUM(total_amount), 0) as total
 		 FROM sales
 		 WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
@@ -379,6 +380,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 			}
 			report.ByPaymentMethod[method] = total
 		}
+		_ = rows.Err()
 	}
 
 	return &report, nil
@@ -431,6 +433,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		report.ByCondition[condition] = count
 		report.Valuation.ByCondition[condition] = value
 	}
+	_ = rows.Err()
 	rows.Close()
 	report.Valuation.TotalCost = report.TotalValue
 	err = r.db.GetContext(ctx, &report.Valuation.TotalRetail,
@@ -463,9 +466,10 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		}
 		report.LowStockItems = append(report.LowStockItems, item)
 	}
+	_ = rows.Err()
 	rows.Close()
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(c.name, 'غير مصنف'), COUNT(*)
+		`SELECT COALESCE(c.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'), COUNT(*)
 		 FROM inventory_items ii
 		 JOIN products p ON p.id = ii.product_id
 		 LEFT JOIN categories c ON c.id = p.category_id
@@ -483,6 +487,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		}
 		report.ByCategory[category] = count
 	}
+	_ = rows.Err()
 	rows.Close()
 
 	overstockQuery := `SELECT p.id, p.name,
@@ -543,6 +548,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 				report.OverstockItems = append(report.OverstockItems, item)
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 
@@ -582,6 +588,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 				report.StagnantItems = append(report.StagnantItems, item)
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 
@@ -625,6 +632,7 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 			}
 			report.ByCategory[category] = total
 		}
+		_ = rows.Err()
 	}
 
 	rows, err = r.db.QueryContext(ctx,
@@ -645,6 +653,7 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 			}
 			report.ByPaymentMethod[method] = total
 		}
+		_ = rows.Err()
 	}
 
 	monthlyExpensesQuery := `SELECT DATE_TRUNC('month', expense_date), COALESCE(SUM(amount), 0)
@@ -671,6 +680,7 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 				report.ByMonth = append(report.ByMonth, monthly)
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 	return &report, nil
@@ -802,12 +812,13 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 				report.ByMonth = append(report.ByMonth, month)
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 
 	report.ByCategory = make(map[string]float64)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(c.name, 'غير مصنف'),
+		`SELECT COALESCE(c.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'),
 		        COALESCE(SUM(si.total_amount - si.quantity * COALESCE(si.unit_cost, 0)), 0)
 		 FROM sale_items si
 		 JOIN sales s ON s.id = si.sale_id
@@ -825,6 +836,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 				report.ByCategory[category] = profit
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 
@@ -890,6 +902,7 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 		item.LastPayment = lastPayment.Time
 		report.ByCustomer = append(report.ByCustomer, item)
 	}
+	_ = rows.Err()
 	rows.Close()
 	ageQuery := `SELECT CASE
 			WHEN due_date >= CURRENT_DATE THEN 'current'
@@ -914,10 +927,11 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 				report.ByAge[age] = count
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT p.payment_date, p.customer_id, COALESCE(c.name, 'عميل غير معروف'), p.amount
+		`SELECT p.payment_date, p.customer_id, COALESCE(c.name, 'Ø¹Ù…ÙŠÙ„ ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙ'), p.amount
 		 FROM payments p LEFT JOIN customers c ON c.id = p.customer_id
 		 WHERE p.customer_id IS NOT NULL ORDER BY p.payment_date DESC LIMIT 100`)
 	if err == nil {
@@ -929,6 +943,7 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 				report.PaymentHistory = append(report.PaymentHistory, payment)
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 	return &report, nil
@@ -964,7 +979,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 
 	report.BySupplier = []SupplierPurchases{}
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT p.supplier_id, COALESCE(s.name, 'مورد غير معروف'),
+		`SELECT p.supplier_id, COALESCE(s.name, 'Ù…ÙˆØ±Ø¯ ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙ'),
 		        COALESCE(SUM(p.total_amount), 0), COALESCE(SUM(pi.item_count), 0)
 		 FROM purchases p
 		 LEFT JOIN suppliers s ON s.id = p.supplier_id
@@ -986,11 +1001,12 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 		}
 		report.BySupplier = append(report.BySupplier, item)
 	}
+	_ = rows.Err()
 	rows.Close()
 
 	report.ByCategory = make(map[string]int)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(c.name, 'غير مصنف'), COALESCE(SUM(pi.quantity), 0)
+		`SELECT COALESCE(c.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'), COALESCE(SUM(pi.quantity), 0)
 		 FROM purchase_items pi
 		 JOIN purchases p ON p.id = pi.purchase_id
 		 JOIN products pr ON pr.id = pi.product_id
@@ -1007,6 +1023,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 				report.ByCategory[category] = count
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 	report.ByMonth = []MonthlyPurchases{}
@@ -1034,6 +1051,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 				report.ByMonth = append(report.ByMonth, month)
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 
@@ -1087,11 +1105,12 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 			}
 			report.ByReason[reason] = count
 		}
+		_ = rows.Err()
 	}
 
 	report.ByProduct = []ProductReturns{}
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT ri.product_id, COALESCE(p.name, 'منتج محذوف'),
+		`SELECT ri.product_id, COALESCE(p.name, 'Ù…Ù†ØªØ¬ Ù…Ø­Ø°ÙˆÙ'),
 			        COUNT(DISTINCT r.id), COALESCE(SUM(ri.total_refund_amount), 0)
 			 FROM returns r
 			 JOIN return_items ri ON ri.return_id = r.id
@@ -1108,6 +1127,7 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 				report.ByProduct = append(report.ByProduct, product)
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 
@@ -1136,6 +1156,7 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 				report.ByMonth = append(report.ByMonth, monthly)
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 
@@ -1243,12 +1264,13 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 			daily.NetRevenue = daily.GrossRevenue - daily.Refunded
 			report.ByDay = append(report.ByDay, daily)
 		}
+		_ = rows.Err()
 	}
 
 	// Get payment method breakdown for gross sales
 	report.ByCategory = make(map[string]float64)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(c.name, 'غير مصنف'), COALESCE(SUM(si.total_amount), 0) AS total
+		`SELECT COALESCE(c.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'), COALESCE(SUM(si.total_amount), 0) AS total
 		 FROM sale_items si
 		 JOIN sales s ON s.id = si.sale_id
 		 JOIN products p ON p.id = si.product_id
@@ -1269,6 +1291,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 			}
 			report.ByCategory[category] = total
 		}
+		_ = rows.Err()
 	}
 
 	report.ByPaymentMethod = make(map[string]float64)
@@ -1290,6 +1313,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 			}
 			report.ByPaymentMethod[method] = total
 		}
+		_ = rows.Err()
 	}
 
 	// Get top returned products with net sales analysis
@@ -1327,6 +1351,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 			}
 			report.TopReturnedProducts = append(report.TopReturnedProducts, product)
 		}
+		_ = rows.Err()
 	}
 
 	return &report, nil

@@ -7,16 +7,16 @@ import (
 // ValidateNotificationType validates notification type
 func ValidateNotificationType(notificationType string) error {
 	validTypes := map[string]bool{
-		"low_stock":          true,
-		"debt_overdue":       true,
-		"warranty_expiring":  true,
-		"return_request":     true,
-		"expense_approval":   true,
-		"sales_update":       true,
-		"purchase":           true,
-		"general":            true,
+		"low_stock":         true,
+		"debt_overdue":      true,
+		"warranty_expiring": true,
+		"return_request":    true,
+		"expense_approval":  true,
+		"sales_update":      true,
+		"purchase":          true,
+		"general":           true,
 	}
-	
+
 	if !validTypes[notificationType] {
 		return ErrInvalidNotificationType
 	}
@@ -31,7 +31,7 @@ func ValidatePriority(priority string) error {
 		"high":   true,
 		"urgent": true,
 	}
-	
+
 	if !validPriorities[priority] {
 		return ErrInvalidPriority
 	}

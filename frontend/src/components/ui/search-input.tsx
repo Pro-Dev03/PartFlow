@@ -23,7 +23,7 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
     const hasValue = value && value.toString().length > 0;
 
     return (
-      <div className="pf-search-input relative min-w-0">
+      <div className="pf-search-input relative w-full max-w-full min-w-0 overflow-hidden">
         <Search
           className="pf-search-icon absolute top-1/2 end-3 -translate-y-1/2"
           style={{ 
@@ -37,7 +37,7 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
           placeholder={placeholder}
           value={value}
           size={size}
-          className={cn('pf-search-field', className)}
+          className={cn('pf-search-field w-full max-w-full min-w-0', className)}
           {...props}
         />
         {(hasValue || isLoading) && (

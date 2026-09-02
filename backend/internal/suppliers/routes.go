@@ -24,7 +24,7 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 		suppliers.GET("/:id/debt-summary", handler.GetSupplierDebtSummary)
 		suppliers.PUT("/:id/credit-limit", handler.UpdateCreditLimit)
 		suppliers.GET("/overdue", handler.GetOverdueSuppliers)
-		
+
 		// Debt management routes
 		suppliers.POST("/:id/debts", handler.CreateDebtEntry)
 		suppliers.GET("/:id/debts", handler.GetDebtEntries)

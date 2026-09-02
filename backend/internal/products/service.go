@@ -80,9 +80,9 @@ func (s *Service) DeleteCategory(ctx context.Context, id uuid.UUID) error {
 // CreateBrand creates a new brand
 func (s *Service) CreateBrand(ctx context.Context, req *BrandRequest) (*Brand, error) {
 	brand := &Brand{
-		Name:           req.Name,
-		Description:    req.Description,
-		LogoURL:        req.LogoURL,
+		Name:        req.Name,
+		Description: req.Description,
+		LogoURL:     req.LogoURL,
 	}
 
 	if err := s.repo.CreateBrand(ctx, brand); err != nil {
@@ -98,7 +98,7 @@ func (s *Service) GetBrand(ctx context.Context, id uuid.UUID) (*Brand, error) {
 }
 
 // ListBrands retrieves all brands
-func (s *Service) ListBrands(ctx context.Context, ) ([]Brand, error) {
+func (s *Service) ListBrands(ctx context.Context) ([]Brand, error) {
 	return s.repo.ListBrands(ctx)
 }
 
@@ -130,20 +130,20 @@ func (s *Service) DeleteBrand(ctx context.Context, id uuid.UUID) error {
 // CreateProduct creates a new product
 func (s *Service) CreateProduct(ctx context.Context, req *ProductRequest) (*Product, error) {
 	product := &Product{
-		CategoryID:        req.CategoryID,
-		BrandID:           req.BrandID,
+		CategoryID:          req.CategoryID,
+		BrandID:             req.BrandID,
 		PreferredSupplierID: req.PreferredSupplierID,
-		Name:              req.Name,
-		Description:       req.Description,
-		Model:             req.Model,
-		SKU:               req.SKU,
-		Barcode:           req.Barcode,
-		CostPrice:         req.CostPrice,
-		SellingPrice:      req.SellingPrice,
-		TrackSerial:       req.TrackSerial,
-		TrackIndividual:   req.TrackIndividual,
-		MinStockLevel:     req.MinStockLevel,
-		WarrantyDays:      req.WarrantyDays,
+		Name:                req.Name,
+		Description:         req.Description,
+		Model:               req.Model,
+		SKU:                 req.SKU,
+		Barcode:             req.Barcode,
+		CostPrice:           req.CostPrice,
+		SellingPrice:        req.SellingPrice,
+		TrackSerial:         req.TrackSerial,
+		TrackIndividual:     req.TrackIndividual,
+		MinStockLevel:       req.MinStockLevel,
+		WarrantyDays:        req.WarrantyDays,
 	}
 
 	if err := s.repo.CreateProduct(ctx, product); err != nil {
@@ -282,11 +282,11 @@ func (s *Service) GenerateBarcode(ctx context.Context, productID uuid.UUID) (str
 	if product.Barcode == "" {
 		barcode := generateInternalBarcode(product.ID, product.SKU)
 		product.Barcode = barcode
-		
+
 		if err := s.repo.UpdateProduct(ctx, product); err != nil {
 			return "", err
 		}
-		
+
 		return barcode, nil
 	}
 
@@ -318,13 +318,13 @@ func (s *Service) GetProductStock(ctx context.Context, productID uuid.UUID) (*Pr
 	}
 
 	return &ProductStockInfo{
-		ProductID:      productID,
-		TotalStock:     stockCount,
-		Available:      availableCount,
-		Reserved:       reservedCount,
+		ProductID:       productID,
+		TotalStock:      stockCount,
+		Available:       availableCount,
+		Reserved:        reservedCount,
 		TrackIndividual: product.TrackIndividual,
-		MinStockLevel:  product.MinStockLevel,
-		IsLowStock:     stockCount < product.MinStockLevel,
+		MinStockLevel:   product.MinStockLevel,
+		IsLowStock:      stockCount < product.MinStockLevel,
 	}, nil
 }
 

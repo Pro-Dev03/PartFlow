@@ -45,6 +45,9 @@ func (h *AggregationHandler) sqliteSaleDateExpression(ctx context.Context) strin
 			return "date(COALESCE(s.sale_date, s.created_at))"
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return "date(s.created_at)"
+	}
 	return "date(s.created_at)"
 }
 
@@ -583,6 +586,9 @@ func (h *AggregationHandler) sqliteReturnProfitAvailable(ctx context.Context) bo
 			return false
 		}
 		columns[strings.ToLower(name)] = true
+	}
+	if err := rows.Err(); err != nil {
+		return false
 	}
 	return columns["total_refund_amount"] && columns["status"]
 }

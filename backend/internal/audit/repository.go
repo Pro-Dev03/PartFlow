@@ -239,6 +239,9 @@ func (r *Repository) GetAuditLogSummary(ctx context.Context) (*AuditLogSummary, 
 		}
 		summary.ByAction[action] = count
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate logs by action: %w", err)
+	}
 
 	// By entity type
 	summary.ByEntityType = make(map[string]int)
@@ -257,6 +260,9 @@ func (r *Repository) GetAuditLogSummary(ctx context.Context) (*AuditLogSummary, 
 		}
 		summary.ByEntityType[entityType] = count
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate logs by entity type: %w", err)
+	}
 
 	// By user
 	summary.ByUser = make(map[string]int)
@@ -274,6 +280,9 @@ func (r *Repository) GetAuditLogSummary(ctx context.Context) (*AuditLogSummary, 
 			continue
 		}
 		summary.ByUser[userID.String()] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate logs by user: %w", err)
 	}
 
 	// Recent activity (last 10 entries)
@@ -297,6 +306,9 @@ func (r *Repository) GetAuditLogSummary(ctx context.Context) (*AuditLogSummary, 
 			continue
 		}
 		summary.RecentActivity = append(summary.RecentActivity, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate recent activity: %w", err)
 	}
 
 	return &summary, nil

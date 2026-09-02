@@ -44,7 +44,8 @@ func TestAdminAllowsConfiguredCloudEmailWithoutLocalUserRow(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	req := httptest.NewRequest("GET", "/admin", nil)
-	req.Header.Set("Authorization", "Bearer cloud-access-token")
+	req.Header.Set("Authorization", "Bearer local-jwt-token")
+	req.Header.Set("X-PartFlow-Cloud-Token", "cloud-access-token")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

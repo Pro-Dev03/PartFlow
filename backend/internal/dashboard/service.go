@@ -210,7 +210,7 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 	// Populate frontend-compatible fields
 	// Keep today's indicators date-scoped. Lifetime purchases must not be
 	// subtracted from today's sales.
-	if today, todayErr := fetchTodayMetrics(ctx, s.db, time.Now()); todayErr == nil {
+	if today, todayErr := fetchTodayMetrics(ctx, s.db, time.Now().UTC()); todayErr == nil {
 		stats.TodaySales = today.Sales
 		stats.TodayProfit = today.Profit
 	}
@@ -254,12 +254,6 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 	// They will be null in the frontend, which will show "no data available" message
 
 	return stats, nil
-}
-
-// getAlerts retrieves all active alerts
-func (s *Service) getAlerts(ctx context.Context) ([]Alert, error) {
-	var alerts []Alert
-	return alerts, nil
 }
 
 // LowStockItem represents a low stock item with details

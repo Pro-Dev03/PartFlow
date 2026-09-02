@@ -42,7 +42,7 @@ func main() {
 		log.Printf("Failed to check schema_migrations table: %v", err)
 	} else if exists {
 		fmt.Println("✅ schema_migrations table exists")
-		
+
 		// Get current migration version
 		var version string
 		err = db.QueryRow("SELECT version FROM schema_migrations LIMIT 1").Scan(&version)
@@ -74,6 +74,9 @@ func main() {
 			tables = append(tables, tableName)
 			fmt.Printf("   - %s\n", tableName)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating tables: %v", err)
 	}
 
 	// Expected tables from migrations
@@ -144,6 +147,9 @@ func checkTableStructure(db *sql.DB, tableName string, expectedColumns []string)
 		if err := rows.Scan(&colName); err == nil {
 			columns = append(columns, colName)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		fmt.Printf("      ⚠️  Error iterating columns: %v\n", err)
 	}
 
 	allFound := true

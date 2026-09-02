@@ -19,7 +19,7 @@ func ValidateExpenseStatus(status string) error {
 		"approved": true,
 		"rejected": true,
 	}
-	
+
 	if !validStatuses[status] {
 		return ErrInvalidExpenseStatus
 	}
@@ -34,7 +34,7 @@ func ValidatePaymentMethod(method string) error {
 		"bank_transfer": true,
 		"check":         true,
 	}
-	
+
 	if !validMethods[method] {
 		return ErrInvalidPaymentMethod
 	}
@@ -49,7 +49,7 @@ func ValidateRecurringPeriod(period string) error {
 		"monthly": true,
 		"yearly":  true,
 	}
-	
+
 	if !validPeriods[period] {
 		return ErrInvalidRecurringPeriod
 	}

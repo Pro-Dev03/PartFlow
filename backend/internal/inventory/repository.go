@@ -54,47 +54,51 @@ func parseNullableTime(raw any) (*time.Time, error) {
 func inventoryItemFromMap(record map[string]any) (*InventoryItem, error) {
 	item := &InventoryItem{}
 	if raw, ok := record["id"]; ok && raw != nil {
-		id, err := uuid.Parse(raw.(string))
+		parsed, err := parseUUIDValue(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse item id: %w", err)
 		}
-		item.ID = id
+		item.ID = parsed
 	}
 
-	if raw, ok := record["product_id"]; ok && raw != nil && raw != "" {
-		parsed, err := uuid.Parse(raw.(string))
+	if raw, ok := record["product_id"]; ok && raw != nil {
+		parsed, err := parseNullableUUIDValue(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse product_id: %w", err)
 		}
-		item.ProductID = &parsed
+		item.ProductID = parsed
 	}
 
-	if raw, ok := record["part_type_id"]; ok && raw != nil && raw != "" {
-		parsed, err := uuid.Parse(raw.(string))
+	if raw, ok := record["part_type_id"]; ok && raw != nil {
+		parsed, err := parseNullableUUIDValue(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse part_type_id: %w", err)
 		}
-		item.PartTypeID = &parsed
+		item.PartTypeID = parsed
 	}
 
-	if raw, ok := record["item_code"]; ok && raw != nil && raw != "" {
-		value := raw.(string)
-		item.ItemCode = &value
+	if raw, ok := record["item_code"]; ok && raw != nil {
+		if value, ok := stringValue(raw); ok && strings.TrimSpace(value) != "" {
+			item.ItemCode = &value
+		}
 	}
-	if raw, ok := record["barcode"]; ok && raw != nil && raw != "" {
-		value := raw.(string)
-		item.Barcode = &value
+	if raw, ok := record["barcode"]; ok && raw != nil {
+		if value, ok := stringValue(raw); ok && strings.TrimSpace(value) != "" {
+			item.Barcode = &value
+		}
 	}
-	if raw, ok := record["serial_number"]; ok && raw != nil && raw != "" {
-		value := raw.(string)
-		item.SerialNumber = &value
+	if raw, ok := record["serial_number"]; ok && raw != nil {
+		if value, ok := stringValue(raw); ok && strings.TrimSpace(value) != "" {
+			item.SerialNumber = &value
+		}
 	}
 	if raw, ok := record["condition"]; ok && raw != nil {
 		item.Condition = fmt.Sprint(raw)
 	}
-	if raw, ok := record["grade"]; ok && raw != nil && raw != "" {
-		value := fmt.Sprint(raw)
-		item.Grade = &value
+	if raw, ok := record["grade"]; ok && raw != nil {
+		if value, ok := stringValue(raw); ok && strings.TrimSpace(value) != "" {
+			item.Grade = &value
+		}
 	}
 	if raw, ok := record["purchase_cost"]; ok && raw != nil {
 		item.PurchaseCost = toFloat64(raw)
@@ -105,46 +109,51 @@ func inventoryItemFromMap(record map[string]any) (*InventoryItem, error) {
 	if raw, ok := record["status"]; ok && raw != nil {
 		item.Status = fmt.Sprint(raw)
 	}
-	if raw, ok := record["location_id"]; ok && raw != nil && raw != "" {
-		parsed, err := uuid.Parse(raw.(string))
+	if raw, ok := record["location_id"]; ok && raw != nil {
+		parsed, err := parseNullableUUIDValue(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse location_id: %w", err)
 		}
-		item.LocationID = &parsed
+		item.LocationID = parsed
 	}
-	if raw, ok := record["supplier_id"]; ok && raw != nil && raw != "" {
-		parsed, err := uuid.Parse(raw.(string))
+	if raw, ok := record["supplier_id"]; ok && raw != nil {
+		parsed, err := parseNullableUUIDValue(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse supplier_id: %w", err)
 		}
-		item.SupplierID = &parsed
+		item.SupplierID = parsed
 	}
-	if raw, ok := record["purchase_date"]; ok && raw != nil && raw != "" {
+	if raw, ok := record["purchase_date"]; ok && raw != nil {
 		parsed, err := dbutil.ParseTimestamp(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse purchase_date: %w", err)
 		}
-		item.PurchaseDate = &parsed
+		if !parsed.IsZero() {
+			item.PurchaseDate = &parsed
+		}
 	}
-	if raw, ok := record["sold_at"]; ok && raw != nil && raw != "" {
+	if raw, ok := record["sold_at"]; ok && raw != nil {
 		parsed, err := dbutil.ParseTimestamp(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse sold_at: %w", err)
 		}
-		item.SoldAt = &parsed
+		if !parsed.IsZero() {
+			item.SoldAt = &parsed
+		}
 	}
-	if raw, ok := record["notes"]; ok && raw != nil && raw != "" {
-		value := fmt.Sprint(raw)
-		item.Notes = &value
+	if raw, ok := record["notes"]; ok && raw != nil {
+		if value, ok := stringValue(raw); ok && strings.TrimSpace(value) != "" {
+			item.Notes = &value
+		}
 	}
-	if raw, ok := record["created_at"]; ok && raw != nil && raw != "" {
+	if raw, ok := record["created_at"]; ok && raw != nil {
 		parsed, err := dbutil.ParseTimestamp(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse created_at: %w", err)
 		}
 		item.CreatedAt = parsed
 	}
-	if raw, ok := record["updated_at"]; ok && raw != nil && raw != "" {
+	if raw, ok := record["updated_at"]; ok && raw != nil {
 		parsed, err := dbutil.ParseTimestamp(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse updated_at: %w", err)
@@ -158,6 +167,85 @@ func inventoryItemFromMap(record map[string]any) (*InventoryItem, error) {
 		item.AvailableQuantity = int(toFloat64(raw))
 	}
 	return item, nil
+}
+
+func stringValue(raw any) (string, bool) {
+	switch v := raw.(type) {
+	case nil:
+		return "", false
+	case string:
+		return v, true
+	case []byte:
+		return string(v), true
+	case fmt.Stringer:
+		return v.String(), true
+	default:
+		return strings.TrimSpace(fmt.Sprint(v)), true
+	}
+}
+
+func parseUUIDValue(raw any) (uuid.UUID, error) {
+	if raw == nil {
+		return uuid.Nil, nil
+	}
+	switch v := raw.(type) {
+	case uuid.UUID:
+		return v, nil
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return uuid.Nil, nil
+		}
+		return uuid.Parse(v)
+	case []byte:
+		if len(v) == 0 {
+			return uuid.Nil, nil
+		}
+		return uuid.Parse(string(v))
+	default:
+		text := strings.TrimSpace(fmt.Sprint(v))
+		if text == "" || text == "<nil>" {
+			return uuid.Nil, nil
+		}
+		return uuid.Parse(text)
+	}
+}
+
+func parseNullableUUIDValue(raw any) (*uuid.UUID, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	switch v := raw.(type) {
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil, nil
+		}
+		parsed, err := uuid.Parse(v)
+		if err != nil {
+			return nil, err
+		}
+		return &parsed, nil
+	case []byte:
+		if len(v) == 0 {
+			return nil, nil
+		}
+		parsed, err := uuid.Parse(string(v))
+		if err != nil {
+			return nil, err
+		}
+		return &parsed, nil
+	case uuid.UUID:
+		return &v, nil
+	default:
+		text := strings.TrimSpace(fmt.Sprint(v))
+		if text == "" || text == "<nil>" {
+			return nil, nil
+		}
+		parsed, err := uuid.Parse(text)
+		if err != nil {
+			return nil, err
+		}
+		return &parsed, nil
+	}
 }
 
 func toFloat64(raw any) float64 {

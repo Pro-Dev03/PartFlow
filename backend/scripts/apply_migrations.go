@@ -119,7 +119,7 @@ func main() {
 	}
 
 	fmt.Println("\n=== Migration Complete ===")
-	
+
 	// Show current status
 	rows, err := db.Query("SELECT version, applied_at FROM schema_migrations ORDER BY applied_at")
 	if err == nil {
@@ -131,6 +131,7 @@ func main() {
 				fmt.Printf("   - %s (applied at %s)\n", version, appliedAt)
 			}
 		}
+		_ = rows.Err()
 	}
 }
 

@@ -38,7 +38,7 @@
     ],
     "icon": "build/icon.ico",
     "requestedExecutionLevel": "asInvoker",
-    "signAndEditExecutable": false
+    "signAndEditExecutable": true
   },
   "nsis": {
     "oneClick": false,

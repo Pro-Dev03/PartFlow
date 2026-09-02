@@ -8,49 +8,49 @@ import (
 
 // Category represents a product category
 type Category struct {
-	ID             uuid.UUID  `json:"id" db:"id"`
-	Name           string     `json:"name" db:"name"`
-	Description    string     `json:"description" db:"description"`
-	ParentID       *uuid.UUID `json:"parent_id" db:"parent_id"`
-	Icon           *string    `json:"icon" db:"icon"`
-	Color          *string    `json:"color" db:"color"`
-	IsActive       bool       `json:"is_active" db:"is_active"`
-	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+	ID          uuid.UUID  `json:"id" db:"id"`
+	Name        string     `json:"name" db:"name"`
+	Description string     `json:"description" db:"description"`
+	ParentID    *uuid.UUID `json:"parent_id" db:"parent_id"`
+	Icon        *string    `json:"icon" db:"icon"`
+	Color       *string    `json:"color" db:"color"`
+	IsActive    bool       `json:"is_active" db:"is_active"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // Brand represents a product brand
 type Brand struct {
-	ID             uuid.UUID  `json:"id" db:"id"`
-	Name           string     `json:"name" db:"name"`
-	Description    string     `json:"description" db:"description"`
-	LogoURL        string     `json:"logo_url" db:"logo_url"`
-	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+	ID          uuid.UUID `json:"id" db:"id"`
+	Name        string    `json:"name" db:"name"`
+	Description string    `json:"description" db:"description"`
+	LogoURL     string    `json:"logo_url" db:"logo_url"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // Product represents a product in the catalog
 type Product struct {
-	ID                uuid.UUID  `json:"id" db:"id"`
-	CategoryID        *uuid.UUID `json:"category_id" db:"category_id"`
-	BrandID           *uuid.UUID `json:"brand_id" db:"brand_id"`
+	ID                  uuid.UUID  `json:"id" db:"id"`
+	CategoryID          *uuid.UUID `json:"category_id" db:"category_id"`
+	BrandID             *uuid.UUID `json:"brand_id" db:"brand_id"`
 	PreferredSupplierID *uuid.UUID `json:"preferred_supplier_id" db:"preferred_supplier_id"`
-	Name              string     `json:"name" db:"name"`
-	Description       *string    `json:"description" db:"description"`
-	Model             *string    `json:"model" db:"model"`
-	SKU               string     `json:"sku" db:"sku"`
-	Barcode           string     `json:"barcode" db:"barcode"`
-	CostPrice         float64    `json:"cost_price" db:"cost_price"`
-	SellingPrice      float64    `json:"selling_price" db:"selling_price"`
-	TrackSerial       bool       `json:"track_serial" db:"track_serial"`
-	TrackIndividual   bool       `json:"track_individual" db:"track_individual"`
-	MinStockLevel     int        `json:"min_stock_level" db:"min_stock_level"`
-	WarrantyDays      int        `json:"warranty_days" db:"warranty_days"`
-	IsActive          bool       `json:"is_active" db:"is_active"`
-	DeletedAt         *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
-	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
-	CurrentQuantity   int        `json:"current_quantity,omitempty" db:"current_quantity"` // Runtime field from inventory
+	Name                string     `json:"name" db:"name"`
+	Description         *string    `json:"description" db:"description"`
+	Model               *string    `json:"model" db:"model"`
+	SKU                 string     `json:"sku" db:"sku"`
+	Barcode             string     `json:"barcode" db:"barcode"`
+	CostPrice           float64    `json:"cost_price" db:"cost_price"`
+	SellingPrice        float64    `json:"selling_price" db:"selling_price"`
+	TrackSerial         bool       `json:"track_serial" db:"track_serial"`
+	TrackIndividual     bool       `json:"track_individual" db:"track_individual"`
+	MinStockLevel       int        `json:"min_stock_level" db:"min_stock_level"`
+	WarrantyDays        int        `json:"warranty_days" db:"warranty_days"`
+	IsActive            bool       `json:"is_active" db:"is_active"`
+	DeletedAt           *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
+	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at" db:"updated_at"`
+	CurrentQuantity     int        `json:"current_quantity,omitempty" db:"current_quantity"` // Runtime field from inventory
 }
 
 // CategoryRequest represents category creation/update request
@@ -72,43 +72,43 @@ type BrandRequest struct {
 
 // ProductRequest represents product creation/update request
 type ProductRequest struct {
-	CategoryID        *uuid.UUID `json:"category_id"`
-	BrandID           *uuid.UUID `json:"brand_id"`
+	CategoryID          *uuid.UUID `json:"category_id"`
+	BrandID             *uuid.UUID `json:"brand_id"`
 	PreferredSupplierID *uuid.UUID `json:"preferred_supplier_id"`
-	Name              string     `json:"name" binding:"required"`
-	Description       *string    `json:"description"`
-	Model             *string    `json:"model"`
-	SKU               string     `json:"sku" binding:"required"`
-	Barcode           string     `json:"barcode"`
-	CostPrice         float64    `json:"cost_price" binding:"required"`
-	SellingPrice      float64    `json:"selling_price" binding:"required"`
-	TrackSerial       bool       `json:"track_serial"`
-	TrackIndividual   bool       `json:"track_individual"`
-	MinStockLevel     int        `json:"min_stock_level"`
-	WarrantyDays      int        `json:"warranty_days"`
+	Name                string     `json:"name" binding:"required"`
+	Description         *string    `json:"description"`
+	Model               *string    `json:"model"`
+	SKU                 string     `json:"sku" binding:"required"`
+	Barcode             string     `json:"barcode"`
+	CostPrice           float64    `json:"cost_price" binding:"required"`
+	SellingPrice        float64    `json:"selling_price" binding:"required"`
+	TrackSerial         bool       `json:"track_serial"`
+	TrackIndividual     bool       `json:"track_individual"`
+	MinStockLevel       int        `json:"min_stock_level"`
+	WarrantyDays        int        `json:"warranty_days"`
 }
 
 // ProductResponse represents product response with related data
 type ProductResponse struct {
-	Product    Product     `json:"product"`
-	Category   *Category   `json:"category,omitempty"`
-	Brand      *Brand      `json:"brand,omitempty"`
-	StockCount int         `json:"stock_count"`
+	Product    Product   `json:"product"`
+	Category   *Category `json:"category,omitempty"`
+	Brand      *Brand    `json:"brand,omitempty"`
+	StockCount int       `json:"stock_count"`
 }
 
 // ProductListRequest represents product list query parameters
 type ProductListRequest struct {
-	Page         int        `form:"page" binding:"min=1"`
-	PerPage      int        `form:"per_page" binding:"min=1,max=100"`
-	CategoryID   *uuid.UUID `form:"category_id"`
-	BrandID      *uuid.UUID `form:"brand_id"`
-	Search       string     `form:"search"`
-	TrackSerial  *bool      `form:"track_serial"`
-	TrackIndividual *bool  `form:"track_individual"`
-	LowStockOnly *bool      `form:"low_stock_only"`
-	InStockOnly  *bool      `form:"in_stock_only"`
-	SortBy       string     `form:"sort_by"`
-	SortOrder    string     `form:"sort_order"`
+	Page            int        `form:"page" binding:"min=1"`
+	PerPage         int        `form:"per_page" binding:"min=1,max=100"`
+	CategoryID      *uuid.UUID `form:"category_id"`
+	BrandID         *uuid.UUID `form:"brand_id"`
+	Search          string     `form:"search"`
+	TrackSerial     *bool      `form:"track_serial"`
+	TrackIndividual *bool      `form:"track_individual"`
+	LowStockOnly    *bool      `form:"low_stock_only"`
+	InStockOnly     *bool      `form:"in_stock_only"`
+	SortBy          string     `form:"sort_by"`
+	SortOrder       string     `form:"sort_order"`
 }
 
 // ProductStockInfo represents detailed stock information for a product

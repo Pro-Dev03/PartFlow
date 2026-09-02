@@ -8,38 +8,38 @@ import (
 
 // DashboardData represents aggregated dashboard data
 type DashboardData struct {
-	Date           time.Time        `json:"date"`
-	
+	Date time.Time `json:"date"`
+
 	// Sales metrics
-	TodaySales     MoneySummary     `json:"today_sales"`
-	WeekSales      MoneySummary     `json:"week_sales"`
-	MonthSales     MoneySummary     `json:"month_sales"`
-	
+	TodaySales MoneySummary `json:"today_sales"`
+	WeekSales  MoneySummary `json:"week_sales"`
+	MonthSales MoneySummary `json:"month_sales"`
+
 	// Profit metrics
-	TodayProfit    MoneySummary     `json:"today_profit"`
-	WeekProfit     MoneySummary     `json:"week_profit"`
-	MonthProfit    MoneySummary     `json:"month_profit"`
-	
+	TodayProfit MoneySummary `json:"today_profit"`
+	WeekProfit  MoneySummary `json:"week_profit"`
+	MonthProfit MoneySummary `json:"month_profit"`
+
 	// Inventory metrics
-	InventoryValue MoneySummary     `json:"inventory_value"`
-	LowStockCount  int              `json:"low_stock_count"`
-	TotalProducts  int              `json:"total_products"`
-	
+	InventoryValue MoneySummary `json:"inventory_value"`
+	LowStockCount  int          `json:"low_stock_count"`
+	TotalProducts  int          `json:"total_products"`
+
 	// Debt metrics
-	OutstandingDebt MoneySummary    `json:"outstanding_debt"`
-	OverdueDebt    MoneySummary     `json:"overdue_debt"`
-	OverdueCount   int              `json:"overdue_count"`
-	
+	OutstandingDebt MoneySummary `json:"outstanding_debt"`
+	OverdueDebt     MoneySummary `json:"overdue_debt"`
+	OverdueCount    int          `json:"overdue_count"`
+
 	// Alerts
-	LowStockAlerts    []LowStockAlert    `json:"low_stock_alerts"`
-	OverdueAlerts     []OverdueAlert     `json:"overdue_alerts"`
-	
+	LowStockAlerts []LowStockAlert `json:"low_stock_alerts"`
+	OverdueAlerts  []OverdueAlert  `json:"overdue_alerts"`
+
 	// Top performers
-	TopProducts       []TopProduct       `json:"top_products"`
-	TopCustomers      []TopCustomer      `json:"top_customers"`
-	
+	TopProducts  []TopProduct  `json:"top_products"`
+	TopCustomers []TopCustomer `json:"top_customers"`
+
 	// Insights
-	Insights          []Insight          `json:"insights"`
+	Insights []Insight `json:"insights"`
 }
 
 // MoneySummary represents a monetary summary
@@ -50,10 +50,10 @@ type MoneySummary struct {
 
 // LowStockAlert represents a low stock alert
 type LowStockAlert struct {
-	ProductID   uuid.UUID `json:"product_id"`
-	ProductName string    `json:"product_name"`
-	CurrentStock int      `json:"current_stock"`
-	MinStockLevel int     `json:"min_stock_level"`
+	ProductID     uuid.UUID `json:"product_id"`
+	ProductName   string    `json:"product_name"`
+	CurrentStock  int       `json:"current_stock"`
+	MinStockLevel int       `json:"min_stock_level"`
 }
 
 // OverdueAlert represents an overdue debt alert
@@ -67,19 +67,19 @@ type OverdueAlert struct {
 
 // TopProduct represents a top performing product
 type TopProduct struct {
-	ProductID    uuid.UUID `json:"product_id"`
-	ProductName  string    `json:"product_name"`
-	SalesCount   int       `json:"sales_count"`
-	Revenue      int64     `json:"revenue"`
-	Profit       int64     `json:"profit"`
+	ProductID   uuid.UUID `json:"product_id"`
+	ProductName string    `json:"product_name"`
+	SalesCount  int       `json:"sales_count"`
+	Revenue     int64     `json:"revenue"`
+	Profit      int64     `json:"profit"`
 }
 
 // TopCustomer represents a top customer
 type TopCustomer struct {
-	CustomerID   uuid.UUID `json:"customer_id"`
-	CustomerName string    `json:"customer_name"`
-	PurchaseCount int      `json:"purchase_count"`
-	TotalSpent   int64     `json:"total_spent"`
+	CustomerID    uuid.UUID `json:"customer_id"`
+	CustomerName  string    `json:"customer_name"`
+	PurchaseCount int       `json:"purchase_count"`
+	TotalSpent    int64     `json:"total_spent"`
 }
 
 // Insight represents a business insight

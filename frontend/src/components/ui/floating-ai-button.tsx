@@ -8,8 +8,9 @@ interface FloatingAIButtonProps {
 const DRAG_THRESHOLD = 10
 
 export default function FloatingAIButton({ onClick }: FloatingAIButtonProps) {
-  const [position, setPosition] = useState({ x: 20, y: 20 })
+  const [position, setPosition] = useState({ x: -1, y: -1 })
   const [isDragging, setIsDragging] = useState(false)
+  const [isHovered, setIsHovered] = useState(false)
   const pointerIdRef = useRef<number | null>(null)
   const startPointRef = useRef({ x: 0, y: 0 })
   const dragOffsetRef = useRef({ x: 0, y: 0 })
@@ -35,6 +36,14 @@ export default function FloatingAIButton({ onClick }: FloatingAIButtonProps) {
       y: event.clientY - rect.top,
     }
 
+    // Convert from bottom-left positioning to left-top for dragging
+    if (isDefaultPosition) {
+      setPosition({
+        x: 20,
+        y: window.innerHeight - 80 - 20,
+      })
+    }
+
     if (event.currentTarget.setPointerCapture) {
       event.currentTarget.setPointerCapture(event.pointerId)
     }
@@ -48,7 +57,7 @@ export default function FloatingAIButton({ onClick }: FloatingAIButtonProps) {
       event.clientY - startPointRef.current.y,
     )
 
-    if (distance > DRAG_THRESHOLD) {
+    if (distance > DRAG_THRESHOLD || dragStartedRef.current) {
       dragStartedRef.current = true
       setIsDragging(true)
       event.preventDefault()
@@ -96,30 +105,53 @@ export default function FloatingAIButton({ onClick }: FloatingAIButtonProps) {
     onClick(position)
   }
 
+  const isDefaultPosition = position.x === -1 && position.y === -1
+
   return (
     <button
       type="button"
       aria-label="فتح مساعد PartFlow"
       className="fixed border-0 bg-transparent p-0 outline-none"
-      style={{
-        left: position.x,
-        top: position.y,
-        zIndex: 2147483647,
-        cursor: isDragging ? 'grabbing' : 'pointer',
-        touchAction: 'none',
-        userSelect: 'none',
-        pointerEvents: 'auto',
-      }}
+      style={
+        isDefaultPosition
+          ? {
+              left: 20,
+              bottom: 20,
+              zIndex: 2147483647,
+              cursor: 'pointer',
+              touchAction: 'none',
+              userSelect: 'none',
+              pointerEvents: 'auto',
+            }
+          : {
+              left: position.x,
+              top: position.y,
+              zIndex: 2147483647,
+              cursor: isDragging ? 'grabbing' : 'pointer',
+              touchAction: 'none',
+              userSelect: 'none',
+              pointerEvents: 'auto',
+            }
+      }
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerLeave}
+      onPointerLeave={(e) => {
+        setIsHovered(false)
+        handlePointerLeave(e)
+      }}
       onPointerCancel={handlePointerLeave}
+      onPointerEnter={() => setIsHovered(true)}
       onClick={handleClick}
     >
-      <div className="relative" style={{ width: '80px', height: '80px' }}>
+      <div className="relative bot-hover-effect" style={{ width: '80px', height: '80px' }}>
         <NeonAIBot size={80} />
       </div>
+      <style>{`
+        .bot-hover-effect:hover .sparkle-container {
+          opacity: 1 !important;
+        }
+      `}</style>
     </button>
   )
 }

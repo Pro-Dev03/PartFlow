@@ -565,6 +565,7 @@ func (h *Handler) GenerateProductsReport(c *gin.Context) {
 			}
 			byCategory[category] = count
 		}
+		_ = rows.Err()
 	}
 	reportData["by_category"] = byCategory
 
@@ -664,6 +665,7 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 				})
 			}
 		}
+		_ = rows.Err()
 		rows.Close()
 	}
 	reportData["by_supplier"] = bySupplier
@@ -697,6 +699,7 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 				"total_paid": totalPaid, "balance": balance,
 			})
 		}
+		_ = rows.Err()
 	}
 	reportData["suppliers_with_balance"] = suppliersWithBalance
 

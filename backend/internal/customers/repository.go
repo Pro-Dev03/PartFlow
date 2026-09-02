@@ -48,7 +48,7 @@ func parseDatabaseTimestamp(value any) (time.Time, error) {
 		return v, nil
 	case string:
 		// database/sql may serialize a Go time.Time using time.String(),
-		// which includes a monotonic-clock suffix ("m=+…"). That suffix is
+		// which includes a monotonic-clock suffix ("m=+â€¦"). That suffix is
 		// not part of the persisted wall-clock value and must be removed before
 		// parsing SQLite rows written by runtime updates.
 		v = strings.TrimSpace(v)

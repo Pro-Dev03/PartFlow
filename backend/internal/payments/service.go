@@ -210,18 +210,18 @@ func (s *Service) toPaymentResponse(payment *Payment, referenceName string) *Pay
 	}
 
 	return &PaymentResponse{
-		ID:             payment.ID,
-		Type:           payment.Type,
-		ReferenceID:    payment.ReferenceID,
-		ReferenceName:  refName,
-		Amount:         payment.Amount,
-		PaymentDate:    payment.PaymentDate,
-		Method:         payment.Method,
-		Reference:      payment.Reference,
-		Notes:          payment.Notes,
-		Status:         payment.Status,
-		CreatedBy:      payment.CreatedBy,
-		CreatedAt:      payment.CreatedAt,
-		UpdatedAt:      payment.UpdatedAt,
+		ID:            payment.ID,
+		Type:          payment.Type,
+		ReferenceID:   payment.ReferenceID,
+		ReferenceName: refName,
+		Amount:        payment.Amount,
+		PaymentDate:   payment.PaymentDate,
+		Method:        payment.Method,
+		Reference:     payment.Reference,
+		Notes:         payment.Notes,
+		Status:        payment.Status,
+		CreatedBy:     payment.CreatedBy,
+		CreatedAt:     payment.CreatedAt,
+		UpdatedAt:     payment.UpdatedAt,
 	}
 }

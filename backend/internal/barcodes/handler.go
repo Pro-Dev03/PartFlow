@@ -77,7 +77,6 @@ func (h *Handler) GenerateBarcode(c *gin.Context) {
 		return
 	}
 
-
 	barcode, err := h.service.GenerateBarcode(c.Request.Context(), &req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -92,7 +91,6 @@ func (h *Handler) ListBarcodes(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "10"))
 
-
 	barcodes, total, err := h.service.ListBarcodes(c.Request.Context(), page, perPage)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -100,10 +98,10 @@ func (h *Handler) ListBarcodes(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"barcodes":  barcodes,
-		"total":     total,
-		"page":      page,
-		"per_page":  perPage,
+		"barcodes": barcodes,
+		"total":    total,
+		"page":     page,
+		"per_page": perPage,
 	})
 }
 
@@ -114,7 +112,6 @@ func (h *Handler) DeleteBarcode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-
 
 	if err := h.service.DeleteBarcode(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -131,7 +128,6 @@ func (h *Handler) GenerateLabels(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 
 	labels, err := h.service.GenerateLabels(c.Request.Context(), &req)
 	if err != nil {

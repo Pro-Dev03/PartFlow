@@ -30,19 +30,19 @@ func (s *Service) GetPartTypeWithSpecs(ctx context.Context, id uuid.UUID) (*Part
 
 func (s *Service) CreatePartType(ctx context.Context, req *CreatePartTypeRequest) (*PartType, error) {
 	partType := &PartType{
-		ID:            uuid.New(),
-		NameAr:        req.NameAr,
-		NameEn:        req.NameEn,
-		Icon:          req.Icon,
-		Color:         req.Color,
-		SortOrder:     req.SortOrder,
-		IsActive:      true,
+		ID:        uuid.New(),
+		NameAr:    req.NameAr,
+		NameEn:    req.NameEn,
+		Icon:      req.Icon,
+		Color:     req.Color,
+		SortOrder: req.SortOrder,
+		IsActive:  true,
 	}
-	
+
 	if err := s.repo.CreatePartType(ctx, partType); err != nil {
 		return nil, err
 	}
-	
+
 	return partType, nil
 }
 
@@ -51,7 +51,7 @@ func (s *Service) UpdatePartType(ctx context.Context, id uuid.UUID, req *UpdateP
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if req.NameAr != nil {
 		partType.NameAr = *req.NameAr
 	}
@@ -70,11 +70,11 @@ func (s *Service) UpdatePartType(ctx context.Context, id uuid.UUID, req *UpdateP
 	if req.SortOrder != nil {
 		partType.SortOrder = *req.SortOrder
 	}
-	
+
 	if err := s.repo.UpdatePartType(ctx, partType); err != nil {
 		return nil, err
 	}
-	
+
 	return partType, nil
 }
 
@@ -96,11 +96,11 @@ func (s *Service) CreateSpecification(ctx context.Context, req *CreateSpecificat
 		Options:    req.Options,
 		IsRequired: req.IsRequired,
 	}
-	
+
 	if err := s.repo.CreateSpecification(ctx, spec); err != nil {
 		return nil, err
 	}
-	
+
 	return spec, nil
 }
 
@@ -116,11 +116,11 @@ func (s *Service) LinkSpecification(ctx context.Context, req *LinkSpecificationR
 		SpecificationID: req.SpecificationID,
 		SortOrder:       req.SortOrder,
 	}
-	
+
 	if err := s.repo.LinkSpecification(ctx, link); err != nil {
 		return nil, err
 	}
-	
+
 	return link, nil
 }
 
@@ -138,7 +138,7 @@ func (s *Service) UpdateItemSpecifications(ctx context.Context, inventoryItemID 
 	if err := s.repo.DeleteItemSpecifications(ctx, inventoryItemID); err != nil {
 		return fmt.Errorf("failed to clear existing specifications: %w", err)
 	}
-	
+
 	// Then, add new specifications
 	for _, specValue := range req.Specifications {
 		value := &ItemSpecificationValue{
@@ -149,11 +149,11 @@ func (s *Service) UpdateItemSpecifications(ctx context.Context, inventoryItemID 
 			ValueNumber:     specValue.ValueNumber,
 			ValueBoolean:    specValue.ValueBoolean,
 		}
-		
+
 		if err := s.repo.SetItemSpecification(ctx, value); err != nil {
 			return fmt.Errorf("failed to set specification value: %w", err)
 		}
 	}
-	
+
 	return nil
 }

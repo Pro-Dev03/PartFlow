@@ -7,34 +7,22 @@ describe('app config', () => {
     vi.restoreAllMocks();
   });
 
-  it('prefers the local backend when running on localhost without an explicit operating mode', () => {
+  it('prefers the local backend when running on localhost', () => {
     expect(shouldUseLocalApi('localhost')).toBe(true);
     expect(shouldUseLocalApi('127.0.0.1')).toBe(true);
     expect(shouldUseLocalApi('partflow-api.onrender.com')).toBe(false);
   });
 
-  it('uses the local backend whenever the browser is offline, even if the app is not explicitly set to offline', () => {
-    Object.defineProperty(window.navigator, 'onLine', {
-      configurable: true,
-      get: () => false,
-    });
-
+  it('always uses the local backend for business operations', () => {
     expect(getActiveApiUrl()).toBe('http://localhost:8080/api/v1');
   });
 
-  it('defaults to the local backend when no operating mode has been chosen yet', () => {
-    expect(getActiveApiUrl()).toBe('http://localhost:8080/api/v1');
-  });
+  it('does not trigger automatic initial sync unless the user explicitly enables it', async () => {
+    const { isInitialSyncNeeded } = await import('../../../hooks/useInitialDataSync');
 
-  it('uses the local backend when the operating mode is explicitly offline', () => {
-    localStorage.setItem('partflow-operating-mode', 'offline');
+    expect(isInitialSyncNeeded()).toBe(false);
 
-    expect(getActiveApiUrl()).toBe('http://localhost:8080/api/v1');
-  });
-
-  it('keeps business operations local even when a legacy online preference exists', () => {
-    localStorage.setItem('partflow-operating-mode', 'online');
-
-    expect(getActiveApiUrl()).toBe('http://localhost:8080/api/v1');
+    localStorage.setItem('partflow-auto-sync-enabled', 'true');
+    expect(isInitialSyncNeeded()).toBe(true);
   });
 });

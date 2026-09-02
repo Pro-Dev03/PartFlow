@@ -8,8 +8,8 @@ import (
 	"log"
 	"os"
 
-	_ "github.com/lib/pq"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -56,6 +56,9 @@ func main() {
 			continue
 		}
 		fmt.Printf("  - %s\n", tableName)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating tables: %v", err)
 	}
 
 	// Check if part_types table exists

@@ -25,7 +25,7 @@ func main() {
 
 	// Check foreign key constraints
 	fmt.Println("Checking foreign key constraints on sales table...")
-	
+
 	rows, err := db.Query(`
 		SELECT
 			tc.constraint_name,
@@ -53,6 +53,9 @@ func main() {
 			continue
 		}
 		fmt.Printf("  %s: %s -> %s.%s\n", constraintName, columnName, foreignTable, foreignColumn)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating foreign keys: %v", err)
 	}
 
 	// Check if user exists
@@ -82,5 +85,6 @@ func main() {
 			}
 			fmt.Printf("  %s: %s (%s %s)\n", id, email, firstName, lastName)
 		}
+		_ = userRows.Err()
 	}
 }

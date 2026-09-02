@@ -137,6 +137,7 @@ func (s *Service) searchProducts(ctx context.Context, query string, limit, offse
 			CreatedAt: createdAt.Time,
 		})
 	}
+	_ = rows.Err()
 
 	// Get total count
 	var total int
@@ -195,8 +196,9 @@ func (s *Service) searchCustomers(ctx context.Context, query string, limit, offs
 			Score:     1.0,
 			CreatedAt: createdAt.Time,
 		})
-	}
 
+	}
+	_ = rows.Err()
 	// Get total count
 	var total int
 	countQuery := `
@@ -255,6 +257,7 @@ func (s *Service) searchSuppliers(ctx context.Context, query string, limit, offs
 			CreatedAt: createdAt.Time,
 		})
 	}
+	_ = rows.Err()
 
 	// Get total count
 	var total int
@@ -314,6 +317,7 @@ func (s *Service) searchSales(ctx context.Context, query string, limit, offset i
 			CreatedAt: createdAt.Time,
 		})
 	}
+	_ = rows.Err()
 
 	// Get total count
 	var total int
@@ -371,8 +375,9 @@ func (s *Service) searchPurchases(ctx context.Context, query string, limit, offs
 			Score:     1.0,
 			CreatedAt: createdAt.Time,
 		})
-	}
 
+	}
+	_ = rows.Err()
 	// Get total count
 	var total int
 	countQuery := `

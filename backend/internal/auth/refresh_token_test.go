@@ -39,7 +39,7 @@ func newRefreshTokenTestService(t *testing.T) (*Service, *sql.DB, uuid.UUID) {
 		t.Fatal(err)
 	}
 
-	passwordHash, err := bcrypt.GenerateFromPassword([]byte("Owner123456"), bcrypt.DefaultCost)
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("TestOwnerPassword123!"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func newRefreshTokenTestService(t *testing.T) (*Service, *sql.DB, uuid.UUID) {
 		t.Fatal(err)
 	}
 
-	service, err := NewService(sqlx.NewDb(db, "sqlite"), "test-secret", false, "", "")
+	service, err := NewService(sqlx.NewDb(db, "sqlite"), "test-secret", false, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestRefreshTokenIsRotatedAndOldTokenRejected(t *testing.T) {
 	service, db, userID := newRefreshTokenTestService(t)
 	ctx := context.Background()
 
-	login, err := service.Login(ctx, &LoginRequest{Email: "refresh@example.test", Password: "Owner123456"})
+	login, err := service.Login(ctx, &LoginRequest{Email: "refresh@example.test", Password: "TestOwnerPassword123!"})
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}

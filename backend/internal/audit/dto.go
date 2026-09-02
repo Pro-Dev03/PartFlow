@@ -24,19 +24,19 @@ func (al *AuditLog) ToAuditLogListItem(userName string) map[string]interface{} {
 // CreateAuditLog creates an AuditLog from request
 func CreateAuditLog(req *AuditLogRequest, ipAddress, userAgent, requestID string) *AuditLog {
 	return &AuditLog{
-		ID:             uuid.New(),
-		UserID:         req.UserID,
-		Action:         req.Action,
-		EntityID:       req.EntityID,
-		IPAddress:      ipAddress,
-		UserAgent:      userAgent,
-		RequestID:      requestID,
-		Changes:        req.Changes,
-		Description:    req.Description,
-		Status:         req.Status,
-		ErrorMessage:   req.ErrorMessage,
-		Metadata:       req.Metadata,
-		CreatedAt:      time.Now(),
+		ID:           uuid.New(),
+		UserID:       req.UserID,
+		Action:       req.Action,
+		EntityID:     req.EntityID,
+		IPAddress:    ipAddress,
+		UserAgent:    userAgent,
+		RequestID:    requestID,
+		Changes:      req.Changes,
+		Description:  req.Description,
+		Status:       req.Status,
+		ErrorMessage: req.ErrorMessage,
+		Metadata:     req.Metadata,
+		CreatedAt:    time.Now(),
 	}
 }
 
@@ -60,22 +60,22 @@ func ValidateAuditLogRequest(req *AuditLogRequest) error {
 // ValidateAction validates action
 func ValidateAction(action string) error {
 	validActions := map[string]bool{
-		"create":    true,
-		"update":    true,
-		"delete":    true,
-		"login":     true,
-		"logout":    true,
-		"view":      true,
-		"export":    true,
-		"import":    true,
-		"approve":   true,
-		"reject":    true,
-		"complete":  true,
-		"cancel":    true,
-		"archive":   true,
-		"restore":   true,
+		"create":   true,
+		"update":   true,
+		"delete":   true,
+		"login":    true,
+		"logout":   true,
+		"view":     true,
+		"export":   true,
+		"import":   true,
+		"approve":  true,
+		"reject":   true,
+		"complete": true,
+		"cancel":   true,
+		"archive":  true,
+		"restore":  true,
 	}
-	
+
 	if !validActions[action] {
 		return ErrInvalidAction
 	}
@@ -103,7 +103,7 @@ func ValidateEntityType(entityType string) error {
 		"payment":      true,
 		"debt":         true,
 	}
-	
+
 	if !validEntityTypes[entityType] {
 		return ErrInvalidEntityType
 	}

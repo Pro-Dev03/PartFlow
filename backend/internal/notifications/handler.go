@@ -39,7 +39,6 @@ func (h *Handler) CreateNotification(c *gin.Context) {
 		return
 	}
 
-
 	notification, err := h.service.CreateNotification(c.Request.Context(), &req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -68,7 +67,6 @@ func (h *Handler) GetNotification(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid notification ID"})
 		return
 	}
-
 
 	notification, err := h.service.GetNotification(c.Request.Context(), id)
 	if err != nil {
@@ -101,7 +99,7 @@ func (h *Handler) GetNotification(c *gin.Context) {
 // @Router /api/v1/notifications [get]
 func (h *Handler) ListNotifications(c *gin.Context) {
 	var req NotificationListRequest
-	
+
 	// Parse query parameters
 	if page, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil {
 		req.Page = page
@@ -109,19 +107,19 @@ func (h *Handler) ListNotifications(c *gin.Context) {
 	if perPage, err := strconv.Atoi(c.DefaultQuery("per_page", "20")); err == nil {
 		req.PerPage = perPage
 	}
-	
+
 	req.Type = c.Query("type")
 	req.Status = c.Query("status")
 	req.Priority = c.Query("priority")
 	req.SortBy = c.DefaultQuery("sort_by", "created_at")
 	req.SortOrder = c.DefaultQuery("sort_order", "DESC")
-	
+
 	if startDate := c.Query("start_date"); startDate != "" {
 		if t, err := time.Parse(time.RFC3339, startDate); err == nil {
 			req.StartDate = &t
 		}
 	}
-	
+
 	if endDate := c.Query("end_date"); endDate != "" {
 		if t, err := time.Parse(time.RFC3339, endDate); err == nil {
 			req.EndDate = &t
@@ -166,7 +164,6 @@ func (h *Handler) MarkAsRead(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid notification ID"})
 		return
 	}
-
 
 	if err := h.service.MarkAsRead(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -217,7 +214,6 @@ func (h *Handler) DeleteNotification(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid notification ID"})
 		return
 	}
-
 
 	if err := h.service.DeleteNotification(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

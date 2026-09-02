@@ -17,16 +17,16 @@ func (e *Expense) ToExpenseResponse(category *ExpenseCategory) *ExpenseResponse 
 // ToExpenseListItem converts Expense to list item format
 func (e *Expense) ToExpenseListItem(categoryName string) map[string]interface{} {
 	return map[string]interface{}{
-		"id":              e.ID,
-		"title":           e.Title,
-		"amount":          e.Amount,
-		"currency":        e.Currency,
-		"expense_date":    e.ExpenseDate,
-		"category_name":   categoryName,
-		"payment_method":  e.PaymentMethod,
-		"status":          e.Status,
-		"is_recurring":    e.IsRecurring,
-		"created_at":      e.CreatedAt,
+		"id":             e.ID,
+		"title":          e.Title,
+		"amount":         e.Amount,
+		"currency":       e.Currency,
+		"expense_date":   e.ExpenseDate,
+		"category_name":  categoryName,
+		"payment_method": e.PaymentMethod,
+		"status":         e.Status,
+		"is_recurring":   e.IsRecurring,
+		"created_at":     e.CreatedAt,
 	}
 }
 
@@ -55,15 +55,15 @@ func CreateExpense(userID uuid.UUID, req *ExpenseRequest) *Expense {
 // CreateExpenseCategory creates an ExpenseCategory from request
 func CreateExpenseCategory(req *ExpenseCategoryRequest) *ExpenseCategory {
 	return &ExpenseCategory{
-		ID:             uuid.New(),
-		Name:           req.Name,
-		Description:    req.Description,
-		Color:          req.Color,
-		Icon:           req.Icon,
-		Budget:         req.Budget,
-		IsActive:       req.IsActive,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		ID:          uuid.New(),
+		Name:        req.Name,
+		Description: req.Description,
+		Color:       req.Color,
+		Icon:        req.Icon,
+		Budget:      req.Budget,
+		IsActive:    req.IsActive,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 }
 
@@ -81,12 +81,12 @@ func ValidateExpenseRequest(req *ExpenseRequest) error {
 	if req.Currency == "" {
 		return ErrInvalidCurrency
 	}
-	if req.PaymentMethod != "cash" && req.PaymentMethod != "card" && 
+	if req.PaymentMethod != "cash" && req.PaymentMethod != "card" &&
 		req.PaymentMethod != "bank_transfer" && req.PaymentMethod != "check" {
 		return ErrInvalidPaymentMethod
 	}
-	if req.IsRecurring && (req.RecurringPeriod != "daily" && 
-		req.RecurringPeriod != "weekly" && req.RecurringPeriod != "monthly" && 
+	if req.IsRecurring && (req.RecurringPeriod != "daily" &&
+		req.RecurringPeriod != "weekly" && req.RecurringPeriod != "monthly" &&
 		req.RecurringPeriod != "yearly") {
 		return ErrInvalidRecurringPeriod
 	}

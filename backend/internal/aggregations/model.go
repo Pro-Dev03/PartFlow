@@ -4,33 +4,33 @@ import "time"
 
 // DailySalesSummary represents daily sales aggregation (ARCHITECTURE-PRINCIPLES.md)
 type DailySalesSummary struct {
-	Date              string    `json:"date" db:"date"`
-	TotalSales        int       `json:"total_sales" db:"total_sales"`
-	TotalRevenue      float64   `json:"total_revenue" db:"total_revenue"`
-	TotalProfit       float64   `json:"total_profit" db:"total_profit"`
-	TotalCustomers    int       `json:"total_customers" db:"total_customers"`
-	AverageOrderValue float64   `json:"average_order_value" db:"average_order_value"`
-	TotalItemsSold    int       `json:"total_items_sold" db:"total_items_sold"`
-	CashSales         float64   `json:"cash_sales" db:"cash_sales"`
-	CardSales         float64   `json:"card_sales" db:"card_sales"`
-	DebtSales         float64   `json:"debt_sales" db:"debt_sales"`
-	UpdatedAt         string    `json:"updated_at" db:"updated_at"`
+	Date              string  `json:"date" db:"date"`
+	TotalSales        int     `json:"total_sales" db:"total_sales"`
+	TotalRevenue      float64 `json:"total_revenue" db:"total_revenue"`
+	TotalProfit       float64 `json:"total_profit" db:"total_profit"`
+	TotalCustomers    int     `json:"total_customers" db:"total_customers"`
+	AverageOrderValue float64 `json:"average_order_value" db:"average_order_value"`
+	TotalItemsSold    int     `json:"total_items_sold" db:"total_items_sold"`
+	CashSales         float64 `json:"cash_sales" db:"cash_sales"`
+	CardSales         float64 `json:"card_sales" db:"card_sales"`
+	DebtSales         float64 `json:"debt_sales" db:"debt_sales"`
+	UpdatedAt         string  `json:"updated_at" db:"updated_at"`
 }
 
 // MonthlySalesSummary represents monthly sales aggregation (ARCHITECTURE-PRINCIPLES.md)
 type MonthlySalesSummary struct {
-	Year              int       `json:"year" db:"year"`
-	Month             int       `json:"month" db:"month"`
-	TotalSales        int       `json:"total_sales" db:"total_sales"`
-	TotalRevenue      float64   `json:"total_revenue" db:"total_revenue"`
-	TotalProfit       float64   `json:"total_profit" db:"total_profit"`
-	TotalCustomers    int       `json:"total_customers" db:"total_customers"`
-	AverageOrderValue float64   `json:"average_order_value" db:"average_order_value"`
-	TotalItemsSold    int       `json:"total_items_sold" db:"total_items_sold"`
-	CashSales         float64   `json:"cash_sales" db:"cash_sales"`
-	CardSales         float64   `json:"card_sales" db:"card_sales"`
-	DebtSales         float64   `json:"debt_sales" db:"debt_sales"`
-	UpdatedAt         string    `json:"updated_at" db:"updated_at"`
+	Year              int     `json:"year" db:"year"`
+	Month             int     `json:"month" db:"month"`
+	TotalSales        int     `json:"total_sales" db:"total_sales"`
+	TotalRevenue      float64 `json:"total_revenue" db:"total_revenue"`
+	TotalProfit       float64 `json:"total_profit" db:"total_profit"`
+	TotalCustomers    int     `json:"total_customers" db:"total_customers"`
+	AverageOrderValue float64 `json:"average_order_value" db:"average_order_value"`
+	TotalItemsSold    int     `json:"total_items_sold" db:"total_items_sold"`
+	CashSales         float64 `json:"cash_sales" db:"cash_sales"`
+	CardSales         float64 `json:"card_sales" db:"card_sales"`
+	DebtSales         float64 `json:"debt_sales" db:"debt_sales"`
+	UpdatedAt         string  `json:"updated_at" db:"updated_at"`
 }
 
 // DailyInventorySummary represents daily inventory aggregation (ARCHITECTURE-PRINCIPLES.md)

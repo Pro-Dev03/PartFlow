@@ -231,6 +231,9 @@ func (s *ReversalService) GetUsedItemsInfo(ctx context.Context, purchaseID uuid.
 		}
 		usedItems = append(usedItems, info)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate used items: %w", err)
+	}
 
 	return usedItems, nil
 }
@@ -277,6 +280,9 @@ func (s *ReversalService) GetReversalHistory(ctx context.Context, purchaseID uui
 			return nil, fmt.Errorf("failed to scan reversal: %w", err)
 		}
 		reversals = append(reversals, reversal)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate purchase reversals: %w", err)
 	}
 
 	return reversals, nil

@@ -40,42 +40,10 @@ export function getCloudApiUrl(): string {
 }
 
 /**
- * Get the local API URL for offline mode
+ * Get the local API URL for business operations
  */
 export function getLocalApiUrl(): string {
   return localApiUrl;
-}
-
-/**
- * Get current operating mode
- */
-export function getOperatingMode(): 'offline' | 'online' {
-  if (typeof window === 'undefined') {
-    return 'offline';
-  }
-
-  const storedMode = localStorage.getItem('partflow-operating-mode');
-  if (storedMode === 'offline') {
-    return 'offline';
-  }
-
-  if (storedMode === 'online') {
-    return 'online';
-  }
-
-  // Safe default: PartFlow is local-first and offline by default unless the user
-  // explicitly chooses the cloud/sync mode.
-  return 'offline';
-}
-
-export function setOperatingModePreference(mode: 'offline' | 'online'): 'offline' | 'online' {
-  const nextMode = mode === 'offline' ? 'offline' : 'online';
-
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('partflow-operating-mode', nextMode);
-  }
-
-  return nextMode;
 }
 
 export const appConfig = {

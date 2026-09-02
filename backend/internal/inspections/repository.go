@@ -630,6 +630,9 @@ func (r *Repository) GetInspectionSummary(ctx context.Context) (*InspectionSumma
 		}
 		summary.ByCondition[condition] = count
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate inspections by condition: %w", err)
+	}
 
 	// By grade
 	summary.ByGrade = make(map[string]int)
@@ -647,6 +650,9 @@ func (r *Repository) GetInspectionSummary(ctx context.Context) (*InspectionSumma
 			continue
 		}
 		summary.ByGrade[grade] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate inspections by grade: %w", err)
 	}
 
 	return &summary, nil

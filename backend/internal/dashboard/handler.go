@@ -20,17 +20,17 @@ func (h *Handler) GetDashboardStats(c *gin.Context) {
 		// Return empty stats instead of error for empty database (offline mode)
 		// This allows the app to work even with empty local database
 		stats = &DashboardStats{
-			TotalSales:      0,
-			TotalPurchases:  0,
-			TotalExpenses:   0,
-			TotalRevenue:    0,
-			TotalProfit:     0,
-			TotalProducts:   0,
-			TotalCustomers:  0,
-			TotalSuppliers:  0,
-			LowStockItems:   0,
-			OverdueDebts:    0,
-			Alerts:          []Alert{},
+			TotalSales:     0,
+			TotalPurchases: 0,
+			TotalExpenses:  0,
+			TotalRevenue:   0,
+			TotalProfit:    0,
+			TotalProducts:  0,
+			TotalCustomers: 0,
+			TotalSuppliers: 0,
+			LowStockItems:  0,
+			OverdueDebts:   0,
+			Alerts:         []Alert{},
 		}
 	}
 

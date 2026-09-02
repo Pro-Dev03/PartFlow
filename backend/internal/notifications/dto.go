@@ -32,18 +32,18 @@ func CreateNotification(req *NotificationRequest) *Notification {
 	}
 
 	return &Notification{
-		ID:             uuid.New(),
-		UserID:         req.UserID,
-		Type:           req.Type,
-		Title:          req.Title,
-		Message:        req.Message,
-		Data:           req.Data,
-		Priority:       req.Priority,
-		Status:         "unread",
-		ActionURL:      req.ActionURL,
-		ActionText:     req.ActionText,
-		ExpiresAt:      expiresAt,
-		CreatedAt:      time.Now(),
+		ID:         uuid.New(),
+		UserID:     req.UserID,
+		Type:       req.Type,
+		Title:      req.Title,
+		Message:    req.Message,
+		Data:       req.Data,
+		Priority:   req.Priority,
+		Status:     "unread",
+		ActionURL:  req.ActionURL,
+		ActionText: req.ActionText,
+		ExpiresAt:  expiresAt,
+		CreatedAt:  time.Now(),
 	}
 }
 
@@ -61,7 +61,7 @@ func ValidateNotificationRequest(req *NotificationRequest) error {
 	if req.Message == "" {
 		return ErrNotificationNotFound
 	}
-	if req.Priority != "low" && req.Priority != "medium" && 
+	if req.Priority != "low" && req.Priority != "medium" &&
 		req.Priority != "high" && req.Priority != "urgent" {
 		return ErrInvalidPriority
 	}
@@ -75,7 +75,7 @@ func ValidateNotificationStatus(status string) error {
 		"read":     true,
 		"archived": true,
 	}
-	
+
 	if !validStatuses[status] {
 		return ErrInvalidNotificationStatus
 	}
@@ -125,16 +125,16 @@ func (n *Notification) ParseData() (map[string]interface{}, error) {
 // CreateDefaultPreferences creates default notification preferences for a user
 func CreateDefaultPreferences(userID uuid.UUID) *NotificationPreferences {
 	return &NotificationPreferences{
-		ID:               uuid.New(),
-		UserID:           userID,
-		EmailEnabled:     true,
-		PushEnabled:      true,
-		LowStock:         true,
-		DebtOverdue:      true,
-		ReturnRequests:   true,
-		ExpenseApproval:  true,
-		SalesUpdates:     false,
-		CreatedAt:        time.Now(),
-		UpdatedAt:        time.Now(),
+		ID:              uuid.New(),
+		UserID:          userID,
+		EmailEnabled:    true,
+		PushEnabled:     true,
+		LowStock:        true,
+		DebtOverdue:     true,
+		ReturnRequests:  true,
+		ExpenseApproval: true,
+		SalesUpdates:    false,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 }

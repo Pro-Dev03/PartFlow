@@ -20,7 +20,7 @@ func (r *Return) ToReturnResponse(items []ReturnItem, customer *CustomerInfo, sa
 // ToReturnListItem converts Return to list item format
 func (r *Return) ToReturnListItem(itemCount int, customerName string, saleInvoiceNumber string) map[string]interface{} {
 	return map[string]interface{}{
-		"id":                   r.ID,
+		"id":                  r.ID,
 		"return_number":       r.ReturnNumber,
 		"reference_number":    r.ReferenceNumber,
 		"return_date":         r.ReturnDate,
@@ -64,7 +64,7 @@ func CreateReturn(userID uuid.UUID, req *ReturnRequest) *Return {
 		CreatedAt:                time.Now(),
 		UpdatedAt:                time.Now(),
 	}
-	
+
 	// Set optional fields
 	if req.SaleID != nil {
 		returnRecord.SaleID = *req.SaleID
@@ -75,7 +75,7 @@ func CreateReturn(userID uuid.UUID, req *ReturnRequest) *Return {
 	if req.CustomerID != nil {
 		returnRecord.CustomerID = *req.CustomerID
 	}
-	
+
 	return returnRecord
 }
 
@@ -85,29 +85,29 @@ func CreateReturnItem(returnID uuid.UUID, req ReturnItemRequest, unitPrice float
 	if totalRefundAmount == 0 {
 		totalRefundAmount = float64(req.QuantityReturned) * unitPrice
 	}
-	
+
 	return &ReturnItem{
-		ID:                uuid.New(),
-		ReturnID:          returnID,
-		SaleItemID:        req.SaleItemID,
-		ProductID:         req.ProductID,
-		InventoryItemID:   req.InventoryItemID,
-		SerialNumber:      req.SerialNumber,
-		Barcode:           req.Barcode,
-		QuantityReturned:  req.QuantityReturned,
-		OriginalQuantity:  nil, // Will be set from sale item
-		UnitPrice:         unitPrice,
-		TotalRefundAmount: totalRefundAmount,
-		OriginalCondition: req.OriginalCondition,
-		ReturnedCondition: req.ReturnedCondition,
-		ConditionNotes:    req.ConditionNotes,
-		Resolution:        req.Resolution,
-		InventoryStatus:   "RETURNED",
+		ID:                 uuid.New(),
+		ReturnID:           returnID,
+		SaleItemID:         req.SaleItemID,
+		ProductID:          req.ProductID,
+		InventoryItemID:    req.InventoryItemID,
+		SerialNumber:       req.SerialNumber,
+		Barcode:            req.Barcode,
+		QuantityReturned:   req.QuantityReturned,
+		OriginalQuantity:   nil, // Will be set from sale item
+		UnitPrice:          unitPrice,
+		TotalRefundAmount:  totalRefundAmount,
+		OriginalCondition:  req.OriginalCondition,
+		ReturnedCondition:  req.ReturnedCondition,
+		ConditionNotes:     req.ConditionNotes,
+		Resolution:         req.Resolution,
+		InventoryStatus:    "RETURNED",
 		InspectionRequired: req.InspectionRequired,
-		OriginalCost:      req.OriginalCost,
-		RepairCost:        req.RepairCost,
-		CreatedAt:         time.Now(),
-		UpdatedAt:         time.Now(),
+		OriginalCost:       req.OriginalCost,
+		RepairCost:         req.RepairCost,
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
 	}
 }
 
@@ -125,8 +125,8 @@ func ValidateReturnRequest(req *ReturnRequest) error {
 	if len(req.Items) == 0 {
 		return ErrNoItems
 	}
-	if req.RefundMethod != "CASH" && req.RefundMethod != "CREDIT" && 
-		req.RefundMethod != "DEBT_ADJUSTMENT" && req.RefundMethod != "EXCHANGE" && 
+	if req.RefundMethod != "CASH" && req.RefundMethod != "CREDIT" &&
+		req.RefundMethod != "DEBT_ADJUSTMENT" && req.RefundMethod != "EXCHANGE" &&
 		req.RefundMethod != "BANK_TRANSFER" && req.RefundMethod != "STORE_CREDIT" {
 		return ErrInvalidRefundMethod
 	}
@@ -137,8 +137,8 @@ func ValidateReturnRequest(req *ReturnRequest) error {
 		if item.QuantityReturned <= 0 {
 			return ErrInvalidQuantity
 		}
-		if item.ReturnedCondition != "NEW" && item.ReturnedCondition != "USED" && 
-			item.ReturnedCondition != "DAMAGED" && item.ReturnedCondition != "DEFECTIVE" && 
+		if item.ReturnedCondition != "NEW" && item.ReturnedCondition != "USED" &&
+			item.ReturnedCondition != "DAMAGED" && item.ReturnedCondition != "DEFECTIVE" &&
 			item.ReturnedCondition != "OPEN_BOX" && item.ReturnedCondition != "REFURBISHED" {
 			return ErrInvalidCondition
 		}

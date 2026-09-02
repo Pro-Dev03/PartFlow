@@ -22,6 +22,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 		return todayMetrics{}, fmt.Errorf("dashboard database is nil")
 	}
 
+	now = now.UTC()
 	date := now.Format("2006-01-02")
 	query := `
 		WITH sale_costs AS (
@@ -146,6 +147,7 @@ func sqliteHasColumns(db *sqlx.DB, table string, required ...string) bool {
 		return false
 	}
 	defer rows.Close()
+
 	found := make(map[string]bool, len(required))
 	for rows.Next() {
 		var cid, notNull, pk int
@@ -156,6 +158,10 @@ func sqliteHasColumns(db *sqlx.DB, table string, required ...string) bool {
 		}
 		found[strings.ToLower(name)] = true
 	}
+	if err := rows.Err(); err != nil {
+		return false
+	}
+
 	for _, column := range required {
 		if !found[strings.ToLower(column)] {
 			return false

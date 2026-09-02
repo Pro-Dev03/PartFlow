@@ -7,16 +7,16 @@ import (
 // ValidateReportType validates report type
 func ValidateReportType(reportType string) error {
 	validTypes := map[string]bool{
-		"sales":     true,
-		"inventory": true,
-		"expenses":  true,
-		"profits":   true,
-		"debts":     true,
-		"purchases": true,
-		"returns":   true,
+		"sales":      true,
+		"inventory":  true,
+		"expenses":   true,
+		"profits":    true,
+		"debts":      true,
+		"purchases":  true,
+		"returns":    true,
 		"warranties": true,
 	}
-	
+
 	if !validTypes[reportType] {
 		return ErrInvalidReportType
 	}

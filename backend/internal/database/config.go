@@ -25,17 +25,17 @@ type Config struct {
 // DefaultConfig returns optimized default configuration
 func DefaultConfig() *Config {
 	return &Config{
-		MaxOpenConns:    25,   // Reduced for cloud database
-		MaxIdleConns:    10,   // Reduced for cloud database
+		MaxOpenConns:    25,              // Reduced for cloud database
+		MaxIdleConns:    10,              // Reduced for cloud database
 		ConnMaxLifetime: 5 * time.Minute, // Shorter lifetime for cloud
-		ConnMaxIdleTime: 1 * time.Minute,  // Shorter idle time for cloud
+		ConnMaxIdleTime: 1 * time.Minute, // Shorter idle time for cloud
 	}
 }
 
 // Connect creates a new database connection with optimized settings
 func Connect(dbURL string) (*sqlx.DB, error) {
 	config := DefaultConfig()
-	
+
 	db, err := sqlx.Connect("postgres", dbURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)

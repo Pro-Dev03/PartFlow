@@ -43,18 +43,18 @@ func (p *Purchase) ToAPIMap() map[string]interface{} {
 
 // PurchaseListItem represents a purchase in list view
 type PurchaseListItem struct {
-	ID            string    `json:"id" db:"id"`
-	InvoiceNumber string    `json:"invoice_number" db:"invoice_number"`
-	PurchaseDate  time.Time `json:"purchase_date" db:"purchase_date"`
+	ID                   string     `json:"id" db:"id"`
+	InvoiceNumber        string     `json:"invoice_number" db:"invoice_number"`
+	PurchaseDate         time.Time  `json:"purchase_date" db:"purchase_date"`
 	ExpectedDeliveryDate *time.Time `json:"expected_delivery_date" db:"expected_delivery_date"`
-	TotalAmount   float64   `json:"total_amount" db:"total_amount"`
-	PaidAmount    float64   `json:"paid_amount" db:"paid_amount"`
-	Remaining     float64   `json:"remaining" db:"remaining"`
-	Status        string    `json:"status" db:"status"`
-	SupplierName  string    `json:"supplier_name" db:"supplier_name"`
-	TotalItems    int       `json:"total_items" db:"total_items"`
-	CreatedAt     time.Time `json:"created_at" db:"created_at"`
-	TotalCount    int       `json:"-" db:"total_count"`
+	TotalAmount          float64    `json:"total_amount" db:"total_amount"`
+	PaidAmount           float64    `json:"paid_amount" db:"paid_amount"`
+	Remaining            float64    `json:"remaining" db:"remaining"`
+	Status               string     `json:"status" db:"status"`
+	SupplierName         string     `json:"supplier_name" db:"supplier_name"`
+	TotalItems           int        `json:"total_items" db:"total_items"`
+	CreatedAt            time.Time  `json:"created_at" db:"created_at"`
+	TotalCount           int        `json:"-" db:"total_count"`
 }
 
 // CreatePurchaseItem creates a PurchaseItem from request

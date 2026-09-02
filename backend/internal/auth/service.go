@@ -20,6 +20,7 @@ type Service struct {
 	db         *sqlx.DB
 	jwtService *JWTService
 	supabase   *SupabaseAuthService
+	cloud      *CloudAuthService
 }
 
 // refreshTokenDigest stores only a one-way digest in the database. A database
@@ -129,7 +130,7 @@ func (s *Service) validatePassword(password, storedHash, email string) bool {
 	return passwordMatches
 }
 
-func NewService(db *sqlx.DB, jwtSecret string, useSupabase bool, supabaseURL, supabaseKey string) (*Service, error) {
+func NewService(db *sqlx.DB, jwtSecret string, useSupabase bool, supabaseURL, supabaseKey, cloudAPIURL string) (*Service, error) {
 	jwtService := NewJWTService(jwtSecret, 15*time.Minute, 7*24*time.Hour)
 
 	var supabase *SupabaseAuthService
@@ -141,10 +142,16 @@ func NewService(db *sqlx.DB, jwtSecret string, useSupabase bool, supabaseURL, su
 		}
 	}
 
+	var cloud *CloudAuthService
+	if cloudAPIURL != "" {
+		cloud = NewCloudAuthService(cloudAPIURL)
+	}
+
 	return &Service{
 		db:         db,
 		jwtService: jwtService,
 		supabase:   supabase,
+		cloud:      cloud,
 	}, nil
 }
 
@@ -391,6 +398,15 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 // ValidateToken validates a JWT token and returns user info
 func (s *Service) ValidateToken(ctx context.Context, token string) (*Claims, error) {
 	return s.jwtService.ValidateToken(token)
+}
+
+// CreateCloudSession creates a local JWT session from a validated cloud token
+func (s *Service) CreateCloudSession(ctx context.Context, cloudToken string) (*CloudSessionResponse, error) {
+	if s.cloud == nil {
+		return nil, fmt.Errorf("cloud auth is not configured")
+	}
+
+	return s.cloud.CreateLocalSession(ctx, s.jwtService, s.db, cloudToken)
 }
 
 // GetUserByID retrieves a user by ID

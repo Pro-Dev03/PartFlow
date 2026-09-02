@@ -82,7 +82,9 @@ function InitialSyncController() {
   }, [isAuthenticated, sessionVerified]);
 
   useEffect(() => {
-    if (isAdmin && isAuthenticated && sessionVerified && navigator.onLine && isInitialSyncNeeded(user?.id)) {
+    const autoSyncEnabled = localStorage.getItem('partflow-auto-sync-enabled') === 'true';
+
+    if (autoSyncEnabled && isAdmin && isAuthenticated && sessionVerified && navigator.onLine && isInitialSyncNeeded(user?.id)) {
       setIsOpen(true);
     } else if (!isAuthenticated || !sessionVerified || !isAdmin) {
       setIsOpen(false);

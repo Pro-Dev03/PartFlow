@@ -12,8 +12,8 @@ func ValidateReturnItem(item *ReturnItemRequest) error {
 	if item.QuantityReturned <= 0 {
 		return ErrInvalidQuantity
 	}
-	if item.ReturnedCondition != "NEW" && item.ReturnedCondition != "USED" && item.ReturnedCondition != "DAMAGED" && 
-	   item.ReturnedCondition != "DEFECTIVE" && item.ReturnedCondition != "OPEN_BOX" && item.ReturnedCondition != "REFURBISHED" {
+	if item.ReturnedCondition != "NEW" && item.ReturnedCondition != "USED" && item.ReturnedCondition != "DAMAGED" &&
+		item.ReturnedCondition != "DEFECTIVE" && item.ReturnedCondition != "OPEN_BOX" && item.ReturnedCondition != "REFURBISHED" {
 		return ErrInvalidCondition
 	}
 	return nil
@@ -22,14 +22,14 @@ func ValidateReturnItem(item *ReturnItemRequest) error {
 // ValidateReturnStatus validates return status
 func ValidateReturnStatus(status string) error {
 	validStatuses := map[string]bool{
-		"PENDING":     true,
-		"APPROVED":    true,
-		"PROCESSING":  true,
-		"COMPLETED":   true,
-		"REJECTED":    true,
-		"CANCELLED":   true,
+		"PENDING":    true,
+		"APPROVED":   true,
+		"PROCESSING": true,
+		"COMPLETED":  true,
+		"REJECTED":   true,
+		"CANCELLED":  true,
 	}
-	
+
 	if !validStatuses[status] {
 		return ErrInvalidReturnStatus
 	}
@@ -39,14 +39,14 @@ func ValidateReturnStatus(status string) error {
 // ValidateRefundMethod validates refund method
 func ValidateRefundMethod(method string) error {
 	validMethods := map[string]bool{
-		"CASH":           true,
-		"CREDIT":         true,
+		"CASH":            true,
+		"CREDIT":          true,
 		"DEBT_ADJUSTMENT": true,
-		"EXCHANGE":       true,
-		"BANK_TRANSFER":  true,
-		"STORE_CREDIT":   true,
+		"EXCHANGE":        true,
+		"BANK_TRANSFER":   true,
+		"STORE_CREDIT":    true,
 	}
-	
+
 	if !validMethods[method] {
 		return ErrInvalidRefundMethod
 	}
@@ -56,17 +56,17 @@ func ValidateRefundMethod(method string) error {
 // ValidateCondition validates condition
 func ValidateCondition(condition string) error {
 	validConditions := map[string]bool{
-		"SELLABLE":        true,
+		"SELLABLE":         true,
 		"NEEDS_INSPECTION": true,
-		"NEEDS_REPAIR":    true,
-		"DAMAGED":         true,
-		"USED":            true,
-		"REFURBISHED":     true,
-		"SUPPLIER_RETURN": true,
-		"WRITE_OFF":       true,
-		"PARTS":           true,
+		"NEEDS_REPAIR":     true,
+		"DAMAGED":          true,
+		"USED":             true,
+		"REFURBISHED":      true,
+		"SUPPLIER_RETURN":  true,
+		"WRITE_OFF":        true,
+		"PARTS":            true,
 	}
-	
+
 	if !validConditions[condition] {
 		return ErrInvalidCondition
 	}

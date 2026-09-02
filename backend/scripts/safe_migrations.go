@@ -98,7 +98,7 @@ func main() {
 	}
 
 	fmt.Println("\n=== Migration Process Complete ===")
-	
+
 	// Show current status
 	rows, err := db.Query("SELECT version, applied_at FROM schema_migrations ORDER BY applied_at")
 	if err == nil {
@@ -112,6 +112,7 @@ func main() {
 				count++
 			}
 		}
+		_ = rows.Err()
 		if count == 0 {
 			fmt.Println("   No migrations recorded yet")
 		}
@@ -133,9 +134,9 @@ func applyMigrationSafe(db *sql.DB, content, version string) bool {
 		_, err := db.Exec(stmt)
 		if err != nil {
 			// Check if it's a "already exists" error
-			if strings.Contains(err.Error(), "already exists") || 
-			   strings.Contains(err.Error(), "duplicate key") ||
-			   strings.Contains(err.Error(), "relation") {
+			if strings.Contains(err.Error(), "already exists") ||
+				strings.Contains(err.Error(), "duplicate key") ||
+				strings.Contains(err.Error(), "relation") {
 				fmt.Printf("   Statement %d: ⏭️  Skipping (already exists)\n", i+1)
 				successCount++
 				continue
@@ -170,7 +171,7 @@ func splitSQLStatements(content string) []string {
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		
+
 		// Skip comments
 		if strings.HasPrefix(trimmed, "--") {
 			continue
@@ -178,8 +179,8 @@ func splitSQLStatements(content string) []string {
 
 		// Track parenthesis for CREATE FUNCTION etc
 		inParenthesis += strings.Count(line, "(") - strings.Count(line, ")")
-		if strings.Contains(strings.ToUpper(line), "CREATE FUNCTION") || 
-		   strings.Contains(strings.ToUpper(line), "CREATE TRIGGER") {
+		if strings.Contains(strings.ToUpper(line), "CREATE FUNCTION") ||
+			strings.Contains(strings.ToUpper(line), "CREATE TRIGGER") {
 			inFunction = true
 		}
 

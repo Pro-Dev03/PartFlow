@@ -149,11 +149,11 @@ func (s *Service) LogEntityDelete(ctx context.Context, userID uuid.UUID, entityT
 // LogError logs an error
 func (s *Service) LogError(ctx context.Context, userID uuid.UUID, action, entityType string, entityID uuid.UUID, description, errorMessage string) error {
 	req := &AuditLogRequest{
-		UserID:      userID,
-		Action:      action,
-		EntityID:    entityID,
-		Description: description,
-		Status:      "failure",
+		UserID:       userID,
+		Action:       action,
+		EntityID:     entityID,
+		Description:  description,
+		Status:       "failure",
 		ErrorMessage: errorMessage,
 	}
 

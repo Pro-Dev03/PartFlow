@@ -162,7 +162,7 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 	// Populate frontend-compatible fields
 	// These fields are date-scoped. Do not reuse the lifetime totals above:
 	// purchases are cash outflows, not today's cost of goods sold.
-	if today, todayErr := fetchTodayMetrics(ctx, s.db, time.Now()); todayErr == nil {
+	if today, todayErr := fetchTodayMetrics(ctx, s.db, time.Now().UTC()); todayErr == nil {
 		stats.TodaySales = today.Sales
 		stats.TodayProfit = today.Profit
 	}

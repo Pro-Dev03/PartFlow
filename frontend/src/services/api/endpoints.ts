@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 import { TokenManager } from '../../lib/token-manager';
-import { getCloudApiUrl } from '../../lib/config/app';
+import { getCloudApiUrl, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
 import type {
   ProductCreateRequest,
   ProductUpdateRequest,
@@ -47,6 +47,18 @@ export const authApi = {
     }
     return payload?.data ?? payload;
   },
+  createLocalSession: async (cloudToken: string) => {
+    const response = await fetch(`${getLocalApiUrl()}/auth/cloud-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cloud_token: cloudToken }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.error?.message || payload?.error || 'تعذر إنشاء الجلسة المحلية.');
+    }
+    return payload?.data ?? payload;
+  },
   logout: () => apiClient.post('/auth/logout', {}),
   logoutWithCloud: (accessToken: string) => {
     if (!accessToken || typeof fetch !== 'function') {
@@ -73,15 +85,98 @@ export const authApi = {
       }
     });
   },
-  checkAdminAccess: () => apiClient.get('/auth/admin-check', undefined, false),
+  checkAdminAccess: async () => {
+    const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
+    if (!cloudToken) {
+      throw new Error('No active cloud session');
+    }
+
+    const response = await fetch(`${getCloudApiUrl()}/auth/admin-check`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cloudToken}`,
+        'X-PartFlow-Cloud-Token': cloudToken,
+      },
+    });
+
+    const payload = await (async () => {
+      if (typeof response.json === 'function') {
+        try {
+          const data = await response.json();
+          if (data && typeof data === 'object') return data;
+        } catch {
+          // Fall through to text parsing below.
+        }
+      }
+      if (typeof response.text === 'function') {
+        const text = await response.text();
+        if (!text) return {};
+        try {
+          return JSON.parse(text);
+        } catch {
+          return {};
+        }
+      }
+      return {};
+    })();
+
+    if (!response.ok) {
+      const error: any = new Error(payload?.error?.message || payload?.error || 'Access denied');
+      error.status = response.status;
+      error.response = payload;
+      throw error;
+    }
+
+    return payload?.data ?? payload;
+  },
   refreshToken: async () => {
     const refreshToken = TokenManager.getRefreshToken();
     if (!refreshToken) {
       return Promise.reject(new Error('No refresh token available'));
     }
 
-    const response = await apiClient.post('/auth/refresh', { refresh_token: refreshToken });
-    return response.data ?? response;
+    const baseUrl = typeof window !== 'undefined' && shouldUseLocalApi(window.location.hostname)
+      ? getLocalApiUrl()
+      : getCloudApiUrl();
+
+    const response = await fetch(`${baseUrl}/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    const payload = await (async () => {
+      if (typeof response.json === 'function') {
+        try {
+          const data = await response.json();
+          if (data && typeof data === 'object') return data;
+        } catch {
+          // Fall through to text parsing below.
+        }
+      }
+      if (typeof response.text === 'function') {
+        const text = await response.text();
+        if (!text) return {};
+        try {
+          return JSON.parse(text);
+        } catch {
+          return {};
+        }
+      }
+      return {};
+    })();
+
+    if (!response.ok) {
+      const error: any = new Error(payload?.error?.message || payload?.error || 'تعذر تحديث الجلسة.');
+      error.status = response.status;
+      error.response = payload;
+      throw error;
+    }
+
+    return payload?.data ?? payload;
   },
   forgotPassword: (email: string) =>
     apiClient.post('/auth/forgot-password', { email }),

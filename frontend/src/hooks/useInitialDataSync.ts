@@ -109,12 +109,12 @@ function initialSyncStorageKey(userId?: string): string {
 }
 
 export function isInitialSyncNeeded(userId?: string): boolean {
+  const autoSyncEnabled = localStorage.getItem('partflow-auto-sync-enabled') === 'true';
   const syncComplete = localStorage.getItem(initialSyncStorageKey(userId));
 
-  // The desktop business database is SQLite in both operating modes.  The
-  // first authenticated launch must therefore hydrate it from the cloud
-  // regardless of the UI's legacy mode flag.
-  return syncComplete !== 'true';
+  // Automatic cloud hydration is disabled by default. The user must explicitly
+  // opt in before the app starts downloading data into SQLite on startup.
+  return autoSyncEnabled && syncComplete !== 'true';
 }
 
 // Helper function to get cached initial sync data

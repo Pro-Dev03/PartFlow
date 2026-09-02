@@ -213,6 +213,7 @@ func (s *ReversalService) GetReversalHistory(ctx context.Context, saleID uuid.UU
 		}
 		reversals = append(reversals, reversal)
 	}
+	_ = rows.Err()
 
 	return reversals, nil
 }

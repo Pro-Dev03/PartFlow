@@ -95,7 +95,7 @@ func main() {
 	middleware.SetDisableAuth(cfg.DisableAuth)
 
 	// Auth service
-	authService, err := auth.NewService(db, cfg.JWTSecret, cfg.UseSupabaseAuth, cfg.SupabaseURL, cfg.SupabaseKey)
+	authService, err := auth.NewService(db, cfg.JWTSecret, cfg.UseSupabaseAuth, cfg.SupabaseURL, cfg.SupabaseKey, cfg.CloudAPIURL)
 	if err != nil {
 		logger.Fatal("Failed to initialize auth service", err)
 	}

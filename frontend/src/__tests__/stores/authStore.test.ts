@@ -39,13 +39,15 @@ describe('auth store logout behavior', () => {
   it('best-effort revokes the cloud session before local logout', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
     vi.stubGlobal('fetch', fetchMock);
-    TokenManager.setToken('cloud-access-token');
+    TokenManager.setToken('local-jwt-token');
     TokenManager.setRefreshToken('cloud-refresh-token');
+    localStorage.setItem('cloud_token', 'cloud-access-token');
     useAuthStore.setState({
       isAuthenticated: true,
       sessionVerified: true,
-      token: 'cloud-access-token',
-      refreshTokenValue: 'cloud-refresh-token',
+      token: 'local-jwt-token',
+      refreshTokenValue: 'local-refresh-token',
+      cloudToken: 'cloud-access-token',
     });
 
     useAuthStore.getState().logout();
@@ -80,7 +82,7 @@ describe('auth store logout behavior', () => {
     await authApi.refreshToken();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('partflow-api.onrender.com/api/v1/auth/refresh'),
+      expect.stringContaining('localhost:8080/api/v1/auth/refresh'),
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ refresh_token: 'old-refresh-token' }),
@@ -116,7 +118,7 @@ describe('auth store logout behavior', () => {
     expect(TokenManager.getRefreshToken()).toBe('rotated-refresh-token');
     expect(useAuthStore.getState().refreshTokenValue).toBe('rotated-refresh-token');
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('partflow-api.onrender.com/api/v1/auth/refresh'),
+      expect.stringContaining('localhost:8080/api/v1/auth/refresh'),
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ refresh_token: 'old-refresh-token' }),
@@ -124,14 +126,78 @@ describe('auth store logout behavior', () => {
     );
   });
 
+  it('logs out when the stored refresh token is rejected with 401', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({
+        error: {
+          code: 'INVALID_REFRESH_TOKEN',
+          message: 'Refresh token expired',
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    TokenManager.setToken('expired-access-token');
+    TokenManager.setRefreshToken('expired-refresh-token');
+    useAuthStore.setState({
+      isAuthenticated: true,
+      sessionVerified: true,
+      token: 'expired-access-token',
+      refreshTokenValue: 'expired-refresh-token',
+      user: { id: '1', email: 'test@example.com' } as any,
+    });
+
+    await useAuthStore.getState().refreshToken();
+
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().token).toBeNull();
+    expect(TokenManager.getToken()).toBeNull();
+    expect(TokenManager.getRefreshToken()).toBeNull();
+    expect(localStorage.getItem('auth-storage')).toBeNull();
+  });
+
   it('redirects only for real subscription expiry and not for generic refresh failures', () => {
     expect(shouldRedirectToSubscriptionExpired(new Error('No refresh token available'), '/app')).toBe(false);
     expect(shouldRedirectToSubscriptionExpired(new Error('Session expired. Please login again.'), '/app')).toBe(false);
+
+    const permissionError: any = new Error('administrator privileges required');
+    permissionError.status = 403;
+    permissionError.code = 'ADMIN_REQUIRED';
+    expect(shouldRedirectToSubscriptionExpired(permissionError, '/app')).toBe(false);
 
     const expiredError: any = new Error('انتهت مدة اشتراكك');
     expiredError.status = 403;
     expiredError.code = 'SUBSCRIPTION_EXPIRED';
     expect(shouldRedirectToSubscriptionExpired(expiredError, '/app')).toBe(true);
+
+    const cloudForbidden: any = new Error('الحساب غير نشط أو أن الاشتراك منتهٍ');
+    cloudForbidden.status = 403;
+    cloudForbidden.code = 'CLOUD_AUTH_REQUIRED';
+    expect(shouldRedirectToSubscriptionExpired(cloudForbidden, '/app')).toBe(true);
+
+    const cloudUnauthorized: any = new Error('جلسة الدخول غير صالحة');
+    cloudUnauthorized.status = 401;
+    cloudUnauthorized.code = 'CLOUD_AUTH_REQUIRED';
+    expect(shouldRedirectToSubscriptionExpired(cloudUnauthorized, '/app')).toBe(false);
+  });
+
+  it('does not persist authenticated tokens or auth flags across reloads', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      sessionVerified: true,
+      user: { id: '1', name: 'Test User', email: 'test@example.com' } as any,
+      token: 'abc.def.ghi',
+      refreshTokenValue: 'refresh-xyz',
+    });
+
+    await Promise.resolve();
+
+    const persisted = JSON.parse(localStorage.getItem('auth-storage') || '{}');
+    expect(persisted.state?.token).toBeUndefined();
+    expect(persisted.state?.refreshTokenValue).toBeUndefined();
+    expect(persisted.state?.isAuthenticated).toBeUndefined();
+    expect(persisted.state?.sessionVerified).toBeUndefined();
   });
 
   it('requires internet verification before restoring a session', async () => {

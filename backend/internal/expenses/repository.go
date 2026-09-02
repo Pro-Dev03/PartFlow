@@ -806,6 +806,9 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 			}
 			summary.ByCategory[name] = amount
 		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("failed to iterate expenses by category: %w", err)
+		}
 	}
 
 	// By payment method
@@ -829,6 +832,9 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 				continue
 			}
 			summary.ByPaymentMethod[method] = amount
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("failed to iterate expenses by payment method: %w", err)
 		}
 	}
 

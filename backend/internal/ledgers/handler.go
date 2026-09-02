@@ -34,9 +34,9 @@ func (h *Handler) GetCustomerLedger(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data":   entries,
-		"total":  total,
-		"page":   page,
+		"data":     entries,
+		"total":    total,
+		"page":     page,
 		"per_page": perPage,
 	})
 }
@@ -76,9 +76,9 @@ func (h *Handler) GetSupplierLedger(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data":   entries,
-		"total":  total,
-		"page":   page,
+		"data":     entries,
+		"total":    total,
+		"page":     page,
 		"per_page": perPage,
 	})
 }
@@ -118,9 +118,9 @@ func (h *Handler) GetInventoryLedger(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data":   entries,
-		"total":  total,
-		"page":   page,
+		"data":     entries,
+		"total":    total,
+		"page":     page,
 		"per_page": perPage,
 	})
 }

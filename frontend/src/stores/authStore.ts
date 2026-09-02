@@ -4,16 +4,15 @@ import { authApi } from '../services/api/endpoints';
 import { apiClient } from '../services/api/client';
 import { TokenManager } from '../lib/token-manager';
 import { User } from '../types/models';
-import { getCloudApiUrl, getOperatingMode, shouldUseLocalApi } from '../lib/config/app';
+import { getCloudApiUrl } from '../lib/config/app';
 
 interface AuthState {
   isAuthenticated: boolean;
-  // Deliberately not persisted: every app start must verify the cloud session
-  // before protected local-SQLite requests are allowed.
   sessionVerified: boolean;
   user: User | null;
   token: string | null;
   refreshTokenValue: string | null;
+  cloudToken: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -27,19 +26,6 @@ let cloudValidationInFlight: Promise<boolean> | null = null;
 const authStorage = {
   getItem: (name: string) => localStorage.getItem(name),
   setItem: (name: string, value: string) => {
-    if (name === 'auth-storage') {
-      try {
-        const parsed = JSON.parse(value) as { state?: { isAuthenticated?: boolean; token?: string | null } };
-        if (!parsed?.state?.isAuthenticated || !parsed.state.token) {
-          localStorage.removeItem(name);
-          return;
-        }
-      } catch {
-        localStorage.removeItem(name);
-        return;
-      }
-    }
-
     localStorage.setItem(name, value);
   },
   removeItem: (name: string) => localStorage.removeItem(name),
@@ -52,6 +38,8 @@ function clearPersistedAuthStorage() {
   localStorage.removeItem('auth_token');
   localStorage.removeItem('token');
   localStorage.removeItem('refresh_token');
+  localStorage.removeItem('cloud_token');
+  localStorage.removeItem('cloud_refresh_token');
 
   try {
     useAuthStore.persist?.clearStorage();
@@ -62,6 +50,7 @@ function clearPersistedAuthStorage() {
 
 export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = window.location.pathname): boolean {
   if (!error || typeof error !== 'object') return false;
+  if (pathname.includes('/subscription-expired')) return false;
 
   const anyError = error as {
     status?: number;
@@ -70,17 +59,14 @@ export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = w
     response?: { status?: number; error?: { code?: string; message?: string } };
   };
 
-  const status = anyError.status ?? anyError.response?.status;
-  const code = anyError.code ?? anyError.response?.error?.code ?? '';
+  const code = String(anyError.code ?? anyError.response?.error?.code ?? '');
   const message = (anyError.message ?? anyError.response?.error?.message ?? '').toLowerCase();
-  const combined = `${status ?? ''} ${code} ${message}`.toLowerCase();
+  const combined = `${code} ${message}`.toLowerCase();
 
-  const isSubscriptionExpired =
-    status === 403 ||
-    code === 'SUBSCRIPTION_EXPIRED' ||
-    /انتهت.*اشتراك|subscription.*expired|expired.*subscription|subscription.*ended|اشتراك.*منتهي|اشتراك.*منتهية/.test(combined);
+  if (code === 'SUBSCRIPTION_EXPIRED') return true;
+  if (code === 'CLOUD_AUTH_REQUIRED') return true;
 
-  return isSubscriptionExpired && !pathname.includes('/subscription-expired');
+  return /subscription.*expired|expired.*subscription|اشتراك.*منتهي|اشتراك.*منتهية/.test(combined);
 }
 
 /**
@@ -89,11 +75,40 @@ export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = w
  * continue using SQLite for business operations while subscription authority
  * remains on Render.
  */
+async function refreshCloudAccessToken(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+  const refreshToken = localStorage.getItem('cloud_refresh_token');
+  if (!refreshToken) return null;
+
+  const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  const refreshData = await refreshResponse.json().catch(() => ({}));
+  if (!refreshResponse.ok) return null;
+
+  const payload = refreshData?.data && typeof refreshData.data === 'object'
+    ? refreshData.data
+    : refreshData;
+  const nextToken = payload?.access_token || payload?.token;
+  if (!nextToken) return null;
+
+  localStorage.setItem('cloud_token', nextToken);
+  const nextRefresh = payload?.refresh_token || payload?.refreshToken;
+  if (nextRefresh) {
+    localStorage.setItem('cloud_refresh_token', nextRefresh);
+  }
+  useAuthStore.setState({ cloudToken: nextToken });
+  return nextToken as string;
+}
+
 export async function validateSubscriptionWithCloud(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
 
-  const token = TokenManager.getToken();
-  if (!token) return false;
+  const sessionToken = localStorage.getItem('cloud_token');
+  if (!sessionToken) return false;
+  let cloudToken = sessionToken;
 
   if (!navigator.onLine) {
     return false;
@@ -105,7 +120,7 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
 
   const validation = (async () => {
     try {
-      const response = await fetch(`${getCloudApiUrl()}/auth/validate`, {
+      const callValidate = (token: string) => fetch(`${getCloudApiUrl()}/auth/validate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -113,6 +128,15 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
         },
         body: JSON.stringify({}),
       });
+
+      let response = await callValidate(cloudToken);
+      if (response.status === 401) {
+        const refreshed = await refreshCloudAccessToken();
+        if (refreshed) {
+          cloudToken = refreshed;
+          response = await callValidate(cloudToken);
+        }
+      }
 
       if (!response.ok) {
         if (response.status === 403) {
@@ -126,18 +150,18 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
 
       const payload = await response.json();
       const data = payload?.data ?? payload;
-      const nextToken = data?.token || data?.access_token || token;
-      const nextRefreshToken = data?.refresh_token || TokenManager.getRefreshToken();
+      const nextToken = data?.token || data?.access_token || cloudToken;
+      const nextRefreshToken = data?.refresh_token || localStorage.getItem('cloud_refresh_token');
       if (nextToken) {
-        TokenManager.setToken(nextToken);
-        apiClient.setToken(nextToken);
+        localStorage.setItem('cloud_token', nextToken);
+        useAuthStore.setState({ cloudToken: nextToken });
       }
-      if (nextRefreshToken) TokenManager.setRefreshToken(nextRefreshToken);
+      if (nextRefreshToken) {
+        localStorage.setItem('cloud_refresh_token', nextRefreshToken);
+      }
 
       const currentUser = useAuthStore.getState().user;
       useAuthStore.setState({
-        token: nextToken,
-        refreshTokenValue: nextRefreshToken || null,
         user: data?.user || currentUser,
         isAuthenticated: true,
         sessionVerified: true,
@@ -196,7 +220,7 @@ function isInvalidTokenError(error: unknown): boolean {
   return (
     anyError.status === 401 ||
     anyError.response?.status === 401 ||
-    /invalid token|signature is invalid|token expired|jwt|unauthorized/.test(combined)
+    /no refresh token available|invalid refresh token|refresh token expired|invalid token|signature is invalid|token expired|jwt|unauthorized/.test(combined)
   );
 }
 
@@ -204,19 +228,21 @@ function forceLogoutToLogin(reason = 'Session expired') {
   if (typeof window === 'undefined') return;
 
   stopTokenRefresh();
-  // Clear the in-memory API token as well as localStorage. Otherwise requests
-  // that were already mounted can keep sending the rejected token and trigger
-  // a refresh storm while the router is redirecting to login.
   apiClient.logout();
-  clearPersistedAuthStorage();
+  TokenManager.clearToken();
+  TokenManager.clearRefreshToken();
+  localStorage.removeItem('cloud_token');
+  localStorage.removeItem('cloud_refresh_token');
   useAuthStore.setState({
     isAuthenticated: false,
     user: null,
     token: null,
     refreshTokenValue: null,
+    cloudToken: null,
     sessionVerified: false,
     isLoading: false,
   });
+  clearPersistedAuthStorage();
   if (!window.location.hash.includes('/login')) {
     window.location.hash = '#/login';
   }
@@ -232,12 +258,11 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       token: null,
       refreshTokenValue: null,
+      cloudToken: null,
       isLoading: false,
 
-      login: async (email: string, password: string) => {
+          login: async (email: string, password: string) => {
         clearPersistedAuthStorage();
-        // A different account may be signing in in the same renderer. Drop
-        // the previous API cache before the first request for the new user.
         apiClient.logout();
         set({ isLoading: true });
         try {
@@ -248,26 +273,37 @@ export const useAuthStore = create<AuthState>()(
             subscription_status?: string;
             subscription_expires_at?: string | null;
           };
-          const { user, token } = data;
-          const refreshToken = data.refresh_token || TokenManager.getRefreshToken();
+          const { user, token: accessToken } = data;
+          const cloudRefreshToken = data.refresh_token;
+          const localSession = await authApi.createLocalSession(accessToken);
+          const localData = localSession as {
+            user: User;
+            token: string;
+            refresh_token?: string;
+          };
+          const localToken = localData.token;
+          const localRefreshToken = localData.refresh_token;
 
-          // Use TokenManager for consistent token storage
-          TokenManager.setToken(token);
-          if (refreshToken) {
-            TokenManager.setRefreshToken(refreshToken);
+          TokenManager.setToken(localToken);
+          if (localRefreshToken) {
+            TokenManager.setRefreshToken(localRefreshToken);
           }
-          apiClient.setToken(token);
+          localStorage.setItem('cloud_token', accessToken);
+          if (cloudRefreshToken) {
+            localStorage.setItem('cloud_refresh_token', cloudRefreshToken);
+          }
+          apiClient.setToken(localToken);
 
           set({
             isAuthenticated: true,
             sessionVerified: true,
-            user,
-            token,
-            refreshTokenValue: refreshToken,
-            isLoading: false
+            user: localData.user || user || null,
+            token: localToken,
+            refreshTokenValue: localRefreshToken || null,
+            cloudToken: accessToken,
+            isLoading: false,
           });
 
-          // Start auto-refresh
           startTokenRefresh();
         } catch (error) {
           set({ isLoading: false });
@@ -276,26 +312,26 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
-        const accessToken = TokenManager.getToken();
-        if (accessToken && (typeof navigator === 'undefined' || navigator.onLine)) {
-          // Revoke the cloud refresh-token family when possible. The local
-          // state must still be cleared immediately, so a network failure
-          // cannot trap the user in a logged-in screen.
-          void authApi.logoutWithCloud(accessToken).catch(() => undefined);
+        const state = useAuthStore.getState();
+        const cloudToken = state.cloudToken || (typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null);
+        if (cloudToken && (typeof navigator === 'undefined' || navigator.onLine)) {
+          void authApi.logoutWithCloud(cloudToken).catch(() => undefined);
         }
-        // Stop auto-refresh
         stopTokenRefresh();
         TokenManager.clearToken();
         TokenManager.clearRefreshToken();
+        localStorage.removeItem('cloud_token');
+        localStorage.removeItem('cloud_refresh_token');
         apiClient.logout();
-        clearPersistedAuthStorage();
         set({
           isAuthenticated: false,
           sessionVerified: false,
           user: null,
           token: null,
           refreshTokenValue: null,
+          cloudToken: null,
         });
+        clearPersistedAuthStorage();
       },
 
       checkAuth: async () => {
@@ -303,7 +339,8 @@ export const useAuthStore = create<AuthState>()(
         // authority remains mandatory for all protected sessions.
         set({ isLoading: true, sessionVerified: false });
         const token = TokenManager.getToken();
-        if (!token) {
+        const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
+        if (!token || !cloudToken) {
           forceLogoutToLogin('No active cloud session');
           set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
           return;
@@ -365,13 +402,6 @@ export const useAuthStore = create<AuthState>()(
 
           if (isInvalidTokenError(error)) {
             forceLogoutToLogin('Refresh failed due to invalid token');
-            set({
-              isAuthenticated: false,
-              sessionVerified: false,
-              user: null,
-              token: null,
-              refreshTokenValue: null,
-            });
             return;
           }
 
@@ -386,12 +416,10 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'auth-storage',
       storage: createJSONStorage(() => authStorage),
-      partialize: (state) => ({
-        isAuthenticated: state.isAuthenticated,
-        user: state.user,
-        token: state.token,
-        refreshTokenValue: state.refreshTokenValue,
-      }),
+      // The app must re-verify the cloud session on every load. Persisting
+      // tokens or auth flags allows stale sessions to be restored and triggers
+      // the 401 refresh/login loop after reload.
+      partialize: () => ({}),
     }
   )
 );

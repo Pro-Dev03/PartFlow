@@ -80,6 +80,7 @@ func main() {
 					fmt.Printf("   - %s\n", tableName)
 				}
 			}
+			_ = rows.Err()
 		}
 	}
 

@@ -50,8 +50,8 @@ func getOperatingModeFromLocalDB() (string, error) {
 }
 
 func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
-	if c.Query("confirmation") != "احذف جميع البيانات" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "تأكيد التصفير غير صحيح"})
+	if c.Query("confirmation") != "Ø§Ø­Ø°Ù Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ØªØ£ÙƒÙŠØ¯ Ø§Ù„ØªØµÙÙŠØ± ØºÙŠØ± ØµØ­ÙŠØ­"})
 		return
 	}
 
@@ -60,7 +60,7 @@ func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
 	tx, err := h.db.Beginx()
 	if err != nil {
 		log.Printf("Failed to begin transaction: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل بدء المعاملة", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ Ø¨Ø¯Ø¡ Ø§Ù„Ù…Ø¹Ø§Ù…Ù„Ø©", "details": err.Error()})
 		return
 	}
 
@@ -76,13 +76,13 @@ func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
 		ORDER BY table_name
 	`); err != nil {
 		_ = tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل قراءة جداول قاعدة البيانات", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ Ù‚Ø±Ø§Ø¡Ø© Ø¬Ø¯Ø§ÙˆÙ„ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª", "details": err.Error()})
 		return
 	}
 
 	if len(tables) == 0 {
 		_ = tx.Rollback()
-		c.JSON(http.StatusOK, gin.H{"message": "لا توجد بيانات لحذفها", "deleted_tables": 0})
+		c.JSON(http.StatusOK, gin.H{"message": "Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ù„Ø­Ø°ÙÙ‡Ø§", "deleted_tables": 0})
 		return
 	}
 
@@ -93,7 +93,7 @@ func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
 	query := "TRUNCATE TABLE " + strings.Join(quotedTables, ", ") + " CASCADE"
 	if _, err := tx.Exec(query); err != nil {
 		_ = tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تصفير بيانات قاعدة البيانات", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªØµÙÙŠØ± Ø¨ÙŠØ§Ù†Ø§Øª Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª", "details": err.Error()})
 		return
 	}
 
@@ -101,19 +101,19 @@ func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
 	result, err := tx.Exec(`DELETE FROM users WHERE email IS DISTINCT FROM 'owner@partflow.com'`)
 	if err != nil {
 		_ = tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تنظيف حسابات المستخدمين", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªÙ†Ø¸ÙŠÙ Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ†", "details": err.Error()})
 		return
 	}
 	deletedUsers, _ = result.RowsAffected()
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Failed to commit transaction: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تأكيد المعاملة", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ù…Ø¹Ø§Ù…Ù„Ø©", "details": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":          "تم تصفير بيانات النظام مع الحفاظ على حساب المالك والإعدادات",
+		"message":          "ØªÙ… ØªØµÙÙŠØ± Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù†Ø¸Ø§Ù… Ù…Ø¹ Ø§Ù„Ø­ÙØ§Ø¸ Ø¹Ù„Ù‰ Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…Ø§Ù„Ùƒ ÙˆØ§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª",
 		"deleted_tables":   len(tables),
 		"deleted_users":    deletedUsers,
 		"preserved_tables": []string{"owner user", "settings", "schema_migrations"},
@@ -122,8 +122,8 @@ func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
-	if c.Query("confirmation") != "احذف جميع البيانات" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "تأكيد التصفير غير صحيح"})
+	if c.Query("confirmation") != "Ø§Ø­Ø°Ù Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ØªØ£ÙƒÙŠØ¯ Ø§Ù„ØªØµÙÙŠØ± ØºÙŠØ± ØµØ­ÙŠØ­"})
 		return
 	}
 
@@ -131,7 +131,7 @@ func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
 
 	db, err := localdb.Open()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل فتح قاعدة البيانات المحلية", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ÙØªØ­ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ©", "details": err.Error()})
 		return
 	}
 	defer db.DB.Close()
@@ -145,7 +145,7 @@ func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
 		ORDER BY name
 	`)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل قراءة جداول قاعدة البيانات المحلية", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ Ù‚Ø±Ø§Ø¡Ø© Ø¬Ø¯Ø§ÙˆÙ„ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ©", "details": err.Error()})
 		return
 	}
 	defer rows.Close()
@@ -154,13 +154,13 @@ func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
 	for rows.Next() {
 		var table string
 		if err := rows.Scan(&table); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل قراءة اسم جدول", "details": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ Ù‚Ø±Ø§Ø¡Ø© Ø§Ø³Ù… Ø¬Ø¯ÙˆÙ„", "details": err.Error()})
 			return
 		}
 		tables = append(tables, table)
 	}
 	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل إنهاء قراءة جداول قاعدة البيانات المحلية", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ Ø¥Ù†Ù‡Ø§Ø¡ Ù‚Ø±Ø§Ø¡Ø© Ø¬Ø¯Ø§ÙˆÙ„ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ©", "details": err.Error()})
 		return
 	}
 
@@ -170,25 +170,25 @@ func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
 			continue
 		}
 		if _, err := db.DB.Exec(fmt.Sprintf("DELETE FROM %q", table)); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تصفير بيانات قاعدة البيانات المحلية", "details": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªØµÙÙŠØ± Ø¨ÙŠØ§Ù†Ø§Øª Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ©", "details": err.Error()})
 			return
 		}
 	}
 
 	if err := localdb.SetMetadata(db.DB, "operating_mode", "offline"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل حفظ حالة التشغيل المحلية", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ Ø­ÙØ¸ Ø­Ø§Ù„Ø© Ø§Ù„ØªØ´ØºÙŠÙ„ Ø§Ù„Ù…Ø­Ù„ÙŠØ©", "details": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":        "تم تصفير بيانات التشغيل المحلي مع الاحتفاظ بوضع التشغيل الحالي",
+		"message":        "ØªÙ… ØªØµÙÙŠØ± Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªØ´ØºÙŠÙ„ Ø§Ù„Ù…Ø­Ù„ÙŠ Ù…Ø¹ Ø§Ù„Ø§Ø­ØªÙØ§Ø¸ Ø¨ÙˆØ¶Ø¹ Ø§Ù„ØªØ´ØºÙŠÙ„ Ø§Ù„Ø­Ø§Ù„ÙŠ",
 		"deleted_tables": len(tables),
 		"target":         "offline",
 		"preserved":      []string{"local_metadata", "operating_mode"},
 	})
 }
 
-// DeleteAllData يحذف جميع البيانات من قاعدة البيانات
+// DeleteAllData ÙŠØ­Ø°Ù Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù…Ù† Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
 func (h *DatabaseHandler) DeleteAllData(c *gin.Context) {
 	// The embedded desktop backend owns SQLite. A client must never be able to
 	// select an "online" target and accidentally clear cloud data (or use the
@@ -226,7 +226,7 @@ ALTER TABLE products ADD COLUMN IF NOT EXISTS preferred_supplier_id UUID REFEREN
 CREATE INDEX IF NOT EXISTS idx_products_preferred_supplier ON products(preferred_supplier_id);
 
 -- Add comment
-COMMENT ON COLUMN products.preferred_supplier_id IS 'المورد المفضل للمنتج';
+COMMENT ON COLUMN products.preferred_supplier_id IS 'Ø§Ù„Ù…ÙˆØ±Ø¯ Ø§Ù„Ù…ÙØ¶Ù„ Ù„Ù„Ù…Ù†ØªØ¬';
 
 -- Add missing deleted_at column
 ALTER TABLE products ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE;
@@ -257,15 +257,15 @@ ALTER TABLE expenses ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES users(
 ALTER TABLE expenses ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'approved';
 
 -- Add comments
-COMMENT ON COLUMN products.cost_price IS 'سعر التكلفة';
-COMMENT ON COLUMN products.selling_price IS 'سعر البيع';
+COMMENT ON COLUMN products.cost_price IS 'Ø³Ø¹Ø± Ø§Ù„ØªÙƒÙ„ÙØ©';
+COMMENT ON COLUMN products.selling_price IS 'Ø³Ø¹Ø± Ø§Ù„Ø¨ÙŠØ¹';
 `
 
 	_, err := h.db.Exec(migration)
 	if err != nil {
 		log.Printf("Failed to apply migration: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "فشل تطبيق الـ migration",
+			"error":   "ÙØ´Ù„ ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ù€ migration",
 			"details": err.Error(),
 		})
 		return
@@ -274,7 +274,7 @@ COMMENT ON COLUMN products.selling_price IS 'سعر البيع';
 	log.Println("Migration applied successfully")
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":   "تم تطبيق الـ migration بنجاح",
+		"message":   "ØªÙ… ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ù€ migration Ø¨Ù†Ø¬Ø§Ø­",
 		"migration": "add_preferred_supplier_to_products",
 	})
 }

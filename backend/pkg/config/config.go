@@ -34,6 +34,9 @@ type Config struct {
 	SupabaseKey     string
 	UseSupabaseAuth bool
 
+	// Cloud
+	CloudAPIURL string
+
 	// JWT
 	JWTSecret          string
 	JWTAccessTokenTTL  time.Duration
@@ -104,6 +107,9 @@ func Load() (*Config, error) {
 		SupabaseKey:     getEnv("SUPABASE_KEY", ""),
 		UseSupabaseAuth: getBoolEnv("USE_SUPABASE_AUTH", false),
 
+		// Cloud
+		CloudAPIURL: getEnv("CLOUD_API_URL", "https://partflow-api.onrender.com/api/v1"),
+
 		// JWT
 		JWTSecret:          getEnv("JWT_SECRET", "change-this-secret-in-production"),
 		JWTAccessTokenTTL:  getDurationEnv("JWT_ACCESS_TOKEN_TTL", 15*time.Minute),
@@ -121,7 +127,7 @@ func Load() (*Config, error) {
 		// CORS
 		CORSAllowedOrigins: []string{getEnv("CORS_ALLOWED_ORIGINS", "*")},
 		CORSAllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		CORSAllowedHeaders: []string{"Origin", "Content-Type", "Authorization", "X-Request-ID"},
+		CORSAllowedHeaders: []string{"Origin", "Content-Type", "Authorization", "X-Request-ID", "X-PartFlow-Cloud-Token"},
 
 		// Rate Limiting
 		RateLimitEnabled: getBoolEnv("RATE_LIMIT_ENABLED", true),

@@ -9,11 +9,11 @@ import (
 type IntegrationType string
 
 const (
-	IntegrationTypePayment     IntegrationType = "payment"
-	IntegrationTypeMessaging   IntegrationType = "messaging"
-	IntegrationTypeStorage     IntegrationType = "storage"
-	IntegrationTypeShipping    IntegrationType = "shipping"
-	IntegrationTypeAnalytics   IntegrationType = "analytics"
+	IntegrationTypePayment      IntegrationType = "payment"
+	IntegrationTypeMessaging    IntegrationType = "messaging"
+	IntegrationTypeStorage      IntegrationType = "storage"
+	IntegrationTypeShipping     IntegrationType = "shipping"
+	IntegrationTypeAnalytics    IntegrationType = "analytics"
 	IntegrationTypeNotification IntegrationType = "notification"
 )
 
@@ -21,9 +21,9 @@ const (
 type IntegrationStatus string
 
 const (
-	StatusActive    IntegrationStatus = "active"
-	StatusInactive  IntegrationStatus = "inactive"
-	StatusError     IntegrationStatus = "error"
+	StatusActive      IntegrationStatus = "active"
+	StatusInactive    IntegrationStatus = "inactive"
+	StatusError       IntegrationStatus = "error"
 	StatusConfiguring IntegrationStatus = "configuring"
 )
 

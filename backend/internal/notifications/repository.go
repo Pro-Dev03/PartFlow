@@ -471,6 +471,9 @@ func (r *Repository) GetNotificationSummary(ctx context.Context, userID uuid.UUI
 		}
 		summary.ByType[notifType] = count
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate notifications by type: %w", err)
+	}
 
 	return &summary, nil
 }

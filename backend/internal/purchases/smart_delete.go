@@ -208,6 +208,9 @@ func (s *SmartDeleteService) checkDependencies(ctx context.Context, purchaseID u
 		check.UsedItems = append(check.UsedItems, item)
 		check.HasSales = true
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate used items: %w", err)
+	}
 
 	// Check for returns
 	var returnCount int

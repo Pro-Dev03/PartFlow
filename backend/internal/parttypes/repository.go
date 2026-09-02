@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,47 +51,41 @@ func localPartTypeTime(v string) time.Time { t, _ := dbutil.ParseTimestamp(v); r
 func parsePartTypeMap(record map[string]any) (PartType, error) {
 	var partType PartType
 	if raw, ok := record["id"]; ok && raw != nil {
-		parsed, err := uuid.Parse(raw.(string))
+		text, ok := stringFromValue(raw)
+		if !ok || strings.TrimSpace(text) == "" {
+			return partType, nil
+		}
+		parsed, err := uuid.Parse(text)
 		if err != nil {
 			return partType, fmt.Errorf("parse part type id: %w", err)
 		}
 		partType.ID = parsed
 	}
 	if raw, ok := record["name_ar"]; ok && raw != nil {
-		partType.NameAr = raw.(string)
+		if text, ok := stringFromValue(raw); ok {
+			partType.NameAr = text
+		}
 	}
 	if raw, ok := record["name_en"]; ok && raw != nil {
-		partType.NameEn = raw.(string)
+		if text, ok := stringFromValue(raw); ok {
+			partType.NameEn = text
+		}
 	}
 	if raw, ok := record["icon"]; ok && raw != nil {
-		partType.Icon = raw.(string)
+		if text, ok := stringFromValue(raw); ok {
+			partType.Icon = text
+		}
 	}
 	if raw, ok := record["color"]; ok && raw != nil {
-		partType.Color = raw.(string)
+		if text, ok := stringFromValue(raw); ok {
+			partType.Color = text
+		}
 	}
 	if raw, ok := record["is_active"]; ok && raw != nil {
-		switch v := raw.(type) {
-		case bool:
-			partType.IsActive = v
-		case int:
-			partType.IsActive = v != 0
-		case int64:
-			partType.IsActive = v != 0
-		case string:
-			partType.IsActive = v == "1" || v == "true" || v == "TRUE"
-		}
+		partType.IsActive = boolFromValue(raw)
 	}
 	if raw, ok := record["sort_order"]; ok && raw != nil {
-		switch v := raw.(type) {
-		case int64:
-			partType.SortOrder = int(v)
-		case int32:
-			partType.SortOrder = int(v)
-		case float64:
-			partType.SortOrder = int(v)
-		case int:
-			partType.SortOrder = v
-		}
+		partType.SortOrder = intFromValue(raw)
 	}
 	if raw, ok := record["created_at"]; ok && raw != nil {
 		parsed, err := dbutil.ParseTimestamp(raw)
@@ -107,6 +102,98 @@ func parsePartTypeMap(record map[string]any) (PartType, error) {
 		partType.UpdatedAt = parsed
 	}
 	return partType, nil
+}
+
+func stringFromValue(raw any) (string, bool) {
+	switch v := raw.(type) {
+	case nil:
+		return "", false
+	case string:
+		return v, true
+	case []byte:
+		return string(v), true
+	case fmt.Stringer:
+		return v.String(), true
+	default:
+		return fmt.Sprint(v), true
+	}
+}
+
+func boolFromValue(raw any) bool {
+	switch v := raw.(type) {
+	case bool:
+		return v
+	case int:
+		return v != 0
+	case int8:
+		return v != 0
+	case int16:
+		return v != 0
+	case int32:
+		return v != 0
+	case int64:
+		return v != 0
+	case uint:
+		return v != 0
+	case uint8:
+		return v != 0
+	case uint16:
+		return v != 0
+	case uint32:
+		return v != 0
+	case uint64:
+		return v != 0
+	case float32:
+		return v != 0
+	case float64:
+		return v != 0
+	case string:
+		text := strings.TrimSpace(v)
+		return text == "1" || strings.EqualFold(text, "true") || strings.EqualFold(text, "yes") || strings.EqualFold(text, "y")
+	case []byte:
+		return boolFromValue(string(v))
+	default:
+		return strings.EqualFold(strings.TrimSpace(fmt.Sprint(v)), "true") || strings.TrimSpace(fmt.Sprint(v)) == "1"
+	}
+}
+
+func intFromValue(raw any) int {
+	switch v := raw.(type) {
+	case int:
+		return v
+	case int8:
+		return int(v)
+	case int16:
+		return int(v)
+	case int32:
+		return int(v)
+	case int64:
+		return int(v)
+	case uint:
+		return int(v)
+	case uint8:
+		return int(v)
+	case uint16:
+		return int(v)
+	case uint32:
+		return int(v)
+	case uint64:
+		return int(v)
+	case float32:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		var out int
+		if _, err := fmt.Sscan(strings.TrimSpace(v), &out); err == nil {
+			return out
+		}
+		return 0
+	case []byte:
+		return intFromValue(string(v))
+	default:
+		return 0
+	}
 }
 
 func (r *Repository) ListPartTypes(ctx context.Context) ([]PartType, error) {

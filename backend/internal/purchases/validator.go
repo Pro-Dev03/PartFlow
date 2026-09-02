@@ -24,11 +24,11 @@ func ValidatePurchaseItem(item *PurchaseItemRequest) error {
 // ValidatePurchaseStatus validates purchase status
 func ValidatePurchaseStatus(status string) error {
 	validStatuses := map[string]bool{
-		"pending":  true,
-		"received": true,
+		"pending":   true,
+		"received":  true,
 		"cancelled": true,
 	}
-	
+
 	if !validStatuses[status] {
 		return ErrInvalidPurchaseStatus
 	}

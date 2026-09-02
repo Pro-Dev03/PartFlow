@@ -104,6 +104,15 @@ func main() {
 	createLastName := createCmd.String("last-name", "", "اسم العائلة")
 	createPhone := createCmd.String("phone", "", "رقم الهاتف")
 	createDays := createCmd.Int("days", 30, "عدد أيام الاشتراك")
+	createAdminFlag := createCmd.Bool("admin", false, "إنشاء حساب كمدير/أدمن")
+
+	createAdminCmd := flag.NewFlagSet("create-admin", flag.ContinueOnError)
+	createAdminEmail := createAdminCmd.String("email", "", "البريد الإلكتروني للحساب الإداري")
+	createAdminPassword := createAdminCmd.String("password", "", "كلمة المرور للحساب الإداري")
+	createAdminFirstName := createAdminCmd.String("first-name", "", "الاسم الأول")
+	createAdminLastName := createAdminCmd.String("last-name", "", "اسم العائلة")
+	createAdminPhone := createAdminCmd.String("phone", "", "رقم الهاتف")
+	createAdminDays := createAdminCmd.Int("days", 30, "عدد أيام الاشتراك")
 
 	renewCmd := flag.NewFlagSet("renew", flag.ContinueOnError)
 	renewEmail := renewCmd.String("email", "", "البريد الإلكتروني للحساب")
@@ -157,7 +166,7 @@ func main() {
 
 	if os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help" {
 		printBanner()
-		printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd)
+		printUsageAndExit(createCmd, createAdminCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd)
 	}
 
 	cfg, err := loadConfig()
@@ -191,10 +200,44 @@ func main() {
 		if *createDays <= 0 {
 			fatalError(errors.New("يجب أن تكون الأيام أكبر من صفر"))
 		}
+		if err := validatePasswordStrength(*createPassword); err != nil {
+			fatalError(err)
+		}
 		if err := createAccount(db, *createEmail, *createPassword, *createFirstName, *createLastName, *createPhone, *createDays); err != nil {
 			fatalError(err)
 		}
-		fmt.Println("✅ تم إنشاء الحساب بنجاح.")
+		if *createAdminFlag {
+			fmt.Printf("⚠️  لاحظ: الحساب تم إنشاؤه كحساب فعلي، ويجب إضافة البريد إلى PARTFLOW_ADMIN_EMAILS لتمكين صلاحيات الإدارة.")
+			fmt.Printf("\nالبريد الحالي المسموح: %s\n", strings.Join(configuredAdminEmails(), ", "))
+		}
+		fmt.Println("\n✅ تم إنشاء الحساب بنجاح.")
+	case "create-admin", "admin-create":
+		if err := createAdminCmd.Parse(os.Args[2:]); err != nil {
+			fatalError(err)
+		}
+		if err := validateRequired("email", *createAdminEmail); err != nil {
+			fatalError(err)
+		}
+		if err := validateRequired("password", *createAdminPassword); err != nil {
+			fatalError(err)
+		}
+		if err := validateRequired("first-name", *createAdminFirstName); err != nil {
+			fatalError(err)
+		}
+		if err := validateRequired("last-name", *createAdminLastName); err != nil {
+			fatalError(err)
+		}
+		if *createAdminDays <= 0 {
+			fatalError(errors.New("يجب أن تكون الأيام أكبر من صفر"))
+		}
+		if err := validatePasswordStrength(*createAdminPassword); err != nil {
+			fatalError(err)
+		}
+		if err := createAccount(db, *createAdminEmail, *createAdminPassword, *createAdminFirstName, *createAdminLastName, *createAdminPhone, *createAdminDays); err != nil {
+			fatalError(err)
+		}
+		fmt.Printf("⚠️  لإعطاء هذا الحساب صلاحية الإدارة فعلياً، أضف البريد إلى PARTFLOW_ADMIN_EMAILS أو استخدم owner@partflow.com كمدير أساسي.\n")
+		fmt.Println("✅ تم إنشاء حساب الإدارة بنجاح.")
 	case "renew":
 		if err := renewCmd.Parse(os.Args[2:]); err != nil {
 			fatalError(err)
@@ -280,28 +323,38 @@ func main() {
 		}
 		fmt.Println("✅ تم تغيير كلمة مرور حساب الإدارة وإبطال جلساته القديمة.")
 	case "help", "-h", "--help":
-		printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd)
+		printUsageAndExit(createCmd, createAdminCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd)
 	default:
-		printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd)
+		printUsageAndExit(createCmd, createAdminCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd)
 	}
 }
 
 func loadConfig() (*Config, error) {
 	loadDotEnv()
 
-	// This administrative tool must target Supabase directly. Keep the generic
-	// DATABASE_URL out of the priority chain so it cannot silently hit SQLite or
-	// another local database by mistake.
-	dbURL := os.Getenv("SUPABASE_DATABASE_URL")
-	if strings.TrimSpace(dbURL) == "" {
-		dbURL = os.Getenv("DATABASE_URL_DIRECT")
+	// Prefer the same database connection the app already uses. The backend and
+	// the scripts both should work against the same primary database, which may be
+	// Supabase, PostgreSQL, or a local installation depending on the environment.
+	candidates := []string{
+		os.Getenv("DATABASE_URL"),
+		os.Getenv("SUPABASE_DATABASE_URL"),
+		os.Getenv("DATABASE_URL_DIRECT"),
 	}
-	dbURL = strings.TrimSpace(dbURL)
+
+	var dbURL string
+	for _, candidate := range candidates {
+		trimmed := strings.TrimSpace(candidate)
+		if trimmed != "" {
+			dbURL = trimmed
+			break
+		}
+	}
+
 	if dbURL == "" {
-		return nil, errors.New("المتغير SUPABASE_DATABASE_URL أو DATABASE_URL_DIRECT مطلوب")
+		return nil, errors.New("لا يوجد رابط قاعدة بيانات متوفر. قم بإعداد DATABASE_URL أو SUPABASE_DATABASE_URL أو DATABASE_URL_DIRECT")
 	}
 	if strings.HasPrefix(dbURL, "=") {
-		return nil, errors.New("تنسيق رابط قاعدة البيانات غير صحيح: استخدم SUPABASE_DATABASE_URL=postgresql://...")
+		return nil, errors.New("تنسيق رابط قاعدة البيانات غير صحيح: استخدم DATABASE_URL=postgresql://... أو SUPABASE_DATABASE_URL=postgresql://...")
 	}
 	return &Config{DBURL: dbURL}, nil
 }
@@ -581,6 +634,11 @@ func printAccountStatus(db *sqlx.DB, email string) error {
 		return fmt.Errorf("الحساب غير موجود: %s", email)
 	}
 
+	daysLeft := "غير محدد"
+	if account.SubscriptionExpiresAt != nil {
+		daysLeft = formatDaysRemaining(*account.SubscriptionExpiresAt)
+	}
+
 	fmt.Println("\n👤 حالة الحساب")
 	fmt.Println("------------------------------------------------------------")
 	fmt.Printf("البريد: %s\n", account.Email)
@@ -588,7 +646,8 @@ func printAccountStatus(db *sqlx.DB, email string) error {
 	fmt.Printf("الهاتف: %s\n", account.Phone)
 	fmt.Printf("نشط: %t\n", account.IsActive)
 	fmt.Printf("حالة الاشتراك: %s\n", account.SubscriptionStatus)
-	fmt.Printf("Account type: %s\n", accountKind(account.Email))
+	fmt.Printf("نوع الحساب: %s\n", accountKind(account.Email))
+	fmt.Printf("الأيام المتبقية: %s\n", daysLeft)
 	if account.SubscriptionExpiresAt != nil {
 		fmt.Printf("تاريخ الانتهاء: %s\n", account.SubscriptionExpiresAt.Format(time.RFC3339))
 	} else {
@@ -602,11 +661,12 @@ func printBanner() {
 	fmt.Print(banner)
 }
 
-func printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd *flag.FlagSet) {
+func printUsageAndExit(createCmd, createAdminCmd, renewCmd, disableCmd, deleteCmd, listCmd, subscribersCmd, statusCmd, summaryCmd, adminPasswordCmd *flag.FlagSet) {
 	fmt.Println("الاستخدام:")
 	fmt.Println("  go run ./scripts/subscription-manager.go app")
 	fmt.Println("  go run ./scripts/subscription-manager.go summary")
 	fmt.Println("  go run ./scripts/subscription-manager.go create --email user@example.com --password Pass123 --first-name علي --last-name السعدي --days 30")
+	fmt.Println("  go run ./scripts/subscription-manager.go create-admin --email admin@example.com --password Pass123 --first-name Ali --last-name Admin --days 30")
 	fmt.Println("  go run ./scripts/subscription-manager.go renew --email user@example.com --days 60")
 	fmt.Println("  go run ./scripts/subscription-manager.go disable --email user@example.com")
 	fmt.Println("  go run ./scripts/subscription-manager.go delete --email user@example.com")
@@ -620,6 +680,7 @@ func printUsageAndExit(createCmd, renewCmd, disableCmd, deleteCmd, listCmd, subs
 	fmt.Println("")
 	fmt.Println("الخيارات:")
 	createCmd.PrintDefaults()
+	createAdminCmd.PrintDefaults()
 	renewCmd.PrintDefaults()
 	disableCmd.PrintDefaults()
 	deleteCmd.PrintDefaults()
@@ -795,20 +856,6 @@ func changeInteractiveAdminPassword(db *sqlx.DB, reader *bufio.Reader) {
 	fmt.Println("Admin password changed successfully; old sessions were revoked.")
 }
 
-// changeInteractivePassword is kept for backwards compatibility with older
-// callers. The interactive menu intentionally uses the admin-only function.
-func changeInteractivePassword(db *sqlx.DB, reader *bufio.Reader) {
-	fmt.Print("البريد الإلكتروني للحساب: ")
-	email, _ := reader.ReadString('\n')
-	fmt.Print("كلمة المرور الجديدة: ")
-	password, _ := reader.ReadString('\n')
-	if err := changePassword(db, strings.TrimSpace(email), strings.TrimSpace(password)); err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Println("تم تغيير كلمة المرور بنجاح.")
-}
-
 // promptPassword hides input when the script is attached to a terminal. When
 // stdin is piped (for automation), it safely falls back to reading one line.
 func promptPassword(prompt string, readers ...*bufio.Reader) (string, error) {
@@ -921,6 +968,21 @@ func validateRequired(name, value string) error {
 		return fmt.Errorf("%s مطلوب", name)
 	}
 	return nil
+}
+
+func validatePasswordStrength(password string) error {
+	if len([]rune(strings.TrimSpace(password))) < 6 {
+		return errors.New("password must be at least 6 characters")
+	}
+	return nil
+}
+
+func formatDaysRemaining(expiresAt time.Time) string {
+	duration := time.Until(expiresAt)
+	if duration < 0 {
+		return "منتهي"
+	}
+	return fmt.Sprintf("%d يوم", int(duration.Hours()/24))
 }
 
 func printAccountSummary(email, action string, expiresAt time.Time, status string) {

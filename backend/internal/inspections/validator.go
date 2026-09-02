@@ -12,7 +12,7 @@ func ValidateInspectionStatus(status string) error {
 		"failed":       true,
 		"needs_repair": true,
 	}
-	
+
 	if !validStatuses[status] {
 		return ErrInvalidInspectionStatus
 	}
@@ -22,13 +22,13 @@ func ValidateInspectionStatus(status string) error {
 // ValidateCondition validates condition
 func ValidateCondition(condition string) error {
 	validConditions := map[string]bool{
-		"excellent":  true,
-		"very_good":  true,
-		"good":       true,
-		"fair":       true,
-		"poor":       true,
+		"excellent": true,
+		"very_good": true,
+		"good":      true,
+		"fair":      true,
+		"poor":      true,
 	}
-	
+
 	if !validConditions[condition] {
 		return ErrInvalidCondition
 	}
@@ -44,7 +44,7 @@ func ValidateGrade(grade string) error {
 		"D": true,
 		"F": true,
 	}
-	
+
 	if !validGrades[grade] {
 		return ErrInvalidGrade
 	}

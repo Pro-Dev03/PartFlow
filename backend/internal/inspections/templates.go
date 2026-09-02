@@ -8,9 +8,9 @@ import (
 // Based on USED-PARTS-ACQUISITION.md - Section 9: قوالب الفحص حسب نوع القطعة
 type InspectionTemplate struct {
 	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`        // GPU, CPU, Laptop, Motherboard, etc.
+	Name        string                 `json:"name"`         // GPU, CPU, Laptop, Motherboard, etc.
 	DisplayName string                 `json:"display_name"` // Display name in Arabic
-	Category    string                 `json:"category"`    // GPU, CPU, Storage, etc.
+	Category    string                 `json:"category"`     // GPU, CPU, Storage, etc.
 	Checkpoints []InspectionCheckpoint `json:"checkpoints"`
 }
 
@@ -391,20 +391,20 @@ func GetAllTemplates() []InspectionTemplate {
 func GetTemplateForProduct(category string) (*InspectionTemplate, bool) {
 	// Map product categories to inspection templates
 	categoryMap := map[string]string{
-		"GPU":        "gpu",
-		"Graphics":   "gpu",
-		"CPU":        "cpu",
-		"Processor":  "cpu",
-		"Laptop":     "laptop",
-		"Notebook":   "laptop",
+		"GPU":         "gpu",
+		"Graphics":    "gpu",
+		"CPU":         "cpu",
+		"Processor":   "cpu",
+		"Laptop":      "laptop",
+		"Notebook":    "laptop",
 		"Motherboard": "motherboard",
-		"RAM":        "ram",
-		"Memory":     "ram",
-		"SSD":        "storage",
-		"HDD":        "storage",
-		"Storage":    "storage",
-		"PSU":        "psu",
-		"Power":      "psu",
+		"RAM":         "ram",
+		"Memory":      "ram",
+		"SSD":         "storage",
+		"HDD":         "storage",
+		"Storage":     "storage",
+		"PSU":         "psu",
+		"Power":       "psu",
 	}
 
 	templateType, exists := categoryMap[category]
@@ -417,19 +417,19 @@ func GetTemplateForProduct(category string) (*InspectionTemplate, bool) {
 
 // CheckpointResult represents the result of a single checkpoint inspection
 type CheckpointResult struct {
-	CheckpointID string `json:"checkpoint_id"`
-	Status      string `json:"status"`      // pass, fail, pending
-	Notes       string `json:"notes"`
-	Images      []string `json:"images"`
+	CheckpointID string   `json:"checkpoint_id"`
+	Status       string   `json:"status"` // pass, fail, pending
+	Notes        string   `json:"notes"`
+	Images       []string `json:"images"`
 }
 
 // InspectionFromTemplate creates an inspection from a template with results
 type InspectionFromTemplate struct {
-	TemplateID     string              `json:"template_id"`
-	TemplateType   string              `json:"template_type"`
+	TemplateID        string             `json:"template_id"`
+	TemplateType      string             `json:"template_type"`
 	CheckpointResults []CheckpointResult `json:"checkpoint_results"`
-	OverallStatus  string              `json:"overall_status"` // passed, failed, needs_repair
-	Notes          string              `json:"notes"`
+	OverallStatus     string             `json:"overall_status"` // passed, failed, needs_repair
+	Notes             string             `json:"notes"`
 }
 
 // CalculateOverallStatus calculates the overall inspection status based on checkpoint results

@@ -3,33 +3,51 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useToast } from '../../../hooks/useToast';
+import { useUIStore } from '../../../stores/uiStore';
 import { Modal } from '../../../components/ui/modal';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
-import { productsApi, salesApi, customersApi, barcodeApi, inventoryApi, partTypesApi, categoriesApi } from '../../../services/api/endpoints';
+import {
+  productsApi,
+  salesApi,
+  customersApi,
+  barcodeApi,
+  inventoryApi,
+  partTypesApi,
+  categoriesApi,
+} from '../../../services/api/endpoints';
 import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
 import { useDebounce } from '../../../hooks/useDebounce';
-import { Zap, Printer, Pause, Trash2, Plus } from 'lucide-react';
+import {
+  Search,
+  Printer,
+  Pause,
+  Plus,
+  Package,
+  ScanLine,
+  Zap,
+  X,
+  ArrowRight,
+  Wifi,
+  ShoppingCart,
+} from 'lucide-react';
 
-// Custom hooks
+// Modern Components
+import { ModernProductGrid } from '../components/modern/ModernProductGrid';
+import { ModernCartPanel } from '../components/modern/ModernCartPanel';
+import { AdvancedPaymentPanel } from '../components/modern/AdvancedPaymentPanel';
+
+// Hooks
 import { normalizePosPrice, useCart } from '../hooks/useCart';
 import { usePayment } from '../hooks/usePayment';
-
-// Components
-import { BarcodeScanner } from '../components/BarcodeScanner';
-import { ProductSearch } from '../components/ProductSearch';
-import { CustomerSelector } from '../components/CustomerSelector';
-import { TradeInItemsSection } from '../components/TradeInItemsSection';
-import { CartSection } from '../components/CartSection';
-import { PaymentSection } from '../components/PaymentSection';
-import { CategoryFilter } from '../components/CategoryFilter';
 
 // Types
 import { InvoiceData } from '../types/pos.types';
 import { Product, InventoryItem, PartType } from '../../../types/models';
-import type { CustomerCreateRequest } from '../../../services/api/types';
+import type { CustomerCreateRequest, Customer, Category } from '../../../services/api/types';
 import type { PosCartProduct } from '../hooks/useCart';
+import type { SaleCreateRequest } from '../../../services/api/types';
 
 interface HeldSale {
   id: string;
@@ -44,77 +62,100 @@ export function POSPage() {
   const toast = useToast();
 
   // Custom hooks
-  const { cart, addToCart, removeFromCart, updateQuantity, clearCart, total } = useCart(true);
-  const { 
-    paymentMethod, 
-    setPaymentMethod, 
-    paidAmount, 
-    setPaidAmount, 
-    isProcessing, 
-    setProcessing, 
+  const {
+    cart,
+    addToCart,
+    removeFromCart,
+    updateQuantity,
+    clearCart,
+    total,
+  } = useCart(true);
+  const {
+    paymentMethod,
+    setPaymentMethod,
+    paidAmount,
+    setPaidAmount,
+    isProcessing,
+    setProcessing,
     calculateRemaining,
-    resetPayment 
+    resetPayment,
   } = usePayment();
 
+  // Handle used part from navigation
   useEffect(() => {
-    const usedPart = (location.state as { usedPart?: PosCartProduct } | null)?.usedPart;
+    const usedPart = (location.state as { usedPart?: PosCartProduct } | null)
+      ?.usedPart;
     if (!usedPart) return;
-
     addToCart(usedPart);
     window.history.replaceState({}, document.title, window.location.href);
   }, [addToCart, location.state]);
 
   // Local state
-  const [barcodeInput, setBarcodeInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState('');
-  const [selectedCustomerOption, setSelectedCustomerOption] = useState<{ id: string; name: string }>();
+  const [selectedCustomerOption, setSelectedCustomerOption] = useState<{
+    id: string;
+    name: string;
+  }>();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [soundEnabled] = useState(true);
-  const [quickAddMode, setQuickAddMode] = useState(false);
-  const [inputMethod, setInputMethod] = useState<'barcode' | 'camera'>('barcode');
-  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [lastSaleData, setLastSaleData] = useState<InvoiceData | null>(null);
   const lastSaleDataRef = useRef<InvoiceData | null>(null);
-  
-  // Quick customer creation modal (SALES-PHILOSOPHY.md)
-  const [isQuickCustomerModalOpen, setIsQuickCustomerModalOpen] = useState(false);
+  const [isQuickCustomerModalOpen, setIsQuickCustomerModalOpen] =
+    useState(false);
   const [customerBalance, setCustomerBalance] = useState(0);
-  const [customerCreditLimit, setCustomerCreditLimit] = useState<number | undefined>();
+  const [customerCreditLimit, setCustomerCreditLimit] = useState<
+    number | undefined
+  >();
   const [quickCustomerName, setQuickCustomerName] = useState('');
   const [quickCustomerPhone, setQuickCustomerPhone] = useState('');
   const [quickCustomerCreditLimit, setQuickCustomerCreditLimit] = useState('');
   const [productPage, setProductPage] = useState(1);
+  const [isManualProductOpen, setIsManualProductOpen] = useState(false);
+  const [manualProduct, setManualProduct] = useState({
+    name: '',
+    price: '',
+    quantity: '1',
+    barcode: '',
+  });
+  const [unknownBarcode, setUnknownBarcode] = useState('');
+  const [isHeldSalesOpen, setIsHeldSalesOpen] = useState(false);
+  const { checkoutMode, setCheckoutMode } = useUIStore();
+
+  // Held sales query
   const { data: heldSalesData } = useQuery({
     queryKey: ['held-sales'],
     queryFn: () => salesApi.listHeld(),
   });
-  const heldSales = (((heldSalesData?.data as unknown) as Array<Record<string, unknown>> | undefined) || [])
+  const heldSales = (
+    (
+      (heldSalesData?.data as unknown) as Array<Record<string, unknown>> | undefined
+    ) || []
+  )
     .map((held): HeldSale | null => {
-      const items = typeof held.items === 'string' ? JSON.parse(held.items) : held.items;
+      const items =
+        typeof held.items === 'string' ? JSON.parse(held.items) : held.items;
       if (!held.id || !Array.isArray(items)) return null;
       return {
         id: String(held.id),
         items: items as PosCartProduct[],
-        created_at: typeof held.created_at === 'string' ? held.created_at : undefined,
+        created_at:
+          typeof held.created_at === 'string' ? held.created_at : undefined,
       };
     })
     .filter((held): held is HeldSale => held !== null);
-  const [isManualProductOpen, setIsManualProductOpen] = useState(false);
-  const [manualProduct, setManualProduct] = useState({ name: '', price: '', quantity: '1', barcode: '' });
-  const [unknownBarcode, setUnknownBarcode] = useState('');
-  const [isHeldSalesOpen, setIsHeldSalesOpen] = useState(false);
-  // Debounce search queries for better performance
+
+  // Debounced search
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const debouncedCustomerSearchQuery = useDebounce(customerSearchQuery, 300);
 
-  // Fetch data with debounce search for scalability
   useEffect(() => {
     setProductPage(1);
   }, [debouncedSearchQuery, selectedCategory]);
 
+  // Keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'F4') {
@@ -122,53 +163,66 @@ export function POSPage() {
         handleHoldSale();
       } else if (event.key === 'F2') {
         event.preventDefault();
-        document.querySelector<HTMLInputElement>('.pos-product-search-field')?.focus();
+        document
+          .querySelector<HTMLInputElement>('.pos-search-input')
+          ?.focus();
       } else if (event.key === 'F8') {
         event.preventDefault();
-        document.querySelector<HTMLButtonElement>('.pos-checkout-button:not(:disabled)')?.click();
+        document
+          .querySelector<HTMLButtonElement>('.checkout-btn:not(:disabled)')
+          ?.click();
       } else if (event.key === 'Escape') {
         setUnknownBarcode('');
         setIsManualProductOpen(false);
-      } else if (event.key === 'Delete' && cart.length > 0 &&
-        !(event.target as HTMLElement).matches('input, textarea, select')) {
-        removeFromCart(cart[cart.length - 1].barcode);
+      } else if (event.key === 'Delete' && cart.length > 0) {
+        if (
+          !(event.target as HTMLElement).matches('input, textarea, select')
+        ) {
+          removeFromCart(cart[cart.length - 1].barcode);
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [cart, removeFromCart]);
 
-  const { data: productsData } = useQuery({
-    queryKey: ['products', debouncedSearchQuery, selectedCategory, productPage],
+  // Products query
+  const { data: productsData, isLoading: productsLoading } = useQuery({
+    queryKey: [
+      'products',
+      debouncedSearchQuery,
+      selectedCategory,
+      productPage,
+    ],
     queryFn: () => {
       return productsApi.list({
         page: productPage,
-        per_page: 16,
+        per_page: 20,
         search: debouncedSearchQuery,
         category_id: selectedCategory || undefined,
       });
     },
-    enabled: true, // Always enabled, but will refetch when search changes
+    enabled: true,
   });
 
+  // Customers query
   const { data: customersData, isLoading: customersLoading } = useQuery({
     queryKey: ['customers', debouncedCustomerSearchQuery],
     queryFn: () => {
       if (debouncedCustomerSearchQuery) {
-        // Search mode - use API search when query exists
         return customersApi.list({
           page: 1,
           per_page: 50,
-          search: debouncedCustomerSearchQuery
+          search: debouncedCustomerSearchQuery,
         });
       } else {
-        // Initial load - fetch limited results for performance
         return customersApi.list({ page: 1, per_page: 50 });
       }
     },
     enabled: true,
   });
 
+  // Other queries
   const { data: inventoryData } = useQuery({
     queryKey: ['inventory'],
     queryFn: () => inventoryApi.list({ page: 1, per_page: 50 }),
@@ -184,39 +238,58 @@ export function POSPage() {
     queryFn: () => categoriesApi.list(),
   });
 
-  const products = (productsData?.data?.products as unknown) as Product[] || [];
+  const products =
+    ((productsData?.data?.products as unknown) as Product[]) || [];
   const productTotal = productsData?.data?.total ?? products.length;
-  const customers = (customersData?.data as unknown) as Customer[] || [];
-  const inventoryItems = (inventoryData?.data?.items as unknown) as InventoryItem[] || [];
-  const partTypes = (partTypesData?.data as unknown) as PartType[] || [];
-  const categories = (categoriesData?.data as unknown) as Category[] || [];
+  const customers =
+    ((customersData?.data as unknown) as Customer[]) || [];
+  const inventoryItems =
+    ((inventoryData?.data?.items as unknown) as InventoryItem[]) || [];
+  const partTypes = ((partTypesData?.data as unknown) as PartType[]) || [];
+  const categories = ((categoriesData?.data as unknown) as Category[]) || [];
 
-  const getAvailableStockCount = useCallback((productId: string) => {
-    if (!productId) return 0;
+  const getAvailableStockCount = useCallback(
+    (productId: string) => {
+      if (!productId) return 0;
+      return inventoryItems.filter((item) => {
+        if (String(item.product_id) !== String(productId)) return false;
+        const status = String(item.status || '').toUpperCase();
+        return ![
+          'SOLD',
+          'RESERVED',
+          'DAMAGED',
+          'IN_REPAIR',
+          'RETURNED',
+          'FOR_PARTS',
+          'ARCHIVED',
+        ].includes(status);
+      }).length;
+    },
+    [inventoryItems]
+  );
 
-    return inventoryItems.filter((item) => {
-      if (String(item.product_id) !== String(productId)) {
+  const canAddProductToCart = useCallback(
+    (productId: string, productName: string, quantity: number = 1) => {
+      const currentQuantity = cart
+        .filter((item) => String(item.id) === String(productId))
+        .reduce((sum, item) => sum + item.quantity, 0);
+      const available = getAvailableStockCount(productId);
+
+      if (available <= 0 || currentQuantity + quantity > available) {
+        const label = productName || 'هذا النوع';
+        toast.error(
+          `هذا النوع قد نفذ من المخزون: ${label}`,
+          'مخزون غير كافٍ',
+          4000
+        );
         return false;
       }
+      return true;
+    },
+    [cart, getAvailableStockCount, toast]
+  );
 
-      const status = String(item.status || '').toUpperCase();
-      return !['SOLD', 'RESERVED', 'DAMAGED', 'IN_REPAIR', 'RETURNED', 'FOR_PARTS', 'ARCHIVED'].includes(status);
-    }).length;
-  }, [inventoryItems]);
-
-  const canAddProductToCart = useCallback((productId: string, productName: string, quantity: number = 1) => {
-    const currentQuantity = cart.filter((item) => String(item.id) === String(productId)).reduce((sum, item) => sum + item.quantity, 0);
-    const available = getAvailableStockCount(productId);
-
-    if (available <= 0 || currentQuantity + quantity > available) {
-      const label = productName || 'هذا النوع';
-      toast.error(`هذا النوع قد نفذ من المخزون: ${label}`, 'مخزون غير كافٍ', 4000);
-      return false;
-    }
-
-    return true;
-  }, [cart, getAvailableStockCount, toast]);
-
+  // Mutations
   const createCustomerMutation = useMutation({
     mutationFn: (data: CustomerCreateRequest) => customersApi.create(data),
     onSuccess: (response) => {
@@ -225,7 +298,10 @@ export function POSPage() {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       if (createdCustomer?.id) {
         setSelectedCustomer(String(createdCustomer.id));
-        setSelectedCustomerOption({ id: String(createdCustomer.id), name: createdCustomer.name });
+        setSelectedCustomerOption({
+          id: String(createdCustomer.id),
+          name: createdCustomer.name,
+        });
         setCustomerBalance(0);
         setCustomerCreditLimit(createdCustomer.credit_limit);
       }
@@ -236,7 +312,11 @@ export function POSPage() {
     },
     onError: (error) => {
       console.error('Customer creation failed:', error);
-      toast.error('تعذر إنشاء العميل. تحقق من البيانات وحاول مرة أخرى.', 'فشل إنشاء العميل', 4000);
+      toast.error(
+        'تعذر إنشاء العميل. تحقق من البيانات وحاول مرة أخرى.',
+        'فشل إنشاء العميل',
+        4000
+      );
     },
   });
 
@@ -264,11 +344,12 @@ export function POSPage() {
         condition: 'new',
         stock: Number(manualProduct.quantity) || 1,
       };
-
       return productsApi.create(payload);
     },
     onSuccess: (response) => {
-      const product = (response?.data as { product?: PosCartProduct } | PosCartProduct)?.product ?? response?.data;
+      const product = (
+        response?.data as { product?: PosCartProduct } | PosCartProduct
+      )?.product ?? response?.data;
       if (product?.id) {
         const barcode = product.barcode || product.id;
         addToCart({ ...product, barcode }, Number(manualProduct.quantity) || 1);
@@ -277,30 +358,25 @@ export function POSPage() {
       setManualProduct({ name: '', price: '', quantity: '1', barcode: '' });
       setIsManualProductOpen(false);
     },
-    onError: (error) => {
-      console.error('Product creation failed:', error);
-      const payload = {
-        name: manualProduct.name.trim(),
-        selling_price: Number(manualProduct.price) || 0,
-        barcode: manualProduct.barcode.trim() || undefined,
-        condition: 'new',
-        stock: Number(manualProduct.quantity) || 1,
-      };
-      toast.error('تعذر إضافة المنتج. تحقق من البيانات وحاول مرة أخرى.', 'فشل إضافة المنتج', 4000);
+    onError: () => {
+      toast.error(
+        'تعذر إضافة المنتج. تحقق من البيانات وحاول مرة أخرى.',
+        'فشل إضافة المنتج',
+        4000
+      );
     },
   });
 
-  // Create sale mutation
   const createSaleMutation = useMutation({
-    mutationFn: async (data: SaleRequest) => {
+    mutationFn: async (data: SaleCreateRequest) => {
       return salesApi.create(data);
     },
-    onSuccess: (response: SaleResponse) => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['inventory', 'used-stock'] });
-      
+
       if (lastSaleDataRef.current) {
         const sale = response?.data?.sale ?? response?.data ?? response?.sale;
         setLastSaleData({
@@ -309,7 +385,7 @@ export function POSPage() {
         });
         setIsInvoiceModalOpen(true);
       }
-      
+
       clearCart();
       setBarcodeInput('');
       setPaidAmount('');
@@ -318,31 +394,39 @@ export function POSPage() {
       setProcessing(false);
     },
     onError: (error: unknown) => {
-      const apiError = error as { response?: { error?: { message?: string } }; arabicMessage?: string; message?: string };
-      const message = apiError.response?.error?.message || apiError.arabicMessage || apiError.message || 'فشل إتمام البيع';
+      const apiError = error as {
+        response?: { error?: { message?: string } };
+        arabicMessage?: string;
+        message?: string;
+      };
+      const message =
+        apiError.response?.error?.message ||
+        apiError.arabicMessage ||
+        apiError.message ||
+        'فشل إتمام البيع';
       const normalizedMessage = String(message).toLowerCase();
-      if (normalizedMessage.includes('insufficient stock') || normalizedMessage.includes('نفذ') || normalizedMessage.includes('مخزون')) {
+      if (
+        normalizedMessage.includes('insufficient stock') ||
+        normalizedMessage.includes('نفذ') ||
+        normalizedMessage.includes('مخزون')
+      ) {
         toast.error('هذا النوع قد نفذ من المخزون', 'مخزون غير كافٍ', 4000);
       } else {
         toast.error(message, 'فشل إتمام البيع', 4000);
       }
-
       console.error('Sale failed:', error);
       setProcessing(false);
     },
   });
 
   // Handlers
-  const handleClearSearch = () => {
-    setSearchQuery('');
-  };
+  const handleClearSearch = () => setSearchQuery('');
 
   const handleHoldSale = () => {
     if (cart.length === 0) {
       toast.error('أضف منتجًا إلى السلة قبل تعليق البيع', 'السلة فارغة');
       return;
     }
-
     holdSaleMutation.mutate();
   };
 
@@ -356,100 +440,76 @@ export function POSPage() {
 
   const handleBarcodeScan = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (barcodeInput.trim()) {
-      try {
-        const response = await barcodeApi.lookupProduct(barcodeInput.trim());
-        const product = response as Product;
-        
-        if (product && product.id) {
-          if (!canAddProductToCart(product.id, product.name, 1)) {
-            return;
-          }
+    if (!searchQuery.trim()) return;
 
-          addToCart({
-            id: product.id,
-            name: product.name,
-            barcode: barcodeInput.trim(),
-            price: normalizePosPrice(product.sellingPrice, (product as Product & { selling_price?: number }).selling_price),
-            stock: product.stock,
-            condition: product.condition,
-            purchaseCost: product.costPrice || product.cost_price || 0,
-          });
-        } else {
-          if (soundEnabled) {
-            playScanSound(false);
-          }
-          setUnknownBarcode(barcodeInput.trim());
-        }
-      } catch (error) {
-        console.error('Barcode lookup failed:', error);
-        if (soundEnabled) {
-          playScanSound(false);
-        }
-        const product = products?.find((p) =>
-          p.sku === barcodeInput.trim() ||
-          p.barcode === barcodeInput.trim()
-        );
-        if (product) {
-          if (!canAddProductToCart(product.id, product.name, 1)) {
-            return;
-          }
+    try {
+      const response = await barcodeApi.lookupProduct(searchQuery.trim());
+      const product = response as Product;
 
-          addToCart({
-            id: product.id,
-            name: product.name,
-            barcode: barcodeInput.trim(),
-            price: normalizePosPrice(product.sellingPrice, (product as Product & { selling_price?: number }).selling_price),
-            stock: product.stock,
-            condition: product.condition,
-            purchaseCost: product.cost_price || product.costPrice || 0,
-          });
-        } else {
-          setUnknownBarcode(barcodeInput.trim());
-        }
+      if (product && product.id) {
+        if (!canAddProductToCart(product.id, product.name, 1)) return;
+        addToCart({
+          id: product.id,
+          name: product.name,
+          barcode: searchQuery.trim(),
+          price: normalizePosPrice(
+            product.sellingPrice,
+            (product as Product & { selling_price?: number }).selling_price
+          ),
+          stock: product.stock,
+          condition: product.condition,
+          purchaseCost: product.costPrice || product.cost_price || 0,
+        });
+        setSearchQuery('');
+      } else {
+        if (soundEnabled) playScanSound(false);
+        setUnknownBarcode(searchQuery.trim());
+        setSearchQuery('');
+      }
+    } catch {
+      if (soundEnabled) playScanSound(false);
+      const product = products?.find(
+        (p) =>
+          p.sku === searchQuery.trim() || p.barcode === searchQuery.trim()
+      );
+      if (product) {
+        if (!canAddProductToCart(product.id, product.name, 1)) return;
+        addToCart({
+          id: product.id,
+          name: product.name,
+          barcode: searchQuery.trim(),
+          price: normalizePosPrice(
+            product.sellingPrice,
+            (product as Product & { selling_price?: number }).selling_price
+          ),
+          stock: product.stock,
+          condition: product.condition,
+          purchaseCost: product.cost_price || product.costPrice || 0,
+        });
+        setSearchQuery('');
+      } else {
+        setUnknownBarcode(searchQuery.trim());
+        setSearchQuery('');
       }
     }
   };
 
-  const handleProductSelect = useCallback((product: PosCartProduct) => {
-    if (!canAddProductToCart(product.id, product.name, 1)) {
-      return;
-    }
-    addToCart(product);
-  }, [addToCart, canAddProductToCart]);
-
-  const handleCameraScan = (barcode: string) => {
-    setBarcodeInput(barcode);
-    // Create a proper event object for the barcode scan
-    const event = new Event('submit', { bubbles: true, cancelable: true }) as unknown as React.FormEvent;
-    handleBarcodeScan(event);
-  };
-
-  const addTradeInToCart = (inventoryItem: InventoryItem) => {
-    const partType = partTypes.find((pt: PartType) => pt.id === inventoryItem.part_type_id);
-    addToCart({
-      id: inventoryItem.product_id || inventoryItem.id,
-      inventoryItemId: inventoryItem.id,
-      serialNumber: inventoryItem.serial_number,
-      name: inventoryItem.product_name || inventoryItem.product?.name,
-      barcode: inventoryItem.serial_number || inventoryItem.id,
-      price: normalizePosPrice(inventoryItem.selling_price),
-      stock: 1,
-      condition: inventoryItem.condition,
-      purchaseCost: inventoryItem.purchase_cost,
-      isTradeIn: true,
-      partType: partType?.name_ar,
-      partTypeColor: partType?.color,
-      grade: inventoryItem.grade,
-    });
-  };
+  const handleProductSelect = useCallback(
+    (product: PosCartProduct) => {
+      if (!canAddProductToCart(product.id, product.name, 1)) return;
+      addToCart(product);
+    },
+    [addToCart, canAddProductToCart]
+  );
 
   const handleCheckout = useCallback(() => {
     if (cart.length === 0) return;
     if (paymentMethod === 'credit' && paidAmount.trim() === '') return;
 
     const exhaustedItems = cart.reduce((items, item) => {
-      const availableStock = item.isTradeIn ? Number(item.stock ?? 1) : getAvailableStockCount(String(item.id));
+      const availableStock = item.isTradeIn
+        ? Number(item.stock ?? 1)
+        : getAvailableStockCount(String(item.id));
       if (availableStock <= 0 || item.quantity > availableStock) {
         items.push(item.name);
       }
@@ -458,38 +518,42 @@ export function POSPage() {
 
     if (exhaustedItems.length > 0) {
       const uniqueItems = [...new Set(exhaustedItems)];
-      const message = uniqueItems.length > 1
-        ? `هذه الأنواع قد نفذت من المخزون: ${uniqueItems.slice(0, 2).join(', ')}`
-        : `هذا النوع قد نفذ من المخزون: ${uniqueItems[0]}`;
+      const message =
+        uniqueItems.length > 1
+          ? `هذه الأنواع قد نفذت من المخزون: ${uniqueItems.slice(0, 2).join(', ')}`
+          : `هذا النوع قد نفذ من المخزون: ${uniqueItems[0]}`;
       toast.error(message, 'مخزون غير كافٍ', 4000);
       return;
     }
 
     setProcessing(true);
 
-    const saleData = {
-      customer_id: selectedCustomer || null,
-      items: cart.map(item => ({
+    const saleData: SaleCreateRequest = {
+      customer_id: selectedCustomer || undefined,
+      items: cart.map((item) => ({
         product_id: item.id,
-        ...(item.inventoryItemId ? { inventory_item_id: item.inventoryItemId } : {}),
         quantity: item.quantity,
-        unit_price: item.price
+        price: item.price,
+        ...(item.inventoryItemId ? { is_trade_in: true } : {}),
+        ...(item.purchaseCost ? { purchase_cost: item.purchaseCost } : {}),
       })),
-      payment_method: paymentMethod,
-      payment_amount: parseFloat(paidAmount) || 0
+      payment_method: paymentMethod === 'credit' ? 'debt' : paymentMethod === 'checks' ? 'transfer' : paymentMethod,
+      paid_amount: parseFloat(paidAmount) || 0,
+      total_amount: total,
     };
 
     const invoiceData: InvoiceData = {
       id: 'pending',
-      customerName: selectedCustomer 
-        ? (customers.find((c) => String(c.id) === String(selectedCustomer))?.name
-          ?? selectedCustomerOption?.name)
+      customerName: selectedCustomer
+        ? customers.find((c) => String(c.id) === String(selectedCustomer))
+            ?.name ?? selectedCustomerOption?.name
         : '',
-      customerPhone: selectedCustomer 
-        ? customers.find((c) => String(c.id) === String(selectedCustomer))?.phone
+      customerPhone: selectedCustomer
+        ? customers.find((c) => String(c.id) === String(selectedCustomer))
+            ?.phone
         : undefined,
       saleDate: new Date().toISOString(),
-      items: cart.map(item => ({
+      items: cart.map((item) => ({
         name: item.name,
         partType: item.partType,
         partTypeColor: item.partTypeColor,
@@ -510,20 +574,131 @@ export function POSPage() {
     setLastSaleData(invoiceData);
     lastSaleDataRef.current = invoiceData;
     createSaleMutation.mutate(saleData);
-  }, [cart, selectedCustomer, paymentMethod, paidAmount, total, customers, calculateRemaining, setProcessing, createSaleMutation, getAvailableStockCount, toast]);
+  }, [
+    cart,
+    selectedCustomer,
+    paymentMethod,
+    paidAmount,
+    total,
+    customers,
+    calculateRemaining,
+    setProcessing,
+    createSaleMutation,
+    getAvailableStockCount,
+    toast,
+  ]);
 
-  // Quick customer creation handler (SALES-PHILOSOPHY.md)
-  const handleQuickCustomerCreate = () => {
-    setIsQuickCustomerModalOpen(true);
-  };
+  // Quick customer creation handler
+  const handleQuickCustomerCreate = useCallback(() => {
+    setIsQuickCustomerModalOpen(true)
+  }, [])
 
-  // Handle customer selection to load balance info (SALES-PHILOSOPHY.md)
+  // Quick sale handler - one click to complete cash sale
+  const handleQuickSale = useCallback(() => {
+    if (cart.length === 0) return
+    
+    const exhaustedItems = cart.reduce((items, item) => {
+      const availableStock = item.isTradeIn
+        ? Number(item.stock ?? 1)
+        : getAvailableStockCount(String(item.id))
+      if (availableStock <= 0 || item.quantity > availableStock) {
+        items.push(item.name)
+      }
+      return items
+    }, [] as string[])
+
+    if (exhaustedItems.length > 0) {
+      const uniqueItems = [...new Set(exhaustedItems)]
+      const message =
+        uniqueItems.length > 1
+          ? `هذه الأنواع قد نفذت من المخزون: ${uniqueItems.slice(0, 2).join(', ')}`
+          : `هذا النوع قد نفذ من المخزون: ${uniqueItems[0]}`
+      toast.error(message, 'مخزون غير كافٍ', 4000)
+      return
+    }
+
+    setProcessing(true)
+
+    const saleData: SaleCreateRequest = {
+      customer_id: selectedCustomer || undefined,
+      items: cart.map((item) => ({
+        product_id: item.id,
+        quantity: item.quantity,
+        price: item.price,
+        ...(item.inventoryItemId ? { is_trade_in: true } : {}),
+        ...(item.purchaseCost ? { purchase_cost: item.purchaseCost } : {}),
+      })),
+      payment_method: 'cash',
+      paid_amount: total,
+      total_amount: total,
+    }
+
+    const invoiceData: InvoiceData = {
+      id: 'pending',
+      customerName: selectedCustomer
+        ? customers.find((c) => String(c.id) === String(selectedCustomer))
+            ?.name ?? selectedCustomerOption?.name
+        : '',
+      customerPhone: selectedCustomer
+        ? customers.find((c) => String(c.id) === String(selectedCustomer))
+            ?.phone
+        : undefined,
+      saleDate: new Date().toISOString(),
+      items: cart.map((item) => ({
+        name: item.name,
+        partType: item.partType,
+        partTypeColor: item.partTypeColor,
+        condition: item.condition,
+        grade: item.grade,
+        serialNumber: item.serialNumber,
+        sellingPrice: item.price,
+        quantity: item.quantity,
+        total: item.total,
+      })),
+      subtotal: total,
+      total,
+      paidAmount: total,
+      remaining: 0,
+      paymentMethod: 'cash',
+    }
+
+    setLastSaleData(invoiceData)
+    lastSaleDataRef.current = invoiceData
+    createSaleMutation.mutate(saleData)
+  }, [
+    cart,
+    selectedCustomer,
+    total,
+    customers,
+    getAvailableStockCount,
+    toast,
+    createSaleMutation,
+    selectedCustomerOption?.name,
+  ])
+
+  // Cart animation state
+  const [cartBounce, setCartBounce] = useState(false)
+  
+  // Trigger cart animation when item added
+  useEffect(() => {
+    if (cart.length > 0) {
+      setCartBounce(true)
+      const timer = setTimeout(() => setCartBounce(false), 300)
+      return () => clearTimeout(timer)
+    }
+  }, [cart.length]);
+
   const handleCustomerChange = (customerId: string) => {
     setSelectedCustomer(customerId);
     if (customerId) {
-      const customer = customers.find((c) => String(c.id) === String(customerId));
+      const customer = customers.find(
+        (c) => String(c.id) === String(customerId)
+      );
       if (customer) {
-        setSelectedCustomerOption({ id: String(customer.id), name: customer.name });
+        setSelectedCustomerOption({
+          id: String(customer.id),
+          name: customer.name,
+        });
         setCustomerBalance(customer.balance || 0);
         setCustomerCreditLimit(customer.credit_limit);
       }
@@ -535,94 +710,211 @@ export function POSPage() {
   };
 
   return (
-    <div>
-      <header className="pos-cashier-header">
-        <div>
-          <span className="pos-cashier-brand">PARTFLOW POS</span>
-          <h1>{t('sales.posTitle')}</h1>
+    <div className="pos-modern-container">
+      {/* Modern Header */}
+      <header className="pos-modern-header">
+        <div className="pos-header-left">
+          <button
+            className="checkout-mode-toggle"
+            onClick={() => setCheckoutMode(!checkoutMode)}
+            title={checkoutMode ? 'عرض القائمة الجانبية' : 'توسيع قسم الدفع'}
+          >
+            <ArrowRight className="w-5 h-5" style={{
+              transform: checkoutMode ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.3s ease'
+            }} />
+          </button>
+          <div className="pos-logo">
+            <span className="logo-text">PF</span>
+          </div>
+          <div className="pos-header-titles">
+            <h1 className="pos-main-title">نقطة البيع</h1>
+            <p className="pos-subtitle">{t('sales.posTitle')}</p>
+          </div>
         </div>
-        <div className="pos-cashier-meta">
-          <span>Cashier 01</span>
-          <time>{new Intl.DateTimeFormat('ar', { hour: '2-digit', minute: '2-digit' }).format(new Date())}</time>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setQuickAddMode(!quickAddMode)}
-            className="gap-2"
-          >
-            <Zap className="w-4 h-4" />
-            <span>{t('sales.quickAdd')}</span>
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => lastSaleData && setIsInvoiceModalOpen(true)}
-            disabled={!lastSaleData}
-            className="gap-2"
-          >
-            <Printer className="w-4 h-4" />
-            <span>{t('sales.printInvoice')}</span>
-          </Button>
+        <div className="pos-header-right">
+          <div className="pos-meta-badges">
+            {/* Cart Count Badge */}
+            <span 
+              className={`pos-badge cart-count ${cartBounce ? 'bounce' : ''}`}
+              style={{
+                background: cart.length > 0 ? 'var(--color-primary)' : 'var(--bg-surface-elevated)',
+                color: cart.length > 0 ? 'white' : 'var(--text-secondary)',
+              }}
+            >
+              <ShoppingCart className="w-3.5 h-3.5" />
+              <span className="cart-count-number">{cart.length}</span>
+            </span>
+            {/* Total Amount Badge - shows when cart has items */}
+            {cart.length > 0 && (
+              <span 
+                className="pos-badge total-amount"
+                style={{
+                  background: 'var(--color-info-10)',
+                  color: 'var(--color-info)',
+                  border: '1px solid var(--color-info-20)',
+                  fontWeight: 700,
+                }}
+              >
+                ₪{total.toLocaleString()}
+              </span>
+            )}
+            <span className="pos-badge cashier">
+              <Wifi className="w-3.5 h-3.5 text-green-500" />
+              <span>Cashier 01</span>
+            </span>
+            <span className="pos-badge time">
+              {new Intl.DateTimeFormat('ar', {
+                hour: '2-digit',
+                minute: '2-digit',
+              }).format(new Date())}
+            </span>
+          </div>
+          <div className="pos-header-actions">
+            {/* Quick Sale Button - appears when cart has items */}
+            {cart.length > 0 && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleQuickSale}
+                disabled={isProcessing}
+                className="gap-2 quick-sale-btn"
+              >
+                <Zap className="w-4 h-4" />
+                <span>بيع سريع</span>
+                <span className="quick-sale-total">₪{total.toLocaleString()}</span>
+              </Button>
+            )}
+            {/* Clear Cart Button - appears when cart has items */}
+            {cart.length > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  clearCart();
+                  resetPayment();
+                }}
+                className="gap-2"
+                style={{ padding: '0.375rem 0.5rem' }}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => lastSaleData && setIsInvoiceModalOpen(true)}
+              disabled={!lastSaleData}
+              className="gap-2"
+            >
+              <Printer className="w-4 h-4" />
+              <span>طباعة</span>
+            </Button>
+          </div>
         </div>
       </header>
 
-      {/* Cashier layout: scanner first, products beside the cart on desktop. */}
-      <div className="pos-cashier-shell">
-        <div className="pos-cashier-scanner">
-          <BarcodeScanner
-            barcodeInput={barcodeInput}
-            setBarcodeInput={setBarcodeInput}
-            inputMethod={inputMethod}
-            setInputMethod={setInputMethod}
-            onBarcodeScan={handleBarcodeScan}
-            onCameraScan={handleCameraScan}
-            onCameraOpen={() => setIsCameraScannerOpen(true)}
-            isCameraScannerOpen={isCameraScannerOpen}
-            onCameraClose={() => setIsCameraScannerOpen(false)}
-          />
-        </div>
-        <div className="pos-cashier-grid">
-          <div className="pos-cashier-products">
-            <CategoryFilter
-            categories={categories}
-            hasMore={productPage * 16 < productTotal}
-            onLoadMore={() => setProductPage((page) => page + 1)}
-            selectedCategory={selectedCategory}
-            onCategorySelect={setSelectedCategory}
-            />
-            <ProductSearch
-            products={products}
-            searchQuery={searchQuery}
-            setSearchQuery={setSearchQuery}
-            onClearSearch={handleClearSearch}
-            quickAddMode={quickAddMode}
-            onProductClick={handleProductSelect}
-            selectedCategory={selectedCategory}
-            categories={categories}
-            hasMore={productPage * 16 < productTotal}
-            onLoadMore={() => setProductPage((page) => page + 1)}
-            />
-          </div>
-          <div className="pos-cashier-cart flex flex-col gap-4">
-          <CustomerSelector
-            selectedCustomer={selectedCustomer}
-            setSelectedCustomer={handleCustomerChange}
-            customers={customers}
-            selectedCustomerOption={selectedCustomerOption}
-            customersLoading={customersLoading}
-            customerSearchQuery={customerSearchQuery}
-            setCustomerSearchQuery={setCustomerSearchQuery}
-          />
+      {/* Main POS Body */}
+      <div className="pos-modern-body">
+        {/* Products Section */}
+        <main className="pos-products-area">
+          {/* Search & Barcode */}
+          <form onSubmit={handleBarcodeScan} className="pos-search-bar">
+            <div className="pos-barcode-form">
+              <ScanLine className="barcode-icon" />
+              <Input
+                placeholder="امسح الباركود أو اكتب للبحث..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pos-barcode-input"
+                autoFocus
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="barcode-clear"
+                  onClick={() => {
+                    setSearchQuery('');
+                    handleClearSearch();
+                  }}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </form>
 
-          <CartSection
+          {/* Category Filter */}
+          <div className="pos-category-bar">
+            <button
+              className={`category-chip ${selectedCategory === null ? 'active' : ''}`}
+              onClick={() => setSelectedCategory(null)}
+            >
+              <Package className="w-3.5 h-3.5" />
+              <span>الكل</span>
+            </button>
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                className={`category-chip ${selectedCategory === cat.id ? 'active' : ''}`}
+                onClick={() => setSelectedCategory(cat.id)}
+              >
+                {cat.name}
+              </button>
+            ))}
+          </div>
+
+          {/* Products Grid */}
+          <ModernProductGrid
+            products={products}
+            onProductClick={handleProductSelect}
+            hasMore={productPage * 20 < productTotal}
+            onLoadMore={() => setProductPage((p) => p + 1)}
+            isLoading={productsLoading}
+          />
+        </main>
+
+        {/* Cart & Payment Sidebar */}
+        <aside className="pos-cart-sidebar">
+          {/* Customer Selector */}
+          <div className="pos-customer-bar">
+            <div className="customer-select-wrapper">
+              <select
+                value={selectedCustomer}
+                onChange={(e) => handleCustomerChange(e.target.value)}
+                className="customer-select"
+              >
+                <option value="">عميل عام</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <Search className="customer-search-icon" />
+            </div>
+            <button
+              className="quick-customer-btn"
+              onClick={handleQuickCustomerCreate}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Cart Panel */}
+          <ModernCartPanel
             cart={cart}
-            inventoryItems={inventoryItems}
-            partTypes={partTypes}
+            total={total}
             onUpdateQuantity={updateQuantity}
             onRemoveFromCart={removeFromCart}
+            onClearCart={() => {
+              clearCart();
+              resetPayment();
+            }}
           />
 
-          <PaymentSection
+          {/* Payment Panel */}
+          <AdvancedPaymentPanel
             paymentMethod={paymentMethod}
             setPaymentMethod={setPaymentMethod}
             paidAmount={paidAmount}
@@ -635,98 +927,181 @@ export function POSPage() {
             customerCreditLimit={customerCreditLimit}
             onQuickCustomerCreate={handleQuickCustomerCreate}
           />
-          <TradeInItemsSection
-            inventoryItems={inventoryItems}
-            partTypes={partTypes}
-            onTradeInClick={addTradeInToCart}
-          />
-          </div>
-        </div>
-        <div className="pos-cashier-footer">
+        </aside>
+      </div>
+
+      {/* Footer Actions */}
+      <footer className="pos-modern-footer">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setIsManualProductOpen(true)}
+          className="gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          <span>إضافة يدوي</span>
+        </Button>
+        <Button variant="secondary" size="sm" onClick={handleHoldSale}>
+          <Pause className="h-4 w-4" />
+          <span>تعليق البيع <kbd className="footer-kbd">F4</kbd></span>
+        </Button>
+        {heldSales.length > 0 && (
           <Button
             variant="secondary"
             size="sm"
-            aria-label="إضافة يدويًا"
-            onClick={() => setIsManualProductOpen(true)}
+            onClick={() => setIsHeldSalesOpen(true)}
           >
-            <Plus className="h-4 w-4" /> إضافة يدويًا
+            <span>المبيعات المعلقة ({heldSales.length})</span>
           </Button>
-          <Button variant="secondary" size="sm" onClick={handleHoldSale}>
-            <Pause className="h-4 w-4" /> تعليق البيع
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => { clearCart(); resetPayment(); }}>
-            <Trash2 className="h-4 w-4" /> مسح السلة
-          </Button>
-          {heldSales.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => setIsHeldSalesOpen(true)}>
-              استكمال بيع معلّق ({heldSales.length})
-            </Button>
-          )}
+        )}
+        
+        {/* Keyboard Shortcuts Help */}
+        <div className="footer-shortcuts">
+          <span className="shortcut-hint">
+            <kbd>F2</kbd> بحث
+          </span>
+          <span className="shortcut-hint">
+            <kbd>F8</kbd> دفع
+          </span>
+          <span className="shortcut-hint">
+            <kbd>Del</kbd> حذف
+          </span>
         </div>
+      </footer>
 
-        <Modal
-          isOpen={isHeldSalesOpen}
-          onClose={() => setIsHeldSalesOpen(false)}
-          title="المبيعات المعلّقة"
-          variant="modern"
-          size="md"
-        >
-          <div className="flex flex-col gap-3">
-            {heldSales.map((held, index) => (
-              <Button key={held.id} variant="secondary" className="justify-between" onClick={() => handleResumeSale(held)}>
-                <span>بيع معلّق #{index + 1}</span>
-                <span>{held.items.length} منتجات</span>
-              </Button>
-            ))}
-          </div>
-        </Modal>
-
-        <Modal
-          isOpen={isManualProductOpen}
-          onClose={() => setIsManualProductOpen(false)}
-          title="إضافة منتج يدويًا"
-          variant="modern"
-          size="md"
-        >
-          <div className="flex flex-col gap-3">
-            <Input autoFocus placeholder="اسم المنتج *" value={manualProduct.name}
-              onChange={(e) => setManualProduct((current) => ({ ...current, name: e.target.value }))} />
-            <Input type="number" placeholder="سعر البيع" value={manualProduct.price}
-              onChange={(e) => setManualProduct((current) => ({ ...current, price: e.target.value }))} />
-            <Input placeholder="الباركود (اختياري)" value={manualProduct.barcode}
-              onChange={(e) => setManualProduct((current) => ({ ...current, barcode: e.target.value }))} />
-          <Input type="number" min={1} placeholder="الكمية" value={manualProduct.quantity}
-            onChange={(e) => setManualProduct((current) => ({ ...current, quantity: e.target.value }))} />
-            {createProductMutation.isError && <p className="text-sm text-red-500">تعذر إنشاء المنتج، تحقق من البيانات.</p>}
-            <Button variant="primary" disabled={!manualProduct.name.trim() || createProductMutation.isPending}
-              onClick={() => createProductMutation.mutate()}>
-              {createProductMutation.isPending ? 'جارٍ الحفظ...' : 'حفظ وإضافة للسلة'}
+      {/* Modals */}
+      {/* Held Sales Modal */}
+      <Modal
+        isOpen={isHeldSalesOpen}
+        onClose={() => setIsHeldSalesOpen(false)}
+        title="المبيعات المعلّقة"
+        variant="modern"
+        size="md"
+      >
+        <div className="flex flex-col gap-3">
+          {heldSales.map((held, index) => (
+            <Button
+              key={held.id}
+              variant="secondary"
+              className="justify-between"
+              onClick={() => handleResumeSale(held)}
+            >
+              <span>بيع معلّق #{index + 1}</span>
+              <span>{held.items.length} منتجات</span>
             </Button>
-          </div>
-        </Modal>
+          ))}
+        </div>
+      </Modal>
 
-        <Modal
-          isOpen={Boolean(unknownBarcode)}
-          onClose={() => setUnknownBarcode('')}
-          title="المنتج غير موجود"
-          variant="modern"
-          size="sm"
-        >
-          <div className="flex flex-col gap-3">
-            <p className="text-sm text-text-secondary">الباركود: <strong>{unknownBarcode}</strong></p>
-            <Button variant="secondary" onClick={() => {
+      {/* Manual Product Modal */}
+      <Modal
+        isOpen={isManualProductOpen}
+        onClose={() => setIsManualProductOpen(false)}
+        title="إضافة منتج يدويًا"
+        variant="modern"
+        size="md"
+      >
+        <div className="flex flex-col gap-3">
+          <Input
+            autoFocus
+            placeholder="اسم المنتج *"
+            value={manualProduct.name}
+            onChange={(e) =>
+              setManualProduct((current) => ({
+                ...current,
+                name: e.target.value,
+              }))
+            }
+          />
+          <Input
+            type="number"
+            placeholder="سعر البيع"
+            value={manualProduct.price}
+            onChange={(e) =>
+              setManualProduct((current) => ({
+                ...current,
+                price: e.target.value,
+              }))
+            }
+          />
+          <Input
+            placeholder="الباركود (اختياري)"
+            value={manualProduct.barcode}
+            onChange={(e) =>
+              setManualProduct((current) => ({
+                ...current,
+                barcode: e.target.value,
+              }))
+            }
+          />
+          <Input
+            type="number"
+            min={1}
+            placeholder="الكمية"
+            value={manualProduct.quantity}
+            onChange={(e) =>
+              setManualProduct((current) => ({
+                ...current,
+                quantity: e.target.value,
+              }))
+            }
+          />
+          {createProductMutation.isError && (
+            <p className="text-sm text-red-500">
+              تعذر إنشاء المنتج، تحقق من البيانات.
+            </p>
+          )}
+          <Button
+            variant="primary"
+            disabled={!manualProduct.name.trim() || createProductMutation.isPending}
+            onClick={() => createProductMutation.mutate()}
+          >
+            {createProductMutation.isPending
+              ? 'جارٍ الحفظ...'
+              : 'حفظ وإضافة للسلة'}
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Unknown Barcode Modal */}
+      <Modal
+        isOpen={Boolean(unknownBarcode)}
+        onClose={() => setUnknownBarcode('')}
+        title="المنتج غير موجود"
+        variant="modern"
+        size="sm"
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-text-secondary">
+            الباركود: <strong>{unknownBarcode}</strong>
+          </p>
+          <Button
+            variant="secondary"
+            onClick={() => {
               setSearchQuery(unknownBarcode);
               setUnknownBarcode('');
-            }}>البحث عن منتج</Button>
-            <Button variant="primary" onClick={() => {
-              setManualProduct((current) => ({ ...current, barcode: unknownBarcode }));
+            }}
+          >
+            البحث عن منتج
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              setManualProduct((current) => ({
+                ...current,
+                barcode: unknownBarcode,
+              }));
               setUnknownBarcode('');
               setIsManualProductOpen(true);
-            }}>إنشاء وإضافة للمخزون</Button>
-            <Button variant="ghost" onClick={() => setUnknownBarcode('')}>إلغاء</Button>
-          </div>
-        </Modal>
-      </div>
+            }}
+          >
+            إنشاء وإضافة للمخزون
+          </Button>
+          <Button variant="ghost" onClick={() => setUnknownBarcode('')}>
+            إلغاء
+          </Button>
+        </div>
+      </Modal>
 
       {/* Invoice Modal */}
       <Modal
@@ -745,7 +1120,7 @@ export function POSPage() {
         )}
       </Modal>
 
-      {/* Quick Customer Creation Modal (SALES-PHILOSOPHY.md) */}
+      {/* Quick Customer Creation Modal */}
       <Modal
         isOpen={isQuickCustomerModalOpen}
         onClose={() => setIsQuickCustomerModalOpen(false)}
@@ -753,38 +1128,38 @@ export function POSPage() {
         variant="modern"
         size="md"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="flex flex-col gap-4">
           <div>
-            <label className="text-small font-medium text-text mb-sm block">
+            <label className="text-sm font-medium text-text-secondary block mb-2">
               الاسم *
             </label>
             <Input
               placeholder="أدخل اسم العميل..."
               autoFocus
               value={quickCustomerName}
-              onChange={(event) => setQuickCustomerName(event.target.value)}
+              onChange={(e) => setQuickCustomerName(e.target.value)}
             />
           </div>
           <div>
-            <label className="text-small font-medium text-text mb-sm block">
+            <label className="text-sm font-medium text-text-secondary block mb-2">
               رقم الهاتف
             </label>
             <Input
               type="tel"
               placeholder="05xxxxxxxx"
               value={quickCustomerPhone}
-              onChange={(event) => setQuickCustomerPhone(event.target.value)}
+              onChange={(e) => setQuickCustomerPhone(e.target.value)}
             />
           </div>
           <div>
-            <label className="text-small font-medium text-text mb-sm block">
+            <label className="text-sm font-medium text-text-secondary block mb-2">
               حد الدين
             </label>
             <Input
               type="number"
               placeholder="₪0"
               value={quickCustomerCreditLimit}
-              onChange={(event) => setQuickCustomerCreditLimit(event.target.value)}
+              onChange={(e) => setQuickCustomerCreditLimit(e.target.value)}
             />
           </div>
           {createCustomerMutation.isError && (
@@ -792,7 +1167,7 @@ export function POSPage() {
               تعذر إنشاء العميل. تحقق من البيانات وحاول مرة أخرى.
             </p>
           )}
-          <div className="flex gap-sm justify-end mt-4">
+          <div className="flex gap-3 justify-end mt-4">
             <Button
               variant="secondary"
               onClick={() => setIsQuickCustomerModalOpen(false)}
@@ -801,14 +1176,20 @@ export function POSPage() {
             </Button>
             <Button
               variant="primary"
-              disabled={createCustomerMutation.isPending || !quickCustomerName.trim()}
-              onClick={() => createCustomerMutation.mutate({
-                name: quickCustomerName.trim(),
-                phone: quickCustomerPhone.trim() || undefined,
-                credit_limit: Number(quickCustomerCreditLimit) || 0,
-              })}
+              disabled={
+                createCustomerMutation.isPending || !quickCustomerName.trim()
+              }
+              onClick={() =>
+                createCustomerMutation.mutate({
+                  name: quickCustomerName.trim(),
+                  phone: quickCustomerPhone.trim() || undefined,
+                  credit_limit: Number(quickCustomerCreditLimit) || 0,
+                })
+              }
             >
-              {createCustomerMutation.isPending ? 'جارٍ الحفظ...' : 'حفظ ومتابعة البيع'}
+              {createCustomerMutation.isPending
+                ? 'جارٍ الحفظ...'
+                : 'حفظ ومتابعة البيع'}
             </Button>
           </div>
         </div>

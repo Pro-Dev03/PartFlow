@@ -102,46 +102,46 @@ func TestIsValidGrade(t *testing.T) {
 
 func TestIsValidStatusTransition(t *testing.T) {
 	tests := []struct {
-		name         string
+		name          string
 		currentStatus Status
 		newStatus     Status
-		want         bool
+		want          bool
 	}{
 		{
-			name:         "valid transition: purchased to received",
+			name:          "valid transition: purchased to received",
 			currentStatus: StatusPurchased,
 			newStatus:     StatusReceived,
-			want:         true,
+			want:          true,
 		},
 		{
-			name:         "valid transition: available to reserved",
+			name:          "valid transition: available to reserved",
 			currentStatus: StatusAvailable,
 			newStatus:     StatusReserved,
-			want:         true,
+			want:          true,
 		},
 		{
-			name:         "valid transition: reserved to sold",
+			name:          "valid transition: reserved to sold",
 			currentStatus: StatusReserved,
 			newStatus:     StatusSold,
-			want:         true,
+			want:          true,
 		},
 		{
-			name:         "invalid transition: sold to purchased",
+			name:          "invalid transition: sold to purchased",
 			currentStatus: StatusSold,
 			newStatus:     StatusPurchased,
-			want:         false,
+			want:          false,
 		},
 		{
-			name:         "invalid transition: available to purchased",
+			name:          "invalid transition: available to purchased",
 			currentStatus: StatusAvailable,
 			newStatus:     StatusPurchased,
-			want:         false,
+			want:          false,
 		},
 		{
-			name:         "same status is allowed as no-op",
+			name:          "same status is allowed as no-op",
 			currentStatus: StatusAvailable,
 			newStatus:     StatusAvailable,
-			want:         true,
+			want:          true,
 		},
 	}
 
@@ -189,17 +189,17 @@ func TestInventoryItemRequest(t *testing.T) {
 	grade := GradeExcellent
 
 	req := InventoryItemRequest{
-		ProductID:     &productID,
-		ItemCode:      &itemCode,
-		Barcode:       &barcode,
-		SerialNumber:  &serialNumber,
-		Condition:     ConditionNew,
-		Grade:         &grade,
-		PurchaseCost:  100.0,
-		SellingPrice:  150.0,
-		LocationID:    &locationID,
-		SupplierID:    &supplierID,
-		Notes:         &notes,
+		ProductID:    &productID,
+		ItemCode:     &itemCode,
+		Barcode:      &barcode,
+		SerialNumber: &serialNumber,
+		Condition:    ConditionNew,
+		Grade:        &grade,
+		PurchaseCost: 100.0,
+		SellingPrice: 150.0,
+		LocationID:   &locationID,
+		SupplierID:   &supplierID,
+		Notes:        &notes,
 	}
 
 	if req.ProductID == nil || *req.ProductID != productID {
@@ -221,10 +221,10 @@ func TestReservationRequest(t *testing.T) {
 	notes := "Test reservation"
 
 	req := ReservationRequest{
-		ItemID:      itemID,
-		CustomerID:  &customerID,
-		ExpiresIn:   60,
-		Notes:       &notes,
+		ItemID:     itemID,
+		CustomerID: &customerID,
+		ExpiresIn:  60,
+		Notes:      &notes,
 	}
 
 	if req.ItemID != itemID {
@@ -246,10 +246,10 @@ func TestAdjustmentRequest(t *testing.T) {
 	reason := "Stock adjustment"
 
 	req := AdjustmentRequest{
-		ItemID:     itemID,
+		ItemID:      itemID,
 		NewQuantity: 5,
-		NewStatus:  &newStatus,
-		Reason:     &reason,
+		NewStatus:   &newStatus,
+		Reason:      &reason,
 	}
 
 	if req.ItemID != itemID {
@@ -272,10 +272,10 @@ func TestTransferRequest(t *testing.T) {
 	reason := "Stock transfer"
 
 	req := TransferRequest{
-		ItemID:        itemID,
+		ItemID:         itemID,
 		FromLocationID: fromLocationID,
-		ToLocationID:  toLocationID,
-		Reason:        &reason,
+		ToLocationID:   toLocationID,
+		Reason:         &reason,
 	}
 
 	if req.ItemID != itemID {
