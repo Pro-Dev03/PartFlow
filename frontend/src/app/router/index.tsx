@@ -14,6 +14,7 @@ const EditPurchasePage = lazy(() => import('../../features/purchases/pages/EditP
 const PurchaseDetailsPage = lazy(() => import('../../features/purchases/pages/PurchaseDetailsPage').then(m => ({ default: m.PurchaseDetailsPage })));
 const ExpensesPage = lazy(() => import('../../features/expenses/pages/ExpensesPage').then(m => ({ default: m.ExpensesPage })));
 const ReturnsPage = lazy(() => import('../../features/returns/pages/ReturnsPage').then(m => ({ default: m.ReturnsPage })));
+const CreateReturnPage = lazy(() => import('../../features/returns/pages/CreateReturnPage').then(m => ({ default: m.CreateReturnPage })));
 const ReportsPage = lazy(() => import('../../features/reports/pages/ReportsPage').then(m => ({ default: m.ReportsPage })));
 const SettingsPage = lazy(() => import('../../features/settings/pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
@@ -68,6 +69,7 @@ export const appRoutes = (
     <Route path="purchases/:id" element={<PurchaseDetailsPage />} />
     <Route path="expenses" element={<ExpensesPage />} />
     <Route path="returns" element={<ReturnsPage />} />
+    <Route path="returns/create" element={<CreateReturnPage />} />
     <Route path="supplier-returns" element={<SupplierReturnsPage />} />
     <Route path="returns/:id" element={<ReturnDetailsPage />} />
     <Route path="reports" element={<ReportsPage />} />

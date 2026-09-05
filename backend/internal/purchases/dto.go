@@ -47,6 +47,7 @@ type PurchaseListItem struct {
 	InvoiceNumber        string     `json:"invoice_number" db:"invoice_number"`
 	PurchaseDate         time.Time  `json:"purchase_date" db:"purchase_date"`
 	ExpectedDeliveryDate *time.Time `json:"expected_delivery_date" db:"expected_delivery_date"`
+	TaxAmount            float64    `json:"tax_amount" db:"tax_amount"`
 	TotalAmount          float64    `json:"total_amount" db:"total_amount"`
 	PaidAmount           float64    `json:"paid_amount" db:"paid_amount"`
 	Remaining            float64    `json:"remaining" db:"remaining"`

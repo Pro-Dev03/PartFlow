@@ -28,6 +28,7 @@ type SalesReport struct {
 	EndDate         time.Time          `json:"end_date"`
 	TotalSales      int                `json:"total_sales"`
 	TotalRevenue    float64            `json:"total_revenue"`
+	TotalTax        float64            `json:"total_tax"`
 	TotalCOGS       float64            `json:"total_cogs"`
 	GrossProfit     float64            `json:"gross_profit"`
 	ProfitMargin    float64            `json:"profit_margin"`
@@ -97,10 +98,11 @@ type StagnantItem struct {
 
 // InventoryValuation represents inventory valuation
 type InventoryValuation struct {
-	TotalCost       float64            `json:"total_cost"`
-	TotalRetail     float64            `json:"total_retail"`
-	PotentialProfit float64            `json:"potential_profit"`
-	ByCondition     map[string]float64 `json:"by_condition"`
+	TotalCost          float64            `json:"total_cost"`
+	TotalRetail        float64            `json:"total_retail"`
+	TotalRetailWithTax float64            `json:"total_retail_with_tax"`
+	PotentialProfit    float64            `json:"potential_profit"`
+	ByCondition        map[string]float64 `json:"by_condition"`
 }
 
 // ExpensesReport represents expenses report data
@@ -186,14 +188,18 @@ type PaymentRecord struct {
 
 // PurchasesReport represents purchases report data
 type PurchasesReport struct {
-	Period         string              `json:"period"`
-	StartDate      time.Time           `json:"start_date"`
-	EndDate        time.Time           `json:"end_date"`
-	TotalPurchases int                 `json:"total_purchases"`
-	TotalCost      float64             `json:"total_cost"`
-	BySupplier     []SupplierPurchases `json:"by_supplier"`
-	ByCategory     map[string]int      `json:"by_category"`
-	ByMonth        []MonthlyPurchases  `json:"by_month"`
+	Period              string              `json:"period"`
+	StartDate           time.Time           `json:"start_date"`
+	EndDate             time.Time           `json:"end_date"`
+	TotalPurchases      int                 `json:"total_purchases"`
+	Subtotal            float64             `json:"subtotal"`
+	TaxAmount           float64             `json:"tax_amount"`
+	TotalCost           float64             `json:"total_cost"`
+	UntaxedPurchases    int                 `json:"untaxed_purchases"`
+	UntaxedPurchaseCost float64             `json:"untaxed_purchase_cost"`
+	BySupplier          []SupplierPurchases `json:"by_supplier"`
+	ByCategory          map[string]int      `json:"by_category"`
+	ByMonth             []MonthlyPurchases  `json:"by_month"`
 }
 
 // SupplierPurchases represents supplier purchases data
@@ -254,6 +260,19 @@ type NetSalesReport struct {
 	ByCategory          map[string]float64 `json:"by_category"`
 	ByPaymentMethod     map[string]float64 `json:"by_payment_method"`
 	TopReturnedProducts []ProductNetSales  `json:"top_returned_products"`
+}
+
+type TaxReport struct {
+	Period        string    `json:"period"`
+	StartDate     time.Time `json:"start_date"`
+	EndDate       time.Time `json:"end_date"`
+	GrossSales    float64   `json:"gross_sales"`
+	Discounts     float64   `json:"discounts"`
+	TaxableSales  float64   `json:"taxable_sales"`
+	TaxCollected  float64   `json:"tax_collected"`
+	SalesTotal    float64   `json:"sales_total"`
+	ReturnsTotal  float64   `json:"returns_total"`
+	NetSalesTotal float64   `json:"net_sales_total"`
 }
 
 // DailyNetSales represents daily net sales data

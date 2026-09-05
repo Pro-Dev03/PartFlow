@@ -87,10 +87,13 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 	}
 	dashboard.InvalidateDashboardCacheWithReason("return_created")
 
-	// Get customer info
-	customer, err := s.repo.GetCustomerInfo(ctx, returnRecord.CustomerID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get customer info: %w", err)
+	// Customer information is optional for walk-in sales.
+	var customer *CustomerInfo
+	if returnRecord.CustomerID != uuid.Nil {
+		customer, err = s.repo.GetCustomerInfo(ctx, returnRecord.CustomerID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get customer info: %w", err)
+		}
 	}
 
 	return returnRecord.ToReturnResponse(items, customer, sale), nil
@@ -147,6 +150,9 @@ func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, req *ReturnUpd
 	}
 
 	// Update fields
+	if req.Reason != "" {
+		returnRecord.Reason = req.Reason
+	}
 	if req.Status != "" {
 		// Validate status transition
 		if returnRecord.Status == "APPROVED" && req.Status == "PENDING" {

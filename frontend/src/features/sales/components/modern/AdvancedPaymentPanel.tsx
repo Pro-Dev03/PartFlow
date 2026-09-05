@@ -12,7 +12,8 @@ import {
   Calendar,
   Receipt,
   Trash2,
-  Zap
+  Zap,
+  Plus
 } from 'lucide-react'
 import { cn } from '../../../../utils'
 import { PaymentMethod } from '../../types/pos.types'

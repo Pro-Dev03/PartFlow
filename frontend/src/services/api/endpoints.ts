@@ -210,6 +210,7 @@ export const productsApi = {
   get: (id: string) => apiClient.get(`/products/${id}`),
   create: (data: ProductCreateRequest) => apiClient.post('/products', data),
   update: (id: string, data: ProductUpdateRequest) => apiClient.put(`/products/${id}`, data),
+  updateMinimumStock: (id: string, minStockLevel: number) => apiClient.patch(`/products/${id}/min-stock`, { min_stock_level: minStockLevel }),
   delete: (id: string) => apiClient.delete(`/products/${id}`),
   archive: (id: string) => apiClient.post(`/products/${id}/archive`),
 };
@@ -361,11 +362,18 @@ export const purchasesApi = {
 // Expenses endpoints
 export const expensesApi = {
   list: (params?: PaginationParams & { search?: string }) => 
-    apiClient.get('/expenses', params),
+    apiClient.get('/expenses', params, false),
   get: (id: string) => apiClient.get(`/expenses/${id}`),
   create: (data: ExpenseCreateRequest) => apiClient.post('/expenses', data),
   update: (id: string, data: Partial<ExpenseCreateRequest>) => apiClient.put(`/expenses/${id}`, data),
   delete: (id: string) => apiClient.delete(`/expenses/${id}`),
+};
+
+export const expenseCategoriesApi = {
+  list: (params?: PaginationParams & { is_active?: boolean }) =>
+    apiClient.get('/expenses/categories', params),
+  create: (data: import('./types').ExpenseCategoryCreateRequest) =>
+    apiClient.post('/expenses/categories', data),
 };
 
 // Reports endpoints
@@ -374,6 +382,8 @@ export const reportsApi = {
     apiClient.get('/reports/sales', params, false),
   netSales: (params?: { start_date?: string; end_date?: string }) => 
     apiClient.get('/reports/net-sales', params, false),
+  tax: (params?: { start_date?: string; end_date?: string }) =>
+    apiClient.get('/reports/tax', params, false),
   profit: (params?: { start_date?: string; end_date?: string }) => 
     apiClient.get('/reports/profit', params, false),
   inventory: () => 

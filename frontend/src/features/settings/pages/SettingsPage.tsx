@@ -23,6 +23,7 @@ import { AppearanceSettings } from '../components/AppearanceSettings';
 import { FinancialSettings } from '../components/FinancialSettings';
 import { AuditSettings } from '../components/AuditSettings';
 import { DatabaseSettings } from '../components/DatabaseSettings';
+import { SubscriptionManagement } from '../components/SubscriptionManagement';
 
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -60,6 +61,7 @@ export function SettingsPage() {
   const displayName = user?.first_name || user?.name || 'مستخدم';
   const displayEmail = user?.email || 'غير متوفر';
   const displayPhone = user?.phone || 'غير متوفر';
+  const isOwner = user?.email?.trim().toLowerCase() === 'owner@partflow.com';
   const subscriptionStatus = (user?.subscription_status || 'active').toLowerCase();
   const isActiveSubscription = subscriptionStatus === 'active' || subscriptionStatus === 'trial';
 
@@ -69,14 +71,14 @@ export function SettingsPage() {
     { id: 'appearance', label: t('settings.appearance'), icon: Palette },
     { id: 'notifications', label: t('settings.notifications'), icon: Bell },
     { id: 'audit', label: t('settings.audit'), icon: FileText },
-    ...(isAdmin ? [{ id: 'database', label: 'قاعدة البيانات', icon: Trash2 }] : []),
+    ...(isAdmin && isOwner ? [{ id: 'database', label: 'قاعدة البيانات', icon: Trash2 }] : []),
   ];
 
   useEffect(() => {
-    if (!isAdmin && activeTab === 'database') {
+    if ((!isAdmin || !isOwner) && activeTab === 'database') {
       setActiveTab('store');
     }
-  }, [activeTab, isAdmin]);
+  }, [activeTab, isAdmin, isOwner]);
 
   return (
     <div>
@@ -186,7 +188,12 @@ export function SettingsPage() {
           {activeTab === 'appearance' && <AppearanceSettings />}
           {activeTab === 'notifications' && <NotificationSettings />}
           {activeTab === 'audit' && <AuditSettings />}
-          {activeTab === 'database' && <DatabaseSettings />}
+          {activeTab === 'database' && isAdmin && isOwner && (
+            <div className="space-y-6">
+              <DatabaseSettings />
+              {isAdmin && <SubscriptionManagement />}
+            </div>
+          )}
         </div>
       </div>
     </div>

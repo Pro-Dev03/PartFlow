@@ -187,6 +187,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				products.GET("/barcode/:barcode", productHandler.GetProductByBarcode)
 				products.GET("", productHandler.ListProducts)
 				products.PUT("/:id", productHandler.UpdateProduct)
+				products.PATCH("/:id/min-stock", productHandler.UpdateMinimumStock)
 				products.DELETE("/:id", productHandler.DeleteProduct)
 				products.POST("/:id/archive", productHandler.ArchiveProduct)
 				products.POST("/:id/barcode", productHandler.GenerateBarcode)

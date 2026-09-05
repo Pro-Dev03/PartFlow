@@ -133,6 +133,69 @@ describe('apiClient auth refresh', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('retries the original request after refreshing a stale cloud session used by the local API', async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    localStorage.setItem('cloud_token', 'stale-cloud-token');
+    localStorage.setItem('cloud_refresh_token', 'stale-cloud-refresh');
+    apiClient.setToken('local-jwt-token');
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: async () => JSON.stringify({ error: { message: 'unauthorized' } }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: 'new-local-token',
+          refresh_token: 'new-local-refresh-token',
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: {
+            access_token: 'new-cloud-token',
+            refresh_token: 'new-cloud-refresh-token',
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            access_token: 'recreated-local-token',
+            refresh_token: 'recreated-local-refresh-token',
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ success: true, data: { id: 'sync-ok' } }),
+      } as Response);
+
+    const result = await apiClient.get('/settings/sync');
+
+    expect(result.success).toBe(true);
+    expect(localStorage.getItem('cloud_token')).toBe('new-cloud-token');
+    expect(localStorage.getItem('cloud_refresh_token')).toBe('new-cloud-refresh-token');
+    expect(fetchMock.mock.calls[1][0]).toEqual(expect.stringContaining('/auth/refresh'));
+    expect(fetchMock.mock.calls[2][0]).toEqual(expect.stringContaining('/auth/refresh'));
+    expect(fetchMock.mock.calls[3][0]).toEqual(expect.stringContaining('/auth/cloud-session'));
+    expect(fetchMock.mock.calls[4][1]).toEqual(expect.objectContaining({
+      headers: expect.objectContaining({
+        'X-PartFlow-Cloud-Token': 'new-cloud-token',
+        Authorization: 'Bearer recreated-local-token',
+      }),
+    }));
+  });
+
   it('stops retrying token refresh after the first failed refresh attempt', async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
 

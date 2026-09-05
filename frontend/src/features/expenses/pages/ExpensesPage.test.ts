@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeExpenseForDisplay } from './ExpensesPage';
+import { formatExpenseDate, isExpenseInCurrentMonth, normalizeExpenseForDisplay } from './ExpensesPage';
+
+describe('formatExpenseDate', () => {
+  it('formats Gregorian dates with Latin numerals without timezone conversion', () => {
+    expect(formatExpenseDate('2026-09-01T12:00:00Z')).toBe('01/09/2026');
+  });
+
+  it('rejects incomplete dates instead of guessing the day', () => {
+    expect(formatExpenseDate('1/9')).toBe('-');
+  });
+});
+
+describe('isExpenseInCurrentMonth', () => {
+  it('matches the calendar month from the date value', () => {
+    expect(isExpenseInCurrentMonth('2026-09-01T00:00:00Z', new Date(2026, 8, 2))).toBe(true);
+    expect(isExpenseInCurrentMonth('2026-08-31T23:00:00Z', new Date(2026, 8, 2))).toBe(false);
+  });
+});
 
 describe('normalizeExpenseForDisplay', () => {
   it('maps the backend expense shape into the fields used by the UI', () => {
@@ -15,7 +32,6 @@ describe('normalizeExpenseForDisplay', () => {
       status: 'approved',
       is_recurring: true,
       recurring_period: 'monthly',
-      receipt_url: 'receipt.pdf',
     };
 
     const normalized = normalizeExpenseForDisplay(item);
@@ -25,7 +41,6 @@ describe('normalizeExpenseForDisplay', () => {
     expect(normalized.date).toBe('2026-08-01T00:00:00Z');
     expect(normalized.recurring).toBe(true);
     expect(normalized.recurringPeriod).toBe('monthly');
-    expect(normalized.receipt).toBe('receipt.pdf');
   });
 
   it('keeps legacy UI fields when they already exist', () => {

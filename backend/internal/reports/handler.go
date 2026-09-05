@@ -517,6 +517,20 @@ func (h *Handler) GenerateNetSalesReport(c *gin.Context) {
 	c.JSON(http.StatusOK, report)
 }
 
+func (h *Handler) GenerateTaxReport(c *gin.Context) {
+	startDate, endDate, err := parseReportDateRange(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "INVALID_DATE_RANGE"})
+		return
+	}
+	report, err := h.service.GenerateTaxReport(c.Request.Context(), middleware.GetUserID(c), startDate, endDate)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, report)
+}
+
 // GenerateProductsReport handles generating a products report
 // @Summary Generate products report
 // @Description Generate a products report

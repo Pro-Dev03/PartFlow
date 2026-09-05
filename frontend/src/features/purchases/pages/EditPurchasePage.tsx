@@ -278,7 +278,7 @@ export function EditPurchasePage() {
       category_id: manualProductData.category_id || undefined,
       cost_price: costPrice,
       selling_price: sellingPrice,
-      min_stock: parseInt(manualProductData.min_stock.toString()) || 0,
+      min_stock_level: parseInt(manualProductData.min_stock.toString()) || 0,
       description: manualProductData.description || undefined,
     };
 

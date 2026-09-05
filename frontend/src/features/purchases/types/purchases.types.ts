@@ -10,6 +10,8 @@ export interface Purchase {
   expected_delivery_date?: string;
   status: 'draft' | 'pending' | 'ordered' | 'received' | 'cancelled' | 'reversed' | 'partially_received';
   items: PurchaseItem[];
+  subtotal?: number;
+  tax_amount?: number;
   total_amount: number;
   paid_amount: number;
   remaining: number;
@@ -44,4 +46,8 @@ export interface PurchaseStats {
   pendingCost: number;
   receivedCost: number;
   outstandingAmount: number;
+  untaxedCount: number;
+  untaxedCost: number;
+  taxedCount: number;
+  taxedCost: number;
 }

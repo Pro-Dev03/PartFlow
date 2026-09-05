@@ -171,6 +171,29 @@ class ApiClient {
     }
   }
 
+  private async createLocalSessionFromCloud(): Promise<string | null> {
+    const cloudToken = this.getCloudAccessToken();
+    if (!cloudToken) return null;
+
+    const response = await fetch(`${getLocalApiUrl()}/auth/cloud-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cloud_token: cloudToken }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) return null;
+
+    const data = payload?.data ?? payload;
+    const token = data?.access_token || data?.token;
+    if (!token) return null;
+
+    this.setToken(token);
+    if (data?.refresh_token) {
+      TokenManager.setRefreshToken(data.refresh_token);
+    }
+    return token;
+  }
+
   private async requestWithRetry<T>(
     endpoint: string,
     options: RequestInit = {},
@@ -221,17 +244,6 @@ class ApiClient {
    * التي تُرجعها gin افتراضياً) بدل إطلاق SyntaxError.
    */
   private async parseResponse<T>(response: Response): Promise<ApiResponse<T>> {
-    if (typeof response.json === 'function') {
-      try {
-        const json = await response.json();
-        if (json && typeof json === 'object') {
-          return json as ApiResponse<T>;
-        }
-      } catch {
-        // Fall back to text parsing below when the response body is not JSON.
-      }
-    }
-
     if (typeof response.text === 'function') {
       const text = await response.text();
       if (!text) {
@@ -279,6 +291,9 @@ class ApiClient {
     const cloudToken = this.getCloudAccessToken();
     if (cloudToken) {
       headers['X-PartFlow-Cloud-Token'] = cloudToken;
+      if (options.method === 'POST' && endpoint.startsWith('/settings/sync')) {
+        headers['Authorization'] = `Bearer ${cloudToken}`;
+      }
     }
 
     // Create abort controller for timeout
@@ -297,15 +312,64 @@ class ApiClient {
       const data: ApiResponse<T> = await this.parseResponse<T>(response);
 
       if (!response.ok) {
-        // Local JWT 401s refresh against the local API; cloud_token refresh is
-        // handled separately by subscription validation.
-        if (response.status === 401 && this.token) {
+        // Local JWT 401s refresh against the local API; when the local backend
+        // also validates the cloud session before accepting the request, the
+        // stale cloud token must be refreshed and re-attached before retrying.
+        if (response.status === 401 && (this.token || this.getCloudAccessToken())) {
           try {
-            const newToken = await this.refreshAccessToken();
-            if (newToken) {
-              headers['Authorization'] = `Bearer ${newToken}`;
+            let newToken: string | null = null;
+            let refreshAttempted = false;
+            const cloudTokenBeforeRefresh = this.getCloudAccessToken();
 
-              // Retry request with new token
+            if (this.token) {
+              refreshAttempted = true;
+              newToken = await this.refreshAccessToken().catch(async refreshError => {
+                if (refreshError?.status === 401 && this.getCloudAccessToken()) {
+                  return this.createLocalSessionFromCloud();
+                }
+                throw refreshError;
+              });
+              if (newToken) {
+                this.setToken(newToken);
+                headers['Authorization'] = `Bearer ${newToken}`;
+              }
+            }
+
+            let refreshedCloudToken: string | null = null;
+            if (cloudTokenBeforeRefresh) {
+              refreshedCloudToken = await this.refreshCloudAccessToken();
+              if (refreshedCloudToken) {
+                headers['X-PartFlow-Cloud-Token'] = refreshedCloudToken;
+
+                // A local JWT can be signed by an older local API instance or
+                // secret even when the cloud session refresh succeeds. Rebuild
+                // the local session from the fresh cloud token so local
+                // middleware and the retried request use the same issuer.
+                const localSessionToken = await this.createLocalSessionFromCloud();
+                if (localSessionToken) {
+                  newToken = localSessionToken;
+                  this.setToken(localSessionToken);
+                  headers['Authorization'] = `Bearer ${localSessionToken}`;
+                }
+              }
+            }
+
+            const retryToken = newToken ?? this.token;
+            const retryCloudToken = refreshedCloudToken ?? this.getCloudAccessToken();
+
+            // Only retry after a successful refresh. If the session refresh is
+            // rejected, the stale local token must not be used for another request
+            // and the caller should receive AUTH_REFRESH_FAILED instead of looping.
+            const hasFreshCredentials = Boolean(newToken || refreshedCloudToken);
+            if (hasFreshCredentials) {
+              if (retryToken) {
+                headers['Authorization'] = `Bearer ${retryToken}`;
+              }
+              if (retryCloudToken) {
+                headers['X-PartFlow-Cloud-Token'] = retryCloudToken;
+              }
+
+              // Retry request with the latest local and cloud credentials.
               const retryResponse = await fetch(url, {
                 ...options,
                 headers,
@@ -322,6 +386,14 @@ class ApiClient {
               }
 
               return retryData;
+            }
+
+            if (refreshAttempted && this.refreshFailedForSession) {
+              throw Object.assign(new Error('Session refresh failed. Your session will remain active until you log out manually.'), {
+                status: 401,
+                code: 'AUTH_REFRESH_FAILED',
+                response: data,
+              });
             }
           } catch (refreshError) {
             console.error('Token refresh failed:', refreshError);

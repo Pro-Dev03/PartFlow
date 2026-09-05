@@ -33,7 +33,7 @@ export function normalizePosPrice(...values: unknown[]): number {
   return numericValue;
 }
 
-export function useCart(soundEnabled: boolean = true) {
+export function useCart(soundEnabled: boolean = true, taxRate: number = 0) {
   const [cart, setCart] = useState<CartItem[]>([]);
 
   const addToCart = useCallback((item: PosCartProduct, requestedQuantity = 1) => {
@@ -91,7 +91,7 @@ export function useCart(soundEnabled: boolean = true) {
   }, []);
 
   const subtotal = cart.reduce((sum, item) => sum + item.total, 0);
-  const total = subtotal; // No tax - total equals subtotal
+  const total = subtotal * (1 + Math.max(0, taxRate) / 100);
 
   return {
     cart,

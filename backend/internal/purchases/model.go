@@ -30,6 +30,8 @@ type Purchase struct {
 	InvoiceNumber        string     `json:"invoice_number" db:"invoice_number"`
 	PurchaseDate         time.Time  `json:"purchase_date" db:"purchase_date"`
 	ExpectedDeliveryDate *time.Time `json:"expected_delivery_date" db:"expected_delivery_date"` // Expected delivery date
+	Subtotal             float64    `json:"subtotal" db:"subtotal"`
+	TaxAmount            float64    `json:"tax_amount" db:"tax_amount"`
 	TotalAmount          float64    `json:"total_amount" db:"total_amount"`
 	PaidAmount           float64    `json:"paid_amount" db:"paid_amount"`
 	Status               string     `json:"status" db:"status"` // pending, received, cancelled, reversed, partially_received
@@ -67,6 +69,7 @@ type PurchaseRequest struct {
 	InvoiceNumber        string                `json:"invoice_number" binding:"required"`
 	PurchaseDate         time.Time             `json:"purchase_date" binding:"required"`
 	ExpectedDeliveryDate *time.Time            `json:"expected_delivery_date"` // Expected delivery date
+	TaxRate              *float64              `json:"tax_rate,omitempty"`
 	Items                []PurchaseItemRequest `json:"items" binding:"required,min=1"`
 	Notes                string                `json:"notes"`
 }

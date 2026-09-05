@@ -43,7 +43,7 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onDownload, onC
   const invoiceRef = useRef<HTMLDivElement>(null);
 
   const defaultStoreInfo = {
-    name: 'متجر القطع المستعملة',
+    name: 'PartFlow',
     address: 'عنوان المتجر',
     phone: 'رقم الهاتف',
     email: 'store@example.com',
@@ -117,7 +117,7 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onDownload, onC
             variant="secondary"
           >
             <Download className="w-4 h-4 mr-2" />
-            تحميل PDF
+            حفظ كـ PDF
           </Button>
         )}
         {onClose && (
@@ -178,7 +178,7 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onDownload, onC
         <div className="mb-6">
           <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
             <Layers className="w-5 h-5" />
-            القطع المستعملة
+            تفاصيل المنتجات
           </h3>
           <table className="w-full border-collapse">
             <thead>

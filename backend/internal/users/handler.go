@@ -34,6 +34,10 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Password is required", "")
 		return
 	}
+	if req.SubscriptionDays < 0 {
+		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Subscription duration cannot be negative", "")
+		return
+	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -41,7 +45,7 @@ func (h *Handler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.CreateUser(c.Request.Context(), req.Email, string(hashedPassword), req.FirstName, req.LastName, req.Phone, req.AvatarURL, req.IsActive)
+	user, err := h.service.CreateUser(c.Request.Context(), req.Email, string(hashedPassword), req.FirstName, req.LastName, req.Phone, req.AvatarURL, req.IsActive, req.SubscriptionDays)
 	if err != nil {
 		if err == ErrUserEmailExists {
 			response.Error(c, http.StatusConflict, http.StatusConflict, "User email already exists", err.Error())
@@ -115,6 +119,10 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 	// Hash password if provided
 	var hashedPassword string
 	if req.Password != "" {
+		if len(req.Password) < 8 {
+			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Password must be at least 8 characters", "")
+			return
+		}
 		hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to hash password", err.Error())
@@ -145,6 +153,10 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid user ID", err.Error())
+		return
+	}
+	if id == middleware.GetUserID(c) {
+		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "You cannot delete the currently authenticated account", "")
 		return
 	}
 
@@ -215,6 +227,10 @@ func (h *Handler) UpdateSubscriptionStatus(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid user ID", err.Error())
+		return
+	}
+	if id == middleware.GetUserID(c) {
+		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "You cannot end or change your own subscription", "")
 		return
 	}
 

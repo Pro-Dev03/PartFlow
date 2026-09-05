@@ -215,8 +215,8 @@ export function CategoriesPage() {
   });
 
   const toggleActiveMutation = useMutation({
-    mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) => {
-      return categoriesApi.update(id, { is_active });
+    mutationFn: ({ id, data }: { id: string; is_active: boolean; data: any }) => {
+      return categoriesApi.update(id, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
@@ -260,8 +260,19 @@ export function CategoriesPage() {
     }
   };
 
-  const handleToggleActive = (id: string, currentStatus: boolean) => {
-    toggleActiveMutation.mutate({ id, is_active: !currentStatus });
+  const handleToggleActive = (category: any) => {
+    toggleActiveMutation.mutate({
+      id: category.id,
+      is_active: !category.is_active,
+      data: {
+        name: category.name,
+        description: category.description || '',
+        parent_id: category.parent_id || null,
+        icon: category.icon || null,
+        color: category.color || null,
+        is_active: !category.is_active,
+      },
+    });
   };
 
   const handleEdit = (category: any) => {
@@ -449,7 +460,7 @@ export function CategoriesPage() {
                         <Edit style={{ width: '16px', height: '16px' }} />
                       </button>
                       <button
-                        onClick={() => handleToggleActive(category.id, category.is_active)}
+                        onClick={() => handleToggleActive(category)}
                         style={{
                           width: '36px',
                           height: '36px',
@@ -514,7 +525,7 @@ export function CategoriesPage() {
                   
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <button
-                      onClick={() => handleToggleActive(category.id, category.is_active)}
+                      onClick={() => handleToggleActive(category)}
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',

@@ -1,7 +1,7 @@
 import { Badge } from '../../../components/ui/badge';
 import { EmptyState } from '../../../components/ui/empty-state';
 import { Button } from '../../../components/ui/button';
-import { Package, PackageOpen, Eye, Edit, Trash2, Inbox, RefreshCw, FileText } from 'lucide-react';
+import { Package, PackageOpen, Eye, Edit, SlidersHorizontal, Trash2, Inbox, RefreshCw, FileText } from 'lucide-react';
 import { Product, InventoryItem, ViewMode } from '../types/inventory.types';
 import { formatPrice, normalizeCurrencyValue } from '../../../utils';
 import { cn } from '../../../utils';
@@ -15,6 +15,7 @@ interface InventoryListProps {
   searchQuery: string;
   onViewProduct: (product: Product) => void;
   onEditProduct: (product: Product) => void;
+  onEditMinimumStock: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
   onClearSearch: () => void;
   onReorderFromSupplier?: (supplierId: string, productName: string) => void;
@@ -81,6 +82,7 @@ export function InventoryList({
   inventoryLoading,
   onViewProduct,
   onEditProduct,
+  onEditMinimumStock,
   onDeleteProduct,
   onClearSearch,
   onReorderFromSupplier,
@@ -217,6 +219,11 @@ export function InventoryList({
                                   label="تعديل"
                                   onClick={() => onEditProduct(product)}
                                 />
+                                <ActionButton
+                                  icon={<SlidersHorizontal className="h-4 w-4" />}
+                                  label="تعديل الحد الأدنى للمخزون"
+                                  onClick={() => onEditMinimumStock(product)}
+                                />
                                 {onViewInventoryLedger && (
                                   <ActionButton
                                     icon={<FileText className="h-4 w-4" />}
@@ -295,6 +302,11 @@ export function InventoryList({
                               icon={<Edit className="h-4 w-4" />}
                               label="تعديل"
                               onClick={() => onEditProduct(product)}
+                            />
+                            <ActionButton
+                              icon={<SlidersHorizontal className="h-4 w-4" />}
+                              label="تعديل الحد الأدنى للمخزون"
+                              onClick={() => onEditMinimumStock(product)}
                             />
                             <ActionButton
                               icon={<Trash2 className="h-4 w-4" />}

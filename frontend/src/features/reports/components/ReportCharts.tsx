@@ -109,7 +109,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       trendData: reportType === 'suppliers' ? supplierBalanceData : trendData,
       sourceData: reportType === 'suppliers' ? supplierSourceData : sourceData,
       productData: reportType === 'products'
-        ? attentionData
+        ? categoryData
         : reportType === 'suppliers'
           ? supplierData
           : reportType === 'inventory'
@@ -119,6 +119,19 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
   };
 
   const { categoryData, trendData, sourceData, productData } = processChartData();
+
+  if (reportType === 'products') {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '14px' }}>
+        <SimpleBarChart
+          title="المنتجات حسب التصنيف"
+          data={productData}
+          color="#14b8a6"
+          loading={loading}
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '14px' }}

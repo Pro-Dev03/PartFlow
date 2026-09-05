@@ -38,6 +38,7 @@ type localReturnRow struct {
 	SaleID                   sql.NullString `db:"sale_id"`
 	PurchaseID               sql.NullString `db:"purchase_id"`
 	CustomerID               sql.NullString `db:"customer_id"`
+	CustomerName             sql.NullString `db:"customer_name"`
 	ReturnDate               sql.NullString `db:"return_date"`
 	ReturnType               sql.NullString `db:"return_type"`
 	Status                   sql.NullString `db:"status"`
@@ -95,7 +96,7 @@ func localTimePtr(value sql.NullString) *time.Time {
 
 func (row localReturnRow) model() Return {
 	return Return{ID: localUUID(row.ID), ReturnNumber: row.ReturnNumber.String, ReferenceNumber: row.ReferenceNumber.String,
-		SaleID: localUUID(row.SaleID), PurchaseID: localUUID(row.PurchaseID), CustomerID: localUUID(row.CustomerID),
+		SaleID: localUUID(row.SaleID), PurchaseID: localUUID(row.PurchaseID), CustomerID: localUUID(row.CustomerID), CustomerName: row.CustomerName.String,
 		ReturnDate: localTime(row.ReturnDate), ReturnType: row.ReturnType.String, Status: row.Status.String,
 		TotalRefundAmount: row.TotalRefundAmount, RefundMethod: row.RefundMethod.String, RefundDate: localTimePtr(row.RefundDate), RefundReference: row.RefundReference.String,
 		DebtID: localUUIDPtr(row.DebtID), DebtAdjustment: row.DebtAdjustment, CustomerCredit: row.CustomerCredit,
@@ -105,7 +106,7 @@ func (row localReturnRow) model() Return {
 		Notes: row.Notes.String, InternalNotes: row.InternalNotes.String, CreatedAt: localTime(row.CreatedAt), UpdatedAt: localTime(row.UpdatedAt)}
 }
 
-const localReturnColumns = `id, return_number, COALESCE(reference_number,'') AS reference_number, COALESCE(sale_id,'') AS sale_id, COALESCE(purchase_id,'') AS purchase_id, COALESCE(customer_id,'') AS customer_id, return_date, return_type, status, total_refund_amount, COALESCE(refund_method,'') AS refund_method, refund_date, COALESCE(refund_reference,'') AS refund_reference, debt_id, debt_adjustment, customer_credit, COALESCE(reason,'') AS reason, COALESCE(reason_detail,'') AS reason_detail, COALESCE(item_condition_after_return,'') AS item_condition_after_return, is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at, COALESCE(notes,'') AS notes, COALESCE(internal_notes,'') AS internal_notes, created_at, updated_at`
+const localReturnColumns = `id, return_number, COALESCE(reference_number,'') AS reference_number, COALESCE(sale_id,'') AS sale_id, COALESCE(purchase_id,'') AS purchase_id, COALESCE(customer_id, (SELECT customer_id FROM sales WHERE sales.id = returns.sale_id),'') AS customer_id, COALESCE((SELECT name FROM customers WHERE customers.id = COALESCE(returns.customer_id, (SELECT customer_id FROM sales WHERE sales.id = returns.sale_id))),'') AS customer_name, return_date, return_type, status, total_refund_amount, COALESCE(refund_method,'') AS refund_method, refund_date, COALESCE(refund_reference,'') AS refund_reference, debt_id, debt_adjustment, customer_credit, COALESCE(reason,'') AS reason, COALESCE(reason_detail,'') AS reason_detail, COALESCE(item_condition_after_return,'') AS item_condition_after_return, is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at, COALESCE(notes,'') AS notes, COALESCE(internal_notes,'') AS internal_notes, created_at, updated_at`
 
 type localReturnItemRow struct {
 	ID                 sql.NullString  `db:"id"`
@@ -248,13 +249,15 @@ func (r *Repository) GetReturnByID(ctx context.Context, id uuid.UUID) (*Return, 
 	}
 	var returnRecord Return
 	query := `
-		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+		SELECT r.id, r.return_number, r.reference_number, r.sale_id, r.purchase_id, COALESCE(r.customer_id, s.customer_id) AS customer_id, COALESCE(c.name, '') AS customer_name,
 			return_date, return_type, status, total_refund_amount, COALESCE(refund_method, '') AS refund_method, refund_date, COALESCE(refund_reference, '') AS refund_reference,
 			debt_id, debt_adjustment, customer_credit, COALESCE(reason, '') AS reason, COALESCE(reason_detail, '') AS reason_detail, COALESCE(item_condition_after_return, '') AS item_condition_after_return,
 			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
 			COALESCE(notes, '') AS notes, COALESCE(internal_notes, '') AS internal_notes, created_at, updated_at
-		FROM returns
-		WHERE id = $1
+		FROM returns r
+		LEFT JOIN sales s ON s.id = r.sale_id
+		LEFT JOIN customers c ON c.id = COALESCE(r.customer_id, s.customer_id)
+		WHERE r.id = $1
 	`
 
 	err := r.db.GetContext(ctx, &returnRecord, query, id)
@@ -342,14 +345,19 @@ func (r *Repository) ListReturns(ctx context.Context, req ReturnListRequest) ([]
 
 	// Build base query
 	baseQuery := `
-		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
-			return_date, return_type, status, total_refund_amount, COALESCE(refund_method, '') AS refund_method, refund_date,
-			COALESCE(refund_reference, '') AS refund_reference,
-			debt_id, debt_adjustment, customer_credit, COALESCE(reason, '') AS reason,
-			COALESCE(reason_detail, '') AS reason_detail, COALESCE(item_condition_after_return, '') AS item_condition_after_return,
-			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
-			COALESCE(notes, '') AS notes, COALESCE(internal_notes, '') AS internal_notes, created_at, updated_at
-		FROM returns
+		SELECT r.id, r.return_number, r.reference_number,
+			COALESCE(r.sale_id, '00000000-0000-0000-0000-000000000000'::uuid) AS sale_id,
+			COALESCE(r.purchase_id, '00000000-0000-0000-0000-000000000000'::uuid) AS purchase_id,
+			COALESCE(r.customer_id, s.customer_id, '00000000-0000-0000-0000-000000000000'::uuid) AS customer_id, COALESCE(c.name, '') AS customer_name,
+			r.return_date, r.return_type, r.status, r.total_refund_amount, COALESCE(r.refund_method, '') AS refund_method, r.refund_date,
+			COALESCE(r.refund_reference, '') AS refund_reference,
+			r.debt_id, r.debt_adjustment, r.customer_credit, COALESCE(r.reason, '') AS reason,
+			COALESCE(r.reason_detail, '') AS reason_detail, COALESCE(r.item_condition_after_return, '') AS item_condition_after_return,
+			r.is_warranty_claim, r.warranty_id, r.warranty_valid_until, r.created_by, r.processed_by, r.approved_by, r.approved_at,
+			COALESCE(r.notes, '') AS notes, COALESCE(r.internal_notes, '') AS internal_notes, r.created_at, r.updated_at
+		FROM returns r
+		LEFT JOIN sales s ON s.id = r.sale_id
+		LEFT JOIN customers c ON c.id = COALESCE(r.customer_id, s.customer_id)
 		WHERE 1=1
 	`
 
@@ -398,7 +406,7 @@ func (r *Repository) ListReturns(ctx context.Context, req ReturnListRequest) ([]
 
 	if req.Search != "" {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND (return_number ILIKE $%d OR reference_number ILIKE $%d OR reason ILIKE $%d OR notes ILIKE $%d)", argCount, argCount, argCount, argCount)
+		baseQuery += fmt.Sprintf(" AND (r.return_number ILIKE $%d OR r.reference_number ILIKE $%d OR r.reason ILIKE $%d OR r.notes ILIKE $%d)", argCount, argCount, argCount, argCount)
 		countQuery += fmt.Sprintf(" AND (return_number ILIKE $%d OR reference_number ILIKE $%d OR reason ILIKE $%d OR notes ILIKE $%d)", argCount, argCount, argCount, argCount)
 		searchPattern := "%" + req.Search + "%"
 		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
@@ -715,7 +723,7 @@ func (r *Repository) GetSaleInfo(ctx context.Context, saleID uuid.UUID) (*SaleIn
 		return &SaleInfo{ID: id, InvoiceNumber: row.InvoiceNumber, SaleDate: localTime(sql.NullString{String: row.SaleDate, Valid: row.SaleDate != ""}), TotalAmount: row.TotalAmount, CustomerID: cid}, nil
 	}
 	var sale SaleInfo
-	query := `SELECT id, invoice_number, sale_date, total_amount, customer_id FROM sales WHERE id = $1`
+	query := `SELECT id, invoice_number, sale_date, total_amount, COALESCE(customer_id, '00000000-0000-0000-0000-000000000000'::uuid) AS customer_id FROM sales WHERE id = $1`
 
 	err := r.db.GetContext(ctx, &sale, query, saleID)
 	if err != nil {
@@ -782,13 +790,14 @@ func (r *Repository) GetReturnByReturnNumber(ctx context.Context, returnNumber s
 	}
 	var returnRecord Return
 	query := `
-		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+		SELECT r.id, r.return_number, r.reference_number, r.sale_id, r.purchase_id, r.customer_id, COALESCE(c.name, '') AS customer_name,
 			return_date, return_type, status, total_refund_amount, COALESCE(refund_method, '') AS refund_method, refund_date, refund_reference,
 			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
 			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
 			COALESCE(notes, '') AS notes, COALESCE(internal_notes, '') AS internal_notes, created_at, updated_at
-		FROM returns
-		WHERE return_number = $1
+		FROM returns r
+		LEFT JOIN customers c ON c.id = r.customer_id
+		WHERE r.return_number = $1
 	`
 
 	err := r.db.GetContext(ctx, &returnRecord, query, returnNumber)
@@ -816,13 +825,14 @@ func (r *Repository) GetReturnsBySaleID(ctx context.Context, saleID uuid.UUID) (
 	}
 	var returns []Return
 	query := `
-		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+		SELECT r.id, r.return_number, r.reference_number, r.sale_id, r.purchase_id, r.customer_id, COALESCE(c.name, '') AS customer_name,
 			return_date, return_type, status, total_refund_amount, COALESCE(refund_method, '') AS refund_method, refund_date, refund_reference,
 			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
 			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
 			notes, internal_notes, created_at, updated_at
-		FROM returns
-		WHERE sale_id = $1
+		FROM returns r
+		LEFT JOIN customers c ON c.id = r.customer_id
+		WHERE r.sale_id = $1
 		ORDER BY return_date DESC
 	`
 
@@ -962,13 +972,14 @@ func (r *Repository) GetReturnsByCustomer(ctx context.Context, customerID uuid.U
 	}
 	var returns []Return
 	query := `
-		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+		SELECT r.id, r.return_number, r.reference_number, r.sale_id, r.purchase_id, r.customer_id, COALESCE(c.name, '') AS customer_name,
 			return_date, return_type, status, total_refund_amount, COALESCE(refund_method, '') AS refund_method, refund_date, COALESCE(refund_reference, '') AS refund_reference,
 			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
 			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
 			notes, internal_notes, created_at, updated_at
-		FROM returns
-		WHERE customer_id = $1
+		FROM returns r
+		LEFT JOIN customers c ON c.id = r.customer_id
+		WHERE r.customer_id = $1
 		ORDER BY return_date DESC
 	`
 
@@ -994,13 +1005,14 @@ func (r *Repository) GetReturnBySale(ctx context.Context, saleID uuid.UUID) (*Re
 	}
 	var returnRecord Return
 	query := `
-		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+		SELECT r.id, r.return_number, r.reference_number, r.sale_id, r.purchase_id, r.customer_id, COALESCE(c.name, '') AS customer_name,
 			return_date, return_type, status, total_refund_amount, COALESCE(refund_method, '') AS refund_method, refund_date, refund_reference,
 			debt_id, debt_adjustment, customer_credit, reason, reason_detail, item_condition_after_return,
 			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
 			notes, internal_notes, created_at, updated_at
-		FROM returns
-		WHERE sale_id = $1
+		FROM returns r
+		LEFT JOIN customers c ON c.id = r.customer_id
+		WHERE r.sale_id = $1
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
@@ -1040,6 +1052,21 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 		FROM returns
 		WHERE return_date >= date('now', '-30 days')
 	`
+	if !dbutil.IsSQLite(r.db) {
+		query = `
+			SELECT
+				COUNT(*) AS total_returns,
+				COUNT(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' THEN 1 END) AS completed_returns,
+				COUNT(CASE WHEN UPPER(COALESCE(status, '')) = 'PENDING' THEN 1 END) AS pending_returns,
+				COUNT(CASE WHEN UPPER(COALESCE(return_type, '')) = 'FULL' THEN 1 END) AS full_returns,
+				COUNT(CASE WHEN UPPER(COALESCE(return_type, '')) IN ('PARTIAL', 'QUANTITY_PARTIAL') THEN 1 END) AS partial_returns,
+				COALESCE(SUM(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' THEN total_refund_amount ELSE 0 END), 0) AS total_refunded,
+				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) AS defective_returns,
+				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_returns
+			FROM returns
+			WHERE return_date >= CURRENT_DATE - INTERVAL '30 days'
+		`
+	}
 
 	err := r.db.GetContext(ctx, &row, query)
 	if err != nil {
@@ -1182,13 +1209,14 @@ func (r *Repository) GetPendingReturns(ctx context.Context) ([]Return, error) {
 	}
 	var returns []Return
 	query := `
-		SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id, 
+		SELECT r.id, r.return_number, r.reference_number, r.sale_id, r.purchase_id, r.customer_id, COALESCE(c.name, '') AS customer_name,
 			return_date, return_type, status, total_refund_amount, COALESCE(refund_method, '') AS refund_method, refund_date, COALESCE(refund_reference, '') AS refund_reference,
 			debt_id, debt_adjustment, customer_credit, COALESCE(reason, '') AS reason, COALESCE(reason_detail, '') AS reason_detail, COALESCE(item_condition_after_return, '') AS item_condition_after_return,
 			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
 			COALESCE(notes, '') AS notes, COALESCE(internal_notes, '') AS internal_notes, created_at, updated_at
-		FROM returns
-		WHERE status = 'PENDING'
+		FROM returns r
+		LEFT JOIN customers c ON c.id = r.customer_id
+		WHERE r.status = 'PENDING'
 		ORDER BY return_date ASC
 	`
 

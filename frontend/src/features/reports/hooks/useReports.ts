@@ -11,7 +11,7 @@ export function useReports(selectedReport: string, dateRange: string, customStar
     switch (dateRange) {
       case 'today':
         return {
-          start_date: today.toISOString().split('T')[0],
+          start_date: formatDate(today),
           end_date: formatDate(today)
         };
       case 'thisWeek':
@@ -53,6 +53,8 @@ export function useReports(selectedReport: string, dateRange: string, customStar
           return reportsApi.sales(dateParams);
         case 'net-sales':
           return reportsApi.netSales(dateParams);
+        case 'tax':
+          return reportsApi.tax(dateParams);
         case 'profit':
           return reportsApi.profit(dateParams);
         case 'inventory':

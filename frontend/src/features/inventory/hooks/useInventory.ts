@@ -209,11 +209,30 @@ export function useInventory() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['low-stock-items'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
       toast.success('تم تحديث المنتج بنجاح');
     },
     onError: (error) => {
       console.error('Update product failed:', error);
       toast.error('فشل تحديث المنتج');
+    },
+  });
+
+  const updateMinimumStockMutation = useMutation({
+    mutationFn: ({ id, minStockLevel }: { id: string; minStockLevel: number }) => productsApi.updateMinimumStock(id, minStockLevel),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['low-stock-items'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
+      toast.success('تم تحديث الحد الأدنى للمخزون بنجاح');
+    },
+    onError: (error) => {
+      console.error('Update minimum stock failed:', error);
+      toast.error('فشل تحديث الحد الأدنى للمخزون');
     },
   });
 
@@ -341,6 +360,7 @@ export function useInventory() {
     archiveProductMutation,
     createProductMutation,
     updateProductMutation,
+    updateMinimumStockMutation,
     
     // Helpers
     lookupProduct,

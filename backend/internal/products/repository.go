@@ -612,13 +612,13 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 		baseQuery += ` AND (
 			SELECT COALESCE(COUNT(*), 0)
 			FROM inventory_items ii
-			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'
+			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND ii.condition <> 'USED'
 		) < p.min_stock_level
 		AND p.min_stock_level > 0`
 		countQuery += ` AND (
 			SELECT COALESCE(COUNT(*), 0)
 			FROM inventory_items ii
-			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'
+			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND ii.condition <> 'USED'
 		) < p.min_stock_level
 		AND p.min_stock_level > 0`
 	}
@@ -721,6 +721,21 @@ func (r *Repository) UpdateProduct(ctx context.Context, product *Product) error 
 		return ErrProductNotFound
 	}
 
+	return nil
+}
+
+func (r *Repository) UpdateMinimumStock(ctx context.Context, id uuid.UUID, minStockLevel int) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE products SET min_stock_level = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`, minStockLevel, time.Now(), id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrProductNotFound
+	}
 	return nil
 }
 

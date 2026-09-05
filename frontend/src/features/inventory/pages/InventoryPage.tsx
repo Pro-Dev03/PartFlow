@@ -5,6 +5,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { cn } from '../../../utils';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Button } from '../../../components/ui/button';
+import { Modal } from '../../../components/ui/modal';
+import { Input } from '../../../components/ui/input';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { Plus, Download, Printer, Package, PackageOpen } from 'lucide-react';
@@ -27,6 +29,7 @@ import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { ViewMode, ItemInputMethodType, Product } from '../types/inventory.types';
 import { inventoryApi } from '../../../services/api/endpoints';
 import { toast } from 'sonner';
+import { getLocalProductImage, setLocalProductImage } from '../../../services/localProductImages';
 
 interface InventoryMovementResponse {
   id: string;
@@ -62,6 +65,8 @@ export function InventoryPage() {
   const [inventoryLedgerProduct, setInventoryLedgerProduct] = useState<Product | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<string | null>(null);
+  const [minimumStockProduct, setMinimumStockProduct] = useState<Product | null>(null);
+  const [minimumStockValue, setMinimumStockValue] = useState('0');
 
   // Custom hook
   const {
@@ -79,6 +84,7 @@ export function InventoryPage() {
     deleteProductMutation,
     createProductMutation,
     updateProductMutation,
+    updateMinimumStockMutation,
     lookupProduct,
   } = useInventory();
 
@@ -131,7 +137,7 @@ export function InventoryPage() {
       id: product.id,
       name: product.name,
       sku: product.sku,
-      sellingPrice: product.sellingPrice,
+      sellingPrice: product.sellingPrice || Number((product as Record<string, unknown>).selling_price) || 0,
       costPrice: product.costPrice || ('cost_price' in product ? (product as Record<string, unknown>).cost_price as number : 0),
       stock: product.stock,
       condition: product.condition,
@@ -139,6 +145,8 @@ export function InventoryPage() {
       category_id: product.category_id,
       price: product.price,
       barcode: product.barcode,
+      image_url: product.image_url || getLocalProductImage(product.id),
+      min_stock_level: Number((product as Record<string, unknown>).min_stock_level ?? 0),
     };
     setSelectedProduct(mappedProduct);
     setIsViewModalOpen(true);
@@ -150,7 +158,7 @@ export function InventoryPage() {
       id: product.id,
       name: product.name,
       sku: product.sku,
-      sellingPrice: product.sellingPrice,
+      sellingPrice: product.sellingPrice || Number((product as Record<string, unknown>).selling_price) || 0,
       costPrice: product.costPrice || ('cost_price' in product ? (product as Record<string, unknown>).cost_price as number : 0),
       stock: product.stock,
       condition: product.condition,
@@ -158,6 +166,8 @@ export function InventoryPage() {
       category_id: product.category_id,
       price: product.price,
       barcode: product.barcode,
+      image_url: product.image_url || getLocalProductImage(product.id),
+      min_stock_level: Number((product as Record<string, unknown>).min_stock_level ?? 0),
     };
     setSelectedProduct(mappedProduct);
     setIsCreatingProduct(false);
@@ -167,6 +177,22 @@ export function InventoryPage() {
   const handleDeleteProduct = (productId: string) => {
     setProductToDelete(productId);
     setDeleteDialogOpen(true);
+  };
+
+  const handleEditMinimumStock = (product: Product) => {
+    setMinimumStockProduct(product);
+    setMinimumStockValue(String(product.min_stock_level ?? 0));
+  };
+
+  const handleSaveMinimumStock = () => {
+    if (!minimumStockProduct) return;
+    const value = Math.max(0, Math.floor(Number(minimumStockValue) || 0));
+    updateMinimumStockMutation.mutate({ id: minimumStockProduct.id, minStockLevel: value }, {
+      onSuccess: () => {
+        setMinimumStockProduct(null);
+        setMinimumStockValue('0');
+      },
+    });
   };
 
   const handleConfirmDelete = () => {
@@ -190,6 +216,7 @@ export function InventoryPage() {
         category_id: productData.category_id,
         barcode: productData.barcode,
       };
+      setLocalProductImage(selectedProduct.id, productData.image_url || null);
       updateProductMutation.mutate({ id: selectedProduct.id, data: apiData });
       setIsEditModalOpen(false);
       setSelectedProduct(null);
@@ -209,6 +236,9 @@ export function InventoryPage() {
       createProductMutation.mutate(apiData, {
         onSuccess: async (response: any) => {
           const product = response?.data?.product ?? response?.data;
+          if (product?.id && productData.image_url) {
+            setLocalProductImage(product.id, productData.image_url);
+          }
           const quantity = Math.max(0, Math.floor(Number(productData.stock) || 0));
           if (!product?.id || quantity === 0) {
             return;
@@ -467,6 +497,7 @@ export function InventoryPage() {
         searchQuery={searchQuery}
         onViewProduct={handleViewProduct}
         onEditProduct={handleEditProduct}
+        onEditMinimumStock={handleEditMinimumStock}
         onDeleteProduct={handleDeleteProduct}
         onClearSearch={handleClearSearch}
         onReorderFromSupplier={(supplierId, productName) => {
@@ -504,6 +535,31 @@ export function InventoryPage() {
         setSelectedProduct={setSelectedProduct}
         onSaveProduct={handleSaveProduct}
       />
+
+      <Modal
+        isOpen={Boolean(minimumStockProduct)}
+        onClose={() => setMinimumStockProduct(null)}
+        title="تعديل الحد الأدنى للمخزون"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-secondary">{minimumStockProduct?.name || 'المنتج'}</p>
+          <Input
+            label="الحد الأدنى للمخزون"
+            type="number"
+            min="0"
+            step="1"
+            value={minimumStockValue}
+            onChange={(event) => setMinimumStockValue(event.target.value)}
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setMinimumStockProduct(null)}>إلغاء</Button>
+            <Button variant="primary" onClick={handleSaveMinimumStock} disabled={updateMinimumStockMutation.isPending}>
+              {updateMinimumStockMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog

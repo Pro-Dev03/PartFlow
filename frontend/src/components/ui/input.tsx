@@ -45,6 +45,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
       lg: 'h-[var(--input-height-lg)] px-[var(--input-padding-lg)] text-[var(--input-font-size-lg)]',
       xl: 'h-[var(--input-height-xl)] px-[var(--input-padding-xl)] text-[var(--input-font-size-xl)]',
     };
+    const inputHeight = `var(--input-height-${size})`;
     
     const containerClass = fullWidth ? 'w-full' : '';
     
@@ -70,7 +71,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             type={type}
             id={inputId}
             className={cn(
-              'flex w-full rounded-[var(--input-border-radius)] border',
+              'flex box-border w-full min-w-0 rounded-[var(--input-border-radius)] border',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:border-transparent',
               'transition-all duration-200',
               'disabled:cursor-not-allowed disabled:opacity-50',
@@ -95,6 +96,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             }
             aria-required={required}
             {...props}
+            style={{ ...props.style, boxSizing: 'border-box', minHeight: inputHeight, height: inputHeight }}
           />
         </div>
         {error && (

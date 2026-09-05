@@ -38,9 +38,9 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
     const hasOptions = options && options.length > 0;
     
     const sizes = {
-      sm: 'h-10 text-sm',
-      md: 'h-12 text-sm',
-      lg: 'h-14 text-base',
+      sm: { className: 'text-sm', height: 'var(--input-height-sm)' },
+      md: { className: 'text-sm', height: 'var(--input-height-md)' },
+      lg: { className: 'text-base', height: 'var(--input-height-lg)' },
     };
     
     const containerClass = fullWidth ? 'w-full' : '';
@@ -56,7 +56,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
             {label}
           </label>
         )}
-        <div className="relative w-full">
+        <div className="select-control-wrapper relative w-full">
           <select
             ref={ref}
             id={selectId}
@@ -68,7 +68,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
               'disabled:cursor-not-allowed disabled:opacity-50',
               'placeholder:text-text-muted/40',
               'hover:border-cyan/30 hover:shadow-sm',
-              sizes[size],
+              sizes[size].className,
               hasError && 'border-red-500 focus-visible:ring-red-500/50',
               !hasError && 'focus-visible:ring-cyan/30 focus-visible:border-cyan/50 focus-visible:shadow-lg',
               'pe-10',
@@ -78,6 +78,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
             aria-invalid={hasError}
             aria-describedby={hasError ? `${selectId}-error` : helperText ? `${selectId}-helper` : undefined}
             {...props}
+            style={{ ...props.style, boxSizing: 'border-box', minHeight: sizes[size].height, height: sizes[size].height }}
             onFocus={(e) => {
               if (arrowRef.current) {
                 arrowRef.current.style.transform = 'rotate(180deg)';
@@ -116,7 +117,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
             )}
           </select>
           {/* Chevron Down Arrow */}
-          <div className="absolute inset-y-0 end-0 flex items-center pe-4 pointer-events-none">
+          <div className="select-control-arrow absolute inset-y-0 end-0 flex items-center pe-4 pointer-events-none">
              <ChevronDown 
                ref={arrowRef}
                className={cn(

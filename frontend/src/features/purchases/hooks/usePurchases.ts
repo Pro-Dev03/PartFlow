@@ -28,6 +28,8 @@ export function usePurchases() {
   const activePurchases = purchases.filter((p) => p.status !== 'cancelled' && p.status !== 'reversed');
   const receivedPurchases = activePurchases.filter((p) => p.status === 'received' || p.status === 'completed');
   const pendingPurchases = activePurchases.filter((p) => p.status !== 'received' && p.status !== 'completed');
+  const untaxedPurchases = activePurchases.filter((p) => Number(p.tax_amount || 0) === 0);
+  const taxedPurchases = activePurchases.filter((p) => Number(p.tax_amount || 0) > 0);
 
   const stats: PurchaseStats = {
     totalPurchases: activePurchases.length,
@@ -40,6 +42,10 @@ export function usePurchases() {
       (sum, p) => sum + Math.max(0, Number(p.total_amount || 0) - Number(p.paid_amount || 0)),
       0
     ),
+    untaxedCount: untaxedPurchases.length,
+    untaxedCost: untaxedPurchases.reduce((sum, p) => sum + Number(p.total_amount || 0), 0),
+    taxedCount: taxedPurchases.length,
+    taxedCost: taxedPurchases.reduce((sum, p) => sum + Number(p.total_amount || 0), 0),
   };
 
   const filteredPurchases = purchases.filter((purchase: any) => {

@@ -184,9 +184,25 @@ func (r *Repository) GetExpenseByID(ctx context.Context, id uuid.UUID) (*Expense
 	}
 	var expense Expense
 	query := `
-		SELECT id, category_id, title, COALESCE(description, ''),
-			amount, currency, expense_date, COALESCE(payment_method, ''), COALESCE(reference, ''), COALESCE(receipt_url, ''), is_recurring,
-			COALESCE(recurring_period, ''), COALESCE(approved_by, ''), status, COALESCE(created_by, ''), created_at, updated_at
+		SELECT id,
+			CASE WHEN category_id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+				THEN category_id::text::uuid
+				ELSE '00000000-0000-0000-0000-000000000000'::uuid
+			END AS category_id,
+			title, COALESCE(description, '') AS description,
+			amount, currency, expense_date, COALESCE(payment_method, '') AS payment_method,
+			COALESCE(reference, '') AS reference, COALESCE(receipt_url, '') AS receipt_url, is_recurring,
+			COALESCE(recurring_period, '') AS recurring_period,
+			CASE WHEN approved_by::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+				THEN approved_by::text::uuid
+				ELSE NULL
+			END AS approved_by,
+			status,
+			CASE WHEN created_by::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+				THEN created_by::text::uuid
+				ELSE '00000000-0000-0000-0000-000000000000'::uuid
+			END AS created_by,
+			created_at, updated_at
 		FROM expenses
 		WHERE id = $1
 	`
@@ -283,9 +299,25 @@ func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) (
 
 	// Build base query
 	baseQuery := `
-		SELECT id, category_id, title, COALESCE(description, ''),
-			amount, currency, expense_date, COALESCE(payment_method, ''), COALESCE(reference, ''), COALESCE(receipt_url, ''), is_recurring,
-			COALESCE(recurring_period, ''), COALESCE(approved_by, ''), status, COALESCE(created_by, ''), created_at, updated_at
+		SELECT id,
+			CASE WHEN category_id::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+				THEN category_id::text::uuid
+				ELSE '00000000-0000-0000-0000-000000000000'::uuid
+			END AS category_id,
+				title, COALESCE(description, '') AS description,
+				amount, currency, expense_date, COALESCE(payment_method, '') AS payment_method,
+				COALESCE(reference, '') AS reference, COALESCE(receipt_url, '') AS receipt_url, is_recurring,
+				COALESCE(recurring_period, '') AS recurring_period,
+			CASE WHEN approved_by::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+				THEN approved_by::text::uuid
+				ELSE NULL
+			END AS approved_by,
+			status,
+			CASE WHEN created_by::text ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+				THEN created_by::text::uuid
+				ELSE '00000000-0000-0000-0000-000000000000'::uuid
+			END AS created_by,
+			created_at, updated_at
 		FROM expenses
 	`
 

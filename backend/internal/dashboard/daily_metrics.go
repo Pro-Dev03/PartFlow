@@ -26,7 +26,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 	date := now.Format("2006-01-02")
 	query := `
 		WITH sale_costs AS (
-			SELECT s.id, s.total_amount,
+			SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
 				COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost
 			FROM sales s
 			LEFT JOIN sale_items si ON si.sale_id = s.id
@@ -34,9 +34,10 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			LEFT JOIN products p ON p.id = si.product_id
 			WHERE COALESCE(s.sale_date::date, s.created_at::date) = $1::date
 			  AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
-			GROUP BY s.id, s.total_amount
+			GROUP BY s.id, s.total_amount, s.tax_amount
 		), totals AS (
-			SELECT COALESCE(SUM(total_amount), 0) AS revenue,
+			SELECT COALESCE(SUM(total_amount), 0) AS gross_revenue,
+			       COALESCE(SUM(total_amount - tax_amount), 0) AS revenue,
 			       COALESCE(SUM(total_cost), 0) AS cost
 			FROM sale_costs
 		), expenses_total AS (
@@ -54,7 +55,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			WHERE r.return_date::date = $1::date
 			  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 		)
-		SELECT totals.revenue AS today_sales,
+		SELECT totals.gross_revenue AS today_sales,
 		       totals.revenue - totals.cost - expenses_total.amount - returns_total.refunded + returns_total.returned_cost AS today_profit
 		FROM totals, expenses_total, returns_total
 	`
@@ -63,7 +64,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 	if isSQLiteDriver(db.DriverName()) {
 		query = `
 			WITH sale_costs AS (
-				SELECT s.id, s.total_amount,
+				SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
 					COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) AS total_cost
 				FROM sales s
 				LEFT JOIN sale_items si ON si.sale_id = s.id
@@ -71,9 +72,10 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 				LEFT JOIN products p ON p.id = si.product_id
 				WHERE date(s.created_at) = ?
 				  AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
-				GROUP BY s.id, s.total_amount
+				GROUP BY s.id, s.total_amount, s.tax_amount
 			), totals AS (
-				SELECT COALESCE(SUM(total_amount), 0) AS revenue,
+				SELECT COALESCE(SUM(total_amount), 0) AS gross_revenue,
+				       COALESCE(SUM(total_amount - tax_amount), 0) AS revenue,
 				       COALESCE(SUM(total_cost), 0) AS cost
 				FROM sale_costs
 			), expenses_total AS (
@@ -91,7 +93,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 				WHERE date(r.return_date) = ?
 				  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 			)
-			SELECT totals.revenue AS today_sales,
+			SELECT totals.gross_revenue AS today_sales,
 			       totals.revenue - totals.cost - expenses_total.amount - returns_total.refunded + returns_total.returned_cost AS today_profit
 			FROM totals, expenses_total, returns_total
 		`
@@ -106,7 +108,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			}
 			query = fmt.Sprintf(`
 				WITH sale_costs AS (
-					SELECT s.id, s.total_amount,
+					SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
 						COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, %s, 0)), 0) AS total_cost
 					FROM sales s
 					LEFT JOIN sale_items si ON si.sale_id = s.id
@@ -114,9 +116,10 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 					LEFT JOIN products p ON p.id = si.product_id
 					WHERE date(s.created_at) = ?
 					  AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
-					GROUP BY s.id, s.total_amount
+					GROUP BY s.id, s.total_amount, s.tax_amount
 				), totals AS (
-					SELECT COALESCE(SUM(total_amount), 0) AS revenue,
+					SELECT COALESCE(SUM(total_amount), 0) AS gross_revenue,
+					       COALESCE(SUM(total_amount - tax_amount), 0) AS revenue,
 					       COALESCE(SUM(total_cost), 0) AS cost
 					FROM sale_costs
 				), expenses_total AS (
@@ -125,12 +128,17 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 					WHERE date(expense_date) = ?
 					  AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')
 				)
-				SELECT totals.revenue AS today_sales,
+				SELECT totals.gross_revenue AS today_sales,
 				       totals.revenue - totals.cost - expenses_total.amount AS today_profit
 				FROM totals, expenses_total
 			`, productCostRef)
 			args = []any{date, date}
 		}
+	}
+	if isSQLiteDriver(db.DriverName()) && !sqliteHasColumns(db, "sales", "tax_amount") {
+		query = strings.ReplaceAll(query, "COALESCE(s.tax_amount, 0)", "0")
+		query = strings.ReplaceAll(query, "s.tax_amount", "0")
+		query = strings.ReplaceAll(query, "GROUP BY s.id, s.total_amount, 0", "GROUP BY s.id, s.total_amount")
 	}
 
 	var metrics todayMetrics

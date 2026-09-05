@@ -12,10 +12,20 @@ export function FinancialSettings() {
   const queryClient = useQueryClient();
   const [financialSettings, setFinancialSettings] = useState({
     currency: 'ILS',
-    taxRate: 17,
+    taxRate: 0,
     profitMargin: DEFAULT_PROFIT_MARGIN,
     discountEnabled: true,
     maxDiscount: 15,
+  });
+  const { data: taxSetting } = useQuery({
+    queryKey: ['settings', 'tax_rate'],
+    queryFn: () => settingsApi.getSetting('tax_rate'),
+    retry: false,
+  });
+  const { data: discountSetting } = useQuery({
+    queryKey: ['settings', 'max_discount_rate'],
+    queryFn: () => settingsApi.getSetting('max_discount_rate'),
+    retry: false,
   });
   const { data: marginSetting } = useQuery({
     queryKey: ['settings', 'default_profit_margin'],
@@ -23,20 +33,31 @@ export function FinancialSettings() {
     retry: false,
   });
   const updateMarginMutation = useMutation({
-    mutationFn: (value: number) => settingsApi.updateSetting('default_profit_margin', String(value)),
+    mutationFn: async () => {
+      await settingsApi.updateSetting('tax_rate', String(financialSettings.taxRate));
+      await settingsApi.updateSetting('max_discount_rate', String(financialSettings.maxDiscount));
+      return settingsApi.updateSetting('default_profit_margin', String(financialSettings.profitMargin));
+    },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'tax_rate'] });
+      queryClient.invalidateQueries({ queryKey: ['settings', 'max_discount_rate'] });
       queryClient.invalidateQueries({ queryKey: ['settings', 'default_profit_margin'] });
-      toast.success('تم حفظ نسبة الربح المقترحة');
+      toast.success('تم حفظ إعدادات المالية بنجاح');
     },
     onError: () => toast.error('تعذر حفظ نسبة الربح المقترحة'),
   });
 
   useEffect(() => {
+    const taxRate = Number(taxSetting?.data?.value);
+    const maxDiscount = Number(discountSetting?.data?.value);
     const value = Number(marginSetting?.data?.value);
-    if (Number.isFinite(value) && value >= 0 && value < 100) {
-      setFinancialSettings((current) => ({ ...current, profitMargin: value }));
-    }
-  }, [marginSetting]);
+    setFinancialSettings((current) => ({
+      ...current,
+      ...(Number.isFinite(taxRate) && taxRate >= 0 && taxRate <= 100 ? { taxRate } : {}),
+      ...(Number.isFinite(maxDiscount) && maxDiscount >= 0 && maxDiscount <= 100 ? { maxDiscount } : {}),
+      ...(Number.isFinite(value) && value >= 0 && value < 100 ? { profitMargin: value } : {}),
+    }));
+  }, [discountSetting, marginSetting, taxSetting]);
 
   return (
     <Card>
@@ -62,6 +83,9 @@ export function FinancialSettings() {
         <Input
           label="نسبة الضريبة (%)"
           type="number"
+          min="0"
+          max="100"
+          step="0.01"
           value={financialSettings.taxRate}
           onChange={(e) => setFinancialSettings({ ...financialSettings, taxRate: Number(e.target.value) })}
         />
@@ -87,6 +111,9 @@ export function FinancialSettings() {
           <Input
             label="الحد الأقصى للخصم (%)"
             type="number"
+            min="0"
+            max="100"
+            step="0.01"
             value={financialSettings.maxDiscount}
             onChange={(e) => setFinancialSettings({ ...financialSettings, maxDiscount: Number(e.target.value) })}
           />
@@ -94,8 +121,8 @@ export function FinancialSettings() {
         <Button
           variant="primary"
           className="gap-2"
-          onClick={() => updateMarginMutation.mutate(financialSettings.profitMargin)}
-          disabled={updateMarginMutation.isPending || financialSettings.profitMargin < 0 || financialSettings.profitMargin >= 100}
+          onClick={() => updateMarginMutation.mutate()}
+          disabled={updateMarginMutation.isPending || financialSettings.taxRate < 0 || financialSettings.taxRate > 100 || financialSettings.maxDiscount < 0 || financialSettings.maxDiscount > 100 || financialSettings.profitMargin < 0 || financialSettings.profitMargin >= 100}
         >
           <Save className="w-4 h-4" />
           حفظ التغييرات

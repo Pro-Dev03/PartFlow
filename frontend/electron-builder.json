@@ -17,7 +17,7 @@
       "to": "backend/partflow-api.exe"
     },
     {
-      "from": "../local-partflow.db",
+      "from": "../backend/partflow-local.db",
       "to": "partflow.db"
     }
   ],

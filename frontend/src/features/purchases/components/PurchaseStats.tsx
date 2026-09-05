@@ -1,5 +1,5 @@
 import { StatCard } from '../../../components/ui/stat-card';
-import { ShoppingCart, Calendar, Package, RotateCcw, Truck, CreditCard } from 'lucide-react';
+import { ShoppingCart, Calendar, Package, RotateCcw, Truck, CreditCard, Receipt } from 'lucide-react';
 import { PurchaseStats } from '../types/purchases.types';
 
 interface PurchaseStatsProps {
@@ -50,6 +50,20 @@ export function PurchaseStats({ stats }: PurchaseStatsProps) {
         value={`₪${stats.outstandingAmount.toLocaleString()}`}
         icon={CreditCard}
         variant="warning"
+      />
+      <StatCard
+        title="فواتير بلا ضريبة"
+        value={`₪${stats.untaxedCost.toLocaleString()}`}
+        icon={Receipt}
+        subtitle={`${stats.untaxedCount.toLocaleString()} فواتير معفاة`}
+        variant="default"
+      />
+      <StatCard
+        title="فواتير خاضعة للضريبة"
+        value={`₪${stats.taxedCost.toLocaleString()}`}
+        icon={Receipt}
+        subtitle={`${stats.taxedCount.toLocaleString()} فواتير، شامل الضريبة`}
+        variant="info"
       />
     </div>
   );

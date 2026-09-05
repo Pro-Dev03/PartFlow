@@ -1,6 +1,7 @@
 import { Package, Plus } from 'lucide-react';
 import { cn } from '../../../../utils';
 import type { ProductCardProps } from '../../../../components/ui/product-card';
+import { getLocalProductImage } from '../../../../services/localProductImages';
 
 type SearchProduct = ProductCardProps['product'] & {
   category_id?: string;
@@ -83,6 +84,7 @@ function ModernProductCard({ product, onClick }: ModernProductCardProps) {
   const stock = product.stock ?? 0;
   const isLowStock = stock > 0 && stock <= 3;
   const isOutOfStock = stock <= 0;
+  const imageUrl = product.image_url || getLocalProductImage(String(product.id));
 
   return (
     <button
@@ -95,8 +97,8 @@ function ModernProductCard({ product, onClick }: ModernProductCardProps) {
       disabled={isOutOfStock}
     >
       <div className="product-card-image">
-        {product.image_url ? (
-          <img src={product.image_url} alt={product.name} />
+        {imageUrl ? (
+          <img src={imageUrl} alt={product.name} />
         ) : (
           <div className="product-card-placeholder">
             <Package />

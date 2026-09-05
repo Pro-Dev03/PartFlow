@@ -76,7 +76,7 @@ export function DatabaseSettings() {
       setConfirmationText('');
       setShowConfirmation(false);
       void queryClient.invalidateQueries();
-      toast.success('تم حذف بيانات التشغيل السحابية بنجاح. بقي حساب المالك والإعدادات محفوظين.');
+      toast.success('تم حذف البيانات التشغيلية والسجلات التاريخية السحابية نهائيًا. بقي حساب المالك والإعدادات محفوظين.');
     },
     onError: (error: any) => {
       toast.error(error?.message || 'فشل حذف بيانات السحابة');
@@ -89,7 +89,7 @@ export function DatabaseSettings() {
       setConfirmationText('');
       setShowConfirmation(false);
       void queryClient.invalidateQueries();
-      toast.success('تم حذف بيانات التشغيل المحلية بنجاح. بقيت بنية قاعدة SQLite وإعدادات الحساب محفوظة.');
+      toast.success('تم حذف البيانات التشغيلية والسجلات التاريخية المحلية نهائيًا. بقيت بنية SQLite وإعدادات الحساب محفوظة.');
     },
     onError: (error: any) => {
       toast.error(error?.message || 'فشل حذف البيانات المحلية');
@@ -250,17 +250,17 @@ export function DatabaseSettings() {
 
             <div className="p-3 bg-amber-100 rounded-lg border border-amber-300">
               <p className="text-xs text-amber-900">
-                ⚠️ <strong>تنبيه:</strong> البيانات محلية فقط. تأكّد من نسخ البيانات احتياطياً قبل مسح التطبيق.
+                ⚠️ <strong>تنبيه:</strong> الحذف النهائي يزيل السجلات التشغيلية والتاريخية. تأكّد من أخذ نسخة احتياطية قبل المتابعة.
               </p>
             </div>
 
             <div className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-4">
               <div className="flex items-center gap-2 text-red-800">
                 <Trash2 className="h-5 w-5" />
-                <h3 className="font-semibold">حذف بيانات التشغيل</h3>
+                <h3 className="font-semibold">تنظيف البيانات والسجلات التاريخية</h3>
               </div>
               <p className="text-sm text-red-800">
-                اختر نطاق الحذف بعناية: بيانات PostgreSQL السحابية أو بيانات SQLite المحلية. لا يحذف أي خيار حساب المالك أو الإعدادات أو بنية قواعد البيانات.
+                اختر النطاق بعناية. سيحذف الخيار المحدد جميع البيانات التشغيلية والسجلات التاريخية مثل المبيعات والمشتريات والمخزون والعملاء والديون والمصروفات، مع إبقاء حساب المالك والإعدادات وبنية قاعدة البيانات محفوظة.
               </p>
               {!showConfirmation ? (
                 <Button
@@ -269,7 +269,7 @@ export function DatabaseSettings() {
                   onClick={() => setShowConfirmation(true)}
                 >
                   <Trash2 className="ml-2 h-4 w-4" />
-                  فتح تأكيد الحذف السحابي
+                  فتح خيارات التنظيف النهائي
                 </Button>
               ) : (
                 <div className="space-y-2">

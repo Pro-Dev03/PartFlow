@@ -20,7 +20,7 @@ func NewService(repo *Repository) *Service {
 }
 
 // CreateUser creates a new user
-func (s *Service) CreateUser(ctx context.Context, email, passwordHash, firstName, lastName string, phone, avatarURL *string, isActive bool) (*User, error) {
+func (s *Service) CreateUser(ctx context.Context, email, passwordHash, firstName, lastName string, phone, avatarURL *string, isActive bool, subscriptionDays int) (*User, error) {
 	// Check if email already exists
 	existing, err := s.repo.GetByEmail(ctx, email)
 	if err == nil && existing != nil {
@@ -28,6 +28,10 @@ func (s *Service) CreateUser(ctx context.Context, email, passwordHash, firstName
 	}
 
 	user := NewUser(email, passwordHash, firstName, lastName)
+	if subscriptionDays > 0 {
+		expiresAt := time.Now().AddDate(0, 0, subscriptionDays)
+		user.SubscriptionExpiresAt = &expiresAt
+	}
 	user.Phone = phone
 	user.AvatarURL = avatarURL
 	user.IsActive = isActive

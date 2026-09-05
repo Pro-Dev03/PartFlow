@@ -50,10 +50,16 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	totalTax := 0.0
 	totalCost := 0.0
 
-	// Handle tax rate - default to 0 if not provided or invalid
-	taxRate := req.TaxRate
-	if taxRate < 0 || taxRate > 100 {
+	// Tax and percentage discount limits are system settings, not sale inputs.
+	var taxRate, maxDiscountRate float64
+	if err := tx.GetContext(ctx, &taxRate, `SELECT COALESCE(CAST(value AS DOUBLE PRECISION), 0) FROM settings WHERE key = 'tax_rate'`); err != nil || taxRate < 0 || taxRate > 100 {
 		taxRate = 0
+	}
+	if req.TaxExempt {
+		taxRate = 0
+	}
+	if err := tx.GetContext(ctx, &maxDiscountRate, `SELECT COALESCE(CAST(value AS DOUBLE PRECISION), 15) FROM settings WHERE key = 'max_discount_rate'`); err != nil || maxDiscountRate < 0 || maxDiscountRate > 100 {
+		maxDiscountRate = 15
 	}
 
 	var items []SaleItem
@@ -114,8 +120,6 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 		// Calculate item totals using actual item costs
 		itemTotal := float64(itemReq.Quantity) * itemReq.UnitPrice
-		itemTax := itemTotal * taxRate / 100
-		itemTotalWithTax := itemTotal + itemTax
 
 		// Calculate actual cost from available items
 		itemCost := 0.0
@@ -124,7 +128,6 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		}
 
 		subtotal += itemTotal
-		totalTax += itemTax
 		totalCost += itemCost
 
 		item := SaleItem{
@@ -134,25 +137,27 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			Quantity:        itemReq.Quantity,
 			UnitPrice:       itemReq.UnitPrice,
 			UnitCost:        itemCost / float64(itemReq.Quantity),
-			TaxAmount:       itemTax,
-			TotalAmount:     itemTotalWithTax,
+			TaxAmount:       0,
+			TotalAmount:     itemTotal,
 			CreatedAt:       time.Now(),
 		}
 		items = append(items, item)
 	}
 
 	// Calculate discount
-	var discountAmount float64
-	if req.DiscountType == "percentage" {
-		discountAmount = subtotal * req.DiscountValue / 100
-	} else if req.DiscountType == "fixed" {
-		discountAmount = req.DiscountValue
+	discountAmount, totalTax, totalAmount, grossProfit, netProfit := calculateSaleAmounts(
+		subtotal, totalCost, taxRate, maxDiscountRate, req.DiscountType, req.DiscountValue,
+	)
+	if subtotal > 0 {
+		for i := range items {
+			itemSubtotal := items[i].TotalAmount
+			itemDiscount := discountAmount * itemSubtotal / subtotal
+			itemTax := (itemSubtotal - itemDiscount) * taxRate / 100
+			items[i].DiscountAmount = itemDiscount
+			items[i].TaxAmount = itemTax
+			items[i].TotalAmount = itemSubtotal - itemDiscount + itemTax
+		}
 	}
-
-	// Calculate total
-	totalAmount := subtotal + totalTax - discountAmount
-	grossProfit := subtotal - totalCost
-	netProfit := grossProfit - totalTax - discountAmount
 
 	// Create sale - allow nil user_id for testing
 	var userIDPtr *uuid.UUID
@@ -457,7 +462,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		if tableErr := tx.GetContext(ctx, &auditLogsTable, `SELECT to_regclass('public.audit_logs')`); tableErr == nil && auditLogsTable != nil {
 			auditQuery := `
 			INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
 		`
 			changes, marshalErr := json.Marshal(map[string]interface{}{
 				"invoice_number": invoiceNumber,
@@ -469,7 +474,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			}
 			if _, auditErr := tx.ExecContext(ctx, auditQuery,
 				uuid.New(), userID, "CREATE_SALE", "sale", sale.ID,
-				changes, time.Now()); auditErr != nil {
+				string(changes), time.Now()); auditErr != nil {
 				return nil, fmt.Errorf("failed to create audit log: %w", auditErr)
 			}
 		}
@@ -485,6 +490,34 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	dashboard.InvalidateDashboardCacheWithReason("sale_created")
 
 	return sale, nil
+}
+
+func calculateSaleAmounts(subtotal, totalCost, taxRate, maxDiscountRate float64, discountType string, discountValue float64) (discountAmount, totalTax, totalAmount, grossProfit, netProfit float64) {
+	if discountType == "percentage" {
+		discountRate := discountValue
+		if discountRate < 0 {
+			discountRate = 0
+		}
+		if discountRate > maxDiscountRate {
+			discountRate = maxDiscountRate
+		}
+		discountAmount = subtotal * discountRate / 100
+	} else if discountType == "fixed" {
+		discountAmount = discountValue
+		if discountAmount < 0 {
+			discountAmount = 0
+		}
+		if discountAmount > subtotal {
+			discountAmount = subtotal
+		}
+	}
+
+	taxableSubtotal := subtotal - discountAmount
+	totalTax = taxableSubtotal * taxRate / 100
+	totalAmount = taxableSubtotal + totalTax
+	grossProfit = taxableSubtotal - totalCost
+	netProfit = grossProfit
+	return
 }
 
 // calculateProfit calculates the profit for sale items

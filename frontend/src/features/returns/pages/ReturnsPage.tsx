@@ -9,6 +9,8 @@ import { SearchInput } from '../../../components/ui/search-input';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Select } from '../../../components/ui/select';
 import { Badge } from '../../../components/ui/badge';
+import { Modal } from '../../../components/ui/modal';
+import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { 
   RotateCcw, 
   Plus, 
@@ -19,7 +21,10 @@ import {
   TrendingDown,
   Filter,
   XCircle,
-  RefreshCw
+  RefreshCw,
+  Truck,
+  Edit,
+  Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -61,6 +66,11 @@ export function ReturnsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [returnTypeFilter, setReturnTypeFilter] = useState('');
   const [refundMethodFilter, setRefundMethodFilter] = useState('');
+  const [editingReturn, setEditingReturn] = useState<Return | null>(null);
+  const [returnToDelete, setReturnToDelete] = useState<Return | null>(null);
+  const [editReason, setEditReason] = useState('');
+  const [editRefundMethod, setEditRefundMethod] = useState('CASH');
+  const [editCondition, setEditCondition] = useState('NEEDS_INSPECTION');
 
 
   const { data: returnsData, isLoading } = useQuery({
@@ -127,6 +137,20 @@ export function ReturnsPage() {
     return labels[method] || method;
   };
 
+  const getReasonLabel = (reason: string) => {
+    const labels: Record<string, string> = {
+      DEFECTIVE: 'منتج معطل',
+      WRONG_ITEM: 'منتج خاطئ',
+      COMPATIBILITY_ISSUE: 'مشكلة توافق',
+      CUSTOMER_CHANGED_MIND: 'تغيير رأي العميل',
+      DAMAGED: 'منتج تالف',
+      WARRANTY: 'ضمان',
+      INCORRECT_SPECIFICATION: 'مواصفات غير صحيحة',
+      OTHER: 'أخرى',
+    };
+    return labels[reason] || reason;
+  };
+
   const getConditionLabel = (condition: string) => {
     const labels: Record<string, string> = {
       SELLABLE: 'قابل للبيع',
@@ -158,6 +182,39 @@ export function ReturnsPage() {
     },
   });
 
+  const updateReturnMutation = useMutation({
+    mutationFn: () => returnsApi.update(editingReturn!.id, {
+      reason: editReason,
+      refund_method: editRefundMethod,
+      item_condition_after_return: editCondition,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['returns'] });
+      setEditingReturn(null);
+      toast.success('تم تعديل المرتجع بنجاح');
+    },
+    onError: () => toast.error('تعذر تعديل المرتجع في حالته الحالية'),
+  });
+
+  const deleteReturnMutation = useMutation({
+    mutationFn: () => returnsApi.delete(returnToDelete!.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['returns'] });
+      setReturnToDelete(null);
+      toast.success('تم حذف المرتجع بنجاح');
+    },
+    onError: () => toast.error('لا يمكن حذف مرتجع تمت معالجته أو اعتماده'),
+  });
+
+  const canModifyReturn = (status: string) => ['PENDING', 'REJECTED'].includes(status);
+
+  const openEditReturn = (returnItem: Return) => {
+    setEditingReturn(returnItem);
+    setEditReason(returnItem.reason);
+    setEditRefundMethod(returnItem.refund_method);
+    setEditCondition(returnItem.item_condition_after_return);
+  };
+
   return (
     <div>
       {/* Page Header */}
@@ -167,9 +224,17 @@ export function ReturnsPage() {
         description="إدارة المرتجعات والاسترجاع مع تتبع كامل للمنتجات والماليات"
         actions={
           <div className="flex gap-2">
-            <Button variant="primary" className="gap-2">
+            <Button
+              variant="primary"
+              className="gap-2"
+              onClick={() => navigate('/app/returns/create')}
+            >
               <Plus className="w-4 h-4" />
               مرتجع جديد
+            </Button>
+            <Button variant="secondary" className="gap-2" onClick={() => navigate('/app/supplier-returns')}>
+              <Truck className="w-4 h-4" />
+              مرتجع للمورد
             </Button>
           </div>
         }
@@ -342,7 +407,7 @@ export function ReturnsPage() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-400">السبب:</span>
-                      <span>{returnItem.reason}</span>
+                      <span>{getReasonLabel(returnItem.reason)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-400">حالة القطعة:</span>
@@ -375,6 +440,16 @@ export function ReturnsPage() {
                         إكمال
                       </Button>
                     )}
+                    {canModifyReturn(returnItem.status) && (
+                      <>
+                        <Button variant="outline" size="sm" onClick={() => openEditReturn(returnItem)} aria-label="تعديل المرتجع" title="تعديل المرتجع">
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button variant="danger" size="sm" onClick={() => setReturnToDelete(returnItem)} aria-label="حذف المرتجع" title="حذف المرتجع">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -382,6 +457,25 @@ export function ReturnsPage() {
           })}
         </div>
       )}
+
+      <Modal isOpen={Boolean(editingReturn)} onClose={() => setEditingReturn(null)} title="تعديل المرتجع" size="md">
+        <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); updateReturnMutation.mutate(); }}>
+          <div><label className="mb-2 block text-sm font-medium text-text-secondary">سبب المرتجع</label><Select value={editReason} onChange={(event) => setEditReason(event.target.value)} options={[{ value: 'DEFECTIVE', label: 'منتج معطل' }, { value: 'WRONG_ITEM', label: 'منتج خاطئ' }, { value: 'CUSTOMER_CHANGED_MIND', label: 'تغيير رأي العميل' }, { value: 'DAMAGED', label: 'تالف' }, { value: 'OTHER', label: 'أخرى' }]} /></div>
+          <div><label className="mb-2 block text-sm font-medium text-text-secondary">حالة المنتج</label><Select value={editCondition} onChange={(event) => setEditCondition(event.target.value)} options={[{ value: 'SELLABLE', label: 'قابل للبيع' }, { value: 'NEEDS_INSPECTION', label: 'يحتاج فحص' }, { value: 'NEEDS_REPAIR', label: 'يحتاج إصلاح' }, { value: 'DAMAGED', label: 'تالف' }, { value: 'SUPPLIER_RETURN', label: 'إرجاع للمورد' }]} /></div>
+          <div><label className="mb-2 block text-sm font-medium text-text-secondary">طريقة رد المبلغ</label><Select value={editRefundMethod} onChange={(event) => setEditRefundMethod(event.target.value)} options={[{ value: 'CASH', label: 'نقدي' }, { value: 'CREDIT', label: 'رصيد العميل' }, { value: 'DEBT_ADJUSTMENT', label: 'تعديل الدين' }, { value: 'STORE_CREDIT', label: 'رصيد المتجر' }]} /></div>
+          <div className="flex justify-end gap-3"><Button type="button" variant="secondary" onClick={() => setEditingReturn(null)}>إلغاء</Button><Button type="submit" variant="primary" disabled={updateReturnMutation.isPending || !editReason}>{updateReturnMutation.isPending ? 'جاري الحفظ...' : 'حفظ التعديل'}</Button></div>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={Boolean(returnToDelete)}
+        onClose={() => setReturnToDelete(null)}
+        onConfirm={() => deleteReturnMutation.mutate()}
+        title="حذف المرتجع"
+        message={`هل تريد حذف المرتجع «${returnToDelete?.return_number || ''}»؟ لا يمكن التراجع عن هذا الإجراء.`}
+        confirmText="حذف المرتجع"
+        isLoading={deleteReturnMutation.isPending}
+      />
     </div>
   );
 }

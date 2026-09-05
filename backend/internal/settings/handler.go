@@ -77,6 +77,15 @@ func (h *Handler) GetSetting(c *gin.Context) {
 	)
 
 	if err == sql.ErrNoRows {
+		if key == "max_discount_rate" {
+			if _, insertErr := h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ('max_discount_rate', '15', 'number', 'financial', 'الحد الأقصى للخصم المئوي', false) ON CONFLICT (key) DO NOTHING`); insertErr == nil {
+				err = h.db.QueryRow(query, key).Scan(
+					&setting.Key, &setting.Value, &setting.ValueType, &setting.Category, &setting.Description, &setting.IsPublic,
+				)
+			}
+		}
+	}
+	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Setting not found"})
 		return
 	}
@@ -108,9 +117,19 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
+		if key == "max_discount_rate" {
+			result, err = h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ($1, $2, 'number', 'financial', 'الحد الأقصى للخصم المئوي', false) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`, key, req.Value)
+			if err == nil {
+				if affected, _ = result.RowsAffected(); affected > 0 {
+					goto settingUpdated
+				}
+			}
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Setting not found"})
 		return
 	}
+
+settingUpdated:
 	var setting Setting
 	err = h.db.QueryRow(`SELECT key, value, value_type, category, description, is_public FROM settings WHERE key = $1`, key).Scan(
 		&setting.Key, &setting.Value, &setting.ValueType, &setting.Category, &setting.Description, &setting.IsPublic,

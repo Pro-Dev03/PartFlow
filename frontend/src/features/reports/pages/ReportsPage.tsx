@@ -95,6 +95,7 @@ export function ReportsPage() {
   const reportTypes: ReportType[] = [
     { id: 'sales', label: t('reports.salesReport'), icon: BarChart3, group: 'period' },
     { id: 'net-sales', label: 'المبيعات الصافية', icon: Target, group: 'period' },
+    { id: 'tax', label: 'تقرير الضرائب', icon: Target, group: 'period' },
     { id: 'profit', label: t('reports.profitReport'), icon: Target, group: 'period' },
     { id: 'purchases', label: 'تقرير المشتريات', icon: BarChart3, group: 'period' },
     { id: 'expenses', label: t('reports.expensesReport'), icon: BarChart3, group: 'period' },
@@ -116,9 +117,20 @@ export function ReportsPage() {
 
   const selectedReportType = reportTypes.find(r => r.id === selectedReport);
   const ReportIcon = selectedReportType?.icon || BarChart3;
-  const isPeriodReport = ['sales', 'net-sales', 'profit', 'purchases', 'expenses', 'returns'].includes(selectedReport);
+  const isPeriodReport = ['sales', 'net-sales', 'tax', 'profit', 'purchases', 'expenses', 'returns'].includes(selectedReport);
   const reportPayload = reportData?.data ?? reportData;
   const reportRows = getReportRows(reportPayload);
+  const purchasesReport = selectedReport === 'purchases' && reportPayload && typeof reportPayload === 'object'
+    ? reportPayload as Record<string, unknown>
+    : null;
+  const untaxedPurchaseCount = purchasesReport && Number(purchasesReport.untaxed_purchases ?? 0) > 0 || purchasesReport && Number(purchasesReport.tax_amount ?? 0) > 0
+    ? Number(purchasesReport?.untaxed_purchases ?? 0)
+    : Number(purchasesReport?.total_purchases ?? 0);
+  const untaxedPurchaseCost = purchasesReport && Number(purchasesReport.untaxed_purchase_cost ?? 0) > 0 || purchasesReport && Number(purchasesReport.tax_amount ?? 0) > 0
+    ? Number(purchasesReport?.untaxed_purchase_cost ?? 0)
+    : Number(purchasesReport?.total_cost ?? 0);
+  const taxedPurchaseCount = Math.max(0, Number(purchasesReport?.total_purchases ?? 0) - untaxedPurchaseCount);
+  const taxedPurchaseCost = Math.max(0, Number(purchasesReport?.total_cost ?? 0) - untaxedPurchaseCost);
   const salesReport = selectedReport === 'sales' && reportPayload && typeof reportPayload === 'object'
     ? reportPayload as Record<string, unknown>
     : null;
@@ -267,16 +279,34 @@ export function ReportsPage() {
             <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--color-error)' }}>
               تعذر تحميل التقرير. تحقق من الاتصال ثم حاول مرة أخرى.
             </div>
+          ) : selectedReport === 'tax' && reportPayload && typeof reportPayload === 'object' ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                ['إجمالي المبيعات قبل الضريبة', 'gross_sales'],
+                ['الخصومات', 'discounts'],
+                ['المبيعات الخاضعة للضريبة', 'taxable_sales'],
+                ['الضريبة المحصلة', 'tax_collected'],
+                ['المرتجعات', 'returns_total'],
+                ['صافي المبيعات', 'net_sales_total'],
+              ].map(([label, key]) => (
+                <div key={key} className="rounded-lg border border-border bg-surface-elevated p-4">
+                  <p className="text-sm text-text-secondary">{label}</p>
+                  <p className="mt-2 text-xl font-semibold text-text-primary">
+                    ₪{Number((reportPayload as Record<string, unknown>)[key]).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+              ))}
+            </div>
           ) : selectedReport === 'sales' && reportPayload && typeof reportPayload === 'object' ? (
             <div>
               <p className="text-sm text-text-secondary" style={{ marginBottom: '12px' }}>
-                المنتجات الأكثر مبيعًا وربحًا خلال الفترة المحددة.
+                المنتجات الأكثر مبيعًا وربحًا خلال الفترة المحددة. الإيراد والربح معروضان قبل الضريبة.
               </p>
               <div className="horizontal-scroll">
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    {['المنتج', 'الوحدات', 'الإيراد', 'الربح', 'هامش الربح'].map((heading) => (
+                    {['المنتج', 'الوحدات', 'الإيراد قبل الضريبة', 'الربح قبل الضريبة', 'هامش الربح'].map((heading) => (
                       <th key={heading} style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>{heading}</th>
                     ))}
                   </tr>
@@ -454,6 +484,53 @@ export function ReportsPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+          ) : selectedReport === 'purchases' && reportPayload && typeof reportPayload === 'object' ? (
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="rounded-lg border border-border bg-surface-elevated p-4">
+                  <p className="text-sm text-text-secondary">المشتريات قبل الضريبة</p>
+                  <p className="mt-2 text-xl font-semibold text-text-primary">₪{Number((reportPayload as Record<string, unknown>).subtotal ?? 0).toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-surface-elevated p-4">
+                  <p className="text-sm text-text-secondary">ضريبة المشتريات</p>
+                  <p className="mt-2 text-xl font-semibold text-text-primary">₪{Number((reportPayload as Record<string, unknown>).tax_amount ?? 0).toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-surface-elevated p-4">
+                  <p className="text-sm text-text-secondary">فواتير بلا ضريبة</p>
+                  <p className="mt-2 text-xl font-semibold text-text-primary">₪{untaxedPurchaseCost.toLocaleString()}</p>
+                  <p className="mt-1 text-xs text-text-secondary">{untaxedPurchaseCount.toLocaleString()} فواتير معفاة</p>
+                </div>
+                <div className="rounded-lg border border-border bg-surface-elevated p-4">
+                  <p className="text-sm text-text-secondary">فواتير خاضعة للضريبة</p>
+                  <p className="mt-2 text-xl font-semibold text-text-primary">₪{taxedPurchaseCost.toLocaleString()}</p>
+                  <p className="mt-1 text-xs text-text-secondary">{taxedPurchaseCount.toLocaleString()} فواتير، شامل الضريبة</p>
+                </div>
+              </div>
+              <div className="horizontal-scroll">
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المورد</th>
+                      <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>التكلفة</th>
+                      <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الأصناف</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray((reportPayload as Record<string, unknown>).by_supplier) && ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).length > 0 ? (
+                      ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).map((supplier, index) => (
+                        <tr key={String(supplier.supplier_id ?? index)} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                          <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(supplier.supplier_name ?? 'مورد غير معروف')}</td>
+                          <td style={{ padding: '12px', color: 'var(--color-primary)', fontSize: '13px', fontWeight: '600' }}>₪{Number(supplier.total_cost ?? 0).toLocaleString()}</td>
+                          <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>{Number(supplier.item_count ?? 0).toLocaleString()}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr><td colSpan={3} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد مشتريات في الفترة المحددة</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : reportRows.length > 0 ? (
             <div className="horizontal-scroll">

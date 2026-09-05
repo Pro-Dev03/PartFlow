@@ -78,11 +78,22 @@ func (s *Service) CreatePurchase(ctx context.Context, userID uuid.UUID, req *Pur
 		return nil, ErrPurchaseExists
 	}
 
-	// Calculate total amount
-	var totalAmount float64
+	// Calculate the supplier invoice from the tax rate captured at creation time.
+	var subtotal float64
 	for _, item := range req.Items {
-		totalAmount += float64(item.Quantity) * item.UnitCost
+		subtotal += float64(item.Quantity) * item.UnitCost
 	}
+	var taxRate float64
+	if req.TaxRate != nil {
+		taxRate = *req.TaxRate
+	} else if err := tx.GetContext(ctx, &taxRate, `SELECT COALESCE(CAST(value AS DOUBLE PRECISION), 0) FROM settings WHERE key = 'tax_rate'`); err != nil {
+		taxRate = 0
+	}
+	if taxRate < 0 || taxRate > 100 {
+		taxRate = 0
+	}
+	taxAmount := subtotal * taxRate / 100
+	totalAmount := subtotal + taxAmount
 
 	// Create purchase
 	var userIDPtr *uuid.UUID
@@ -96,6 +107,8 @@ func (s *Service) CreatePurchase(ctx context.Context, userID uuid.UUID, req *Pur
 		InvoiceNumber:        req.InvoiceNumber,
 		PurchaseDate:         req.PurchaseDate,
 		ExpectedDeliveryDate: req.ExpectedDeliveryDate,
+		Subtotal:             subtotal,
+		TaxAmount:            taxAmount,
 		TotalAmount:          totalAmount,
 		PaidAmount:           0,
 		Status:               StatusPending,

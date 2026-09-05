@@ -45,6 +45,13 @@ func (c *productsCache) set(data interface{}, ttl time.Duration) {
 	c.expiration = time.Now().Add(ttl)
 }
 
+func (c *productsCache) clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data = nil
+	c.expiration = time.Time{}
+}
+
 // NewHandler creates a new products handler
 func NewHandler(service *Service) *Handler {
 	return &Handler{
@@ -81,6 +88,7 @@ func (h *Handler) CreateCategory(c *gin.Context) {
 		return
 	}
 
+	h.categoryCache.clear()
 	response.Created(c, category, "Category created successfully")
 }
 
@@ -175,6 +183,7 @@ func (h *Handler) UpdateCategory(c *gin.Context) {
 		return
 	}
 
+	h.categoryCache.clear()
 	response.OK(c, category, "Operation successful")
 }
 
@@ -200,6 +209,7 @@ func (h *Handler) DeleteCategory(c *gin.Context) {
 		return
 	}
 
+	h.categoryCache.clear()
 	response.OK(c, gin.H{"message": "category deleted successfully"}, "Operation successful")
 }
 
@@ -545,6 +555,26 @@ func (h *Handler) UpdateProduct(c *gin.Context) {
 	}
 
 	response.OK(c, product, "Operation successful")
+}
+
+func (h *Handler) UpdateMinimumStock(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid product id")
+		return
+	}
+	var req struct {
+		MinStockLevel int `json:"min_stock_level" binding:"min=0"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if err := h.service.UpdateMinimumStock(c.Request.Context(), id, req.MinStockLevel); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"min_stock_level": req.MinStockLevel}, "Minimum stock updated successfully")
 }
 
 // DeleteProduct deletes a product (soft delete)

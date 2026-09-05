@@ -1,4 +1,4 @@
-import { forwardRef, type HTMLAttributes, useEffect, useRef } from 'react';
+import { forwardRef, type CSSProperties, type HTMLAttributes, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../utils';
 import { X, Sparkles } from 'lucide-react';
@@ -11,6 +11,7 @@ export interface ModalProps extends HTMLAttributes<HTMLDivElement> {
   variant?: 'default' | 'elegant' | 'modern' | 'glass';
   showHeader?: boolean;
   showCloseButton?: boolean;
+  headerStyle?: CSSProperties;
   autoFocus?: boolean; // Auto-focus on first input when modal opens
   enableEnterNavigation?: boolean; // Enable Enter key to move to next field
   'aria-label'?: string;
@@ -27,6 +28,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
     variant = 'modern',
     showHeader = true,
     showCloseButton = true,
+    headerStyle,
     autoFocus = true,
     enableEnterNavigation = true,
     'aria-label': ariaLabel,
@@ -246,6 +248,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
                 background: variant === 'elegant' 
                   ? 'rgba(255, 255, 255, 0.05)' 
                   : 'var(--bg-surface)',
+                ...headerStyle,
               }}
             >
               <div className="flex items-center gap-3">
@@ -299,7 +302,8 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
             style={{ 
               color: variant === 'elegant' ? '#e2e8f0' : 'var(--text-primary)',
               background: 'transparent',
-              maxHeight: 'calc(80vh - 150px)'
+              maxHeight: 'calc(80vh - 150px)',
+              overflowX: 'hidden'
             }}
           >
             {children}

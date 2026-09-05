@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
@@ -42,6 +42,7 @@ import { toast } from 'sonner';
 export function PurchasesPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   // Custom hook
   const {
@@ -161,6 +162,7 @@ export function PurchasesPage() {
       'التاريخ': purchase.purchase_date,
       'المورد': purchase.supplier?.name || purchase.supplier_name,
       'الحالة': getStatusBadge(purchase.status).label,
+      'الضريبة': Number(purchase.tax_amount || 0),
       'التكلفة': purchase.total_amount
     }));
     exportToCSV(dataToExport, `purchases-${new Date().toISOString().split('T')[0]}`);
@@ -171,6 +173,7 @@ export function PurchasesPage() {
       'التاريخ': purchase.purchase_date,
       'المورد': purchase.supplier?.name || purchase.supplier_name,
       'الحالة': getStatusBadge(purchase.status).label,
+      'الضريبة': Number(purchase.tax_amount || 0),
       'التكلفة': purchase.total_amount
     }));
     printTable(dataToPrint, ['التاريخ', 'المورد', 'الحالة', 'التكلفة'], 'تقرير المشتريات');
@@ -292,6 +295,7 @@ export function PurchasesPage() {
                   <TableHead>رقم الطلب</TableHead>
                   <TableHead>المورد</TableHead>
                   <TableHead>القطع</TableHead>
+                  <TableHead>الضريبة</TableHead>
                   <TableHead>إجمالي التكلفة</TableHead>
                   <TableHead>المدفوع</TableHead>
                   <TableHead>المتبقي</TableHead>
@@ -309,6 +313,11 @@ export function PurchasesPage() {
                       <TableCell className="font-medium">{purchase.invoice_number}</TableCell>
                       <TableCell>{purchase.supplier?.name || purchase.supplier_name}</TableCell>
                       <TableCell>{purchase.total_items || purchase.items?.length || 0} قطع</TableCell>
+                      <TableCell>
+                        {Number(purchase.tax_amount || 0) > 0
+                          ? `₪${Number(purchase.tax_amount).toLocaleString()}`
+                          : <Badge variant="outline">بدون ضريبة</Badge>}
+                      </TableCell>
                       <TableCell>₪{purchase.total_amount?.toLocaleString()}</TableCell>
                       <TableCell className="text-green">₪{purchase.paid_amount?.toLocaleString()}</TableCell>
                       <TableCell>₪{purchase.remaining?.toLocaleString()}</TableCell>
@@ -325,21 +334,25 @@ export function PurchasesPage() {
                       </TableCell>
                       <TableCell className="text-start">
                         <div className="flex gap-2">
+                          {Number(purchase.remaining || 0) > 0 && !['cancelled', 'reversed'].includes(normalizedStatus) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="تسجيل دفعة"
+                              aria-label="تسجيل دفعة"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setPurchaseToPay(purchase);
+                                setPaymentAmount('');
+                              }}
+                              className="text-cyan-600 hover:text-cyan-700"
+                            >
+                              <DollarSign className="w-4 h-4" />
+                            </Button>
+                          )}
+
                           {normalizedStatus === 'pending' && (
                             <>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                title="تسجيل دفعة"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setPurchaseToPay(purchase);
-                                  setPaymentAmount('');
-                                }}
-                                className="text-cyan-600 hover:text-cyan-700"
-                              >
-                                <DollarSign className="w-4 h-4" />
-                              </Button>
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -442,6 +455,7 @@ export function PurchasesPage() {
               <div><span className="text-sm text-text-muted">المورد</span><p>{purchaseDetailsSupplier?.name || purchaseDetails?.supplier_name || '-'}</p></div>
               <div><span className="text-sm text-text-muted">الحالة</span><p><Badge>{purchaseDetails.status}</Badge></p></div>
               <div><span className="text-sm text-text-muted">التاريخ</span><p>{purchaseDetails.purchase_date ? new Date(purchaseDetails.purchase_date).toLocaleDateString('en-US') : '-'}</p></div>
+              <div><span className="text-sm text-text-muted">الضريبة</span><p>{Number(purchaseDetails.tax_amount || 0) > 0 ? `₪${Number(purchaseDetails.tax_amount).toLocaleString('en-US')}` : 'بدون ضريبة'}</p></div>
               <div><span className="text-sm text-text-muted">الإجمالي</span><p>₪{Number(purchaseDetails.total_amount || 0).toLocaleString('en-US')}</p></div>
               <div><span className="text-sm text-text-muted">المدفوع</span><p>₪{Number(purchaseDetails.paid_amount || 0).toLocaleString('en-US')}</p></div>
               <div><span className="text-sm text-text-muted">المتبقي</span><p>₪{Number(purchaseDetailsRemaining).toLocaleString('en-US')}</p></div>

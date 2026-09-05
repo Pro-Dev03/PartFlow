@@ -13,9 +13,10 @@ type Return struct {
 	ReferenceNumber string    `json:"reference_number" db:"reference_number"`
 
 	// Source information
-	SaleID     uuid.UUID `json:"sale_id" db:"sale_id"`
-	PurchaseID uuid.UUID `json:"purchase_id" db:"purchase_id"`
-	CustomerID uuid.UUID `json:"customer_id" db:"customer_id"`
+	SaleID       uuid.UUID `json:"sale_id" db:"sale_id"`
+	PurchaseID   uuid.UUID `json:"purchase_id" db:"purchase_id"`
+	CustomerID   uuid.UUID `json:"customer_id" db:"customer_id"`
+	CustomerName string    `json:"customer_name,omitempty" db:"customer_name"`
 
 	// Return details
 	ReturnDate time.Time `json:"return_date" db:"return_date"`
@@ -139,6 +140,7 @@ type ReturnItemRequest struct {
 // ReturnUpdateRequest represents return update request
 type ReturnUpdateRequest struct {
 	Status                   string     `json:"status" binding:"omitempty,oneof=PENDING APPROVED PROCESSING COMPLETED REJECTED CANCELLED"`
+	Reason                   string     `json:"reason" binding:"omitempty,oneof=DEFECTIVE WRONG_ITEM COMPATIBILITY_ISSUE CUSTOMER_CHANGED_MIND DAMAGED WARRANTY INCORRECT_SPECIFICATION OTHER"`
 	TotalRefundAmount        float64    `json:"total_refund_amount" binding:"omitempty,min=0"`
 	RefundMethod             string     `json:"refund_method" binding:"omitempty,oneof=CASH CREDIT DEBT_ADJUSTMENT EXCHANGE BANK_TRANSFER STORE_CREDIT"`
 	RefundDate               *time.Time `json:"refund_date"`

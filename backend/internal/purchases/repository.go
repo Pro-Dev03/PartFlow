@@ -22,6 +22,7 @@ type localPurchaseSummaryRow struct {
 	InvoiceNumber        string         `db:"invoice_number"`
 	PurchaseDate         string         `db:"purchase_date"`
 	ExpectedDeliveryDate sql.NullString `db:"expected_delivery_date"`
+	TaxAmount            float64        `db:"tax_amount"`
 	TotalAmount          float64        `db:"total_amount"`
 	PaidAmount           float64        `db:"paid_amount"`
 	Remaining            float64        `db:"remaining"`
@@ -38,6 +39,7 @@ type localPurchaseRow struct {
 	InvoiceNumber        string         `db:"invoice_number"`
 	PurchaseDate         string         `db:"purchase_date"`
 	ExpectedDeliveryDate sql.NullString `db:"expected_delivery_date"`
+	TaxAmount            float64        `db:"tax_amount"`
 	TotalAmount          float64        `db:"total_amount"`
 	PaidAmount           float64        `db:"paid_amount"`
 	Status               string         `db:"status"`
@@ -91,15 +93,15 @@ func (r *Repository) CreateTx(ctx context.Context, tx *sqlx.Tx, purchase *Purcha
 func createPurchase(ctx context.Context, executor sqlx.ExtContext, purchase *Purchase) error {
 	query := `
 		INSERT INTO purchases (id, supplier_id, invoice_number, purchase_date, expected_delivery_date,
-			total_amount, paid_amount, status, notes, user_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			tax_amount, total_amount, paid_amount, status, notes, user_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at, updated_at
 	`
 
 	err := executor.QueryRowxContext(ctx, query,
 		purchase.ID, purchase.SupplierID, purchase.InvoiceNumber, purchase.PurchaseDate,
-		purchase.ExpectedDeliveryDate, purchase.TotalAmount, purchase.PaidAmount, purchase.Status,
-		purchase.Notes, purchase.UserID, purchase.CreatedAt, purchase.UpdatedAt,
+		purchase.ExpectedDeliveryDate, purchase.TaxAmount, purchase.TotalAmount,
+		purchase.PaidAmount, purchase.Status, purchase.Notes, purchase.UserID, purchase.CreatedAt, purchase.UpdatedAt,
 	).Scan(&purchase.ID, &purchase.CreatedAt, &purchase.UpdatedAt)
 
 	if err != nil {
@@ -109,11 +111,25 @@ func createPurchase(ctx context.Context, executor sqlx.ExtContext, purchase *Pur
 }
 
 func createPurchaseSQLite(ctx context.Context, executor sqlx.ExtContext, purchase *Purchase) error {
+	var hasTaxAmount bool
+	if err := executor.QueryRowxContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('purchases') WHERE name = 'tax_amount')`).Scan(&hasTaxAmount); err == nil && !hasTaxAmount {
+		_, err := executor.ExecContext(ctx, `
+				INSERT INTO purchases (id, purchase_number, supplier_id, total_amount, paid_amount,
+					remaining_amount, status, notes, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`, purchase.ID, purchase.InvoiceNumber, purchase.SupplierID, purchase.TotalAmount,
+			purchase.PaidAmount, purchase.TotalAmount-purchase.PaidAmount, purchase.Status,
+			purchase.Notes, purchase.CreatedAt, purchase.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to create local purchase: %w", err)
+		}
+		return nil
+	}
 	_, err := executor.ExecContext(ctx, `
-		INSERT INTO purchases (id, purchase_number, supplier_id, total_amount, paid_amount,
+		INSERT INTO purchases (id, purchase_number, supplier_id, tax_amount, total_amount, paid_amount,
 			remaining_amount, status, notes, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, purchase.ID, purchase.InvoiceNumber, purchase.SupplierID, purchase.TotalAmount,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, purchase.ID, purchase.InvoiceNumber, purchase.SupplierID, purchase.TaxAmount, purchase.TotalAmount,
 		purchase.PaidAmount, purchase.TotalAmount-purchase.PaidAmount, purchase.Status,
 		purchase.Notes, purchase.CreatedAt, purchase.UpdatedAt)
 	if err != nil {
@@ -126,7 +142,7 @@ func createPurchaseSQLite(ctx context.Context, executor sqlx.ExtContext, purchas
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Purchase, error) {
 	if dbutil.IsSQLite(r.db) {
 		var row localPurchaseRow
-		err := r.db.GetContext(ctx, &row, `SELECT id, supplier_id, purchase_number AS invoice_number, created_at AS purchase_date, NULL AS expected_delivery_date, total_amount, paid_amount, status, notes, NULL AS user_id, created_at, updated_at FROM purchases WHERE id = $1`, id)
+		err := r.db.GetContext(ctx, &row, `SELECT id, supplier_id, purchase_number AS invoice_number, created_at AS purchase_date, NULL AS expected_delivery_date, COALESCE(tax_amount, 0), total_amount, paid_amount, status, notes, NULL AS user_id, created_at, updated_at FROM purchases WHERE id = $1`, id)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				return nil, ErrPurchaseNotFound
@@ -153,7 +169,7 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Purchase, erro
 		if err != nil {
 			return nil, err
 		}
-		purchase := &Purchase{ID: purchaseID, SupplierID: supplierID, InvoiceNumber: row.InvoiceNumber, PurchaseDate: purchaseDate, TotalAmount: row.TotalAmount, PaidAmount: row.PaidAmount, Status: row.Status, CreatedAt: createdAt, UpdatedAt: updatedAt}
+		purchase := &Purchase{ID: purchaseID, SupplierID: supplierID, InvoiceNumber: row.InvoiceNumber, PurchaseDate: purchaseDate, Subtotal: row.TotalAmount - row.TaxAmount, TaxAmount: row.TaxAmount, TotalAmount: row.TotalAmount, PaidAmount: row.PaidAmount, Status: row.Status, CreatedAt: createdAt, UpdatedAt: updatedAt}
 		if row.ExpectedDeliveryDate.Valid && row.ExpectedDeliveryDate.String != "" {
 			t, err := parsePurchaseTime(row.ExpectedDeliveryDate.String)
 			if err != nil {
@@ -175,6 +191,7 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Purchase, erro
 	var purchase Purchase
 	query := `
 		SELECT id, supplier_id, invoice_number, purchase_date, expected_delivery_date,
+			COALESCE(subtotal, total_amount - COALESCE(tax_amount, 0)) AS subtotal, COALESCE(tax_amount, 0) AS tax_amount,
 			total_amount, paid_amount, status, notes, user_id, created_at, updated_at
 		FROM purchases
 		WHERE id = $1
@@ -198,6 +215,7 @@ func (r *Repository) List(ctx context.Context, req PurchaseListRequest) ([]Purch
 	// Build base query
 	baseQuery := `
 		SELECT id, supplier_id, invoice_number, purchase_date, expected_delivery_date,
+			COALESCE(subtotal, total_amount - COALESCE(tax_amount, 0)) AS subtotal, COALESCE(tax_amount, 0) AS tax_amount,
 			total_amount, paid_amount, status, notes, user_id, created_at, updated_at
 		FROM purchases
 		WHERE 1=1
@@ -288,13 +306,22 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 	if req.PerPage <= 0 || req.PerPage > 100 {
 		req.PerPage = 20
 	}
+	itemTotalColumn := "total_amount"
 	if dbutil.IsSQLite(r.db) {
-		query := `
+		itemTotalColumn = "item_total"
+	}
+	if dbutil.IsSQLite(r.db) {
+		query := fmt.Sprintf(`
 			SELECT p.id AS id, p.purchase_number AS invoice_number, p.created_at AS purchase_date, NULL AS expected_delivery_date,
+			       CASE WHEN COALESCE(p.tax_amount, 0) > 0 THEN p.tax_amount
+			            WHEN p.total_amount > COALESCE((SELECT SUM(%s) FROM purchase_items WHERE purchase_id = p.id), p.total_amount) + 0.01
+				              THEN p.total_amount - COALESCE((SELECT SUM(%s) FROM purchase_items WHERE purchase_id = p.id), p.total_amount)
+			            ELSE 0 END AS tax_amount,
 			       p.total_amount, p.paid_amount, p.total_amount - p.paid_amount AS remaining,
 			       p.status, COALESCE(s.name, '') AS supplier_name, COUNT(pi.id) AS total_items,
 			       p.created_at, COUNT(*) OVER() AS total_count
-			FROM purchases p
+			FROM purchases p`, itemTotalColumn, itemTotalColumn)
+		query += `
 			LEFT JOIN suppliers s ON s.id = p.supplier_id
 			LEFT JOIN purchase_items pi ON pi.purchase_id = p.id
 			WHERE 1=1`
@@ -325,7 +352,7 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 		if req.AvailableForReturn {
 			query += ` AND EXISTS (SELECT 1 FROM purchase_items return_pi JOIN inventory_items return_ii ON return_ii.product_id = return_pi.product_id WHERE return_pi.purchase_id = p.id AND return_ii.status = 'AVAILABLE')`
 		}
-		query += ` GROUP BY p.id, p.purchase_number, p.created_at, p.total_amount, p.paid_amount, p.status, s.name`
+		query += ` GROUP BY p.id, p.purchase_number, p.created_at, p.tax_amount, p.total_amount, p.paid_amount, p.status, s.name`
 		sortColumns := map[string]string{"purchase_date": "p.created_at", "created_at": "p.created_at", "total_amount": "p.total_amount", "status": "p.status"}
 		sortColumn := sortColumns[req.SortBy]
 		if sortColumn == "" {
@@ -352,7 +379,7 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 			if err != nil {
 				return nil, 0, fmt.Errorf("failed to parse purchase created_at: %w", err)
 			}
-			item := PurchaseListItem{ID: row.ID, InvoiceNumber: row.InvoiceNumber, PurchaseDate: purchaseDate, TotalAmount: row.TotalAmount, PaidAmount: row.PaidAmount, Remaining: row.Remaining, Status: row.Status, SupplierName: row.SupplierName, TotalItems: row.TotalItems, CreatedAt: createdAt, TotalCount: row.TotalCount}
+			item := PurchaseListItem{ID: row.ID, InvoiceNumber: row.InvoiceNumber, PurchaseDate: purchaseDate, TaxAmount: row.TaxAmount, TotalAmount: row.TotalAmount, PaidAmount: row.PaidAmount, Remaining: row.Remaining, Status: row.Status, SupplierName: row.SupplierName, TotalItems: row.TotalItems, CreatedAt: createdAt, TotalCount: row.TotalCount}
 			if row.ExpectedDeliveryDate.Valid && row.ExpectedDeliveryDate.String != "" {
 				t, err := parsePurchaseTime(row.ExpectedDeliveryDate.String)
 				if err != nil {
@@ -374,6 +401,10 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 			p.invoice_number,
 			p.purchase_date,
 			p.expected_delivery_date,
+			CASE WHEN COALESCE(p.tax_amount, 0) > 0 THEN p.tax_amount
+			     WHEN p.total_amount > COALESCE((SELECT SUM(%s) FROM purchase_items WHERE purchase_id = p.id), p.total_amount) + 0.01
+			       THEN p.total_amount - COALESCE((SELECT SUM(%s) FROM purchase_items WHERE purchase_id = p.id), p.total_amount)
+			     ELSE 0 END AS tax_amount,
 			p.total_amount,
 			p.paid_amount,
 			p.total_amount - p.paid_amount AS remaining,
@@ -387,6 +418,7 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 		LEFT JOIN purchase_items pi ON pi.purchase_id = p.id
 		WHERE 1=1
 	`
+	query = fmt.Sprintf(query, itemTotalColumn, itemTotalColumn)
 	args := make([]interface{}, 0, 7)
 	argCount := 0
 
@@ -422,7 +454,7 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 
 	query += `
 		GROUP BY p.id, p.invoice_number, p.purchase_date, p.total_amount,
-			p.paid_amount, p.expected_delivery_date, p.status, p.created_at, s.name
+			p.paid_amount, p.expected_delivery_date, p.tax_amount, p.status, p.created_at, s.name
 	`
 
 	sortColumns := map[string]string{
@@ -735,7 +767,7 @@ func (r *Repository) UpdatePaidAmount(ctx context.Context, purchaseID uuid.UUID,
 func (r *Repository) GetPurchaseByInvoiceNumber(ctx context.Context, invoiceNumber string) (*Purchase, error) {
 	if dbutil.IsSQLite(r.db) {
 		var row localPurchaseRow
-		if err := r.db.GetContext(ctx, &row, `SELECT id, supplier_id, purchase_number AS invoice_number, created_at AS purchase_date, NULL AS expected_delivery_date, total_amount, paid_amount, status, notes, NULL AS user_id, created_at, updated_at FROM purchases WHERE purchase_number = $1`, invoiceNumber); err != nil {
+		if err := r.db.GetContext(ctx, &row, `SELECT id, supplier_id, purchase_number AS invoice_number, created_at AS purchase_date, NULL AS expected_delivery_date, COALESCE(tax_amount, 0), total_amount, paid_amount, status, notes, NULL AS user_id, created_at, updated_at FROM purchases WHERE purchase_number = $1`, invoiceNumber); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, ErrPurchaseNotFound
 			}

@@ -17,16 +17,19 @@ func (e *Expense) ToExpenseResponse(category *ExpenseCategory) *ExpenseResponse 
 // ToExpenseListItem converts Expense to list item format
 func (e *Expense) ToExpenseListItem(categoryName string) map[string]interface{} {
 	return map[string]interface{}{
-		"id":             e.ID,
-		"title":          e.Title,
-		"amount":         e.Amount,
-		"currency":       e.Currency,
-		"expense_date":   e.ExpenseDate,
-		"category_name":  categoryName,
-		"payment_method": e.PaymentMethod,
-		"status":         e.Status,
-		"is_recurring":   e.IsRecurring,
-		"created_at":     e.CreatedAt,
+		"id":               e.ID,
+		"title":            e.Title,
+		"description":      e.Description,
+		"amount":           e.Amount,
+		"currency":         e.Currency,
+		"expense_date":     e.ExpenseDate,
+		"category_id":      e.CategoryID,
+		"category_name":    categoryName,
+		"payment_method":   e.PaymentMethod,
+		"status":           e.Status,
+		"is_recurring":     e.IsRecurring,
+		"recurring_period": e.RecurringPeriod,
+		"created_at":       e.CreatedAt,
 	}
 }
 

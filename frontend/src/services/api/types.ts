@@ -30,13 +30,14 @@ export interface Product {
   name_en?: string;
   sku?: string;
   barcode?: string;
+  image_url?: string;
   description?: string;
   category_id?: string;
   cost_price?: number;
   selling_price?: number;
   stock?: number;
   condition?: 'new' | 'used';
-  min_stock?: number;
+  min_stock_level?: number;
   max_stock?: number;
   sales_count?: number;
   created_at?: string;
@@ -49,13 +50,14 @@ export interface ProductCreateRequest {
   name_en?: string;
   sku?: string;
   barcode?: string;
+  image_url?: string;
   description?: string;
   category_id?: string;
   cost_price?: number;
   selling_price?: number;
   stock?: number;
   condition?: 'new' | 'used';
-  min_stock?: number;
+  min_stock_level?: number;
   max_stock?: number;
 }
 
@@ -193,7 +195,7 @@ export interface Sale {
 export interface SaleItem {
   product_id: string;
   quantity: number;
-  price: number;
+  unit_price: number;
   is_trade_in?: boolean;
   purchase_cost?: number;
 }
@@ -202,8 +204,9 @@ export interface SaleCreateRequest {
   customer_id?: string;
   items: SaleItem[];
   payment_method: 'cash' | 'card' | 'transfer' | 'debt';
-  paid_amount: number;
+  payment_amount: number;
   total_amount: number;
+  tax_exempt?: boolean;
 }
 
 // Debt Types
@@ -273,10 +276,32 @@ export interface Expense {
 }
 
 export interface ExpenseCreateRequest {
-  description: string;
+  category_id: string;
+  title: string;
+  description?: string;
   amount: number;
-  category?: string;
-  date?: string;
+  currency: string;
+  expense_date: string;
+  payment_method: 'cash' | 'card' | 'bank_transfer' | 'check';
+  reference?: string;
+  receipt_url?: string;
+  is_recurring?: boolean;
+  recurring_period?: 'daily' | 'weekly' | 'monthly' | 'yearly';
+}
+
+export interface ExpenseCategory {
+  id: string;
+  name: string;
+  is_active?: boolean;
+}
+
+export interface ExpenseCategoryCreateRequest {
+  name: string;
+  description?: string;
+  color?: string;
+  icon?: string;
+  budget?: number;
+  is_active?: boolean;
 }
 
 // Part Types

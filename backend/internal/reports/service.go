@@ -346,3 +346,7 @@ func (s *Service) GenerateNetSalesReport(ctx context.Context, userID uuid.UUID, 
 
 	return netSalesReport, nil
 }
+
+func (s *Service) GenerateTaxReport(ctx context.Context, userID uuid.UUID, startDate, endDate time.Time) (*TaxReport, error) {
+	return s.repo.GetTaxData(ctx, startDate, endDate)
+}

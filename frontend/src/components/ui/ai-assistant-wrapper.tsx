@@ -202,7 +202,7 @@ export default function AIAssistantWrapper() {
     setIsChatOpen(false);
   };
 
-  if (!isAuthReady || isLoading) {
+  if (isLoading) {
     return null;
   }
 

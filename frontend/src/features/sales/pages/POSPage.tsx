@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
@@ -15,6 +15,7 @@ import {
   inventoryApi,
   partTypesApi,
   categoriesApi,
+  settingsApi,
 } from '../../../services/api/endpoints';
 import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
@@ -31,6 +32,7 @@ import {
   ArrowRight,
   Wifi,
   ShoppingCart,
+  Trash2,
 } from 'lucide-react';
 
 // Modern Components
@@ -60,6 +62,14 @@ export function POSPage() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { data: taxSetting } = useQuery({
+    queryKey: ['settings', 'tax_rate'],
+    queryFn: () => settingsApi.getSetting('tax_rate'),
+    retry: false,
+  });
+  const systemTaxRate = Number(taxSetting?.data?.value);
+
+  const [taxExempt, setTaxExempt] = useState(false);
 
   // Custom hooks
   const {
@@ -69,7 +79,8 @@ export function POSPage() {
     updateQuantity,
     clearCart,
     total,
-  } = useCart(true);
+    subtotal,
+  } = useCart(true, taxExempt ? 0 : (Number.isFinite(systemTaxRate) ? systemTaxRate : 0));
   const {
     paymentMethod,
     setPaymentMethod,
@@ -248,6 +259,39 @@ export function POSPage() {
   const partTypes = ((partTypesData?.data as unknown) as PartType[]) || [];
   const categories = ((categoriesData?.data as unknown) as Category[]) || [];
 
+  const productsWithStock = useMemo(() => {
+    const stockMap = new Map<string, number>();
+
+    inventoryItems.forEach((item: any) => {
+      const productId = String(item.product_id || item.product?.id || '').trim();
+      if (!productId) return;
+
+      const status = String(item.status || '').trim().toUpperCase();
+      if (['SOLD', 'RESERVED', 'DAMAGED', 'IN_REPAIR', 'RETURNED', 'FOR_PARTS', 'ARCHIVED'].includes(status)) {
+        return;
+      }
+
+      const explicitStock = Number(
+        item.available_quantity ??
+        item.current_quantity ??
+        item.stock ??
+        item.quantity ??
+        0
+      );
+
+      const calculatedStock = Number.isFinite(explicitStock) && explicitStock > 0 ? explicitStock : (status === 'AVAILABLE' ? 1 : 0);
+      if (calculatedStock <= 0) return;
+
+      const current = stockMap.get(productId) ?? 0;
+      stockMap.set(productId, Math.max(current, calculatedStock));
+    });
+
+    return products.map((product) => ({
+      ...product,
+      stock: Number(stockMap.get(String(product.id)) ?? (product as any).stock ?? 0),
+    }));
+  }, [products, inventoryItems]);
+
   const getAvailableStockCount = useCallback(
     (productId: string) => {
       if (!productId) return 0;
@@ -387,9 +431,9 @@ export function POSPage() {
       }
 
       clearCart();
-      setBarcodeInput('');
       setPaidAmount('');
       setSelectedCustomer('');
+      setTaxExempt(false);
       resetPayment();
       setProcessing(false);
     },
@@ -533,13 +577,14 @@ export function POSPage() {
       items: cart.map((item) => ({
         product_id: item.id,
         quantity: item.quantity,
-        price: item.price,
+        unit_price: item.price,
         ...(item.inventoryItemId ? { is_trade_in: true } : {}),
         ...(item.purchaseCost ? { purchase_cost: item.purchaseCost } : {}),
       })),
       payment_method: paymentMethod === 'credit' ? 'debt' : paymentMethod === 'checks' ? 'transfer' : paymentMethod,
-      paid_amount: parseFloat(paidAmount) || 0,
+      payment_amount: parseFloat(paidAmount) || 0,
       total_amount: total,
+      tax_exempt: taxExempt,
     };
 
     const invoiceData: InvoiceData = {
@@ -564,7 +609,7 @@ export function POSPage() {
         quantity: item.quantity,
         total: item.total,
       })),
-      subtotal: total,
+      subtotal,
       total,
       paidAmount: parseFloat(paidAmount) || 0,
       remaining: calculateRemaining(total),
@@ -580,6 +625,8 @@ export function POSPage() {
     paymentMethod,
     paidAmount,
     total,
+    subtotal,
+    taxExempt,
     customers,
     calculateRemaining,
     setProcessing,
@@ -624,13 +671,14 @@ export function POSPage() {
       items: cart.map((item) => ({
         product_id: item.id,
         quantity: item.quantity,
-        price: item.price,
+        unit_price: item.price,
         ...(item.inventoryItemId ? { is_trade_in: true } : {}),
         ...(item.purchaseCost ? { purchase_cost: item.purchaseCost } : {}),
       })),
       payment_method: 'cash',
-      paid_amount: total,
+      payment_amount: total,
       total_amount: total,
+      tax_exempt: taxExempt,
     }
 
     const invoiceData: InvoiceData = {
@@ -655,7 +703,7 @@ export function POSPage() {
         quantity: item.quantity,
         total: item.total,
       })),
-      subtotal: total,
+      subtotal,
       total,
       paidAmount: total,
       remaining: 0,
@@ -669,6 +717,8 @@ export function POSPage() {
     cart,
     selectedCustomer,
     total,
+    subtotal,
+    taxExempt,
     customers,
     getAvailableStockCount,
     toast,
@@ -866,7 +916,7 @@ export function POSPage() {
 
           {/* Products Grid */}
           <ModernProductGrid
-            products={products}
+            products={productsWithStock}
             onProductClick={handleProductSelect}
             hasMore={productPage * 20 < productTotal}
             onLoadMore={() => setProductPage((p) => p + 1)}
@@ -900,6 +950,16 @@ export function POSPage() {
               <Plus className="w-4 h-4" />
             </button>
           </div>
+
+          <label className="flex items-center gap-2 border-b border-border px-3 py-3 text-sm text-text-secondary">
+            <input
+              type="checkbox"
+              checked={taxExempt}
+              onChange={(event) => setTaxExempt(event.target.checked)}
+              className="h-4 w-4 accent-cyan"
+            />
+            <span>معفى من الضريبة لهذه الفاتورة</span>
+          </label>
 
           {/* Cart Panel */}
           <ModernCartPanel
@@ -1115,6 +1175,7 @@ export function POSPage() {
           <UsedPartsInvoice
             saleData={lastSaleData}
             onPrint={() => window.print()}
+            onDownload={() => window.print()}
             onClose={() => setIsInvoiceModalOpen(false)}
           />
         )}

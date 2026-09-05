@@ -73,13 +73,7 @@ func isConfiguredAdmin(c *gin.Context, userID uuid.UUID) bool {
 		return true
 	}
 
-	// Older/local schemas may still have a role column. Treat a populated
-	// owner/admin role as authoritative, while safely ignoring schemas without
-	// that legacy column.
-	var role string
-	if err := db.QueryRowContext(c.Request.Context(), "SELECT role FROM users WHERE id = $1", userID.String()).Scan(&role); err == nil {
-		role = strings.ToLower(strings.TrimSpace(role))
-		return role == "owner" || role == "admin" || role == "administrator"
-	}
+	// Legacy role columns are intentionally ignored. Older migrations assigned
+	// owner-like values to regular accounts, which must never grant admin access.
 	return false
 }

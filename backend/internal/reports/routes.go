@@ -16,6 +16,7 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 	{
 		reports.GET("/sales", handler.GenerateSalesReport)
 		reports.GET("/net-sales", handler.GenerateNetSalesReport)
+		reports.GET("/tax", handler.GenerateTaxReport)
 		reports.GET("/purchases", handler.GeneratePurchasesReport)
 		reports.GET("/inventory", handler.GenerateInventoryReport)
 		reports.GET("/expenses", handler.GenerateExpensesReport)

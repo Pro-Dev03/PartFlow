@@ -8,13 +8,14 @@ import (
 
 // UserRequest represents user creation/update request
 type UserRequest struct {
-	Email     string  `json:"email" binding:"required,email"`
-	Password  string  `json:"password,omitempty"`
-	FirstName string  `json:"first_name" binding:"required"`
-	LastName  string  `json:"last_name" binding:"required"`
-	Phone     *string `json:"phone,omitempty"`
-	AvatarURL *string `json:"avatar_url,omitempty"`
-	IsActive  bool    `json:"is_active"`
+	Email            string  `json:"email" binding:"required,email"`
+	Password         string  `json:"password,omitempty"`
+	FirstName        string  `json:"first_name" binding:"required"`
+	LastName         string  `json:"last_name" binding:"required"`
+	Phone            *string `json:"phone,omitempty"`
+	AvatarURL        *string `json:"avatar_url,omitempty"`
+	IsActive         bool    `json:"is_active"`
+	SubscriptionDays int     `json:"subscription_days,omitempty"`
 }
 
 // UserResponse represents user response

@@ -6,6 +6,7 @@ import { Package, Plus, Sparkles, Tag, DollarSign } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { categoriesApi, settingsApi } from '../../../services/api/endpoints';
 import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
+import { compressProductImage } from '../../../services/localProductImages';
 
 interface InventoryModalsProps {
   isViewModalOpen: boolean;
@@ -16,6 +17,46 @@ interface InventoryModalsProps {
   selectedProduct: Product | null;
   setSelectedProduct: (product: Product | null) => void;
   onSaveProduct: (productData: Product) => void;
+}
+
+function ProductImageField({
+  value,
+  onChange,
+}: {
+  value?: string;
+  onChange: (value: string | undefined) => void;
+}) {
+  const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) return;
+    try {
+      onChange(await compressProductImage(file));
+    } catch {
+      onChange(undefined);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: '16px' }}>
+      <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>
+        صورة المنتج في نقطة البيع
+      </label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ width: '72px', height: '72px', borderRadius: '10px', overflow: 'hidden', background: 'var(--bg-surface-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {value ? <img src={value} alt="معاينة المنتج" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Package className="w-6 h-6" />}
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <label style={{ cursor: 'pointer', padding: '8px 12px', borderRadius: '8px', background: 'var(--primary)', color: 'var(--text-on-primary)', fontSize: '12px', fontWeight: 600 }}>
+            رفع صورة
+            <input type="file" accept="image/*" onChange={handleChange} hidden />
+          </label>
+          {value && <button type="button" onClick={() => onChange(undefined)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-default)', background: 'transparent', color: 'var(--text-secondary)', fontSize: '12px' }}>حذف</button>}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function InventoryModals({
@@ -147,6 +188,12 @@ export function InventoryModals({
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 0 40px rgba(99, 102, 241, 0.1)'
         }}
       >
+        {selectedProduct && (
+          <ProductImageField
+            value={selectedProduct.image_url}
+            onChange={(image_url) => setSelectedProduct({ ...selectedProduct, image_url })}
+          />
+        )}
         {selectedProduct && !isCreatingProduct ? (
           <div className="space-y-md">
             {/* Basic Information Section */}

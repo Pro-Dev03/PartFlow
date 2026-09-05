@@ -25,7 +25,7 @@ export function InventoryStats({ products, inventoryItems, isMobile }: Inventory
     const status = String((item as any).status || '').trim().toUpperCase();
     const productId = String((item as any).product_id || (item as any).product?.id || '').trim();
 
-    if (inactiveStatuses.has(status) || !productId) {
+    if (inactiveStatuses.has(status) || status !== 'AVAILABLE' || !productId) {
       return acc;
     }
 
@@ -106,10 +106,10 @@ export function InventoryStats({ products, inventoryItems, isMobile }: Inventory
           variant="featured"
         />
         <StatCard 
-          title="قيمة المخزون" 
+          title="إجمالي قيمة البيع للمخزون المتاح"
           value={formattedValue} 
           icon={Package}
-          subtitle="قيمة المخزون"
+          subtitle="المنتجات الجديدة الجاهزة للبيع"
           variant="default"
         />
         <StatCard 

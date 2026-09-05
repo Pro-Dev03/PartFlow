@@ -14,7 +14,7 @@ import {
   ShoppingCart,
   CheckCircle2,
 } from 'lucide-react';
-import { suppliersApi, productsApi, purchasesApi } from '../../../services/api/endpoints';
+import { suppliersApi, productsApi, purchasesApi, settingsApi } from '../../../services/api/endpoints';
 import { usePurchases } from '../hooks/usePurchases';
 import { PurchaseItem } from '../types/purchases.types';
 import { toast } from 'sonner';
@@ -53,6 +53,13 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
     queryFn: () => productsApi.list({ search: productSearchQuery, page: 1, per_page: 10 }),
     enabled: isOpen && activeTab === 'manual',
   });
+  const { data: taxSetting } = useQuery({
+    queryKey: ['settings', 'tax_rate'],
+    queryFn: () => settingsApi.getSetting('tax_rate'),
+    enabled: isOpen,
+    retry: false,
+  });
+  const taxRate = Math.max(0, Math.min(100, Number(taxSetting?.data?.value) || 0));
 
   const searchedProducts = (productsData?.data?.products as any[]) || [];
   const suppliers = (suppliersData?.data as any[]) || [];
@@ -63,6 +70,8 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
     () => items.reduce((sum, item) => sum + item.quantity * item.unit_cost, 0),
     [items]
   );
+  const taxAmount = totalCost * taxRate / 100;
+  const totalWithTax = totalCost + taxAmount;
 
   const totalQuantity = useMemo(
     () => items.reduce((sum, item) => sum + item.quantity, 0),
@@ -193,8 +202,8 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
     };
 
     const paymentAmount = Number(initialPayment);
-    if (initialPayment && (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > totalCost)) {
-      toast.error(`أدخل دفعة صحيحة بين ₪0.01 و ₪${totalCost.toLocaleString('en-US', { maximumFractionDigits: 2 })}`);
+    if (initialPayment && (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > totalWithTax)) {
+      toast.error(`أدخل دفعة صحيحة بين ₪0.01 و ₪${totalWithTax.toLocaleString('en-US', { maximumFractionDigits: 2 })}`);
       return;
     }
 
@@ -239,6 +248,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
     receiveImmediately,
     initialPayment,
     totalCost,
+    totalWithTax,
     createPurchaseMutation,
     receivePurchaseMutation,
     queryClient,
@@ -393,7 +403,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
               <div className="p-4 border-b border-border">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold">العناصر المضافة ({items.length})</h3>
-                  <Badge variant="secondary">الإجمالي: ₪{totalCost.toFixed(2)}</Badge>
+                  <Badge variant="secondary">قبل الضريبة: ₪{totalCost.toFixed(2)}</Badge>
                 </div>
               </div>
               <div className="overflow-x-auto">
@@ -508,11 +518,11 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
                 <Input
                   type="number"
                   min="0.01"
-                  max={totalCost}
+                  max={totalWithTax}
                   step="0.01"
                   value={initialPayment}
                   onChange={(e) => setInitialPayment(e.target.value)}
-                  placeholder={`أدخل دفعة كاملة أو جزئية (الإجمالي ₪${totalCost.toLocaleString('en-US', { maximumFractionDigits: 2 })})`}
+                  placeholder={`أدخل دفعة كاملة أو جزئية (الإجمالي ₪${totalWithTax.toLocaleString('en-US', { maximumFractionDigits: 2 })})`}
                 />
                 <p className="mt-1 text-xs text-text-muted">
                   {receiveImmediately ? 'يجب تسجيل مبلغ أكبر من صفر قبل استلام البضاعة.' : 'يمكن تسجيل دفعة كاملة أو جزئية الآن.'}
@@ -525,7 +535,10 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
         <div className="flex flex-col md:flex-row justify-between items-center gap-4 p-4 bg-surface/30 rounded-lg">
           <div className="text-center md:text-right">
             <div className="text-sm text-text-muted">إجمالي الشراء</div>
-            <div className="text-2xl font-bold text-cyan">₪{totalCost.toFixed(2)}</div>
+            <div className="space-y-1 text-left">
+              <div className="text-sm text-text-muted">الضريبة ({taxRate}%): ₪{taxAmount.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-cyan">الإجمالي: ₪{totalWithTax.toFixed(2)}</div>
+            </div>
             <div className="text-xs text-text-muted mt-1">
               {items.length} عنصر • {totalQuantity} قطعة
             </div>

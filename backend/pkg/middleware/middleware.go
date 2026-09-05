@@ -239,6 +239,11 @@ func isLocalDatabaseMode() bool {
 	return strings.HasPrefix(databaseURL, "sqlite://")
 }
 
+func isLoopbackRequest(c *gin.Context) bool {
+	host := strings.ToLower(strings.TrimSpace(c.Request.Host))
+	return strings.HasPrefix(host, "localhost:") || strings.HasPrefix(host, "127.0.0.1:") || host == "localhost" || host == "127.0.0.1"
+}
+
 func ensureUserAuthorized(ctx context.Context, userUUID uuid.UUID) (bool, error) {
 	if db == nil {
 		return true, nil
@@ -293,7 +298,7 @@ func configuredCORSOrigins() []string {
 	if raw == "" {
 		// Development and Electron defaults. Production should set an explicit
 		// comma-separated allowlist in Render/environment configuration.
-		raw = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,null"
+		raw = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000,http://127.0.0.1:3000,null"
 	}
 	origins := make([]string, 0)
 	for _, value := range strings.Split(raw, ",") {
@@ -349,8 +354,11 @@ func Auth() gin.HandlerFunc {
 		// The embedded/local API uses SQLite for business data but delegates account
 		// authorization to Render. This prevents a direct local API call from
 		// bypassing the cloud subscription decision.
-		if isLocalDatabaseMode() && requiresCloudAuth() {
-			cloudToken := strings.TrimSpace(c.GetHeader("X-PartFlow-Cloud-Token"))
+		cloudToken := strings.TrimSpace(c.GetHeader("X-PartFlow-Cloud-Token"))
+		if cloudToken == "" && isLoopbackRequest(c) && strings.HasPrefix(c.Request.URL.Path, "/api/v1/settings/sync") {
+			cloudToken = tokenString
+		}
+		if (requiresCloudAuth() && isLocalDatabaseMode()) || isLoopbackRequest(c) || cloudToken != "" {
 			if cloudToken == "" {
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"error": "يلزم توكن الجلسة السحابية للتحقق من الاشتراك",

@@ -247,6 +247,14 @@ func (s *Service) UpdateProduct(ctx context.Context, id uuid.UUID, req *ProductR
 	return product, nil
 }
 
+func (s *Service) UpdateMinimumStock(ctx context.Context, id uuid.UUID, minStockLevel int) error {
+	if err := s.repo.UpdateMinimumStock(ctx, id, minStockLevel); err != nil {
+		return err
+	}
+	dashboard.InvalidateDashboardCacheWithReason("product_min_stock_updated")
+	return nil
+}
+
 // DeleteProduct deletes a product (soft delete)
 func (s *Service) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	// Invalidate dashboard cache since products data changed

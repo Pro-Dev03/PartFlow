@@ -143,10 +143,14 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 	// field remains a real profit metric even when a return is processed.
 	stats.TotalRevenue = stats.TotalSales
 	var grossProfit, refunded, returnedCost float64
-	if err := s.db.GetContext(ctx, &grossProfit, `
-		SELECT COALESCE(SUM(si.total_amount - si.quantity * COALESCE(si.unit_cost, p.cost_price, 0)), 0)
+	grossProfitQuery := `
+		SELECT COALESCE(SUM(si.total_amount - COALESCE(si.tax_amount, 0) - si.quantity * COALESCE(si.unit_cost, p.cost_price, 0)), 0)
 		FROM sale_items si JOIN sales sl ON sl.id = si.sale_id JOIN products p ON p.id = si.product_id
-		WHERE LOWER(COALESCE(sl.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`); err == nil {
+		WHERE LOWER(COALESCE(sl.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`
+	if s.db.DriverName() == "sqlite" && !sqliteHasColumns(s.db, "sale_items", "tax_amount") {
+		grossProfitQuery = strings.ReplaceAll(grossProfitQuery, "COALESCE(si.tax_amount, 0)", "0")
+	}
+	if err := s.db.GetContext(ctx, &grossProfit, grossProfitQuery); err == nil {
 		_ = s.db.GetContext(ctx, &refunded, `SELECT COALESCE(SUM(total_refund_amount), 0) FROM returns WHERE UPPER(COALESCE(status, '')) = 'COMPLETED'`)
 		_ = s.db.GetContext(ctx, &returnedCost, `
 			SELECT COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0)
@@ -215,7 +219,7 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 	}
 	query := fmt.Sprintf(`
 		WITH sale_costs AS (
-			SELECT s.id, s.created_at, s.total_amount,
+			SELECT s.id, s.created_at, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
 				COALESCE(SUM(%s * COALESCE(si.quantity, 0)), 0) AS cost
 			FROM sales s
 			LEFT JOIN sale_items si ON si.sale_id = s.id
@@ -223,11 +227,11 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 			LEFT JOIN products p ON p.id = si.product_id
 			WHERE LOWER(COALESCE(s.status, '')) = 'completed'
 			  AND datetime(s.created_at) >= datetime('now', '-30 days')
-			GROUP BY s.id, s.created_at, s.total_amount
+			GROUP BY s.id, s.created_at, s.total_amount, s.tax_amount
 		)
 		SELECT strftime('%%Y-%%m-%%d', created_at) AS name,
 		       COALESCE(SUM(total_amount), 0) AS sales,
-		       COALESCE(SUM(total_amount - cost), 0) AS profit
+		       COALESCE(SUM(total_amount - tax_amount - cost), 0) AS profit
 		FROM sale_costs
 		GROUP BY strftime('%%Y-%%m-%%d', created_at)
 		ORDER BY name
@@ -235,7 +239,7 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 	if s.db.DriverName() != "sqlite" {
 		query = fmt.Sprintf(`
 			WITH sale_costs AS (
-				SELECT s.id, s.created_at, s.total_amount,
+				SELECT s.id, s.created_at, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
 				       COALESCE(SUM(%s * COALESCE(si.quantity, 0)), 0) AS cost
 				FROM sales s
 				LEFT JOIN sale_items si ON si.sale_id = s.id
@@ -243,15 +247,20 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 				LEFT JOIN products p ON p.id = si.product_id
 				WHERE LOWER(COALESCE(s.status, '')) = 'completed'
 				  AND s.created_at >= NOW() - INTERVAL '30 days'
-				GROUP BY s.id, s.created_at, s.total_amount
+				GROUP BY s.id, s.created_at, s.total_amount, s.tax_amount
 			)
 			SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS name,
 			       COALESCE(SUM(total_amount), 0) AS sales,
-			       COALESCE(SUM(total_amount - cost), 0) AS profit
+			       COALESCE(SUM(total_amount - tax_amount - cost), 0) AS profit
 			FROM sale_costs
 			GROUP BY DATE(created_at)
 			ORDER BY DATE(created_at)
 		`, productCostExpr)
+	}
+	if s.db.DriverName() == "sqlite" && !sqliteHasColumns(s.db, "sales", "tax_amount") {
+		query = strings.ReplaceAll(query, "COALESCE(s.tax_amount, 0)", "0")
+		query = strings.ReplaceAll(query, "s.tax_amount", "0")
+		query = strings.ReplaceAll(query, "GROUP BY s.id, s.created_at, s.total_amount, 0", "GROUP BY s.id, s.created_at, s.total_amount")
 	}
 
 	var rows []SalesChartData

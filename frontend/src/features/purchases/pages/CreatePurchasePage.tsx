@@ -73,6 +73,12 @@ export function CreatePurchasePage() {
   const profitMargin = Number.isFinite(suggestedMargin) && suggestedMargin >= 0 && suggestedMargin < 100
     ? suggestedMargin
     : DEFAULT_PROFIT_MARGIN;
+  const { data: taxSetting } = useQuery({
+    queryKey: ['settings', 'tax_rate'],
+    queryFn: () => settingsApi.getSetting('tax_rate'),
+    retry: false,
+  });
+  const taxRate = Math.max(0, Math.min(100, Number(taxSetting?.data?.value) || 0));
 
   const { data: suppliersData, isLoading: suppliersLoading } = useQuery({
     queryKey: ['suppliers'],
@@ -146,6 +152,8 @@ export function CreatePurchasePage() {
     () => items.reduce((sum, item) => sum + item.quantity * item.unit_cost, 0),
     [items]
   );
+  const taxAmount = totalCost * taxRate / 100;
+  const totalWithTax = totalCost + taxAmount;
 
   const totalQuantity = useMemo(
     () => items.reduce((sum, item) => sum + item.quantity, 0),
@@ -263,7 +271,7 @@ export function CreatePurchasePage() {
       category_id: manualProductData.category_id || undefined,
       cost_price: costPrice,
       selling_price: sellingPrice,
-      min_stock: parseInt(manualProductData.min_stock.toString()) || 0,
+      min_stock_level: parseInt(manualProductData.min_stock.toString()) || 0,
       description: manualProductData.description || undefined,
     };
 
@@ -323,8 +331,8 @@ export function CreatePurchasePage() {
     };
 
     const paymentAmount = Number(initialPayment);
-    if (initialPayment && (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > totalCost)) {
-      toast.error(`أدخل دفعة صحيحة بين ₪0.01 و ₪${totalCost.toLocaleString('en-US', { maximumFractionDigits: 2 })}`);
+    if (initialPayment && (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > totalWithTax)) {
+      toast.error(`أدخل دفعة صحيحة بين ₪0.01 و ₪${totalWithTax.toLocaleString('en-US', { maximumFractionDigits: 2 })}`);
       return;
     }
 
@@ -713,8 +721,16 @@ export function CreatePurchasePage() {
               </div>
               <div className="border-t border-border pt-4">
                 <div className="flex justify-between items-center">
-                  <span className="text-text-muted">إجمالي التكلفة</span>
-                  <span className="text-2xl font-bold text-cyan">₪{totalCost.toFixed(2)}</span>
+                  <span className="text-text-muted">الإجمالي قبل الضريبة</span>
+                  <span className="font-semibold">₪{totalCost.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-text-muted">ضريبة المورد ({taxRate}%)</span>
+                  <span className="font-semibold">₪{taxAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center border-t border-border pt-3">
+                  <span className="text-text-muted">الإجمالي شامل الضريبة</span>
+                  <span className="text-2xl font-bold text-cyan">₪{totalWithTax.toFixed(2)}</span>
                 </div>
               </div>
             </CardContent>
