@@ -41,12 +41,14 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
         variant="featured"
       />
       <StatCard
-        title="الربح اليوم"
+        title="صافي ربح اليوم"
         value={<span className="numeric-metric">₪{formatCurrency(todayProfit)}</span>}
         icon={DollarSign}
         trend={stats?.profitTrend}
         trendUp={stats?.profitTrendUp}
-        subtitle={profitMargin ? `هامش الربح: ${profitMargin}%` : undefined}
+        subtitle={profitMargin
+          ? `بعد الخصم - هامش الربح: ${profitMargin}%`
+          : 'بعد خصم تكلفة المنتجات والمصاريف والمرتجعات'}
       />
       <StatCard
         title="الديون المستحقة"
