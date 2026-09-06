@@ -14,6 +14,7 @@ interface InventoryListProps {
   inventoryLoading: boolean;
   searchQuery: string;
   onViewProduct: (product: Product) => void;
+  onAddPurchase: (product: Product) => void;
   onEditProduct: (product: Product) => void;
   onEditMinimumStock: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
@@ -81,6 +82,7 @@ export function InventoryList({
   productsLoading,
   inventoryLoading,
   onViewProduct,
+  onAddPurchase,
   onEditProduct,
   onEditMinimumStock,
   onDeleteProduct,
@@ -215,6 +217,11 @@ export function InventoryList({
                                   onClick={() => onViewProduct(product)}
                                 />
                                 <ActionButton
+                                  icon={<FileText className="h-4 w-4" />}
+                                  label="إضافة عبر فاتورة"
+                                  onClick={() => onAddPurchase(product)}
+                                />
+                                <ActionButton
                                   icon={<Edit className="h-4 w-4" />}
                                   label="تعديل"
                                   onClick={() => onEditProduct(product)}
@@ -297,6 +304,11 @@ export function InventoryList({
                               icon={<Eye className="h-4 w-4" />}
                               label="عرض"
                               onClick={() => onViewProduct(product)}
+                            />
+                            <ActionButton
+                              icon={<FileText className="h-4 w-4" />}
+                              label="إضافة عبر فاتورة"
+                              onClick={() => onAddPurchase(product)}
                             />
                             <ActionButton
                               icon={<Edit className="h-4 w-4" />}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -38,6 +38,7 @@ interface LineItem extends PurchaseItem {
 
 export function CreatePurchasePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [selectedSupplier, setSelectedSupplier] = useState('');
   const [items, setItems] = useState<LineItem[]>([]);
@@ -164,6 +165,21 @@ export function CreatePurchasePage() {
     setInvoiceNumber(`PO-${Date.now()}`);
     setPurchaseDate(new Date().toISOString().split('T')[0]);
   }, []);
+
+  useEffect(() => {
+    const product = (location.state as { product?: { id: string; name: string; cost_price?: number } } | null)?.product;
+    if (!product || items.length > 0) return;
+
+    setItems([{
+      key: `${product.id}-${Date.now()}`,
+      product_id: product.id,
+      product_name: product.name,
+      quantity: 1,
+      unit_cost: Number(product.cost_price) || 0,
+      condition: 'new',
+    }]);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [items.length, location.pathname, location.state, navigate]);
 
   const handleBarcodeScan = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();

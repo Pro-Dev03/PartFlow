@@ -152,6 +152,19 @@ export function InventoryPage() {
     setIsViewModalOpen(true);
   };
 
+  const handleAddPurchase = (product: Product) => {
+    navigate('/app/purchases/create', {
+      state: {
+        product: {
+          id: product.id,
+          name: product.name,
+          cost_price: product.costPrice || Number((product as Record<string, unknown>).cost_price) || 0,
+          selling_price: product.sellingPrice || Number((product as Record<string, unknown>).selling_price) || 0,
+        },
+      },
+    });
+  };
+
   const handleEditProduct = (product: Product) => {
     // Map API response to local Product type with proper field names
     const mappedProduct: Product = {
@@ -496,6 +509,7 @@ export function InventoryPage() {
         inventoryLoading={inventoryLoading}
         searchQuery={searchQuery}
         onViewProduct={handleViewProduct}
+              onAddPurchase={handleAddPurchase}
         onEditProduct={handleEditProduct}
         onEditMinimumStock={handleEditMinimumStock}
         onDeleteProduct={handleDeleteProduct}
