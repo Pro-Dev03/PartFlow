@@ -366,6 +366,7 @@ export const expensesApi = {
   get: (id: string) => apiClient.get(`/expenses/${id}`),
   create: (data: ExpenseCreateRequest) => apiClient.post('/expenses', data),
   update: (id: string, data: Partial<ExpenseCreateRequest>) => apiClient.put(`/expenses/${id}`, data),
+  approve: (id: string) => apiClient.post(`/expenses/${id}/approve`, {}),
   delete: (id: string) => apiClient.delete(`/expenses/${id}`),
 };
 

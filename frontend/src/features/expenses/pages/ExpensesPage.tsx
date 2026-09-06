@@ -20,6 +20,7 @@ import {
   Filter,
   Edit,
   Trash2,
+  CheckCircle2,
   Calendar,
   Download,
   Printer
@@ -154,6 +155,15 @@ export function ExpensesPage() {
 
   const deleteExpenseMutation = useMutation({
     mutationFn: (id: string) => expensesApi.delete(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      void queryClient.invalidateQueries({ queryKey: ['reports'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+
+  const approveExpenseMutation = useMutation({
+    mutationFn: (id: string) => expensesApi.approve(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['expenses'] });
       void queryClient.invalidateQueries({ queryKey: ['reports'] });
@@ -571,6 +581,7 @@ export function ExpensesPage() {
                   <TableHead>الفئة</TableHead>
                   <TableHead>الوصف</TableHead>
                   <TableHead>المبلغ</TableHead>
+                  <TableHead>الحالة</TableHead>
                   <TableHead>متكرر</TableHead>
                   <TableHead className="text-start">الإجراءات</TableHead>
                 </TableRow>
@@ -591,6 +602,11 @@ export function ExpensesPage() {
                       ₪{Number(expense.amount || 0).toLocaleString()}
                     </TableCell>
                     <TableCell>
+                      <Badge variant={expense.status === 'approved' ? 'success' : expense.status === 'rejected' ? 'danger' : 'warning'}>
+                        {expense.status === 'approved' ? 'معتمد' : expense.status === 'rejected' ? 'مرفوض' : 'قيد الانتظار'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
                       {expense.recurring ? (
                         <Badge variant="secondary">
                           {expense.recurringPeriod === 'monthly' ? 'شهري' :
@@ -603,6 +619,18 @@ export function ExpensesPage() {
                     </TableCell>
                     <TableCell className="text-start">
                       <div className="flex gap-sm">
+                        {expense.status === 'pending' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => approveExpenseMutation.mutate(expense.id)}
+                            disabled={approveExpenseMutation.isPending}
+                            aria-label="اعتماد المصروف"
+                            title="اعتماد المصروف"
+                          >
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" onClick={() => handleEdit(expense)} aria-label="تعديل المصروف">
                           <Edit className="w-4 h-4" />
                         </Button>
