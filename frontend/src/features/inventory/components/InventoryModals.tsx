@@ -78,8 +78,15 @@ export function InventoryModals({
     queryFn: () => settingsApi.getSetting('default_profit_margin'),
     retry: false,
   });
+  const { data: taxSetting } = useQuery({
+    queryKey: ['settings', 'tax_rate'],
+    queryFn: () => settingsApi.getSetting('tax_rate'),
+    retry: false,
+  });
 
   const categories = (categoriesData?.data as unknown) as any[] || [];
+  const taxRateValue = Number(taxSetting?.data?.value);
+  const taxRate = Number.isFinite(taxRateValue) && taxRateValue >= 0 ? taxRateValue : 0;
   const configuredMargin = Number(marginSetting?.data?.value);
   const profitMargin = Number.isFinite(configuredMargin) && configuredMargin >= 0 && configuredMargin < 100
     ? configuredMargin
@@ -116,8 +123,22 @@ export function InventoryModals({
                 <Input value={`₪${selectedProduct.costPrice || 0}`} disabled />
               </div>
               <div>
-                <label className="text-small font-medium text-text mb-sm block">سعر البيع</label>
+                <label className="text-small font-medium text-text mb-sm block">سعر البيع قبل الضريبة</label>
                 <Input value={`₪${selectedProduct.sellingPrice || 0}`} disabled />
+              </div>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">الضريبة</label>
+                <Input
+                  value={taxRate > 0 ? `${taxRate}% - تطبق عند البيع` : '0% - بدون ضريبة'}
+                  disabled
+                />
+              </div>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">السعر النهائي بعد الضريبة</label>
+                <Input
+                  value={`₪${((Number(selectedProduct.sellingPrice) || 0) * (1 + taxRate / 100)).toFixed(2)}`}
+                  disabled
+                />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">المخزون</label>
