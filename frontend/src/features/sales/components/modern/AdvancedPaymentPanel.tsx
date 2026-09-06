@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { 
   CreditCard, 
   Banknote, 
@@ -87,6 +87,18 @@ export function AdvancedPaymentPanel({
   const isCreditSale = paymentMethod === 'credit'
   const isCreditSaleWithoutCustomer = isCreditSale && !selectedCustomer
   const isCreditAdvanceMissing = isCreditSale && paidAmount.trim() === ''
+
+  useEffect(() => {
+    if (paymentMethod !== 'cash') return
+
+    if (total > 0) {
+      setPaid(total)
+      setPaidAmount(total.toFixed(2))
+    } else {
+      setPaid(0)
+      setPaidAmount('')
+    }
+  }, [paymentMethod, setPaidAmount, total])
 
   const addSplitPayment = () => {
     const remainingForSplit = total - splitPayments.reduce((sum, p) => sum + p.amount, 0)
