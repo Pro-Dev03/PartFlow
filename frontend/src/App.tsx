@@ -179,6 +179,7 @@ function App() {
                       <Suspense fallback={<PageLoader />}>
                         {appRoutes}
                       </Suspense>
+                      <AIAssistantWrapper />
                     </AppLayout>
                   </LayoutProvider>
                 ) : (
@@ -203,7 +204,6 @@ function App() {
           </Routes>
         </Router>
         <ToastContainer />
-        <AIAssistantWrapper />
       </QueryProvider>
     </ErrorBoundary>
   );
