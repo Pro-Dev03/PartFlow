@@ -1,6 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { StatCard } from '../../../components/ui/stat-card';
 import { Button } from '../../../components/ui/button';
+import { useQuery } from '@tanstack/react-query';
+import { settingsApi } from '../../../services/api/endpoints';
 import { getButtonSize } from '../../../config/button-sizes';
 import { normalizeCurrencyValue } from '../../../utils';
 import { 
@@ -20,6 +22,11 @@ interface InventoryStatsProps {
 
 export function InventoryStats({ products, inventoryItems, isMobile }: InventoryStatsProps) {
   const inactiveStatuses = new Set(['SOLD', 'RETURNED', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
+  const { data: taxSetting } = useQuery({
+    queryKey: ['settings', 'tax_rate'],
+    queryFn: () => settingsApi.getSetting('tax_rate'),
+    retry: false,
+  });
 
   const normalizedItems = inventoryItems.reduce((acc: Map<string, { stock: number; unitPrice: number; condition: string }>, item: InventoryItem) => {
     const status = String((item as any).status || '').trim().toUpperCase();
@@ -62,6 +69,10 @@ export function InventoryStats({ products, inventoryItems, isMobile }: Inventory
 
   const totalInventoryValue = summaryItems.reduce((total, item) => total + (item.stock * item.unitPrice), 0);
   const formattedValue = `₪${Math.round(totalInventoryValue).toLocaleString('en-US')}`;
+  const configuredTaxRate = Number(taxSetting?.data?.value);
+  const taxRate = Number.isFinite(configuredTaxRate) && configuredTaxRate >= 0 ? configuredTaxRate : 0;
+  const totalInventoryValueWithTax = totalInventoryValue * (1 + taxRate / 100);
+  const formattedValueWithTax = `₪${totalInventoryValueWithTax.toFixed(2)}`;
 
   return (
     <>
@@ -106,10 +117,10 @@ export function InventoryStats({ products, inventoryItems, isMobile }: Inventory
           variant="featured"
         />
         <StatCard 
-          title="إجمالي قيمة البيع للمخزون المتاح"
+          title="إجمالي قيمة البيع قبل الضريبة"
           value={formattedValue} 
           icon={Package}
-          subtitle="المنتجات الجديدة الجاهزة للبيع"
+          subtitle={`بعد الضريبة ${taxRate}%: ${formattedValueWithTax}`}
           variant="default"
         />
         <StatCard 
