@@ -6,7 +6,7 @@ import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
 import { PageHeader } from '../../../components/ui/page-header';
 import { StatCard } from '../../../components/ui/stat-card';
-import { ArrowRight, Clock, Package, ShoppingCart, TrendingUp } from 'lucide-react';
+import { ArrowRight, Package, ShoppingCart, TrendingUp } from 'lucide-react';
 import { formatPrice } from '../../../utils';
 
 export function UsedPartsStockPage() {
@@ -80,9 +80,9 @@ export function UsedPartsStockPage() {
       ) : (
         <div className="space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <StatCard title="القطع المتاحة بعد الفحص" value={items.length} icon={Package} subtitle="قطع مستعملة اجتازت الفحص وغير مباعة" variant="featured" />
+            <StatCard title="القطع المستعملة المتاحة" value={items.length} icon={Package} subtitle="قطع مستعملة غير مباعة" variant="featured" />
             <StatCard title="قيمة الشراء" value={formatPrice(usedPurchaseValue)} icon={Package} subtitle="تكلفة القطع المستعملة فقط" />
-            <StatCard title="قيمة البيع" value={formatPrice(usedSellingValue)} icon={TrendingUp} subtitle="قيمة القطع المتاحة بعد الفحص" variant="success" />
+            <StatCard title="قيمة البيع" value={formatPrice(usedSellingValue)} icon={TrendingUp} subtitle="قيمة القطع المستعملة المتاحة" variant="success" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {items.map((item: any) => (
@@ -97,9 +97,6 @@ export function UsedPartsStockPage() {
                   <p className="text-sm text-gray-400">سعر الشراء: {formatPrice(Number(item.purchase_cost || 0))}</p>
                   <p className="text-sm text-cyan">سعر البيع: {formatPrice(Number(item.selling_price || 0))}</p>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="secondary" className="flex-1" onClick={() => navigate(`/app/usedparts/item-history/${item.id}`)}>
-                      <Clock className="w-3 h-3" /> السجل
-                    </Button>
                     <Button size="sm" variant="primary" className="flex-1" disabled={String(item.status || '').toUpperCase() !== 'AVAILABLE'} onClick={() => navigate('/app/sales', { state: { usedPart: { id: item.id, name: item.product_name || 'قطعة مستعملة', price: item.selling_price, stock: 1, isTradeIn: true } } })}>
                       <ShoppingCart className="w-3 h-3" /> بيع
                     </Button>

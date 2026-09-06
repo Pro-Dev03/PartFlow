@@ -341,7 +341,7 @@ export function UsedPartsPage() {
       <PageHeader
         eyebrow="Used Parts Inventory"
         title="القطع المستعملة"
-        description="إدارة القطع المستعملة ومتابعة الفحص والبيع"
+        description="إدارة القطع المستعملة والبيع"
         actions={
           <div className="flex flex-col gap-2">
             <Button variant="primary" onClick={() => setIsAcquisitionModalOpen(true)}>
@@ -354,22 +354,6 @@ export function UsedPartsPage() {
             >
               <Layers className="w-4 h-4" />
               مخزون القطع المستعملة
-            </Button>
-            <Button variant="secondary" onClick={() => navigate('/app/usedparts/inspections')}>
-              <CheckCircle className="w-4 h-4" />
-              فحص القطع
-            </Button>
-            <Button variant="secondary" onClick={() => navigate('/app/usedparts/item-history')}>
-              <Clock className="w-4 h-4" />
-              تاريخ القطع
-            </Button>
-            <Button variant="secondary" onClick={() => navigate('/app/usedparts/aging')}>
-              <AlertTriangle className="w-4 h-4" />
-              تقادم القطع
-            </Button>
-            <Button variant="secondary" onClick={() => navigate('/app/usedparts/rejected')}>
-              <XCircle className="w-4 h-4" />
-              القطع المرفوضة
             </Button>
           </div>
         }
@@ -623,9 +607,6 @@ export function UsedPartsPage() {
                         {getIconComponent(partType.icon)}
                       </div>
                     )}
-                    <Badge variant={passedInspectionItemIds.has(item.id) ? 'success' : 'warning'}>
-                      {passedInspectionItemIds.has(item.id) ? 'اجتاز الفحص' : 'بانتظار الفحص'}
-                    </Badge>
                   </div>
                   
                   <h3 className="font-semibold mb-1">
@@ -658,24 +639,6 @@ export function UsedPartsPage() {
                   )}
                   
                   <div className="flex gap-2 mt-4">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => handleStartInspection(item)}
-                    >
-                      <AlertTriangle className="w-3 h-3 mr-1" />
-                      فحص
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => navigate(`/app/usedparts/item-history/${item.id}`)}
-                    >
-                      <Clock className="w-3 h-3 mr-1" />
-                      السجل
-                    </Button>
                     <Button
                       variant="primary"
                       size="sm"

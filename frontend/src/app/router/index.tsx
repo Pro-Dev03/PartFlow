@@ -20,10 +20,6 @@ const SettingsPage = lazy(() => import('../../features/settings/pages/SettingsPa
 
 const UsedPartsPage = lazy(() => import('../../features/usedparts/pages/UsedPartsPage').then(m => ({ default: m.UsedPartsPage })));
 const UsedPartsStockPage = lazy(() => import('../../features/usedparts/pages/UsedPartsStockPage').then(m => ({ default: m.UsedPartsStockPage })));
-const InspectionsPage = lazy(() => import('../../features/inspections/pages/InspectionsPage').then(m => ({ default: m.InspectionsPage })));
-const ItemHistoryPage = lazy(() => import('../../features/item-history/pages/ItemHistoryPage').then(m => ({ default: m.ItemHistoryPage })));
-const AgingPage = lazy(() => import('../../features/aging/pages/AgingPage').then(m => ({ default: m.AgingPage })));
-const RejectedUsedPartsPage = lazy(() => import('../../features/usedparts/pages/RejectedUsedPartsPage').then(m => ({ default: m.RejectedUsedPartsPage })));
 const SellerBalancesPage = lazy(() => import('../../features/seller-balances/pages/SellerBalancesPage').then(m => ({ default: m.SellerBalancesPage })));
 const PartTypesPage = lazy(() => import('../../features/parttypes/pages/PartTypesPage').then(m => ({ default: m.PartTypesPage })));
 const ReturnDetailsPage = lazy(() => import('../../features/returns/pages/ReturnDetailsPage').then(m => ({ default: m.ReturnDetailsPage })));
@@ -49,16 +45,6 @@ export const appRoutes = (
     <Route path="inventory" element={<InventoryPage />} />
     <Route path="usedparts" element={<UsedPartsPage />} />
     <Route path="usedparts/stock" element={<UsedPartsStockPage />} />
-    <Route path="usedparts/inspections" element={<InspectionsPage />} />
-    <Route path="usedparts/item-history" element={<ItemHistoryPage />} />
-    <Route path="usedparts/item-history/:itemId" element={<ItemHistoryPage />} />
-    <Route path="usedparts/aging" element={<AgingPage />} />
-    <Route path="usedparts/rejected" element={<RejectedUsedPartsPage />} />
-    {/* Legacy aliases retained for bookmarked links. */}
-    <Route path="inspections" element={<InspectionsPage />} />
-    <Route path="item-history" element={<ItemHistoryPage />} />
-    <Route path="item-history/:itemId" element={<ItemHistoryPage />} />
-    <Route path="aging" element={<AgingPage />} />
     <Route path="seller-balances" element={<SellerBalancesPage />} />
     <Route path="customers" element={<CustomersPage />} />
     <Route path="debts" element={<DebtsPage />} />
