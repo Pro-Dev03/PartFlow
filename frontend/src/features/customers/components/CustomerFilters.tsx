@@ -1,7 +1,7 @@
-import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { SearchInput } from '../../../components/ui/search-input';
-import { ArrowUpDown, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowUpDown, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { cn } from '../../../utils';
 
 interface CustomerFiltersProps {
   searchQuery: string;
@@ -22,57 +22,47 @@ export function CustomerFilters({
   onSortPurchases,
   onClearSort,
 }: CustomerFiltersProps) {
+  const hasActiveSort = Boolean(sortConfig.key);
+
   return (
-    <Card>
-      <CardContent>
-        <div style={{ padding: '18px' }}>
-          <div className="pf-search-row flex-col md:flex-row">
-            <div className="min-w-0 flex-1">
-              <SearchInput
-                placeholder="ابحث بالاسم أو رقم الهاتف..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onClear={onClearSearch}
-                size="sm"
-                className="w-full md:w-[500px] lg:w-[600px]"
-              />
-            </div>
-            <div className="pf-search-controls flex flex-wrap gap-2">
-              <Button 
-                variant="secondary"
-                onClick={onSortName}
-                className="gap-2"
-              >
-                <ArrowUpDown className="w-4 h-4" />
-                ترتيب بالاسم
-                {sortConfig.key === 'name' && (
-                  sortConfig.direction === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : 
-                  sortConfig.direction === 'desc' ? <ChevronDown className="w-3.5 h-3.5" /> : null
-                )}
-              </Button>
-              <Button 
-                variant="secondary"
-                onClick={onSortPurchases}
-                className="gap-2"
-              >
-                <ArrowUpDown className="w-4 h-4" />
-                ترتيب بالمشتريات
-                {sortConfig.key === 'totalPurchases' && (
-                  sortConfig.direction === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : 
-                  sortConfig.direction === 'desc' ? <ChevronDown className="w-3.5 h-3.5" /> : null
-                )}
-              </Button>
-              <Button 
-                variant="secondary"
-                onClick={onClearSort}
-                className="gap-2"
-              >
-                مسح الترتيب
-              </Button>
-            </div>
-          </div>
+    <div className="rounded-[12px] border border-border bg-surface shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
+      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0 flex-1">
+          <SearchInput
+            placeholder="ابحث بالاسم أو رقم الهاتف..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onClear={onClearSearch}
+            size="sm"
+            className="w-full"
+          />
         </div>
-      </CardContent>
-    </Card>
+
+        <div className="flex flex-wrap items-center gap-2 md:justify-end">
+          <Button variant="secondary" onClick={onSortName} className="gap-2">
+            <ArrowUpDown className="h-4 w-4" />
+            <span>ترتيب بالاسم</span>
+            {sortConfig.key === 'name' && (
+              sortConfig.direction === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : sortConfig.direction === 'desc' ? <ChevronDown className="h-3.5 w-3.5" /> : null
+            )}
+          </Button>
+
+          <Button variant="secondary" onClick={onSortPurchases} className="gap-2">
+            <ArrowUpDown className="h-4 w-4" />
+            <span>المشتريات</span>
+            {sortConfig.key === 'totalPurchases' && (
+              sortConfig.direction === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : sortConfig.direction === 'desc' ? <ChevronDown className="h-3.5 w-3.5" /> : null
+            )}
+          </Button>
+
+          {hasActiveSort && (
+            <Button variant="ghost" onClick={onClearSort} className="gap-2 text-text-secondary">
+              <X className="h-4 w-4" />
+              <span>مسح الترتيب</span>
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

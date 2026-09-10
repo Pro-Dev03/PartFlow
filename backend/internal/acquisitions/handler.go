@@ -171,75 +171,6 @@ func (h *Handler) CreateSellerPayment(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"data": payment})
 }
 
-// AddRepairCost handles POST /api/v1/acquisitions/items/:id/repair-cost
-func (h *Handler) AddRepairCost(c *gin.Context) {
-	itemID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		apperrors.HandleError(c, apperrors.NewValidationError("Invalid item ID", err))
-		return
-	}
-
-	var req struct {
-		AcquisitionItemID uuid.UUID `json:"acquisition_item_id" binding:"required"`
-		RepairType        string    `json:"repair_type" binding:"required"`
-		Cost              float64   `json:"cost" binding:"required,min=0"`
-		Description       string    `json:"description"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apperrors.HandleError(c, apperrors.ValidateRequest(err))
-		return
-	}
-
-	// Get user ID from context
-	userID, exists := c.Get("user_id")
-	if !exists {
-		apperrors.HandleError(c, apperrors.NewUnauthorizedError("User not authenticated", nil))
-		return
-	}
-
-	err = h.service.AddRepairCost(c.Request.Context(), itemID, req.AcquisitionItemID, req.RepairType, req.Cost, req.Description, userID.(uuid.UUID))
-	if err != nil {
-		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to add repair cost"))
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Repair cost added successfully"})
-}
-
-// GetItemHistory handles GET /api/v1/acquisitions/items/:id/history.
-// The legacy /api/v1/inventory/:id/history alias is also supported.
-func (h *Handler) GetItemHistory(c *gin.Context) {
-	itemID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		apperrors.HandleError(c, apperrors.NewValidationError("Invalid item ID", err))
-		return
-	}
-
-	history, err := h.service.GetItemHistory(c.Request.Context(), itemID)
-	if err != nil {
-		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve item history"))
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"data": history})
-}
-
-// GetUsedPartsAging handles GET /api/v1/acquisitions/aging
-func (h *Handler) GetUsedPartsAging(c *gin.Context) {
-	alertLevel := c.Query("alert_level")
-
-	aging, err := h.service.GetUsedPartsAging(c.Request.Context(), alertLevel)
-	if err != nil {
-		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to retrieve item aging"))
-		return
-	}
-	if aging == nil {
-		aging = []ItemAging{}
-	}
-
-	c.JSON(http.StatusOK, gin.H{"data": aging})
-}
-
 // GetSellerBalances handles GET /api/v1/acquisitions/seller-balances
 func (h *Handler) GetSellerBalances(c *gin.Context) {
 	balances, err := h.service.GetSellerBalances(c.Request.Context())
@@ -249,4 +180,32 @@ func (h *Handler) GetSellerBalances(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": balances})
+}
+
+// CreateSellerBalancePayment applies a payment to the seller's oldest unpaid acquisition.
+func (h *Handler) CreateSellerBalancePayment(c *gin.Context) {
+	customerID, err := uuid.Parse(c.Param("customer_id"))
+	if err != nil {
+		apperrors.HandleError(c, apperrors.NewValidationError("Invalid customer ID", err))
+		return
+	}
+	var req struct {
+		Amount float64 `json:"amount" binding:"required,min=0.01"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apperrors.HandleError(c, apperrors.ValidateRequest(err))
+		return
+	}
+	userID, exists := c.Get("user_id")
+	if !exists {
+		apperrors.HandleError(c, apperrors.NewUnauthorizedError("User not authenticated", nil))
+		return
+	}
+
+	payment, err := h.service.CreateSellerBalancePayment(c.Request.Context(), customerID, req.Amount, userID.(uuid.UUID))
+	if err != nil {
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to create seller balance payment"))
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"data": payment})
 }

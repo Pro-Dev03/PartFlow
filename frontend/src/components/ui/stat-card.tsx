@@ -10,6 +10,7 @@ interface StatCardProps {
   trend?: string | null;
   trendUp?: boolean | null;
   onClick?: () => void;
+  compact?: boolean;
 }
 
 export function StatCard({
@@ -20,25 +21,27 @@ export function StatCard({
   variant = 'default',
   trend,
   trendUp,
-  onClick
+  onClick,
+  compact = false
 }: StatCardProps) {
   return (
     <Card
       variant={variant}
       hoverable
       onClick={onClick}
+      className={compact ? 'compact-stat-card' : undefined}
     >
-      <CardContent>
+      <CardContent style={compact ? { padding: '10px 12px' } : undefined}>
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
           color: 'var(--text-secondary)',
-          fontSize: '12px'
+          fontSize: compact ? '11px' : '12px'
         }}>
           <span>{title}</span>
           <div style={{
-            width: '30px',
-            height: '30px',
+            width: compact ? '26px' : '30px',
+            height: compact ? '26px' : '30px',
             borderRadius: '6px',
             display: 'flex',
             alignItems: 'center',
@@ -52,8 +55,8 @@ export function StatCard({
                        'var(--color-primary-10)'
           }}>
             <Icon style={{
-              width: '20px',
-              height: '20px',
+              width: compact ? '16px' : '20px',
+              height: compact ? '16px' : '20px',
               color: variant === 'featured' ? 'var(--color-primary)' :
                      variant === 'warning' ? 'var(--color-warning)' :
                      variant === 'danger' ? 'var(--color-danger)' :
@@ -65,8 +68,8 @@ export function StatCard({
           </div>
         </div>
         <div style={{
-          marginTop: '10px',
-          fontSize: '22px',
+          marginTop: compact ? '6px' : '10px',
+          fontSize: compact ? '18px' : '22px',
           fontWeight: '600',
           color: 'var(--text-primary)',
           lineHeight: '1.2'
@@ -75,7 +78,7 @@ export function StatCard({
         </div>
         {subtitle && (
           <div style={{
-            marginTop: '4px',
+            marginTop: compact ? '2px' : '4px',
             color: 'var(--text-secondary)',
             fontSize: '11px'
           }}>

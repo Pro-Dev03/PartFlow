@@ -13,7 +13,6 @@ import {
   XCircle,
   AlertTriangle,
   RefreshCw,
-  ClipboardList,
   ArrowLeft
 } from 'lucide-react';
 
@@ -25,7 +24,6 @@ interface ReturnItem {
   total_refund_amount: number;
   returned_condition: string;
   resolution: string;
-  inspection_required: boolean;
   inspection_result?: string;
   inspection_notes?: string;
   serial_number?: string;
@@ -71,13 +69,6 @@ export function ReturnDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [isInspectionModalOpen, setIsInspectionModalOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<ReturnItem | null>(null);
-  const [inspectionResult, setInspectionResult] = useState('');
-  const [inspectionNotes, setInspectionNotes] = useState('');
-  const [resolution, setResolution] = useState('');
-  const [repairCost, setRepairCost] = useState('');
-
   const { data: returnData, isLoading } = useQuery({
     queryKey: ['return-with-items', id],
     queryFn: () => returnsApi.getWithItems(id || ''),
@@ -136,45 +127,6 @@ export function ReturnDetailsPage() {
     },
   });
 
-  const processInspectionMutation = useMutation({
-    mutationFn: ({ itemId, data }: { itemId: string; data: any }) => 
-      returnsApi.processInspection(itemId, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['return-with-items', id] });
-      queryClient.invalidateQueries({ queryKey: ['returns'] });
-      toast.success('تم معالجة الفحص بنجاح!');
-      setIsInspectionModalOpen(false);
-      setSelectedItem(null);
-    },
-    onError: (error) => {
-      console.error('Failed to process inspection:', error);
-      toast.error('فشل معالجة الفحص');
-    },
-  });
-
-  const handleStartInspection = (item: ReturnItem) => {
-    setSelectedItem(item);
-    setInspectionResult('');
-    setInspectionNotes('');
-    setResolution('');
-    setRepairCost('');
-    setIsInspectionModalOpen(true);
-  };
-
-  const handleCompleteInspection = () => {
-    if (!selectedItem) return;
-
-    const data = {
-      inspection_date: new Date().toISOString().split('T')[0],
-      inspection_result: inspectionResult,
-      inspection_notes: inspectionNotes,
-      resolution: resolution,
-      repair_cost: parseFloat(repairCost) * 100,
-    };
-
-    processInspectionMutation.mutate({ itemId: selectedItem.id, data });
-  };
-
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'secondary' | 'info'; icon: any }> = {
       PENDING: { label: 'قيد الانتظار', variant: 'warning', icon: AlertTriangle },
@@ -210,9 +162,12 @@ export function ReturnDetailsPage() {
 
   const getConditionLabel = (condition: string) => {
     const labels: Record<string, string> = {
+      READY_FOR_SALE: 'جاهز للبيع',
+      NOT_FOR_SALE: 'غير قابل للبيع',
+      RETURN_TO_SUPPLIER: 'إرجاع للمورد',
       SELLABLE: 'قابل للبيع',
-      NEEDS_INSPECTION: 'يحتاج فحص',
       NEEDS_REPAIR: 'يحتاج إصلاح',
+      NEEDS_INSPECTION: 'قيد المراجعة',
       DAMAGED: 'تالف',
       USED: 'مستعمل',
       REFURBISHED: 'مجدّد',
@@ -522,17 +477,6 @@ export function ReturnDetailsPage() {
                     </div>
                   )}
 
-                  {item.inspection_required && !item.inspection_result && (
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => handleStartInspection(item)}
-                      className="w-full"
-                    >
-                      <ClipboardList className="w-4 h-4 mr-1" />
-                      بدء الفحص
-                    </Button>
-                  )}
                 </div>
               ))}
             </div>
@@ -540,93 +484,6 @@ export function ReturnDetailsPage() {
         </CardContent>
       </Card>
 
-      {/* Inspection Modal */}
-      <Modal
-        isOpen={isInspectionModalOpen}
-        onClose={() => setIsInspectionModalOpen(false)}
-        title="فحص المنتج المرتجع"
-        variant="modern"
-        size="lg"
-      >
-        <div className="space-y-4">
-          {selectedItem && (
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="font-semibold">{selectedItem.product_name}</p>
-              <p className="text-sm text-gray-400">الكمية: {selectedItem.quantity_returned}</p>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-sm font-medium mb-2">نتيجة الفحص</label>
-            <select
-              value={inspectionResult}
-              onChange={(e) => setInspectionResult(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-            >
-              <option value="">اختر النتيجة</option>
-              <option value="PASSED">اجتاز الفحص</option>
-              <option value="FAILED">فشل الفحص</option>
-              <option value="PENDING">قيد الفحص</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">القرار</label>
-            <select
-              value={resolution}
-              onChange={(e) => setResolution(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-            >
-              <option value="">اختر القرار</option>
-              <option value="RESTOCK">إعادة للمخزون</option>
-              <option value="REPAIR">إصلاح</option>
-              <option value="SUPPLIER_RETURN">إرجاع للمورد</option>
-              <option value="WRITE_OFF">شطب</option>
-              <option value="PARTS">قطع غيار</option>
-              <option value="REPLACEMENT">استبدال</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">تكلفة الإصلاح (اختياري)</label>
-            <input
-              type="number"
-              value={repairCost}
-              onChange={(e) => setRepairCost(e.target.value)}
-              placeholder="أدخل التكلفة"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              step="0.01"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">ملاحظات الفحص</label>
-            <textarea
-              value={inspectionNotes}
-              onChange={(e) => setInspectionNotes(e.target.value)}
-              placeholder="أدخل ملاحظات الفحص..."
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-            />
-          </div>
-
-          <div className="flex gap-2 justify-end pt-4 border-t">
-            <Button
-              variant="secondary"
-              onClick={() => setIsInspectionModalOpen(false)}
-            >
-              إلغاء
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleCompleteInspection}
-              disabled={!inspectionResult || !resolution || processInspectionMutation.isPending}
-            >
-              {processInspectionMutation.isPending ? 'جاري المعالجة...' : 'حفظ النتيجة'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

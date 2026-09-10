@@ -250,10 +250,10 @@ func (r *Repository) GetReturnByID(ctx context.Context, id uuid.UUID) (*Return, 
 	var returnRecord Return
 	query := `
 		SELECT r.id, r.return_number, r.reference_number, r.sale_id, r.purchase_id, COALESCE(r.customer_id, s.customer_id) AS customer_id, COALESCE(c.name, '') AS customer_name,
-			return_date, return_type, status, total_refund_amount, COALESCE(refund_method, '') AS refund_method, refund_date, COALESCE(refund_reference, '') AS refund_reference,
-			debt_id, debt_adjustment, customer_credit, COALESCE(reason, '') AS reason, COALESCE(reason_detail, '') AS reason_detail, COALESCE(item_condition_after_return, '') AS item_condition_after_return,
-			is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at,
-			COALESCE(notes, '') AS notes, COALESCE(internal_notes, '') AS internal_notes, created_at, updated_at
+			r.return_date, r.return_type, r.status, r.total_refund_amount, COALESCE(r.refund_method, '') AS refund_method, r.refund_date, COALESCE(r.refund_reference, '') AS refund_reference,
+			r.debt_id, r.debt_adjustment, r.customer_credit, COALESCE(r.reason, '') AS reason, COALESCE(r.reason_detail, '') AS reason_detail, COALESCE(r.item_condition_after_return, '') AS item_condition_after_return,
+			r.is_warranty_claim, r.warranty_id, r.warranty_valid_until, r.created_by, r.processed_by, r.approved_by, r.approved_at,
+			COALESCE(r.notes, '') AS notes, COALESCE(r.internal_notes, '') AS internal_notes, r.created_at, r.updated_at
 		FROM returns r
 		LEFT JOIN sales s ON s.id = r.sale_id
 		LEFT JOIN customers c ON c.id = COALESCE(r.customer_id, s.customer_id)
@@ -573,6 +573,50 @@ func (r *Repository) CreateReturnItem(ctx context.Context, item *ReturnItem) err
 	return nil
 }
 
+// AddDebtAdjustmentLedgerEntry records the full return amount as a customer
+// credit movement. The debt trigger separately caps the debt reduction, so
+// the ledger preserves any excess as customer credit without creating a
+// payment entry.
+func (r *Repository) AddDebtAdjustmentLedgerEntry(ctx context.Context, returnRecord *Return) error {
+	if returnRecord.CustomerID == uuid.Nil || returnRecord.RefundMethod != "DEBT_ADJUSTMENT" {
+		return nil
+	}
+
+	nowSQL := dbutil.NowSQL(r.db)
+	query := fmt.Sprintf(`
+		INSERT INTO customer_ledger
+			(id, customer_id, type, amount, balance, description, reference_id, created_at)
+		SELECT $1, $2, 'credit', $3,
+			COALESCE((SELECT balance FROM customer_ledger WHERE customer_id = $2 ORDER BY created_at DESC LIMIT 1), 0) - $3,
+			$4, $5, %s
+		WHERE NOT EXISTS (
+			SELECT 1 FROM customer_ledger
+			WHERE customer_id = $2 AND reference_id = $5 AND type = 'credit'
+		)
+	`, nowSQL)
+	if _, err := r.db.ExecContext(ctx, query,
+		uuid.New(), returnRecord.CustomerID, returnRecord.TotalRefundAmount,
+		"Customer return: "+returnRecord.ReturnNumber, returnRecord.ID,
+	); err != nil {
+		return fmt.Errorf("failed to add return ledger entry: %w", err)
+	}
+
+	updateQuery := fmt.Sprintf(`
+		UPDATE customers
+		SET current_balance = COALESCE((
+			SELECT balance FROM customer_ledger
+			WHERE customer_id = $1 AND reference_id = $2 AND type = 'credit'
+			ORDER BY created_at DESC LIMIT 1
+		), current_balance), updated_at = %s
+		WHERE id = $1
+	`, nowSQL)
+	if _, err := r.db.ExecContext(ctx, updateQuery, returnRecord.CustomerID, returnRecord.ID); err != nil {
+		return fmt.Errorf("failed to update customer balance for return: %w", err)
+	}
+
+	return nil
+}
+
 // GetReturnItems retrieves items for a return
 func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]ReturnItem, error) {
 	if dbutil.IsSQLite(r.db) {
@@ -680,7 +724,7 @@ func (r *Repository) GetCustomerInfo(ctx context.Context, customerID uuid.UUID) 
 			Phone string `db:"phone"`
 			Email string `db:"email"`
 		}
-		if err := r.db.GetContext(ctx, &row, `SELECT id,name,COALESCE(phone,''),COALESCE(email,'') FROM customers WHERE id = ?`, customerID.String()); err != nil {
+		if err := r.db.GetContext(ctx, &row, `SELECT id, name, COALESCE(phone, '') AS phone, COALESCE(email, '') AS email FROM customers WHERE id = ?`, customerID.String()); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, ErrCustomerNotFound
 			}

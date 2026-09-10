@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Modal } from '../../../components/ui/modal';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -27,6 +28,8 @@ export function SupplierModals({
   setIsViewModalOpen,
   viewingSupplier,
 }: SupplierModalsProps) {
+  const queryClient = useQueryClient();
+  const [paymentAmount, setPaymentAmount] = useState('');
   const close = () => {
     setIsOpen(false);
     setEditingSupplier(null);
@@ -40,6 +43,14 @@ export function SupplierModals({
 
   const ledger = (ledgerData?.data as any) || null;
   const entries: any[] = Array.isArray(ledger?.entries) ? ledger.entries : [];
+  const paymentMutation = useMutation({
+    mutationFn: () => suppliersApi.addPayment(viewingSupplier.id, { amount: Number(paymentAmount), method: 'cash' }),
+    onSuccess: () => {
+      setPaymentAmount('');
+      void queryClient.invalidateQueries({ queryKey: ['supplier-ledger', viewingSupplier?.id] });
+      void queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+    },
+  });
 
   return (
     <>
@@ -90,9 +101,24 @@ export function SupplierModals({
                 <Input value={`₪${(viewingSupplier.paidAmount || 0).toLocaleString()}`} disabled />
               </div>
               <div>
-                <label className="text-small font-medium text-text mb-sm block">المستحق</label>
+                <label className="text-small font-medium text-text mb-sm block">صافي المستحق</label>
                 <Input value={`₪${(viewingSupplier.outstanding || 0).toLocaleString()}`} disabled />
               </div>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">رصيد مرتجعات المورد</label>
+                <Input value={`-₪${Number(ledger?.supplier_return_credits || 0).toLocaleString()}`} disabled />
+              </div>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">دفعات المورد</label>
+                <Input value={`₪${Number(ledger?.supplier_payments || 0).toLocaleString()}`} disabled />
+              </div>
+            </div>
+            <p className="text-xs text-text-muted">صافي المستحق = المستحق الأصلي - Credits المرتجعات - دفعات المورد.</p>
+            <div className="flex items-end gap-2 border-t border-border pt-4">
+              <Input type="number" min="0.01" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder="مبلغ الدفعة" />
+              <Button onClick={() => paymentMutation.mutate()} disabled={paymentMutation.isPending || Number(paymentAmount) <= 0 || Number(paymentAmount) > Number(ledger?.current_balance ?? viewingSupplier.outstanding ?? 0)}>
+                تسجيل دفعة
+              </Button>
             </div>
 
             <div>

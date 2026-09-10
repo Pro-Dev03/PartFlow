@@ -28,25 +28,25 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
     border: '1px solid var(--card-border)',
     borderRadius: 'var(--card-border-radius)',
     background: 'var(--card-bg)',
-    boxShadow: 'var(--shadow-card)',
-    transition: '200ms ease',
+    boxShadow: 'none',
+    transition: 'border-color 160ms ease, background-color 160ms ease',
     padding: 'var(--card-padding-md)'
   };
 
       const variantStyles: Record<string, Record<string, string>> = {
         default: {
           ...baseStyle,
-          boxShadow: 'var(--shadow-card)'
+          boxShadow: 'none'
         },
         interactive: {
           ...baseStyle,
           cursor: 'pointer',
-          boxShadow: 'var(--shadow-card)'
+          boxShadow: 'none'
         },
         featured: {
           ...baseStyle,
           borderColor: 'var(--color-primary-30)',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)'
+          boxShadow: 'none'
         },
         warning: {
           ...baseStyle,
@@ -57,26 +57,26 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
         ai: {
           ...baseStyle,
           borderColor: 'var(--color-primary-20)',
-          background: 'linear-gradient(145deg, var(--color-primary-08), var(--card-bg))',
-          boxShadow: 'var(--shadow-card)'
+          background: 'var(--card-bg)',
+          boxShadow: 'none'
         },
         danger: {
           ...baseStyle,
           borderColor: 'var(--color-danger-30)',
           background: 'var(--color-danger-05)',
-          boxShadow: 'var(--shadow-card)'
+          boxShadow: 'none'
         },
         success: {
           ...baseStyle,
           borderColor: 'var(--color-success-30)',
           background: 'var(--color-success-05)',
-          boxShadow: 'var(--shadow-card)'
+          boxShadow: 'none'
         },
         info: {
           ...baseStyle,
           borderColor: 'var(--color-info-30)',
           background: 'var(--color-info-05)',
-          boxShadow: 'var(--shadow-card)'
+          boxShadow: 'none'
         }
       };
 
@@ -120,13 +120,13 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
         onMouseEnter={(e) => {
           if (isInteractive) {
             e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.22)';
-            e.currentTarget.style.transform = 'translateY(-2px)'; // subtle lift فقط
+            e.currentTarget.style.backgroundColor = 'var(--bg-surface-elevated)';
           }
         }}
         onMouseLeave={(e) => {
           const currentStyle = getVariantStyle();
           e.currentTarget.style.borderColor = currentStyle.borderColor;
-          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.backgroundColor = currentStyle.background || 'var(--card-bg)';
         }}
         onClick={onClick}
         onKeyDown={handleKeyDown}

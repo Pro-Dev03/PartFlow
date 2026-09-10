@@ -37,7 +37,7 @@ type Return struct {
 	// Return reason and condition
 	Reason                   string `json:"reason" db:"reason"` // DEFECTIVE, WRONG_ITEM, COMPATIBILITY_ISSUE, CUSTOMER_CHANGED_MIND, DAMAGED, WARRANTY, INCORRECT_SPECIFICATION, OTHER
 	ReasonDetail             string `json:"reason_detail" db:"reason_detail"`
-	ItemConditionAfterReturn string `json:"item_condition_after_return" db:"item_condition_after_return"` // SELLABLE, NEEDS_INSPECTION, NEEDS_REPAIR, DAMAGED, USED, REFURBISHED, SUPPLIER_RETURN, WRITE_OFF, PARTS
+	ItemConditionAfterReturn string `json:"item_condition_after_return" db:"item_condition_after_return"` // READY_FOR_SALE, NOT_FOR_SALE, RETURN_TO_SUPPLIER, NEEDS_REPAIR, DAMAGED, USED, REFURBISHED, WRITE_OFF, PARTS. Legacy SELLABLE remains accepted for compatibility.
 
 	// Warranty information
 	IsWarrantyClaim    bool       `json:"is_warranty_claim" db:"is_warranty_claim"`
@@ -108,7 +108,7 @@ type ReturnRequest struct {
 	ReturnType               string              `json:"return_type" binding:"required,oneof=FULL PARTIAL QUANTITY_PARTIAL"`
 	Reason                   string              `json:"reason" binding:"required,oneof=DEFECTIVE WRONG_ITEM COMPATIBILITY_ISSUE CUSTOMER_CHANGED_MIND DAMAGED WARRANTY INCORRECT_SPECIFICATION OTHER"`
 	ReasonDetail             string              `json:"reason_detail"`
-	ItemConditionAfterReturn string              `json:"item_condition_after_return" binding:"required,oneof=SELLABLE NEEDS_INSPECTION NEEDS_REPAIR DAMAGED USED REFURBISHED SUPPLIER_RETURN WRITE_OFF PARTS"`
+	ItemConditionAfterReturn string              `json:"item_condition_after_return" binding:"required,oneof=READY_FOR_SALE NOT_FOR_SALE RETURN_TO_SUPPLIER SELLABLE NEEDS_REPAIR DAMAGED USED REFURBISHED WRITE_OFF PARTS"`
 	Items                    []ReturnItemRequest `json:"items" binding:"required,min=1"`
 	RefundMethod             string              `json:"refund_method" binding:"required,oneof=CASH CREDIT DEBT_ADJUSTMENT EXCHANGE BANK_TRANSFER STORE_CREDIT"`
 	DebtID                   *uuid.UUID          `json:"debt_id"`
@@ -147,7 +147,7 @@ type ReturnUpdateRequest struct {
 	RefundReference          string     `json:"refund_reference"`
 	DebtID                   *uuid.UUID `json:"debt_id"`
 	DebtAdjustment           float64    `json:"debt_adjustment"`
-	ItemConditionAfterReturn string     `json:"item_condition_after_return" binding:"omitempty,oneof=SELLABLE NEEDS_INSPECTION NEEDS_REPAIR DAMAGED USED REFURBISHED SUPPLIER_RETURN WRITE_OFF PARTS"`
+	ItemConditionAfterReturn string     `json:"item_condition_after_return" binding:"omitempty,oneof=READY_FOR_SALE NOT_FOR_SALE RETURN_TO_SUPPLIER SELLABLE NEEDS_REPAIR DAMAGED USED REFURBISHED WRITE_OFF PARTS"`
 	Resolution               string     `json:"resolution" binding:"omitempty,oneof=RESTOCK REPAIR SUPPLIER_RETURN WRITE_OFF PARTS REPLACEMENT"`
 	Notes                    string     `json:"notes"`
 	InternalNotes            string     `json:"internal_notes"`
@@ -224,13 +224,4 @@ type SalesReturnsAnalysis struct {
 	ReturnsAmount float64   `json:"returns_amount" db:"returns_amount"`
 	ReturnCount   int       `json:"return_count" db:"return_count"`
 	NetSales      float64   `json:"net_sales" db:"net_sales"`
-}
-
-// ReturnInspectionRequest represents return item inspection request
-type ReturnInspectionRequest struct {
-	InspectionDate   time.Time `json:"inspection_date" binding:"required"`
-	InspectionResult string    `json:"inspection_result" binding:"required,oneof=PASSED FAILED PENDING"`
-	InspectionNotes  string    `json:"inspection_notes"`
-	Resolution       string    `json:"resolution" binding:"required,oneof=RESTOCK REPAIR SUPPLIER_RETURN WRITE_OFF PARTS REPLACEMENT"`
-	RepairCost       float64   `json:"repair_cost" binding:"omitempty,min=0"`
 }

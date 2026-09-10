@@ -149,8 +149,6 @@ export function NotificationCenter() {
         return <DollarSign className="w-5 h-5 text-green-500" />;
       case 'PURCHASE_RECEIVED':
         return <Package className="w-5 h-5 text-green-500" />;
-      case 'INSPECTION_REQUIRED':
-        return <AlertTriangle className="w-5 h-5 text-purple-500" />;
       case 'RESERVATION_EXPIRING':
         return <Clock className="w-5 h-5 text-orange-500" />;
       case 'daily_insights':
@@ -182,8 +180,6 @@ export function NotificationCenter() {
       case 'PURCHASE_RECEIVED':
       case 'SUCCESS':
         return 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800';
-      case 'INSPECTION_REQUIRED':
-        return 'bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800';
       case 'daily_insights':
       case 'INFO':
         return 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800';

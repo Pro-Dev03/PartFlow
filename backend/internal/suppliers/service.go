@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -120,6 +121,13 @@ func (s *Service) AddPayment(ctx context.Context, supplierID uuid.UUID, req *Pay
 	if req.Amount <= 0 {
 		return nil, ErrPaymentAmountInvalid
 	}
+	_, _, _, currentBalance, err := s.repo.GetSupplierLedger(ctx, supplierID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read supplier balance before payment: %w", err)
+	}
+	if req.Amount > currentBalance {
+		return nil, ErrPaymentExceedsBalance
+	}
 
 	// Set payment date if not provided
 	paymentDate := time.Now()
@@ -164,13 +172,28 @@ func (s *Service) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID) (
 		return nil, err
 	}
 
+	var supplierPayments, supplierReturnCredits float64
+	for _, entry := range entries {
+		if entry.Type != "credit" {
+			continue
+		}
+		upperDescription := strings.ToUpper(entry.Description)
+		if strings.Contains(upperDescription, "SUPPLIER_RETURN") || strings.Contains(upperDescription, "SUPPLIER RETURN") || strings.Contains(entry.Description, "مرتجع مورد") {
+			supplierReturnCredits += entry.Amount
+		} else if !strings.HasPrefix(upperDescription, "PAYMENT FOR PURCHASE") {
+			supplierPayments += entry.Amount
+		}
+	}
+
 	return &SupplierLedgerResponse{
-		SupplierID:     supplierID,
-		SupplierName:   supplier.Name,
-		TotalPurchases: totalPurchases,
-		TotalPayments:  totalPayments,
-		CurrentBalance: currentBalance,
-		Entries:        entries,
+		SupplierID:            supplierID,
+		SupplierName:          supplier.Name,
+		TotalPurchases:        totalPurchases,
+		TotalPayments:         totalPayments,
+		SupplierPayments:      supplierPayments,
+		SupplierReturnCredits: supplierReturnCredits,
+		CurrentBalance:        currentBalance,
+		Entries:               entries,
 	}, nil
 }
 

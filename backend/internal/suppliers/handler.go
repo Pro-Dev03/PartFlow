@@ -174,6 +174,10 @@ func (h *Handler) AddPayment(c *gin.Context) {
 			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid payment amount", err.Error())
 			return
 		}
+		if err == ErrPaymentExceedsBalance {
+			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Payment exceeds supplier net balance", err.Error())
+			return
+		}
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to add payment", err.Error())
 		return
 	}

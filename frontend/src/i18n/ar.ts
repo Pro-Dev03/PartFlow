@@ -366,7 +366,6 @@ export const ar = {
       LOW_STOCK: 'مخزون منخفض',
       OVERDUE_DEBT: 'دين متأخر',
       WARRANTY_EXPIRING: 'ضمان منتهي',
-      INSPECTION_REQUIRED: 'فحص مطلوب',
       RESERVATION_EXPIRING: 'حجز منتهي',
       PAYMENT_RECEIVED: 'تم استلام الدفع',
       PURCHASE_RECEIVED: 'تم استلام المشتريات',

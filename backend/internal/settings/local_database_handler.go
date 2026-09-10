@@ -60,8 +60,8 @@ func (h *LocalDatabaseHandler) GetOperatingMode(c *gin.Context) {
 		})
 		return
 	}
-	if mode == "" {
-		mode = "offline"
+	if mode == "" || mode == "offline" {
+		mode = "online"
 	}
 
 	pendingSyncCount, err := localdb.GetPendingSyncCount(database.DB)
@@ -86,8 +86,8 @@ func (h *LocalDatabaseHandler) SetOperatingMode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "تعذر قراءة وضع التشغيل", "details": err.Error()})
 		return
 	}
-	if request.Mode != "offline" && request.Mode != "online" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "وضع التشغيل غير صالح", "details": "mode must be offline or online"})
+	if request.Mode != "online" {
+		c.JSON(http.StatusGone, gin.H{"error": "تم إيقاف وضع التشغيل دون اتصال", "details": "cloud verification is required before operating the application"})
 		return
 	}
 

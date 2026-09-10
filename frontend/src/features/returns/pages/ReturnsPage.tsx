@@ -36,7 +36,6 @@ interface ReturnItem {
   total_refund_amount: number;
   returned_condition: string;
   resolution: string;
-  inspection_required: boolean;
 }
 
 interface Return {
@@ -70,7 +69,7 @@ export function ReturnsPage() {
   const [returnToDelete, setReturnToDelete] = useState<Return | null>(null);
   const [editReason, setEditReason] = useState('');
   const [editRefundMethod, setEditRefundMethod] = useState('CASH');
-  const [editCondition, setEditCondition] = useState('NEEDS_INSPECTION');
+  const [editCondition, setEditCondition] = useState('READY_FOR_SALE');
 
 
   const { data: returnsData, isLoading } = useQuery({
@@ -153,9 +152,12 @@ export function ReturnsPage() {
 
   const getConditionLabel = (condition: string) => {
     const labels: Record<string, string> = {
+      READY_FOR_SALE: 'جاهز للبيع',
+      NOT_FOR_SALE: 'غير قابل للبيع',
+      RETURN_TO_SUPPLIER: 'إرجاع للمورد',
       SELLABLE: 'قابل للبيع',
-      NEEDS_INSPECTION: 'يحتاج فحص',
       NEEDS_REPAIR: 'يحتاج إصلاح',
+      NEEDS_INSPECTION: 'قيد المراجعة',
       DAMAGED: 'تالف',
       USED: 'مستعمل',
       REFURBISHED: 'مجدّد',
@@ -442,10 +444,10 @@ export function ReturnsPage() {
                     )}
                     {canModifyReturn(returnItem.status) && (
                       <>
-                        <Button variant="outline" size="sm" onClick={() => openEditReturn(returnItem)} aria-label="تعديل المرتجع" title="تعديل المرتجع">
+                        <Button variant="outline" size="sm" tableAction onClick={() => openEditReturn(returnItem)} aria-label="تعديل المرتجع" title="تعديل المرتجع">
                           <Edit className="w-4 h-4" />
                         </Button>
-                        <Button variant="danger" size="sm" onClick={() => setReturnToDelete(returnItem)} aria-label="حذف المرتجع" title="حذف المرتجع">
+                        <Button variant="danger" size="sm" tableAction onClick={() => setReturnToDelete(returnItem)} aria-label="حذف المرتجع" title="حذف المرتجع">
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </>
@@ -461,7 +463,7 @@ export function ReturnsPage() {
       <Modal isOpen={Boolean(editingReturn)} onClose={() => setEditingReturn(null)} title="تعديل المرتجع" size="md">
         <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); updateReturnMutation.mutate(); }}>
           <div><label className="mb-2 block text-sm font-medium text-text-secondary">سبب المرتجع</label><Select value={editReason} onChange={(event) => setEditReason(event.target.value)} options={[{ value: 'DEFECTIVE', label: 'منتج معطل' }, { value: 'WRONG_ITEM', label: 'منتج خاطئ' }, { value: 'CUSTOMER_CHANGED_MIND', label: 'تغيير رأي العميل' }, { value: 'DAMAGED', label: 'تالف' }, { value: 'OTHER', label: 'أخرى' }]} /></div>
-          <div><label className="mb-2 block text-sm font-medium text-text-secondary">حالة المنتج</label><Select value={editCondition} onChange={(event) => setEditCondition(event.target.value)} options={[{ value: 'SELLABLE', label: 'قابل للبيع' }, { value: 'NEEDS_INSPECTION', label: 'يحتاج فحص' }, { value: 'NEEDS_REPAIR', label: 'يحتاج إصلاح' }, { value: 'DAMAGED', label: 'تالف' }, { value: 'SUPPLIER_RETURN', label: 'إرجاع للمورد' }]} /></div>
+          <div><label className="mb-2 block text-sm font-medium text-text-secondary">حالة المنتج</label><Select value={editCondition} onChange={(event) => setEditCondition(event.target.value)} options={[{ value: 'READY_FOR_SALE', label: 'جاهز للبيع' }, { value: 'NOT_FOR_SALE', label: 'غير قابل للبيع' }, { value: 'RETURN_TO_SUPPLIER', label: 'إرجاع للمورد' }, { value: 'NEEDS_REPAIR', label: 'يحتاج إصلاح' }]} /></div>
           <div><label className="mb-2 block text-sm font-medium text-text-secondary">طريقة رد المبلغ</label><Select value={editRefundMethod} onChange={(event) => setEditRefundMethod(event.target.value)} options={[{ value: 'CASH', label: 'نقدي' }, { value: 'CREDIT', label: 'رصيد العميل' }, { value: 'DEBT_ADJUSTMENT', label: 'تعديل الدين' }, { value: 'STORE_CREDIT', label: 'رصيد المتجر' }]} /></div>
           <div className="flex justify-end gap-3"><Button type="button" variant="secondary" onClick={() => setEditingReturn(null)}>إلغاء</Button><Button type="submit" variant="primary" disabled={updateReturnMutation.isPending || !editReason}>{updateReturnMutation.isPending ? 'جاري الحفظ...' : 'حفظ التعديل'}</Button></div>
         </form>

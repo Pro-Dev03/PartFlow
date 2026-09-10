@@ -32,17 +32,16 @@ const (
 type Status string
 
 const (
-	StatusPurchased  Status = "PURCHASED"
-	StatusReceived   Status = "RECEIVED"
-	StatusInspection Status = "INSPECTION"
-	StatusAvailable  Status = "AVAILABLE"
-	StatusReserved   Status = "RESERVED"
-	StatusSold       Status = "SOLD"
-	StatusDamaged    Status = "DAMAGED"
-	StatusInRepair   Status = "IN_REPAIR"
-	StatusReturned   Status = "RETURNED"
-	StatusForParts   Status = "FOR_PARTS"
-	StatusArchived   Status = "ARCHIVED"
+	StatusPurchased Status = "PURCHASED"
+	StatusReceived  Status = "RECEIVED"
+	StatusAvailable Status = "AVAILABLE"
+	StatusReserved  Status = "RESERVED"
+	StatusSold      Status = "SOLD"
+	StatusDamaged   Status = "DAMAGED"
+	StatusInRepair  Status = "IN_REPAIR"
+	StatusReturned  Status = "RETURNED"
+	StatusForParts  Status = "FOR_PARTS"
+	StatusArchived  Status = "ARCHIVED"
 )
 
 // InventoryItem represents an individual inventory item

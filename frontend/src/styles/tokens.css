@@ -370,14 +370,14 @@
   --table-stripe-bg: var(--bg-surface-3);
   
   /* Badge Component */
-  --badge-padding-xs: 2px 8px;
-  --badge-padding-sm: 4px 10px;
-  --badge-padding-md: 6px 12px;
-  --badge-padding-lg: 8px 16px;
-  --badge-font-size-xs: 10px;
-  --badge-font-size-sm: var(--font-size-caption);
-  --badge-font-size-md: var(--font-size-secondary);
-  --badge-font-size-lg: var(--font-size-body);
+  --badge-padding-xs: 2px 7px;
+  --badge-padding-sm: 3px 9px;
+  --badge-padding-md: 4px 10px;
+  --badge-padding-lg: 6px 12px;
+  --badge-font-size-xs: 9px;
+  --badge-font-size-sm: 10px;
+  --badge-font-size-md: 11px;
+  --badge-font-size-lg: 12px;
   --badge-border-radius: var(--radius-full);
   
   /* Dialog/Modal Component */

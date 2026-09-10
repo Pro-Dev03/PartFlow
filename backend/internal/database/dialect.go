@@ -37,6 +37,10 @@ func ParseTimestamp(value any) (time.Time, error) {
 	case time.Time:
 		return v, nil
 	case string:
+		normalized := strings.TrimSpace(v)
+		if idx := strings.Index(normalized, " m="); idx >= 0 {
+			normalized = normalized[:idx]
+		}
 		for _, layout := range []string{
 			time.RFC3339Nano,
 			time.RFC3339,
@@ -49,7 +53,7 @@ func ParseTimestamp(value any) (time.Time, error) {
 			"2006-01",
 			"2006-01-02",
 		} {
-			if parsed, err := time.Parse(layout, v); err == nil {
+			if parsed, err := time.Parse(layout, normalized); err == nil {
 				return parsed, nil
 			}
 		}

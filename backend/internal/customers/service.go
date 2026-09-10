@@ -567,6 +567,10 @@ func (s *Service) GetPendingDebtCollections(ctx context.Context) ([]DebtCollecti
 
 // ProcessDebtPayment processes a payment for specific debts
 func (s *Service) ProcessDebtPayment(ctx context.Context, customerID uuid.UUID, paymentAmount float64, method string) error {
+	if paymentAmount <= 0 {
+		return fmt.Errorf("payment amount must be greater than zero")
+	}
+
 	_, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return err
@@ -576,6 +580,15 @@ func (s *Service) ProcessDebtPayment(ctx context.Context, customerID uuid.UUID, 
 	debts, err := s.repo.GetDebtEntries(ctx, customerID)
 	if err != nil {
 		return err
+	}
+	var outstandingAmount float64
+	for _, debt := range debts {
+		if !debt.IsPaid {
+			outstandingAmount += debt.Amount - debt.PaidAmount
+		}
+	}
+	if paymentAmount > outstandingAmount {
+		return fmt.Errorf("payment amount exceeds outstanding balance")
 	}
 
 	remainingAmount := paymentAmount

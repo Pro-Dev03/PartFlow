@@ -70,16 +70,8 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 
 // ListDebt lists all debts with pagination
 func (h *Handler) ListDebts(c *gin.Context) {
-	// Try cache first for first page
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
-
-	if page == 1 && perPage == 20 {
-		if cached, found := h.cache.get(); found {
-			c.JSON(http.StatusOK, cached)
-			return
-		}
-	}
 
 	offset := (page - 1) * perPage
 	if dbutil.IsSQLite(h.db) {
@@ -112,9 +104,6 @@ func (h *Handler) ListDebts(c *gin.Context) {
 			return
 		}
 		response := gin.H{"success": true, "data": data, "meta": gin.H{"page": page, "per_page": perPage, "total": total}}
-		if page == 1 && perPage == 20 {
-			h.cache.set(response, 2*time.Minute)
-		}
 		c.JSON(http.StatusOK, response)
 		return
 	}
@@ -180,11 +169,6 @@ func (h *Handler) ListDebts(c *gin.Context) {
 			"per_page": perPage,
 			"total":    total,
 		},
-	}
-
-	// Cache the response for first page
-	if page == 1 && perPage == 20 {
-		h.cache.set(response, 2*time.Minute)
 	}
 
 	c.JSON(http.StatusOK, response)

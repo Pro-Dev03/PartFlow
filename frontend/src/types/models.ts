@@ -258,7 +258,7 @@ export interface Expense {
 export interface Notification {
   id: string;
   user_id?: string;
-  type: 'LOW_STOCK' | 'OVERDUE_DEBT' | 'WARRANTY_EXPIRING' | 'INSPECTION_REQUIRED' | 'RESERVATION_EXPIRING' | 'PAYMENT_RECEIVED' | 'PURCHASE_RECEIVED';
+  type: 'LOW_STOCK' | 'OVERDUE_DEBT' | 'WARRANTY_EXPIRING' | 'RESERVATION_EXPIRING' | 'PAYMENT_RECEIVED' | 'PURCHASE_RECEIVED';
   title: string;
   message: string;
   read: boolean;

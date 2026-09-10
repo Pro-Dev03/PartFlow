@@ -101,7 +101,12 @@ function App() {
   // response is the actual authority.
   useEffect(() => {
     const validate = () => {
-      void validateSubscriptionWithCloud();
+      void validateSubscriptionWithCloud().then((valid) => {
+        if (!valid && useAuthStore.getState().isAuthenticated) {
+          useAuthStore.getState().logout();
+          window.location.hash = '#/login';
+        }
+      });
     };
     const handleOffline = () => {
       const state = useAuthStore.getState();

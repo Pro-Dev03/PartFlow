@@ -988,6 +988,11 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 	if err != nil {
 		report.TotalCost = 0
 	}
+	_ = r.db.GetContext(ctx, &report.SupplierReturnCredits,
+		`SELECT COALESCE(SUM(refund_amount), 0) FROM supplier_returns
+		 WHERE date(created_at) >= date(substr($1, 1, 10)) AND date(created_at) < date(substr($2, 1, 10))
+		   AND status = 'COMPLETED'`, startDate, endDate)
+	report.NetPurchases = report.TotalCost - report.SupplierReturnCredits
 	report.TaxAmount = 0
 	if err := r.db.GetContext(ctx, &report.TaxAmount,
 		fmt.Sprintf(`SELECT COALESCE(SUM(CASE

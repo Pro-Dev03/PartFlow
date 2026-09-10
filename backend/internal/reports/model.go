@@ -188,18 +188,20 @@ type PaymentRecord struct {
 
 // PurchasesReport represents purchases report data
 type PurchasesReport struct {
-	Period              string              `json:"period"`
-	StartDate           time.Time           `json:"start_date"`
-	EndDate             time.Time           `json:"end_date"`
-	TotalPurchases      int                 `json:"total_purchases"`
-	Subtotal            float64             `json:"subtotal"`
-	TaxAmount           float64             `json:"tax_amount"`
-	TotalCost           float64             `json:"total_cost"`
-	UntaxedPurchases    int                 `json:"untaxed_purchases"`
-	UntaxedPurchaseCost float64             `json:"untaxed_purchase_cost"`
-	BySupplier          []SupplierPurchases `json:"by_supplier"`
-	ByCategory          map[string]int      `json:"by_category"`
-	ByMonth             []MonthlyPurchases  `json:"by_month"`
+	Period                string              `json:"period"`
+	StartDate             time.Time           `json:"start_date"`
+	EndDate               time.Time           `json:"end_date"`
+	TotalPurchases        int                 `json:"total_purchases"`
+	Subtotal              float64             `json:"subtotal"`
+	TaxAmount             float64             `json:"tax_amount"`
+	TotalCost             float64             `json:"total_cost"`
+	SupplierReturnCredits float64             `json:"supplier_return_credits"`
+	NetPurchases          float64             `json:"net_purchases"`
+	UntaxedPurchases      int                 `json:"untaxed_purchases"`
+	UntaxedPurchaseCost   float64             `json:"untaxed_purchase_cost"`
+	BySupplier            []SupplierPurchases `json:"by_supplier"`
+	ByCategory            map[string]int      `json:"by_category"`
+	ByMonth               []MonthlyPurchases  `json:"by_month"`
 }
 
 // SupplierPurchases represents supplier purchases data

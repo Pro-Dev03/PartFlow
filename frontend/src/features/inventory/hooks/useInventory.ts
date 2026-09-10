@@ -14,7 +14,7 @@ export function useInventory() {
   const [filters, setFilters] = useState<FilterConfig[]>([]);
 
   // Fetch data with debounce search for scalability
-  const { data: productsData, isLoading: productsLoading } = useQuery({
+  const { data: productsData, isLoading: productsLoading, refetch: refetchProducts } = useQuery({
     queryKey: ['products', debouncedSearchQuery],
     queryFn: () => {
       if (debouncedSearchQuery) {
@@ -37,7 +37,7 @@ export function useInventory() {
     queryFn: () => categoriesApi.list(),
   });
 
-  const { data: inventoryData, isLoading: inventoryLoading } = useQuery({
+  const { data: inventoryData, isLoading: inventoryLoading, refetch: refetchInventory } = useQuery({
     queryKey: ['inventory', debouncedSearchQuery, filters],
     queryFn: () => {
       const params: any = { page: 1, per_page: 100, exclude_condition: 'USED' };
@@ -354,6 +354,9 @@ export function useInventory() {
     setSortConfig,
     filters,
     setFilters,
+    refetch: async () => {
+      await Promise.all([refetchProducts(), refetchInventory()]);
+    },
     
     // Mutations
     deleteProductMutation,

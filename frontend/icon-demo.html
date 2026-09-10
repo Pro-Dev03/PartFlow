@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PartFlow Icon Demo</title>
+    <style>
+      :root {
+        --bg: #f6f8fb;
+        --surface: #ffffff;
+        --surface-elevated: #f8fafc;
+        --border: #e2e8f0;
+        --text: #0f172a;
+        --text-soft: #475569;
+        --primary: #0ea5e9;
+        --danger: #ef4444;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Tahoma, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 40px;
+      }
+
+      .demo {
+        max-width: 980px;
+        margin: 0 auto;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 32px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+      }
+
+      h2 {
+        margin: 0 0 20px;
+        font-size: 24px;
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 28px;
+      }
+
+      .button-main {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        height: 42px;
+        padding: 0 16px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--surface-elevated);
+        color: var(--text);
+        font-weight: 700;
+        font-size: 14px;
+      }
+
+      .button-main svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .table-demo {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+        background: #fff;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th, td {
+        border-bottom: 1px solid var(--border);
+        padding: 14px 12px;
+        text-align: right;
+        font-size: 14px;
+      }
+
+      th {
+        background: #f8fafc;
+        color: var(--text-soft);
+        font-weight: 700;
+      }
+
+      .action-group {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .table-btn {
+        width: 32px;
+        height: 32px;
+        min-width: 32px;
+        min-height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text);
+        padding: 0;
+        cursor: pointer;
+      }
+
+      .table-btn svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .table-btn.edit { background: rgba(14, 165, 233, 0.06); border-color: rgba(14, 165, 233, 0.12); }
+      .table-btn.delete { background: rgba(239, 68, 68, 0.06); border-color: rgba(239, 68, 68, 0.12); color: var(--danger); }
+      .table-btn.view { background: rgba(59, 130, 246, 0.06); border-color: rgba(59, 130, 246, 0.12); }
+      .table-btn.success { background: rgba(16, 185, 129, 0.06); border-color: rgba(16, 185, 129, 0.12); color: #10b981; }
+
+      .label {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 13px;
+        color: var(--text-soft);
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="demo">
+      <h2>مثال مرئي لأيقونات PartFlow</h2>
+
+      <div class="label">زر رئيسي</div>
+      <div class="row">
+        <button class="button-main">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="9" cy="20" r="1"></circle>
+            <circle cx="18" cy="20" r="1"></circle>
+            <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"></path>
+          </svg>
+          بيع جديد
+        </button>
+      </div>
+
+      <div class="label">أزرار الإجراءات داخل الجدول</div>
+      <div class="table-demo">
+        <table>
+          <thead>
+            <tr>
+              <th>الاسم</th>
+              <th>الحالة</th>
+              <th>الإجراءات</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>مشتريات شهر سبتمبر</td>
+              <td>مكتمل</td>
+              <td>
+                <div class="action-group">
+                  <button class="table-btn success" title="استلام">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 3"></path></svg>
+                  </button>
+                  <button class="table-btn view" title="عرض">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  </button>
+                  <button class="table-btn edit" title="تعديل">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                  </button>
+                  <button class="table-btn delete" title="حذف">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </body>
+</html>

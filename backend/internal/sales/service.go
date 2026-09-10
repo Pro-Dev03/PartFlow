@@ -159,6 +159,27 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		}
 	}
 
+	paymentAmount := req.PaymentAmount
+	if paymentAmount < 0 || paymentAmount > totalAmount {
+		return nil, fmt.Errorf("payment amount must be between 0 and the sale total")
+	}
+	paymentMethod := ""
+	if req.PaymentMethod != nil {
+		paymentMethod = *req.PaymentMethod
+	}
+	isDebtSale := paymentMethod == "debt"
+	if isDebtSale && req.CustomerID == nil {
+		return nil, fmt.Errorf("credit sales require a customer")
+	}
+	paymentStatus := "pending"
+	if totalAmount > 0 && paymentAmount >= totalAmount {
+		paymentStatus = "paid"
+	} else if isDebtSale && totalAmount > paymentAmount {
+		paymentStatus = "debt"
+	} else if paymentAmount > 0 {
+		paymentStatus = "partial"
+	}
+
 	// Create sale - allow nil user_id for testing
 	var userIDPtr *uuid.UUID
 	if userID != uuid.Nil {
@@ -178,9 +199,9 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		CostAmount:     totalCost,
 		GrossProfit:    grossProfit,
 		NetProfit:      netProfit,
-		PaidAmount:     req.PaymentAmount,
+		PaidAmount:     paymentAmount,
 		PaymentMethod:  req.PaymentMethod,
-		PaymentStatus:  "pending",
+		PaymentStatus:  paymentStatus,
 		Status:         "completed",
 		Notes:          req.Notes,
 		CreatedAt:      time.Now(),
@@ -345,32 +366,46 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			currentBalance = 0
 		}
 
-		// Calculate debt amount (SALES-PHILOSOPHY.md)
-		debtAmount := totalAmount - req.PaymentAmount
+		debtAmount := totalAmount - paymentAmount
 		newBalance := currentBalance + debtAmount
+		if debtAmount > 0 {
+			ledgerQuery := `
+				INSERT INTO customer_ledger (id, customer_id, type,
+					amount, balance, reference_id, description, created_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			`
+			_, ledgerErr := tx.ExecContext(ctx, ledgerQuery,
+				uuid.New(), *req.CustomerID, "debit",
+				debtAmount, newBalance, sale.ID, "Sale: "+invoiceNumber, time.Now())
+			if ledgerErr != nil {
+				return nil, fmt.Errorf("failed to update customer ledger: %w", ledgerErr)
+			}
 
-		// Create ledger entry for the sale (SALES-PHILOSOPHY.md)
-		ledgerQuery := `
-			INSERT INTO customer_ledger (id, customer_id, type,
-				amount, balance, reference_id, description, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		`
-		_, ledgerErr := tx.ExecContext(ctx, ledgerQuery,
-			uuid.New(), *req.CustomerID, "debit",
-			debtAmount, newBalance, sale.ID, "Sale: "+invoiceNumber, time.Now())
-		if ledgerErr != nil {
-			return nil, fmt.Errorf("failed to update customer ledger: %w", ledgerErr)
-		}
+			updateCustomerQuery := fmt.Sprintf(`
+				UPDATE customers
+				SET current_balance = $1, updated_at = %s
+				WHERE id = $2
+			`, dbutil.NowSQL(s.db))
+			_, customerErr := tx.ExecContext(ctx, updateCustomerQuery, newBalance, *req.CustomerID)
+			if customerErr != nil {
+				return nil, fmt.Errorf("failed to update customer balance: %w", customerErr)
+			}
 
-		// Update customer current balance (SALES-PHILOSOPHY.md)
-		updateCustomerQuery := fmt.Sprintf(`
-			UPDATE customers
-			SET current_balance = $1, updated_at = %s
-			WHERE id = $2
-		`, dbutil.NowSQL(s.db))
-		_, customerErr := tx.ExecContext(ctx, updateCustomerQuery, newBalance, *req.CustomerID)
-		if customerErr != nil {
-			return nil, fmt.Errorf("failed to update customer balance: %w", customerErr)
+			if isDebtSale {
+				debtStatus := "pending"
+				if paymentAmount > 0 {
+					debtStatus = "partial"
+				}
+				debtQuery := fmt.Sprintf(`
+					INSERT INTO debts (id, customer_id, sale_id, amount, paid_amount, remaining_amount, due_date, status, notes, created_at, updated_at)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, %s, %s)
+				`, dbutil.NowSQL(s.db), dbutil.NowSQL(s.db))
+				if _, debtErr := tx.ExecContext(ctx, debtQuery,
+					uuid.New(), *req.CustomerID, sale.ID, totalAmount, paymentAmount, debtAmount,
+					time.Now().AddDate(0, 0, 30), debtStatus, "Sale: "+invoiceNumber); debtErr != nil {
+					return nil, fmt.Errorf("failed to create sale debt: %w", debtErr)
+				}
+			}
 		}
 
 		// Check credit limit (SALES-PHILOSOPHY.md)
@@ -387,7 +422,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	}
 
 	// Create payment record if payment is provided
-	if req.PaymentAmount > 0 {
+	if paymentAmount > 0 {
 		paymentQuery := `
 			INSERT INTO payments (id, sale_id, customer_id, amount,
 				payment_method, payment_status, created_by, created_at)
@@ -397,30 +432,20 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		paymentTime := time.Now()
 		var paymentErr error
 		if dbutil.IsSQLite(s.db) {
-			_, paymentErr = tx.ExecContext(ctx, `INSERT INTO payments (id, transaction_number, sale_id, customer_id, amount, payment_method, payment_status, created_by, payment_date, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9)`, paymentID, paymentID.String(), sale.ID, req.CustomerID, req.PaymentAmount, req.PaymentMethod, "completed", userID, paymentTime)
+			_, paymentErr = tx.ExecContext(ctx, `INSERT INTO payments (id, transaction_number, sale_id, customer_id, amount, payment_method, payment_status, created_by, payment_date, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9)`, paymentID, paymentID.String(), sale.ID, req.CustomerID, paymentAmount, req.PaymentMethod, "completed", userID, paymentTime)
 		} else {
 			_, paymentErr = tx.ExecContext(ctx, paymentQuery,
-				paymentID, sale.ID, req.CustomerID, req.PaymentAmount,
+				paymentID, sale.ID, req.CustomerID, paymentAmount,
 				req.PaymentMethod, "completed", userID, paymentTime)
 		}
 		if paymentErr != nil {
 			return nil, fmt.Errorf("failed to create payment: %w", paymentErr)
 		}
-		if req.PaymentAmount <= 0 {
-			sale.PaymentStatus = "pending"
-			if _, updateSaleErr := tx.ExecContext(ctx,
-				`UPDATE sales SET paid_amount = $1, payment_status = $2 WHERE id = $3`,
-				0, sale.PaymentStatus, sale.ID,
-			); updateSaleErr != nil {
-				return nil, fmt.Errorf("failed to update sale payment status: %w", updateSaleErr)
-			}
-		}
-
 		// Update sale paid amount
-		sale.PaidAmount = req.PaymentAmount
+		sale.PaidAmount = paymentAmount
 		if sale.PaidAmount >= sale.TotalAmount {
 			sale.PaymentStatus = "paid"
-		} else {
+		} else if !isDebtSale {
 			sale.PaymentStatus = "partial"
 		}
 

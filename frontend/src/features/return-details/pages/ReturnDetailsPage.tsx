@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { returnsApi } from '../../../services/api/endpoints';
@@ -6,9 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui
 import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
-import { Modal } from '../../../components/ui/modal';
 import { toast } from 'sonner';
-import { Input } from '../../../components/ui/input';
 import { 
   ArrowRight,
   RotateCcw,
@@ -17,10 +14,8 @@ import {
   AlertTriangle,
   Package,
   DollarSign,
-  Wrench,
   RefreshCw,
   History,
-  ClipboardCheck,
   CreditCard,
   Calculator
 } from 'lucide-react';
@@ -37,7 +32,6 @@ interface ReturnItem {
   condition_notes?: string;
   resolution?: string;
   inventory_status: string;
-  inspection_required: boolean;
   inspection_date?: string;
   inspection_result?: string;
   inspection_notes?: string;
@@ -87,12 +81,6 @@ export function ReturnDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [isInspectionModalOpen, setIsInspectionModalOpen] = useState(false);
-  const [selectedItemForInspection, setSelectedItemForInspection] = useState<ReturnItem | null>(null);
-  const [inspectionResult, setInspectionResult] = useState('');
-  const [inspectionNotes, setInspectionNotes] = useState('');
-  const [resolution, setResolution] = useState('');
-  const [repairCost, setRepairCost] = useState('');
 
   const { data: returnData, isLoading } = useQuery({
     queryKey: ['return', id],
@@ -101,26 +89,6 @@ export function ReturnDetailsPage() {
   });
 
   const returnItem = returnData as Return;
-
-  const processInspectionMutation = useMutation({
-    mutationFn: ({ itemId, data }: { itemId: string; data: any }) => 
-      returnsApi.processInspection(itemId, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['return', id] });
-      queryClient.invalidateQueries({ queryKey: ['returns'] });
-      toast.success('تم تسجيل فحص القطعة بنجاح!');
-      setIsInspectionModalOpen(false);
-      setSelectedItemForInspection(null);
-      setInspectionResult('');
-      setInspectionNotes('');
-      setResolution('');
-      setRepairCost('');
-    },
-    onError: (error) => {
-      console.error('Inspection failed:', error);
-      toast.error('فشل تسجيل فحص القطعة');
-    },
-  });
 
   const completeReturnMutation = useMutation({
     mutationFn: (returnId: string) => returnsApi.complete(returnId),
@@ -134,35 +102,6 @@ export function ReturnDetailsPage() {
       toast.error('فشل إكمال المرتجع');
     },
   });
-
-  const handleStartInspection = (item: ReturnItem) => {
-    setSelectedItemForInspection(item);
-    setInspectionResult('');
-    setInspectionNotes('');
-    setResolution('');
-    setRepairCost('');
-    setIsInspectionModalOpen(true);
-  };
-
-  const handleCompleteInspection = () => {
-    if (!selectedItemForInspection || !inspectionResult || !resolution) {
-      toast.error('يرجى ملء جميع الحقول المطلوبة');
-      return;
-    }
-
-    const data = {
-      inspection_date: new Date().toISOString().split('T')[0],
-      inspection_result: inspectionResult,
-      inspection_notes: inspectionNotes,
-      resolution: resolution,
-      repair_cost: parseFloat(repairCost) || 0,
-    };
-
-    processInspectionMutation.mutate({
-      itemId: selectedItemForInspection.id,
-      data,
-    });
-  };
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'secondary' | 'info'; icon: any }> = {
@@ -199,9 +138,12 @@ export function ReturnDetailsPage() {
 
   const getConditionLabel = (condition: string) => {
     const labels: Record<string, string> = {
+      READY_FOR_SALE: 'جاهز للبيع',
+      NOT_FOR_SALE: 'غير قابل للبيع',
+      RETURN_TO_SUPPLIER: 'إرجاع للمورد',
       SELLABLE: 'قابل للبيع',
-      NEEDS_INSPECTION: 'يحتاج فحص',
       NEEDS_REPAIR: 'يحتاج إصلاح',
+      NEEDS_INSPECTION: 'قيد المراجعة',
       DAMAGED: 'تالف',
       USED: 'مستعمل',
       REFURBISHED: 'مجدّد',
@@ -482,47 +424,6 @@ export function ReturnDetailsPage() {
                     </div>
                   </div>
 
-                  {item.inspection_required && item.inspection_result !== 'PASSED' && (
-                    <div className="mt-3">
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={() => handleStartInspection(item)}
-                        className="w-full"
-                      >
-                        <Wrench className="w-4 h-4 mr-1" />
-                        فحص القطعة
-                      </Button>
-                    </div>
-                  )}
-
-                  {item.inspection_result && (
-                    <div className="mt-3 p-2 bg-gray-50 rounded text-sm">
-                      <div className="flex items-center gap-2 mb-1">
-                        <ClipboardCheck className="w-4 h-4" />
-                        <span className="font-medium">نتيجة الفحص</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <p className="text-gray-400">النتيجة</p>
-                          <Badge variant={item.inspection_result === 'PASSED' ? 'success' : 'danger'}>
-                            {item.inspection_result === 'PASSED' ? 'اجتاز' : 'فشل'}
-                          </Badge>
-                        </div>
-                        <div>
-                          <p className="text-gray-400">التاريخ</p>
-                          <p>{item.inspection_date ? new Date(item.inspection_date).toLocaleDateString('ar-SA') : '-'}</p>
-                        </div>
-                      </div>
-                      {item.inspection_notes && (
-                        <div className="mt-2">
-                          <p className="text-gray-400">ملاحظات الفحص</p>
-                          <p>{item.inspection_notes}</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
                   {item.condition_notes && (
                     <div className="mt-2 text-sm">
                       <p className="text-gray-400">ملاحظات الحالة</p>
@@ -622,99 +523,6 @@ export function ReturnDetailsPage() {
         </CardContent>
       </Card>
 
-      {/* Inspection Modal */}
-      <Modal
-        isOpen={isInspectionModalOpen}
-        onClose={() => setIsInspectionModalOpen(false)}
-        title="فحص القطعة المرتجعة"
-        variant="modern"
-        size="md"
-      >
-        {selectedItemForInspection && (
-          <div className="space-y-4">
-            <div style={{
-              padding: '16px',
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(34, 211, 238, 0.05) 100%)',
-              borderRadius: '12px',
-              border: '1px solid rgba(99, 102, 241, 0.2)'
-            }}>
-              <p className="font-semibold">{selectedItemForInspection.product_name}</p>
-              <p className="text-sm text-gray-400">
-                الحالة: {selectedItemForInspection.returned_condition}
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">نتيجة الفحص</label>
-              <select
-                value={inspectionResult}
-                onChange={(e) => setInspectionResult(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="">اختر النتيجة</option>
-                <option value="PASSED">اجتاز الفحص</option>
-                <option value="FAILED">فشل الفحص</option>
-                <option value="PENDING">قيد الفحص</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">القرار</label>
-              <select
-                value={resolution}
-                onChange={(e) => setResolution(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="">اختر القرار</option>
-                <option value="RESTOCK">إعادة للمخزون</option>
-                <option value="REPAIR">إصلاح</option>
-                <option value="SUPPLIER_RETURN">إرجاع للمورد</option>
-                <option value="WRITE_OFF">شطب</option>
-                <option value="PARTS">تفكيك لقطع غيار</option>
-                <option value="REPLACEMENT">استبدال</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">تكلفة الإصلاح (اختياري)</label>
-              <Input
-                type="number"
-                value={repairCost}
-                onChange={(e) => setRepairCost(e.target.value)}
-                placeholder="أدخل تكلفة الإصلاح"
-                step="0.01"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">ملاحظات الفحص</label>
-              <textarea
-                value={inspectionNotes}
-                onChange={(e) => setInspectionNotes(e.target.value)}
-                placeholder="أدخل ملاحظات الفحص..."
-                rows={3}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            </div>
-
-            <div className="flex gap-3 justify-end pt-4 border-t">
-              <Button
-                variant="secondary"
-                onClick={() => setIsInspectionModalOpen(false)}
-              >
-                إلغاء
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleCompleteInspection}
-                disabled={processInspectionMutation.isPending}
-              >
-                {processInspectionMutation.isPending ? 'جاري التسجيل...' : 'تسجيل الفحص'}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }

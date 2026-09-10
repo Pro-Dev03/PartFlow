@@ -96,7 +96,7 @@ export function SuppliersPage() {
       'البريد': supplier.email || '-',
       'المشتريات': supplier.totalPurchases,
       'المدفوع': supplier.paidAmount,
-      'المستحق': supplier.outstanding
+      'صافي المستحق': supplier.outstanding
     }));
     exportToCSV(dataToExport, `suppliers-${new Date().toISOString().split('T')[0]}`);
   };
@@ -108,9 +108,9 @@ export function SuppliersPage() {
       'البريد': supplier.email || '-',
       'المشتريات': supplier.totalPurchases,
       'المدفوع': supplier.paidAmount,
-      'المستحق': supplier.outstanding
+      'صافي المستحق': supplier.outstanding
     }));
-    printTable(dataToPrint, ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'المستحق'], 'تقرير الموردين');
+    printTable(dataToPrint, ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق'], 'تقرير الموردين');
   };
 
   const handleSubmitSupplier = async (data: SupplierFormData) => {
@@ -230,7 +230,7 @@ export function SuppliersPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-small text-text-muted">المستحق</p>
+                <p className="text-small text-text-muted">صافي المستحق</p>
                 <p className="text-h2 font-bold text-text mt-1">
                   ₪{totalOutstanding.toLocaleString()}
                 </p>

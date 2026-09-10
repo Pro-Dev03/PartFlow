@@ -48,19 +48,22 @@ type Purchase struct {
 
 // PurchaseItem represents an item in a purchase
 type PurchaseItem struct {
-	ID           uuid.UUID  `json:"id" db:"id"`
-	PurchaseID   uuid.UUID  `json:"purchase_id" db:"purchase_id"`
-	ProductID    uuid.UUID  `json:"product_id" db:"product_id"`
-	Quantity     int        `json:"quantity" db:"quantity"`
-	UnitCost     float64    `json:"unit_cost" db:"unit_cost"`
-	TotalCost    float64    `json:"total_cost" db:"total_cost"`
-	SerialNumber string     `json:"serial_number" db:"serial_number"`
-	Condition    string     `json:"condition" db:"condition"` // new, used, refurbished
-	Grade        string     `json:"grade" db:"grade"`         // excellent, very_good, good, fair, poor
-	LocationID   *uuid.UUID `json:"location_id" db:"location_id"`
-	Notes        string     `json:"notes" db:"notes"`
-	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at" db:"updated_at"`
+	ID                 uuid.UUID  `json:"id" db:"id"`
+	PurchaseID         uuid.UUID  `json:"purchase_id" db:"purchase_id"`
+	ProductID          uuid.UUID  `json:"product_id" db:"product_id"`
+	Quantity           int        `json:"quantity" db:"quantity"`
+	UnitCost           float64    `json:"unit_cost" db:"unit_cost"`
+	TotalCost          float64    `json:"total_cost" db:"total_cost"`
+	SerialNumber       string     `json:"serial_number" db:"serial_number"`
+	Condition          string     `json:"condition" db:"condition"` // new, used, refurbished
+	Grade              string     `json:"grade" db:"grade"`         // excellent, very_good, good, fair, poor
+	LocationID         *uuid.UUID `json:"location_id" db:"location_id"`
+	Notes              string     `json:"notes" db:"notes"`
+	ReceivedQuantity   int        `json:"received_quantity" db:"received_quantity"`
+	ReturnedQuantity   int        `json:"returned_quantity" db:"returned_quantity"`
+	AvailableForReturn int        `json:"available_for_return" db:"available_for_return"`
+	CreatedAt          time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // PurchaseRequest represents purchase creation request

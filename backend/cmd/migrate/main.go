@@ -57,6 +57,26 @@ func main() {
 		return left < right
 	})
 
+	argumentIndex := 1
+	if len(os.Args) > argumentIndex && os.Args[argumentIndex] == "--" {
+		argumentIndex++
+	}
+	if len(os.Args) > argumentIndex {
+		targetVersion := strings.TrimSuffix(filepath.Base(os.Args[argumentIndex]), ".sql")
+		filtered := make([]string, 0, 1)
+		for _, file := range migrationFiles {
+			if strings.TrimSuffix(filepath.Base(file), ".sql") == targetVersion {
+				filtered = append(filtered, file)
+				break
+			}
+		}
+		if len(filtered) == 0 {
+			log.Fatalf("Migration not found: %s", os.Args[argumentIndex])
+		}
+		migrationFiles = filtered
+		fmt.Printf("Running selected migration: %s\n", targetVersion)
+	}
+
 	// Create migrations table if not exists
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (

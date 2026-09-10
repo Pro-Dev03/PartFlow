@@ -726,15 +726,14 @@ func isValidStatusTransition(currentStatus, newStatus string) bool {
 
 	// Define valid status transitions
 	validTransitions := map[string][]string{
-		string(StatusPurchased):  {string(StatusReceived), string(StatusInspection)},
-		string(StatusReceived):   {string(StatusInspection), string(StatusAvailable)},
-		string(StatusInspection): {string(StatusAvailable), string(StatusDamaged), string(StatusInRepair)},
-		string(StatusAvailable):  {string(StatusReserved), string(StatusSold), string(StatusDamaged)},
-		string(StatusReserved):   {string(StatusSold), string(StatusAvailable)},
-		string(StatusSold):       {string(StatusReturned)},
-		string(StatusDamaged):    {string(StatusAvailable), string(StatusInRepair), string(StatusForParts)},
-		string(StatusInRepair):   {string(StatusAvailable), string(StatusForParts)},
-		string(StatusReturned):   {string(StatusAvailable), string(StatusForParts)},
+		string(StatusPurchased): {string(StatusReceived), string(StatusAvailable)},
+		string(StatusReceived):  {string(StatusAvailable)},
+		string(StatusAvailable): {string(StatusReserved), string(StatusSold), string(StatusDamaged)},
+		string(StatusReserved):  {string(StatusSold), string(StatusAvailable)},
+		string(StatusSold):      {string(StatusReturned)},
+		string(StatusDamaged):   {string(StatusAvailable), string(StatusInRepair), string(StatusForParts)},
+		string(StatusInRepair):  {string(StatusAvailable), string(StatusForParts)},
+		string(StatusReturned):  {string(StatusAvailable), string(StatusForParts)},
 	}
 
 	allowedStatuses, ok := validTransitions[currentStatus]

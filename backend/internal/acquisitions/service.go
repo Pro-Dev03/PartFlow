@@ -122,38 +122,36 @@ func (s *Service) CreateAcquisition(ctx context.Context, req *AcquisitionRequest
 			grade = "good"
 		}
 		item := &AcquisitionItem{
-			ID:               uuid.New(),
-			AcquisitionID:    acquisitionID,
-			ProductID:        itemReq.ProductID,
-			SerialNumber:     itemReq.SerialNumber,
-			Condition:        condition,
-			Grade:            grade,
-			UnitCost:         itemReq.UnitCost,
-			TotalCost:        itemReq.UnitCost, // Assuming quantity 1 for individual items
-			InspectionStatus: "pending",
-			ItemStatus:       "inspection",
-			Notes:            itemReq.Notes,
-			CreatedAt:        time.Now(),
-			UpdatedAt:        time.Now(),
+			ID:            uuid.New(),
+			AcquisitionID: acquisitionID,
+			ProductID:     itemReq.ProductID,
+			SerialNumber:  itemReq.SerialNumber,
+			Condition:     condition,
+			Grade:         grade,
+			UnitCost:      itemReq.UnitCost,
+			TotalCost:     itemReq.UnitCost, // Assuming quantity 1 for individual items
+			ItemStatus:    "available",
+			Notes:         itemReq.Notes,
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
 		}
 
 		itemQuery := `
-			INSERT INTO acquisition_items (id, acquisition_id, product_id, serial_number, 
-				condition, grade, unit_cost, total_cost, inspection_status, item_status, notes, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			INSERT INTO acquisition_items (id, acquisition_id, product_id, serial_number,
+				condition, grade, unit_cost, total_cost, item_status, notes, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		`
 
 		_, err = tx.Exec(itemQuery,
 			item.ID, item.AcquisitionID, item.ProductID, item.SerialNumber,
 			item.Condition, item.Grade, item.UnitCost, item.TotalCost,
-			item.InspectionStatus, item.ItemStatus, item.Notes, item.CreatedAt, item.UpdatedAt,
+			item.ItemStatus, item.Notes, item.CreatedAt, item.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create acquisition item: %w", err)
 		}
 
-		// Every acquired unit is an actual inventory item.  It starts in
-		// INSPECTION so it cannot be sold before the inspection workflow passes it.
+		// Every acquired unit is immediately available for sale.
 		inventoryID := uuid.New()
 		itemCode := fmt.Sprintf("ACQ-%s", strings.ToUpper(strings.ReplaceAll(inventoryID.String()[:13], "-", "")))
 		barcode := fmt.Sprintf("ACQ-%s", strings.ToUpper(strings.ReplaceAll(inventoryID.String(), "-", "")))
@@ -165,10 +163,10 @@ func (s *Service) CreateAcquisition(ctx context.Context, req *AcquisitionRequest
 		`, dbutil.NowSQL(s.db), dbutil.NowSQL(s.db))
 		if _, err = tx.ExecContext(ctx, inventoryQuery, inventoryID, itemReq.ProductID, itemCode, barcode,
 			nullableString(itemReq.SerialNumber), strings.ToUpper(condition), strings.ToUpper(grade),
-			itemReq.UnitCost, itemReq.UnitCost, "INSPECTION", req.SupplierID, req.AcquisitionDate, nullableString(itemReq.Notes)); err != nil {
+			itemReq.UnitCost, itemReq.UnitCost, "AVAILABLE", req.SupplierID, req.AcquisitionDate, nullableString(itemReq.Notes)); err != nil {
 			return nil, fmt.Errorf("failed to create inventory item for acquisition: %w", err)
 		}
-		if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE acquisition_items SET inventory_item_id = $1, item_code = $2, item_status = 'inspection', updated_at = %s WHERE id = $3`, dbutil.NowSQL(s.db)), inventoryID, itemCode, item.ID); err != nil {
+		if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE acquisition_items SET inventory_item_id = $1, item_status = 'available', updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db)), inventoryID, item.ID); err != nil {
 			return nil, fmt.Errorf("failed to link acquisition item to inventory: %w", err)
 		}
 		updateAggregate := fmt.Sprintf(`UPDATE inventory SET quantity = quantity + 1, updated_at = %s WHERE product_id = $1`, dbutil.NowSQL(s.db))
@@ -342,7 +340,7 @@ func (s *Service) GetAcquisitionWithItems(ctx context.Context, id uuid.UUID) (*A
 // directly into time.Time/uuid.UUID makes the local application fail after a
 // perfectly valid write.
 func (s *Service) loadAcquisitionItems(ctx context.Context, acquisitionID uuid.UUID) ([]AcquisitionItem, error) {
-	rows, err := s.db.QueryxContext(ctx, `SELECT * FROM acquisition_items WHERE acquisition_id = $1 ORDER BY created_at`, acquisitionID)
+	rows, err := s.db.QueryxContext(ctx, `SELECT id, acquisition_id, product_id, inventory_item_id, serial_number, condition, grade, unit_cost, total_cost, item_status, notes, created_at, updated_at FROM acquisition_items WHERE acquisition_id = $1 ORDER BY created_at`, acquisitionID)
 	if err != nil {
 		return nil, err
 	}
@@ -354,19 +352,17 @@ func (s *Service) loadAcquisitionItems(ctx context.Context, acquisitionID uuid.U
 			return nil, err
 		}
 		item := AcquisitionItem{
-			ID:               parseUUIDValue(record["id"]),
-			AcquisitionID:    parseUUIDValue(record["acquisition_id"]),
-			ProductID:        parseUUIDValue(record["product_id"]),
-			SerialNumber:     strings.TrimSpace(fmt.Sprint(record["serial_number"])),
-			Condition:        strings.TrimSpace(fmt.Sprint(record["condition"])),
-			Grade:            strings.TrimSpace(fmt.Sprint(record["grade"])),
-			UnitCost:         parseFloatValue(record["unit_cost"]),
-			TotalCost:        parseFloatValue(record["total_cost"]),
-			InspectionStatus: strings.TrimSpace(fmt.Sprint(record["inspection_status"])),
-			ItemStatus:       strings.TrimSpace(fmt.Sprint(record["item_status"])),
-			Notes:            strings.TrimSpace(fmt.Sprint(record["notes"])),
+			ID:            parseUUIDValue(record["id"]),
+			AcquisitionID: parseUUIDValue(record["acquisition_id"]),
+			ProductID:     parseUUIDValue(record["product_id"]),
+			SerialNumber:  strings.TrimSpace(fmt.Sprint(record["serial_number"])),
+			Condition:     strings.TrimSpace(fmt.Sprint(record["condition"])),
+			Grade:         strings.TrimSpace(fmt.Sprint(record["grade"])),
+			UnitCost:      parseFloatValue(record["unit_cost"]),
+			TotalCost:     parseFloatValue(record["total_cost"]),
+			ItemStatus:    strings.TrimSpace(fmt.Sprint(record["item_status"])),
+			Notes:         strings.TrimSpace(fmt.Sprint(record["notes"])),
 		}
-		item.InspectionID = parseNullableUUIDValue(record["inspection_id"])
 		item.InventoryItemID = parseNullableUUIDValue(record["inventory_item_id"])
 		if value, parseErr := dbutil.ParseTimestamp(record["created_at"]); parseErr == nil {
 			item.CreatedAt = value
@@ -577,79 +573,7 @@ func (s *Service) UpdateAcquisitionStatus(ctx context.Context, id uuid.UUID, sta
 	}
 
 	switch status {
-	case "pending", "passed", "failed", "needs_repair":
-		tx, txErr := s.db.BeginTxx(ctx, nil)
-		if txErr != nil {
-			return fmt.Errorf("begin acquisition item status transaction: %w", txErr)
-		}
-		committed := false
-		defer func() {
-			if !committed {
-				_ = tx.Rollback()
-			}
-		}()
-		result, err := tx.ExecContext(ctx, fmt.Sprintf(`
-			UPDATE acquisition_items
-			SET inspection_status = $1,
-			    item_status = CASE
-			        WHEN $1 = 'passed' THEN 'available'
-			        WHEN $1 = 'failed' THEN 'rejected'
-			        ELSE 'inspection'
-			    END,
-			    updated_at = %s
-			WHERE id = $2
-		`, dbutil.NowSQL(s.db)), status, id)
-		if err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("failed to update acquisition item status: %w", err)
-		}
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		}
-		if rowsAffected == 0 {
-			if status == "pending" {
-				result, updateErr := tx.ExecContext(ctx, fmt.Sprintf(`UPDATE acquisitions SET status = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db)), status, id)
-				if updateErr != nil {
-					_ = tx.Rollback()
-					return fmt.Errorf("failed to update acquisition status: %w", updateErr)
-				}
-				if affected, _ := result.RowsAffected(); affected == 0 {
-					_ = tx.Rollback()
-					return fmt.Errorf("acquisition not found")
-				}
-				if err := tx.Commit(); err != nil {
-					return fmt.Errorf("commit acquisition status transaction: %w", err)
-				}
-				committed = true
-				return nil
-			}
-			_ = tx.Rollback()
-			return fmt.Errorf("acquisition item not found")
-		}
-		if status == "passed" {
-			if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-				UPDATE inventory_items SET status = 'AVAILABLE', updated_at = %s
-				WHERE id = (SELECT inventory_item_id FROM acquisition_items WHERE id = $1)
-			`, dbutil.NowSQL(s.db)), id); err != nil {
-				return fmt.Errorf("failed to make inspected item available: %w", err)
-			}
-		} else if status == "failed" {
-			if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-				UPDATE inventory_items SET status = 'DAMAGED', updated_at = %s
-				WHERE id = (SELECT inventory_item_id FROM acquisition_items WHERE id = $1)
-			`, dbutil.NowSQL(s.db)), id); err != nil {
-				return fmt.Errorf("failed to mark inspected item rejected: %w", err)
-			}
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit acquisition status transaction: %w", err)
-		}
-		committed = true
-		return nil
-	case StatusDraft, StatusAcquired, StatusInspection,
-		StatusApproved, StatusRejected, StatusCancelled, StatusReversed:
+	case StatusDraft, StatusAcquired, StatusCancelled, StatusReversed:
 		return updateAcquisition()
 	default:
 		return fmt.Errorf("invalid acquisition status: %s", status)
@@ -978,6 +902,9 @@ func (s *Service) GetSellerBalances(ctx context.Context) ([]SellerBalance, error
 		SELECT 
 			a.customer_id,
 			c.name as customer_name,
+			c.code as customer_code,
+			COALESCE(c.phone, '') as customer_phone,
+			c.email as customer_email,
 			COUNT(a.id) as total_acquisitions,
 			SUM(a.total_cost) as total_acquired,
 			SUM(a.paid_amount) as total_paid,
@@ -987,7 +914,7 @@ func (s *Service) GetSellerBalances(ctx context.Context) ([]SellerBalance, error
 		FROM acquisitions a
 		JOIN customers c ON a.customer_id = c.id
 		WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed')
-		GROUP BY a.customer_id, c.name
+		GROUP BY a.customer_id, c.name, c.code, c.phone, c.email
 		ORDER BY balance DESC
 	`
 
@@ -997,6 +924,9 @@ func (s *Service) GetSellerBalances(ctx context.Context) ([]SellerBalance, error
 	type sellerBalanceRow struct {
 		CustomerID        uuid.UUID       `db:"customer_id"`
 		CustomerName      string          `db:"customer_name"`
+		CustomerCode      string          `db:"customer_code"`
+		CustomerPhone     string          `db:"customer_phone"`
+		CustomerEmail     *string         `db:"customer_email"`
 		TotalAcquisitions int             `db:"total_acquisitions"`
 		TotalAcquired     float64         `db:"total_acquired"`
 		TotalPaid         float64         `db:"total_paid"`
@@ -1015,6 +945,9 @@ func (s *Service) GetSellerBalances(ctx context.Context) ([]SellerBalance, error
 		balance := SellerBalance{
 			CustomerID:        row.CustomerID,
 			CustomerName:      row.CustomerName,
+			CustomerCode:      row.CustomerCode,
+			CustomerPhone:     row.CustomerPhone,
+			CustomerEmail:     row.CustomerEmail,
 			TotalAcquisitions: row.TotalAcquisitions,
 			TotalAcquired:     row.TotalAcquired,
 			TotalPaid:         row.TotalPaid,
@@ -1029,6 +962,35 @@ func (s *Service) GetSellerBalances(ctx context.Context) ([]SellerBalance, error
 	}
 
 	return balances, nil
+}
+
+// CreateSellerBalancePayment applies a payment to the oldest unpaid acquisition for a seller.
+func (s *Service) CreateSellerBalancePayment(ctx context.Context, customerID uuid.UUID, amount float64, userID uuid.UUID) (*SellerPayment, error) {
+	var acquisitionID uuid.UUID
+	err := s.db.GetContext(ctx, &acquisitionID, `
+		SELECT id
+		FROM acquisitions
+		WHERE customer_id = $1
+		  AND type = 'CUSTOMER'
+		  AND status NOT IN ('cancelled', 'reversed')
+		  AND total_cost > paid_amount
+		ORDER BY acquisition_date ASC, created_at ASC
+		LIMIT 1
+	`, customerID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("no unpaid acquisition found for seller")
+		}
+		return nil, fmt.Errorf("failed to find unpaid acquisition: %w", err)
+	}
+
+	return s.CreateSellerPayment(ctx, &SellerPaymentRequest{
+		AcquisitionID: acquisitionID,
+		CustomerID:    customerID,
+		Amount:        amount,
+		PaymentMethod: "cash",
+		PaymentDate:   time.Now(),
+	}, userID)
 }
 
 // nullableSQLTime accepts both database driver representations used by the

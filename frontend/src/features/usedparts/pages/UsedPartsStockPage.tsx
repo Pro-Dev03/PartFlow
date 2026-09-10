@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { acquisitionsApi, inventoryApi, inspectionsApi } from '../../../services/api/endpoints';
+import { acquisitionsApi, inventoryApi } from '../../../services/api/endpoints';
 import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
@@ -15,36 +15,18 @@ export function UsedPartsStockPage() {
     queryKey: ['inventory', 'used-stock'],
     queryFn: () => inventoryApi.list({ page: 1, per_page: 100 }),
   });
-  const { data: passedInspectionsData, isLoading: isLoadingInspections } = useQuery({
-    queryKey: ['inspections', 'passed', 'used-stock'],
-    queryFn: () => inspectionsApi.list({ page: 1, per_page: 100, status: 'passed' }),
-  });
   const { data: acquisitionsData, isLoading: isLoadingAcquisitions } = useQuery({
     queryKey: ['acquisitions', 'used-stock'],
     queryFn: () => acquisitionsApi.list({ page: 1, per_page: 100, type: 'CUSTOMER' }),
   });
 
-  const passedInspections = Array.isArray(passedInspectionsData?.data)
-    ? passedInspectionsData.data
-    : passedInspectionsData?.data?.items || [];
-  const passedItemIds = new Set(
-    passedInspections
-      .map((inspection: any) => inspection.inventory_item_id)
-      .filter(Boolean)
-  );
   const acquisitionItems = (Array.isArray(acquisitionsData?.data)
     ? acquisitionsData.data
     : acquisitionsData?.data?.items || []
   ).flatMap((acquisition: any) => acquisition.items || []);
-  acquisitionItems
-    .filter((item: any) => String(item.inspection_status || '').toUpperCase() === 'PASSED')
-    .map((item: any) => item.inventory_item_id)
-    .filter(Boolean)
-    .forEach((itemId: string) => passedItemIds.add(itemId));
 
   const items = (Array.isArray(data?.data) ? data.data : data?.data?.items || [])
     .filter((item: any) => String(item.condition || '').toUpperCase() === 'USED')
-    .filter((item: any) => passedItemIds.has(item.id))
     .filter((item: any) => String(item.status || '').toUpperCase() === 'AVAILABLE');
   const usedPurchaseValue = items.reduce((total: number, item: any) => total + Number(item.purchase_cost || 0), 0);
   const usedSellingValue = items.reduce((total: number, item: any) => total + Number(item.selling_price || 0), 0);
@@ -64,7 +46,7 @@ export function UsedPartsStockPage() {
       <PageHeader
         eyebrow="Used Parts Stock"
         title="مخزون القطع المستعملة"
-        description="القطع المستعملة التي اجتازت الفحص وغير المباعة"
+        description="القطع المستعملة المتاحة وغير المباعة"
         actions={
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => navigate('/app/usedparts')}>
@@ -75,7 +57,7 @@ export function UsedPartsStockPage() {
           </div>
         }
       />
-      {isLoading || isLoadingInspections || isLoadingAcquisitions ? (
+      {isLoading || isLoadingAcquisitions ? (
         <div className="flex justify-center p-12">جاري التحميل...</div>
       ) : (
         <div className="space-y-5">

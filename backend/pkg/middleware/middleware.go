@@ -24,6 +24,23 @@ var jwtSecret = []byte("your-secret-key-change-in-production")
 var db *sqlx.DB
 var disableAuth = false
 
+func allowLocalAuthBypass() bool {
+	mode := strings.TrimSpace(strings.ToLower(os.Getenv("SERVER_MODE")))
+	if mode == "" {
+		mode = strings.TrimSpace(strings.ToLower(os.Getenv("APP_ENV")))
+	}
+	if mode == "release" || mode == "production" {
+		return false
+	}
+
+	flag := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS")))
+	if flag == "1" || flag == "true" || flag == "yes" {
+		return true
+	}
+
+	return mode == "debug" || mode == "development" || mode == "test"
+}
+
 const defaultCloudAPIURL = "https://partflow-api.onrender.com/api/v1"
 
 // Cloud validation is intentionally cached only for a very short period. The
@@ -61,6 +78,14 @@ var cloudValidationCache = make(map[string]cloudValidationCacheEntry)
 var cloudValidationInFlight = make(map[string]*cloudValidationCall)
 
 func requiresCloudAuth() bool {
+	mode := strings.TrimSpace(strings.ToLower(os.Getenv("SERVER_MODE")))
+	if mode == "" {
+		mode = strings.TrimSpace(strings.ToLower(os.Getenv("APP_ENV")))
+	}
+	if mode == "release" || mode == "production" {
+		return true
+	}
+
 	value := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")))
 	if value == "" {
 		return true
@@ -323,6 +348,14 @@ func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip authentication if disabled (development mode)
 		if disableAuth {
+			if !allowLocalAuthBypass() {
+				c.JSON(http.StatusForbidden, gin.H{
+					"error": "authentication is disabled only for local development; set PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS=true in non-production",
+					"code":  "AUTH_DISABLED",
+				})
+				c.Abort()
+				return
+			}
 			// Use a real user when available so endpoints with non-null user
 			// references (inspections and seller payments) remain usable.
 			// Fall back to the zero UUID for installations without users yet.

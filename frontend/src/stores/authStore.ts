@@ -142,6 +142,19 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
 
       if (!response.ok) {
         if (response.status === 403) {
+          stopTokenRefresh();
+          apiClient.logout();
+          TokenManager.clearToken();
+          TokenManager.clearRefreshToken();
+          useAuthStore.setState({
+            isAuthenticated: false,
+            sessionVerified: false,
+            user: null,
+            token: null,
+            refreshTokenValue: null,
+            cloudToken: null,
+            isLoading: false,
+          });
           clearPersistedAuthStorage();
           goToSubscriptionExpiredPage();
         } else if (response.status === 401) {
@@ -169,12 +182,8 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
         sessionVerified: true,
       });
       return true;
-    } catch (error) {
-      // Preserve session on transient network/connectivity errors instead of
-      // forcing logout. Only explicit cloud rejections should clear auth.
-      if (error instanceof TypeError) {
-        return true;
-      }
+    } catch {
+      // A cloud outage is not proof of an active subscription.
       return false;
     }
   })();
@@ -361,7 +370,8 @@ export const useAuthStore = create<AuthState>()(
         }
 
         if (!navigator.onLine) {
-          set({ isAuthenticated: true, sessionVerified: true, isLoading: false });
+          forceLogoutToLogin('Cloud verification requires an internet connection');
+          set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
           return;
         }
 

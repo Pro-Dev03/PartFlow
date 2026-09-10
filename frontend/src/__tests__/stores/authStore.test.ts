@@ -209,4 +209,23 @@ describe('auth store logout behavior', () => {
 
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
+
+  it('rejects a stored cloud session when the device is offline', async () => {
+    window.history.pushState({}, '', '/app');
+    vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    TokenManager.setToken('local-jwt-token');
+    localStorage.setItem('cloud_token', 'cloud-access-token');
+    useAuthStore.setState({
+      isAuthenticated: true,
+      sessionVerified: true,
+      token: 'local-jwt-token',
+      cloudToken: 'cloud-access-token',
+      user: { id: '1', email: 'test@example.com' } as any,
+    });
+
+    await useAuthStore.getState().checkAuth();
+
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().sessionVerified).toBe(false);
+  });
 });

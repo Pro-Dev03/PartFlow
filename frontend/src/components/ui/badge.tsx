@@ -23,10 +23,10 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
     };
 
     const sizeClasses = {
-      xs: 'px-[var(--badge-padding-xs)] text-[var(--badge-font-size-xs)]',
-      sm: 'px-[var(--badge-padding-sm)] text-[var(--badge-font-size-sm)]',
-      md: 'px-[var(--badge-padding-md)] text-[var(--badge-font-size-md)]',
-      lg: 'px-[var(--badge-padding-lg)] text-[var(--badge-font-size-lg)]',
+      xs: 'px-[var(--badge-padding-xs)] text-[var(--badge-font-size-xs)] leading-none',
+      sm: 'px-[var(--badge-padding-sm)] text-[var(--badge-font-size-sm)] leading-none',
+      md: 'px-[var(--badge-padding-md)] text-[var(--badge-font-size-md)] leading-none',
+      lg: 'px-[var(--badge-padding-lg)] text-[var(--badge-font-size-lg)] leading-none',
     };
 
     const getStatusText = () => {
@@ -44,7 +44,7 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
       <div
         ref={ref}
         className={cn(
-          'inline-flex items-center gap-1.5 font-medium tracking-wide transition-colors duration-normal',
+          'inline-flex h-fit items-center gap-1.5 font-medium tracking-wide transition-colors duration-normal',
           'rounded-[var(--badge-border-radius)]',
           variants[variant],
           sizeClasses[size] || sizeClasses.md,

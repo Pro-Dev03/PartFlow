@@ -8,6 +8,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   isLoading?: boolean;
   loading?: boolean;
   fullWidth?: boolean;
+  tableAction?: boolean;
 }
 
 const DEFAULT_SIZE: 'md' = 'md';
@@ -21,6 +22,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     loading = false,
     disabled = false,
     fullWidth = false,
+    tableAction = false,
     children,
     'aria-label': ariaLabel,
     'aria-describedby': ariaDescribedby,
@@ -34,91 +36,97 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       'items-center',
       'justify-center',
       'gap-2',
+      'whitespace-nowrap',
       'font-semibold',
-      'rounded-[10px]',
+      'tracking-[0.01em]',
+      'rounded-[8px]',
+      'border',
+      'border-transparent',
       'transition-all',
-      'duration-150',
+      'duration-200',
       'ease-out',
-      'focus:outline-none',
-      'focus:ring-2',
-      'focus:ring-offset-2',
-      'focus-visible:ring-primary',
+      'focus-visible:outline-none',
+      'focus-visible:ring-2',
       'focus-visible:ring-offset-2',
+      'focus-visible:ring-primary',
+      'focus-visible:ring-offset-[var(--bg-surface)]',
       'disabled:opacity-50',
       'disabled:cursor-not-allowed',
+      'disabled:pointer-events-none',
+      'shrink-0',
     ];
 
     const variantClasses: Record<string, string> = {
       primary: [
         'bg-primary',
         'text-white',
-        'border',
-        'border-primary/20',
+        'border-primary/40',
+        'shadow-[0_8px_18px_rgba(37,99,235,0.18)]',
         'hover:bg-primary/90',
-        'focus:ring-primary',
+        'hover:shadow-[0_10px_22px_rgba(37,99,235,0.22)]',
+        'active:bg-primary/80',
+        'focus-visible:ring-primary',
       ].join(' '),
       secondary: [
         'bg-surface-elevated',
         'text-text-primary',
-        'border',
         'border-border',
+        'shadow-[0_1px_2px_rgba(15,23,42,0.08)]',
         'hover:bg-surface',
+        'hover:border-primary/30',
         'hover:text-text-primary',
-        'focus:ring-primary',
+        'focus-visible:ring-primary',
       ].join(' '),
       ghost: [
-        'bg-transparent',
-        'text-text-primary',
-        'hover:bg-surface',
-        'hover:text-text-primary',
+        'bg-primary/5',
+        'text-primary',
         'border-transparent',
+        'hover:bg-primary/10',
+        'hover:text-primary',
+        'focus-visible:ring-primary',
       ].join(' '),
       danger: [
-        'bg-danger/10',
+        'bg-danger/12',
         'text-danger',
-        'border',
-        'border-danger/20',
+        'border-danger/30',
         'hover:bg-danger/20',
-        'focus:ring-danger',
+        'focus-visible:ring-danger',
       ].join(' '),
       success: [
-        'bg-success/10',
+        'bg-success/12',
         'text-success',
-        'border',
-        'border-success/20',
+        'border-success/30',
         'hover:bg-success/20',
-        'focus:ring-success',
+        'focus-visible:ring-success',
       ].join(' '),
       outline: [
         'bg-transparent',
-        'text-text-primary',
-        'border',
-        'border-primary/20',
+        'text-primary',
+        'border-primary/30',
         'hover:bg-primary/5',
-        'focus:ring-primary',
+        'hover:text-primary',
+        'focus-visible:ring-primary',
       ].join(' '),
       default: [
         'bg-surface',
         'text-text-primary',
-        'border',
         'border-border',
         'hover:bg-surface/80',
+        'hover:border-primary/20',
       ].join(' '),
       warning: [
-        'bg-warning/10',
+        'bg-warning/12',
         'text-warning',
-        'border',
-        'border-warning/20',
+        'border-warning/30',
         'hover:bg-warning/20',
-        'focus:ring-warning',
+        'focus-visible:ring-warning',
       ].join(' '),
       info: [
-        'bg-info/10',
+        'bg-info/12',
         'text-info',
-        'border',
-        'border-info/20',
+        'border-info/30',
         'hover:bg-info/20',
-        'focus:ring-info',
+        'focus-visible:ring-info',
       ].join(' '),
     };
 
@@ -128,8 +136,13 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       md: 'h-[var(--button-height-md)] px-[var(--button-padding-md)] text-[var(--button-font-size-md)]',
       lg: 'h-[var(--button-height-lg)] px-[var(--button-padding-lg)] text-[var(--button-font-size-lg)]',
       xl: 'h-[var(--button-height-xl)] px-[var(--button-padding-xl)] text-[var(--button-font-size-xl)]',
-      icon: 'h-10 w-10 p-0',
+      icon: 'h-5 w-5 min-h-5 min-w-5 p-0 gap-0 text-[0.7rem] leading-none',
     };
+
+    const isAutoTableAction = (size === 'icon' || (size === 'sm' && ['ghost', 'outline', 'danger'].includes(variant))) && !tableAction;
+    const tableActionClasses = tableAction || isAutoTableAction
+      ? 'pf-table-action-btn h-8 min-h-8 w-8 min-w-8 p-0 gap-0 rounded-[9px] shrink-0 leading-none'
+      : '';
 
     return (
       <button
@@ -138,6 +151,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           ...baseClasses,
           variantClasses[variant] || variantClasses.default,
           sizeClasses[size] || sizeClasses.sm,
+          tableActionClasses,
           'select-none',
           'pf-button',
           `pf-button-${variant}`,

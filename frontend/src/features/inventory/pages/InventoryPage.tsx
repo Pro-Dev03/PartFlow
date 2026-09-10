@@ -81,6 +81,7 @@ export function InventoryPage() {
     setSortConfig,
     filters,
     setFilters,
+    refetch,
     deleteProductMutation,
     createProductMutation,
     updateProductMutation,
@@ -340,6 +341,7 @@ export function InventoryPage() {
   const handleRefresh = () => {
     setSortConfig({ key: '', direction: null });
     setFilters([]);
+    void refetch();
   };
 
   const handleViewInventoryLedger = async (productId: string) => {
@@ -401,7 +403,7 @@ export function InventoryPage() {
             isMobile ? "flex-col w-full" : ""
           )}>
             <Button 
-              variant="secondary" 
+              variant="primary"
               size={getButtonSize('inventory', 'headerActions')}
               className={cn(isMobile ? "w-full" : "")}
               onClick={handleManualAdd}
@@ -410,7 +412,7 @@ export function InventoryPage() {
               {t('inventory.addItem')}
             </Button>
             <Button 
-              variant="secondary" 
+              variant="outline"
               size={getButtonSize('inventory', 'headerActions')} 
               onClick={handleExport}
               className={cn(isMobile ? "w-full" : "")}

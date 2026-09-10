@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { inventoryApi, partTypesApi, customersApi, productsApi, barcodeApi, acquisitionsApi, inspectionsApi } from '../../../services/api/endpoints';
+import { inventoryApi, partTypesApi, customersApi, productsApi, barcodeApi, acquisitionsApi } from '../../../services/api/endpoints';
 import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -47,12 +47,6 @@ export function UsedPartsPage() {
   const [acquisitionNotes, setAcquisitionNotes] = useState('');
   const [paymentStatus, setPaymentStatus] = useState('payable');
 
-  // Inspection modal state
-  const [isInspectionModalOpen, setIsInspectionModalOpen] = useState(false);
-  const [selectedItemForInspection, setSelectedItemForInspection] = useState<any>(null);
-  const [inspectionChecks, setInspectionChecks] = useState<any[]>([]);
-  const [inspectionNotes, setInspectionNotes] = useState('');
-
   // Barcode scanner state
   const [barcodeInput, setBarcodeInput] = useState('');
   const [inputMethod, setInputMethod] = useState<'barcode' | 'manual' | 'camera'>('barcode');
@@ -67,11 +61,6 @@ export function UsedPartsPage() {
     queryFn: () => inventoryApi.list({ page: 1, per_page: 100 }),
     staleTime: 0,
     refetchOnMount: 'always',
-  });
-
-  const { data: inspectionsData } = useQuery({
-    queryKey: ['inspections'],
-    queryFn: () => inspectionsApi.list({ page: 1, per_page: 100 }),
   });
 
   const { data: partTypesData, error: partTypesError, isLoading: partTypesLoading } = useQuery({
@@ -98,17 +87,6 @@ export function UsedPartsPage() {
   const partTypes = Array.isArray(partTypesData?.data) ? partTypesData.data : [];
   const customers = Array.isArray(customersData?.data) ? customersData.data : [];
   const products = Array.isArray(productsData?.data?.products) ? productsData.data.products : [];
-  const inspections = Array.isArray(inspectionsData?.data?.items)
-    ? inspectionsData.data.items
-    : Array.isArray(inspectionsData?.data)
-      ? inspectionsData.data
-      : [];
-  const passedInspectionItemIds = new Set(
-    inspections
-      .filter((inspection: any) => String(inspection.status || '').toUpperCase() === 'PASSED')
-      .map((inspection: any) => inspection.inventory_item_id)
-      .filter(Boolean)
-  );
 
   // Handle part types error gracefully
   if (partTypesError) {
@@ -201,63 +179,6 @@ export function UsedPartsPage() {
     setIsAcquisitionModalOpen(false);
   };
 
-  // Inspection handlers
-  const handleStartInspection = (item: any) => {
-    setSelectedItemForInspection(item);
-    setInspectionChecks([]);
-    setInspectionNotes('');
-    setIsInspectionModalOpen(true);
-  };
-
-  const handleCompleteInspection = async (passed: boolean) => {
-    if (!selectedItemForInspection) return;
-
-    try {
-      const productExists = selectedItemForInspection.product_id
-        && products.some((product: any) => product.id === selectedItemForInspection.product_id);
-
-      {
-        const inspectionResponse = await inspectionsApi.create({
-          ...(productExists ? { product_id: selectedItemForInspection.product_id } : {}),
-          inventory_item_id: selectedItemForInspection.id,
-          serial_number: selectedItemForInspection.serial_number || '',
-          inspection_date: new Date().toISOString(),
-          condition: 'good',
-          grade: ['A', 'B', 'C', 'D', 'F'].includes(selectedItemForInspection.grade)
-            ? selectedItemForInspection.grade
-            : 'C',
-          notes: inspectionNotes,
-          test_results: {
-            power_test: inspectionChecks.includes('التشغيل يعمل'),
-            temperature_test: inspectionChecks.includes('الحرارة طبيعية'),
-            performance_test: inspectionChecks.includes('الأداء جيد'),
-            visual_test: inspectionChecks.includes('الحالة الخارجية جيدة'),
-            ports_test: inspectionChecks.includes('المكونات سليمة'),
-            storage_test: inspectionChecks.includes('لا توجد أضرار واضحة'),
-          },
-        });
-        const inspectionId = inspectionResponse?.data?.inspection?.id || inspectionResponse?.inspection?.id;
-        if (!inspectionId) throw new Error('لم يتم إنشاء سجل الفحص');
-        await (passed ? inspectionsApi.pass(inspectionId) : inspectionsApi.fail(inspectionId));
-      }
-
-      await inventoryApi.updateStatus(
-        selectedItemForInspection.id,
-        passed ? 'AVAILABLE' : 'DAMAGED'
-      );
-      queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      queryClient.invalidateQueries({ queryKey: ['acquisitions'] });
-      queryClient.invalidateQueries({ queryKey: ['inspections'] });
-      toast.success(passed ? 'اجتازت القطعة الفحص بنجاح!' : 'فشلت القطعة في الفحص');
-      setIsInspectionModalOpen(false);
-      setSelectedItemForInspection(null);
-      if (passed) navigate('/app/usedparts/stock');
-    } catch (error) {
-      console.error('Inspection failed:', error);
-      toast.error('فشل تحديث حالة الفحص');
-    }
-  };
-
   const handleSellItem = (item: any) => {
     navigate('/app/sales', {
       state: {
@@ -273,18 +194,6 @@ export function UsedPartsPage() {
         },
       },
     });
-  };
-
-  const toggleInspectionCheck = (checkName: string) => {
-    setInspectionChecks(prev =>
-      prev.includes(checkName)
-        ? prev.filter(c => c !== checkName)
-        : [...prev, checkName]
-    );
-  };
-
-  const allRequiredChecksPassed = () => {
-    return inspectionChecks.length >= 3; // At least 3 checks required
   };
 
   // Filter used parts only
@@ -1024,214 +933,6 @@ export function UsedPartsPage() {
         </div>
       </Modal>
 
-      {/* Inspection Modal */}
-      <Modal
-        isOpen={isInspectionModalOpen}
-        onClose={() => setIsInspectionModalOpen(false)}
-        title="فحص القطعة"
-        variant="modern"
-        size="lg"
-        style={{
-          borderRadius: '24px',
-          overflow: 'hidden',
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-primary)',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 0 40px rgba(99, 102, 241, 0.1)'
-        }}
-      >
-        <div className="space-y-6">
-          {/* Item Info */}
-          {selectedItemForInspection && (
-            <div style={{
-              padding: '20px',
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(34, 211, 238, 0.05) 100%)',
-              borderRadius: '16px',
-              border: '1px solid rgba(99, 102, 241, 0.2)'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(99, 102, 241, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Package className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
-                </div>
-                <div>
-                  <p style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '2px' }}>
-                    {selectedItemForInspection.product_name || selectedItemForInspection.product?.name}
-                  </p>
-                  {selectedItemForInspection.serial_number && (
-                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      SN: {selectedItemForInspection.serial_number}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Inspection Checks */}
-          <div style={{
-            padding: '20px',
-            background: 'var(--bg-surface-elevated)',
-            borderRadius: '16px',
-            border: '1px solid var(--border-subtle)'
-          }}>
-            <label style={{
-              fontSize: '14px',
-              fontWeight: '600',
-              color: 'var(--text-primary)',
-              marginBottom: '16px',
-              display: 'block',
-              letterSpacing: '0.2px'
-            }}>
-              فحص القطعة
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              {[
-                'التشغيل يعمل',
-                'الحالة الخارجية جيدة',
-                'الحرارة طبيعية',
-                'لا توجد أضرار واضحة',
-                'المكونات سليمة',
-                'الأداء جيد'
-              ].map((check) => (
-                <button
-                  key={check}
-                  onClick={() => toggleInspectionCheck(check)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px',
-                    padding: '12px 16px',
-                    borderRadius: '12px',
-                    background: inspectionChecks.includes(check)
-                      ? 'rgba(34, 197, 94, 0.1)'
-                      : 'var(--bg-surface)',
-                    border: inspectionChecks.includes(check)
-                      ? '1px solid rgba(34, 197, 94, 0.3)'
-                      : '1px solid var(--border-subtle)',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    textAlign: 'right'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!inspectionChecks.includes(check)) {
-                      e.currentTarget.style.borderColor = 'var(--color-primary-20)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!inspectionChecks.includes(check)) {
-                      e.currentTarget.style.borderColor = 'var(--border-subtle)';
-                    }
-                  }}
-                >
-                  <div style={{
-                    width: '20px',
-                    height: '20px',
-                    borderRadius: '6px',
-                    background: inspectionChecks.includes(check)
-                      ? 'rgba(34, 197, 94, 0.2)'
-                      : 'var(--bg-surface-elevated)',
-                    border: inspectionChecks.includes(check)
-                      ? '2px solid rgba(34, 197, 94, 0.5)'
-                      : '2px solid var(--border-default)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}>
-                    {inspectionChecks.includes(check) && (
-                      <CheckCircle className="w-3 h-3" style={{ color: 'rgba(34, 197, 94, 0.8)' }} />
-                    )}
-                  </div>
-                  <span style={{
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    color: inspectionChecks.includes(check)
-                      ? 'rgba(34, 197, 94, 0.9)'
-                      : 'var(--text-primary)'
-                  }}>
-                    {check}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div style={{
-            padding: '20px',
-            background: 'var(--bg-surface-elevated)',
-            borderRadius: '16px',
-            border: '1px solid var(--border-subtle)'
-          }}>
-            <label style={{
-              fontSize: '14px',
-              fontWeight: '600',
-              color: 'var(--text-primary)',
-              marginBottom: '12px',
-              display: 'block',
-              letterSpacing: '0.2px'
-            }}>
-              ملاحظات الفحص
-            </label>
-            <textarea
-              value={inspectionNotes}
-              onChange={(e) => setInspectionNotes(e.target.value)}
-              placeholder="أدخل ملاحظات الفحص..."
-              rows={3}
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                borderRadius: '12px',
-                border: '1px solid var(--border-default)',
-                background: 'var(--bg-surface)',
-                color: 'var(--text-primary)',
-                fontSize: '14px',
-                resize: 'vertical',
-                outline: 'none',
-                transition: 'all 0.2s ease'
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = 'var(--color-primary)';
-                e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99, 102, 241, 0.1)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = 'var(--border-default)';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            />
-          </div>
-
-          {/* Actions */}
-          <div style={{
-            display: 'flex',
-            gap: '12px',
-            justifyContent: 'flex-end',
-            paddingTop: '32px',
-            borderTop: '1px solid var(--border-subtle)',
-            marginTop: '24px'
-          }}>
-            <Button
-              variant="secondary"
-              onClick={() => setIsInspectionModalOpen(false)}
-            >
-              إلغاء
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => handleCompleteInspection(false)}
-            >
-              <XCircle className="w-4 h-4 mr-1" />
-              فشل الفحص
-            </Button>
-            <Button
-              variant="success"
-              onClick={() => handleCompleteInspection(true)}
-              disabled={!allRequiredChecksPassed()}
-            >
-              <CheckCircle className="w-4 h-4 mr-1" />
-              اجتاز الفحص
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

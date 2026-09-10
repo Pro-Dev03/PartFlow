@@ -155,6 +155,33 @@ func NewService(db *sqlx.DB, jwtSecret string, useSupabase bool, supabaseURL, su
 	}, nil
 }
 
+// ValidateCloudAccess is the local API's trust boundary for protected
+// requests. Local SQLite credentials alone must never authorize operations.
+func (s *Service) ValidateCloudAccess(ctx context.Context, cloudToken string) error {
+	if s.cloud == nil {
+		return errors.New("cloud authentication is not configured")
+	}
+	validation, err := s.cloud.ValidateCloudToken(ctx, strings.TrimSpace(cloudToken))
+	if err != nil {
+		return err
+	}
+	if (!validation.Data.IsActive && !validation.Data.User.IsActive) || IsSubscriptionExpiredFromCloud(validation.cloudSubscriptionStatus(), validation.cloudSubscriptionExpiresAt()) {
+		return errors.New("cloud account is inactive or subscription is expired")
+	}
+	return nil
+}
+
+func IsSubscriptionExpiredFromCloud(status, expiresAt string) bool {
+	if strings.EqualFold(strings.TrimSpace(status), "canceled") || strings.EqualFold(strings.TrimSpace(status), "cancelled") || strings.EqualFold(strings.TrimSpace(status), "expired") {
+		return true
+	}
+	if expiresAt == "" {
+		return false
+	}
+	parsed, err := time.Parse(time.RFC3339, expiresAt)
+	return err == nil && time.Now().After(parsed)
+}
+
 // Register registers a new admin user
 func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResponse, error) {
 	// Check if user already exists

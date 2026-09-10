@@ -11,19 +11,20 @@ interface DateRangeSelectorProps {
 
 export function DateRangeSelector({ dateRanges, selectedRange, onSelectRange }: DateRangeSelectorProps) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+    <Card className="report-range-card">
+      <CardHeader className="report-range-header">
+        <CardTitle className="report-range-title">
           <Calendar className="w-5 h-5 text-cyan-400" />
           نطاق التاريخ
         </CardTitle>
       </CardHeader>
-      <CardContent>
-        <div style={{ display: 'flex', gap: '10px' }}>
+      <CardContent className="report-range-content">
+        <div className="report-range-group">
           {dateRanges.map((range) => (
             <Button
               key={range.value}
               variant={selectedRange === range.value ? 'primary' : 'secondary'}
+              className={`report-range-button ${selectedRange === range.value ? 'active' : ''}`}
               onClick={() => onSelectRange(range.value)}
             >
               {range.label}

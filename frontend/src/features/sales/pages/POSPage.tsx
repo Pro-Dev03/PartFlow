@@ -43,6 +43,7 @@ import { AdvancedPaymentPanel } from '../components/modern/AdvancedPaymentPanel'
 // Hooks
 import { normalizePosPrice, useCart } from '../hooks/useCart';
 import { usePayment } from '../hooks/usePayment';
+import { buildManualProductPayload } from '../utils/manualProductPayload';
 
 // Types
 import { InvoiceData } from '../types/pos.types';
@@ -175,7 +176,7 @@ export function POSPage() {
       } else if (event.key === 'F2') {
         event.preventDefault();
         document
-          .querySelector<HTMLInputElement>('.pos-search-input')
+          .querySelector<HTMLInputElement>('.pos-barcode-input')
           ?.focus();
       } else if (event.key === 'F8') {
         event.preventDefault();
@@ -381,13 +382,12 @@ export function POSPage() {
 
   const createProductMutation = useMutation({
     mutationFn: async () => {
-      const payload = {
-        name: manualProduct.name.trim(),
-        selling_price: Number(manualProduct.price) || 0,
-        barcode: manualProduct.barcode.trim() || undefined,
-        condition: 'new',
-        stock: Number(manualProduct.quantity) || 1,
-      };
+      const payload = buildManualProductPayload({
+        name: manualProduct.name,
+        price: manualProduct.price,
+        quantity: manualProduct.quantity,
+        barcode: manualProduct.barcode,
+      });
       return productsApi.create(payload);
     },
     onSuccess: (response) => {
@@ -418,6 +418,9 @@ export function POSPage() {
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['inventory', 'used-stock'] });
 

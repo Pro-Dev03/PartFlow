@@ -13,7 +13,8 @@ var (
 	ErrInvalidSupplierData = errors.New("invalid supplier data")
 
 	// ErrPaymentAmountInvalid is returned when payment amount is invalid
-	ErrPaymentAmountInvalid = errors.New("payment amount must be greater than zero")
+	ErrPaymentAmountInvalid  = errors.New("payment amount must be greater than zero")
+	ErrPaymentExceedsBalance = errors.New("payment amount exceeds supplier net balance")
 
 	// ErrCreditLimitExceeded is returned when credit limit is exceeded
 	ErrCreditLimitExceeded = errors.New("credit limit exceeded")

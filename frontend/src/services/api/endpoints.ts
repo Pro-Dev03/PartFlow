@@ -336,6 +336,8 @@ export const suppliersApi = {
   delete: (id: string) => apiClient.delete(`/suppliers/${id}`),
   ledger: (id: string, params?: PaginationParams) => 
     apiClient.get(`/suppliers/${id}/ledger`, params),
+  addPayment: (id: string, data: { amount: number; method: string; reference?: string; notes?: string }) =>
+    apiClient.post(`/suppliers/${id}/payments`, data),
   ledgerSummary: (id: string) => 
     apiClient.get(`/suppliers/${id}/ledger/summary`),
   getSupplierInventory: (id: string) => apiClient.get(`/suppliers/${id}/inventory`),
@@ -474,18 +476,6 @@ export const barcodeApi = {
   lookupBySKU: (sku: string) => apiClient.get(`/barcodes/sku/${sku}`),
 };
 
-// Inspections endpoints
-export const inspectionsApi = {
-  list: (params?: { page?: number; per_page?: number; search?: string; status?: string }) => 
-    apiClient.get('/inspections', params),
-  get: (id: string) => apiClient.get(`/inspections/${id}`),
-  create: (data: any) => apiClient.post('/inspections', data),
-  update: (id: string, data: any) => apiClient.put(`/inspections/${id}`, data),
-  pass: (id: string) => apiClient.post(`/inspections/${id}/pass`, {}),
-  fail: (id: string) => apiClient.post(`/inspections/${id}/fail`, {}),
-  delete: (id: string) => apiClient.delete(`/inspections/${id}`),
-};
-
 // Returns endpoints (ENHANCED-RETURNS-SYSTEM.md)
 export const returnsApi = {
   list: (params?: { 
@@ -521,7 +511,6 @@ export const returnsApi = {
   addItem: (returnId: string, data: any) => apiClient.post(`/returns/${returnId}/items`, data),
   updateItem: (returnId: string, itemId: string, data: any) => apiClient.put(`/returns/${returnId}/items/${itemId}`, data),
   deleteItem: (returnId: string, itemId: string) => apiClient.delete(`/returns/${returnId}/items/${itemId}`),
-  processInspection: (itemId: string, data: any) => apiClient.post(`/returns/items/${itemId}/inspection`, data),
   validateQuantity: (saleItemId: string, quantity: number) => 
     apiClient.get(`/returns/validate/${saleItemId}`, { quantity }),
   getSummary: () => apiClient.get('/returns/summary'),

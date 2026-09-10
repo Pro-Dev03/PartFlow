@@ -623,6 +623,7 @@ export function ExpensesPage() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            tableAction
                             onClick={() => approveExpenseMutation.mutate(expense.id)}
                             disabled={approveExpenseMutation.isPending}
                             aria-label="اعتماد المصروف"
@@ -631,10 +632,10 @@ export function ExpensesPage() {
                             <CheckCircle2 className="w-4 h-4 text-green-500" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="sm" onClick={() => handleEdit(expense)} aria-label="تعديل المصروف">
+                        <Button variant="ghost" size="sm" tableAction onClick={() => handleEdit(expense)} aria-label="تعديل المصروف">
                           <Edit className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDelete(expense)} disabled={deleteExpenseMutation.isPending} aria-label="حذف المصروف">
+                        <Button variant="ghost" size="sm" tableAction onClick={() => handleDelete(expense)} disabled={deleteExpenseMutation.isPending} aria-label="حذف المصروف">
                           <Trash2 className="w-4 h-4 text-red" />
                         </Button>
                       </div>

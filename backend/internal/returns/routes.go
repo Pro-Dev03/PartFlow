@@ -33,7 +33,6 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 		returns.POST("/:id/items", handler.AddReturnItem)
 		returns.PUT("/:id/items/:item_id", handler.UpdateReturnItem)
 		returns.DELETE("/:id/items/:item_id", handler.DeleteReturnItem)
-		returns.POST("/items/:item_id/inspection", handler.ProcessReturnItemInspection)
 		returns.GET("/validate/:sale_item_id", handler.ValidateReturnQuantity)
 		returns.GET("/summary", handler.GetReturnSummary)
 		returns.POST("/:id/reverse", handler.ReverseReturn)

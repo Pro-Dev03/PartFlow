@@ -15,6 +15,18 @@
     min-width: 44px;
   }
 
+  button.pf-table-action-btn,
+  .pf-table-action-btn,
+  table td button,
+  table td .pf-button {
+    min-height: 32px !important;
+    min-width: 32px !important;
+    width: 32px !important;
+    height: 32px !important;
+    padding: 0 !important;
+    line-height: 0 !important;
+  }
+
   /* تحسين التباعد */
   .gap-sm {
     gap: var(--spacing-2);

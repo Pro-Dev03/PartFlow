@@ -46,8 +46,6 @@ var snapshotTables = []struct {
 	{key: "seller_payments", table: "seller_payments"},
 	{key: "supplier_returns", table: "supplier_returns"},
 	{key: "supplier_return_items", table: "supplier_return_items"},
-	{key: "inspections", table: "inspections"},
-	{key: "inspection_items", table: "inspection_items"},
 	{key: "part_types", table: "part_types"},
 	{key: "part_specifications", table: "part_specifications"},
 	{key: "type_specifications", table: "type_specifications"},

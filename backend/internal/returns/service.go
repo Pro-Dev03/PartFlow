@@ -2,7 +2,9 @@ package returns
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +19,25 @@ type Service struct {
 // NewService creates a new return service
 func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
+}
+
+func (s *Service) findActiveDebtIDForCustomer(ctx context.Context, customerID uuid.UUID, preferred *uuid.UUID) (*uuid.UUID, error) {
+	if preferred != nil && *preferred != uuid.Nil {
+		return preferred, nil
+	}
+	if customerID == uuid.Nil {
+		return nil, nil
+	}
+
+	var debtID uuid.UUID
+	err := s.repo.db.GetContext(ctx, &debtID, `SELECT id FROM debts WHERE customer_id = $1 AND remaining_amount > 0 AND status IN ('pending','partial','overdue') ORDER BY due_date ASC, created_at ASC LIMIT 1`, customerID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to find active debt: %w", err)
+	}
+	return &debtID, nil
 }
 
 // CreateReturn creates a new return with items
@@ -36,12 +57,40 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 		return nil, ErrSaleNotFound
 	}
 
+	// Reject duplicate or over-quantity returns before creating the parent
+	// record. The database trigger remains a final safety net.
+	for _, itemReq := range req.Items {
+		if itemReq.SaleItemID == nil || *itemReq.SaleItemID == uuid.Nil {
+			continue
+		}
+
+		saleItem, err := s.repo.GetSaleItemInfo(ctx, *itemReq.SaleItemID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get sale item info: %w", err)
+		}
+		returnedQty, err := s.repo.GetReturnedQuantity(ctx, *itemReq.SaleItemID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get returned quantity: %w", err)
+		}
+		if returnedQty+itemReq.QuantityReturned > saleItem.Quantity {
+			return nil, ErrInsufficientStock
+		}
+	}
+
 	// Create return
 	returnRecord := CreateReturn(userID, req)
 
 	// Set customer ID from sale if not provided in request
 	if req.CustomerID == nil {
 		returnRecord.CustomerID = sale.CustomerID
+	}
+
+	if returnRecord.RefundMethod == "DEBT_ADJUSTMENT" {
+		debtID, err := s.findActiveDebtIDForCustomer(ctx, returnRecord.CustomerID, req.DebtID)
+		if err != nil {
+			return nil, err
+		}
+		returnRecord.DebtID = debtID
 	}
 
 	if err := s.repo.CreateReturn(ctx, returnRecord); err != nil {
@@ -168,6 +217,13 @@ func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, req *ReturnUpd
 	}
 	if req.RefundMethod != "" {
 		returnRecord.RefundMethod = req.RefundMethod
+		if returnRecord.RefundMethod == "DEBT_ADJUSTMENT" && returnRecord.DebtID == nil {
+			debtID, err := s.findActiveDebtIDForCustomer(ctx, returnRecord.CustomerID, req.DebtID)
+			if err != nil {
+				return nil, err
+			}
+			returnRecord.DebtID = debtID
+		}
 	}
 	if req.RefundDate != nil {
 		returnRecord.RefundDate = req.RefundDate
@@ -378,29 +434,6 @@ func (s *Service) DeleteReturnItem(ctx context.Context, itemID uuid.UUID) error 
 	return nil
 }
 
-// ProcessReturnItemInspection processes inspection for a return item
-func (s *Service) ProcessReturnItemInspection(ctx context.Context, itemID uuid.UUID, req *ReturnInspectionRequest) (*ReturnItem, error) {
-	item, err := s.repo.GetReturnItemByID(ctx, itemID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Update inspection details
-	item.InspectionDate = &req.InspectionDate
-	item.InspectionResult = req.InspectionResult
-	item.InspectionNotes = req.InspectionNotes
-	item.Resolution = req.Resolution
-	item.RepairCost = req.RepairCost
-	item.UpdatedAt = time.Now()
-
-	if err := s.repo.UpdateReturnItem(ctx, item); err != nil {
-		return nil, fmt.Errorf("failed to update return item: %w", err)
-	}
-	dashboard.InvalidateDashboardCacheWithReason("return_item_inspected")
-
-	return item, nil
-}
-
 // GetMonthlyReturnsAnalysis gets monthly returns analysis
 func (s *Service) GetMonthlyReturnsAnalysis(ctx context.Context) ([]MonthlyReturnsAnalysis, error) {
 	return s.repo.GetMonthlyReturnsAnalysis(ctx)
@@ -418,8 +451,16 @@ func (s *Service) CompleteReturn(ctx context.Context, id uuid.UUID, approvedBy u
 		return nil, err
 	}
 
-	if returnRecord.Status != "APPROVED" && returnRecord.Status != "PROCESSING" {
+	if strings.EqualFold(returnRecord.Status, "COMPLETED") {
+		return nil, ErrReturnAlreadyCompleted
+	}
+	if !strings.EqualFold(returnRecord.Status, "APPROVED") && !strings.EqualFold(returnRecord.Status, "PROCESSING") {
 		return nil, ErrInvalidReturnStatus
+	}
+
+	items, err := s.repo.GetReturnItems(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load return items: %w", err)
 	}
 
 	now := time.Now()
@@ -442,8 +483,14 @@ func (s *Service) CompleteReturn(ctx context.Context, id uuid.UUID, approvedBy u
 	returnRecord.UpdatedAt = now
 
 	// Handle debt adjustment if applicable
-	if returnRecord.RefundMethod == "DEBT_ADJUSTMENT" && returnRecord.DebtID != nil {
-		// Calculate debt adjustment based on return amount
+	if returnRecord.RefundMethod == "DEBT_ADJUSTMENT" {
+		if returnRecord.DebtID == nil {
+			debtID, err := s.findActiveDebtIDForCustomer(ctx, returnRecord.CustomerID, nil)
+			if err != nil {
+				return nil, err
+			}
+			returnRecord.DebtID = debtID
+		}
 		if returnRecord.DebtAdjustment == 0 {
 			returnRecord.DebtAdjustment = returnRecord.TotalRefundAmount
 		}
@@ -456,12 +503,143 @@ func (s *Service) CompleteReturn(ctx context.Context, id uuid.UUID, approvedBy u
 	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
 		return nil, fmt.Errorf("failed to complete return: %w", err)
 	}
+	if err := s.repo.AddDebtAdjustmentLedgerEntry(ctx, returnRecord); err != nil {
+		return nil, err
+	}
+	if err := s.createSupplierReturnBridge(ctx, returnRecord, items); err != nil {
+		return nil, err
+	}
 	dashboard.InvalidateDashboardCacheWithReason("return_completed")
 
 	// The database trigger will handle the actual debt adjustment
 	// This ensures consistency and prevents race conditions
 
 	return s.GetReturn(ctx, id)
+}
+
+func (s *Service) createSupplierReturnBridge(ctx context.Context, returnRecord *Return, items []ReturnItem) error {
+	needsSupplierBridge := strings.EqualFold(returnRecord.ItemConditionAfterReturn, "RETURN_TO_SUPPLIER")
+	if !needsSupplierBridge {
+		for _, item := range items {
+			if strings.EqualFold(item.Resolution, "SUPPLIER_RETURN") {
+				needsSupplierBridge = true
+				break
+			}
+		}
+	}
+	if !needsSupplierBridge {
+		return nil
+	}
+
+	for _, item := range items {
+		if item.ProductID == nil || *item.ProductID == uuid.Nil {
+			continue
+		}
+		if !strings.EqualFold(returnRecord.ItemConditionAfterReturn, "RETURN_TO_SUPPLIER") && !strings.EqualFold(item.Resolution, "SUPPLIER_RETURN") {
+			continue
+		}
+
+		purchaseItemID, purchaseID, supplierID, err := s.findPurchaseItemForReturnItem(ctx, item)
+		if err != nil {
+			return err
+		}
+		if purchaseItemID == uuid.Nil || purchaseID == uuid.Nil || supplierID == uuid.Nil {
+			continue
+		}
+
+		if err := s.ensureSupplierReturnBridgeEntry(ctx, returnRecord, purchaseID, supplierID, purchaseItemID, item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) findPurchaseItemForReturnItem(ctx context.Context, item ReturnItem) (uuid.UUID, uuid.UUID, uuid.UUID, error) {
+	if item.ProductID == nil || *item.ProductID == uuid.Nil {
+		return uuid.Nil, uuid.Nil, uuid.Nil, nil
+	}
+
+	var candidate struct {
+		PurchaseItemID string `db:"purchase_item_id"`
+		PurchaseID     string `db:"purchase_id"`
+		SupplierID     string `db:"supplier_id"`
+	}
+
+	query := `
+		SELECT pi.id AS purchase_item_id, pi.purchase_id, p.supplier_id
+		FROM purchase_items pi
+		JOIN purchases p ON p.id = pi.purchase_id
+		WHERE pi.product_id = ?
+		ORDER BY pi.created_at DESC
+		LIMIT 1
+	`
+	if err := s.repo.db.GetContext(ctx, &candidate, query, item.ProductID.String()); err != nil {
+		if err == sql.ErrNoRows {
+			return uuid.Nil, uuid.Nil, uuid.Nil, nil
+		}
+		return uuid.Nil, uuid.Nil, uuid.Nil, fmt.Errorf("failed to find purchase item for supplier return bridge: %w", err)
+	}
+
+	purchaseItemID, err := uuid.Parse(candidate.PurchaseItemID)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, uuid.Nil, fmt.Errorf("parse purchase_item_id for supplier return bridge: %w", err)
+	}
+	purchaseID, err := uuid.Parse(candidate.PurchaseID)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, uuid.Nil, fmt.Errorf("parse purchase_id for supplier return bridge: %w", err)
+	}
+	supplierID, err := uuid.Parse(candidate.SupplierID)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, uuid.Nil, fmt.Errorf("parse supplier_id for supplier return bridge: %w", err)
+	}
+	return purchaseItemID, purchaseID, supplierID, nil
+}
+
+func (s *Service) ensureSupplierReturnBridgeEntry(ctx context.Context, returnRecord *Return, purchaseID, supplierID, purchaseItemID uuid.UUID, item ReturnItem) error {
+	var supplierReturnID string
+	if err := s.repo.db.GetContext(ctx, &supplierReturnID,
+		`SELECT id FROM supplier_returns WHERE purchase_id = ? ORDER BY created_at DESC LIMIT 1`,
+		purchaseID.String()); err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to load existing supplier return bridge: %w", err)
+	}
+
+	if supplierReturnID == "" {
+		supplierReturnID = uuid.New().String()
+		returnNumber := "SRET-" + strings.ToUpper(strings.ReplaceAll(uuid.New().String()[:10], "-", ""))
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		var createdBy interface{}
+		if returnRecord.CreatedBy != nil && *returnRecord.CreatedBy != uuid.Nil {
+			createdBy = returnRecord.CreatedBy.String()
+		} else if returnRecord.ProcessedBy != nil && *returnRecord.ProcessedBy != uuid.Nil {
+			createdBy = returnRecord.ProcessedBy.String()
+		}
+		_, err := s.repo.db.ExecContext(ctx, `
+			INSERT INTO supplier_returns (id, purchase_id, supplier_id, return_number, status, reason, refund_amount, notes, created_by, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'PENDING', ?, 0, ?, ?, ?, ?)
+		`, supplierReturnID, purchaseID.String(), supplierID.String(), returnNumber, fmt.Sprintf("Customer return %s", returnRecord.ReturnNumber), fmt.Sprintf("Auto-created from customer return %s", returnRecord.ReturnNumber), createdBy, now, now)
+		if err != nil {
+			return fmt.Errorf("failed to create supplier return bridge: %w", err)
+		}
+	}
+
+	var existingSupplierItemCount int
+	if err := s.repo.db.GetContext(ctx, &existingSupplierItemCount,
+		`SELECT COUNT(*) FROM supplier_return_items WHERE supplier_return_id = ? AND purchase_item_id = ?`,
+		supplierReturnID, purchaseItemID.String()); err != nil {
+		return fmt.Errorf("failed to check supplier return bridge item: %w", err)
+	}
+	if existingSupplierItemCount > 0 {
+		return nil
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := s.repo.db.ExecContext(ctx, `
+		INSERT INTO supplier_return_items (id, supplier_return_id, purchase_item_id, product_id, quantity, unit_cost, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, uuid.New().String(), supplierReturnID, purchaseItemID.String(), item.ProductID.String(), item.QuantityReturned, item.UnitPrice, now); err != nil {
+		return fmt.Errorf("failed to add supplier return bridge item: %w", err)
+	}
+	return nil
 }
 
 // GetReturnBySale retrieves returns for a specific sale

@@ -215,7 +215,7 @@ func parseSQLiteTime(value string) (time.Time, error) {
 }
 
 func (s *Service) AddItem(ctx context.Context, id uuid.UUID, req AddItemRequest) error {
-	result, err := s.db.ExecContext(ctx, `INSERT INTO supplier_return_items
+	query := `INSERT INTO supplier_return_items
 			(supplier_return_id, purchase_item_id, product_id, quantity, unit_cost)
 			SELECT $1, pi.id, pi.product_id, $3, pi.unit_price
 			FROM purchase_items pi
@@ -224,9 +224,16 @@ func (s *Service) AddItem(ctx context.Context, id uuid.UUID, req AddItemRequest)
 			WHERE sr.id = $1 AND pi.id = $2
 			AND p.status IN ('received', 'partially_received', 'completed')
 			AND $3 <= (
-				SELECT COUNT(*) FROM inventory_items
-				WHERE product_id = pi.product_id AND status = 'AVAILABLE'
-			)`,
+				SELECT COUNT(*) FROM inventory_items ii
+				WHERE ii.product_id = pi.product_id
+				AND ii.item_code LIKE 'ITM-' || substr(replace(CAST(pi.purchase_id AS TEXT), '-', ''), 1, 8) || '-%'
+				AND ii.status = 'AVAILABLE'
+			)
+			- COALESCE((SELECT SUM(sri.quantity) FROM supplier_return_items sri
+				JOIN supplier_returns existing_sr ON existing_sr.id = sri.supplier_return_id
+				WHERE sri.purchase_item_id = pi.id
+				AND existing_sr.status IN ('PENDING', 'SHIPPED', 'RECEIVED')), 0)`
+	result, err := s.db.ExecContext(ctx, query,
 		id, req.PurchaseItemID, req.Quantity)
 	if err != nil {
 		return fmt.Errorf("add supplier return item: %w", err)
@@ -273,11 +280,13 @@ func (s *Service) Complete(ctx context.Context, id, userID uuid.UUID) error {
 		var availableIDs []uuid.UUID
 		availableQuery := `SELECT id FROM inventory_items
 			WHERE product_id = $1 AND status = 'AVAILABLE'
-			ORDER BY created_at`
+			`
 		if !dbutil.IsSQLite(s.db) {
-			availableQuery += " FOR UPDATE"
+			availableQuery += ` AND item_code LIKE 'ITM-' || substr(replace((SELECT sr.purchase_id FROM supplier_returns sr WHERE sr.id = $2)::text, '-', ''), 1, 8) || '-%' ORDER BY created_at FOR UPDATE`
+		} else {
+			availableQuery += ` AND item_code LIKE 'ITM-' || substr(replace((SELECT sr.purchase_id FROM supplier_returns sr WHERE sr.id = $2), '-', ''), 1, 8) || '-%' ORDER BY created_at`
 		}
-		if err = tx.Select(&availableIDs, availableQuery, item.ProductID); err != nil {
+		if err = tx.Select(&availableIDs, availableQuery, item.ProductID, id); err != nil {
 			return fmt.Errorf("get available inventory items: %w", err)
 		}
 		if len(availableIDs) < item.Quantity {
@@ -285,8 +294,9 @@ func (s *Service) Complete(ctx context.Context, id, userID uuid.UUID) error {
 		}
 		for index := 0; index < item.Quantity; index++ {
 			var before int
-			if err = tx.Get(&before, `SELECT COUNT(*) FROM inventory_items
-				WHERE product_id = $1 AND status = 'AVAILABLE'`, item.ProductID); err != nil {
+			if err = tx.Get(&before, `SELECT COUNT(*) FROM inventory_items ii
+				WHERE ii.product_id = $1 AND ii.status = 'AVAILABLE'
+				AND ii.item_code LIKE 'ITM-' || substr(replace((SELECT sr.purchase_id FROM supplier_returns sr WHERE sr.id = $2)::text, '-', ''), 1, 8) || '-%'`, item.ProductID, id); err != nil {
 				return fmt.Errorf("count available inventory items: %w", err)
 			}
 			if _, err = tx.Exec(fmt.Sprintf(`UPDATE inventory_items SET status = 'RETURNED', updated_at = %s WHERE id = $1`, dbutil.NowSQL(s.db)), availableIDs[index]); err != nil {
@@ -355,7 +365,10 @@ func (s *Service) completeSQLite(ctx context.Context, id, userID uuid.UUID) erro
 	var total float64
 	for _, item := range items {
 		var available []uuid.UUID
-		if err = tx.SelectContext(ctx, &available, `SELECT id FROM inventory_items WHERE product_id = $1 AND status = 'AVAILABLE' ORDER BY created_at`, item.ProductID); err != nil {
+		if err = tx.SelectContext(ctx, &available, `SELECT id FROM inventory_items
+			WHERE product_id = $1 AND status = 'AVAILABLE'
+			AND item_code LIKE 'ITM-' || substr(replace((SELECT p.id FROM purchases p JOIN supplier_returns sr ON sr.purchase_id = p.id WHERE sr.id = $2), '-', ''), 1, 8) || '-%'
+			ORDER BY created_at`, item.ProductID, id); err != nil {
 			return fmt.Errorf("get available inventory items: %w", err)
 		}
 		if len(available) < item.Quantity {
@@ -373,7 +386,13 @@ func (s *Service) completeSQLite(ctx context.Context, id, userID uuid.UUID) erro
 				return fmt.Errorf("record inventory movement: %w", err)
 			}
 		}
-		_, _ = tx.ExecContext(ctx, `UPDATE inventory SET quantity = CASE WHEN quantity > $1 THEN quantity - $1 ELSE 0 END, updated_at = CURRENT_TIMESTAMP WHERE product_id = $2`, item.Quantity, item.ProductID)
+		result, updateErr := tx.ExecContext(ctx, `UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE product_id = $2 AND quantity >= $1`, item.Quantity, item.ProductID)
+		if updateErr != nil {
+			return fmt.Errorf("update inventory quantity: %w", updateErr)
+		}
+		if affected, rowsErr := result.RowsAffected(); rowsErr != nil || affected != 1 {
+			return fmt.Errorf("insufficient aggregate inventory for supplier return")
+		}
 		total += float64(item.Quantity) * item.UnitCost
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE supplier_returns SET status = 'COMPLETED', refund_amount = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, total, id); err != nil {

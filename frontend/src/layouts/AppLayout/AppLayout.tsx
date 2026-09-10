@@ -56,9 +56,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       className={theme === 'light' ? 'light' : ''}
       style={{
         minHeight: '100vh',
-        background: theme !== 'light'
-          ? 'radial-gradient(circle at 80% 0%, rgba(34, 211, 238, 0.10), transparent 30%), radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.08), transparent 30%), var(--bg-background)'
-          : 'var(--bg-gradient-light), var(--bg-background)'
+        background: theme !== 'light' ? 'var(--bg-background)' : 'var(--bg-gradient-light), var(--bg-background)'
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -80,7 +78,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               maxWidth: checkoutMode ? '100%' : (fullWidth ? '100%' : '1500px'),
               margin: checkoutMode ? '0' : (fullWidth ? '0' : '0 auto'),
               width: '100%',
-              padding: checkoutMode ? '0' : '24px 28px'
+              padding: checkoutMode ? '0' : '20px 24px'
             }}
             className={cn('px-4 md:px-8 lg:px-8', checkoutMode && 'checkout-mode')}
           >

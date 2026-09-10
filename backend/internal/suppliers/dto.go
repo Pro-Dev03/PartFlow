@@ -75,24 +75,26 @@ type PaymentResponse struct {
 
 // LedgerEntry represents a ledger entry
 type LedgerEntry struct {
-	ID          uuid.UUID  `json:"id"`
-	SupplierID  uuid.UUID  `json:"supplier_id"`
-	Type        string     `json:"type"` // debit, credit
-	Amount      float64    `json:"amount"`
-	Balance     float64    `json:"balance"`
-	Description string     `json:"description"`
-	ReferenceID *uuid.UUID `json:"reference_id,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID          uuid.UUID  `json:"id" db:"id"`
+	SupplierID  uuid.UUID  `json:"supplier_id" db:"supplier_id"`
+	Type        string     `json:"type" db:"type"` // debit, credit
+	Amount      float64    `json:"amount" db:"amount"`
+	Balance     float64    `json:"balance" db:"balance"`
+	Description string     `json:"description" db:"description"`
+	ReferenceID *uuid.UUID `json:"reference_id,omitempty" db:"reference_id"`
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
 }
 
 // SupplierLedgerResponse represents supplier ledger response
 type SupplierLedgerResponse struct {
-	SupplierID     uuid.UUID     `json:"supplier_id"`
-	SupplierName   string        `json:"supplier_name"`
-	TotalPurchases float64       `json:"total_purchases"`
-	TotalPayments  float64       `json:"total_payments"`
-	CurrentBalance float64       `json:"current_balance"`
-	Entries        []LedgerEntry `json:"entries"`
+	SupplierID            uuid.UUID     `json:"supplier_id"`
+	SupplierName          string        `json:"supplier_name"`
+	TotalPurchases        float64       `json:"total_purchases"`
+	TotalPayments         float64       `json:"total_payments"`
+	SupplierPayments      float64       `json:"supplier_payments"`
+	SupplierReturnCredits float64       `json:"supplier_return_credits"`
+	CurrentBalance        float64       `json:"current_balance"`
+	Entries               []LedgerEntry `json:"entries"`
 }
 
 // DebtSummary represents supplier debt summary

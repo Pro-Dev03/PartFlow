@@ -1,6 +1,7 @@
 package returns
 
 import (
+	stderrors "errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -44,6 +45,10 @@ func (h *Handler) CreateReturn(c *gin.Context) {
 
 	response, err := h.service.CreateReturn(c.Request.Context(), userID, &req)
 	if err != nil {
+		if stderrors.Is(err, ErrInsufficientStock) {
+			apperrors.HandleError(c, apperrors.NewConflictError("return quantity exceeds the quantity sold", err))
+			return
+		}
 		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to create return"))
 		return
 	}
@@ -413,42 +418,6 @@ func (h *Handler) DeleteReturnItem(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// ProcessReturnItemInspection handles processing inspection for a return item
-// @Summary Process return item inspection
-// @Description Process inspection for a return item
-// @Tags returns
-// @Accept json
-// @Produce json
-// @Param item_id path string true "Return Item ID"
-// @Param request body ReturnInspectionRequest true "Inspection request"
-// @Success 200 {object} ReturnItem
-// @Failure 400 {object} middleware.ErrorResponse
-// @Failure 401 {object} middleware.ErrorResponse
-// @Failure 404 {object} middleware.ErrorResponse
-// @Failure 500 {object} middleware.ErrorResponse
-// @Router /api/v1/returns/items/{item_id}/inspection [post]
-func (h *Handler) ProcessReturnItemInspection(c *gin.Context) {
-	itemID, err := uuid.Parse(c.Param("item_id"))
-	if err != nil {
-		apperrors.HandleError(c, apperrors.NewValidationError("invalid item ID", err))
-		return
-	}
-
-	var req ReturnInspectionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apperrors.HandleError(c, apperrors.ValidateRequest(err))
-		return
-	}
-
-	item, err := h.service.ProcessReturnItemInspection(c.Request.Context(), itemID, &req)
-	if err != nil {
-		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to create return item"))
-		return
-	}
-
-	c.JSON(http.StatusOK, item)
-}
-
 // CompleteReturn handles completing a return
 // @Summary Complete a return
 // @Description Complete a return and process financial effects
@@ -473,7 +442,11 @@ func (h *Handler) CompleteReturn(c *gin.Context) {
 
 	response, err := h.service.CompleteReturn(c.Request.Context(), id, userID)
 	if err != nil {
-		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to reverse return"))
+		if stderrors.Is(err, ErrReturnAlreadyCompleted) {
+			apperrors.HandleError(c, apperrors.NewConflictError("return already completed", err))
+			return
+		}
+		apperrors.HandleError(c, apperrors.WrapError(err, "Failed to complete return"))
 		return
 	}
 

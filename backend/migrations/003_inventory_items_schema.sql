@@ -25,12 +25,12 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_inventory_items_product ON inventory_items(product_id);
-CREATE INDEX idx_inventory_items_barcode ON inventory_items(barcode);
-CREATE INDEX idx_inventory_items_serial ON inventory_items(serial_number);
-CREATE INDEX idx_inventory_items_status ON inventory_items(status);
-CREATE INDEX idx_inventory_items_condition ON inventory_items(condition);
-CREATE INDEX idx_inventory_items_location ON inventory_items(location_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_product ON inventory_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_barcode ON inventory_items(barcode);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_serial ON inventory_items(serial_number);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_status ON inventory_items(status);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_condition ON inventory_items(condition);
+CREATE INDEX IF NOT EXISTS idx_inventory_items_location ON inventory_items(location_id);
 
 -- ============================================
 -- Locations (Enhanced with hierarchy)
@@ -48,8 +48,8 @@ CREATE TABLE IF NOT EXISTS locations (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_locations_parent ON locations(parent_id);
-CREATE INDEX idx_locations_warehouse ON locations(warehouse_id);
+CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id);
+CREATE INDEX IF NOT EXISTS idx_locations_warehouse ON locations(warehouse_id);
 
 -- ============================================
 -- Inventory Movements (Track all inventory changes)
@@ -70,11 +70,11 @@ CREATE TABLE IF NOT EXISTS inventory_movements (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_inventory_movements_item ON inventory_movements(item_id);
-CREATE INDEX idx_inventory_movements_product ON inventory_movements(product_id);
-CREATE INDEX idx_inventory_movements_type ON inventory_movements(movement_type);
-CREATE INDEX idx_inventory_movements_reference ON inventory_movements(reference_type, reference_id);
-CREATE INDEX idx_inventory_movements_created_at ON inventory_movements(created_at);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_item ON inventory_movements(item_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_product ON inventory_movements(product_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_type ON inventory_movements(movement_type);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_reference ON inventory_movements(reference_type, reference_id);
+CREATE INDEX IF NOT EXISTS idx_inventory_movements_created_at ON inventory_movements(created_at);
 
 -- ============================================
 -- Reservations (Item reservations)
@@ -93,10 +93,10 @@ CREATE TABLE IF NOT EXISTS reservations (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_reservations_item ON reservations(item_id);
-CREATE INDEX idx_reservations_customer ON reservations(customer_id);
-CREATE INDEX idx_reservations_status ON reservations(status);
-CREATE INDEX idx_reservations_expires_at ON reservations(expires_at);
+CREATE INDEX IF NOT EXISTS idx_reservations_item ON reservations(item_id);
+CREATE INDEX IF NOT EXISTS idx_reservations_customer ON reservations(customer_id);
+CREATE INDEX IF NOT EXISTS idx_reservations_status ON reservations(status);
+CREATE INDEX IF NOT EXISTS idx_reservations_expires_at ON reservations(expires_at);
 
 -- ============================================
 -- Customer Ledger (Track customer financial transactions)
@@ -114,9 +114,9 @@ CREATE TABLE IF NOT EXISTS customer_ledger (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_customer_ledger_customer ON customer_ledger(customer_id);
-CREATE INDEX idx_customer_ledger_transaction_type ON customer_ledger(transaction_type);
-CREATE INDEX idx_customer_ledger_created_at ON customer_ledger(created_at);
+CREATE INDEX IF NOT EXISTS idx_customer_ledger_customer ON customer_ledger(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_ledger_transaction_type ON customer_ledger(transaction_type);
+CREATE INDEX IF NOT EXISTS idx_customer_ledger_created_at ON customer_ledger(created_at);
 
 -- ============================================
 -- Supplier Ledger (Track supplier financial transactions)
@@ -134,9 +134,9 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_supplier_ledger_supplier ON supplier_ledger(supplier_id);
-CREATE INDEX idx_supplier_ledger_transaction_type ON supplier_ledger(transaction_type);
-CREATE INDEX idx_supplier_ledger_created_at ON supplier_ledger(created_at);
+CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier ON supplier_ledger(supplier_id);
+CREATE INDEX IF NOT EXISTS idx_supplier_ledger_transaction_type ON supplier_ledger(transaction_type);
+CREATE INDEX IF NOT EXISTS idx_supplier_ledger_created_at ON supplier_ledger(created_at);
 
 -- ============================================
 -- Inspection Items (Detailed inspection checkpoints)
@@ -152,8 +152,8 @@ CREATE TABLE IF NOT EXISTS inspection_items (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_inspection_items_inspection ON inspection_items(inspection_id);
-CREATE INDEX idx_inspection_items_item ON inspection_items(item_id);
+CREATE INDEX IF NOT EXISTS idx_inspection_items_inspection ON inspection_items(inspection_id);
+CREATE INDEX IF NOT EXISTS idx_inspection_items_item ON inspection_items(item_id);
 
 -- ============================================
 -- Barcodes (Central barcode management)
@@ -171,10 +171,10 @@ CREATE TABLE IF NOT EXISTS barcodes (
     UNIQUE(code)
 );
 
-CREATE INDEX idx_barcodes_code ON barcodes(code);
-CREATE INDEX idx_barcodes_type ON barcodes(type);
-CREATE INDEX idx_barcodes_product ON barcodes(product_id);
-CREATE INDEX idx_barcodes_item ON barcodes(inventory_item_id);
+CREATE INDEX IF NOT EXISTS idx_barcodes_code ON barcodes(code);
+CREATE INDEX IF NOT EXISTS idx_barcodes_type ON barcodes(type);
+CREATE INDEX IF NOT EXISTS idx_barcodes_product ON barcodes(product_id);
+CREATE INDEX IF NOT EXISTS idx_barcodes_item ON barcodes(inventory_item_id);
 
 -- ============================================
 -- Functions and Triggers

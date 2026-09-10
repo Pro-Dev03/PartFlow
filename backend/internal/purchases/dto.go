@@ -54,6 +54,7 @@ type PurchaseListItem struct {
 	Status               string     `json:"status" db:"status"`
 	SupplierName         string     `json:"supplier_name" db:"supplier_name"`
 	TotalItems           int        `json:"total_items" db:"total_items"`
+	AvailableForReturn   int        `json:"available_for_return" db:"available_for_return"`
 	CreatedAt            time.Time  `json:"created_at" db:"created_at"`
 	TotalCount           int        `json:"-" db:"total_count"`
 }

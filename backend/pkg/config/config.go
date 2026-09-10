@@ -162,6 +162,22 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("JWT_SECRET must be changed in production")
 	}
 
+	if cfg.DisableAuth && cfg.ServerMode == "release" {
+		return nil, fmt.Errorf("DISABLE_AUTH must be false in production")
+	}
+
+	if cfg.ServerMode == "release" {
+		cloudAuthRequired := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")))
+		if cloudAuthRequired == "0" || cloudAuthRequired == "false" || cloudAuthRequired == "no" {
+			return nil, fmt.Errorf("PARTFLOW_REQUIRE_CLOUD_AUTH must be true in production")
+		}
+
+		localBypassFlag := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS")))
+		if localBypassFlag == "1" || localBypassFlag == "true" || localBypassFlag == "yes" {
+			return nil, fmt.Errorf("PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS must be false in production")
+		}
+	}
+
 	return cfg, nil
 }
 

@@ -22,7 +22,7 @@ export function CreateReturnPage() {
   const [saleItemId, setSaleItemId] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [reason, setReason] = useState('DEFECTIVE');
-  const [condition, setCondition] = useState('NEEDS_INSPECTION');
+  const [condition, setCondition] = useState('READY_FOR_SALE');
   const [refundMethod, setRefundMethod] = useState('CASH');
   const [returnDate, setReturnDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
@@ -75,9 +75,8 @@ export function CreateReturnPage() {
         quantity_returned: Number(quantity),
         unit_price: unitPrice,
         total_refund_amount: unitPrice * Number(quantity),
-        returned_condition: condition === 'SELLABLE' ? 'NEW' : 'DEFECTIVE',
-        resolution: condition === 'SELLABLE' ? 'RESTOCK' : condition === 'SUPPLIER_RETURN' ? 'SUPPLIER_RETURN' : 'REPAIR',
-        inspection_required: condition === 'NEEDS_INSPECTION',
+        returned_condition: condition === 'READY_FOR_SALE' ? 'NEW' : 'DEFECTIVE',
+        resolution: condition === 'READY_FOR_SALE' ? 'RESTOCK' : condition === 'RETURN_TO_SUPPLIER' ? 'SUPPLIER_RETURN' : condition === 'NOT_FOR_SALE' ? 'WRITE_OFF' : 'REPAIR',
       }],
     }),
     onSuccess: () => {
@@ -117,7 +116,7 @@ export function CreateReturnPage() {
             <div><label className="mb-2 block text-sm font-medium text-text-secondary">الكمية</label><Input type="number" min="1" max={availableQuantity || undefined} value={quantity} onChange={(event) => setQuantity(event.target.value)} required /></div>
             <div><label className="mb-2 block text-sm font-medium text-text-secondary">تاريخ المرتجع</label><Input type="date" lang="en-CA" dir="ltr" value={returnDate} onChange={(event) => setReturnDate(event.target.value)} required /></div>
             <div><label className="mb-2 block text-sm font-medium text-text-secondary">سبب المرتجع</label><Select value={reason} onChange={(event) => setReason(event.target.value)} options={[{ value: 'DEFECTIVE', label: 'منتج معطل' }, { value: 'WRONG_ITEM', label: 'منتج خاطئ' }, { value: 'CUSTOMER_CHANGED_MIND', label: 'تغيير رأي العميل' }, { value: 'DAMAGED', label: 'تالف' }, { value: 'OTHER', label: 'أخرى' }]} /></div>
-            <div><label className="mb-2 block text-sm font-medium text-text-secondary">حالة المنتج بعد الإرجاع</label><Select value={condition} onChange={(event) => setCondition(event.target.value)} options={[{ value: 'SELLABLE', label: 'قابل للبيع' }, { value: 'NEEDS_INSPECTION', label: 'يحتاج فحص' }, { value: 'NEEDS_REPAIR', label: 'يحتاج إصلاح' }, { value: 'DAMAGED', label: 'تالف' }, { value: 'SUPPLIER_RETURN', label: 'إرجاع للمورد' }]} /></div>
+            <div><label className="mb-2 block text-sm font-medium text-text-secondary">حالة المنتج بعد الإرجاع</label><Select value={condition} onChange={(event) => setCondition(event.target.value)} options={[{ value: 'READY_FOR_SALE', label: 'جاهز للبيع' }, { value: 'NOT_FOR_SALE', label: 'غير قابل للبيع' }, { value: 'RETURN_TO_SUPPLIER', label: 'إرجاع للمورد' }, { value: 'NEEDS_REPAIR', label: 'يحتاج إصلاح' }]} /></div>
             <div><label className="mb-2 block text-sm font-medium text-text-secondary">طريقة رد المبلغ</label><Select value={refundMethod} onChange={(event) => setRefundMethod(event.target.value)} options={[{ value: 'CASH', label: 'نقدي' }, { value: 'CREDIT', label: 'رصيد العميل' }, { value: 'DEBT_ADJUSTMENT', label: 'تعديل الدين' }, { value: 'STORE_CREDIT', label: 'رصيد المتجر' }]} /></div>
             <div><label className="mb-2 block text-sm font-medium text-text-secondary">ملاحظات</label><Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات اختيارية" /></div>
             <div className="md:col-span-2 flex items-center justify-between gap-4 border-t border-border pt-4"><p className="text-sm text-text-secondary">قيمة الاسترجاع: <strong className="text-text-primary">₪{(unitPrice * Number(quantity || 0)).toLocaleString()}</strong></p><Button type="submit" variant="primary" disabled={!canSubmit || createMutation.isPending}>{createMutation.isPending ? 'جاري الحفظ...' : 'حفظ المرتجع'}</Button></div>

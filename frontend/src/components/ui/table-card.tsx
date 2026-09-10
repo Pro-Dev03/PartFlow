@@ -16,8 +16,8 @@ export function TableCard({ children, className }: TableCardProps) {
   return (
     <div
       className={cn(
-        'bg-surface border border-border rounded-lg p-4',
-        'hover:border-cyan/30 transition-colors duration-200',
+        'rounded-[18px] border border-[rgba(148,163,184,0.2)] bg-[var(--card-bg)] p-4 shadow-[0_12px_24px_rgba(15,23,42,0.06)]',
+        'transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--primary)]/30 hover:shadow-[0_18px_28px_rgba(59,130,246,0.08)]',
         className
       )}
     >
@@ -28,17 +28,17 @@ export function TableCard({ children, className }: TableCardProps) {
 
 export function TableCardItem({ label, value, className, variant = 'default' }: TableCardItemProps) {
   const variantStyles = {
-    default: 'text-text',
-    highlight: 'text-cyan font-semibold',
-    success: 'text-green font-semibold',
-    warning: 'text-yellow font-semibold',
-    danger: 'text-red font-semibold',
+    default: 'text-[var(--text-primary)]',
+    highlight: 'text-[var(--primary)] font-semibold',
+    success: 'text-[var(--success)] font-semibold',
+    warning: 'text-[var(--warning)] font-semibold',
+    danger: 'text-[var(--danger)] font-semibold',
   };
 
   return (
-    <div className={cn('flex justify-between items-start py-2 border-b border-border/50 last:border-0', className)}>
-      <span className="text-small text-text-muted font-medium">{label}</span>
-      <span className={cn('text-small font-medium', variantStyles[variant])}>{value}</span>
+    <div className={cn('flex items-start justify-between gap-3 border-b border-[rgba(148,163,184,0.14)] py-2.5 last:border-0', className)}>
+      <span className="text-[11px] font-bold tracking-[0.08em] text-[var(--text-secondary)] uppercase">{label}</span>
+      <span className={cn('text-sm font-medium text-left', variantStyles[variant])}>{value}</span>
     </div>
   );
 }
@@ -50,7 +50,7 @@ interface TableCardActionsProps {
 
 export function TableCardActions({ children, className }: TableCardActionsProps) {
   return (
-    <div className={cn('flex gap-2 pt-3 mt-2 border-t border-border', className)}>
+    <div className={cn('mt-3 flex gap-2 border-t border-[rgba(148,163,184,0.14)] pt-3', className)}>
       {children}
     </div>
   );

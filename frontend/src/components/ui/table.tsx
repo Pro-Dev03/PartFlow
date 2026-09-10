@@ -6,60 +6,73 @@ interface TableProps {
 }
 
 const Table = ({ className, children }: TableProps) => (
-  <div className="w-full overflow-auto" role="region" aria-label="جدول البيانات">
-    <table className={cn('w-full caption-bottom text-small border-collapse', className)}>{children}</table>
+  <div
+    className={cn(
+      'w-full overflow-hidden rounded-[10px] border border-[var(--table-border)] bg-[var(--card-bg)]',
+      className
+    )}
+    role="region"
+    aria-label="جدول البيانات"
+  >
+    <table className={cn('w-full caption-bottom border-collapse text-sm', className)}>{children}</table>
   </div>
 );
 
 const TableHeader = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
-  <thead className={cn('[&_tr]:border-b border-border bg-surface-elevated', className)} {...props} />
+  <thead
+    className={cn(
+      'bg-[var(--bg-surface-elevated)]',
+      className
+    )}
+    {...props}
+  />
 );
 
 const TableBody = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
-  <tbody className={cn('[&_tr:last-child]:border-0 bg-surface', className)} {...props} />
+  <tbody className={cn('bg-[var(--card-bg)]', className)} {...props} />
 );
 
 const TableFooter = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
-  <tfoot className={cn('border-t border-border bg-surface-elevated font-medium [&_tr]:last:border-b-0', className)} {...props} />
+  <tfoot className={cn('border-t border-[var(--table-border)] bg-[rgba(148,163,184,0.03)] font-medium', className)} {...props} />
 );
 
 const TableRow = ({ className, ...props }: React.HTMLAttributes<HTMLTableRowElement>) => (
-  <tr 
+  <tr
     className={cn(
-      'border-b border-border transition-colors duration-normal',
-      'hover:bg-surface-elevated cursor-pointer',
+      'border-b border-[var(--border-subtle)] transition-colors duration-150',
+      'hover:bg-[var(--bg-surface-elevated)]',
       className
-    )} 
-    {...props} 
+    )}
+    {...props}
   />
 );
 
 const TableHead = ({ className, ...props }: React.HTMLAttributes<HTMLTableCellElement>) => (
-  <th 
+  <th
     className={cn(
-      'h-12 px-4 text-start align-middle font-medium text-text-primary',
-      'transition-colors duration-normal',
+      'h-10 px-4 text-start align-middle text-[10px] font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase',
+      'transition-colors duration-150',
       '[&:has([role=checkbox])]:pr-0',
       className
-    )} 
+    )}
     scope="col"
-    {...props} 
+    {...props}
   />
 );
 
 const TableCell = ({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) => (
-  <td 
+  <td
     className={cn(
-      'p-4 align-middle text-text-secondary transition-colors duration-normal',
+      'px-4 py-2.5 align-middle text-[13px] text-[var(--text-primary)] transition-colors duration-150',
       '[&:has([role=checkbox])]:pr-0',
       className
-    )} 
-    {...props} 
+    )}
+    {...props}
   />
 );
 
 const TableCaption = ({ className, ...props }: React.HTMLAttributes<HTMLTableCaptionElement>) => (
-  <caption className={cn('mt-4 text-small text-text-muted', className)} {...props} />
+  <caption className={cn('mt-4 text-xs text-[var(--text-muted)]', className)} {...props} />
 );
 
 export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption };

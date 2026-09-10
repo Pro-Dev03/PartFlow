@@ -101,7 +101,7 @@ func TestOpenInitializesLocalDatabase(t *testing.T) {
 		"purchases", "purchase_items", "payments", "debts",
 		"expense_categories", "expenses", "returns", "return_items", "warranty_claims",
 		"locations", "inventory_movements", "reservations", "customer_ledger",
-		"supplier_ledger", "ledger_entries", "inspection_items",
+		"supplier_ledger", "ledger_entries",
 	}
 
 	for _, table := range requiredTables {

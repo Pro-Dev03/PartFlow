@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useTranslation as useTranslationHook } from '../../../hooks/useTranslation';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { PageHeader } from '../../../components/ui/page-header';
@@ -12,12 +11,12 @@ import {
   AlertTriangle,
   AlertCircle,
   Calendar,
-  Sparkles,
   Zap,
   Eye,
   Bell,
   CheckCircle,
-  Printer
+  Printer,
+  MoreHorizontal
 } from 'lucide-react';
 import '../styles/success-modal.css';
 import { printPaymentReceipt } from '../../../lib/export-utils';
@@ -52,6 +51,7 @@ export function DebtsPage() {
     filteredDebts,
     stats,
     isLoading,
+    refetch,
     setSearchQuery,
     setSearchFilters,
     recordPaymentMutation,
@@ -192,11 +192,11 @@ export function DebtsPage() {
         description="تتبع الديون وتحليل التقادم مع تنبيهات ذكية"
         actions={
           <div style={{ display: 'flex', gap: '10px' }}>
-            <Button variant="secondary" size={getButtonSize('debts', 'headerActions')}>
+            <Button variant="secondary" size={getButtonSize('debts', 'headerActions')} onClick={() => void refetch()}>
               <Zap style={{ width: '16px', height: '16px', marginRight: '8px' }} />
               تحديث
             </Button>
-            <Button variant="secondary" size={getButtonSize('debts', 'headerActions')}>
+            <Button variant="secondary" size={getButtonSize('debts', 'headerActions')} onClick={() => toast.info('لا توجد تنبيهات جديدة حالياً')}>
               <Bell style={{ width: '16px', height: '16px', marginRight: '8px' }} />
               تنبيهات
             </Button>
@@ -205,36 +205,14 @@ export function DebtsPage() {
       />
 
       {/* AI Debt Insight */}
-      <Card variant="ai" style={{ marginBottom: '12px' }}>
-        <CardHeader>
-          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-            <Sparkles style={{ width: '16px', height: '16px', color: 'var(--color-primary)' }} />
-            AI Debt Insight
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <div style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: '6px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'rgba(34, 211, 238, 0.1)',
-              flexShrink: 0
-            }}>
-              <AlertCircle style={{ width: '14px', height: '14px', color: 'var(--color-primary)' }} />
-            </div>
-            <div>
-              <p style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '6px' }}>قيد التطوير</p>
-              <Button variant="secondary" size={getButtonSize('debts', 'recommendation')} disabled>
-                قيد التطوير
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="premium-insight">
+        <div className="premium-insight-icon"><AlertCircle className="h-3.5 w-3.5" /></div>
+        <div className="premium-insight-copy">
+          <p className="premium-insight-title">AI Debt Insight · قيد التطوير</p>
+          <p className="premium-insight-text">ستوفر تحليلات ذكية للتقادم وتوصيات لمتابعة التحصيل.</p>
+        </div>
+        <Button variant="secondary" size={getButtonSize('debts', 'recommendation')} disabled className="premium-insight-action">قيد التطوير</Button>
+      </div>
 
       {/* Stats Cards + Advanced Search - side by side on desktop */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginBottom: '12px' }}>
@@ -246,115 +224,81 @@ export function DebtsPage() {
         />
       </div>
 
-      {/* Debts Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <AlertTriangle style={{ width: '20px', height: '20px', color: 'var(--color-primary)' }} />
+      <div className="rounded-[12px] border border-border bg-surface shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-primary" />
             <div>
-              <div>قائمة الديون</div>
-              <div style={{ fontSize: '12px', fontWeight: '400', color: 'var(--text-secondary)', marginTop: '3px' }}>
-                جميع الديون المفتوحة والمتأخرة — {filteredDebts.length} سجل
-              </div>
+              <h3 className="text-sm font-semibold text-text-primary">قائمة الديون</h3>
+              <p className="mt-0.5 text-[11px] text-text-tertiary">جميع الديون المفتوحة والمتأخرة — {filteredDebts.length} سجل</p>
             </div>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '256px' }}>
-              <div style={{ animation: 'spin 1s linear infinite', borderRadius: '50%', height: '32px', width: '32px', borderBottom: '2px solid var(--color-primary)' }} />
-            </div>
-          ) : filteredDebts.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-              <DollarSign style={{ width: '48px', height: '48px', color: 'var(--text-secondary)', margin: '0 auto 16px' }} />
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                لا توجد ديون
-              </p>
-              <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                جميع الديون مدفوعة
-              </p>
-            </div>
-          ) : (
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="flex h-64 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        ) : filteredDebts.length === 0 ? (
+          <div className="px-4 py-12 text-center">
+            <DollarSign className="mx-auto mb-4 h-10 w-10 text-text-secondary" />
+            <p className="text-sm text-text-secondary">لا توجد ديون</p>
+            <p className="mt-1 text-[11px] text-text-tertiary">جميع الديون مدفوعة</p>
+          </div>
+        ) : (
+          <div className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>العميل</TableHead>
-                  <TableHead>المبلغ</TableHead>
-                  <TableHead>المتبقي</TableHead>
-                  <TableHead>موعد السداد</TableHead>
-                  <TableHead>تصنيف العمر</TableHead>
-                  <TableHead>الحالة</TableHead>
-                  <TableHead style={{ textAlign: 'right' }}>الإجراءات</TableHead>
+                  <TableHead className="w-[18%]">العميل</TableHead>
+                  <TableHead className="w-[12%] text-center">المبلغ</TableHead>
+                  <TableHead className="w-[12%] text-center">المتبقي</TableHead>
+                  <TableHead className="w-[14%]">موعد السداد</TableHead>
+                  <TableHead className="w-[24%]">تصنيف العمر</TableHead>
+                  <TableHead className="w-[10%]">الحالة</TableHead>
+                  <TableHead className="w-[10%] text-end">الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredDebts.map((debt: any) => {
                   const aging = getDebtAging(debt.dueDate, debt.status);
-                  
                   return (
-                    <TableRow 
-                      key={debt.id}
-                      onClick={() => {
-                        console.log('Row clicked', debt);
-                        handleViewDebt(debt);
-                      }}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <TableCell style={{ fontWeight: '500' }}>{debt.customer?.name}</TableCell>
-                      <TableCell><span className="numeric-price">₪{debt.amount?.toLocaleString()}</span></TableCell>
+                    <TableRow key={debt.id} className="cursor-pointer hover:bg-surface-elevated/30" onClick={() => handleViewDebt(debt)}>
+                      <TableCell className="font-semibold text-text-primary">{debt.customer?.name}</TableCell>
+                      <TableCell className="text-center font-medium text-text-primary">₪{debt.amount?.toLocaleString()}</TableCell>
+                      <TableCell className="text-center font-medium text-danger">₪{debt.remainingAmount?.toLocaleString() || '0'}</TableCell>
                       <TableCell>
-                        <span style={{ color: 'var(--color-danger)', fontWeight: '500' }}>
-                          <span className="numeric-price">₪{debt.remainingAmount?.toLocaleString() || '0'}</span>
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <Calendar style={{ width: '14px', height: '14px', color: 'var(--text-secondary)' }} />
+                        <div className="flex items-center gap-2 text-text-secondary">
+                          <Calendar className="h-3.5 w-3.5" />
                           {debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('en-GB') : 'غير محدد'}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '3px' }}>
-                          <Badge variant={aging.variant} style={{ fontSize: '11px' }} title={`موعد السداد: ${debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('ar-SA') : 'غير محدد'}`}>
+                        <div className="flex flex-col items-start gap-1.5">
+                          <Badge variant={aging.variant} size="sm" title={`موعد السداد: ${debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('ar-SA') : 'غير محدد'}`}>
                             {aging.label}
                           </Badge>
-                          <span style={{ color: 'var(--text-secondary)', fontSize: '11px' }}>
+                          <span className="text-[11px] text-text-secondary">
                             {aging.category.startsWith('OVERDUE')
                               ? `متأخر فعلياً ${aging.days} ${aging.days === 1 ? 'يوم' : 'يوماً'}`
                               : aging.days > 0
-                                ? `متبقي ${aging.days} ${aging.days === 1 ? 'يوم' : 'أيام'} على موعد السداد`
-                                : 'موعد السداد اليوم'}
+                                ? `متبقي ${aging.days} ${aging.days === 1 ? 'يوم' : 'أيام'}`
+                                : 'موعد اليوم'}
                           </span>
                         </div>
                       </TableCell>
                       <TableCell>
-                          <Badge variant={aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'}>
+                        <Badge variant={aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm">
                           {aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
                         </Badge>
                       </TableCell>
-                      <TableCell style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                          <Button
-                            variant="ghost"
-                            size={getButtonSize('debts', 'iconAction')}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              console.log('View button clicked', debt);
-                              handleViewDebt(debt);
-                            }}
-                          >
-                            <Eye className="w-3.5 h-3.5" />
+                      <TableCell className="text-end">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} className="h-8 px-2.5 text-[11px]" aria-label="عرض الدين" title="عرض الدين">
+                            <Eye className="h-3.5 w-3.5" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size={getButtonSize('debts', 'iconAction')}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              console.log('Payment button clicked', debt.customer);
-                              handleRecordPayment(debt.customer?.id, debt.customer?.name);
-                            }}
-                          >
-                            <DollarSign className="w-3.5 h-3.5" />
+                          <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} className="text-text-secondary hover:text-text-primary" aria-label="تسجيل دفعة" title="تسجيل دفعة">
+                            <DollarSign className="h-4 w-4" />
                           </Button>
                         </div>
                       </TableCell>
@@ -363,9 +307,56 @@ export function DebtsPage() {
                 })}
               </TableBody>
             </Table>
+          </div>
+        )}
+
+        <div className="block md:hidden">
+          {isLoading ? (
+            <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
+          ) : filteredDebts.length === 0 ? (
+            <div className="px-4 py-12 text-center">
+              <DollarSign className="mx-auto mb-4 h-10 w-10 text-text-secondary" />
+              <p className="text-sm text-text-secondary">لا توجد ديون</p>
+              <p className="mt-1 text-[11px] text-text-tertiary">جميع الديون مدفوعة</p>
+            </div>
+          ) : (
+            <div className="grid gap-3 p-4">
+              {filteredDebts.map((debt: any) => {
+                const aging = getDebtAging(debt.dueDate, debt.status);
+                return (
+                  <div key={debt.id} className="rounded-xl border border-border bg-surface-elevated/25 p-4" onClick={() => handleViewDebt(debt)}>
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-text-primary">{debt.customer?.name}</div>
+                        <div className="mt-1 text-[11px] text-text-tertiary">{debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('en-GB') : 'غير محدد'}</div>
+                      </div>
+                      <Badge variant={aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm">
+                        {aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
+                      </Badge>
+                    </div>
+
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">المبلغ</span><span className="font-semibold text-text-primary">₪{debt.amount?.toLocaleString()}</span></div>
+                      <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">المتبقي</span><span className="font-semibold text-danger">₪{debt.remainingAmount?.toLocaleString() || '0'}</span></div>
+                      <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">التصنيف</span><Badge variant={aging.variant} size="sm">{aging.label}</Badge></div>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
+                      <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} className="h-8 px-3 text-[11px]">
+                        <Eye className="h-3.5 w-3.5" />
+                        عرض
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} className="text-text-secondary hover:text-text-primary" aria-label="تسجيل دفعة" title="تسجيل دفعة">
+                        <DollarSign className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Payment Modal */}
       {paymentModalOpen && (

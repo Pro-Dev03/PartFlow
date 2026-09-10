@@ -99,7 +99,7 @@ export function ReportsPage() {
     { id: 'profit', label: t('reports.profitReport'), icon: Target, group: 'period' },
     { id: 'purchases', label: 'تقرير المشتريات', icon: BarChart3, group: 'period' },
     { id: 'expenses', label: t('reports.expensesReport'), icon: BarChart3, group: 'period' },
-    { id: 'returns', label: 'تقرير المرتجعات', icon: RotateCcw, group: 'period' },
+    { id: 'returns', label: 'تقرير مرتجعات العملاء', icon: RotateCcw, group: 'period' },
     { id: 'inventory', label: t('reports.inventoryReport'), icon: BarChart3, group: 'current' },
     { id: 'used-items', label: 'تقرير القطع المستعملة', icon: Zap, group: 'current' },
     { id: 'debts', label: t('reports.debtsReport'), icon: Target, group: 'current' },
@@ -131,6 +131,8 @@ export function ReportsPage() {
     : Number(purchasesReport?.total_cost ?? 0);
   const taxedPurchaseCount = Math.max(0, Number(purchasesReport?.total_purchases ?? 0) - untaxedPurchaseCount);
   const taxedPurchaseCost = Math.max(0, Number(purchasesReport?.total_cost ?? 0) - untaxedPurchaseCost);
+  const supplierReturnCredits = Number(purchasesReport?.supplier_return_credits ?? 0);
+  const netPurchases = Number(purchasesReport?.net_purchases ?? Number(purchasesReport?.total_cost ?? 0) - supplierReturnCredits);
   const salesReport = selectedReport === 'sales' && reportPayload && typeof reportPayload === 'object'
     ? reportPayload as Record<string, unknown>
     : null;
@@ -142,14 +144,14 @@ export function ReportsPage() {
     : '';
 
   return (
-    <div>
+    <div className="report-page-shell">
       {/* Page Header */}
       <PageHeader
         eyebrow="Analytics Hub"
         title={t('reports.title')}
         description="تحليلات وتقارير شاملة عن أداء المحل مع رؤى ذكية"
         actions={
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div className="report-page-actions">
             <Button variant="secondary" size={getButtonSize('reports', 'headerActions')} onClick={handleExport} disabled={!reportData?.data && !reportData}>
               <Download className="w-4 h-4 mr-2" />
               {t('reports.export')}
@@ -167,34 +169,15 @@ export function ReportsPage() {
       />
 
       {/* AI Analytics Insight */}
-      <Card variant="ai">
-        <CardHeader>
-          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Sparkles className="w-5 h-5 text-cyan-400" />
-            AI Analytics Insight
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div style={{ display: 'flex', gap: '14px' }}>
-            <div style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'rgba(34, 211, 238, 0.1)',
-              flexShrink: 0
-            }}>
-              <Target className="w-4 h-4 text-cyan-400" />
-            </div>
-            <div>
-              <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
+      <div className="premium-insight">
+        <div className="premium-insight-icon"><Target className="h-3.5 w-3.5" /></div>
+        <div className="premium-insight-copy">
+              <p className="premium-insight-title">
                 {selectedReport === 'sales'
                   ? (salesCount > 0 ? 'ملخص أداء المبيعات' : 'لا توجد مبيعات في الفترة')
                   : 'ملخص التقرير'}
               </p>
-              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              <p className="premium-insight-text">
                 {selectedReport === 'sales' && salesCount > 0
                   ? `تم تنفيذ ${salesCount} عملية بإيراد ₪${salesRevenue.toLocaleString()} وربح إجمالي ₪${salesProfit.toLocaleString()}${topProductName ? `. المنتج الأعلى إيرادًا: ${topProductName}.` : '.'}`
                   : selectedReport === 'sales'
@@ -202,14 +185,12 @@ export function ReportsPage() {
                     : 'تم تحميل بيانات التقرير للفترة المحددة.'}
               </p>
               {selectedReport === 'sales' && salesCount > 0 && (
-                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                <p className="premium-insight-text">
                   هامش الربح المحقق: {salesRevenue > 0 ? ((salesProfit / salesRevenue) * 100).toFixed(1) : '0.0'}%
                 </p>
               )}
             </div>
-          </div>
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Report Type Selection */}
       <ReportTypeSelector 
@@ -487,6 +468,7 @@ export function ReportsPage() {
             </div>
           ) : selectedReport === 'purchases' && reportPayload && typeof reportPayload === 'object' ? (
             <div className="space-y-5">
+              <p className="text-sm text-text-secondary">إجمالي المشتريات هنا تاريخي (Gross). صافي المشتريات = إجمالي المشتريات - رصيد مرتجعات الموردين.</p>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div className="rounded-lg border border-border bg-surface-elevated p-4">
                   <p className="text-sm text-text-secondary">المشتريات قبل الضريبة</p>
@@ -505,6 +487,16 @@ export function ReportsPage() {
                   <p className="text-sm text-text-secondary">فواتير خاضعة للضريبة</p>
                   <p className="mt-2 text-xl font-semibold text-text-primary">₪{taxedPurchaseCost.toLocaleString()}</p>
                   <p className="mt-1 text-xs text-text-secondary">{taxedPurchaseCount.toLocaleString()} فواتير، شامل الضريبة</p>
+                </div>
+                <div className="rounded-lg border border-border bg-surface-elevated p-4">
+                  <p className="text-sm text-text-secondary">مرتجعات الموردين</p>
+                  <p className="mt-2 text-xl font-semibold text-text-primary">-₪{supplierReturnCredits.toLocaleString()}</p>
+                  <p className="mt-1 text-xs text-text-secondary">Credits مكتملة في الفترة</p>
+                </div>
+                <div className="rounded-lg border border-border bg-surface-elevated p-4">
+                  <p className="text-sm text-text-secondary">صافي المشتريات</p>
+                  <p className="mt-2 text-xl font-semibold text-text-primary">₪{netPurchases.toLocaleString()}</p>
+                  <p className="mt-1 text-xs text-text-secondary">Gross - Supplier Returns</p>
                 </div>
               </div>
               <div className="horizontal-scroll">

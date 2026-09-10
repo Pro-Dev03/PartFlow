@@ -15,8 +15,8 @@ const PageHeader = forwardRef<HTMLDivElement, PageHeaderProps>(
     return (
       <header 
         ref={ref} 
-        className={cn('mb-2xl', className)} 
-        style={{ marginBottom: '24px' }} // worktrack: 24px
+        className={cn('mb-xl', className)}
+        style={{ marginBottom: '18px' }}
         {...props}
       >
         {breadcrumbs && (
@@ -28,11 +28,11 @@ const PageHeader = forwardRef<HTMLDivElement, PageHeaderProps>(
         <div className="flex items-start justify-between gap-md mb-sm">
           <div className="flex-1">
             {eyebrow && (
-              <div className="text-eyebrow text-cyan mb-1" aria-hidden="true" style={{ fontSize: '12px' }}>
+              <div className="text-eyebrow text-text-muted mb-1" aria-hidden="true" style={{ fontSize: '11px' }}>
                 {eyebrow}
               </div>
             )}
-            <h1 className="text-h1 font-extrabold text-text tracking-tight mb-1" style={{ fontSize: '18px' }}>
+            <h1 className="text-h1 font-bold text-text tracking-tight mb-1" style={{ fontSize: '20px' }}>
               {title}
             </h1>
             {description && (

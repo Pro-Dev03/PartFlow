@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { supplierReturnsApi, purchasesApi, inventoryApi } from '../../../services/api/endpoints';
+import { supplierReturnsApi, purchasesApi } from '../../../services/api/endpoints';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
@@ -35,13 +35,7 @@ export function SupplierReturnsPage() {
   });
   const purchaseItems = purchaseDetailsData?.data?.items || purchaseDetailsData?.items || [];
   const selectedItem = purchaseItems.find((item: any) => item.id === purchaseItemId);
-  const { data: selectedInventoryData } = useQuery({
-    queryKey: ['supplier-return-available-stock', selectedItem?.product_id],
-    queryFn: () => inventoryApi.list({ product_id: selectedItem.product_id, status: 'AVAILABLE', per_page: 100 }),
-    enabled: Boolean(selectedItem?.product_id),
-  });
-  const availableItems = selectedInventoryData?.data?.items || selectedInventoryData?.data || [];
-  const availableQuantity = availableItems.filter((item: any) => item.status === 'AVAILABLE').length;
+  const availableQuantity = Number(selectedItem?.available_for_return || 0);
   const createMutation = useMutation({
     mutationFn: async () => {
       const created = await supplierReturnsApi.create({ purchase_id: purchaseId, reason, notes });
@@ -68,6 +62,7 @@ export function SupplierReturnsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['supplier-returns'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['purchases', 'supplier-return-options'] });
       toast.success('تم إكمال إرجاع المورد وتحديث المخزون');
     },
     onError: () => toast.error('تعذر إكمال إرجاع المورد'),
@@ -192,10 +187,12 @@ export function SupplierReturnsPage() {
             <div className="grid gap-3 rounded border border-border bg-surface-muted p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
               <div><span className="text-text-muted">الصنف</span><p className="font-medium">{selectedItem.product_name || selectedItem.product?.name || 'الصنف المحدد'}</p></div>
               <div><span className="text-text-muted">SKU/الباركود</span><p>{selectedItem.sku || selectedItem.barcode || '-'}</p></div>
-              <div><span className="text-text-muted">كمية الفاتورة</span><p>{selectedItem.quantity || 0}</p></div>
+              <div><span className="text-text-muted">Purchased Qty</span><p>{selectedItem.quantity || 0}</p></div>
+              <div><span className="text-text-muted">Received Qty</span><p>{selectedItem.received_quantity || 0}</p></div>
+              <div><span className="text-text-muted">Returned Qty</span><p>{selectedItem.returned_quantity || 0}</p></div>
               <div><span className="text-text-muted">تكلفة الوحدة</span><p>₪{Number(selectedItem.unit_cost || 0).toLocaleString('en-US')}</p></div>
               <div className="sm:col-span-2 lg:col-span-4">
-                <span className="text-text-muted">المتاح فعلياً للإرجاع</span>
+                <span className="text-text-muted">Available for Return</span>
                 <p className={availableQuantity > 0 ? 'font-semibold text-success' : 'font-semibold text-danger'}>{availableQuantity} قطعة</p>
               </div>
             </div>

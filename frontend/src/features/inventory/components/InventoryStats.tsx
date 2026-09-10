@@ -1,4 +1,3 @@
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { StatCard } from '../../../components/ui/stat-card';
 import { Button } from '../../../components/ui/button';
 import { useQuery } from '@tanstack/react-query';
@@ -7,7 +6,6 @@ import { getButtonSize } from '../../../config/button-sizes';
 import { normalizeCurrencyValue } from '../../../utils';
 import { 
   Package, 
-  Sparkles, 
   TrendingUp, 
   AlertTriangle 
 } from 'lucide-react';
@@ -77,34 +75,14 @@ export function InventoryStats({ products, inventoryItems, isMobile }: Inventory
   return (
     <>
       {/* AI Inventory Insight */}
-      <Card variant="ai">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-primary" />
-            AI Inventory Insight
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-3.5">
-            <div className="w-5 h-5 rounded-lg flex items-center justify-center bg-cyan/10 flex-shrink-0">
-              <TrendingUp className="w-3 h-3 text-primary" />
-            </div>
-            <div>
-              <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>قيد التطوير</p>
-              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                هذه الميزة قيد التطوير حالياً. ستوفر تحليلات ذكية للمخزون وتوصيات لتحسين إدارة القطع والطلبات.
-              </p>
-              <Button 
-                variant="secondary" 
-                size={getButtonSize('inventory', 'recommendation')} 
-                disabled
-              >
-                قيد التطوير
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="premium-insight">
+        <div className="premium-insight-icon"><TrendingUp className="h-3.5 w-3.5" /></div>
+        <div className="premium-insight-copy">
+          <p className="premium-insight-title">AI Inventory Insight · قيد التطوير</p>
+          <p className="premium-insight-text">ستوفر تحليلات ذكية للمخزون وتوصيات لتحسين إدارة القطع والطلبات.</p>
+        </div>
+        <Button variant="secondary" size={getButtonSize('inventory', 'recommendation')} disabled className="premium-insight-action">قيد التطوير</Button>
+      </div>
 
       {/* Stats Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px' }}

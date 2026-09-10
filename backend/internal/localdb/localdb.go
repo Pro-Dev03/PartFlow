@@ -600,7 +600,7 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 		`CREATE TABLE IF NOT EXISTS inspections (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, inventory_item_id TEXT, inspector_id TEXT NOT NULL, inspection_date TEXT NOT NULL, result TEXT NOT NULL, condition TEXT, grade TEXT, notes TEXT, images TEXT DEFAULT '[]', test_results TEXT DEFAULT '{}', acquisition_item_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY, type TEXT NOT NULL, title TEXT NOT NULL, description TEXT, parameters TEXT, data TEXT, status TEXT DEFAULT 'completed', generated_by TEXT, generated_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS acquisitions (id TEXT PRIMARY KEY, type TEXT NOT NULL, acquisition_date TEXT NOT NULL, supplier_id TEXT, customer_id TEXT, total_cost REAL DEFAULT 0, paid_amount REAL DEFAULT 0, payment_status TEXT DEFAULT 'payable', status TEXT DEFAULT 'draft', notes TEXT, user_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, reversed_at TEXT, reversed_by TEXT, reversal_reason TEXT)`,
-		`CREATE TABLE IF NOT EXISTS acquisition_items (id TEXT PRIMARY KEY, acquisition_id TEXT, product_id TEXT, inventory_item_id TEXT, inspection_id TEXT, item_code TEXT, serial_number TEXT, inspection_status TEXT DEFAULT 'pending', item_status TEXT DEFAULT 'inspection', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS acquisition_items (id TEXT PRIMARY KEY, acquisition_id TEXT, product_id TEXT, inventory_item_id TEXT, item_code TEXT, serial_number TEXT, condition TEXT, grade TEXT, unit_cost REAL DEFAULT 0, total_cost REAL DEFAULT 0, item_status TEXT DEFAULT 'available', notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		// A historical trade-in may be recorded before an inventory item is
 		// materialized. Keep the cloud schema's nullable relationship so one
 		// legacy row cannot abort the entire cloud-to-local snapshot.
@@ -627,7 +627,24 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 	if err := ensureTradeInsInventoryItemNullable(db); err != nil {
 		return fmt.Errorf("migrate trade-ins schema: %w", err)
 	}
-	if _, err := db.Exec(`CREATE VIEW IF NOT EXISTS used_parts_aging AS
+	// Inspection, repair, item-history, and aging workflows were removed from
+	// the product. Keep acquisitions and inventory intact, but remove their
+	// dedicated local storage so old installations converge to the clean schema.
+	for _, statement := range []string{
+		`DROP VIEW IF EXISTS used_parts_aging`,
+		`DROP TABLE IF EXISTS inspection_items`,
+		`DROP TABLE IF EXISTS item_repair_costs`,
+		`DROP TABLE IF EXISTS item_history`,
+		`DROP TABLE IF EXISTS inspections`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			return fmt.Errorf("clean removed used-parts workflow schema: %w", err)
+		}
+	}
+	if err := dropRetiredAcquisitionColumns(db); err != nil {
+		return fmt.Errorf("clean removed acquisition columns: %w", err)
+	}
+	/* if _, err := db.Exec(`CREATE VIEW IF NOT EXISTS used_parts_aging AS
 		SELECT ii.id AS item_id, ai.acquisition_id, a.acquisition_date,
 		CAST(julianday('now') - julianday(a.acquisition_date) AS INTEGER) AS days_in_stock,
 		ii.status, ii.condition, ii.purchase_cost AS cost, ii.selling_price AS current_price,
@@ -636,7 +653,7 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 		FROM inventory_items ii JOIN acquisition_items ai ON ii.id = ai.inventory_item_id JOIN acquisitions a ON ai.acquisition_id = a.id
 		WHERE a.type = 'CUSTOMER' AND ii.status IN ('AVAILABLE', 'RESERVED')`); err != nil {
 		return fmt.Errorf("initialize local aging view: %w", err)
-	}
+	} */
 
 	if err := migrateLegacySchema(db); err != nil {
 		return fmt.Errorf("migrate local database schema: %w", err)
@@ -880,6 +897,35 @@ func ensureIndexExists(db *sql.DB, indexName, tableName, columnName string) erro
 	createSQL := fmt.Sprintf("CREATE INDEX %s ON %s(%s)", indexName, tableName, columnName)
 	if _, err := db.Exec(createSQL); err != nil {
 		return fmt.Errorf("create index %s: %w", indexName, err)
+	}
+	return nil
+}
+
+func dropRetiredAcquisitionColumns(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(acquisition_items)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, column := range []string{"inspection_id", "inspection_status"} {
+		if columns[column] {
+			if _, err := db.Exec(`ALTER TABLE acquisition_items DROP COLUMN ` + column); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -1368,7 +1414,7 @@ func fieldMapForTable(tableName string) []string {
 	case "acquisitions":
 		return []string{"id", "type", "acquisition_date", "supplier_id", "customer_id", "total_cost", "paid_amount", "payment_status", "status", "notes", "user_id", "created_at", "updated_at", "reversed_at", "reversed_by", "reversal_reason"}
 	case "acquisition_items":
-		return []string{"id", "acquisition_id", "product_id", "inventory_item_id", "inspection_id", "item_code", "serial_number", "condition", "grade", "unit_cost", "total_cost", "inspection_status", "item_status", "notes", "created_at", "updated_at"}
+		return []string{"id", "acquisition_id", "product_id", "inventory_item_id", "item_code", "serial_number", "condition", "grade", "unit_cost", "total_cost", "item_status", "notes", "created_at", "updated_at"}
 	case "trade_ins":
 		return []string{"id", "customer_id", "inventory_item_id", "purchase_price", "purchase_date", "notes", "created_at", "updated_at"}
 	case "item_specification_values":

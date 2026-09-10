@@ -15,24 +15,24 @@
     direction: ltr;
     text-align: left;
   }
-  
+
   /* Logical properties for RTL/LTR support */
   .ml-auto {
     margin-inline-start: auto;
   }
-  
+
   .mr-auto {
     margin-inline-end: auto;
   }
-  
+
   .text-left {
     text-align: start;
   }
-  
+
   .text-right {
     text-align: end;
   }
-  
+
   /* Flip icons and directional elements in RTL */
   [dir="rtl"] .flip-rtl {
     transform: scaleX(-1);
@@ -48,7 +48,6 @@
     }
   }
 }
-
 @layer components {
   .pos-cashier-shell {
     display: flex;
@@ -59,7 +58,6 @@
   .pos-cashier-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 1rem;
     margin-bottom: 1rem;
     padding: 0.875rem 1rem;
@@ -598,22 +596,79 @@
     border-width: 1px;
     border-style: solid;
     box-shadow: var(--shadow-sm);
+    transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
     -webkit-font-smoothing: antialiased;
   }
 
+  .pf-button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+  }
+
+  tbody td .pf-button[aria-label],
+  tbody td .pf-button[title],
+  tbody td .pf-button:has(svg),
+  tbody td button[aria-label],
+  tbody td button[title],
+  tbody td button:has(svg),
+  table td button,
+  table td .pf-button,
+  .pf-table-action-btn {
+    width: 2rem !important;
+    height: 2rem !important;
+    min-width: 2rem !important;
+    min-height: 2rem !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    border-radius: 8px !important;
+    flex-shrink: 0;
+    line-height: 1;
+    box-shadow: none;
+    margin-inline: 0.125rem;
+  }
+
+  tbody td .pf-button[aria-label] svg,
+  tbody td .pf-button[title] svg,
+  tbody td .pf-button:has(svg) svg,
+  tbody td button[aria-label] svg,
+  tbody td button[title] svg,
+  tbody td button:has(svg) svg,
+  table td button svg,
+  table td .pf-button svg,
+  .pf-table-action-btn svg,
+  .pf-table-action-btn .lucide {
+    width: 0.875rem !important;
+    height: 0.875rem !important;
+  }
+
   .pf-button:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
   }
 
   .pf-button:active:not(:disabled) {
     transform: translateY(0);
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.1);
+  }
+
+  .pf-button svg,
+  .pf-button .lucide,
+  .pf-button > svg,
+  .pf-button > .lucide {
+    color: currentColor !important;
+    stroke: currentColor !important;
+    fill: none !important;
   }
 
   .pf-button-primary {
     background: var(--gradient-primary) !important;
     border-color: var(--color-primary-40) !important;
     color: var(--text-on-primary) !important;
+  }
+
+  .pf-button-primary svg,
+  .pf-button-primary .lucide {
+    color: var(--text-on-primary) !important;
+    stroke: var(--text-on-primary) !important;
   }
 
   .pf-button-secondary,
@@ -623,17 +678,39 @@
     color: var(--button-secondary-text) !important;
   }
 
-  .pf-button-ghost,
+  .pf-button-secondary svg,
+  .pf-button-default svg,
+  .pf-button-secondary .lucide,
+  .pf-button-default .lucide {
+    color: var(--button-secondary-text) !important;
+    stroke: var(--button-secondary-text) !important;
+  }
+
+  .pf-button-ghost {
+    background: color-mix(in srgb, var(--color-primary) 8%, transparent) !important;
+    border-color: color-mix(in srgb, var(--color-primary) 20%, transparent) !important;
+    color: var(--color-primary) !important;
+    box-shadow: none;
+  }
+
   .pf-button-outline {
     background: transparent !important;
-    border-color: var(--border-primary) !important;
-    color: var(--text-primary) !important;
+    border-color: color-mix(in srgb, var(--color-primary) 35%, transparent) !important;
+    color: var(--color-primary) !important;
     box-shadow: none;
+  }
+
+  .pf-button-ghost svg,
+  .pf-button-outline svg,
+  .pf-button-ghost .lucide,
+  .pf-button-outline .lucide {
+    color: currentColor !important;
+    stroke: currentColor !important;
   }
 
   .pf-button-ghost:hover:not(:disabled),
   .pf-button-outline:hover:not(:disabled) {
-    background: var(--color-primary-10) !important;
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent) !important;
   }
 
   .pf-button-danger,
@@ -641,7 +718,7 @@
   .pf-button-warning,
   .pf-button-info {
     background: color-mix(in srgb, var(--button-status-color) 12%, transparent) !important;
-    border-color: color-mix(in srgb, var(--button-status-color) 30%, transparent) !important;
+    border-color: color-mix(in srgb, var(--button-status-color) 32%, transparent) !important;
     color: var(--button-status-color) !important;
   }
 
@@ -649,6 +726,18 @@
   .pf-button-success { --button-status-color: var(--color-success); }
   .pf-button-warning { --button-status-color: var(--color-warning); }
   .pf-button-info { --button-status-color: var(--color-info); }
+
+  .pf-button-danger svg,
+  .pf-button-danger .lucide,
+  .pf-button-success svg,
+  .pf-button-success .lucide,
+  .pf-button-warning svg,
+  .pf-button-warning .lucide,
+  .pf-button-info svg,
+  .pf-button-info .lucide {
+    color: var(--button-status-color) !important;
+    stroke: var(--button-status-color) !important;
+  }
 
   .pf-button-danger:hover:not(:disabled),
   .pf-button-success:hover:not(:disabled),
@@ -1528,14 +1617,237 @@ aside.sidebar nav {
   border-color: var(--color-warning-30);
 }
 
-/* Report Type Button Styles - Performance Optimized */
+.report-page-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.report-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+
+.report-insight-card {
+  border-color: rgba(34, 211, 238, 0.2);
+}
+
+.premium-insight {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-default);
+  border-inline-start: 3px solid var(--color-primary);
+  border-radius: 0.625rem;
+  background: var(--bg-surface);
+}
+
+.premium-insight-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: 0 0 auto;
+  border-radius: 0.5rem;
+  background: var(--color-primary-10);
+  color: var(--color-primary);
+}
+
+.premium-insight-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.premium-insight-title {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.premium-insight-text {
+  margin-top: 0.15rem;
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.premium-insight-action {
+  flex: 0 0 auto;
+}
+
+.report-insight-header {
+  margin-bottom: 0.25rem;
+}
+
+.report-insight-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.report-insight-content {
+  padding-top: 0;
+}
+
+.report-insight-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.report-insight-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.625rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(34, 211, 238, 0.1);
+  flex-shrink: 0;
+}
+
+.report-insight-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.report-insight-kicker {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.report-insight-text,
+.report-insight-meta {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.report-insight-meta {
+  margin-top: 0.25rem;
+}
+
+.report-selector-card,
+.report-range-card {
+  overflow: hidden;
+}
+
+.report-selector-header,
+.report-range-header {
+  margin-bottom: 0.5rem;
+}
+
+.report-selector-title,
+.report-range-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.report-selector-content,
+.report-range-content {
+  padding-top: 0;
+}
+
+.report-selector-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.report-selector-group + .report-selector-group {
+  margin-top: 1.25rem;
+}
+
+.report-selector-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.report-selector-heading-main {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.report-selector-heading-sub {
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+}
+
+.report-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.875rem;
+}
+
 .report-type-button {
-  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+  text-align: right;
 }
 
 .report-type-button:hover {
   border-color: rgba(37, 99, 235, 0.3);
-  transform: translateY(-2px);
+}
+
+.report-type-button.active {
+  border-color: rgba(34, 211, 238, 0.35);
+  background: rgba(34, 211, 238, 0.08);
+  box-shadow: none;
+}
+
+.report-type-button span {
+  font-size: 0.8125rem;
+}
+
+.report-type-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.625rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid transparent;
+}
+
+.report-type-icon.active {
+  background: rgba(34, 211, 238, 0.18);
+  border-color: rgba(34, 211, 238, 0.2);
+}
+
+.report-range-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.report-range-button {
+  min-width: 110px;
+}
+
+.report-range-button.active {
+  box-shadow: none;
 }
 
 /* Custom Scrollbar Styling */
@@ -1631,11 +1943,11 @@ aside.sidebar nav {
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+  background: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+  box-shadow: none;
 }
 
 .logo-text {
@@ -1747,7 +2059,7 @@ aside.sidebar nav {
 
 .pos-barcode-form:focus-within {
   border-color: var(--color-primary-40);
-  box-shadow: 0 0 0 3px var(--color-primary-10);
+  box-shadow: none;
 }
 
 .barcode-icon {
@@ -3006,12 +3318,12 @@ aside.sidebar nav {
 .quick-sale-btn {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
   border: none !important;
-  animation: pulse-glow 2s ease-in-out infinite;
+  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.18);
 }
 
 .quick-sale-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(16, 185, 129, 0.26) !important;
 }
 
 .quick-sale-total {

@@ -14,7 +14,6 @@ import (
 	"github.com/partflow/smart-store/internal/dashboard"
 	"github.com/partflow/smart-store/internal/debts"
 	"github.com/partflow/smart-store/internal/expenses"
-	"github.com/partflow/smart-store/internal/inspections"
 	"github.com/partflow/smart-store/internal/inventory"
 	"github.com/partflow/smart-store/internal/ledgers"
 	"github.com/partflow/smart-store/internal/notifications"
@@ -46,7 +45,6 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	purchaseRepo := purchases.NewRepository(db)
 	expenseRepo := expenses.NewRepository(db)
 	returnRepo := returns.NewRepository(db)
-	inspectionRepo := inspections.NewRepository(db)
 	notificationRepo := notifications.NewRepository(db)
 	partTypesRepo := parttypes.NewRepository(db)
 
@@ -60,7 +58,6 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	purchaseService := purchases.NewService(purchaseRepo, db)
 	expenseService := expenses.NewService(expenseRepo)
 	returnService := returns.NewService(returnRepo)
-	inspectionService := inspections.NewService(inspectionRepo)
 	notificationService := notifications.NewService(notificationRepo)
 	partTypesService := parttypes.NewService(partTypesRepo)
 	ledgerService := ledgers.NewService(db)
@@ -78,7 +75,6 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	purchaseHandler := purchases.NewHandler(purchaseService)
 	expenseHandler := expenses.NewHandler(expenseService)
 	returnHandler := returns.NewHandler(returnService)
-	inspectionHandler := inspections.NewHandler(inspectionService)
 	notificationHandler := notifications.NewHandler(notificationService)
 	cachedDashboardService := dashboard.NewCachedService(db)
 	dashboardHandler := dashboard.NewHandler(cachedDashboardService)
@@ -116,7 +112,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 
 		// Protected routes (auth required)
 		protected := v1.Group("")
-		protected.Use(middleware.Auth())
+		protected.Use(middleware.Auth(), auth.CloudGuard(authService))
 		{
 			// Dashboard routes
 			protected.GET("/dashboard/stats", dashboardHandler.GetDashboardStats)
@@ -150,6 +146,8 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 
 			// User routes (current user info)
 			protected.GET("/users/me", authHandler.GetCurrentUser)
+
+			// Inspection routes
 
 			// Inventory routes
 			inventoryHandler.RegisterRoutes(protected)
@@ -330,23 +328,9 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				returns.POST("/:id/items", returnHandler.AddReturnItem)
 				returns.PUT("/:id/items/:item_id", returnHandler.UpdateReturnItem)
 				returns.DELETE("/:id/items/:item_id", returnHandler.DeleteReturnItem)
-				returns.POST("/items/:item_id/inspection", returnHandler.ProcessReturnItemInspection)
 				returns.GET("/validate/:sale_item_id", returnHandler.ValidateReturnQuantity)
 				returns.GET("/summary", returnHandler.GetReturnSummary)
 				returns.POST("/:id/reverse", returnHandler.ReverseReturn)
-			}
-
-			// Inspections routes
-			inspections := protected.Group("/inspections")
-			{
-				inspections.POST("", inspectionHandler.CreateInspection)
-				inspections.GET("/summary", inspectionHandler.GetInspectionSummary)
-				inspections.GET("/:id", inspectionHandler.GetInspection)
-				inspections.GET("", inspectionHandler.ListInspections)
-				inspections.PUT("/:id", inspectionHandler.UpdateInspection)
-				inspections.DELETE("/:id", inspectionHandler.DeleteInspection)
-				inspections.POST("/:id/pass", inspectionHandler.PassInspection)
-				inspections.POST("/:id/fail", inspectionHandler.FailInspection)
 			}
 
 			// Reports routes

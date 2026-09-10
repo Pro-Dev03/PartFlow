@@ -10,24 +10,11 @@ func RegisterRoutes(r *gin.RouterGroup, handler *Handler) {
 	{
 		acquisitions.POST("", handler.CreateAcquisition)
 		acquisitions.GET("", handler.ListAcquisitions)
-		acquisitions.GET("/aging", handler.GetUsedPartsAging)
 		acquisitions.GET("/seller-balances", handler.GetSellerBalances)
+		acquisitions.POST("/seller-balances/:customer_id/payments", handler.CreateSellerBalancePayment)
 		acquisitions.GET("/:id", handler.GetAcquisition)
 		acquisitions.PUT("/:id/status", handler.UpdateAcquisitionStatus)
 		acquisitions.POST("/:id/payments", handler.CreateSellerPayment)
 	}
 
-	// Item-related routes
-	items := r.Group("/acquisitions/items")
-	{
-		items.POST("/:id/repair-cost", handler.AddRepairCost)
-		// Acquisition item history is distinct from inventory movement history.
-		items.GET("/:id/history", handler.GetItemHistory)
-	}
-
-	// Keep the original route as a compatibility alias for existing clients.
-	legacyInventory := r.Group("/inventory")
-	{
-		legacyInventory.GET("/:id/history", handler.GetItemHistory)
-	}
 }

@@ -56,8 +56,10 @@ func ValidateRefundMethod(method string) error {
 // ValidateCondition validates condition
 func ValidateCondition(condition string) error {
 	validConditions := map[string]bool{
+		"READY_FOR_SALE":   true,
+		"NOT_FOR_SALE":     true,
+		"RETURN_TO_SUPPLIER": true,
 		"SELLABLE":         true,
-		"NEEDS_INSPECTION": true,
 		"NEEDS_REPAIR":     true,
 		"DAMAGED":          true,
 		"USED":             true,

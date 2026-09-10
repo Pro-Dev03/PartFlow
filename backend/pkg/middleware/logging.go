@@ -160,6 +160,24 @@ func SecurityLoggingMiddleware() gin.HandlerFunc {
 			})
 		}
 
+		if c.Writer.Status() == 401 || c.Writer.Status() == 403 {
+			requestID := GetRequestID(c)
+			path := c.Request.URL.Path
+			method := c.Request.Method
+			ipAddress := c.ClientIP()
+			userAgent := c.GetHeader("User-Agent")
+			cloudTokenPresent := c.GetHeader("X-PartFlow-Cloud-Token") != ""
+			logger.Warn("Security auth event", map[string]interface{}{
+				"request_id":          requestID,
+				"method":              method,
+				"path":                path,
+				"ip_address":          ipAddress,
+				"user_agent":          userAgent,
+				"status_code":         c.Writer.Status(),
+				"cloud_token_present": cloudTokenPresent,
+			})
+		}
+
 		c.Next()
 	}
 }

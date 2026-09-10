@@ -209,6 +209,9 @@ type ItemAging struct {
 type SellerBalance struct {
 	CustomerID        uuid.UUID  `json:"customer_id" db:"customer_id"`
 	CustomerName      string     `json:"customer_name" db:"customer_name"`
+	CustomerCode      string     `json:"customer_code" db:"customer_code"`
+	CustomerPhone     string     `json:"customer_phone" db:"customer_phone"`
+	CustomerEmail     *string    `json:"customer_email,omitempty" db:"customer_email"`
 	TotalAcquisitions int        `json:"total_acquisitions" db:"total_acquisitions"`
 	TotalAcquired     float64    `json:"total_acquired" db:"total_acquired"`
 	TotalPaid         float64    `json:"total_paid" db:"total_paid"`

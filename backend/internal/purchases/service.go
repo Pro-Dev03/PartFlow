@@ -472,11 +472,7 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 		return nil, ErrPurchaseCancelled
 	}
 
-	if purchase.Status == "received" {
-		return nil, ErrPurchaseAlreadyReceived
-	}
-
-	if purchase.PaidAmount <= 0 {
+	if purchase.Status != "received" && purchase.Status != "completed" && purchase.PaidAmount <= 0 {
 		return nil, ErrPurchasePaymentRequired
 	}
 
@@ -486,23 +482,39 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 		return nil, fmt.Errorf("failed to get purchase items: %w", err)
 	}
 
-	// Create inventory items for each purchase item
+	purchasePrefix := purchase.ID.String()[:8]
+	itemPattern := fmt.Sprintf("ITM-%s-%%", purchasePrefix)
+
+	var existingRows []struct {
+		ItemCode string `db:"item_code"`
+		Barcode  string `db:"barcode"`
+	}
+	if err = tx.SelectContext(ctx, &existingRows, `SELECT item_code, barcode FROM inventory_items WHERE item_code LIKE $1`, itemPattern); err != nil {
+		return nil, fmt.Errorf("failed to inspect existing inventory items: %w", err)
+	}
+
+	existingItemCodes := make(map[string]struct{}, len(existingRows))
+	for _, row := range existingRows {
+		existingItemCodes[row.ItemCode] = struct{}{}
+	}
+
+	// Create only missing inventory items so repeated receive requests are safe.
 	for _, item := range items {
-		// Get product selling price
 		var productSellingPrice float64
 		productQuery := `SELECT selling_price FROM products WHERE id = $1`
 		err = tx.GetContext(ctx, &productSellingPrice, productQuery, item.ProductID)
 		if err != nil {
-			// Fallback to markup calculation if product not found
 			productSellingPrice = item.UnitCost * 1.2
 		}
 
-		// Create inventory items based on quantity
 		for i := 0; i < item.Quantity; i++ {
-			itemCode := fmt.Sprintf("ITM-%s-%03d", purchase.ID.String()[:8], i+1)
-			barcode := fmt.Sprintf("BC-%s-%03d", purchase.ID.String()[:8], i+1)
+			itemCode := fmt.Sprintf("ITM-%s-%03d", purchasePrefix, i+1)
+			barcode := fmt.Sprintf("BC-%s-%03d", purchasePrefix, i+1)
 
-			// Map condition from purchase item to inventory item
+			if _, exists := existingItemCodes[itemCode]; exists {
+				continue
+			}
+
 			condition := ConditionNew
 			if item.Condition == "used" {
 				condition = ConditionUsed
@@ -510,10 +522,8 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 				condition = ConditionRefurbished
 			}
 
-			// Use product selling price, fallback to markup if not available
 			sellingPrice := productSellingPrice
 
-			// Create inventory item
 			createItemQuery := `
 				INSERT INTO inventory_items (
 					id, product_id, item_code, barcode, condition, grade, purchase_cost, selling_price, status,
@@ -528,10 +538,11 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 			if err != nil {
 				return nil, fmt.Errorf("failed to create inventory item: %w", err)
 			}
+
+			existingItemCodes[itemCode] = struct{}{}
 		}
 	}
 
-	// Update purchase status
 	purchase.Status = "received"
 	purchase.UpdatedAt = time.Now()
 
@@ -545,7 +556,6 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 		return nil, fmt.Errorf("failed to update purchase status: %w", err)
 	}
 
-	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}

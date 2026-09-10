@@ -8,7 +8,7 @@ export function useDebts() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
-  const { data: overdueCustomersData, isLoading } = useQuery({
+  const { data: overdueCustomersData, isLoading, refetch } = useQuery({
     queryKey: ['debts'],
     queryFn: () => debtsApi.list({ page: 1, per_page: 100 }),
   });
@@ -163,6 +163,7 @@ export function useDebts() {
     filteredDebts,
     stats,
     isLoading,
+    refetch,
     searchQuery,
     setSearchQuery,
     searchFilters,
