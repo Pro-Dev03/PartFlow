@@ -69,7 +69,7 @@ export function InventoryStats({ products, inventoryItems, isMobile }: Inventory
   const formattedValue = `₪${Math.round(totalInventoryValue).toLocaleString('en-US')}`;
   const configuredTaxRate = Number(taxSetting?.data?.value);
   const taxRate = Number.isFinite(configuredTaxRate) && configuredTaxRate >= 0 ? configuredTaxRate : 0;
-  const totalInventoryValueWithTax = totalInventoryValue * (1 + taxRate / 100);
+  const totalInventoryValueWithTax = totalInventoryValue;
   const formattedValueWithTax = `₪${totalInventoryValueWithTax.toFixed(2)}`;
 
   return (
@@ -98,7 +98,7 @@ export function InventoryStats({ products, inventoryItems, isMobile }: Inventory
           title="إجمالي قيمة البيع قبل الضريبة"
           value={formattedValue} 
           icon={Package}
-          subtitle={`بعد الضريبة ${taxRate}%: ${formattedValueWithTax}`}
+          subtitle={`شامل الضريبة ${taxRate}%: ${formattedValueWithTax}`}
           variant="default"
         />
         <StatCard 

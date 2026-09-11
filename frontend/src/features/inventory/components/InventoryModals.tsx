@@ -123,20 +123,20 @@ export function InventoryModals({
                 <Input value={`₪${selectedProduct.costPrice || 0}`} disabled />
               </div>
               <div>
-                <label className="text-small font-medium text-text mb-sm block">سعر البيع قبل الضريبة</label>
+                <label className="text-small font-medium text-text mb-sm block">سعر البيع شامل الضريبة</label>
                 <Input value={`₪${selectedProduct.sellingPrice || 0}`} disabled />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">الضريبة</label>
                 <Input
-                  value={taxRate > 0 ? `${taxRate}% - تطبق عند البيع` : '0% - بدون ضريبة'}
+                  value={taxRate > 0 ? `${taxRate}% - مشمولة في السعر` : '0% - بدون ضريبة'}
                   disabled
                 />
               </div>
               <div>
-                <label className="text-small font-medium text-text mb-sm block">السعر النهائي بعد الضريبة</label>
+                <label className="text-small font-medium text-text mb-sm block">السعر النهائي للعميل</label>
                 <Input
-                  value={`₪${((Number(selectedProduct.sellingPrice) || 0) * (1 + taxRate / 100)).toFixed(2)}`}
+                  value={`₪${(Number(selectedProduct.sellingPrice) || 0).toFixed(2)}`}
                   disabled
                 />
               </div>

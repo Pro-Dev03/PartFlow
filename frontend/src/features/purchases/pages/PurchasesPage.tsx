@@ -364,6 +364,16 @@ export function PurchasesPage() {
                           <Check className="h-4 w-4" />
                         </Button>
                       )}
+                      {(normalizedStatus === 'pending' || normalizedStatus === 'draft') && Number(purchase.paid_amount || 0) <= 0 && (
+                        <Button variant="ghost" size="icon" onClick={() => handleDeletePurchase(purchase.id)} className="text-danger hover:text-danger" title="حذف الطلب غير المدفوع" aria-label="حذف الطلب غير المدفوع">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {normalizedStatus === 'received' && (
+                        <Button variant="ghost" size="icon" onClick={() => { void handleReversePurchase(purchase.id); }} className="text-warning hover:text-warning" title="عكس العملية" aria-label="عكس العملية">
+                          <RotateCcw className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button variant="primary" size="sm" onClick={() => setPurchaseToView(purchase.id)} className="h-8 px-3 text-[11px]">
                         <Eye className="h-3.5 w-3.5" />
                         عرض

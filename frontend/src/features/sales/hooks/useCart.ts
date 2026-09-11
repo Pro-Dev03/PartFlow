@@ -90,8 +90,10 @@ export function useCart(soundEnabled: boolean = true, taxRate: number = 0) {
     setCart([]);
   }, []);
 
+  // Product prices are stored and displayed inclusive of tax. The backend
+  // extracts the tax portion when recording the sale, so do not add tax here.
   const subtotal = cart.reduce((sum, item) => sum + item.total, 0);
-  const total = subtotal * (1 + Math.max(0, taxRate) / 100);
+  const total = subtotal;
 
   return {
     cart,

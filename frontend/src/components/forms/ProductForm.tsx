@@ -124,7 +124,7 @@ export function ProductForm({ onSubmit, onCancel, initialData }: ProductFormProp
             />
 
             <Input
-              label="سعر البيع"
+              label="سعر البيع شامل الضريبة"
               type="number"
               value={formData.selling_price}
               onChange={(e) => setFormData({ ...formData, selling_price: parseFloat(e.target.value) || 0 })}

@@ -34,6 +34,15 @@ describe('useCart', () => {
     expect(result.current.total).toBe(4350);
   });
 
+  it('treats product prices as tax-inclusive', () => {
+    const { result } = renderHook(() => useCart(false, 10));
+
+    act(() => result.current.addToCart(product));
+
+    expect(result.current.subtotal).toBe(1450);
+    expect(result.current.total).toBe(1450);
+  });
+
   it('updates quantity and removes an item when quantity reaches zero', () => {
     const { result } = renderHook(() => useCart(false));
 
