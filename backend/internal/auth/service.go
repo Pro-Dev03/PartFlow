@@ -84,8 +84,9 @@ func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
 
 // IsSubscriptionExpired reports whether the user's subscription is no longer valid.
 func (s *Service) IsSubscriptionExpired(subscriptionStatus string, expiresAt *time.Time) bool {
-	switch subscriptionStatus {
-	case "canceled", "cancelled", "expired":
+	normalizedStatus := strings.ToLower(strings.TrimSpace(subscriptionStatus))
+	switch normalizedStatus {
+	case "canceled", "cancelled", "expired", "deleted":
 		return true
 	}
 
@@ -98,8 +99,9 @@ func (s *Service) IsSubscriptionExpired(subscriptionStatus string, expiresAt *ti
 
 // checkSubscriptionStatus checks if user's subscription is valid (from worktrack)
 func (s *Service) checkSubscriptionStatus(subscriptionStatus string, expiresAt *time.Time) error {
-	if s.IsSubscriptionExpired(subscriptionStatus, expiresAt) {
-		if subscriptionStatus == "canceled" || subscriptionStatus == "cancelled" {
+	normalizedStatus := strings.ToLower(strings.TrimSpace(subscriptionStatus))
+	if s.IsSubscriptionExpired(normalizedStatus, expiresAt) {
+		if normalizedStatus == "canceled" || normalizedStatus == "cancelled" || normalizedStatus == "deleted" {
 			return errors.New("subscription canceled")
 		}
 		return errors.New("subscription expired")

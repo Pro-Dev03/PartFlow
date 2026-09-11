@@ -19,7 +19,8 @@ interface InventoryStatsProps {
 }
 
 export function InventoryStats({ products, inventoryItems, isMobile }: InventoryStatsProps) {
-  const inactiveStatuses = new Set(['SOLD', 'RETURNED', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
+  const activeStatuses = new Set(['AVAILABLE', 'RETURNED']);
+  const inactiveStatuses = new Set(['SOLD', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
   const { data: taxSetting } = useQuery({
     queryKey: ['settings', 'tax_rate'],
     queryFn: () => settingsApi.getSetting('tax_rate'),
@@ -30,7 +31,7 @@ export function InventoryStats({ products, inventoryItems, isMobile }: Inventory
     const status = String((item as any).status || '').trim().toUpperCase();
     const productId = String((item as any).product_id || (item as any).product?.id || '').trim();
 
-    if (inactiveStatuses.has(status) || status !== 'AVAILABLE' || !productId) {
+    if (inactiveStatuses.has(status) || !activeStatuses.has(status) || !productId) {
       return acc;
     }
 

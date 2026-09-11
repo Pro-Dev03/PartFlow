@@ -63,6 +63,40 @@ func TestSQLiteReturnRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRepositoryGetReturnStatisticsWorksOnLegacySQLiteSchema(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "returns-statistics-legacy.db"))
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+	ctx := context.Background()
+	db := sqlx.NewDb(database.DB, "sqlite")
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := database.DB.Exec(`INSERT INTO returns (id, return_number, status, reason, total_refund_amount, return_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		uuid.NewString(), "RET-LEGACY-001", "COMPLETED", "DEFECTIVE", 123.45, now, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := NewRepository(db)
+	stats, err := repo.GetReturnStatistics(ctx)
+	if err != nil {
+		t.Fatalf("GetReturnStatistics should work on legacy SQLite schema: %v", err)
+	}
+	if got, ok := stats["total_returns"].(int); !ok || got != 1 {
+		t.Fatalf("expected total_returns=1, got %#v", stats["total_returns"])
+	}
+	if got, ok := stats["completed_returns"].(int); !ok || got != 1 {
+		t.Fatalf("expected completed_returns=1, got %#v", stats["completed_returns"])
+	}
+	if got, ok := stats["defective_returns"].(int); !ok || got != 1 {
+		t.Fatalf("expected defective_returns=1, got %#v", stats["defective_returns"])
+	}
+	if got, ok := stats["total_refunded"].(float64); !ok || got != 123.45 {
+		t.Fatalf("expected total_refunded=123.45, got %#v", stats["total_refunded"])
+	}
+}
+
 func TestServiceCreateReturnLinksActiveDebtForDebtAdjustment(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "returns-debt.db"))
 	database, err := localdb.Open()

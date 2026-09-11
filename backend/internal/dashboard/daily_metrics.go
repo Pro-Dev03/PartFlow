@@ -62,7 +62,11 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 	args := []any{date}
 
 	if isSQLiteDriver(db.DriverName()) {
-		query = `
+		productJoin := "LEFT JOIN products p ON p.id = ri.product_id"
+		if !sqliteHasColumns(db, "return_items", "product_id") {
+			productJoin = "LEFT JOIN sale_items si ON si.id = ri.sale_item_id LEFT JOIN products p ON p.id = si.product_id"
+		}
+		query = fmt.Sprintf(`
 			WITH sale_costs AS (
 				SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
 					COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) AS total_cost
@@ -89,14 +93,14 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 				FROM returns r
 				JOIN return_items ri ON ri.return_id = r.id
 				LEFT JOIN sale_items si ON si.id = ri.sale_item_id
-				LEFT JOIN products p ON p.id = ri.product_id
+				%s
 				WHERE date(r.return_date) = ?
 				  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 			)
 			SELECT totals.gross_revenue AS today_sales,
 			       totals.revenue - totals.cost - expenses_total.amount - returns_total.refunded + returns_total.returned_cost AS today_profit
 			FROM totals, expenses_total, returns_total
-		`
+		`, productJoin)
 		args = []any{date, date, date}
 		// Older local databases (and lightweight unit-test schemas) may not
 		// have the returns tables yet. Keep the dashboard usable there while

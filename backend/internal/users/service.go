@@ -3,6 +3,7 @@ package users
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -124,14 +125,15 @@ func (s *Service) RenewSubscription(ctx context.Context, id uuid.UUID, days int)
 	if err != nil {
 		return nil, err
 	}
-	if user.SubscriptionExpiresAt == nil || user.SubscriptionStatus == "expired" || user.SubscriptionStatus == "canceled" || user.SubscriptionStatus == "cancelled" {
+	normalizedStatus := strings.ToLower(strings.TrimSpace(user.SubscriptionStatus))
+	if user.SubscriptionExpiresAt == nil || normalizedStatus == "expired" || normalizedStatus == "canceled" || normalizedStatus == "cancelled" || normalizedStatus == "deleted" {
 		newExpiry := time.Now().AddDate(0, 0, days)
 		user.SubscriptionExpiresAt = &newExpiry
 		user.SubscriptionStatus = "active"
 	} else {
 		newExpiry := user.SubscriptionExpiresAt.AddDate(0, 0, days)
 		user.SubscriptionExpiresAt = &newExpiry
-		if user.SubscriptionStatus != "active" {
+		if normalizedStatus != "active" {
 			user.SubscriptionStatus = "active"
 		}
 	}
@@ -151,12 +153,13 @@ func (s *Service) GetSubscriptionSummary(ctx context.Context) (map[string]int, e
 	counts := map[string]int{"total": 0, "active": 0, "expired": 0, "canceled": 0}
 	for _, user := range users {
 		counts["total"]++
-		switch user.SubscriptionStatus {
+		normalizedStatus := strings.ToLower(strings.TrimSpace(user.SubscriptionStatus))
+		switch normalizedStatus {
 		case "active":
 			counts["active"]++
 		case "expired":
 			counts["expired"]++
-		case "canceled", "cancelled":
+		case "canceled", "cancelled", "deleted":
 			counts["canceled"]++
 		}
 	}

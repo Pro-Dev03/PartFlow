@@ -316,8 +316,12 @@ func inventoryStatusPresentation(status string) (name, color, health string) {
 	switch strings.ToUpper(strings.TrimSpace(status)) {
 	case "AVAILABLE", "IN_STOCK", "IN STOCK":
 		return "متاح", "#10b981", "good"
-	case "RESERVED", "RETURNED":
-		return "محجوز/مرتجع", "#f59e0b", "low"
+	case "RESERVED":
+		return "محجوز", "#f59e0b", "low"
+	case "RETURNED":
+		return "مرتجع", "#f59e0b", "low"
+	case "REVERSED":
+		return "شراء ملغى", "#f59e0b", "low"
 	case "SOLD":
 		return "مباع", "#64748b", "low"
 	case "DAMAGED", "IN_REPAIR", "IN REPAIR":

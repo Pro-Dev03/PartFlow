@@ -19,11 +19,13 @@ func TestFetchTodayMetricsIsDateScoped(t *testing.T) {
 	db.SetMaxOpenConns(1)
 
 	_, err = db.Exec(`
-		CREATE TABLE sales (id TEXT PRIMARY KEY, total_amount REAL, status TEXT, created_at TEXT);
-		CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, inventory_item_id TEXT, product_id TEXT, quantity INTEGER);
+		CREATE TABLE sales (id TEXT PRIMARY KEY, total_amount REAL, tax_amount REAL, status TEXT, created_at TEXT);
+		CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, inventory_item_id TEXT, product_id TEXT, quantity INTEGER, unit_cost REAL, total_amount REAL, tax_amount REAL);
 		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, purchase_cost REAL);
 		CREATE TABLE products (id TEXT PRIMARY KEY, purchase_price REAL, cost_price REAL);
 		CREATE TABLE expenses (id TEXT PRIMARY KEY, amount REAL, status TEXT, expense_date TEXT);
+		CREATE TABLE returns (id TEXT PRIMARY KEY, return_date TEXT, status TEXT, total_refund_amount REAL);
+		CREATE TABLE return_items (id TEXT PRIMARY KEY, return_id TEXT, sale_item_id TEXT, quantity_returned INTEGER, original_cost REAL);
 	`)
 	if err != nil {
 		t.Fatalf("create schema: %v", err)
@@ -36,19 +38,23 @@ func TestFetchTodayMetricsIsDateScoped(t *testing.T) {
 	yesterdayTimestamp := yesterday + "T12:00:00Z"
 
 	_, err = db.Exec(`
-		INSERT INTO sales (id, total_amount, status, created_at) VALUES
-			('today', 100, 'completed', ?),
-			('yesterday', 1000, 'completed', ?),
-			('cancelled-today', 500, 'cancelled', ?);
+		INSERT INTO sales (id, total_amount, tax_amount, status, created_at) VALUES
+			('today', 100, 0, 'completed', ?),
+			('yesterday', 1000, 0, 'completed', ?),
+			('cancelled-today', 500, 0, 'cancelled', ?);
 		INSERT INTO inventory_items (id, purchase_cost) VALUES ('item-today', 20), ('item-yesterday', 30);
 		INSERT INTO products (id, purchase_price, cost_price) VALUES ('product-today', 25, 25), ('product-yesterday', 35, 35);
-		INSERT INTO sale_items (id, sale_id, inventory_item_id, product_id, quantity) VALUES
-			('line-today', 'today', 'item-today', 'product-today', 2),
-			('line-yesterday', 'yesterday', 'item-yesterday', 'product-yesterday', 2);
+		INSERT INTO sale_items (id, sale_id, inventory_item_id, product_id, quantity, unit_cost, total_amount, tax_amount) VALUES
+			('line-today', 'today', 'item-today', 'product-today', 2, 20, 40, 0),
+			('line-yesterday', 'yesterday', 'item-yesterday', 'product-yesterday', 2, 30, 60, 0);
 		INSERT INTO expenses (id, amount, status, expense_date) VALUES
 			('expense-today', 10, 'approved', ?),
 			('expense-yesterday', 500, 'approved', ?);
-	`, todayTimestamp, yesterdayTimestamp, todayTimestamp, today, yesterday)
+		INSERT INTO returns (id, return_date, status, total_refund_amount) VALUES
+			('return-today', ?, 'COMPLETED', 30);
+		INSERT INTO return_items (id, return_id, sale_item_id, quantity_returned, original_cost) VALUES
+			('return-item-today', 'return-today', 'line-today', 1, 20);
+	`, todayTimestamp, yesterdayTimestamp, todayTimestamp, today, yesterday, today)
 	if err != nil {
 		t.Fatalf("insert fixtures: %v", err)
 	}
@@ -60,9 +66,9 @@ func TestFetchTodayMetricsIsDateScoped(t *testing.T) {
 	if metrics.Sales != 100 {
 		t.Fatalf("today sales = %v, want 100", metrics.Sales)
 	}
-	// 100 revenue - (2 * 20 cost) - 10 approved expense.
-	if metrics.Profit != 50 {
-		t.Fatalf("today profit = %v, want 50", metrics.Profit)
+	// 100 revenue - (2 * 20 cost) - 10 approved expense - 30 return refund + (1 * 20 returned cost) = 40.
+	if metrics.Profit != 40 {
+		t.Fatalf("today profit = %v, want 40", metrics.Profit)
 	}
 }
 

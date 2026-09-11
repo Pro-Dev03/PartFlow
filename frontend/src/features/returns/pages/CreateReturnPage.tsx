@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { returnsApi } from '../../../services/api/endpoints';
@@ -58,6 +58,18 @@ export function CreateReturnPage() {
   const selectedItem = items.find((item: any) => String(item.id || item.sale_item_id) === saleItemId);
   const unitPrice = Number(selectedItem?.unit_price ?? selectedItem?.unitPrice ?? selectedItem?.price ?? 0);
   const availableQuantity = Number(selectedItem?.quantity ?? selectedItem?.remaining_quantity ?? 0);
+
+  useEffect(() => {
+    if (!saleId || saleLoading) return;
+    const itemIds = items.map((item: any) => String(item.id || item.sale_item_id));
+    if (itemIds.length === 1) {
+      setSaleItemId(itemIds[0]);
+      return;
+    }
+    if (saleItemId && !itemIds.includes(saleItemId)) {
+      setSaleItemId('');
+    }
+  }, [items, saleId, saleItemId, saleLoading]);
 
   const createMutation = useMutation({
     mutationFn: () => returnsApi.create({

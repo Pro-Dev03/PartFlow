@@ -502,7 +502,8 @@ func Auth() gin.HandlerFunc {
 					return
 				}
 
-				if subscriptionStatus == "canceled" || subscriptionStatus == "cancelled" || subscriptionStatus == "expired" || (subscriptionExpiresAt != nil && time.Now().After(*subscriptionExpiresAt)) {
+				normalizedStatus := strings.ToLower(strings.TrimSpace(subscriptionStatus))
+				if normalizedStatus == "canceled" || normalizedStatus == "cancelled" || normalizedStatus == "expired" || normalizedStatus == "deleted" || (subscriptionExpiresAt != nil && time.Now().After(*subscriptionExpiresAt)) {
 					c.JSON(http.StatusForbidden, gin.H{
 						"error": "اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة.",
 					})
@@ -519,8 +520,6 @@ func Auth() gin.HandlerFunc {
 		c.Next()
 	}
 }
-
-// Organization middleware removed - single-tenant system
 
 // Logger middleware with structured logging
 func Logger() gin.HandlerFunc {
