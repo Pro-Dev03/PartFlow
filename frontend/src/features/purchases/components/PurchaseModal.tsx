@@ -125,6 +125,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
       setBarcodeInput('');
     } catch (error) {
       console.error('Error scanning barcode:', error);
+      toast.error('لم يتم العثور على منتج بهذا الباركود. يمكنك إنشاء قطعة جديدة.');
     }
   }, [barcodeInput]);
 
@@ -342,12 +343,13 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
 
             {activeTab === 'scan' ? (
               <form onSubmit={handleBarcodeScan} className="pf-barcode-row">
-                <Input
-                  placeholder="امسح الباركود أو اكتب الرقم..."
+                  <Input
+                    placeholder="امسح أو اكتب الباركود ثم اضغط Enter..."
                   value={barcodeInput}
                   onChange={(e) => setBarcodeInput(e.target.value)}
                   className="min-w-0 flex-1"
                   autoFocus
+                    aria-label="الباركود أو الإدخال اليدوي"
                 />
                 <Button type="submit" variant="primary" className="pf-barcode-submit">
                   <Scan className="w-4 h-4" />

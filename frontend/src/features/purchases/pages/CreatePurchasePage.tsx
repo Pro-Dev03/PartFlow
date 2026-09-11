@@ -31,6 +31,7 @@ import { PurchaseItem } from '../types/purchases.types';
 import { toast } from 'sonner';
 import { settingsApi } from '../../../services/api/endpoints';
 import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
+import { generateSku } from '../../../utils/sku';
 
 interface LineItem extends PurchaseItem {
   key: string;
@@ -212,6 +213,7 @@ export function CreatePurchasePage() {
       setBarcodeInput('');
     } catch (error) {
       console.error('Error scanning barcode:', error);
+      toast.error('لم يتم العثور على منتج بهذا الباركود. يمكنك إنشاء قطعة جديدة.');
     }
   }, [barcodeInput]);
 
@@ -282,7 +284,7 @@ export function CreatePurchasePage() {
 
     const productData = {
       name: manualProductData.name,
-      sku: manualProductData.sku || `SKU-${Date.now()}`,
+      sku: manualProductData.sku || generateSku(),
       barcode: manualProductData.barcode || undefined,
       category_id: manualProductData.category_id || undefined,
       cost_price: costPrice,
@@ -505,7 +507,10 @@ export function CreatePurchasePage() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => setIsManualProductModalOpen(true)}
+                  onClick={() => {
+                    setManualProductData((current) => ({ ...current, sku: generateSku() }));
+                    setIsManualProductModalOpen(true);
+                  }}
                   className="flex items-center gap-2"
                 >
                   <Sparkles className="w-4 h-4" />
@@ -517,11 +522,12 @@ export function CreatePurchasePage() {
               {activeTab === 'scan' ? (
                 <form onSubmit={handleBarcodeScan} className="pf-barcode-row">
                   <Input
-                    placeholder="امسح الباركود أو اكتب الرقم..."
+                    placeholder="امسح أو اكتب الباركود ثم اضغط Enter..."
                     value={barcodeInput}
                     onChange={(e) => setBarcodeInput(e.target.value)}
                     className="min-w-0 flex-1"
                     autoFocus
+                    aria-label="الباركود أو الإدخال اليدوي"
                   />
                   <Button type="submit" variant="primary" className="pf-barcode-submit">
                     <Scan className="w-4 h-4" />
@@ -938,7 +944,8 @@ export function CreatePurchasePage() {
                 </label>
                 <Input 
                   value={manualProductData.sku}
-                  onChange={(e) => setManualProductData({ ...manualProductData, sku: e.target.value })}
+                  readOnly
+                  helperText="يتم توليده تلقائيًا"
                   placeholder="SKU-..."
                 />
               </div>
