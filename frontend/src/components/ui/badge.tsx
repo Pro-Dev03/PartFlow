@@ -10,7 +10,7 @@ export interface BadgeProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 const Badge = forwardRef<HTMLDivElement, BadgeProps>(
-  ({ className, variant = 'default', size = 'md', dot = false, children, 'aria-label': ariaLabel, ...props }, ref) => {
+  ({ className, variant = 'default', size = 'md', dot = false, children, 'aria-label': ariaLabel, style, ...props }, ref) => {
     const variants = {
       default: 'bg-surface border border-border text-text',
       success: 'bg-success/8 text-success border border-success/20',
@@ -27,6 +27,17 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
       sm: 'px-[var(--badge-padding-sm)] text-[var(--badge-font-size-sm)] leading-none',
       md: 'px-[var(--badge-padding-md)] text-[var(--badge-font-size-md)] leading-none',
       lg: 'px-[var(--badge-padding-lg)] text-[var(--badge-font-size-lg)] leading-none',
+    };
+
+    const variantStyles = {
+      default: { color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-default)' },
+      success: { color: 'var(--color-success)', backgroundColor: 'var(--color-success-10)', borderColor: 'var(--color-success-20)' },
+      warning: { color: 'var(--color-warning)', backgroundColor: 'var(--color-warning-10)', borderColor: 'var(--color-warning-20)' },
+      danger: { color: 'var(--color-danger)', backgroundColor: 'var(--color-danger-10)', borderColor: 'var(--color-danger-20)' },
+      info: { color: 'var(--color-info)', backgroundColor: 'var(--color-info-10)', borderColor: 'var(--color-info-20)' },
+      destructive: { color: 'white', backgroundColor: 'var(--color-danger)', borderColor: 'var(--color-danger)' },
+      secondary: { color: 'var(--text-primary)', backgroundColor: 'var(--bg-surface-2)', borderColor: 'var(--border-default)' },
+      outline: { color: 'var(--text-primary)', backgroundColor: 'transparent', borderColor: 'var(--border-default)' },
     };
 
     const getStatusText = () => {
@@ -50,6 +61,7 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
           sizeClasses[size] || sizeClasses.md,
           className
         )}
+        style={{ ...variantStyles[variant], ...style }}
         role="status"
         aria-label={ariaLabel || (typeof children === 'string' ? children : undefined)}
         {...props}

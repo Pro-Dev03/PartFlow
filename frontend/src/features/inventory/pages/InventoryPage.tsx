@@ -113,7 +113,7 @@ export function InventoryPage() {
       'الاسم': product.name,
       'SKU': product.sku,
       'التصنيف': product.category_name || product.category || '-',
-      'السعر': product.sellingPrice,
+      'السعر قبل الضريبة': product.sellingPrice,
       'المخزون': product.stock,
       'الحالة': product.condition
     }));
@@ -125,11 +125,11 @@ export function InventoryPage() {
       'الاسم': product.name,
       'SKU': product.sku,
       'التصنيف': product.category_name || product.category || '-',
-      'السعر': product.sellingPrice,
+      'السعر قبل الضريبة': product.sellingPrice,
       'المخزون': product.stock,
       'الحالة': product.condition
     }));
-    printTable(dataToPrint, ['الاسم', 'SKU', 'السعر', 'المخزون', 'الحالة'], 'تقرير المخزون');
+    printTable(dataToPrint, ['الاسم', 'SKU', 'السعر قبل الضريبة', 'المخزون', 'الحالة'], 'تقرير المخزون');
   };
 
   const handleViewProduct = (product: Product) => {

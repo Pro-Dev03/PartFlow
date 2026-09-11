@@ -14,6 +14,8 @@ interface ModernProductGridProps {
   hasMore?: boolean;
   onLoadMore?: () => void;
   isLoading?: boolean;
+  taxRate?: number;
+  taxExempt?: boolean;
 }
 
 export function ModernProductGrid({
@@ -22,6 +24,8 @@ export function ModernProductGrid({
   hasMore = false,
   onLoadMore,
   isLoading = false,
+  taxRate = 0,
+  taxExempt = false,
 }: ModernProductGridProps) {
   if (isLoading) {
     return (
@@ -54,6 +58,8 @@ export function ModernProductGrid({
           <ModernProductCard
             key={product.id}
             product={product}
+            taxRate={taxRate}
+            taxExempt={taxExempt}
             onClick={() => onProductClick(product)}
           />
         ))}
@@ -71,19 +77,23 @@ export function ModernProductGrid({
 
 interface ModernProductCardProps {
   product: SearchProduct;
+  taxRate: number;
+  taxExempt: boolean;
   onClick: () => void;
 }
 
-function ModernProductCard({ product, onClick }: ModernProductCardProps) {
-  const price =
+function ModernProductCard({ product, taxRate, taxExempt, onClick }: ModernProductCardProps) {
+  const basePrice =
     product.sellingPrice ??
     product.selling_price ??
     product.price ??
     0;
+  const price = taxExempt ? basePrice : Math.round(basePrice * (1 + taxRate / 100) * 100) / 100;
 
   const stock = product.stock ?? 0;
   const isLowStock = stock > 0 && stock <= 3;
   const isOutOfStock = stock <= 0;
+  const stockStatus = isOutOfStock ? 'نفد المخزون' : isLowStock ? 'قليل' : 'متوفر';
   const imageUrl = product.image_url || getLocalProductImage(String(product.id));
 
   return (
@@ -126,6 +136,10 @@ function ModernProductCard({ product, onClick }: ModernProductCardProps) {
               {stock} متوفر
             </span>
           )}
+          <span className={cn('product-card-status', isOutOfStock ? 'danger' : isLowStock ? 'warning' : 'success')}>
+            <span className="product-card-status-dot" aria-hidden="true" />
+            {stockStatus}
+          </span>
         </div>
         <div className="product-card-price">
           <span className="price-value">₪{price.toLocaleString()}</span>

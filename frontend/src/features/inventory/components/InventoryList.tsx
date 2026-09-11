@@ -127,14 +127,17 @@ function LoadingSpinner() {
   );
 }
 
-function getStockDisplay(stock: number | undefined): { text: string; variant: 'success' | 'warning' | 'danger' | 'secondary' | 'outline' } {
+const DEFAULT_LOW_STOCK_THRESHOLD = 3;
+
+function getStockDisplay(stock: number | undefined, minimumStockLevel?: number): { text: string; variant: 'success' | 'warning' | 'danger' | 'secondary' | 'outline' } {
   if (stock === undefined || stock === null) {
     return { text: 'غير محدد', variant: 'secondary' };
   }
   if (stock === 0) {
     return { text: 'نفد المخزون', variant: 'danger' };
   }
-  if (stock <= 10) {
+  const threshold = Number(minimumStockLevel) > 0 ? Number(minimumStockLevel) : DEFAULT_LOW_STOCK_THRESHOLD;
+  if (stock <= threshold) {
     return { text: 'قليل', variant: 'warning' };
   }
   return { text: 'متوفر', variant: 'success' };
@@ -235,7 +238,7 @@ export function InventoryList({
                     <TableHead className="w-[14%]">التصنيف</TableHead>
                     <TableHead className="w-[12%]">الحالة</TableHead>
                     <TableHead className="w-[10%] text-center">المخزون</TableHead>
-                    <TableHead className="w-[12%] text-center">السعر</TableHead>
+                    <TableHead className="w-[12%] text-center">السعر قبل الضريبة</TableHead>
                     <TableHead className="w-[12%]">المؤشر</TableHead>
                     <TableHead className="w-[8%] text-end">الإجراءات</TableHead>
                   </TableRow>
@@ -243,7 +246,7 @@ export function InventoryList({
                 <TableBody>
                   {displayProducts.map((product: Product) => {
                     const stockVal = getStockValue(product);
-                    const stockBadge = getStockDisplay(stockVal);
+                    const stockBadge = getStockDisplay(stockVal, product.min_stock_level);
                     const conditionBadge = getConditionBadge(product.condition || '');
 
                     return (
@@ -310,7 +313,7 @@ export function InventoryList({
               <div className="grid gap-3 p-4">
                 {displayProducts.map((product: Product) => {
                   const stockVal = getStockValue(product);
-                  const stockBadge = getStockDisplay(stockVal);
+                  const stockBadge = getStockDisplay(stockVal, product.min_stock_level);
                   const conditionBadge = getConditionBadge(product.condition || '');
 
                   return (
@@ -337,7 +340,7 @@ export function InventoryList({
                           <span className="font-semibold text-text-primary">{stockVal !== undefined ? stockVal : '-'}</span>
                         </div>
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-text-tertiary">السعر</span>
+                          <span className="text-text-tertiary">السعر قبل الضريبة</span>
                           <span className="font-semibold text-primary">{getPrice(product)}</span>
                         </div>
                       </div>

@@ -8,8 +8,7 @@ interface DebtStatsProps {
 
 export function DebtStats({ stats }: DebtStatsProps) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}
-         className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="unified-stats-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard
         title="إجمالي الديون"
         value={<span className="numeric-metric">₪{stats.totalDebt.toLocaleString()}</span>}

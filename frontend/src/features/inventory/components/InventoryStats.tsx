@@ -19,7 +19,7 @@ interface InventoryStatsProps {
 }
 
 export function InventoryStats({ products, inventoryItems, isMobile }: InventoryStatsProps) {
-  const activeStatuses = new Set(['AVAILABLE', 'RETURNED']);
+  const activeStatuses = new Set(['AVAILABLE']);
   const inactiveStatuses = new Set(['SOLD', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
   const { data: taxSetting } = useQuery({
     queryKey: ['settings', 'tax_rate'],
@@ -62,15 +62,18 @@ export function InventoryStats({ products, inventoryItems, isMobile }: Inventory
   const visibleProductIds = new Set(products.map((product) => product.id));
   const summaryItems = Array.from(normalizedItems.entries())
     .filter(([productId, item]) => visibleProductIds.has(productId) && item.condition !== 'USED')
-    .map(([, item]) => item);
+    .map(([productId, item]) => ({
+      ...item,
+      minimumStockLevel: Math.max(1, Number(products.find((product) => product.id === productId)?.min_stock_level) || 3),
+    }));
 
-  const lowStockItems = summaryItems.filter((item) => item.stock > 0 && item.stock < 10).length;
+  const lowStockItems = summaryItems.filter((item) => item.stock > 0 && item.stock <= item.minimumStockLevel).length;
 
   const totalInventoryValue = summaryItems.reduce((total, item) => total + (item.stock * item.unitPrice), 0);
   const formattedValue = `₪${Math.round(totalInventoryValue).toLocaleString('en-US')}`;
   const configuredTaxRate = Number(taxSetting?.data?.value);
   const taxRate = Number.isFinite(configuredTaxRate) && configuredTaxRate >= 0 ? configuredTaxRate : 0;
-  const totalInventoryValueWithTax = totalInventoryValue;
+  const totalInventoryValueWithTax = totalInventoryValue * (1 + taxRate / 100);
   const formattedValueWithTax = `₪${totalInventoryValueWithTax.toFixed(2)}`;
 
   return (

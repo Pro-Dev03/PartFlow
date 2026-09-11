@@ -1,5 +1,6 @@
 import { Card, CardContent } from './card';
 import { TrendingUp, TrendingDown } from 'lucide-react';
+import type { CSSProperties } from 'react';
 
 interface StatCardProps {
   title: string;
@@ -24,14 +25,21 @@ export function StatCard({
   onClick,
   compact = false
 }: StatCardProps) {
+  const accentColor = variant === 'featured' ? 'var(--color-primary)' :
+    variant === 'warning' ? 'var(--color-warning)' :
+    variant === 'danger' ? 'var(--color-danger)' :
+    variant === 'success' ? 'var(--color-success)' :
+    variant === 'info' ? 'var(--color-info)' : 'var(--color-primary)';
+
   return (
     <Card
       variant={variant}
       hoverable
       onClick={onClick}
-      className={compact ? 'compact-stat-card' : undefined}
+      className={`unified-stat-card ${compact ? 'compact-stat-card' : ''}`}
+      style={{ '--stat-accent': accentColor } as CSSProperties}
     >
-      <CardContent style={compact ? { padding: '10px 12px' } : undefined}>
+      <CardContent className="unified-stat-card-content" style={compact ? { padding: '10px 12px' } : undefined}>
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',

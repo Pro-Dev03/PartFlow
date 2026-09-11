@@ -90,8 +90,7 @@ export function useCart(soundEnabled: boolean = true, taxRate: number = 0) {
     setCart([]);
   }, []);
 
-  // Product prices are stored and displayed inclusive of tax. The backend
-  // extracts the tax portion when recording the sale, so do not add tax here.
+  // Product prices are stored before tax. POS applies tax to the customer total.
   const subtotal = cart.reduce((sum, item) => sum + item.total, 0);
   const total = subtotal;
 

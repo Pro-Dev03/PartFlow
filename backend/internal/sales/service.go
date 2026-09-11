@@ -152,7 +152,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		for i := range items {
 			itemSubtotal := items[i].TotalAmount
 			itemDiscount := discountAmount * itemSubtotal / subtotal
-			itemTax := includedTax(itemSubtotal-itemDiscount, taxRate)
+			itemTax := addedTax(itemSubtotal-itemDiscount, taxRate)
 			items[i].DiscountAmount = itemDiscount
 			items[i].TaxAmount = itemTax
 			items[i].TotalAmount = itemSubtotal - itemDiscount + itemTax
@@ -538,19 +538,19 @@ func calculateSaleAmounts(subtotal, totalCost, taxRate, maxDiscountRate float64,
 	}
 
 	taxableSubtotal := subtotal - discountAmount
-	totalTax = includedTax(taxableSubtotal, taxRate)
-	totalAmount = taxableSubtotal
-	netRevenue := taxableSubtotal - totalTax
+	totalTax = addedTax(taxableSubtotal, taxRate)
+	totalAmount = taxableSubtotal + totalTax
+	netRevenue := taxableSubtotal
 	grossProfit = netRevenue - totalCost
 	netProfit = grossProfit
 	return
 }
 
-func includedTax(grossAmount, taxRate float64) float64 {
-	if grossAmount <= 0 || taxRate <= 0 {
+func addedTax(netAmount, taxRate float64) float64 {
+	if netAmount <= 0 || taxRate <= 0 {
 		return 0
 	}
-	return grossAmount - grossAmount/(1+taxRate/100)
+	return netAmount * taxRate / 100
 }
 
 // calculateProfit calculates the profit for sale items

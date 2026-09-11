@@ -33,6 +33,8 @@ import {
   Wifi,
   ShoppingCart,
   Trash2,
+  UserRound,
+  ChevronDown,
 } from 'lucide-react';
 
 // Modern Components
@@ -82,6 +84,15 @@ export function POSPage() {
     total,
     subtotal,
   } = useCart(true, taxExempt ? 0 : (Number.isFinite(systemTaxRate) ? systemTaxRate : 0));
+  const effectiveTaxRate = Number.isFinite(systemTaxRate) && systemTaxRate > 0 ? systemTaxRate : 0;
+  const priceWithTax = (price: number) => Math.round(price * (1 + effectiveTaxRate / 100) * 100) / 100;
+  const displayCart = cart.map((item) => ({
+    ...item,
+    price: taxExempt ? item.price : priceWithTax(item.price),
+    total: (taxExempt ? item.price : priceWithTax(item.price)) * item.quantity,
+  }));
+  const displaySubtotal = displayCart.reduce((sum, item) => sum + item.total, 0);
+  const displayTotal = displaySubtotal;
   const {
     paymentMethod,
     setPaymentMethod,
@@ -110,6 +121,7 @@ export function POSPage() {
     id: string;
     name: string;
   }>();
+  const [isCustomerMenuOpen, setIsCustomerMenuOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [soundEnabled] = useState(true);
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
@@ -586,7 +598,7 @@ export function POSPage() {
       })),
       payment_method: paymentMethod === 'credit' ? 'debt' : paymentMethod === 'checks' ? 'transfer' : paymentMethod,
       payment_amount: parseFloat(paidAmount) || 0,
-      total_amount: total,
+      total_amount: displayTotal,
       tax_exempt: taxExempt,
     };
 
@@ -601,7 +613,7 @@ export function POSPage() {
             ?.phone
         : undefined,
       saleDate: new Date().toISOString(),
-      items: cart.map((item) => ({
+      items: displayCart.map((item) => ({
         name: item.name,
         partType: item.partType,
         partTypeColor: item.partTypeColor,
@@ -612,10 +624,10 @@ export function POSPage() {
         quantity: item.quantity,
         total: item.total,
       })),
-      subtotal,
-      total,
+      subtotal: displaySubtotal,
+      total: displayTotal,
       paidAmount: parseFloat(paidAmount) || 0,
-      remaining: calculateRemaining(total),
+      remaining: calculateRemaining(displayTotal),
       paymentMethod,
     };
 
@@ -629,6 +641,9 @@ export function POSPage() {
     paidAmount,
     total,
     subtotal,
+    displayCart,
+    displaySubtotal,
+    displayTotal,
     taxExempt,
     customers,
     calculateRemaining,
@@ -679,8 +694,8 @@ export function POSPage() {
         ...(item.purchaseCost ? { purchase_cost: item.purchaseCost } : {}),
       })),
       payment_method: 'cash',
-      payment_amount: total,
-      total_amount: total,
+      payment_amount: displayTotal,
+      total_amount: displayTotal,
       tax_exempt: taxExempt,
     }
 
@@ -695,7 +710,7 @@ export function POSPage() {
             ?.phone
         : undefined,
       saleDate: new Date().toISOString(),
-      items: cart.map((item) => ({
+      items: displayCart.map((item) => ({
         name: item.name,
         partType: item.partType,
         partTypeColor: item.partTypeColor,
@@ -706,9 +721,9 @@ export function POSPage() {
         quantity: item.quantity,
         total: item.total,
       })),
-      subtotal,
-      total,
-      paidAmount: total,
+      subtotal: displaySubtotal,
+      total: displayTotal,
+      paidAmount: displayTotal,
       remaining: 0,
       paymentMethod: 'cash',
     }
@@ -721,6 +736,9 @@ export function POSPage() {
     selectedCustomer,
     total,
     subtotal,
+    displayCart,
+    displaySubtotal,
+    displayTotal,
     taxExempt,
     customers,
     getAvailableStockCount,
@@ -921,6 +939,8 @@ export function POSPage() {
           <ModernProductGrid
             products={productsWithStock}
             onProductClick={handleProductSelect}
+            taxRate={effectiveTaxRate}
+            taxExempt={taxExempt}
             hasMore={productPage * 20 < productTotal}
             onLoadMore={() => setProductPage((p) => p + 1)}
             isLoading={productsLoading}
@@ -932,19 +952,47 @@ export function POSPage() {
           {/* Customer Selector */}
           <div className="pos-customer-bar">
             <div className="customer-select-wrapper">
-              <select
-                value={selectedCustomer}
-                onChange={(e) => handleCustomerChange(e.target.value)}
-                className="customer-select"
+              <button
+                type="button"
+                className={`customer-select-trigger ${isCustomerMenuOpen ? 'open' : ''}`}
+                onClick={() => setIsCustomerMenuOpen((open) => !open)}
+                aria-haspopup="listbox"
+                aria-expanded={isCustomerMenuOpen}
               >
-                <option value="">عميل عام</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              <Search className="customer-search-icon" />
+                <span className="customer-select-avatar" aria-hidden="true"><UserRound className="h-4 w-4" /></span>
+                <span className="customer-select-copy">
+                  <span className="customer-select-label">العميل</span>
+                  <span className="customer-select-value">{selectedCustomerOption?.name || 'عميل عام'}</span>
+                </span>
+                <ChevronDown className="customer-select-chevron" aria-hidden="true" />
+              </button>
+              {isCustomerMenuOpen && (
+                <div className="customer-select-menu" role="listbox" aria-label="اختيار العميل">
+                  <button
+                    type="button"
+                    className={`customer-option ${!selectedCustomer ? 'selected' : ''}`}
+                    onClick={() => { handleCustomerChange(''); setIsCustomerMenuOpen(false); }}
+                    role="option"
+                    aria-selected={!selectedCustomer}
+                  >
+                    <span className="customer-option-avatar guest" aria-hidden="true"><UserRound className="h-4 w-4" /></span>
+                    <span className="customer-option-copy"><strong>عميل عام</strong><small>بيع مباشر بدون حساب عميل</small></span>
+                  </button>
+                  {customers.map((customer) => (
+                    <button
+                      key={customer.id}
+                      type="button"
+                      className={`customer-option ${String(customer.id) === String(selectedCustomer) ? 'selected' : ''}`}
+                      onClick={() => { handleCustomerChange(String(customer.id)); setIsCustomerMenuOpen(false); }}
+                      role="option"
+                      aria-selected={String(customer.id) === String(selectedCustomer)}
+                    >
+                      <span className="customer-option-avatar" aria-hidden="true"><UserRound className="h-4 w-4" /></span>
+                      <span className="customer-option-copy"><strong>{customer.name}</strong><small>حساب عميل</small></span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <button
               className="quick-customer-btn"
@@ -966,8 +1014,8 @@ export function POSPage() {
 
           {/* Cart Panel */}
           <ModernCartPanel
-            cart={cart}
-            total={total}
+            cart={displayCart}
+            total={displayTotal}
             onUpdateQuantity={updateQuantity}
             onRemoveFromCart={removeFromCart}
             onClearCart={() => {
@@ -982,7 +1030,7 @@ export function POSPage() {
             setPaymentMethod={setPaymentMethod}
             paidAmount={paidAmount}
             setPaidAmount={setPaidAmount}
-            total={total}
+            total={displayTotal}
             isProcessing={isProcessing}
             onCheckout={handleCheckout}
             selectedCustomer={selectedCustomer}
