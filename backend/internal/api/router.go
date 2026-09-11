@@ -111,6 +111,12 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			public.POST("/auth/cloud-session", authHandler.CloudSession)
 		}
 
+		// This endpoint is the cloud authority itself. It uses the bearer JWT
+		// directly and must not pass through CloudGuard, which calls this endpoint.
+		cloudValidation := v1.Group("")
+		cloudValidation.Use(middleware.Auth())
+		cloudValidation.POST("/auth/validate", authHandler.ValidateSubscription)
+
 		// Protected routes (auth required)
 		protected := v1.Group("")
 		protected.Use(middleware.Auth(), auth.CloudGuard(authService))
@@ -139,7 +145,6 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			auth := protected.Group("/auth")
 			{
 				auth.POST("/logout", authHandler.Logout)
-				auth.POST("/validate", authHandler.ValidateSubscription)
 				auth.GET("/admin-check", func(c *gin.Context) {
 					userID := middleware.GetUserID(c)
 					if userID == uuid.Nil {

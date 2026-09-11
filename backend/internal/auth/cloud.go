@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -109,9 +108,6 @@ func (s *CloudAuthService) ValidateCloudToken(ctx context.Context, cloudToken st
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		if fallback, err := cloudTokenFallback(cloudToken); err == nil {
-			return fallback, nil
-		}
 		return nil, fmt.Errorf("cloud validation failed with status %d", resp.StatusCode)
 	}
 
@@ -130,64 +126,6 @@ func (s *CloudAuthService) ValidateCloudToken(ctx context.Context, cloudToken st
 // CreateLocalSession creates a local JWT session from a validated cloud token.
 // Subscription permission comes only from the cloud validate response; local
 // SQLite columns are copied for display and must not block a cloud-approved account.
-func cloudTokenFallback(cloudToken string) (*CloudValidateResponse, error) {
-	if strings.TrimSpace(cloudToken) == "" {
-		return nil, fmt.Errorf("cloud token is empty")
-	}
-
-	parts := strings.Split(cloudToken, ".")
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("cloud token is not a JWT")
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		payload, err = base64.URLEncoding.DecodeString(parts[1])
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode cloud token payload: %w", err)
-		}
-	}
-
-	var claims map[string]any
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal cloud token payload: %w", err)
-	}
-
-	userID := strings.TrimSpace(valueString(claims["sub"]))
-	if userID == "" {
-		userID = strings.TrimSpace(valueString(claims["user_id"]))
-	}
-	if userID == "" {
-		return nil, fmt.Errorf("cloud token does not contain a user id")
-	}
-
-	result := &CloudValidateResponse{Success: true}
-	result.Data.Valid = true
-	result.Data.UserID = userID
-	result.Data.User.ID = userID
-	result.Data.Email = valueString(claims["email"])
-	result.Data.User.Email = result.Data.Email
-	result.Data.User.FirstName = valueString(claims["first_name"])
-	result.Data.User.LastName = valueString(claims["last_name"])
-	result.Data.User.IsActive = true
-	result.Data.IsActive = true
-	result.Data.SubscriptionStatus = valueString(claims["subscription_status"])
-	result.Data.User.SubscriptionStatus = result.Data.SubscriptionStatus
-	result.Data.SubscriptionExpiresAt = valueString(claims["subscription_expires_at"])
-	result.Data.User.SubscriptionExpiresAt = result.Data.SubscriptionExpiresAt
-	return result, nil
-}
-
-func valueString(value any) string {
-	if value == nil {
-		return ""
-	}
-	if str, ok := value.(string); ok {
-		return strings.TrimSpace(str)
-	}
-	return strings.TrimSpace(fmt.Sprintf("%v", value))
-}
-
 func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *JWTService, db *sqlx.DB, cloudToken string) (*CloudSessionResponse, error) {
 	validation, err := s.ValidateCloudToken(ctx, cloudToken)
 	if err != nil {
