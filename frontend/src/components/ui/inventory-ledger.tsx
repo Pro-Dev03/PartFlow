@@ -75,6 +75,12 @@ export function InventoryLedger({
         return { label: 'حجز', variant: 'warning' as const };
       case 'RELEASE':
         return { label: 'إلغاء الحجز', variant: 'secondary' as const };
+      case 'REVERSE_PURCHASE':
+        return { label: 'إلغاء عملية الشراء', variant: 'danger' as const };
+      case 'REVERSE_SALE':
+        return { label: 'إلغاء عملية البيع', variant: 'success' as const };
+      case 'REVERSE_RETURN':
+        return { label: 'عكس المرتجع', variant: 'secondary' as const };
       default:
         return { label: 'أخرى', variant: 'default' as const };
     }
@@ -191,8 +197,7 @@ export function InventoryLedger({
                                movement.type === 'SALE' || movement.type === 'DAMAGE' ? 'var(--danger)' :
                                'var(--text-primary)'
                       }}>
-                        {movement.type === 'PURCHASE' || movement.type === 'RETURN' ? '+' : '-'}
-                        {movement.quantity}
+                        {movement.quantity > 0 ? '+' : ''}{movement.quantity}
                       </p>
                     </div>
                   </div>

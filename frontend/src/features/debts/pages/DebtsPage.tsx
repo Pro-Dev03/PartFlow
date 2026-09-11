@@ -250,7 +250,7 @@ export function DebtsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[18%]">العميل</TableHead>
+                  <TableHead className="w-[18%]">العميل / الفاتورة</TableHead>
                   <TableHead className="w-[12%] text-center">المبلغ</TableHead>
                   <TableHead className="w-[12%] text-center">المتبقي</TableHead>
                   <TableHead className="w-[14%]">موعد السداد</TableHead>
@@ -264,7 +264,10 @@ export function DebtsPage() {
                   const aging = getDebtAging(debt.dueDate, debt.status);
                   return (
                     <TableRow key={debt.id} className="cursor-pointer hover:bg-surface-elevated/30" onClick={() => handleViewDebt(debt)}>
-                      <TableCell className="font-semibold text-text-primary">{debt.customer?.name}</TableCell>
+                      <TableCell>
+                        <div className="font-semibold text-text-primary">{debt.customer?.name}</div>
+                        <div className="mt-1 text-xs text-text-tertiary">{debt.invoiceNumber || 'فاتورة غير مرتبطة'}</div>
+                      </TableCell>
                       <TableCell className="text-center font-medium text-text-primary">₪{debt.amount?.toLocaleString()}</TableCell>
                       <TableCell className="text-center font-medium text-danger">₪{debt.remainingAmount?.toLocaleString() || '0'}</TableCell>
                       <TableCell>
@@ -328,6 +331,7 @@ export function DebtsPage() {
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
                         <div className="font-semibold text-text-primary">{debt.customer?.name}</div>
+                        <div className="mt-1 text-[11px] text-text-tertiary">{debt.invoiceNumber || 'فاتورة غير مرتبطة'}</div>
                         <div className="mt-1 text-[11px] text-text-tertiary">{debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('en-GB') : 'غير محدد'}</div>
                       </div>
                       <Badge variant={aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm">

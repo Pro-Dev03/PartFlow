@@ -16,7 +16,6 @@ import {
   DollarSign,
   RefreshCw,
   History,
-  CreditCard,
   Calculator
 } from 'lucide-react';
 
@@ -59,7 +58,6 @@ interface Return {
   refund_reference?: string;
   debt_id?: string;
   debt_adjustment: number;
-  customer_credit: number;
   reason: string;
   reason_detail?: string;
   item_condition_after_return: string;
@@ -127,11 +125,9 @@ export function ReturnDetailsPage() {
   const getRefundMethodLabel = (method: string) => {
     const labels: Record<string, string> = {
       CASH: 'نقدي',
-      CREDIT: 'رصيد عميل',
       DEBT_ADJUSTMENT: 'تعديل دين',
       EXCHANGE: 'استبدال',
       BANK_TRANSFER: 'تحويل بنكي',
-      STORE_CREDIT: 'رصيد المتجر',
     };
     return labels[method] || method;
   };
@@ -325,19 +321,6 @@ export function ReturnDetailsPage() {
             </div>
           )}
 
-          {returnItem.customer_credit > 0 && (
-            <div className="mt-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CreditCard className="w-5 h-5 text-purple-600" />
-                  <span className="text-sm text-gray-600">رصيد العميل</span>
-                </div>
-                <span className="text-xl font-bold text-purple-600">
-                  ₪{returnItem.customer_credit.toLocaleString()}
-                </span>
-              </div>
-            </div>
-          )}
 
           {returnItem.notes && (
             <div className="mt-4">

@@ -2,6 +2,7 @@ package sales
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -241,27 +242,29 @@ func (r *Repository) CreateSaleItem(ctx context.Context, item *SaleItem) error {
 // GetSaleItems retrieves items for a sale
 func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]SaleItem, error) {
 	query := `
-		SELECT si.id, si.sale_id, si.product_id, si.inventory_item_id, ii.serial_number,
+		SELECT si.id, si.sale_id, si.product_id, p.name AS product_name, si.inventory_item_id, ii.serial_number,
 			si.quantity, si.unit_price, si.unit_cost,
 			si.discount_amount, si.tax_amount, si.total_amount, si.created_at
 		FROM sale_items si
 		LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
+		LEFT JOIN products p ON p.id = si.product_id
 		WHERE si.sale_id = $1
 	`
 	if dbutil.IsSQLite(r.db) {
 		var rows []struct {
-			ID              string  `db:"id"`
-			SaleID          string  `db:"sale_id"`
-			ProductID       string  `db:"product_id"`
-			InventoryItemID string  `db:"inventory_item_id"`
-			SerialNumber    string  `db:"serial_number"`
-			Quantity        int     `db:"quantity"`
-			UnitPrice       float64 `db:"unit_price"`
-			UnitCost        float64 `db:"unit_cost"`
-			DiscountAmount  float64 `db:"discount_amount"`
-			TaxAmount       float64 `db:"tax_amount"`
-			TotalAmount     float64 `db:"total_amount"`
-			CreatedAt       string  `db:"created_at"`
+			ID              string          `db:"id"`
+			SaleID          string          `db:"sale_id"`
+			ProductID       string          `db:"product_id"`
+			ProductName     sql.NullString  `db:"product_name"`
+			InventoryItemID sql.NullString  `db:"inventory_item_id"`
+			SerialNumber    sql.NullString  `db:"serial_number"`
+			Quantity        int             `db:"quantity"`
+			UnitPrice       sql.NullFloat64 `db:"unit_price"`
+			UnitCost        sql.NullFloat64 `db:"unit_cost"`
+			DiscountAmount  sql.NullFloat64 `db:"discount_amount"`
+			TaxAmount       sql.NullFloat64 `db:"tax_amount"`
+			TotalAmount     sql.NullFloat64 `db:"total_amount"`
+			CreatedAt       string          `db:"created_at"`
 		}
 		if err := r.db.SelectContext(ctx, &rows, query, saleID); err != nil {
 			return nil, err
@@ -272,7 +275,22 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 			if err != nil {
 				return nil, err
 			}
-			item := SaleItem{Quantity: row.Quantity, UnitPrice: row.UnitPrice, UnitCost: row.UnitCost, DiscountAmount: row.DiscountAmount, TaxAmount: row.TaxAmount, TotalAmount: row.TotalAmount, CreatedAt: created}
+			item := SaleItem{Quantity: row.Quantity, CreatedAt: created}
+			if row.UnitPrice.Valid {
+				item.UnitPrice = row.UnitPrice.Float64
+			}
+			if row.UnitCost.Valid {
+				item.UnitCost = row.UnitCost.Float64
+			}
+			if row.DiscountAmount.Valid {
+				item.DiscountAmount = row.DiscountAmount.Float64
+			}
+			if row.TaxAmount.Valid {
+				item.TaxAmount = row.TaxAmount.Float64
+			}
+			if row.TotalAmount.Valid {
+				item.TotalAmount = row.TotalAmount.Float64
+			}
 			if item.ID, err = uuid.Parse(row.ID); err != nil {
 				return nil, err
 			}
@@ -282,14 +300,18 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 			if item.ProductID, err = uuid.Parse(row.ProductID); err != nil {
 				return nil, err
 			}
-			if row.InventoryItemID != "" {
-				v, parseErr := uuid.Parse(row.InventoryItemID)
+			if row.ProductName.Valid && row.ProductName.String != "" {
+				name := row.ProductName.String
+				item.ProductName = &name
+			}
+			if row.InventoryItemID.Valid && row.InventoryItemID.String != "" {
+				v, parseErr := uuid.Parse(row.InventoryItemID.String)
 				if parseErr == nil {
 					item.InventoryItemID = &v
 				}
 			}
-			if row.SerialNumber != "" {
-				serial := row.SerialNumber
+			if row.SerialNumber.Valid && row.SerialNumber.String != "" {
+				serial := row.SerialNumber.String
 				item.SerialNumber = &serial
 			}
 			items = append(items, item)

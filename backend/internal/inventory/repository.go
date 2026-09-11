@@ -262,6 +262,37 @@ func (r *Repository) CreateInventoryItem(ctx context.Context, item *InventoryIte
 	return nil
 }
 
+func (r *Repository) HasProtectedHistory(ctx context.Context, itemID uuid.UUID) (bool, error) {
+	queries := []string{
+		`SELECT COUNT(*) FROM acquisition_items WHERE inventory_item_id = $1`,
+		`SELECT COUNT(*) FROM sale_items WHERE inventory_item_id = $1`,
+		`SELECT COUNT(*) FROM return_items WHERE inventory_item_id = $1`,
+		`SELECT COUNT(*) FROM inventory_movements WHERE item_id = $1`,
+		`SELECT COUNT(*) FROM trade_ins WHERE inventory_item_id = $1`,
+	}
+	for _, query := range queries {
+		var count int
+		if err := r.db.GetContext(ctx, &count, query, itemID); err != nil {
+			return false, fmt.Errorf("failed to check inventory item history: %w", err)
+		}
+		if count > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *Repository) DeleteInventoryItem(ctx context.Context, itemID uuid.UUID) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM inventory_items WHERE id = $1`, itemID)
+	if err != nil {
+		return fmt.Errorf("failed to delete inventory item: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected == 0 {
+		return ErrItemNotFound
+	}
+	return nil
+}
+
 // GetInventoryItemByID retrieves an inventory item by ID
 func (r *Repository) GetInventoryItemByID(ctx context.Context, id uuid.UUID) (*InventoryItem, error) {
 	query := `

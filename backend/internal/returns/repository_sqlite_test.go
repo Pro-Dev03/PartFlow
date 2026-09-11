@@ -234,3 +234,18 @@ func TestServiceCompleteReturnCreatesSupplierReturnBridge(t *testing.T) {
 		t.Fatalf("expected supplier return bridge item to be created, got %d", supplierReturnItemCount)
 	}
 }
+
+func TestNormalizeReturnConditionUsesDatabaseValues(t *testing.T) {
+	cases := map[string]string{
+		"READY_FOR_SALE":     "SELLABLE",
+		"NOT_FOR_SALE":       "WRITE_OFF",
+		"RETURN_TO_SUPPLIER": "SUPPLIER_RETURN",
+		"NEEDS_REPAIR":       "NEEDS_REPAIR",
+	}
+
+	for input, expected := range cases {
+		if actual := normalizeReturnCondition(input); actual != expected {
+			t.Errorf("normalizeReturnCondition(%q) = %q, want %q", input, actual, expected)
+		}
+	}
+}

@@ -1,3 +1,5 @@
+.dashboard-s-flow { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-6); align-items: start; }
+@media (min-width: 1100px) { .dashboard-s-flow { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.35fr); } .dashboard-s-flow > :nth-child(2) { margin-top: 48px; } }
 .unified-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
 .unified-stat-card { position: relative; min-height: 136px; overflow: hidden; border: 1px solid var(--border-default) !important; border-radius: 14px !important; background: linear-gradient(145deg, var(--bg-surface), var(--bg-surface-elevated)) !important; box-shadow: var(--shadow-sm) !important; transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease; }
 .unified-stat-card::before { content: ''; position: absolute; inset-inline-start: 0; inset-block: 14px; width: 3px; border-radius: 0 4px 4px 0; background: var(--stat-accent); }

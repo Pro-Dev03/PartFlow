@@ -678,14 +678,14 @@ func (s *Service) ReversePurchase(ctx context.Context, id uuid.UUID, userID uuid
 
 		if _, err = tx.ExecContext(ctx, reverseMovementQuery,
 			uuid.New(), item.ID, item.ProductID, "PURCHASE_REVERSAL",
-			-1, currentQuantity, currentQuantity-1, "purchase", purchase.ID,
+			-1, currentQuantity, maxInt(currentQuantity-1, 0), "purchase", purchase.ID,
 			reverseReason, userID, time.Now()); err != nil {
 			return nil, fmt.Errorf("failed to create reverse movement: %w", err)
 		}
 
 		inventoryUpdateQuery := fmt.Sprintf(`
 			UPDATE inventory
-			SET quantity = quantity - 1, updated_at = %s
+			SET quantity = CASE WHEN quantity > 0 THEN quantity - 1 ELSE 0 END, updated_at = %s
 			WHERE product_id = $1
 		`, dbutil.NowSQL(s.db))
 		result, execErr := tx.ExecContext(ctx, inventoryUpdateQuery, item.ProductID)
@@ -743,6 +743,13 @@ func (s *Service) ReversePurchase(ctx context.Context, id uuid.UUID, userID uuid
 	}
 
 	return s.GetPurchase(ctx, id)
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 // AddPayment adds a payment to a purchase with full automation

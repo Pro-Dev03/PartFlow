@@ -387,51 +387,58 @@ export function SubscriptionManagement() {
                         <td className="px-3 py-3">
                           <div className="flex flex-wrap gap-2">
                             <Button
-                              size="sm"
+                              size="icon"
                               variant="secondary"
                               onClick={() => renewMutation.mutate({ id: user.id, days: 30 })}
                               disabled={renewMutation.isPending}
+                              title="تجديد 30 يومًا"
+                              aria-label="تجديد 30 يومًا"
                             >
-                              +30 يوم
+                              <CalendarClock className="h-4 w-4" />
                             </Button>
                             <Button
-                              size="sm"
+                              size="icon"
                               variant="success"
                               onClick={() => updateStatusMutation.mutate({ id: user.id, status: 'active', expiresAt: new Date(Date.now() + 30 * 86400000).toISOString() })}
                               disabled={updateStatusMutation.isPending}
+                              title="تفعيل الاشتراك"
+                              aria-label="تفعيل الاشتراك"
                             >
                               <CheckCircle2 className="h-4 w-4" />
                               تفعيل
                             </Button>
                             {!isOwner && (
                               <Button
-                                size="sm"
+                                size="icon"
                                 variant="danger"
                                 onClick={() => updateStatusMutation.mutate({ id: user.id, status: 'expired', expiresAt: new Date(Date.now() - 1000).toISOString() })}
                                 disabled={updateStatusMutation.isPending}
+                                title="إنهاء الاشتراك"
+                                aria-label="إنهاء الاشتراك"
                               >
                                 <XCircle className="h-4 w-4" />
                                 إنهاء
                               </Button>
                             )}
                             <Button
-                              size="sm"
+                              size="icon"
                               variant="secondary"
                               onClick={() => resetPassword(user)}
                               disabled={passwordMutation.isPending}
+                              title="تغيير كلمة المرور"
+                              aria-label="تغيير كلمة المرور"
                             >
                               <KeyRound className="h-4 w-4" />
-                              كلمة المرور
                             </Button>
                             <Button
-                              size="sm"
+                              size="icon"
                               variant="danger"
                               onClick={() => deleteSubscriber(user)}
                               disabled={deleteMutation.isPending || user.email.toLowerCase() === 'owner@partflow.com'}
                               title="حذف الحساب"
+                              aria-label="حذف الحساب"
                             >
                               <Trash2 className="h-4 w-4" />
-                              حذف
                             </Button>
                           </div>
                         </td>

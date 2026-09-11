@@ -95,10 +95,7 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
   const allActions = [...urgentActions, ...actions];
 
   return (
-    <Card style={{
-      background: 'var(--bg-surface)',
-      border: '1px solid var(--border-default)'
-    }}>
+    <Card variant="open">
       <CardContent>
         <div className="flex items-center gap-2 mb-4">
           <div 
@@ -119,7 +116,7 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
           className="grid gap-3"
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
             gap: '12px'
           }}
         >
@@ -137,19 +134,21 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
                 className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl transition-all duration-200 cursor-pointer group"
                 style={{
                   background: isPrimary ? 'var(--gradient-primary)' : 
+                            !isUrgent ? 'transparent' :
                             isWarning ? action.bgColor :
                             isDanger ? action.bgColor :
                             action.bgColor,
                   border: `1px solid ${isPrimary ? 'var(--color-primary-30)' : 
+                                       !isUrgent ? 'transparent' :
                                        isWarning ? 'var(--color-warning-30)' :
                                        isDanger ? 'var(--color-danger-30)' :
                                        'var(--border-default)'}`,
                   color: isPrimary ? '#FFFFFF' : action.color,
                   boxShadow: isUrgent ? 'var(--shadow-glow)' : 
                             isPrimary ? 'var(--shadow-glow)' : 
-                            'var(--shadow-sm)',
+                            'none',
                   transform: 'translateY(0)',
-                  minHeight: '100px',
+                  minHeight: '72px',
                   position: 'relative'
                 }}
                 onMouseEnter={(e) => {

@@ -2,7 +2,9 @@ package sales
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -772,10 +774,18 @@ func (s *Service) GetTopSellingProducts(ctx context.Context, limit int) ([]TopSe
 	return s.repo.GetTopSellingProducts(ctx, limit)
 }
 
-// generateInvoiceNumber generates a unique invoice number
+// generateInvoiceNumber generates a unique invoice number with a short suffix.
 func (s *Service) generateInvoiceNumber() string {
 	timestamp := time.Now().Format("20060102150405")
-	return fmt.Sprintf("INV-%s", timestamp)
+	suffix := 0
+	var buf [2]byte
+	if _, err := rand.Read(buf[:]); err == nil {
+		suffix = int(binary.BigEndian.Uint16(buf[:])) % 10000
+	}
+	if suffix == 0 {
+		suffix = int(time.Now().UnixNano() % 10000)
+	}
+	return fmt.Sprintf("INV-%s-%04d", timestamp, suffix)
 }
 
 // SaleWithItems represents a sale with its items and profit

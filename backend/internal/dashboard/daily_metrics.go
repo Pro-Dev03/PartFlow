@@ -13,8 +13,9 @@ import (
 // separate from the dashboard's lifetime totals so the frontend cannot mistake
 // cumulative purchases for today's cost of goods sold.
 type todayMetrics struct {
-	Sales  float64 `db:"today_sales"`
-	Profit float64 `db:"today_profit"`
+	Sales           float64 `db:"today_sales"`
+	Profit          float64 `db:"today_profit"`
+	SupplierReturns float64 `db:"today_supplier_returns"`
 }
 
 func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMetrics, error) {
@@ -55,7 +56,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			WHERE r.return_date::date = $1::date
 			  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 		)
-		SELECT totals.gross_revenue AS today_sales,
+		SELECT totals.gross_revenue - returns_total.refunded AS today_sales,
 		       totals.revenue - totals.cost - expenses_total.amount - returns_total.refunded + returns_total.returned_cost AS today_profit
 		FROM totals, expenses_total, returns_total
 	`
@@ -64,7 +65,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 	if isSQLiteDriver(db.DriverName()) {
 		productJoin := "LEFT JOIN products p ON p.id = ri.product_id"
 		if !sqliteHasColumns(db, "return_items", "product_id") {
-			productJoin = "LEFT JOIN sale_items si ON si.id = ri.sale_item_id LEFT JOIN products p ON p.id = si.product_id"
+			productJoin = "LEFT JOIN products p ON p.id = si.product_id"
 		}
 		query = fmt.Sprintf(`
 			WITH sale_costs AS (
@@ -139,6 +140,13 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			args = []any{date, date}
 		}
 	}
+	if isSQLiteDriver(db.DriverName()) {
+		if sqliteHasColumns(db, "returns", "refund_date", "updated_at") {
+			query = strings.ReplaceAll(query, "date(r.return_date) = ?", "date(COALESCE(r.refund_date, r.updated_at, r.return_date)) = ?")
+		}
+	} else {
+		query = strings.ReplaceAll(query, "r.return_date::date = $1::date", "COALESCE(r.refund_date::date, r.updated_at::date, r.return_date::date) = $1::date")
+	}
 	if isSQLiteDriver(db.DriverName()) && !sqliteHasColumns(db, "sales", "tax_amount") {
 		query = strings.ReplaceAll(query, "COALESCE(s.tax_amount, 0)", "0")
 		query = strings.ReplaceAll(query, "s.tax_amount", "0")
@@ -148,6 +156,21 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 	var metrics todayMetrics
 	if err := db.GetContext(ctx, &metrics, query, args...); err != nil {
 		return todayMetrics{}, fmt.Errorf("calculate today's dashboard metrics: %w", err)
+	}
+	if isSQLiteDriver(db.DriverName()) {
+		if sqliteHasColumns(db, "supplier_returns", "refund_amount", "status", "updated_at", "created_at") {
+			_ = db.GetContext(ctx, &metrics.SupplierReturns, `
+				SELECT COALESCE(SUM(refund_amount), 0)
+				FROM supplier_returns
+				WHERE UPPER(COALESCE(status, '')) = 'COMPLETED'
+				  AND date(COALESCE(updated_at, created_at)) = ?`, date)
+		}
+	} else {
+		_ = db.GetContext(ctx, &metrics.SupplierReturns, `
+			SELECT COALESCE(SUM(refund_amount), 0)
+			FROM supplier_returns
+			WHERE UPPER(COALESCE(status, '')) = 'COMPLETED'
+			  AND updated_at::date = $1::date`, date)
 	}
 	return metrics, nil
 }

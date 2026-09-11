@@ -7,10 +7,12 @@ import { Sun, Moon, Globe } from 'lucide-react';
 import { LoginBackground } from '../components/LoginBackground';
 import { BrandPanel } from '../components/BrandPanel';
 import { LoginForm } from '../components/LoginForm';
+import { SubscriptionVerificationScreen } from '../components/SubscriptionVerificationScreen';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login, isLoading } = useAuthStore();
+  const { login, isLoading, setPostLoginVerifying } = useAuthStore();
+  const [isVerifyingSubscription, setIsVerifyingSubscription] = useState(false);
   const [isDark, setIsDark] = useState(true);
   const [language, setLanguage] = useState('ar');
 
@@ -52,13 +54,23 @@ export function LoginPage() {
   };
 
   const handleSubmit = async (email: string, password: string) => {
+    setPostLoginVerifying(true);
+    setIsVerifyingSubscription(true);
     try {
       await login(email, password);
+      await new Promise((resolve) => window.setTimeout(resolve, 6000));
+      setPostLoginVerifying(false);
       navigate('/app');
     } catch (err) {
+      setPostLoginVerifying(false);
+      setIsVerifyingSubscription(false);
       throw err;
     }
   };
+
+  if (isVerifyingSubscription) {
+    return <SubscriptionVerificationScreen />;
+  }
 
   return (
     <div dir="rtl" className="min-h-screen grid place-items-center relative overflow-hidden" style={{ background: 'var(--bg-background)' }}>

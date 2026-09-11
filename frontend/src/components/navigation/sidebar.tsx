@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   ShoppingCart,
   Package,
+  PackageMinus,
   Users,
   DollarSign,
   Truck,
@@ -78,8 +79,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
       items: [
         { id: 'expenses', icon: DollarSign, label: t('nav.expenses') || 'المصروفات', path: '/app/expenses' },
         { id: 'returns', icon: RotateCcw, label: t('nav.returns') || 'المرتجعات', path: '/app/returns' },
-        { id: 'supplier-returns', icon: RotateCcw, label: 'مرتجعات الموردين', path: '/app/supplier-returns' },
-        { id: 'return-details', icon: FileText, label: 'تفاصيل المرتجعات', path: '/app/return-details' },
+        { id: 'supplier-returns', icon: PackageMinus, label: 'مرتجعات الموردين', path: '/app/supplier-returns' },
         { id: 'reports', icon: BarChart3, label: t('nav.reports') || 'التقارير', path: '/app/reports' },
       ]
     },

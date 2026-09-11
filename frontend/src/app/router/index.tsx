@@ -62,8 +62,6 @@ export const appRoutes = (
     <Route path="settings" element={<SettingsPage />} />
     <Route path="categories" element={<CategoriesPage />} />
     <Route path="part-types" element={<PartTypesPage />} />
-    <Route path="return-details" element={<ReturnDetailsPage />} />
-    
     {/* Catch all - redirect to dashboard */}
     <Route path="*" element={<DashboardPage />} />
   </Routes>

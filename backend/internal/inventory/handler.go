@@ -59,6 +59,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		inventory.GET("/items-with-supplier", h.ListInventoryItemsWithSupplierInfo)
 		inventory.GET("/items", h.ListInventoryItems)
 		inventory.GET("/items/:id", h.GetInventoryItem)
+		inventory.DELETE("/items/:id", h.DeleteInventoryItem)
 		inventory.PATCH("/items/:id/status", h.UpdateItemStatus)
 		inventory.POST("/items/:id/receive", h.ReceiveItem)
 		inventory.POST("/items/:id/adjust", h.AdjustInventory)
@@ -120,6 +121,19 @@ func (h *Handler) GetInventoryItem(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, item)
+}
+
+func (h *Handler) DeleteInventoryItem(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	if err := h.service.DeleteInventoryItem(c.Request.Context(), id, getUserID(c)); err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "inventory item deleted successfully"})
 }
 
 // ListInventoryItems lists inventory items with pagination
@@ -684,6 +698,9 @@ func handleError(c *gin.Context, err error) {
 		status = http.StatusBadRequest
 		message = err.Error()
 	case ErrInsufficientStock, ErrItemAlreadyReserved, ErrDuplicateBarcode, ErrDuplicateSerialNumber:
+		status = http.StatusConflict
+		message = err.Error()
+	case ErrCannotDeleteSoldItem:
 		status = http.StatusConflict
 		message = err.Error()
 	}

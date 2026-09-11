@@ -169,6 +169,7 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 	if today, todayErr := fetchTodayMetrics(ctx, s.db, time.Now().UTC()); todayErr == nil {
 		stats.TodaySales = today.Sales
 		stats.TodayProfit = today.Profit
+		stats.TodaySupplierReturns = today.SupplierReturns
 	}
 	stats.OutstandingDebts = result.OutstandingDebts
 	stats.ActiveCustomers = result.TotalCustomers

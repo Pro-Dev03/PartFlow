@@ -31,6 +31,7 @@ export interface User {
 export interface DashboardStats {
   todaySales: number;
   todayProfit: number;
+  todaySupplierReturns?: number;
   inventoryValue: number;
   outstandingDebts: number;
   overdueDebts: number;

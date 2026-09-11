@@ -5,7 +5,7 @@ import { cn } from '../../utils';
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   noPadding?: boolean;
   hoverable?: boolean;
-  variant?: 'default' | 'interactive' | 'featured' | 'warning' | 'ai' | 'danger' | 'success' | 'info';
+  variant?: 'default' | 'open' | 'interactive' | 'featured' | 'warning' | 'ai' | 'danger' | 'success' | 'info';
   fullWidth?: boolean;
   'aria-label'?: string;
 }
@@ -34,6 +34,14 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
   };
 
       const variantStyles: Record<string, Record<string, string>> = {
+        open: {
+          border: 'none',
+          borderRadius: '0',
+          background: 'transparent',
+          boxShadow: 'none',
+          transition: 'none',
+          padding: '0',
+        },
         default: {
           ...baseStyle,
           boxShadow: 'none'

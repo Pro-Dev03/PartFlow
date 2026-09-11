@@ -50,7 +50,6 @@ interface Return {
   refund_date?: string;
   refund_reference?: string;
   debt_adjustment?: number;
-  customer_credit?: number;
   reason: string;
   reason_detail?: string;
   item_condition_after_return: string;
@@ -151,11 +150,9 @@ export function ReturnDetailsPage() {
   const getRefundMethodLabel = (method: string) => {
     const labels: Record<string, string> = {
       CASH: 'نقدي',
-      CREDIT: 'رصيد عميل',
       DEBT_ADJUSTMENT: 'تعديل دين',
       EXCHANGE: 'استبدال',
       BANK_TRANSFER: 'تحويل بنكي',
-      STORE_CREDIT: 'رصيد المتجر',
     };
     return labels[method] || method;
   };
@@ -363,12 +360,6 @@ export function ReturnDetailsPage() {
               <div className="space-y-2">
                 <p className="text-sm text-gray-400">تعديل الدين</p>
                 <p className="font-semibold">₪{returnRecord.debt_adjustment.toLocaleString()}</p>
-              </div>
-            )}
-            {returnRecord.customer_credit && returnRecord.customer_credit !== 0 && (
-              <div className="space-y-2">
-                <p className="text-sm text-gray-400">رصيد العميل</p>
-                <p className="font-semibold">₪{returnRecord.customer_credit.toLocaleString()}</p>
               </div>
             )}
           </div>

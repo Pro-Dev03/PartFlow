@@ -664,6 +664,33 @@ func (s *Service) ListInventoryItems(ctx context.Context, page, perPage int, fil
 	return s.repo.ListInventoryItems(ctx, perPage, offset, filters)
 }
 
+func (s *Service) DeleteInventoryItem(ctx context.Context, itemID, userID uuid.UUID) error {
+	item, err := s.repo.GetInventoryItemByID(ctx, itemID)
+	if err != nil {
+		return err
+	}
+	protected, err := s.repo.HasProtectedHistory(ctx, itemID)
+	if err != nil {
+		return err
+	}
+	if !protected {
+		return s.repo.DeleteInventoryItem(ctx, itemID)
+	}
+	if strings.EqualFold(string(item.Status), string(StatusSold)) {
+		return ErrCannotDeleteSoldItem
+	}
+	if err := s.repo.UpdateItemStatus(ctx, itemID, string(StatusArchived)); err != nil {
+		return err
+	}
+	reason := "Inventory item removed from active inventory"
+	return s.repo.CreateMovement(ctx, &InventoryMovement{
+		ID: uuid.New(), ItemID: &itemID, ProductID: item.ProductID,
+		MovementType: MovementAdjustment, Quantity: -1, BeforeQuantity: 1, AfterQuantity: 0,
+		ReferenceType: "inventory_removal", ReferenceID: &itemID, Reason: &reason,
+		CreatedBy: userID, CreatedAt: time.Now(),
+	})
+}
+
 // ListInventoryItemsWithSupplierInfo lists inventory items with supplier information
 func (s *Service) ListInventoryItemsWithSupplierInfo(ctx context.Context, page, perPage int, filters map[string]interface{}) ([]*InventoryItemWithSupplier, int64, error) {
 	offset := (page - 1) * perPage

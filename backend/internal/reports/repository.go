@@ -17,6 +17,40 @@ type Repository struct {
 	db *sqlx.DB
 }
 
+func (r *Repository) returnDateExpression(alias string) string {
+	if dbutil.IsSQLite(r.db) && !reportsSQLiteHasColumns(r.db, "returns", "refund_date", "updated_at") {
+		return fmt.Sprintf("date(%s.return_date)", alias)
+	}
+	return fmt.Sprintf("date(COALESCE(%s.refund_date, %s.updated_at, %s.return_date))", alias, alias, alias)
+}
+
+func reportsSQLiteHasColumns(db *sqlx.DB, table string, required ...string) bool {
+	if !dbutil.IsSQLite(db) {
+		return true
+	}
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	found := map[string]bool{}
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, dataType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return false
+		}
+		found[strings.ToLower(name)] = true
+	}
+	for _, column := range required {
+		if !found[strings.ToLower(column)] {
+			return false
+		}
+	}
+	return true
+}
+
 // reportTimestamp accepts both PostgreSQL timestamps and the TEXT timestamps
 // used by the local SQLite store.  SQLite returns TEXT values for date
 // expressions (DATE/strftime), so scanning directly into time.Time silently
@@ -1255,12 +1289,14 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	}
 	report.GrossRevenue = grossRevenue
 
-	// Get returns data
+	// Get returns data using the completion/refund date when the schema supports it.
+	returnDate := r.returnDateExpression("r")
 	var totalReturns, totalRefunded float64
 	err = r.db.GetContext(ctx, &totalReturns,
-		`SELECT COUNT(*) FROM returns
-		 WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10))
+		fmt.Sprintf(`SELECT COUNT(*) FROM returns r
+		 WHERE %s >= date(substr($1, 1, 10)) AND %s <= date(substr($2, 1, 10))
 		   AND status = 'COMPLETED'`,
+			returnDate, returnDate),
 		startDate, endDate)
 	if err != nil {
 		totalReturns = 0
@@ -1268,9 +1304,10 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	report.TotalReturns = int(totalReturns)
 
 	err = r.db.GetContext(ctx, &totalRefunded,
-		`SELECT COALESCE(SUM(total_refund_amount), 0) FROM returns
-		 WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10))
+		fmt.Sprintf(`SELECT COALESCE(SUM(total_refund_amount), 0) FROM returns r
+		 WHERE %s >= date(substr($1, 1, 10)) AND %s <= date(substr($2, 1, 10))
 		   AND status = 'COMPLETED'`,
+			returnDate, returnDate),
 		startDate, endDate)
 	if err != nil {
 		totalRefunded = 0
@@ -1432,7 +1469,8 @@ func (r *Repository) GetTaxData(ctx context.Context, startDate, endDate time.Tim
 	if err := r.db.QueryRowxContext(ctx, query, startDate, endDate).Scan(&report.GrossSales, &report.Discounts, &report.TaxableSales, &report.TaxCollected, &report.SalesTotal); err != nil {
 		return nil, err
 	}
-	if err := r.db.GetContext(ctx, &report.ReturnsTotal, `SELECT COALESCE(SUM(total_refund_amount), 0) FROM returns WHERE date(return_date) >= date(substr($1, 1, 10)) AND date(return_date) <= date(substr($2, 1, 10)) AND status = 'COMPLETED'`, startDate, endDate); err != nil {
+	returnDate := r.returnDateExpression("r")
+	if err := r.db.GetContext(ctx, &report.ReturnsTotal, fmt.Sprintf(`SELECT COALESCE(SUM(total_refund_amount), 0) FROM returns r WHERE %s >= date(substr($1, 1, 10)) AND %s <= date(substr($2, 1, 10)) AND status = 'COMPLETED'`, returnDate, returnDate), startDate, endDate); err != nil {
 		report.ReturnsTotal = 0
 	}
 	report.NetSalesTotal = report.SalesTotal - report.ReturnsTotal

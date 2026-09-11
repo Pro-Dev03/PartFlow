@@ -97,7 +97,7 @@ func (h *Handler) GetReturn(c *gin.Context) {
 // @Param sale_id query string false "Sale ID filter"
 // @Param status query string false "Status filter" Enums(PENDING, APPROVED, PROCESSING, COMPLETED, REJECTED, CANCELLED)
 // @Param return_type query string false "Return type filter" Enums(FULL, PARTIAL, QUANTITY_PARTIAL)
-// @Param refund_method query string false "Refund method filter" Enums(CASH, CREDIT, DEBT_ADJUSTMENT, EXCHANGE, BANK_TRANSFER, STORE_CREDIT)
+// @Param refund_method query string false "Refund method filter" Enums(CASH, DEBT_ADJUSTMENT)
 // @Param start_date query string false "Start date filter"
 // @Param end_date query string false "End date filter"
 // @Param search query string false "Search in return number, reference number, reason, notes"

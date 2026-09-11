@@ -53,7 +53,7 @@ export function PurchaseFilters({
                 { value: 'received', label: 'تم الاستلام' },
                 { value: 'partially_received', label: 'استلام جزئي' },
                 { value: 'cancelled', label: 'ملغي' },
-                { value: 'reversed', label: 'تم العكس' },
+                { value: 'reversed', label: 'تم إلغاء عملية الشراء' },
               ]}
               emptyMessage="لا توجد حالات"
             />

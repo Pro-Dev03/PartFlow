@@ -40,11 +40,7 @@ func ValidateReturnStatus(status string) error {
 func ValidateRefundMethod(method string) error {
 	validMethods := map[string]bool{
 		"CASH":            true,
-		"CREDIT":          true,
 		"DEBT_ADJUSTMENT": true,
-		"EXCHANGE":        true,
-		"BANK_TRANSFER":   true,
-		"STORE_CREDIT":    true,
 	}
 
 	if !validMethods[method] {
@@ -56,17 +52,17 @@ func ValidateRefundMethod(method string) error {
 // ValidateCondition validates condition
 func ValidateCondition(condition string) error {
 	validConditions := map[string]bool{
-		"READY_FOR_SALE":   true,
-		"NOT_FOR_SALE":     true,
+		"READY_FOR_SALE":     true,
+		"NOT_FOR_SALE":       true,
 		"RETURN_TO_SUPPLIER": true,
-		"SELLABLE":         true,
-		"NEEDS_REPAIR":     true,
-		"DAMAGED":          true,
-		"USED":             true,
-		"REFURBISHED":      true,
-		"SUPPLIER_RETURN":  true,
-		"WRITE_OFF":        true,
-		"PARTS":            true,
+		"SELLABLE":           true,
+		"NEEDS_REPAIR":       true,
+		"DAMAGED":            true,
+		"USED":               true,
+		"REFURBISHED":        true,
+		"SUPPLIER_RETURN":    true,
+		"WRITE_OFF":          true,
+		"PARTS":              true,
 	}
 
 	if !validConditions[condition] {

@@ -5,6 +5,7 @@ interface DashboardMetricsProps {
   stats?: {
     todaySales?: number;
     todayProfit?: number;
+    todaySupplierReturns?: number;
     outstandingDebts?: number;
     activeCustomers?: number;
     lowStockCount?: number;
@@ -16,6 +17,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
   // contain stale snapshots while their background refresh is pending.
   const todaySales = Number(stats?.todaySales ?? 0);
   const todayProfit = Number(stats?.todayProfit ?? 0);
+  const todaySupplierReturns = Number(stats?.todaySupplierReturns ?? 0);
   const profitMargin = stats?.profitMargin;
   const outstandingDebts = Number(stats?.outstandingDebts ?? 0);
   const activeCustomers = Number(stats?.activeCustomers ?? 0);
@@ -30,14 +32,14 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}
-         className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+         className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
       <StatCard
-        title="مبيعات اليوم"
+        title="صافي مبيعات اليوم"
         value={<span className="numeric-metric">₪{formatCurrency(todaySales)}</span>}
         icon={ShoppingCart}
         trend={stats?.salesTrend}
         trendUp={stats?.salesTrendUp}
-        subtitle="مقارنة بالأمس"
+        subtitle="بعد خصم مرتجعات العملاء"
         variant="featured"
       />
       <StatCard
@@ -67,6 +69,13 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
         trendUp={null}
         subtitle="يحتاج انتباه"
         variant="danger"
+      />
+      <StatCard
+        title="مرتجعات الموردين اليوم"
+        value={<span className="numeric-metric">₪{formatCurrency(todaySupplierReturns)}</span>}
+        icon={Package}
+        subtitle="قيمة المرتجعات المكتملة"
+        variant="warning"
       />
     </div>
   );

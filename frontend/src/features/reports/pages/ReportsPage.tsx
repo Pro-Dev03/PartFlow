@@ -103,7 +103,6 @@ export function ReportsPage() {
     { id: 'inventory', label: t('reports.inventoryReport'), icon: BarChart3, group: 'current' },
     { id: 'used-items', label: 'تقرير القطع المستعملة', icon: Zap, group: 'current' },
     { id: 'debts', label: t('reports.debtsReport'), icon: Target, group: 'current' },
-    { id: 'products', label: 'دليل المنتجات', icon: BarChart3, group: 'current' },
     { id: 'suppliers', label: t('reports.suppliersReport'), icon: BarChart3, group: 'current' },
   ];
 

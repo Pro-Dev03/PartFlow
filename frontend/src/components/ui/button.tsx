@@ -139,7 +139,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       icon: 'h-5 w-5 min-h-5 min-w-5 p-0 gap-0 text-[0.7rem] leading-none',
     };
 
-    const isAutoTableAction = (size === 'icon' || (size === 'sm' && ['ghost', 'outline', 'danger'].includes(variant))) && !tableAction;
+    const isAutoTableAction = size === 'icon' && !tableAction;
     const tableActionClasses = tableAction || isAutoTableAction
       ? 'pf-table-action-btn h-8 min-h-8 w-8 min-w-8 p-0 gap-0 rounded-[9px] shrink-0 leading-none'
       : '';

@@ -53,6 +53,7 @@ export function useDebts() {
 
     return customerDebts.map((debt: any) => ({
       ...debt,
+      invoiceNumber: debt.invoice_number || debt.invoiceNumber || '',
       dueDate: debt.due_date, // Map due_date to dueDate for consistency
       remainingAmount: debt.remaining_amount, // Map remaining_amount to remainingAmount
       customer: {

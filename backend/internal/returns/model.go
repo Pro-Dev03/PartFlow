@@ -25,7 +25,7 @@ type Return struct {
 
 	// Financial details
 	TotalRefundAmount float64    `json:"total_refund_amount" db:"total_refund_amount"`
-	RefundMethod      string     `json:"refund_method" db:"refund_method"` // CASH, CREDIT, DEBT_ADJUSTMENT, EXCHANGE, BANK_TRANSFER, STORE_CREDIT
+	RefundMethod      string     `json:"refund_method" db:"refund_method"` // CASH, DEBT_ADJUSTMENT, EXCHANGE, BANK_TRANSFER
 	RefundDate        *time.Time `json:"refund_date" db:"refund_date"`
 	RefundReference   string     `json:"refund_reference" db:"refund_reference"`
 
@@ -110,7 +110,7 @@ type ReturnRequest struct {
 	ReasonDetail             string              `json:"reason_detail"`
 	ItemConditionAfterReturn string              `json:"item_condition_after_return" binding:"required,oneof=READY_FOR_SALE NOT_FOR_SALE RETURN_TO_SUPPLIER SELLABLE NEEDS_REPAIR DAMAGED USED REFURBISHED WRITE_OFF PARTS"`
 	Items                    []ReturnItemRequest `json:"items" binding:"required,min=1"`
-	RefundMethod             string              `json:"refund_method" binding:"required,oneof=CASH CREDIT DEBT_ADJUSTMENT EXCHANGE BANK_TRANSFER STORE_CREDIT"`
+	RefundMethod             string              `json:"refund_method" binding:"required,oneof=CASH DEBT_ADJUSTMENT"`
 	DebtID                   *uuid.UUID          `json:"debt_id"`
 	Notes                    string              `json:"notes"`
 	InternalNotes            string              `json:"internal_notes"`
@@ -141,8 +141,8 @@ type ReturnItemRequest struct {
 type ReturnUpdateRequest struct {
 	Status                   string     `json:"status" binding:"omitempty,oneof=PENDING APPROVED PROCESSING COMPLETED REJECTED CANCELLED"`
 	Reason                   string     `json:"reason" binding:"omitempty,oneof=DEFECTIVE WRONG_ITEM COMPATIBILITY_ISSUE CUSTOMER_CHANGED_MIND DAMAGED WARRANTY INCORRECT_SPECIFICATION OTHER"`
-	TotalRefundAmount        float64    `json:"total_refund_amount" binding:"omitempty,min=0"`
-	RefundMethod             string     `json:"refund_method" binding:"omitempty,oneof=CASH CREDIT DEBT_ADJUSTMENT EXCHANGE BANK_TRANSFER STORE_CREDIT"`
+	TotalRefundAmount        *float64   `json:"total_refund_amount" binding:"omitempty,min=0"`
+	RefundMethod             string     `json:"refund_method" binding:"omitempty,oneof=CASH DEBT_ADJUSTMENT"`
 	RefundDate               *time.Time `json:"refund_date"`
 	RefundReference          string     `json:"refund_reference"`
 	DebtID                   *uuid.UUID `json:"debt_id"`
@@ -188,7 +188,7 @@ type ReturnListRequest struct {
 	SaleID       *uuid.UUID `form:"sale_id"`
 	Status       string     `form:"status" binding:"omitempty,oneof=PENDING APPROVED PROCESSING COMPLETED REJECTED CANCELLED"`
 	ReturnType   string     `form:"return_type" binding:"omitempty,oneof=FULL PARTIAL QUANTITY_PARTIAL"`
-	RefundMethod string     `form:"refund_method" binding:"omitempty,oneof=CASH CREDIT DEBT_ADJUSTMENT EXCHANGE BANK_TRANSFER STORE_CREDIT"`
+	RefundMethod string     `form:"refund_method" binding:"omitempty,oneof=CASH DEBT_ADJUSTMENT"`
 	StartDate    *time.Time `form:"start_date"`
 	EndDate      *time.Time `form:"end_date"`
 	Search       string     `form:"search"`

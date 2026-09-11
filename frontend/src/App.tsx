@@ -11,6 +11,7 @@ import AIAssistantWrapper from './components/ui/ai-assistant-wrapper';
 import { InitialDataSyncModal } from './features/settings/components/InitialDataSyncModal';
 import { isInitialSyncNeeded } from './hooks/useInitialDataSync';
 import { authApi } from './services/api/endpoints';
+import { SubscriptionVerificationScreen } from './features/auth/components/SubscriptionVerificationScreen';
 
 // Lazy load auth pages separately
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -78,7 +79,7 @@ function InitialSyncController() {
 
 function App() {
   const checkAuth = useAuthStore((state) => state.checkAuth);
-  const { isAuthenticated, sessionVerified, isLoading } = useAuthStore();
+  const { isAuthenticated, sessionVerified, isLoading, isPostLoginVerifying } = useAuthStore();
 
   // HashRouter is required by the packaged Electron build, but a normal
   // browser can still open a deep link such as /app/sales directly. Normalize
@@ -163,6 +164,8 @@ function App() {
                       <LoginPage />
                     </Suspense>
                   </AuthLayout>
+                ) : isPostLoginVerifying ? (
+                  <SubscriptionVerificationScreen />
                 ) : (
                   <Navigate to="/app" replace />
                 )

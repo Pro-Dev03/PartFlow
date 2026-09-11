@@ -34,7 +34,7 @@ export function PurchaseStats({ stats }: PurchaseStatsProps) {
         compact
       />
       <StatCard
-        title="تم العكس"
+        title="تم إلغاء عملية الشراء"
         value={stats.reversedCount}
         icon={RotateCcw}
         variant="destructive"

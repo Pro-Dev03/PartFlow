@@ -127,11 +127,9 @@ export function ReturnsPage() {
   const getRefundMethodLabel = (method: string) => {
     const labels: Record<string, string> = {
       CASH: 'نقدي',
-      CREDIT: 'رصيد عميل',
       DEBT_ADJUSTMENT: 'تعديل دين',
       EXCHANGE: 'استبدال',
       BANK_TRANSFER: 'تحويل بنكي',
-      STORE_CREDIT: 'رصيد المتجر',
     };
     return labels[method] || method;
   };
@@ -464,7 +462,7 @@ export function ReturnsPage() {
         <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); updateReturnMutation.mutate(); }}>
           <div><label className="mb-2 block text-sm font-medium text-text-secondary">سبب المرتجع</label><Select value={editReason} onChange={(event) => setEditReason(event.target.value)} options={[{ value: 'DEFECTIVE', label: 'منتج معطل' }, { value: 'WRONG_ITEM', label: 'منتج خاطئ' }, { value: 'CUSTOMER_CHANGED_MIND', label: 'تغيير رأي العميل' }, { value: 'DAMAGED', label: 'تالف' }, { value: 'OTHER', label: 'أخرى' }]} /></div>
           <div><label className="mb-2 block text-sm font-medium text-text-secondary">حالة المنتج</label><Select value={editCondition} onChange={(event) => setEditCondition(event.target.value)} options={[{ value: 'READY_FOR_SALE', label: 'جاهز للبيع' }, { value: 'NOT_FOR_SALE', label: 'غير قابل للبيع' }, { value: 'RETURN_TO_SUPPLIER', label: 'إرجاع للمورد' }, { value: 'NEEDS_REPAIR', label: 'يحتاج إصلاح' }]} /></div>
-          <div><label className="mb-2 block text-sm font-medium text-text-secondary">طريقة رد المبلغ</label><Select value={editRefundMethod} onChange={(event) => setEditRefundMethod(event.target.value)} options={[{ value: 'CASH', label: 'نقدي' }, { value: 'CREDIT', label: 'رصيد العميل' }, { value: 'DEBT_ADJUSTMENT', label: 'تعديل الدين' }, { value: 'STORE_CREDIT', label: 'رصيد المتجر' }]} /></div>
+          <div><label className="mb-2 block text-sm font-medium text-text-secondary">طريقة رد المبلغ</label><Select value={editRefundMethod} onChange={(event) => setEditRefundMethod(event.target.value)} options={[{ value: 'CASH', label: 'نقدي' }, { value: 'DEBT_ADJUSTMENT', label: 'تعديل الدين' }]} /></div>
           <div className="flex justify-end gap-3"><Button type="button" variant="secondary" onClick={() => setEditingReturn(null)}>إلغاء</Button><Button type="submit" variant="primary" disabled={updateReturnMutation.isPending || !editReason}>{updateReturnMutation.isPending ? 'جاري الحفظ...' : 'حفظ التعديل'}</Button></div>
         </form>
       </Modal>

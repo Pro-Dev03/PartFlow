@@ -79,14 +79,15 @@ func (h *Handler) ListDebts(c *gin.Context) {
 			ID              string  `db:"id"`
 			CustomerID      string  `db:"customer_id"`
 			CustomerName    string  `db:"customer_name"`
+			InvoiceNumber   string  `db:"invoice_number"`
 			Amount          float64 `db:"amount"`
 			RemainingAmount float64 `db:"remaining_amount"`
 			DueDate         string  `db:"due_date"`
 			Status          string  `db:"status"`
 			CreatedAt       string  `db:"created_at"`
 		}
-		query := `SELECT d.id, d.customer_id, c.name AS customer_name, d.amount, d.remaining_amount,
-			d.due_date, d.status, d.created_at FROM debts d JOIN customers c ON d.customer_id = c.id
+		query := `SELECT d.id, d.customer_id, c.name AS customer_name, COALESCE(s.invoice_number, '') AS invoice_number, d.amount, d.remaining_amount,
+			d.due_date, d.status, d.created_at FROM debts d JOIN customers c ON d.customer_id = c.id LEFT JOIN sales s ON d.sale_id = s.id
 			ORDER BY d.due_date DESC LIMIT ? OFFSET ?`
 		if err := h.db.Select(&rows, query, perPage, offset); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -94,7 +95,7 @@ func (h *Handler) ListDebts(c *gin.Context) {
 		}
 		data := make([]gin.H, 0, len(rows))
 		for _, row := range rows {
-			data = append(data, gin.H{"id": row.ID, "customer_id": row.CustomerID, "customer_name": row.CustomerName,
+			data = append(data, gin.H{"id": row.ID, "customer_id": row.CustomerID, "customer_name": row.CustomerName, "invoice_number": row.InvoiceNumber,
 				"amount": row.Amount, "remaining_amount": row.RemainingAmount, "due_date": row.DueDate,
 				"status": row.Status, "created_at": row.CreatedAt})
 		}
@@ -112,6 +113,7 @@ func (h *Handler) ListDebts(c *gin.Context) {
 		ID              uuid.UUID `json:"id"`
 		CustomerID      uuid.UUID `json:"customer_id"`
 		CustomerName    string    `json:"customer_name"`
+		InvoiceNumber   string    `json:"invoice_number"`
 		Amount          float64   `json:"amount"`
 		RemainingAmount float64   `json:"remaining_amount"`
 		DueDate         string    `json:"due_date"`
@@ -120,10 +122,11 @@ func (h *Handler) ListDebts(c *gin.Context) {
 	}
 
 	query := `
-		SELECT d.id, d.customer_id, c.name as customer_name, d.amount, d.remaining_amount, 
+		SELECT d.id, d.customer_id, c.name as customer_name, COALESCE(s.invoice_number, '') as invoice_number, d.amount, d.remaining_amount,
 		       d.due_date, d.status, d.created_at
 		FROM debts d
 		JOIN customers c ON d.customer_id = c.id
+		LEFT JOIN sales s ON d.sale_id = s.id
 		ORDER BY d.due_date DESC
 		LIMIT $1 OFFSET $2
 	`
@@ -140,13 +143,14 @@ func (h *Handler) ListDebts(c *gin.Context) {
 			ID              uuid.UUID `json:"id"`
 			CustomerID      uuid.UUID `json:"customer_id"`
 			CustomerName    string    `json:"customer_name"`
+			InvoiceNumber   string    `json:"invoice_number"`
 			Amount          float64   `json:"amount"`
 			RemainingAmount float64   `json:"remaining_amount"`
 			DueDate         string    `json:"due_date"`
 			Status          string    `json:"status"`
 			CreatedAt       string    `json:"created_at"`
 		}
-		if err := rows.Scan(&debt.ID, &debt.CustomerID, &debt.CustomerName, &debt.Amount, &debt.RemainingAmount, &debt.DueDate, &debt.Status, &debt.CreatedAt); err != nil {
+		if err := rows.Scan(&debt.ID, &debt.CustomerID, &debt.CustomerName, &debt.InvoiceNumber, &debt.Amount, &debt.RemainingAmount, &debt.DueDate, &debt.Status, &debt.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

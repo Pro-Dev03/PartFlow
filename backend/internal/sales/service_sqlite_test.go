@@ -2,6 +2,7 @@ package sales
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +10,69 @@ import (
 	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
 )
+
+func TestGenerateInvoiceNumberIncludesUniqueSuffix(t *testing.T) {
+	svc := NewService(nil, nil)
+	invoice := svc.generateInvoiceNumber()
+	if !strings.HasPrefix(invoice, "INV-") {
+		t.Fatalf("invoice = %q, want prefix INV-", invoice)
+	}
+	parts := strings.Split(invoice, "-")
+	if len(parts) != 3 {
+		t.Fatalf("invoice = %q, want format INV-YYYYMMDDHHMMSS-XXXX", invoice)
+	}
+	if len(parts[1]) != 14 {
+		t.Fatalf("invoice timestamp segment = %q, want 14 digits", parts[1])
+	}
+	if len(parts[2]) != 4 {
+		t.Fatalf("invoice suffix = %q, want length 4", parts[2])
+	}
+}
+
+func TestGetSaleItemsIncludesProductName(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT, status TEXT, purchase_cost REAL, serial_number TEXT, created_at TEXT, updated_at TEXT);
+		CREATE TABLE sales (id TEXT PRIMARY KEY, invoice_number TEXT, sale_date TEXT, customer_id TEXT, subtotal REAL, tax_amount REAL, discount_amount REAL, total_amount REAL, cost_amount REAL, gross_profit REAL, net_profit REAL, paid_amount REAL, payment_method TEXT, payment_status TEXT, status TEXT, notes TEXT, created_at TEXT, updated_at TEXT);
+		CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, inventory_item_id TEXT, quantity INTEGER, unit_price REAL, unit_cost REAL, discount_amount REAL, tax_amount REAL, total_amount REAL, created_at TEXT);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	saleID := uuid.New()
+	productID := uuid.New()
+	_, err = db.Exec(`INSERT INTO products (id, name) VALUES (?, ?)`, productID.String(), "Widget")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO sales (id, invoice_number, sale_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, saleID.String(), "INV-TEST-1", time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_price, unit_cost, total_amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, uuid.New().String(), saleID.String(), productID.String(), 1, 25.0, 10.0, 25.0, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repo := NewRepository(db)
+	items, err := repo.GetSaleItems(context.Background(), saleID)
+	if err != nil {
+		t.Fatalf("GetSaleItems failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if items[0].ProductName == nil || *items[0].ProductName != "Widget" {
+		t.Fatalf("product name = %#v, want Widget", items[0].ProductName)
+	}
+}
 
 func TestCreateSaleSQLiteUsesLocalSchema(t *testing.T) {
 	db, err := sqlx.Open("sqlite", ":memory:")

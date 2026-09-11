@@ -131,7 +131,7 @@ export function PurchasesPage() {
       const usedItems = Array.isArray(response?.data) ? response.data : [];
       const soldItems = usedItems.filter((item: any) => Number(item.sold_quantity || 0) > 0);
       if (soldItems.length > 0) {
-        toast.error('لا يمكن عكس العملية لأن القطعة قد تم بيعها بالفعل.');
+        toast.error('لا يمكن إلغاء عملية الشراء لأن القطعة قد تم بيعها بالفعل.');
         return;
       }
     } catch (error) {
@@ -151,7 +151,7 @@ export function PurchasesPage() {
       received: { label: 'تم الاستلام', variant: 'default' },
       completed: { label: 'تم الاستلام', variant: 'default' },
       cancelled: { label: 'ملغي', variant: 'destructive' },
-      reversed: { label: 'تم العكس', variant: 'destructive' },
+      reversed: { label: 'تم إلغاء عملية الشراء', variant: 'destructive' },
       partially_received: { label: 'استلام جزئي', variant: 'secondary' },
     };
     return variants[status] || { label: status, variant: 'default' };
@@ -312,7 +312,7 @@ export function PurchasesPage() {
                             </>
                           )}
                           {normalizedStatus === 'received' && (
-                            <Button variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); void handleReversePurchase(purchase.id); }} className="text-warning hover:text-warning" title="عكس العملية" aria-label="عكس العملية">
+                            <Button variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); void handleReversePurchase(purchase.id); }} className="text-warning hover:text-warning" title="إلغاء عملية الشراء" aria-label="إلغاء عملية الشراء">
                               <RotateCcw className="h-4 w-4" />
                             </Button>
                           )}
@@ -370,7 +370,7 @@ export function PurchasesPage() {
                         </Button>
                       )}
                       {normalizedStatus === 'received' && (
-                        <Button variant="ghost" size="icon" onClick={() => { void handleReversePurchase(purchase.id); }} className="text-warning hover:text-warning" title="عكس العملية" aria-label="عكس العملية">
+                        <Button variant="ghost" size="icon" onClick={() => { void handleReversePurchase(purchase.id); }} className="text-warning hover:text-warning" title="إلغاء عملية الشراء" aria-label="إلغاء عملية الشراء">
                           <RotateCcw className="h-4 w-4" />
                         </Button>
                       )}
@@ -451,9 +451,9 @@ export function PurchasesPage() {
           setReversalReason('');
           setPurchaseToReverse(null);
         }}
-        title="عكس عملية الشراء"
-        message="أدخل سبب العكس في الحقل التالي ثم اضغط تأكيد."
-        confirmText="تأكيد العكس"
+        title="إلغاء عملية الشراء"
+        message="أدخل سبب إلغاء عملية الشراء في الحقل التالي ثم اضغط تأكيد."
+        confirmText="تأكيد الإلغاء"
         isLoading={reversePurchaseMutation.isPending}
         variant="danger"
       >
@@ -461,7 +461,7 @@ export function PurchasesPage() {
           autoFocus
           value={reversalReason}
           onChange={(event) => setReversalReason(event.target.value)}
-          placeholder="سبب عكس العملية"
+          placeholder="سبب إلغاء عملية الشراء"
         />
       </ConfirmDialog>
       <Modal

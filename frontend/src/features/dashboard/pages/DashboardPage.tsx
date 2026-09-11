@@ -13,7 +13,6 @@ import { SalesChart } from '../../../components/charts/SalesChart';
 import { DashboardMetrics } from '../components/DashboardMetrics';
 import { AttentionSection } from '../components/AttentionSection';
 import { SmartActions } from '../components/SmartActions';
-import { AIInsight } from '../components/AIInsight';
 import { SmartAlerts } from '../../../components/notifications/smart-alerts';
 import { InventoryDistribution } from '../../../components/dashboard/InventoryDistribution';
 import { getButtonSize } from '../../../config/button-sizes';
@@ -108,27 +107,6 @@ export function DashboardPage() {
   const lowStockItems = lowStockItemsData?.data || [];
   const overdueDebtItems = overdueDebtsData?.data || [];
   const notifications = Array.isArray(notificationsData?.data) ? notificationsData.data : [];
-  const insight = lowStockItems.length > 0
-    ? {
-        title: 'مخزون يحتاج إعادة طلب',
-        description: `يوجد ${lowStockItems.length} منتجًا تحت الحد الأدنى. ابدأ بإعادة التوريد قبل نفاد المخزون.`,
-        actionLabel: 'مراجعة المخزون',
-        onAction: () => navigate('/app/inventory'),
-      }
-    : overdueDebtItems.length > 0
-      ? {
-          title: 'دفعات متأخرة تحتاج متابعة',
-          description: `يوجد ${overdueDebtItems.length} دينًا متأخرًا. متابعة التحصيل الآن تحافظ على السيولة.`,
-          actionLabel: 'مراجعة الديون',
-          onAction: () => navigate('/app/debts'),
-        }
-      : {
-          title: 'الوضع مستقر',
-          description: 'لا توجد تنبيهات مخزون أو ديون متأخرة حاليًا وفق آخر بيانات النظام.',
-          actionLabel: 'عرض التقارير',
-          onAction: () => navigate('/app/reports'),
-        };
-
   return (
     <div>
       {/* Page Header with Today's Summary */}
@@ -164,18 +142,14 @@ export function DashboardPage() {
       />
 
       {/* Priority 1: Attention Section - يحتاج انتباهك */}
-      <div style={{ marginTop: 'var(--spacing-6)' }}>
+      <div className="dashboard-s-flow" style={{ marginTop: 'var(--spacing-6)' }}>
         <AttentionSection
           lowStockCount={stats?.lowStockCount as number}
           overdueDebtsCount={stats?.overdueDebts as number}
           lowStockItems={lowStockItems}
           overdueDebtItems={overdueDebtItems}
         />
-      </div>
-
-      {/* Priority 2: Smart Actions - العمليات اليومية */}
-      <div style={{ marginTop: 'var(--spacing-6)' }}>
-        <SmartActions 
+        <SmartActions
           lowStockCount={stats?.lowStockCount as number}
           overdueDebtsCount={stats?.overdueDebts as number}
         />
@@ -188,11 +162,6 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* Priority 4: AI Insights - الرؤى الذكية */}
-      <div style={{ marginTop: 'var(--spacing-6)' }}>
-        <AIInsight {...insight} />
-      </div>
-
         {/* Secondary: Charts Grid - الأداء والتوزيع */}
         <div style={{ 
           marginTop: 'var(--spacing-6)',
@@ -200,7 +169,7 @@ export function DashboardPage() {
           gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.65fr) minmax(0, 0.9fr)', 
           gap: 'var(--spacing-4)' 
         }}>
-          <Card>
+          <Card variant="open">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="w-5 h-5" style={{ color: 'var(--color-success)' }} />
@@ -220,7 +189,7 @@ export function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card variant="open">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Package className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
@@ -253,7 +222,7 @@ export function DashboardPage() {
         gap: 'var(--spacing-4)' 
       }}>
         {/* Recent Activity */}
-        <Card>
+        <Card variant="open">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
@@ -284,7 +253,7 @@ export function DashboardPage() {
         </Card>
 
         {/* Notifications */}
-        <Card>
+        <Card variant="open">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Bell className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
@@ -312,10 +281,7 @@ export function DashboardPage() {
 
       {/* Tertiary: Smart Alerts */}
       <div style={{ marginTop: 'var(--spacing-6)' }}>
-        <Card style={{
-          background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(236, 72, 153, 0.05) 100%)',
-          border: '1px solid rgba(99, 102, 241, 0.2)'
-        }}>
+        <Card variant="open">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />

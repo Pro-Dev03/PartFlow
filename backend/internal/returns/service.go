@@ -212,8 +212,8 @@ func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, req *ReturnUpd
 		}
 		returnRecord.Status = req.Status
 	}
-	if req.TotalRefundAmount >= 0 {
-		returnRecord.TotalRefundAmount = req.TotalRefundAmount
+	if req.TotalRefundAmount != nil {
+		returnRecord.TotalRefundAmount = *req.TotalRefundAmount
 	}
 	if req.RefundMethod != "" {
 		returnRecord.RefundMethod = req.RefundMethod
@@ -238,7 +238,7 @@ func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, req *ReturnUpd
 		returnRecord.DebtAdjustment = req.DebtAdjustment
 	}
 	if req.ItemConditionAfterReturn != "" {
-		returnRecord.ItemConditionAfterReturn = req.ItemConditionAfterReturn
+		returnRecord.ItemConditionAfterReturn = normalizeReturnCondition(req.ItemConditionAfterReturn)
 	}
 	if req.Notes != "" {
 		returnRecord.Notes = req.Notes

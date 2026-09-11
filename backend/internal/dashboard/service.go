@@ -40,12 +40,13 @@ type DashboardStats struct {
 	NetRevenue    float64 `json:"net_revenue"`
 	ReturnRate    float64 `json:"return_rate"`
 	// Fields for frontend compatibility
-	TodaySales        float64 `json:"todaySales"`
-	TodayProfit       float64 `json:"todayProfit"`
-	OutstandingDebts  float64 `json:"outstandingDebts"`
-	ActiveCustomers   int     `json:"activeCustomers"`
-	LowStockCount     int     `json:"lowStockCount"`
-	OverdueDebtsCount int     `json:"overdueDebts"`
+	TodaySales           float64 `json:"todaySales"`
+	TodayProfit          float64 `json:"todayProfit"`
+	TodaySupplierReturns float64 `json:"todaySupplierReturns"`
+	OutstandingDebts     float64 `json:"outstandingDebts"`
+	ActiveCustomers      int     `json:"activeCustomers"`
+	LowStockCount        int     `json:"lowStockCount"`
+	OverdueDebtsCount    int     `json:"overdueDebts"`
 	// Trend fields
 	SalesTrend    *string `json:"salesTrend,omitempty"`
 	SalesTrendUp  *bool   `json:"salesTrendUp,omitempty"`
@@ -213,6 +214,7 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 	if today, todayErr := fetchTodayMetrics(ctx, s.db, time.Now().UTC()); todayErr == nil {
 		stats.TodaySales = today.Sales
 		stats.TodayProfit = today.Profit
+		stats.TodaySupplierReturns = today.SupplierReturns
 	}
 	stats.OutstandingDebts = result.OverdueDebts
 	stats.ActiveCustomers = result.TotalCustomers

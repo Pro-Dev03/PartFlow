@@ -14,6 +14,8 @@ interface AuthState {
   refreshTokenValue: string | null;
   cloudToken: string | null;
   isLoading: boolean;
+  isPostLoginVerifying: boolean;
+  setPostLoginVerifying: (value: boolean) => void;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   checkAuth: () => Promise<void>;
@@ -299,6 +301,8 @@ export const useAuthStore = create<AuthState>()(
       refreshTokenValue: null,
       cloudToken: null,
       isLoading: false,
+        isPostLoginVerifying: false,
+        setPostLoginVerifying: (value: boolean) => set({ isPostLoginVerifying: value }),
 
           login: async (email: string, password: string) => {
         clearPersistedAuthStorage();

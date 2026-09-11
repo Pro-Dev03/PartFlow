@@ -38,6 +38,7 @@ func (r *Return) ToReturnListItem(itemCount int, customerName string, saleInvoic
 
 // CreateReturn creates a Return from request
 func CreateReturn(userID uuid.UUID, req *ReturnRequest) *Return {
+	condition := normalizeReturnCondition(req.ItemConditionAfterReturn)
 	returnRecord := &Return{
 		ID:                       uuid.New(),
 		SaleID:                   uuid.Nil, // Will be set from request
@@ -55,7 +56,7 @@ func CreateReturn(userID uuid.UUID, req *ReturnRequest) *Return {
 		CustomerCredit:           0,
 		Reason:                   req.Reason,
 		ReasonDetail:             req.ReasonDetail,
-		ItemConditionAfterReturn: req.ItemConditionAfterReturn,
+		ItemConditionAfterReturn: condition,
 		Notes:                    req.Notes,
 		InternalNotes:            req.InternalNotes,
 		IsWarrantyClaim:          req.IsWarrantyClaim,
@@ -77,6 +78,21 @@ func CreateReturn(userID uuid.UUID, req *ReturnRequest) *Return {
 	}
 
 	return returnRecord
+}
+
+// normalizeReturnCondition keeps the current API vocabulary compatible with
+// the legacy database constraint used by existing PostgreSQL deployments.
+func normalizeReturnCondition(condition string) string {
+	switch condition {
+	case "READY_FOR_SALE":
+		return "SELLABLE"
+	case "NOT_FOR_SALE":
+		return "WRITE_OFF"
+	case "RETURN_TO_SUPPLIER":
+		return "SUPPLIER_RETURN"
+	default:
+		return condition
+	}
 }
 
 // CreateReturnItem creates a ReturnItem from request
@@ -125,9 +141,8 @@ func ValidateReturnRequest(req *ReturnRequest) error {
 	if len(req.Items) == 0 {
 		return ErrNoItems
 	}
-	if req.RefundMethod != "CASH" && req.RefundMethod != "CREDIT" &&
-		req.RefundMethod != "DEBT_ADJUSTMENT" && req.RefundMethod != "EXCHANGE" &&
-		req.RefundMethod != "BANK_TRANSFER" && req.RefundMethod != "STORE_CREDIT" {
+	if req.RefundMethod != "CASH" &&
+		req.RefundMethod != "DEBT_ADJUSTMENT" {
 		return ErrInvalidRefundMethod
 	}
 	for _, item := range req.Items {

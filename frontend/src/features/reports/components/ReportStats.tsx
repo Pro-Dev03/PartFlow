@@ -9,14 +9,6 @@ interface ReportStatsProps {
 
 export function ReportStats({ data, loading, reportType = 'sales' }: ReportStatsProps) {
   const report = data?.data ?? data ?? {};
-  const untaxedPurchaseCount = Number(report.untaxed_purchases ?? 0) > 0 || Number(report.tax_amount ?? 0) > 0
-    ? Number(report.untaxed_purchases ?? 0)
-    : Number(report.total_purchases ?? 0);
-  const untaxedPurchaseCost = Number(report.untaxed_purchase_cost ?? 0) > 0 || Number(report.tax_amount ?? 0) > 0
-    ? Number(report.untaxed_purchase_cost ?? 0)
-    : Number(report.total_cost ?? 0);
-  const taxedPurchaseCount = Math.max(0, Number(report.total_purchases ?? 0) - untaxedPurchaseCount);
-  const taxedPurchaseCost = Math.max(0, Number(report.total_cost ?? 0) - untaxedPurchaseCost);
   const value = (number: unknown, currency = true) => loading ? '...' :
     `${currency ? '₪' : ''}${Number(number || 0).toLocaleString()}`;
   const count = (number: unknown) => loading ? '...' : Number(number || 0).toLocaleString();
@@ -43,28 +35,21 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
           ['المدفوع', value(report.total_paid), DollarSign, 'دفعات مسجلة', 'success'],
           ['المتبقي', value(report.outstanding), DollarSign, 'الرصيد المستحق', 'warning'],
           ['متأخر', value(report.overdue_debt), AlertTriangle, 'يحتاج متابعة', 'danger'],
-          ['العملاء', count(report.by_customer?.length), Database, 'لديهم ديون', 'default'],
-          ['الدفعات', count(report.payment_history?.length), Database, 'سجل الدفعات', 'info'],
         ];
       case 'suppliers':
         return [
           ['الموردون النشطون', count(report.total_suppliers), Database, 'متاحون للتعامل اليومي', 'featured'],
-          ['الموردون المعطلون', count(report.inactive_suppliers), Database, 'سجلات محفوظة للتاريخ', 'default'],
           ['إجمالي المشتريات', value(report.total_purchases), DollarSign, 'من الموردين', 'info'],
           ['المدفوع للموردين', value(report.total_paid), DollarSign, 'دفعات مسجلة', 'success'],
           ['المستحق للموردين', value(report.total_outstanding), DollarSign, 'الرصيد المفتوح', 'warning'],
-          ['لديهم رصيد', count(report.suppliers_with_balance?.length), Database, 'يحتاج متابعة', 'danger'],
         ];
       case 'purchases':
         return [
-          ['المشتريات قبل الضريبة', value(report.subtotal ?? (Number(report.total_cost || 0) - Number(report.tax_amount || 0))), DollarSign, 'تكلفة فواتير الموردين', 'featured'],
-          ['ضريبة المشتريات', value(report.tax_amount), DollarSign, 'ضريبة المورد المسجلة', 'warning'],
-          ['إجمالي المشتريات', value(report.total_cost), DollarSign, 'شامل ضريبة المورد', 'info'],
-          ['فواتير بلا ضريبة', value(untaxedPurchaseCost), DollarSign, `${count(untaxedPurchaseCount)} فواتير معفاة`, 'warning'],
-          ['فواتير خاضعة للضريبة', value(taxedPurchaseCost), DollarSign, `${count(taxedPurchaseCount)} فواتير، شامل الضريبة`, 'info'],
-          ['عدد الطلبات', count(report.total_purchases), Database, 'طلبات شراء', 'default'],
-          ['الموردون', count(report.by_supplier?.length), Database, 'موردون نشطون', 'info'],
-          ['الأصناف', count(Object.values(report.by_category || {}).reduce((a: number, b: any) => a + Number(b || 0), 0)), Package, 'قطع مشتراة', 'success'],
+          ['إجمالي المشتريات', value(report.total_cost), DollarSign, 'قبل خصم مرتجعات الموردين', 'featured'],
+          ['مرتجعات الموردين', value(report.supplier_return_credits), RotateCcw, 'قيمة المرتجعات المكتملة', 'warning'],
+          ['صافي المشتريات', value(report.net_purchases ?? Number(report.total_cost || 0) - Number(report.supplier_return_credits || 0)), DollarSign, 'بعد مرتجعات الموردين', 'success'],
+          ['المدفوع للموردين', value(report.total_paid), DollarSign, 'دفعات مسجلة', 'info'],
+          ['المستحق للموردين', value(report.total_outstanding), DollarSign, 'الرصيد المفتوح', 'danger'],
         ];
       case 'expenses':
         return [
@@ -83,8 +68,6 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
         return [
           ['المبيعات الخاضعة للضريبة', value(report.taxable_sales), DollarSign, 'قبل إضافة الضريبة', 'featured'],
           ['الضريبة المحصلة', value(report.tax_collected), DollarSign, 'المبلغ المستحق ضريبيًا', 'warning'],
-          ['إجمالي المبيعات', value(report.sales_total), DollarSign, 'شامل الضريبة', 'info'],
-          ['الخصومات', value(report.discounts), DollarSign, 'قبل احتساب الضريبة', 'default'],
           ['المرتجعات', value(report.returns_total), RotateCcw, 'مبالغ مستردة', 'danger'],
           ['صافي المبيعات', value(report.net_sales_total), DollarSign, 'بعد المرتجعات وشامل الضريبة', 'success'],
         ];
@@ -123,13 +106,10 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
         ];
       default:
         return [
-          ['إجمالي المبيعات', value(report.total_revenue), DollarSign, 'صافي المبيعات قبل الضريبة', 'featured'],
-          ['إجمالي المبيعات شامل الضريبة', value(Number(report.total_revenue || 0) + Number(report.total_tax || 0)), DollarSign, 'قبل المرتجعات وبعد إضافة الضريبة', 'info'],
+          ['صافي المبيعات', value(report.total_revenue), DollarSign, 'بعد خصم المرتجعات وقبل الضريبة', 'featured'],
           ['إجمالي الربح', value(report.gross_profit), TrendingUp, 'قبل المصروفات وقبل الضريبة', 'success'],
-          ['العمليات', count(report.total_sales), Database, 'عمليات بيع', 'default'],
-          ['الوحدات', count(report.total_items_sold), Package, 'قطع مباعة', 'info'],
-          ['نقدي', value(report.cash_revenue), DollarSign, 'إيراد نقدي قبل الضريبة', 'default'],
-          ['دين', value(report.credit_revenue), DollarSign, 'إيراد على الحساب قبل الضريبة', 'warning'],
+          ['العمليات', count(report.total_sales), Database, 'عمليات البيع الأصلية', 'default'],
+          ['الوحدات', count(report.total_items_sold), Package, 'الوحدات المباعة أصلًا', 'info'],
         ];
     }
   })();
