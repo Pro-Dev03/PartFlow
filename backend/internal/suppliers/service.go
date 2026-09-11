@@ -25,14 +25,34 @@ func NewService(repo *Repository, db *sqlx.DB) *Service {
 
 // CreateSupplier creates a new supplier
 func (s *Service) CreateSupplier(ctx context.Context, req *SupplierRequest) (*Supplier, error) {
-	// Check if code already exists
-	_, err := s.repo.GetByCode(ctx, req.Code)
-	if err == nil {
-		return nil, ErrSupplierCodeExists
+	code := strings.TrimSpace(req.Code)
+	if code == "" {
+		var generatedCode string
+		for i := 0; i < 10; i++ {
+			candidate := generateSupplierCode()
+			_, err := s.repo.GetByCode(ctx, candidate)
+			if err == ErrSupplierNotFound {
+				generatedCode = candidate
+				break
+			}
+			if err != nil && err != ErrSupplierNotFound {
+				return nil, fmt.Errorf("failed to generate unique supplier code: %w", err)
+			}
+		}
+		if generatedCode == "" {
+			return nil, fmt.Errorf("failed to generate unique supplier code")
+		}
+		code = generatedCode
+		req.Code = generatedCode
+	} else {
+		_, err := s.repo.GetByCode(ctx, code)
+		if err == nil {
+			return nil, ErrSupplierCodeExists
+		}
 	}
 
 	// Create supplier
-	supplier := NewSupplier(req.Code, req.Name)
+	supplier := NewSupplier(code, req.Name)
 	supplier.Email = req.Email
 	supplier.Phone = req.Phone
 	supplier.Address = req.Address
@@ -106,6 +126,10 @@ func (s *Service) UpdateSupplier(ctx context.Context, id uuid.UUID, req *Supplie
 }
 
 // DeleteSupplier deletes a supplier
+func generateSupplierCode() string {
+	return "SUP-" + strings.ToUpper(uuid.NewString()[:8])
+}
+
 func (s *Service) DeleteSupplier(ctx context.Context, id uuid.UUID) error {
 	return s.repo.Delete(ctx, id)
 }

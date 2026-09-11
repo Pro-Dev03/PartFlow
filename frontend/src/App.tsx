@@ -47,7 +47,11 @@ function InitialSyncController() {
     // Operational cloud snapshots are global in the current schema. Only the
     // configured administrator may download one until tenant isolation exists.
     void authApi.checkAdminAccess()
-      .then(() => { if (mounted) setIsAdmin(true); })
+      .then((result) => {
+        if (mounted) {
+          setIsAdmin(Boolean(result?.is_admin));
+        }
+      })
       .catch(() => { if (mounted) setIsAdmin(false); });
 
     return () => { mounted = false; };

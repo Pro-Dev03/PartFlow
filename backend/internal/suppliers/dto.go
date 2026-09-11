@@ -8,7 +8,7 @@ import (
 
 // SupplierRequest represents supplier creation/update request
 type SupplierRequest struct {
-	Code         string  `json:"code" binding:"required"`
+	Code         string  `json:"code"`
 	Name         string  `json:"name" binding:"required"`
 	Email        *string `json:"email,omitempty"`
 	Phone        *string `json:"phone,omitempty"`

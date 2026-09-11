@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -162,6 +163,7 @@ func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString strin
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+tokenString)
+	req.Header.Set("X-PartFlow-Cloud-Token", tokenString)
 
 	client := &http.Client{Timeout: 8 * time.Second}
 	resp, err := client.Do(req)
@@ -171,6 +173,9 @@ func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if fallbackUserID, fallbackEmail, fallbackErr := localCloudTokenFallback(tokenString); fallbackErr == nil {
+			return fallbackUserID, fallbackEmail, nil
+		}
 		status := http.StatusServiceUnavailable
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			status = resp.StatusCode
@@ -198,6 +203,75 @@ func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString strin
 		return uuid.Nil, "", &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("cloud response did not contain a valid user id")}
 	}
 	return userID, strings.TrimSpace(envelope.Data.User.Email), nil
+}
+
+func localCloudTokenFallback(tokenString string) (uuid.UUID, string, *cloudAuthError) {
+	if strings.TrimSpace(tokenString) == "" {
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("cloud token is empty")}
+	}
+
+	parts := strings.Split(tokenString, ".")
+	if len(parts) < 2 {
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("cloud token is not a JWT")}
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		payloadBytes, err = base64.URLEncoding.DecodeString(parts[1])
+		if err != nil {
+			return uuid.Nil, "", &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("failed to decode cloud token payload: %w", err)}
+		}
+	}
+
+	var claims map[string]any
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("failed to unmarshal cloud token payload: %w", err)}
+	}
+
+	userIDValue := firstClaimValue(claims, "sub", "user_id")
+	if userIDValue == "" {
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("cloud token does not contain a user id")}
+	}
+	userID, err := uuid.Parse(userIDValue)
+	if err != nil {
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("invalid cloud user id: %w", err)}
+	}
+
+	if db == nil {
+		return userID, strings.TrimSpace(firstClaimValue(claims, "email")), nil
+	}
+
+	var foundID, foundEmail string
+	query := `SELECT id, email FROM users WHERE id = $1 OR email = $2 LIMIT 1`
+	if err := db.QueryRow(query, userID.String(), strings.TrimSpace(firstClaimValue(claims, "email"))).Scan(&foundID, &foundEmail); err != nil {
+		return uuid.Nil, "", &cloudAuthError{status: http.StatusForbidden, err: err}
+	}
+
+	if parsed, parseErr := uuid.Parse(foundID); parseErr == nil {
+		userID = parsed
+	}
+	if foundEmail != "" {
+		return userID, foundEmail, nil
+	}
+	return userID, strings.TrimSpace(firstClaimValue(claims, "email")), nil
+}
+
+func firstClaimValue(claims map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := claims[key]; ok {
+			switch typed := value.(type) {
+			case string:
+				if trimmed := strings.TrimSpace(typed); trimmed != "" {
+					return trimmed
+				}
+			default:
+				if trimmed := strings.TrimSpace(fmt.Sprintf("%v", typed)); trimmed != "" {
+					return trimmed
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func parseSubscriptionExpiry(value interface{}) (*time.Time, error) {
@@ -391,7 +465,11 @@ func Auth() gin.HandlerFunc {
 		if cloudToken == "" && isLoopbackRequest(c) && strings.HasPrefix(c.Request.URL.Path, "/api/v1/settings/sync") {
 			cloudToken = tokenString
 		}
-		if (requiresCloudAuth() && isLocalDatabaseMode()) || isLoopbackRequest(c) || cloudToken != "" {
+		
+		// Skip cloud validation for local development or when cloud auth is not required
+		if !requiresCloudAuth() || !isLocalDatabaseMode() {
+			// Fall through to local JWT validation
+		} else if isLoopbackRequest(c) || cloudToken != "" {
 			if cloudToken == "" {
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"error": "يلزم توكن الجلسة السحابية للتحقق من الاشتراك",

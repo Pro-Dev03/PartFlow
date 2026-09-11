@@ -7,22 +7,23 @@ import (
 
 func TestIsSubscriptionExpired(t *testing.T) {
 	now := time.Now()
+	service := &Service{}
 
-	if !IsSubscriptionExpired("expired", &now) {
+	if !service.IsSubscriptionExpired("expired", &now) {
 		t.Fatal("expired status should be treated as expired")
 	}
 
 	expiredAt := now.Add(-time.Hour)
-	if !IsSubscriptionExpired("active", &expiredAt) {
+	if !service.IsSubscriptionExpired("active", &expiredAt) {
 		t.Fatal("past expiry date should be treated as expired")
 	}
 
 	futureAt := now.Add(time.Hour)
-	if IsSubscriptionExpired("active", &futureAt) {
+	if service.IsSubscriptionExpired("active", &futureAt) {
 		t.Fatal("future expiry date should remain valid")
 	}
 
-	if IsSubscriptionExpired("active", nil) {
+	if service.IsSubscriptionExpired("active", nil) {
 		t.Fatal("missing expiry date should not be considered expired for active plan")
 	}
 }

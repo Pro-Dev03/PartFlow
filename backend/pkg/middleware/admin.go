@@ -23,7 +23,7 @@ func Admin() gin.HandlerFunc {
 			return
 		}
 
-		if isConfiguredAdmin(c, userID) {
+		if IsConfiguredAdmin(c, userID) {
 			c.Next()
 			return
 		}
@@ -35,7 +35,7 @@ func Admin() gin.HandlerFunc {
 	}
 }
 
-func isConfiguredAdmin(c *gin.Context, userID uuid.UUID) bool {
+func IsConfiguredAdmin(c *gin.Context, userID uuid.UUID) bool {
 	// Keep the type assertion in one place while avoiding a second user lookup
 	// for development requests where authentication is intentionally disabled.
 	if disableAuth && isLocalDatabaseMode() {

@@ -4,7 +4,7 @@ import { authApi } from '../services/api/endpoints';
 import { apiClient } from '../services/api/client';
 import { TokenManager } from '../lib/token-manager';
 import { User } from '../types/models';
-import { getCloudApiUrl } from '../lib/config/app';
+import { getCloudApiUrl, appConfig } from '../lib/config/app';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -45,6 +45,20 @@ function clearPersistedAuthStorage() {
     useAuthStore.persist?.clearStorage();
   } catch {
     // Safe no-op if persistence is not initialized yet.
+  }
+}
+
+function getPersistedAuthState() {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = localStorage.getItem('auth-storage');
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    return parsed?.state ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -127,6 +141,7 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
+          'X-PartFlow-Cloud-Token': token,
         },
         body: JSON.stringify({}),
       });
@@ -259,7 +274,15 @@ function forceLogoutToLogin(reason = 'Session expired') {
     isLoading: false,
   });
   clearPersistedAuthStorage();
-  if (!window.location.hash.includes('/login')) {
+
+  const currentUrl = new URL(window.location.href);
+  const shouldResetPath = currentUrl.pathname !== '/' || !currentUrl.hash.includes('/login');
+
+  if (shouldResetPath) {
+    currentUrl.pathname = '/';
+    currentUrl.hash = '#/login';
+    window.history.replaceState({}, '', currentUrl.toString());
+  } else if (!window.location.hash.includes('/login')) {
     window.location.hash = '#/login';
   }
 
@@ -282,6 +305,44 @@ export const useAuthStore = create<AuthState>()(
         apiClient.logout();
         set({ isLoading: true });
         try {
+          // In development mode, allow direct local login
+          if (appConfig.developmentMode) {
+            const data = await authApi.login(email, password) as {
+              user: User;
+              token?: string;
+              access_token?: string;
+              refresh_token?: string;
+              subscription_status?: string;
+              subscription_expires_at?: string | null;
+            };
+            const { user } = data;
+            const accessToken = data.token || data.access_token;
+            if (!accessToken) {
+              throw new Error('Login response did not include an access token');
+            }
+            const refreshToken = data.refresh_token;
+
+            TokenManager.setToken(accessToken);
+            if (refreshToken) {
+              TokenManager.setRefreshToken(refreshToken);
+            }
+            apiClient.setToken(accessToken);
+
+            set({
+              isAuthenticated: true,
+              sessionVerified: true,
+              user: user || null,
+              token: accessToken,
+              refreshTokenValue: refreshToken || null,
+              cloudToken: null,
+              isLoading: false,
+            });
+
+            startTokenRefresh();
+            return;
+          }
+
+          // Production mode: cloud login first, then local session
           const data = await authApi.loginWithCloud(email, password) as {
             user: User;
             token?: string;
@@ -361,8 +422,23 @@ export const useAuthStore = create<AuthState>()(
 
       checkAuth: async () => {
         set({ isLoading: true, sessionVerified: false });
-        const token = TokenManager.getToken();
-        const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
+
+        const persistedState = getPersistedAuthState();
+        const currentState = useAuthStore.getState();
+        const token = currentState.token || persistedState?.token || TokenManager.getToken();
+        const refreshToken = currentState.refreshTokenValue || persistedState?.refreshTokenValue || TokenManager.getRefreshToken();
+        const cloudToken = currentState.cloudToken || persistedState?.cloudToken || (typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null);
+
+        if (token && !TokenManager.getToken()) {
+          TokenManager.setToken(token);
+        }
+        if (refreshToken && !TokenManager.getRefreshToken()) {
+          TokenManager.setRefreshToken(refreshToken);
+        }
+        if (cloudToken && !localStorage.getItem('cloud_token')) {
+          localStorage.setItem('cloud_token', cloudToken);
+        }
+
         if (!token || !cloudToken) {
           forceLogoutToLogin('No active cloud session');
           set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
@@ -439,10 +515,17 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'auth-storage',
       storage: createJSONStorage(() => authStorage),
-      // The app must re-verify the cloud session on every load. Persisting
-      // tokens or auth flags allows stale sessions to be restored and triggers
-      // the 401 refresh/login loop after reload.
-      partialize: () => ({}),
+      // Persist the authenticated session state so a browser reload can restore
+      // the user's local JWT and cloud token, then immediately re-verify the
+      // cloud subscription authority before allowing protected routes.
+      partialize: (state) => ({
+        isAuthenticated: state.isAuthenticated,
+        sessionVerified: state.sessionVerified,
+        user: state.user,
+        token: state.token,
+        refreshTokenValue: state.refreshTokenValue,
+        cloudToken: state.cloudToken,
+      }),
     }
   )
 );

@@ -104,6 +104,37 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
         </div>
       )}
 
+      {isLoading && (
+        <div
+          aria-live="polite"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            marginBottom: '18px',
+            padding: '14px 16px',
+            borderRadius: '12px',
+            border: isDark ? '1px solid rgba(34, 211, 238, 0.22)' : '1px solid rgba(37, 99, 235, 0.2)',
+            background: isDark ? 'rgba(14, 116, 144, 0.12)' : 'rgba(37, 99, 235, 0.08)',
+            color: isDark ? '#d8f4ff' : '#1e3a8a',
+            fontSize: '12px',
+            fontWeight: '700',
+          }}
+        >
+          <div
+            style={{
+              width: '16px',
+              height: '16px',
+              borderRadius: '9999px',
+              border: '2px solid rgba(255,255,255,0.35)',
+              borderTopColor: isDark ? '#67e8f9' : '#2563eb',
+              animation: 'spin 0.85s linear infinite',
+            }}
+          />
+          <span>جاري تسجيل الدخول...</span>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit}>
         {/* Email Input */}
         <div style={{ marginBottom: '18px' }}>

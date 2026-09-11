@@ -86,17 +86,21 @@ export const authApi = {
     });
   },
   checkAdminAccess: async () => {
+    const localToken = typeof window !== 'undefined'
+      ? (localStorage.getItem('auth_token') || localStorage.getItem('token'))
+      : null;
     const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
-    if (!cloudToken) {
-      throw new Error('No active cloud session');
+
+    if (!localToken) {
+      throw new Error('No active local session');
     }
 
-    const response = await fetch(`${getCloudApiUrl()}/auth/admin-check`, {
+    const response = await fetch(`${getLocalApiUrl()}/auth/admin-check`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${cloudToken}`,
-        'X-PartFlow-Cloud-Token': cloudToken,
+        Authorization: `Bearer ${localToken}`,
+        ...(cloudToken ? { 'X-PartFlow-Cloud-Token': cloudToken } : {}),
       },
     });
 

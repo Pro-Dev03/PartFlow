@@ -83,7 +83,7 @@ func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
 }
 
 // IsSubscriptionExpired reports whether the user's subscription is no longer valid.
-func IsSubscriptionExpired(subscriptionStatus string, expiresAt *time.Time) bool {
+func (s *Service) IsSubscriptionExpired(subscriptionStatus string, expiresAt *time.Time) bool {
 	switch subscriptionStatus {
 	case "canceled", "cancelled", "expired":
 		return true
@@ -98,7 +98,7 @@ func IsSubscriptionExpired(subscriptionStatus string, expiresAt *time.Time) bool
 
 // checkSubscriptionStatus checks if user's subscription is valid (from worktrack)
 func (s *Service) checkSubscriptionStatus(subscriptionStatus string, expiresAt *time.Time) error {
-	if IsSubscriptionExpired(subscriptionStatus, expiresAt) {
+	if s.IsSubscriptionExpired(subscriptionStatus, expiresAt) {
 		if subscriptionStatus == "canceled" || subscriptionStatus == "cancelled" {
 			return errors.New("subscription canceled")
 		}
@@ -165,13 +165,13 @@ func (s *Service) ValidateCloudAccess(ctx context.Context, cloudToken string) er
 	if err != nil {
 		return err
 	}
-	if (!validation.Data.IsActive && !validation.Data.User.IsActive) || IsSubscriptionExpiredFromCloud(validation.cloudSubscriptionStatus(), validation.cloudSubscriptionExpiresAt()) {
+	if (!validation.Data.IsActive && !validation.Data.User.IsActive) || s.IsSubscriptionExpiredFromCloud(validation.cloudSubscriptionStatus(), validation.cloudSubscriptionExpiresAt()) {
 		return errors.New("cloud account is inactive or subscription is expired")
 	}
 	return nil
 }
 
-func IsSubscriptionExpiredFromCloud(status, expiresAt string) bool {
+func (s *Service) IsSubscriptionExpiredFromCloud(status, expiresAt string) bool {
 	if strings.EqualFold(strings.TrimSpace(status), "canceled") || strings.EqualFold(strings.TrimSpace(status), "cancelled") || strings.EqualFold(strings.TrimSpace(status), "expired") {
 		return true
 	}

@@ -20,9 +20,11 @@ interface SupplierFormProps {
   initialData?: Partial<SupplierFormData>;
 }
 
+const generateSupplierCode = () => `SUP-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+
 export function SupplierForm({ onSubmit, onCancel, initialData }: SupplierFormProps) {
   const [formData, setFormData] = useState<SupplierFormData>({
-    code: initialData?.code || '',
+    code: initialData?.code || generateSupplierCode(),
     name: initialData?.name || '',
     phone: initialData?.phone || '',
     email: initialData?.email || '',

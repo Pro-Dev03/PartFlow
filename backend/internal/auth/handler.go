@@ -30,6 +30,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		auth.POST("/logout", h.Logout)
 		auth.POST("/change-password", h.ChangePassword)
 		auth.POST("/cloud-session", h.CloudSession)
+		auth.POST("/validate", h.ValidateSubscription)
 		// auth.POST("/password-reset", h.RequestPasswordReset)
 		// auth.POST("/password-reset/confirm", h.ResetPassword)
 	}
@@ -229,16 +230,66 @@ func (h *Handler) CloudSession(c *gin.Context) {
 // and subscription expiry.
 func (h *Handler) ValidateSubscription(c *gin.Context) {
 	userID := getUserIDFromContext(c)
-	user, err := h.service.GetUserByID(c.Request.Context(), userID)
-	if err != nil {
-		handleAuthError(c, err)
+	
+	// If no user ID from context, try to get from JWT token directly
+	if userID == uuid.Nil {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader != "" {
+			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+			claims, err := h.service.ValidateToken(c.Request.Context(), tokenString)
+			if err == nil && claims != nil {
+				userID, _ = uuid.Parse(claims.UserID)
+			}
+		}
+	}
+	
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "Invalid or missing token",
+			"code":  "INVALID_TOKEN",
+		})
 		return
 	}
+	
+	user, err := h.service.GetUserByID(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "User not found",
+			"code":  "USER_NOT_FOUND",
+		})
+		return
+	}
+	
+	// Check if user is active and subscription is valid
+	if !user.IsActive {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "الحساب غير نشط أو أن الاشتراك منتهٍ",
+			"code":  "SUBSCRIPTION_EXPIRED",
+		})
+		return
+	}
+	
+	if h.service.IsSubscriptionExpired(user.SubscriptionStatus, user.SubscriptionExpiresAt) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "الحساب غير نشط أو أن الاشتراك منتهٍ",
+			"code":  "SUBSCRIPTION_EXPIRED",
+		})
+		return
+	}
+	
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
 			"valid":                   true,
-			"user":                    user,
+			"user": gin.H{
+				"id":                      user.ID.String(),
+				"email":                   user.Email,
+				"first_name":              user.FirstName,
+				"last_name":               user.LastName,
+				"is_active":               user.IsActive,
+				"subscription_status":     user.SubscriptionStatus,
+				"subscription_expires_at": user.SubscriptionExpiresAt,
+			},
 			"subscription_status":     user.SubscriptionStatus,
 			"subscription_expires_at": user.SubscriptionExpiresAt,
 		},

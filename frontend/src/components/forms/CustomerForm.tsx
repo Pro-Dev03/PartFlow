@@ -4,6 +4,8 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { CustomerFormData } from '../../features/customers/types/customers.types';
 
+const generateCustomerCode = () => `CUST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+
 interface CustomerFormProps {
   onSubmit: (data: CustomerFormData) => void;
   onCancel: () => void;
@@ -12,7 +14,7 @@ interface CustomerFormProps {
 
 export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormProps) {
   const [formData, setFormData] = useState<CustomerFormData>({
-    code: initialData?.code || '',
+    code: initialData?.code || generateCustomerCode(),
     name: initialData?.name || '',
     phone: initialData?.phone || '',
     email: initialData?.email || '',
@@ -38,7 +40,6 @@ export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormPr
             label="كود العميل"
             value={formData.code}
             onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-            required
           />
           <Input
             label="الاسم الكامل"

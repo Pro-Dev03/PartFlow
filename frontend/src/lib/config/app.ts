@@ -54,6 +54,7 @@ export const appConfig = {
   supportedLanguages: ['ar', 'en'],
   currency: 'ILS',
   timezone: 'Asia/Jerusalem',
+  developmentMode: getEnvValue(['VITE_DEVELOPMENT_MODE'], 'false') === 'true',
 } as const;
 
 export type AppConfig = typeof appConfig;

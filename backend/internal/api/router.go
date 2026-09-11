@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
 	"github.com/partflow/smart-store/internal/acquisitions"
@@ -139,8 +140,19 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			{
 				auth.POST("/logout", authHandler.Logout)
 				auth.POST("/validate", authHandler.ValidateSubscription)
-				auth.GET("/admin-check", middleware.Admin(), func(c *gin.Context) {
-					c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"is_admin": true}})
+				auth.GET("/admin-check", func(c *gin.Context) {
+					userID := middleware.GetUserID(c)
+					if userID == uuid.Nil {
+						c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+						return
+					}
+
+					c.JSON(http.StatusOK, gin.H{
+						"success": true,
+						"data": gin.H{
+							"is_admin": middleware.IsConfiguredAdmin(c, userID),
+						},
+					})
 				})
 			}
 

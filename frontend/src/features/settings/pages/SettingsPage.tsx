@@ -40,12 +40,10 @@ export function SettingsPage() {
   useEffect(() => {
     let mounted = true;
     void authApi.checkAdminAccess()
-      .then(() => {
-        if (mounted) setIsAdmin(true);
+      .then((result) => {
+        if (mounted) setIsAdmin(Boolean(result?.is_admin));
       })
       .catch(() => {
-        // A regular subscriber is expected to receive 403 here. Keep the
-        // administrator-only controls out of the settings UI in that case.
         if (mounted) setIsAdmin(false);
       });
 

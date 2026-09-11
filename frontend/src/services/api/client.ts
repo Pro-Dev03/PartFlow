@@ -525,6 +525,7 @@ class ApiClient {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
+        'X-PartFlow-Cloud-Token': token,
       },
       body: '{}',
     });
