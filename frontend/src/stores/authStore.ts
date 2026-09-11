@@ -4,7 +4,7 @@ import { authApi } from '../services/api/endpoints';
 import { apiClient } from '../services/api/client';
 import { TokenManager } from '../lib/token-manager';
 import { User } from '../types/models';
-import { getCloudApiUrl, appConfig } from '../lib/config/app';
+import { getCloudApiUrl } from '../lib/config/app';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -305,8 +305,8 @@ export const useAuthStore = create<AuthState>()(
         apiClient.logout();
         set({ isLoading: true });
         try {
-          // Try local login first
-          const data = await authApi.login(email, password) as {
+          // Authenticate with the cloud authority before creating a local session.
+          const data = await authApi.loginWithCloud(email, password) as {
             user: User;
             token?: string;
             access_token?: string;
@@ -317,30 +317,53 @@ export const useAuthStore = create<AuthState>()(
           const { user } = data;
           const accessToken = data.token || data.access_token;
           if (!accessToken) {
-            throw new Error('Login response did not include an access token');
+            throw new Error('Cloud login response did not include an access token');
           }
-          const refreshToken = data.refresh_token;
+          const cloudRefreshToken = data.refresh_token;
+          const localSession = await authApi.createLocalSession(accessToken);
+          const localData = localSession as {
+            user: User;
+            token?: string;
+            access_token?: string;
+            refresh_token?: string;
+          };
+          const localToken = localData.token || localData.access_token;
+          if (!localToken) {
+            throw new Error('Local session response did not include an access token');
+          }
+          const localRefreshToken = localData.refresh_token;
 
-          TokenManager.setToken(accessToken);
-          if (refreshToken) {
-            TokenManager.setRefreshToken(refreshToken);
+          TokenManager.setToken(localToken);
+          if (localRefreshToken) {
+            TokenManager.setRefreshToken(localRefreshToken);
           }
-          apiClient.setToken(accessToken);
+          localStorage.setItem('cloud_token', accessToken);
+          if (cloudRefreshToken) {
+            localStorage.setItem('cloud_refresh_token', cloudRefreshToken);
+          }
+          apiClient.setToken(localToken);
+
+          const valid = await validateSubscriptionWithCloud();
+          if (!valid) {
+            throw new Error('Cloud subscription verification failed');
+          }
 
           set({
             isAuthenticated: true,
             sessionVerified: true,
-            user: user || null,
-            token: accessToken,
-            refreshTokenValue: refreshToken || null,
-            cloudToken: null,
+            user: localData.user || user || null,
+            token: localToken,
+            refreshTokenValue: localRefreshToken || null,
+            cloudToken: accessToken,
             isLoading: false,
           });
 
           startTokenRefresh();
           return;
         } catch (error) {
-          forceLogoutToLogin(error instanceof Error ? error.message : 'Login failed');
+          if (!window.location.hash.includes('/subscription-expired')) {
+            forceLogoutToLogin(error instanceof Error ? error.message : 'Login failed');
+          }
           set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
           throw error;
         }
@@ -388,31 +411,27 @@ export const useAuthStore = create<AuthState>()(
           localStorage.setItem('cloud_token', cloudToken);
         }
 
-        // Allow local auth without cloud token for development
-        if (!token) {
-          forceLogoutToLogin('No active session');
+        if (!token || !cloudToken) {
+          forceLogoutToLogin('No active cloud session');
           set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
           return;
         }
 
         apiClient.setToken(token);
 
-        // Only require cloud verification if cloud token exists
-        if (cloudToken) {
-          if (!navigator.onLine) {
-            forceLogoutToLogin('Cloud verification requires an internet connection');
-            set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
-            return;
-          }
+        if (!navigator.onLine) {
+          forceLogoutToLogin('Cloud verification requires an internet connection');
+          set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
+          return;
+        }
 
-          const valid = await validateSubscriptionWithCloud();
-          if (!valid) {
-            if (TokenManager.getToken() && !window.location.hash.includes('/subscription-expired')) {
-              forceLogoutToLogin('Cloud verification failed');
-            }
-            set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
-            return;
+        const valid = await validateSubscriptionWithCloud();
+        if (!valid) {
+          if (TokenManager.getToken() && !window.location.hash.includes('/subscription-expired')) {
+            forceLogoutToLogin('Cloud verification failed');
           }
+          set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
+          return;
         }
 
         set({ isAuthenticated: true, sessionVerified: true, isLoading: false });
