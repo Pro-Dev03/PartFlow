@@ -19,6 +19,10 @@
     {
       "from": "../backend/partflow-local.db",
       "to": "partflow.db"
+    },
+    {
+      "from": "build/PartFlow-Internal-Code-Signing.cer",
+      "to": "PartFlow-Internal-Code-Signing.cer"
     }
   ],
   "extraMetadata": {
@@ -46,6 +50,7 @@
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
     "deleteAppDataOnUninstall": false,
+    "include": "build/installer.nsh",
     "shortcutName": "PartFlow",
     "artifactName": "PartFlow-${version}-setup.exe"
   },

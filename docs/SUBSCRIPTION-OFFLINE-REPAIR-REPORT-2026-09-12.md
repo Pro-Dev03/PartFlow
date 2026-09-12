@@ -169,3 +169,18 @@ Import-Certificate -FilePath .\PartFlow-Internal-Code-Signing.cer -CertStoreLoca
 ## حدود الحل
 
 هذه ليست شهادة عامة موثوقة من Windows. هي حل مجاني داخلي لمتاجر وأجهزة تحت الإدارة. التوزيع العام ما زال يحتاج شهادة Authenticode مدفوعة أو سيعرض تحذير SmartScreen.
+
+## Installer واحد لأجهزة المتاجر
+
+تمت إضافة `frontend/build/installer.nsh` إلى بناء NSIS. عند تشغيل Installer:
+
+1. يثبت التطبيق وملفات backend.
+2. يضع الشهادة العامة داخل موارد التطبيق.
+3. يضيف الشهادة تلقائياً إلى `CurrentUser\Root` و`CurrentUser\TrustedPublisher` باستخدام `certutil`.
+4. لا يحتوي Installer على المفتاح الخاص.
+
+آخر نسخة تم بناؤها هنا:
+
+`C:\Users\Administrator\AppData\Local\Temp\PartFlow-one-click\PartFlow-0.0.0-setup.exe`
+
+وتم التحقق من أن ملف setup والنسخة المحمولة يحملان توقيع `PartFlow Internal Code Signing`. يعرض Windows `UnknownError` لسلسلة الثقة العامة لأن الشهادة داخلية، لكن التثبيت يضيف الجذر الداخلي تلقائياً للمستخدم الحالي.
