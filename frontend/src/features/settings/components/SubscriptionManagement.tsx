@@ -127,7 +127,7 @@ export function SubscriptionManagement() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const response = await settingsApi.createUser({
+      const response = await settingsApi.createUserInCloud({
         first_name: createForm.firstName.trim(),
         last_name: createForm.lastName.trim(),
         email: createForm.email.trim(),
@@ -136,7 +136,7 @@ export function SubscriptionManagement() {
         subscription_days: Number(createForm.subscriptionDays),
         is_active: true,
       });
-      return response.data as User;
+      return response as User;
     },
     onSuccess: () => {
       setCreateForm({ firstName: '', lastName: '', email: '', password: '', phone: '', subscriptionDays: '30' });

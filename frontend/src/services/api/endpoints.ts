@@ -430,6 +430,25 @@ export const settingsApi = {
   renewSubscription: (id: string, days: number) =>
     apiClient.post(`/users/${id}/subscription/renew`, { days }),
   createUser: (data: any) => apiClient.post('/users', data),
+  createUserInCloud: async (data: any) => {
+    const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
+    if (!cloudToken) throw new Error('لا توجد جلسة مالك سحابية نشطة.');
+
+    const response = await fetch(`${getCloudApiUrl()}/users`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cloudToken}`,
+        'X-PartFlow-Cloud-Token': cloudToken,
+      },
+      body: JSON.stringify(data),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.error?.message || payload?.error || 'تعذر إنشاء الحساب السحابي.');
+    }
+    return payload?.data ?? payload;
+  },
   updateUser: (id: string, data: any) => apiClient.put(`/users/${id}`, data),
   deleteUser: (id: string) => apiClient.delete(`/users/${id}`),
   getTaxRate: () => apiClient.get('/settings/tax-rate'),
