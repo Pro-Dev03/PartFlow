@@ -123,6 +123,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 		{
 			// Dashboard routes
 			protected.GET("/dashboard/stats", dashboardHandler.GetDashboardStats)
+			protected.GET("/dashboard/activity", dashboardHandler.GetRecentActivity)
 			protected.GET("/dashboard/low-stock-items", dashboardHandler.GetLowStockItems)
 			protected.GET("/dashboard/overdue-debts", dashboardHandler.GetOverdueDebts)
 
@@ -399,9 +400,9 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			{
 				settings.POST("/sync", middleware.Admin(), localDatabaseHandler.SyncCloudData)
 				settings.POST("/sync/push", middleware.Admin(), localDatabaseHandler.SyncLocalDataToCloud)
-				settings.GET("/sync/conflicts", localDatabaseHandler.GetSyncConflicts)
-				settings.DELETE("/sync/conflicts", localDatabaseHandler.ClearSyncConflicts)
-				settings.POST("/sync/conflicts/:id/resolve", localDatabaseHandler.ResolveSyncConflict)
+				settings.GET("/sync/conflicts", middleware.Admin(), localDatabaseHandler.GetSyncConflicts)
+				settings.DELETE("/sync/conflicts", middleware.Admin(), localDatabaseHandler.ClearSyncConflicts)
+				settings.POST("/sync/conflicts/:id/resolve", middleware.Admin(), localDatabaseHandler.ResolveSyncConflict)
 				settings.GET("/operating-mode", localDatabaseHandler.GetOperatingMode)
 				settings.PUT("/operating-mode", localDatabaseHandler.SetOperatingMode)
 				settings.GET("/public", settingsHandler.GetPublicSettings)

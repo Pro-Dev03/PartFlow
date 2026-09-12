@@ -207,6 +207,8 @@ export interface SaleCreateRequest {
   payment_amount: number;
   total_amount: number;
   tax_exempt?: boolean;
+  discount_type?: 'percentage' | 'fixed';
+  discount_value?: number;
 }
 
 // Debt Types

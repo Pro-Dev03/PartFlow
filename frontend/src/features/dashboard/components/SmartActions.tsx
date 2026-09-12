@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { Card, CardContent } from '../../../components/ui/card';
-import { ShoppingCart, Plus, User, CreditCard, Receipt, Zap, Phone, Package } from 'lucide-react';
+import { ShoppingCart, Plus, User, CreditCard, Receipt, Sparkles, Phone, Package } from 'lucide-react';
 
 interface ActionItem {
   title: string;
@@ -106,7 +106,7 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
               borderRadius: '50%'
             }}
           >
-            <Zap className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />
+            <Sparkles className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />
           </div>
           <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
             {t('dashboard.smartActions')}

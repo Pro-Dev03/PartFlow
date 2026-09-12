@@ -575,13 +575,9 @@ class ApiClient {
     
     const cacheKey = this.getCacheKey(url, { method: 'GET' });
     
-    if (useCache) {
-      const cached = this.getFromCache<T>(cacheKey);
-      if (cached) {
-        return cached;
-      }
-    }
-    
+    // Never serve cached business data without a fresh request. The local API
+    // validates the cloud session on every request, so returning an in-memory
+    // response here could allow a revoked account to keep using stale data.
     const result = await this.requestWithRetry<T>(url, {
       method: 'GET',
       ...(useCache ? {} : { cache: 'no-store' as RequestCache }),

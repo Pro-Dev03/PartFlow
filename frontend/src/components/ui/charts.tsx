@@ -62,21 +62,24 @@ export function SimpleBarChart({ data, title, color = '#14b8a6', loading }: Simp
 interface SimpleLineChartProps {
   data: { label: string; value: number }[];
   title?: string;
+  valueLabel?: string;
+  peakLabel?: string;
   color?: string;
   loading?: boolean;
   className?: string;
 }
 
-export function SimpleLineChart({ data, title, color = '#14b8a6', loading, className }: SimpleLineChartProps) {
+export function SimpleLineChart({ data, title, valueLabel = 'إجمالي الفترة', peakLabel = 'أعلى يوم', color = '#14b8a6', loading, className }: SimpleLineChartProps) {
   const safeData = data.map(item => ({ ...item, value: Number.isFinite(Number(item.value)) ? Number(item.value) : 0 }));
   const maxValue = safeData.length > 0 ? Math.max(...safeData.map(d => d.value), 1) : 1;
+  const maxItem = safeData.reduce((highest, item) => item.value > highest.value ? item : highest, safeData[0] || { label: '', value: 0 });
   const totalValue = safeData.reduce((sum, item) => sum + item.value, 0);
   const chartWidth = 760;
-  const chartHeight = 250;
+  const chartHeight = 210;
   const leftPadding = 58;
   const rightPadding = 18;
-  const topPadding = 20;
-  const bottomPadding = 38;
+  const topPadding = 14;
+  const bottomPadding = 34;
   const plotWidth = chartWidth - leftPadding - rightPadding;
   const plotHeight = chartHeight - topPadding - bottomPadding;
   const coordinates = safeData.map((item, index) => ({
@@ -105,20 +108,21 @@ export function SimpleLineChart({ data, title, color = '#14b8a6', loading, class
             لا توجد بيانات فعلية للفترة المحددة
           </div>
         ) : (
-          <div className="rounded-lg border border-border bg-surface-elevated px-3 py-2">
+          <div className="rounded-lg border border-border bg-surface-elevated px-3 py-2" style={{ maxWidth: '1100px', marginInline: 'auto' }}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs text-text-muted">إجمالي الإيراد في الفترة</p>
+                <p className="text-xs text-text-muted">{valueLabel}</p>
                 <p className="text-lg font-bold text-text-primary">₪{formatValue(totalValue)}</p>
               </div>
               <div className="rounded-lg border border-border bg-surface-elevated px-3 py-2 text-left">
-                <p className="text-xs text-text-muted">أعلى يوم</p>
+                <p className="text-xs text-text-muted">{peakLabel}: {maxItem.label}</p>
                 <p className="text-sm font-semibold" style={{ color }}>₪{formatValue(maxValue)}</p>
               </div>
             </div>
-            <div style={{ position: 'relative', height: '250px', width: '100%' }}>
+            <div style={{ position: 'relative', height: '210px', width: '100%' }}>
             <svg
               viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+              preserveAspectRatio="none"
               role="img"
               aria-label={title || 'اتجاه المبيعات'}
               style={{ width: '100%', height: '100%', overflow: 'visible' }}
@@ -141,8 +145,9 @@ export function SimpleLineChart({ data, title, color = '#14b8a6', loading, class
                   </g>
                 );
               })}
-              <polygon points={areaPoints} fill="url(#sales-area-gradient)" />
+              <polygon className="sales-chart-area" points={areaPoints} fill="url(#sales-area-gradient)" />
               <polyline
+                className="sales-chart-line"
                 points={points}
                 fill="none"
                 stroke={color}
@@ -152,18 +157,18 @@ export function SimpleLineChart({ data, title, color = '#14b8a6', loading, class
               />
               {coordinates.map((item, index) => {
                 return (
-                  <g key={index}>
+                  <g className="sales-chart-point" key={index} style={{ animationDelay: `${index * 45}ms` }}>
                     <circle cx={item.x} cy={item.y} r="6" fill="var(--bg-surface)" stroke={color} strokeWidth="3" />
-                    <text x={item.x} y={item.y - 14} textAnchor="middle" fontSize="14" fontWeight="600" fill="var(--text-primary)">
+                    <text className="sales-chart-value" x={item.x} y={item.y - 14} textAnchor="middle" fontSize="14" fontWeight="600" fill="var(--text-primary)">
                       {formatValue(item.value)}
                     </text>
                   </g>
                 );
               })}
             </svg>
-            <div className="mt-1 flex justify-between pl-14 text-[11px] text-text-muted">
+            <div className="relative mt-1 h-5 text-[11px] text-text-muted" style={{ direction: 'ltr', marginLeft: '7.63%', marginRight: '2.37%' }}>
               {coordinates.map((item, index) => (
-                <div key={index} className="max-w-20 truncate text-center">{item.label}</div>
+                <div key={index} className="absolute whitespace-nowrap text-center" style={{ direction: 'rtl', left: `${coordinates.length > 1 ? (index / (coordinates.length - 1)) * 100 : 50}%`, transform: 'translateX(-50%)' }}>{item.label}</div>
               ))}
             </div>
           </div>
@@ -245,7 +250,9 @@ export function SimplePieChart({ data, title, loading }: SimplePieChartProps) {
                   <div style={{ width: '12px', height: '12px', borderRadius: '2px', background: segment.color }} />
                   <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
                     <span style={{ color: 'var(--text-secondary)' }}>{segment.label}</span>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>{segment.percentage.toFixed(1)}%</span>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>
+                      ₪{segment.value.toLocaleString('ar-SA', { maximumFractionDigits: 2 })} ({segment.percentage.toFixed(1)}%)
+                    </span>
                   </div>
                 </div>
               ))}

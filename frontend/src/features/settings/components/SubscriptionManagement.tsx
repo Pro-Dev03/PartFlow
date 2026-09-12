@@ -24,7 +24,7 @@ const formatExpiry = (value?: string | null) => {
   if (!value) return 'غير محدد';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'غير محدد';
-  return new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium' }).format(date);
+  return new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium', timeZone: 'UTC' }).format(date);
 };
 
 const getDaysRemaining = (value?: string | null) => {
@@ -108,10 +108,10 @@ export function SubscriptionManagement() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status, expiresAt }: { id: string; status: string; expiresAt?: string | null }) => {
+    mutationFn: async ({ id, status, expiresAt, subscriptionDays }: { id: string; status: string; expiresAt?: string | null; subscriptionDays?: number }) => {
       const response = await settingsApi.updateSubscriptionStatus(id, {
         subscription_status: status,
-        subscription_expires_at: expiresAt ?? null,
+        ...(subscriptionDays !== undefined ? { subscription_days: subscriptionDays } : { subscription_expires_at: expiresAt ?? null }),
       });
       return response.data as User;
     },
@@ -399,7 +399,7 @@ export function SubscriptionManagement() {
                             <Button
                               size="icon"
                               variant="success"
-                              onClick={() => updateStatusMutation.mutate({ id: user.id, status: 'active', expiresAt: new Date(Date.now() + 30 * 86400000).toISOString() })}
+                              onClick={() => updateStatusMutation.mutate({ id: user.id, status: 'active', subscriptionDays: 30 })}
                               disabled={updateStatusMutation.isPending}
                               title="تفعيل الاشتراك"
                               aria-label="تفعيل الاشتراك"
@@ -411,7 +411,7 @@ export function SubscriptionManagement() {
                               <Button
                                 size="icon"
                                 variant="danger"
-                                onClick={() => updateStatusMutation.mutate({ id: user.id, status: 'expired', expiresAt: new Date(Date.now() - 1000).toISOString() })}
+                                onClick={() => updateStatusMutation.mutate({ id: user.id, status: 'expired' })}
                                 disabled={updateStatusMutation.isPending}
                                 title="إنهاء الاشتراك"
                                 aria-label="إنهاء الاشتراك"

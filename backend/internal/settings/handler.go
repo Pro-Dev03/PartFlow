@@ -25,6 +25,20 @@ type UpdateSettingRequest struct {
 	Value string `json:"value" binding:"required"`
 }
 
+var financialSettingMetadata = map[string]struct {
+	defaultValue string
+	valueType    string
+	category     string
+	description  string
+	isPublic     bool
+}{
+	"currency":              {"ILS", "string", "general", "العملة الافتراضية", true},
+	"discounts_enabled":     {"true", "boolean", "financial", "السماح بالخصومات", false},
+	"tax_rate":              {"0", "number", "financial", "نسبة الضريبة المئوية", true},
+	"max_discount_rate":     {"15", "number", "financial", "الحد الأقصى للخصم المئوي", false},
+	"default_profit_margin": {"30", "number", "financial", "نسبة الربح المقترحة عند إضافة منتج", false},
+}
+
 func NewHandler(db *sql.DB) *Handler {
 	return &Handler{db: db}
 }
@@ -77,8 +91,8 @@ func (h *Handler) GetSetting(c *gin.Context) {
 	)
 
 	if err == sql.ErrNoRows {
-		if key == "max_discount_rate" {
-			if _, insertErr := h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ('max_discount_rate', '15', 'number', 'financial', 'الحد الأقصى للخصم المئوي', false) ON CONFLICT (key) DO NOTHING`); insertErr == nil {
+		if metadata, exists := financialSettingMetadata[key]; exists {
+			if _, insertErr := h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (key) DO NOTHING`, key, metadata.defaultValue, metadata.valueType, metadata.category, metadata.description, metadata.isPublic); insertErr == nil {
 				err = h.db.QueryRow(query, key).Scan(
 					&setting.Key, &setting.Value, &setting.ValueType, &setting.Category, &setting.Description, &setting.IsPublic,
 				)
@@ -117,19 +131,18 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
-		if key == "max_discount_rate" {
-			result, err = h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ($1, $2, 'number', 'financial', 'الحد الأقصى للخصم المئوي', false) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`, key, req.Value)
-			if err == nil {
-				if affected, _ = result.RowsAffected(); affected > 0 {
-					goto settingUpdated
-				}
-			}
+		metadata, exists := financialSettingMetadata[key]
+		if !exists {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Setting not found"})
+			return
 		}
-		c.JSON(http.StatusNotFound, gin.H{"error": "Setting not found"})
-		return
+		_, err = h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`, key, req.Value, metadata.valueType, metadata.category, metadata.description, metadata.isPublic)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create setting"})
+			return
+		}
 	}
 
-settingUpdated:
 	var setting Setting
 	err = h.db.QueryRow(`SELECT key, value, value_type, category, description, is_public FROM settings WHERE key = $1`, key).Scan(
 		&setting.Key, &setting.Value, &setting.ValueType, &setting.Category, &setting.Description, &setting.IsPublic,

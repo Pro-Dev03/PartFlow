@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/dashboard"
 	"github.com/partflow/smart-store/pkg/errors"
 	"github.com/partflow/smart-store/pkg/response"
 )
@@ -297,6 +298,9 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		errors.HandleError(c, errors.WrapError(err, "Failed to add payment"))
 		return
 	}
+	if service := dashboard.GetGlobalCacheService(); service != nil {
+		service.InvalidateCache()
+	}
 
 	response.Success(c, http.StatusCreated, payment, "Payment added successfully")
 }
@@ -499,6 +503,9 @@ func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 		}
 		errors.HandleError(c, errors.WrapError(err, "Failed to process debt payment"))
 		return
+	}
+	if service := dashboard.GetGlobalCacheService(); service != nil {
+		service.InvalidateCache()
 	}
 
 	response.Success(c, http.StatusOK, nil, "Debt payment processed successfully")

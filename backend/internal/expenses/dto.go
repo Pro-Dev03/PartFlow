@@ -1,6 +1,7 @@
 package expenses
 
 import (
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -78,7 +79,7 @@ func ValidateExpenseRequest(req *ExpenseRequest) error {
 	if req.Title == "" {
 		return ErrExpenseNotFound
 	}
-	if req.Amount <= 0 {
+	if req.Amount <= 0 || math.Trunc(req.Amount) != req.Amount {
 		return ErrInvalidAmount
 	}
 	if req.Currency == "" {

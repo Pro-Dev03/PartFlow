@@ -44,8 +44,9 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
   const invoiceRef = useRef<HTMLDivElement>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
+  const persistedStoreName = typeof window !== 'undefined' ? localStorage.getItem('partflow-store-name') : null;
   const defaultStoreInfo = {
-    name: 'PartFlow',
+    name: persistedStoreName || 'PartFlow',
     address: 'عنوان المتجر',
     phone: 'رقم الهاتف',
     email: 'store@example.com',

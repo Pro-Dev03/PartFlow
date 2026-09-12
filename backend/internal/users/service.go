@@ -30,7 +30,7 @@ func (s *Service) CreateUser(ctx context.Context, email, passwordHash, firstName
 
 	user := NewUser(email, passwordHash, firstName, lastName)
 	if subscriptionDays > 0 {
-		expiresAt := time.Now().AddDate(0, 0, subscriptionDays)
+		expiresAt := time.Now().UTC().AddDate(0, 0, subscriptionDays)
 		user.SubscriptionExpiresAt = &expiresAt
 	}
 	user.Phone = phone
@@ -108,8 +108,12 @@ func (s *Service) UpdateSubscription(ctx context.Context, id uuid.UUID, status s
 		return nil, err
 	}
 	user.SubscriptionStatus = status
+	if expiresAt != nil {
+		expiresAtUTC := expiresAt.UTC()
+		expiresAt = &expiresAtUTC
+	}
 	user.SubscriptionExpiresAt = expiresAt
-	user.UpdatedAt = time.Now()
+	user.UpdatedAt = time.Now().UTC()
 	if err := s.repo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("failed to update subscription: %w", err)
 	}
@@ -127,7 +131,7 @@ func (s *Service) RenewSubscription(ctx context.Context, id uuid.UUID, days int)
 	}
 	normalizedStatus := strings.ToLower(strings.TrimSpace(user.SubscriptionStatus))
 	if user.SubscriptionExpiresAt == nil || normalizedStatus == "expired" || normalizedStatus == "canceled" || normalizedStatus == "cancelled" || normalizedStatus == "deleted" {
-		newExpiry := time.Now().AddDate(0, 0, days)
+		newExpiry := time.Now().UTC().AddDate(0, 0, days)
 		user.SubscriptionExpiresAt = &newExpiry
 		user.SubscriptionStatus = "active"
 	} else {
@@ -137,7 +141,7 @@ func (s *Service) RenewSubscription(ctx context.Context, id uuid.UUID, days int)
 			user.SubscriptionStatus = "active"
 		}
 	}
-	user.UpdatedAt = time.Now()
+	user.UpdatedAt = time.Now().UTC()
 	if err := s.repo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("failed to renew subscription: %w", err)
 	}

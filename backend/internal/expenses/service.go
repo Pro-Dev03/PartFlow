@@ -3,6 +3,8 @@ package expenses
 import (
 	"context"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,6 +68,9 @@ func (s *Service) GetExpense(ctx context.Context, id uuid.UUID) (*ExpenseRespons
 
 // ListExpenses retrieves expenses with pagination and filters
 func (s *Service) ListExpenses(ctx context.Context, req ExpenseListRequest) ([]map[string]interface{}, int, error) {
+	if err := s.EnsureRecurringExpenses(ctx, time.Now().UTC()); err != nil {
+		return nil, 0, fmt.Errorf("failed to generate recurring expenses: %w", err)
+	}
 	if req.Page <= 0 {
 		req.Page = 1
 	}
@@ -100,6 +105,67 @@ func (s *Service) ListExpenses(ctx context.Context, req ExpenseListRequest) ([]m
 	return result, total, nil
 }
 
+// EnsureRecurringExpenses materializes every recurring template through today.
+// Generated rows are ordinary expenses and never act as templates themselves.
+func (s *Service) EnsureRecurringExpenses(ctx context.Context, now time.Time) error {
+	templates, err := s.repo.ListRecurringTemplates(ctx)
+	if err != nil {
+		return err
+	}
+	now = dateAtNoon(now.UTC())
+	for _, template := range templates {
+		period := strings.ToLower(strings.TrimSpace(template.RecurringPeriod))
+		if period == "" {
+			continue
+		}
+		nextDate := dateAtNoon(template.ExpenseDate.UTC())
+		for {
+			nextDate = nextRecurringDate(nextDate, period)
+			if nextDate.After(now) {
+				break
+			}
+
+			reference := fmt.Sprintf("recurring:%s:%s", template.ID.String(), nextDate.Format("2006-01-02"))
+			exists, err := s.repo.RecurringReferenceExists(ctx, reference)
+			if err != nil {
+				return err
+			}
+			if !exists {
+				generated := template
+				generated.ID = uuid.New()
+				generated.ExpenseDate = nextDate
+				generated.Reference = reference
+				generated.IsRecurring = false
+				generated.RecurringPeriod = ""
+				generated.CreatedAt = now
+				generated.UpdatedAt = now
+				if err := s.repo.CreateExpense(ctx, &generated); err != nil {
+					return fmt.Errorf("create recurring expense for %s: %w", template.ID, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func dateAtNoon(value time.Time) time.Time {
+	value = value.UTC()
+	return time.Date(value.Year(), value.Month(), value.Day(), 12, 0, 0, 0, time.UTC)
+}
+
+func nextRecurringDate(value time.Time, period string) time.Time {
+	switch period {
+	case "daily":
+		return value.AddDate(0, 0, 1)
+	case "weekly":
+		return value.AddDate(0, 0, 7)
+	case "yearly":
+		return value.AddDate(1, 0, 0)
+	default:
+		return value.AddDate(0, 1, 0)
+	}
+}
+
 // UpdateExpense updates an expense
 func (s *Service) UpdateExpense(ctx context.Context, id uuid.UUID, req *ExpenseUpdateRequest) (*ExpenseResponse, error) {
 	expense, err := s.repo.GetExpenseByID(ctx, id)
@@ -126,6 +192,9 @@ func (s *Service) UpdateExpense(ctx context.Context, id uuid.UUID, req *ExpenseU
 	}
 	if req.Description != "" {
 		expense.Description = req.Description
+	}
+	if req.Amount > 0 && math.Trunc(req.Amount) != req.Amount {
+		return nil, ErrInvalidAmount
 	}
 	if req.Amount > 0 {
 		expense.Amount = req.Amount

@@ -237,6 +237,7 @@ func (h *Handler) UpdateSubscriptionStatus(c *gin.Context) {
 	var req struct {
 		SubscriptionStatus    string     `json:"subscription_status"`
 		SubscriptionExpiresAt *time.Time `json:"subscription_expires_at"`
+		SubscriptionDays      *int       `json:"subscription_days" binding:"omitempty,min=1"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid request body", err.Error())
@@ -245,6 +246,10 @@ func (h *Handler) UpdateSubscriptionStatus(c *gin.Context) {
 
 	if req.SubscriptionStatus == "" {
 		req.SubscriptionStatus = "active"
+	}
+	if req.SubscriptionDays != nil {
+		expiresAt := time.Now().UTC().AddDate(0, 0, *req.SubscriptionDays)
+		req.SubscriptionExpiresAt = &expiresAt
 	}
 
 	user, err := h.service.UpdateSubscription(c.Request.Context(), id, req.SubscriptionStatus, req.SubscriptionExpiresAt)

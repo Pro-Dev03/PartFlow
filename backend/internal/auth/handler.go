@@ -230,7 +230,7 @@ func (h *Handler) CloudSession(c *gin.Context) {
 // and subscription expiry.
 func (h *Handler) ValidateSubscription(c *gin.Context) {
 	userID := getUserIDFromContext(c)
-	
+
 	// If no user ID from context, try to get from JWT token directly
 	if userID == uuid.Nil {
 		authHeader := c.GetHeader("Authorization")
@@ -242,7 +242,7 @@ func (h *Handler) ValidateSubscription(c *gin.Context) {
 			}
 		}
 	}
-	
+
 	if userID == uuid.Nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": "Invalid or missing token",
@@ -250,7 +250,7 @@ func (h *Handler) ValidateSubscription(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	user, err := h.service.GetUserByID(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -259,7 +259,7 @@ func (h *Handler) ValidateSubscription(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// Check if user is active and subscription is valid
 	if !user.IsActive {
 		c.JSON(http.StatusForbidden, gin.H{
@@ -268,7 +268,7 @@ func (h *Handler) ValidateSubscription(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	if h.service.IsSubscriptionExpired(user.SubscriptionStatus, user.SubscriptionExpiresAt) {
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "الحساب غير نشط أو أن الاشتراك منتهٍ",
@@ -276,16 +276,17 @@ func (h *Handler) ValidateSubscription(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"valid":                   true,
+			"valid": true,
 			"user": gin.H{
 				"id":                      user.ID.String(),
 				"email":                   user.Email,
 				"first_name":              user.FirstName,
 				"last_name":               user.LastName,
+				"phone":                   user.Phone,
 				"is_active":               user.IsActive,
 				"subscription_status":     user.SubscriptionStatus,
 				"subscription_expires_at": user.SubscriptionExpiresAt,

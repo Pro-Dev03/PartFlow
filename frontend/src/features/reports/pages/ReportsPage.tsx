@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
@@ -34,17 +35,65 @@ function getDisplayValue(item: Record<string, unknown>): unknown {
     item.total_debt ?? item.outstanding ?? item.overdue_amount ?? item.paid_amount ?? item.balance ?? 0;
 }
 
-function getReportRows(payload: unknown): Record<string, unknown>[] {
+function getReportDisplayValue(item: Record<string, unknown>, reportType: string): unknown {
+  if (reportType === 'profit' && item.net_profit !== undefined) return item.net_profit;
+  return getDisplayValue(item);
+}
+
+function getReportRowDescription(item: Record<string, unknown>): string {
+  if (item.description || item.name || item.product_name || item.customer_name || item.category_name || item.key) {
+    return String(item.description || item.name || item.product_name || item.customer_name || item.category_name || item.key);
+  }
+  if (item.sales !== undefined) return `${Number(item.sales)} عملية بيع`;
+  if (item.net_profit !== undefined) return 'صافي ربح الفترة';
+  if (item.revenue !== undefined || item.net_revenue !== undefined) return 'صافي مبيعات اليوم';
+  return '-';
+}
+
+function getReportStatusLabel(value: unknown): string {
+  const labels: Record<string, string> = {
+    approved: 'مقبول',
+    pending: 'قيد الانتظار',
+    completed: 'مكتمل',
+    rejected: 'مرفوض',
+    cancelled: 'ملغي',
+    canceled: 'ملغي',
+    paid: 'مدفوع',
+    received: 'مستلم',
+    ordered: 'تم الطلب',
+    draft: 'مسودة',
+  };
+  const status = String(value || 'completed').toLowerCase();
+  return labels[status] || String(value || 'مكتمل');
+}
+
+function getReportRows(payload: unknown, reportType?: string): Record<string, unknown>[] {
   if (Array.isArray(payload)) {
     return payload.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object');
   }
 
   if (!payload || typeof payload !== 'object') return [];
 
+  if (reportType === 'expenses') {
+    const expenseRows = (payload as { top_expenses?: unknown }).top_expenses;
+    if (Array.isArray(expenseRows)) {
+      return expenseRows.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object');
+    }
+  }
+
   const entries = Object.entries(payload);
   const nestedRows = entries.find(([, value]) => Array.isArray(value) && value.length > 0)?.[1];
   if (Array.isArray(nestedRows)) {
-    return nestedRows.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object');
+    const rows = nestedRows.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object');
+    if (reportType === 'expenses') {
+      const categories = Object.keys((payload as { by_category?: Record<string, unknown> }).by_category || {});
+      const fallbackDescription = categories.length > 0 ? categories.join('، ') : 'مصروفات الفترة';
+      return rows.map((row) => ({
+        ...row,
+        description: row.description || fallbackDescription,
+      }));
+    }
+    return rows;
   }
 
   return entries
@@ -52,9 +101,26 @@ function getReportRows(payload: unknown): Record<string, unknown>[] {
     .map(([key, value]) => ({ key, value }));
 }
 
+function formatReportDate(value: unknown): string {
+  if (!value) return new Date().toLocaleDateString('ar-SA');
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('ar-SA', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 export function ReportsPage() {
   const { t } = useTranslation();
-  const [selectedReport, setSelectedReport] = useState('sales');
+  const [searchParams] = useSearchParams();
+  const reportFromUrl = searchParams.get('report');
+  const initialReport = ['sales', 'net-sales', 'tax', 'profit', 'purchases', 'expenses', 'returns', 'inventory', 'used-items', 'debts', 'suppliers'].includes(reportFromUrl || '')
+    ? reportFromUrl as string
+    : 'sales';
+  const [selectedReport, setSelectedReport] = useState(initialReport);
   const [dateRange, setDateRange] = useState('thisMonth');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
@@ -66,12 +132,12 @@ export function ReportsPage() {
     const report = reportData?.data ?? reportData;
     if (!report) return;
     
-    const rows = getReportRows(report);
+    const rows = getReportRows(report, selectedReport);
     const dataToExport = rows.map((item: any) => ({
       'التاريخ': item.date || new Date().toLocaleDateString('ar-SA'),
-      'القيمة': getDisplayValue(item),
-      'الوصف': item.description || item.name || item.product_name || item.customer_name || item.supplier_name || item.category_name || item.key || '-',
-      'الحالة': item.status || 'مكتمل',
+      'القيمة': getReportDisplayValue(item, selectedReport),
+      'الوصف': getReportRowDescription(item),
+      'الحالة': getReportStatusLabel(item.status),
     }));
     
     exportToCSV(dataToExport, `${selectedReport}-report-${new Date().toISOString().split('T')[0]}`);
@@ -81,12 +147,12 @@ export function ReportsPage() {
     const report = reportData?.data ?? reportData;
     if (!report) return;
     
-    const rows = getReportRows(report);
+    const rows = getReportRows(report, selectedReport);
     const dataToPrint = rows.map((item: any) => ({
       'التاريخ': item.date || new Date().toLocaleDateString('ar-SA'),
-      'القيمة': getDisplayValue(item),
-      'الوصف': item.description || item.name || item.product_name || item.customer_name || item.supplier_name || item.category_name || item.key || '-',
-      'الحالة': item.status || 'مكتمل',
+      'القيمة': getReportDisplayValue(item, selectedReport),
+      'الوصف': getReportRowDescription(item),
+      'الحالة': getReportStatusLabel(item.status),
     }));
     
     printTable(dataToPrint, ['التاريخ', 'القيمة', 'الوصف', 'الحالة'], selectedReportType?.label || 'تقرير');
@@ -118,7 +184,7 @@ export function ReportsPage() {
   const ReportIcon = selectedReportType?.icon || BarChart3;
   const isPeriodReport = ['sales', 'net-sales', 'tax', 'profit', 'purchases', 'expenses', 'returns'].includes(selectedReport);
   const reportPayload = reportData?.data ?? reportData;
-  const reportRows = getReportRows(reportPayload);
+  const reportRows = getReportRows(reportPayload, selectedReport);
   const purchasesReport = selectedReport === 'purchases' && reportPayload && typeof reportPayload === 'object'
     ? reportPayload as Record<string, unknown>
     : null;
@@ -146,7 +212,7 @@ export function ReportsPage() {
     <div className="report-page-shell">
       {/* Page Header */}
       <PageHeader
-        eyebrow="Analytics Hub"
+        eyebrow="مركز التحليلات"
         title={t('reports.title')}
         description="تحليلات وتقارير شاملة عن أداء المحل مع رؤى ذكية"
         actions={
@@ -178,7 +244,7 @@ export function ReportsPage() {
               </p>
               <p className="premium-insight-text">
                 {selectedReport === 'sales' && salesCount > 0
-                  ? `تم تنفيذ ${salesCount} عملية بإيراد ₪${salesRevenue.toLocaleString()} وربح إجمالي ₪${salesProfit.toLocaleString()}${topProductName ? `. المنتج الأعلى إيرادًا: ${topProductName}.` : '.'}`
+                  ? `تم تنفيذ ${salesCount} عملية بإيراد ₪${salesRevenue.toLocaleString()} وربح إجمالي ₪${salesProfit.toLocaleString()}${topProductName ? `. المنتج الأعلى ربحًا: ${topProductName}.` : '.'}`
                   : selectedReport === 'sales'
                     ? 'غيّر الفترة أو سجّل عملية بيع لعرض تحليل الأداء والمنتجات الأكثر مبيعًا.'
                     : 'تم تحميل بيانات التقرير للفترة المحددة.'}
@@ -265,9 +331,9 @@ export function ReportsPage() {
                 ['إجمالي المبيعات قبل الضريبة', 'gross_sales'],
                 ['الخصومات', 'discounts'],
                 ['المبيعات الخاضعة للضريبة', 'taxable_sales'],
-                ['الضريبة المحصلة', 'tax_collected'],
+                ['الضريبة المستحقة على المبيعات', 'tax_collected'],
                 ['المرتجعات', 'returns_total'],
-                ['صافي المبيعات', 'net_sales_total'],
+                ['صافي المبيعات شامل الضريبة', 'net_sales_total'],
               ].map(([label, key]) => (
                 <div key={key} className="rounded-lg border border-border bg-surface-elevated p-4">
                   <p className="text-sm text-text-secondary">{label}</p>
@@ -280,13 +346,13 @@ export function ReportsPage() {
           ) : selectedReport === 'sales' && reportPayload && typeof reportPayload === 'object' ? (
             <div>
               <p className="text-sm text-text-secondary" style={{ marginBottom: '12px' }}>
-                المنتجات الأكثر مبيعًا وربحًا خلال الفترة المحددة. الإيراد والربح معروضان قبل الضريبة.
+                المنتجات الأعلى ربحًا خلال الفترة المحددة. الإيراد والربح معروضان قبل الضريبة.
               </p>
               <div className="horizontal-scroll">
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    {['المنتج', 'الوحدات', 'الإيراد قبل الضريبة', 'الربح قبل الضريبة', 'هامش الربح'].map((heading) => (
+                    {['المنتج', 'الوحدات', 'الإيراد قبل الضريبة', 'الربح قبل الضريبة', 'نسبة الربح من سعر البيع'].map((heading) => (
                       <th key={heading} style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>{heading}</th>
                     ))}
                   </tr>
@@ -467,7 +533,7 @@ export function ReportsPage() {
             </div>
           ) : selectedReport === 'purchases' && reportPayload && typeof reportPayload === 'object' ? (
             <div className="space-y-5">
-              <p className="text-sm text-text-secondary">إجمالي المشتريات هنا تاريخي (Gross). صافي المشتريات = إجمالي المشتريات - رصيد مرتجعات الموردين.</p>
+              <p className="text-sm text-text-secondary">إجمالي المشتريات قبل خصم المرتجعات. صافي المشتريات = إجمالي المشتريات - مرتجعات الموردين.</p>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div className="rounded-lg border border-border bg-surface-elevated p-4">
                   <p className="text-sm text-text-secondary">المشتريات قبل الضريبة</p>
@@ -489,13 +555,13 @@ export function ReportsPage() {
                 </div>
                 <div className="rounded-lg border border-border bg-surface-elevated p-4">
                   <p className="text-sm text-text-secondary">مرتجعات الموردين</p>
-                  <p className="mt-2 text-xl font-semibold text-text-primary">-₪{supplierReturnCredits.toLocaleString()}</p>
-                  <p className="mt-1 text-xs text-text-secondary">Credits مكتملة في الفترة</p>
+                  <p className="mt-2 text-xl font-semibold text-text-primary">₪{supplierReturnCredits.toLocaleString()}</p>
+                  <p className="mt-1 text-xs text-text-secondary">مرتجعات مكتملة خلال الفترة</p>
                 </div>
                 <div className="rounded-lg border border-border bg-surface-elevated p-4">
                   <p className="text-sm text-text-secondary">صافي المشتريات</p>
                   <p className="mt-2 text-xl font-semibold text-text-primary">₪{netPurchases.toLocaleString()}</p>
-                  <p className="mt-1 text-xs text-text-secondary">Gross - Supplier Returns</p>
+                  <p className="mt-1 text-xs text-text-secondary">الإجمالي - مرتجعات الموردين</p>
                 </div>
               </div>
               <div className="horizontal-scroll">
@@ -538,17 +604,17 @@ export function ReportsPage() {
                   {reportRows.map((item: any, index: number) => (
                     <tr key={index} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                       <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>
-                        {item.date || new Date().toLocaleDateString('ar-SA')}
+                        {formatReportDate(item.date || item.month)}
                       </td>
                       <td style={{ padding: '12px', color: 'var(--color-primary)', fontSize: '13px', fontWeight: '600' }}>
-                        ₪{Number(getDisplayValue(item) ?? 0).toLocaleString()}
+                        ₪{Number(getReportDisplayValue(item, selectedReport) ?? 0).toLocaleString()}
                       </td>
                       <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
-                        {item.description || item.name || item.product_name || item.customer_name || item.category_name || item.key || '-'}
+                        {getReportRowDescription(item)}
                       </td>
                       <td style={{ padding: '12px' }}>
-                        <Badge variant={String(item.status || 'completed').toLowerCase() === 'completed' ? 'success' : 'warning'}>
-                          {item.status || 'مكتمل'}
+                        <Badge variant={String(item.status || 'completed').toLowerCase() === 'completed' || String(item.status || '').toLowerCase() === 'approved' ? 'success' : 'warning'}>
+                          {getReportStatusLabel(item.status)}
                         </Badge>
                       </td>
                     </tr>

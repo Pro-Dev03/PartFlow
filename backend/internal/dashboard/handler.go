@@ -1,6 +1,10 @@
 package dashboard
 
 import (
+	"net/http"
+	"strconv"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/partflow/smart-store/pkg/response"
 )
@@ -35,6 +39,19 @@ func (h *Handler) GetDashboardStats(c *gin.Context) {
 	}
 
 	response.OK(c, stats, "Dashboard statistics retrieved successfully")
+}
+
+func (h *Handler) GetRecentActivity(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	activityType := strings.ToLower(strings.TrimSpace(c.Query("type")))
+	activity, err := h.service.GetActivity(c.Request.Context(), page, perPage, activityType)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve activity", err.Error())
+		return
+	}
+
+	response.OK(c, activity, "Activity retrieved successfully")
 }
 
 // GetLowStockItems handles retrieval of low stock items with details

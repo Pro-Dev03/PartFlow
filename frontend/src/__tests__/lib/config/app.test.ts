@@ -17,12 +17,12 @@ describe('app config', () => {
     expect(getActiveApiUrl()).toBe('http://localhost:8080/api/v1');
   });
 
-  it('does not trigger automatic initial sync unless the user explicitly enables it', async () => {
+  it('never triggers automatic initial sync because cloud sync is manual', async () => {
     const { isInitialSyncNeeded } = await import('../../../hooks/useInitialDataSync');
 
     expect(isInitialSyncNeeded()).toBe(false);
 
     localStorage.setItem('partflow-auto-sync-enabled', 'true');
-    expect(isInitialSyncNeeded()).toBe(true);
+    expect(isInitialSyncNeeded()).toBe(false);
   });
 });

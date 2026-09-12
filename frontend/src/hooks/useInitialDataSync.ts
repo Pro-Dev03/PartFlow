@@ -109,12 +109,10 @@ function initialSyncStorageKey(userId?: string): string {
 }
 
 export function isInitialSyncNeeded(userId?: string): boolean {
-  const autoSyncEnabled = localStorage.getItem('partflow-auto-sync-enabled') === 'true';
-  const syncComplete = localStorage.getItem(initialSyncStorageKey(userId));
-
-  // Automatic cloud hydration is disabled by default. The user must explicitly
-  // opt in before the app starts downloading data into SQLite on startup.
-  return autoSyncEnabled && syncComplete !== 'true';
+  // Cloud synchronization is always an explicit owner action. Keep this
+  // compatibility helper false so stale browser flags cannot start a download.
+  void userId;
+  return false;
 }
 
 // Helper function to get cached initial sync data

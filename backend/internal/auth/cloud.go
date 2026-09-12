@@ -43,13 +43,14 @@ type CloudValidateResponse struct {
 		SubscriptionStatus    string `json:"subscription_status"`
 		SubscriptionExpiresAt string `json:"subscription_expires_at"`
 		User                  struct {
-			ID                    string `json:"id"`
-			Email                 string `json:"email"`
-			FirstName             string `json:"first_name"`
-			LastName              string `json:"last_name"`
-			IsActive              bool   `json:"is_active"`
-			SubscriptionStatus    string `json:"subscription_status"`
-			SubscriptionExpiresAt string `json:"subscription_expires_at"`
+			ID                    string  `json:"id"`
+			Email                 string  `json:"email"`
+			FirstName             string  `json:"first_name"`
+			LastName              string  `json:"last_name"`
+			Phone                 *string `json:"phone"`
+			IsActive              bool    `json:"is_active"`
+			SubscriptionStatus    string  `json:"subscription_status"`
+			SubscriptionExpiresAt string  `json:"subscription_expires_at"`
 		} `json:"user"`
 	} `json:"data"`
 }
@@ -73,6 +74,15 @@ func (r *CloudValidateResponse) cloudSubscriptionExpiresAt() string {
 		return expires
 	}
 	return strings.TrimSpace(r.Data.User.SubscriptionExpiresAt)
+}
+
+func (r *CloudValidateResponse) cloudAccountIsActive() bool {
+	// The current validate response carries account activity under data.user.
+	// Fall back to the top-level field for older cloud responses.
+	if strings.TrimSpace(r.Data.User.ID) != "" {
+		return r.Data.User.IsActive
+	}
+	return r.Data.IsActive
 }
 
 // CloudSessionRequest represents a cloud session creation request
@@ -198,6 +208,9 @@ func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *J
 			user.SubscriptionExpiresAt = &parsed
 		}
 	}
+	if validation.Data.User.Phone != nil {
+		user.Phone = *validation.Data.User.Phone
+	}
 	user.IsActive = true
 
 	accessToken, err := jwtService.GenerateAccessToken(user.ID.String())
@@ -213,19 +226,20 @@ func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *J
 		return nil, fmt.Errorf("failed to persist refresh token: %w", err)
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	if status := validation.cloudSubscriptionStatus(); status != "" {
 		_, err = db.ExecContext(ctx, `
 			UPDATE users
 			SET last_login_at = $1,
 			    updated_at = $2,
-			    is_active = $3,
-			    subscription_status = $4,
-			    subscription_expires_at = $5
-			WHERE id = $6
-		`, now, now, true, status, user.SubscriptionExpiresAt, user.ID)
+			    phone = $3,
+			    is_active = $4,
+			    subscription_status = $5,
+			    subscription_expires_at = $6
+			WHERE id = $7
+		`, now, now, user.Phone, true, status, user.SubscriptionExpiresAt, user.ID)
 	} else {
-		_, err = db.ExecContext(ctx, "UPDATE users SET last_login_at = $1, updated_at = $2 WHERE id = $3", now, now, user.ID)
+		_, err = db.ExecContext(ctx, "UPDATE users SET last_login_at = $1, updated_at = $2, phone = $3 WHERE id = $4", now, now, user.Phone, user.ID)
 	}
 	if err != nil {
 		log.Printf("failed to update last login: %v", err)

@@ -98,11 +98,9 @@
     padding: var(--spacing-2) var(--spacing-4);
   }
 
-  /* تحسين الجداول - تمرير أفقي */
+  /* Shared table wrappers own horizontal scrolling; preserve table layout. */
   table {
-    display: block;
-    overflow-x: auto;
-    white-space: nowrap;
+    min-width: 640px;
   }
 
   /* تحسين الشبكات */

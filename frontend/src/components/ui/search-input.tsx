@@ -37,7 +37,7 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
           placeholder={placeholder}
           value={value}
           size={size}
-          className={cn('pf-search-field w-full max-w-full min-w-0', className)}
+          className={cn('pf-search-field pf-search-input-canonical w-full max-w-full min-w-0', className)}
           {...props}
         />
         {(hasValue || isLoading) && (

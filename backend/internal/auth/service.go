@@ -90,7 +90,7 @@ func (s *Service) IsSubscriptionExpired(subscriptionStatus string, expiresAt *ti
 		return true
 	}
 
-	if expiresAt != nil && time.Now().After(*expiresAt) {
+	if expiresAt != nil && time.Now().UTC().After(expiresAt.UTC()) {
 		return true
 	}
 
@@ -167,7 +167,7 @@ func (s *Service) ValidateCloudAccess(ctx context.Context, cloudToken string) er
 	if err != nil {
 		return err
 	}
-	if (!validation.Data.IsActive && !validation.Data.User.IsActive) || s.IsSubscriptionExpiredFromCloud(validation.cloudSubscriptionStatus(), validation.cloudSubscriptionExpiresAt()) {
+	if !validation.cloudAccountIsActive() || s.IsSubscriptionExpiredFromCloud(validation.cloudSubscriptionStatus(), validation.cloudSubscriptionExpiresAt()) {
 		return errors.New("cloud account is inactive or subscription is expired")
 	}
 	return nil
@@ -181,7 +181,7 @@ func (s *Service) IsSubscriptionExpiredFromCloud(status, expiresAt string) bool 
 		return false
 	}
 	parsed, err := time.Parse(time.RFC3339, expiresAt)
-	return err == nil && time.Now().After(parsed)
+	return err == nil && time.Now().UTC().After(parsed.UTC())
 }
 
 // Register registers a new admin user
@@ -214,7 +214,7 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResp
 	}
 
 	// Set default subscription expiry (1 year from now)
-	expiresAt := time.Now().AddDate(1, 0, 0)
+	expiresAt := time.Now().UTC().AddDate(1, 0, 0)
 	user.SubscriptionExpiresAt = &expiresAt
 
 	// Insert user with fallback for schema differences

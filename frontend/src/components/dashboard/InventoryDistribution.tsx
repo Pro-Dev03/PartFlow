@@ -1,4 +1,3 @@
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Package, TrendingUp, AlertTriangle } from 'lucide-react';
 
 interface CategoryItem {
@@ -52,18 +51,7 @@ export function InventoryDistribution({
   };
 
   return (
-    <Card style={{
-      background: 'transparent',
-      border: 'none',
-      boxShadow: 'none'
-    }}>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Package className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
-          حالة المخزون
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
+      <div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {data.map((item, index) => {
             const percentage = totalValue > 0 ? (item.value / totalValue) * 100 : 0;
@@ -259,7 +247,6 @@ export function InventoryDistribution({
             </div>
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
   );
 }

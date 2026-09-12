@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 
 // Lazy load components for better performance
 const DashboardPage = lazy(() => import('../../features/dashboard/pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
+const ActivityPage = lazy(() => import('../../features/dashboard/pages/ActivityPage').then(m => ({ default: m.ActivityPage })));
 const InventoryPage = lazy(() => import('../../features/inventory/pages/InventoryPage').then(m => ({ default: m.InventoryPage })));
 const POSPage = lazy(() => import('../../features/sales/pages/POSPage').then(m => ({ default: m.POSPage })));
 const CustomersPage = lazy(() => import('../../features/customers/pages/CustomersPage').then(m => ({ default: m.CustomersPage })));
@@ -41,6 +42,7 @@ export const appRoutes = (
     {/* Protected routes - all paths without /app prefix since it's handled by App.tsx */}
     <Route index element={<DashboardPage />} />
     <Route path="dashboard" element={<DashboardPage />} />
+    <Route path="activity" element={<ActivityPage />} />
     <Route path="sales" element={<POSPage />} />
     <Route path="inventory" element={<InventoryPage />} />
     <Route path="usedparts" element={<UsedPartsPage />} />

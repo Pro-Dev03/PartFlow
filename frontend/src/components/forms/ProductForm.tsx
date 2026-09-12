@@ -19,6 +19,7 @@ export interface ProductFormData {
   description?: string;
   cost_price: number;
   selling_price: number;
+  min_stock_level: number;
   condition: 'new' | 'used' | 'refurbished' | 'parts_only';
   warrantyPeriod?: number;
   preferredSupplierId?: string;
@@ -32,6 +33,7 @@ export function ProductForm({ onSubmit, onCancel, initialData }: ProductFormProp
     description: initialData?.description || '',
     cost_price: initialData?.cost_price || 0,
     selling_price: initialData?.selling_price || 0,
+    min_stock_level: initialData?.min_stock_level || 0,
     condition: initialData?.condition || 'new',
     warrantyPeriod: initialData?.warrantyPeriod || 12,
     preferredSupplierId: initialData?.preferredSupplierId ?? '',
@@ -129,6 +131,14 @@ export function ProductForm({ onSubmit, onCancel, initialData }: ProductFormProp
               value={formData.selling_price}
               onChange={(e) => setFormData({ ...formData, selling_price: parseFloat(e.target.value) || 0 })}
               required
+            />
+
+            <Input
+              label="الحد الأدنى للمخزون"
+              type="number"
+              min="0"
+              value={formData.min_stock_level}
+              onChange={(e) => setFormData({ ...formData, min_stock_level: parseInt(e.target.value) || 0 })}
             />
           </div>
 

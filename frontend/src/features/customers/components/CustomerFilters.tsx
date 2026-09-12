@@ -25,8 +25,8 @@ export function CustomerFilters({
   const hasActiveSort = Boolean(sortConfig.key);
 
   return (
-    <div className="rounded-[12px] border border-border bg-surface shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
-      <div className="flex flex-col gap-3 border-b border-border px-4 py-3 md:flex-row md:items-center md:justify-between">
+    <div className="rounded-[16px] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
+      <div className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0 flex-1">
           <SearchInput
             placeholder="ابحث بالاسم أو رقم الهاتف..."
@@ -39,7 +39,7 @@ export function CustomerFilters({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 md:justify-end">
-          <Button variant="secondary" onClick={onSortName} className="gap-2">
+          <Button variant="secondary" onClick={onSortName} className="gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-[12px] font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]">
             <ArrowUpDown className="h-4 w-4" />
             <span>ترتيب بالاسم</span>
             {sortConfig.key === 'name' && (
@@ -47,7 +47,7 @@ export function CustomerFilters({
             )}
           </Button>
 
-          <Button variant="secondary" onClick={onSortPurchases} className="gap-2">
+          <Button variant="secondary" onClick={onSortPurchases} className="gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-[12px] font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]">
             <ArrowUpDown className="h-4 w-4" />
             <span>إجمالي مشتريات العميل</span>
             {sortConfig.key === 'totalPurchases' && (
@@ -56,7 +56,7 @@ export function CustomerFilters({
           </Button>
 
           {hasActiveSort && (
-            <Button variant="ghost" onClick={onClearSort} className="gap-2 text-text-secondary">
+            <Button variant="ghost" onClick={onClearSort} className="gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--danger)]/10 hover:text-[var(--danger)]">
               <X className="h-4 w-4" />
               <span>مسح الترتيب</span>
             </Button>

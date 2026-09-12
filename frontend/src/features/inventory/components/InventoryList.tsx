@@ -1,9 +1,9 @@
-import { useState } from 'react';
 import { Badge } from '../../../components/ui/badge';
 import { EmptyState } from '../../../components/ui/empty-state';
 import { Button } from '../../../components/ui/button';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../../../components/ui/table';
-import { Package, PackageOpen, Eye, Edit, SlidersHorizontal, Trash2, Inbox, RefreshCw, FileText, MoreHorizontal, Plus, ArrowUpRight, Trash, Copy, PencilLine } from 'lucide-react';
+import { Package, PackageOpen, Eye, Edit, SlidersHorizontal, Trash2, Inbox, RefreshCw, FileText, Plus, ArrowUpRight, Trash, Copy, PencilLine } from 'lucide-react';
+import { ActionMenu } from '../../../components/ui/action-menu';
 import { Product, InventoryItem, ViewMode } from '../types/inventory.types';
 import { formatPrice, normalizeCurrencyValue } from '../../../utils';
 import { cn } from '../../../utils';
@@ -69,55 +69,22 @@ function RowActionMenu({
   onEditProduct: (product: Product) => void;
   onEditMinimumStock: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
+  onDeleteInventoryItem?: (itemId: string) => void;
   onViewInventoryLedger?: (productId: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-
-  const actions = [
-    { label: 'عرض', icon: Eye, onClick: () => onViewProduct(product) },
-    { label: 'إضافة فاتورة', icon: Plus, onClick: () => onAddPurchase(product) },
-    { label: 'تعديل', icon: PencilLine, onClick: () => onEditProduct(product) },
-    { label: 'حد الأدنى', icon: SlidersHorizontal, onClick: () => onEditMinimumStock(product) },
-    ...(onViewInventoryLedger ? [{ label: 'سجل الحركات', icon: FileText, onClick: () => onViewInventoryLedger(product.id) }] : []),
-    { label: 'حذف', icon: Trash, onClick: () => (onDeleteInventoryItem ? onDeleteInventoryItem(product.id) : onDeleteProduct(product.id)), danger: true },
-  ];
-
   return (
-    <div className="relative">
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        onClick={() => setOpen((prev) => !prev)}
-        className="text-text-secondary hover:text-text-primary"
-        aria-label="خيارات المنتج"
-        title="خيارات المنتج"
-      >
-        <MoreHorizontal className="h-4 w-4" />
-      </Button>
-
-      {open && (
-        <div className="absolute left-0 top-full z-20 mt-2 w-44 rounded-xl border border-border bg-surface-elevated p-1 shadow-[0_16px_36px_rgba(15,23,42,0.22)]">
-          {actions.map(({ label, icon: Icon, onClick, danger }) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => {
-                onClick();
-                setOpen(false);
-              }}
-              className={cn(
-                'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors',
-                danger ? 'text-danger hover:bg-danger/8' : 'text-text-primary hover:bg-surface'
-              )}
-            >
-              <Icon className="h-4 w-4" />
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <ActionMenu
+      label="خيارات المنتج"
+      widthClassName="w-48"
+      items={[
+        { label: 'عرض', icon: Eye, onClick: () => onViewProduct(product) },
+        { label: 'إضافة فاتورة', icon: Plus, onClick: () => onAddPurchase(product) },
+        { label: 'تعديل', icon: PencilLine, onClick: () => onEditProduct(product) },
+        { label: 'حد الأدنى', icon: SlidersHorizontal, onClick: () => onEditMinimumStock(product) },
+        ...(onViewInventoryLedger ? [{ label: 'سجل الحركات', icon: FileText, onClick: () => onViewInventoryLedger(product.id) }] : []),
+        { label: 'حذف', icon: Trash, onClick: () => (onDeleteInventoryItem ? onDeleteInventoryItem(product.id) : onDeleteProduct(product.id)), danger: true },
+      ]}
+    />
   );
 }
 
@@ -129,8 +96,6 @@ function LoadingSpinner() {
   );
 }
 
-const DEFAULT_LOW_STOCK_THRESHOLD = 3;
-
 function getStockDisplay(stock: number | undefined, minimumStockLevel?: number): { text: string; variant: 'success' | 'warning' | 'danger' | 'secondary' | 'outline' } {
   if (stock === undefined || stock === null) {
     return { text: 'غير محدد', variant: 'secondary' };
@@ -138,8 +103,7 @@ function getStockDisplay(stock: number | undefined, minimumStockLevel?: number):
   if (stock === 0) {
     return { text: 'نفد المخزون', variant: 'danger' };
   }
-  const threshold = Number(minimumStockLevel) > 0 ? Number(minimumStockLevel) : DEFAULT_LOW_STOCK_THRESHOLD;
-  if (stock <= threshold) {
+  if (Number(minimumStockLevel) > 0 && stock <= Number(minimumStockLevel)) {
     return { text: 'قليل', variant: 'warning' };
   }
   return { text: 'متوفر', variant: 'success' };
@@ -232,7 +196,7 @@ export function InventoryList({
               }}
             />
           ) : (
-            <div className="hidden md:block">
+            <div className="block">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -302,7 +266,7 @@ export function InventoryList({
             </div>
           )}
 
-          <div className="block md:hidden">
+          <div className="hidden">
             {productsLoading ? (
               <div className="p-4"><LoadingSpinner /></div>
             ) : displayProducts.length === 0 ? (
@@ -390,7 +354,7 @@ export function InventoryList({
           ) : displayInventoryItems.length === 0 ? (
             <EmptyState icon={<Inbox className="h-5 w-5" />} title="لا توجد عناصر" description="لم يتم العثور على عناصر في المخزون" />
           ) : (
-            <div className="hidden md:block">
+            <div className="block">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -478,7 +442,7 @@ export function InventoryList({
             </div>
           )}
 
-          <div className="block md:hidden">
+          <div className="hidden">
             {inventoryLoading ? (
               <div className="p-4"><LoadingSpinner /></div>
             ) : displayInventoryItems.length === 0 ? (

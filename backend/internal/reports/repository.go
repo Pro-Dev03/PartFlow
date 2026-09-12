@@ -379,7 +379,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 		WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
 			AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		GROUP BY p.id, p.name
-		ORDER BY SUM(COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) DESC
+		ORDER BY SUM((COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) - (si.quantity * COALESCE(si.unit_cost, 0))) DESC
 		LIMIT 10`, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve top products: %w", err)
@@ -720,6 +720,28 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 			if err := rows.Scan(&month, &monthly.Amount); err == nil {
 				monthly.Month = month.Time
 				report.ByMonth = append(report.ByMonth, monthly)
+			}
+		}
+		_ = rows.Err()
+		rows.Close()
+	}
+
+	topExpensesQuery := `SELECT expense_date, amount,
+		COALESCE(NULLIF(description, ''), NULLIF(title, ''), 'مصروف') AS description,
+		COALESCE(status, 'approved')
+		FROM expenses
+		WHERE date(expense_date) >= date(substr($1, 1, 10)) AND date(expense_date) < date(substr($2, 1, 10))
+		  AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
+		ORDER BY date(expense_date) DESC, amount DESC
+		LIMIT 20`
+	rows, err = r.db.QueryContext(ctx, topExpensesQuery, startDate, endDate)
+	if err == nil {
+		for rows.Next() {
+			var expense ExpenseItem
+			var expenseDate reportTimestamp
+			if err := rows.Scan(&expenseDate, &expense.Amount, &expense.Description, &expense.Status); err == nil {
+				expense.Date = expenseDate.Time
+				report.TopExpenses = append(report.TopExpenses, expense)
 			}
 		}
 		_ = rows.Err()

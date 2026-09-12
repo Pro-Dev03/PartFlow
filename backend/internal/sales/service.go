@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,6 +63,14 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	}
 	if err := tx.GetContext(ctx, &maxDiscountRate, `SELECT COALESCE(CAST(value AS DOUBLE PRECISION), 15) FROM settings WHERE key = 'max_discount_rate'`); err != nil || maxDiscountRate < 0 || maxDiscountRate > 100 {
 		maxDiscountRate = 15
+	}
+	discountsEnabled := true
+	var discountsEnabledValue string
+	if err := tx.GetContext(ctx, &discountsEnabledValue, `SELECT COALESCE(value, 'true') FROM settings WHERE key = 'discounts_enabled'`); err == nil {
+		discountsEnabled = strings.EqualFold(strings.TrimSpace(discountsEnabledValue), "true") || strings.TrimSpace(discountsEnabledValue) == "1"
+	}
+	if !discountsEnabled && (req.DiscountValue > 0 || strings.TrimSpace(req.DiscountType) != "") {
+		return nil, fmt.Errorf("discounts are disabled by store settings")
 	}
 
 	var items []SaleItem

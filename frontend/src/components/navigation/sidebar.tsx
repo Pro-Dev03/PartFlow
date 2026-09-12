@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from '../../hooks/useTranslation';
 import {
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../utils';
 import type { LucideIcon } from 'lucide-react';
+import { settingsApi } from '../../services/api/endpoints';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -43,6 +45,17 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [activeItem, setActiveItem] = useState('dashboard');
+  const { data: storeNameSetting } = useQuery({
+    queryKey: ['settings', 'store_name'],
+    queryFn: () => settingsApi.getSetting('store_name'),
+  });
+  const storeName = storeNameSetting?.data?.value?.trim() || 'PARTFLOW';
+
+  useEffect(() => {
+    if (storeName !== 'PARTFLOW') {
+      localStorage.setItem('partflow-store-name', storeName);
+    }
+  }, [storeName]);
 
   const menuGroups: MenuGroup[] = [
     {
@@ -146,8 +159,8 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
               />
             </div>
             <div className="brand-text">
-              <span className="text-lg font-bold tracking-[0.5px] text-[var(--text-primary)]">PARTFLOW</span>
-              <p className="brand-sub text-xs tracking-[0.3px] text-[var(--text-secondary)]">Store Operating System</p>
+              <span className="max-w-[170px] truncate text-lg font-bold tracking-[0.5px] text-[var(--text-primary)]" title={storeName}>{storeName}</span>
+              <p className="brand-sub text-xs tracking-[0.3px] text-[var(--text-secondary)]">نظام إدارة المتجر</p>
             </div>
           </div>
         )}

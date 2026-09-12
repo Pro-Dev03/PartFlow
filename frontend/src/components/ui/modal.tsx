@@ -220,6 +220,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
             zIndex: 10000,
             position: 'relative',
             background: currentVariant.background,
+            borderRadius: '1rem',
             border: currentVariant.border,
             boxShadow: currentVariant.shadow,
             WebkitOverflowScrolling: 'touch',

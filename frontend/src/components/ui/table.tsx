@@ -8,20 +8,19 @@ interface TableProps {
 const Table = ({ className, children }: TableProps) => (
   <div
     className={cn(
-      'w-full overflow-hidden rounded-[10px] border border-[var(--table-border)] bg-[var(--card-bg)]',
-      className
+      'pf-data-table w-full overflow-x-auto rounded-2xl border border-[var(--table-border)] bg-[var(--card-bg)] shadow-[0_8px_24px_rgba(15,23,42,0.05)]'
     )}
     role="region"
     aria-label="جدول البيانات"
   >
-    <table className={cn('w-full caption-bottom border-collapse text-sm', className)}>{children}</table>
+    <table className={cn('w-full min-w-full caption-bottom border-collapse text-sm', className)}>{children}</table>
   </div>
 );
 
 const TableHeader = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
   <thead
     className={cn(
-      'bg-[var(--bg-surface-elevated)]',
+      'pf-data-table-header bg-[var(--bg-surface-elevated)]',
       className
     )}
     {...props}
@@ -40,7 +39,7 @@ const TableRow = ({ className, ...props }: React.HTMLAttributes<HTMLTableRowElem
   <tr
     className={cn(
       'border-b border-[var(--border-subtle)] transition-colors duration-150',
-      'hover:bg-[var(--bg-surface-elevated)]',
+      'pf-data-table-row hover:bg-[var(--bg-surface-elevated)]',
       className
     )}
     {...props}
@@ -50,7 +49,7 @@ const TableRow = ({ className, ...props }: React.HTMLAttributes<HTMLTableRowElem
 const TableHead = ({ className, ...props }: React.HTMLAttributes<HTMLTableCellElement>) => (
   <th
     className={cn(
-      'h-10 px-4 text-start align-middle text-[10px] font-semibold tracking-[0.08em] text-[var(--text-secondary)] uppercase',
+      'h-12 px-4 text-start align-middle text-xs font-semibold text-[var(--text-secondary)]',
       'transition-colors duration-150',
       '[&:has([role=checkbox])]:pr-0',
       className
@@ -63,7 +62,7 @@ const TableHead = ({ className, ...props }: React.HTMLAttributes<HTMLTableCellEl
 const TableCell = ({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) => (
   <td
     className={cn(
-      'px-4 py-2.5 align-middle text-[13px] text-[var(--text-primary)] transition-colors duration-150',
+      'px-4 py-3 align-middle text-[13px] text-[var(--text-primary)] transition-colors duration-150',
       '[&:has([role=checkbox])]:pr-0',
       className
     )}

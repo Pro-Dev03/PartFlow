@@ -191,6 +191,8 @@ export const authApi = {
 // Dashboard endpoints
 export const dashboardApi = {
   getStats: () => apiClient.get('/dashboard/stats', undefined, false),
+  getActivity: (params?: { page?: number; per_page?: number; type?: string }) =>
+    apiClient.get('/dashboard/activity', params, false),
   getLowStockItems: () => apiClient.get('/dashboard/low-stock-items', undefined, false),
   getOverdueDebts: () => apiClient.get('/dashboard/overdue-debts', undefined, false),
   // Aggregation endpoints (ARCHITECTURE-PRINCIPLES.md)
@@ -423,7 +425,7 @@ export const settingsApi = {
     apiClient.get('/users/subscriptions', params),
   getSubscriptionSummary: () =>
     apiClient.get('/users/subscription-summary'),
-  updateSubscriptionStatus: (id: string, payload: { subscription_status: string; subscription_expires_at?: string | null }) =>
+  updateSubscriptionStatus: (id: string, payload: { subscription_status: string; subscription_expires_at?: string | null; subscription_days?: number }) =>
     apiClient.put(`/users/${id}/subscription`, payload),
   renewSubscription: (id: string, days: number) =>
     apiClient.post(`/users/${id}/subscription/renew`, { days }),

@@ -26,6 +26,8 @@ func TestFetchTodayMetricsIsDateScoped(t *testing.T) {
 		CREATE TABLE expenses (id TEXT PRIMARY KEY, amount REAL, status TEXT, expense_date TEXT);
 		CREATE TABLE returns (id TEXT PRIMARY KEY, return_date TEXT, status TEXT, total_refund_amount REAL);
 		CREATE TABLE return_items (id TEXT PRIMARY KEY, return_id TEXT, sale_item_id TEXT, quantity_returned INTEGER, original_cost REAL);
+		CREATE TABLE payments (id TEXT PRIMARY KEY, customer_id TEXT, amount REAL, created_at TEXT);
+		CREATE TABLE customer_payments (id TEXT PRIMARY KEY, customer_id TEXT, amount REAL, payment_date TEXT);
 	`)
 	if err != nil {
 		t.Fatalf("create schema: %v", err)
@@ -54,6 +56,9 @@ func TestFetchTodayMetricsIsDateScoped(t *testing.T) {
 			('return-today', ?, 'COMPLETED', 30);
 		INSERT INTO return_items (id, return_id, sale_item_id, quantity_returned, original_cost) VALUES
 			('return-item-today', 'return-today', 'line-today', 1, 20);
+		INSERT INTO payments (id, customer_id, amount, created_at) VALUES
+			('debt-today', 'customer-1', 50, ?),
+			('debt-yesterday', 'customer-1', 500, ?);
 	`, todayTimestamp, yesterdayTimestamp, todayTimestamp, today, yesterday, today)
 	if err != nil {
 		t.Fatalf("insert fixtures: %v", err)
@@ -69,6 +74,9 @@ func TestFetchTodayMetricsIsDateScoped(t *testing.T) {
 	// 100 revenue - (2 * 20 cost) - 10 approved expense - 30 return refund + (1 * 20 returned cost) = 40.
 	if metrics.Profit != 40 {
 		t.Fatalf("today profit = %v, want 40", metrics.Profit)
+	}
+	if metrics.DebtCollected != 50 {
+		t.Fatalf("today debt collected = %v, want 50", metrics.DebtCollected)
 	}
 }
 

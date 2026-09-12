@@ -62,6 +62,15 @@ export function SettingsPage() {
   const isOwner = user?.email?.trim().toLowerCase() === 'owner@partflow.com';
   const subscriptionStatus = (user?.subscription_status || 'active').toLowerCase();
   const isActiveSubscription = subscriptionStatus === 'active' || subscriptionStatus === 'trial';
+  const subscriptionStatusLabel = subscriptionStatus === 'active'
+    ? 'نشط'
+    : subscriptionStatus === 'trial'
+      ? 'تجريبي'
+      : subscriptionStatus === 'expired'
+        ? 'منتهي'
+        : subscriptionStatus === 'canceled' || subscriptionStatus === 'cancelled'
+          ? 'موقوف'
+          : subscriptionStatus;
 
   const tabs = [
     { id: 'store', label: t('settings.store'), icon: Store },
@@ -82,75 +91,94 @@ export function SettingsPage() {
     <div>
       {/* Page Header */}
       <PageHeader
-        eyebrow="System Control"
+        eyebrow="مركز التحكم"
         title={t('settings.title')}
-        description="إدارة إعدادات النظام"
+        description="تحكم في حسابك واشتراكك وإعدادات متجرك من مكان واحد"
       />
 
-      <div className="mb-6 grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+      <div
+        className="mb-6 grid gap-4"
+        dir="rtl"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}
+      >
+        <div
+          className="settings-summary-card user min-w-0 p-5"
+          style={{
+            borderColor: 'color-mix(in srgb, var(--primary) 18%, var(--border-default))',
+          }}
+        >
+          <div className="mb-5 flex items-center gap-3">
+            <div className="settings-summary-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <User className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">بيانات المستخدم</p>
-              <h3 className="text-lg font-bold text-foreground">{displayName}</h3>
+              <p className="text-xs font-medium text-muted-foreground">بيانات المستخدم</p>
+              <h3 className="mt-1 text-lg font-bold text-foreground">{displayName}</h3>
             </div>
           </div>
 
-          <div className="space-y-3 text-sm text-foreground/90">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">البريد</span>
-              <span className="font-medium">{displayEmail}</span>
+          <div className="space-y-3 text-sm">
+            <div className="border-t border-border/60 pt-3">
+              <span className="block text-xs text-muted-foreground">البريد الإلكتروني</span>
+              <span dir="ltr" className="mt-1 block min-w-0 truncate text-right font-semibold text-foreground">{displayEmail}</span>
             </div>
-            <div className="flex items-center justify-between gap-3">
+            <div className="border-t border-border/60 pt-3">
               <span className="text-muted-foreground">الهاتف</span>
-              <span className="font-medium">{displayPhone}</span>
+              <span dir="ltr" className="mt-1 block truncate text-right font-semibold text-foreground">{displayPhone}</span>
             </div>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
+        <div
+          className="settings-summary-card subscription min-w-0 p-5"
+          style={{
+            borderColor: 'rgba(16, 185, 129, 0.2)',
+          }}
+        >
+          <div className="mb-5 flex items-center gap-3">
+            <div className="settings-summary-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">حالة الاشتراك</p>
-              <h3 className="text-lg font-bold text-foreground">{isActiveSubscription ? 'نشط' : 'منتهي'}</h3>
+              <p className="text-xs font-medium text-muted-foreground">حالة الاشتراك</p>
+              <h3 className="mt-1 text-lg font-bold text-foreground">{isActiveSubscription ? 'نشط' : 'منتهي'}</h3>
             </div>
           </div>
 
-          <div className="space-y-3 text-sm text-foreground/90">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">الحالة</span>
-              <span className="font-medium">{subscriptionStatus}</span>
+          <div className="space-y-3 text-sm">
+            <div className="border-t border-border/60 pt-3">
+              <span className="block text-xs text-muted-foreground">الحالة الحالية</span>
+              <span className="mt-1 inline-flex rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-700">{subscriptionStatusLabel}</span>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">تاريخ الانتهاء</span>
-              <span className="font-medium">{expiryDate ? expiryDate.toLocaleDateString('ar-EG') : 'غير محدد'}</span>
+            <div className="border-t border-border/60 pt-3">
+              <span className="block text-xs text-muted-foreground">تاريخ الانتهاء</span>
+              <span className="mt-1 block truncate font-semibold text-foreground">{expiryDate ? new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium', timeZone: 'UTC' }).format(expiryDate) : 'غير محدد'}</span>
             </div>
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
+        <div
+          className="settings-summary-card time min-w-0 p-5"
+          style={{
+            borderColor: 'rgba(245, 158, 11, 0.24)',
+          }}
+        >
+          <div className="mb-5 flex items-center gap-3">
+            <div className="settings-summary-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
               <CalendarClock className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">الوقت المتبقي</p>
-              <h3 className="text-lg font-bold text-foreground">{remainingText}</h3>
+              <p className="text-xs font-medium text-muted-foreground">الوقت المتبقي</p>
+              <h3 className="mt-1 text-2xl font-bold text-foreground">{remainingText}</h3>
             </div>
           </div>
 
-          <div className="space-y-3 text-sm text-foreground/90">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">تحديث مباشر</span>
-              <span className="font-medium">{isActiveSubscription ? 'يتم التحديث تلقائياً' : 'الاشتراك منتهي'}</span>
+          <div className="space-y-3 text-sm">
+            <div className="border-t border-border/60 pt-3">
+              <span className="block text-xs text-muted-foreground">حالة التحديث</span>
+              <span className="mt-1 block font-semibold text-foreground">{isActiveSubscription ? 'يتم التحديث تلقائياً' : 'الاشتراك منتهي'}</span>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className={`h-full rounded-full ${isActiveSubscription ? 'bg-emerald-500' : 'bg-red-500'}`}
                 style={{ width: `${expiryDate && remainingMs !== null ? Math.max(0, Math.min(100, (remainingMs / (expiryDate.getTime() - Date.now() + remainingMs + 1)) * 100)) : 100}%` }}
@@ -160,7 +188,10 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-md">
+      <div
+        className="grid gap-5"
+        style={{ gridTemplateColumns: 'minmax(180px, 220px) minmax(0, 1fr)', gap: '20px' }}
+      >
         {/* Sidebar Tabs - Futuristic + Minimal */}
         <div className="space-y-sm">
           {tabs.map((tab) => {
@@ -180,7 +211,7 @@ export function SettingsPage() {
         </div>
 
         {/* Content Area - Futuristic + Minimal */}
-        <div className="lg:col-span-3">
+        <div className="min-w-0">
           {activeTab === 'store' && <StoreSettings />}
           {activeTab === 'financial' && <FinancialSettings />}
           {activeTab === 'appearance' && <AppearanceSettings />}

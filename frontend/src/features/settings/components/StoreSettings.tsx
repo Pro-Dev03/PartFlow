@@ -1,16 +1,50 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Store, Save } from 'lucide-react';
+import { settingsApi } from '../../../services/api/endpoints';
+import { toast } from 'sonner';
 
 export function StoreSettings() {
+  const queryClient = useQueryClient();
   const [storeSettings, setStoreSettings] = useState({
     storeName: 'PartFlow Store',
-    lowStockThreshold: 10,
-    allowDebt: true,
-    maxDebtAmount: 5000,
   });
+  const { data: storeNameSetting, isLoading } = useQuery({
+    queryKey: ['settings', 'store_name'],
+    queryFn: () => settingsApi.getSetting('store_name'),
+  });
+  const updateStoreNameMutation = useMutation({
+    mutationFn: (storeName: string) => settingsApi.updateSetting('store_name', storeName),
+    onSuccess: () => {
+      localStorage.setItem('partflow-store-name', storeSettings.storeName.trim());
+      void queryClient.invalidateQueries({ queryKey: ['settings', 'store_name'] });
+      void queryClient.invalidateQueries({ queryKey: ['settings', 'public'] });
+      toast.success('تم حفظ اسم المتجر بنجاح');
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || 'تعذر حفظ اسم المتجر');
+    },
+  });
+
+  useEffect(() => {
+    const value = storeNameSetting?.data?.value;
+    if (typeof value === 'string' && value.trim()) {
+      setStoreSettings({ storeName: value });
+      localStorage.setItem('partflow-store-name', value.trim());
+    }
+  }, [storeNameSetting]);
+
+  const handleSave = () => {
+    const storeName = storeSettings.storeName.trim();
+    if (!storeName) {
+      toast.error('يرجى إدخال اسم المتجر');
+      return;
+    }
+    updateStoreNameMutation.mutate(storeName);
+  };
 
   return (
     <Card>
@@ -24,35 +58,12 @@ export function StoreSettings() {
         <Input
           label="اسم المتجر"
           value={storeSettings.storeName}
+          disabled={isLoading || updateStoreNameMutation.isPending}
           onChange={(e) => setStoreSettings({ ...storeSettings, storeName: e.target.value })}
         />
-        <Input
-          label="حد المخزون المنخفض"
-          type="number"
-          value={storeSettings.lowStockThreshold}
-          onChange={(e) => setStoreSettings({ ...storeSettings, lowStockThreshold: Number(e.target.value) })}
-        />
-        <div className="flex items-center justify-between p-4 border border-border rounded-lg">
-          <div>
-            <h4 className="font-medium text-text-primary">السماح بالديون</h4>
-            <p className="text-small text-text-secondary">السماح للعملاء بالشراء بالدين</p>
-          </div>
-          <Button
-            variant={storeSettings.allowDebt ? 'primary' : 'secondary'}
-            onClick={() => setStoreSettings({ ...storeSettings, allowDebt: !storeSettings.allowDebt })}
-          >
-            {storeSettings.allowDebt ? 'مفعّل' : 'معطّل'}
-          </Button>
-        </div>
-        <Input
-          label="الحد الأقصى للديون"
-          type="number"
-          value={storeSettings.maxDebtAmount}
-          onChange={(e) => setStoreSettings({ ...storeSettings, maxDebtAmount: Number(e.target.value) })}
-        />
-        <Button variant="primary" className="gap-2">
+        <Button variant="primary" className="gap-2" onClick={handleSave} disabled={isLoading || updateStoreNameMutation.isPending}>
           <Save className="w-4 h-4" />
-          حفظ التغييرات
+          {updateStoreNameMutation.isPending ? 'جارٍ الحفظ...' : 'حفظ التغييرات'}
         </Button>
       </CardContent>
     </Card>

@@ -132,6 +132,30 @@ func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
 }
 
+// ListRecurringTemplates returns the recurring expenses that act as templates.
+func (r *Repository) ListRecurringTemplates(ctx context.Context) ([]Expense, error) {
+	expenses, _, err := r.ListExpenses(ctx, ExpenseListRequest{
+		Page:        1,
+		PerPage:     100,
+		IsRecurring: boolPtr(true),
+		SortBy:      "expense_date",
+		SortOrder:   "asc",
+	})
+	return expenses, err
+}
+
+func (r *Repository) RecurringReferenceExists(ctx context.Context, reference string) (bool, error) {
+	var exists bool
+	if err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM expenses WHERE reference = $1)`, reference); err != nil {
+		return false, fmt.Errorf("check recurring expense reference: %w", err)
+	}
+	return exists, nil
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
 // CreateExpense creates a new expense
 func (r *Repository) CreateExpense(ctx context.Context, expense *Expense) error {
 	var categoryName string

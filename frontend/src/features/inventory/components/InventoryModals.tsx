@@ -292,8 +292,8 @@ export function InventoryModals({
                  />
                </div>
                <div>
-                  <label style={{ 
-                    fontSize: '12px', 
+                  <label style={{
+                    fontSize: '12px',
                     fontWeight: '600', 
                     color: 'var(--text-secondary)',
                     marginBottom: '8px',
@@ -315,8 +315,8 @@ export function InventoryModals({
                   />
                 </div>
                 <div>
-                  <label style={{ 
-                    fontSize: '12px', 
+                  <label style={{
+                    fontSize: '12px',
                     fontWeight: '600', 
                     color: 'var(--text-secondary)',
                     marginBottom: '8px',
@@ -329,6 +329,31 @@ export function InventoryModals({
                     value={selectedProduct.sku}
                     onChange={(e) => setSelectedProduct({ ...selectedProduct, sku: e.target.value })}
                     placeholder="مثال: CPU-001"
+                    style={{
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      borderRadius: '10px'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: 'var(--text-secondary)',
+                    marginBottom: '8px',
+                    display: 'block',
+                    letterSpacing: '0.2px'
+                  }}>
+                    الحد الأدنى للمخزون
+                  </label>
+                  <Input
+                    type="number"
+                    value={selectedProduct.min_stock_level ?? 0}
+                    onChange={(e) => setSelectedProduct({ ...selectedProduct, min_stock_level: Math.max(0, Number(e.target.value) || 0) })}
+                    placeholder="3"
+                    min="0"
+                    step="1"
                     style={{
                       fontSize: '14px',
                       fontWeight: '500',
@@ -895,6 +920,34 @@ export function InventoryModals({
                     placeholder="0"
                     min="0"
                     onChange={(e) => setSelectedProduct((prev: Product | null) => ({ ...prev, stock: Number(e.target.value) } as Product))}
+                    style={{
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      borderRadius: '10px'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: 'var(--text-secondary)',
+                    marginBottom: '8px',
+                    display: 'block',
+                    letterSpacing: '0.2px'
+                  }}>
+                    الحد الأدنى للمخزون
+                  </label>
+                  <Input
+                    type="number"
+                    value={selectedProduct?.min_stock_level ?? 0}
+                    onChange={(e) => setSelectedProduct((prev: Product | null) => ({
+                      ...prev,
+                      min_stock_level: Math.max(0, Number(e.target.value) || 0),
+                    } as Product))}
+                    placeholder="3"
+                    min="0"
+                    step="1"
                     style={{
                       fontSize: '14px',
                       fontWeight: '500',

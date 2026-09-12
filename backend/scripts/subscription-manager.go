@@ -446,8 +446,9 @@ func renewAccount(db *sqlx.DB, email string, days int) error {
 		return fmt.Errorf("account not found: %s", email)
 	}
 
-	newExpiry := time.Now().AddDate(0, 0, days)
-	if account.SubscriptionExpiresAt != nil && account.SubscriptionExpiresAt.After(time.Now()) {
+	now := time.Now().UTC()
+	newExpiry := now.AddDate(0, 0, days)
+	if account.SubscriptionExpiresAt != nil && account.SubscriptionExpiresAt.After(now) {
 		newExpiry = account.SubscriptionExpiresAt.AddDate(0, 0, days)
 	}
 

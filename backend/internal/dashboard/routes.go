@@ -14,4 +14,5 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 	router.GET("/stats", handler.GetDashboardStats)
 	router.GET("/low-stock-items", handler.GetLowStockItems)
 	router.GET("/overdue-debts", handler.GetOverdueDebts)
+	router.GET("/activity", handler.GetRecentActivity)
 }

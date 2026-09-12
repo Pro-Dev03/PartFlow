@@ -16,6 +16,10 @@ type todayMetrics struct {
 	Sales           float64 `db:"today_sales"`
 	Profit          float64 `db:"today_profit"`
 	SupplierReturns float64 `db:"today_supplier_returns"`
+	Collected       float64 `db:"today_collected"`
+	DebtCollected   float64 `db:"today_debt_collected"`
+	SupplierPaid    float64 `db:"today_supplier_paid"`
+	Expenses        float64 `db:"today_expenses"`
 }
 
 func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMetrics, error) {
@@ -171,6 +175,36 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			FROM supplier_returns
 			WHERE UPPER(COALESCE(status, '')) = 'COMPLETED'
 			  AND updated_at::date = $1::date`, date)
+	}
+
+	// Payments are the reliable source for cash movement. These are best-effort
+	// so older local databases without the payments table remain usable.
+	paymentDateColumn := "created_at"
+	debtPaymentFilter := "1 = 1"
+	if sqliteHasColumns(db, "payments", "payment_date") {
+		paymentDateColumn = "payment_date"
+	}
+	if sqliteHasColumns(db, "payments", "sale_id") {
+		debtPaymentFilter = "(sale_id IS NULL OR TRIM(sale_id) = '')"
+	}
+	if isSQLiteDriver(db.DriverName()) {
+		_ = db.GetContext(ctx, &metrics.Collected, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE customer_id IS NOT NULL AND date(%s) = ?`, paymentDateColumn), date)
+		var customerPayments float64
+		_ = db.GetContext(ctx, &customerPayments, `SELECT COALESCE(SUM(amount), 0) FROM customer_payments WHERE date(payment_date) = ?`, date)
+		metrics.Collected += customerPayments
+		_ = db.GetContext(ctx, &metrics.DebtCollected, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE customer_id IS NOT NULL AND %s AND date(%s) = ?`, debtPaymentFilter, paymentDateColumn), date)
+		metrics.DebtCollected += customerPayments
+		_ = db.GetContext(ctx, &metrics.SupplierPaid, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE supplier_id IS NOT NULL AND date(%s) = ?`, paymentDateColumn), date)
+		_ = db.GetContext(ctx, &metrics.Expenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date(expense_date) = ? AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, date)
+	} else {
+		_ = db.GetContext(ctx, &metrics.Collected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE customer_id IS NOT NULL AND payment_date::date = $1::date`, date)
+		var customerPayments float64
+		_ = db.GetContext(ctx, &customerPayments, `SELECT COALESCE(SUM(amount), 0) FROM customer_payments WHERE payment_date::date = $1::date`, date)
+		metrics.Collected += customerPayments
+		_ = db.GetContext(ctx, &metrics.DebtCollected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE customer_id IS NOT NULL AND sale_id IS NULL AND payment_date::date = $1::date`, date)
+		metrics.DebtCollected += customerPayments
+		_ = db.GetContext(ctx, &metrics.SupplierPaid, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE supplier_id IS NOT NULL AND payment_date::date = $1::date`, date)
+		_ = db.GetContext(ctx, &metrics.Expenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date::date = $1::date AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, date)
 	}
 	return metrics, nil
 }

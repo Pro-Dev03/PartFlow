@@ -61,6 +61,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
             ref={ref}
             id={selectId}
             className={cn(
+              'pf-select-control',
               'select-custom',
               'flex w-full rounded-xl border appearance-none cursor-pointer',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:border-transparent',

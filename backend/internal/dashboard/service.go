@@ -43,6 +43,11 @@ type DashboardStats struct {
 	TodaySales           float64 `json:"todaySales"`
 	TodayProfit          float64 `json:"todayProfit"`
 	TodaySupplierReturns float64 `json:"todaySupplierReturns"`
+	TodayCollected       float64 `json:"todayCollected"`
+	TodayDebtCollected   float64 `json:"todayDebtCollected"`
+	TodaySupplierPaid    float64 `json:"todaySupplierPaid"`
+	TodayExpenses        float64 `json:"todayExpenses"`
+	TodayCashDifference  float64 `json:"todayCashDifference"`
 	OutstandingDebts     float64 `json:"outstandingDebts"`
 	ActiveCustomers      int     `json:"activeCustomers"`
 	LowStockCount        int     `json:"lowStockCount"`
@@ -77,6 +82,14 @@ type RecentActivityItem struct {
 	Amount      float64 `json:"amount"`
 	Time        string  `json:"time"`
 	Status      string  `json:"status"`
+}
+
+type ActivityPage struct {
+	Items      []RecentActivityItem `json:"items"`
+	Page       int                  `json:"page"`
+	PerPage    int                  `json:"per_page"`
+	Total      int                  `json:"total"`
+	TotalPages int                  `json:"total_pages"`
 }
 
 // InventoryDistributionData represents inventory distribution
@@ -295,10 +308,10 @@ func (s *Service) GetLowStockItems(ctx context.Context) ([]LowStockItem, error) 
 		FROM products p
 		LEFT JOIN inventory_items i ON p.id = i.product_id
 		WHERE p.is_active = true
-		AND p.min_stock_level > 0
 		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
-		HAVING COALESCE(SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) < p.min_stock_level
-		ORDER BY (p.min_stock_level - COALESCE(SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0)) DESC
+		HAVING (COALESCE(p.min_stock_level, 0) > 0 AND COALESCE(SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) <= p.min_stock_level)
+			OR (COALESCE(p.min_stock_level, 0) <= 0 AND COALESCE(SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) < 5)
+		ORDER BY (CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 5 END - COALESCE(SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0)) DESC
 		LIMIT 10
 	`
 

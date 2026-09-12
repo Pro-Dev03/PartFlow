@@ -42,6 +42,7 @@ function clearPersistedAuthStorage() {
   localStorage.removeItem('refresh_token');
   localStorage.removeItem('cloud_token');
   localStorage.removeItem('cloud_refresh_token');
+  localStorage.removeItem('partflow-user-phone');
 
   try {
     useAuthStore.persist?.clearStorage();
@@ -193,8 +194,18 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
       }
 
       const currentUser = useAuthStore.getState().user;
+      const cloudUser = data?.user as Partial<User> | undefined;
+      const storedPhone = localStorage.getItem('partflow-user-phone') || undefined;
+      const mergedUser = currentUser && cloudUser
+        ? { ...currentUser, ...cloudUser, phone: cloudUser.phone ?? currentUser.phone ?? storedPhone }
+        : cloudUser
+          ? { ...cloudUser, phone: cloudUser.phone ?? storedPhone }
+          : currentUser;
+      if (mergedUser?.phone) {
+        localStorage.setItem('partflow-user-phone', mergedUser.phone);
+      }
       useAuthStore.setState({
-        user: data?.user || currentUser,
+        user: mergedUser,
         isAuthenticated: true,
         sessionVerified: true,
       });
@@ -471,10 +482,25 @@ export const useAuthStore = create<AuthState>()(
             TokenManager.setRefreshToken(refreshToken);
           }
           apiClient.setToken(token);
+          const cloudValid = await validateSubscriptionWithCloud();
+          if (!cloudValid) {
+            if (typeof window !== 'undefined' && !window.location.hash.includes('/subscription-expired')) {
+              forceLogoutToLogin('Cloud verification failed during token refresh');
+            }
+            throw new Error('Cloud subscription verification failed');
+          }
+          const currentUser = useAuthStore.getState().user;
+          const storedPhone = localStorage.getItem('partflow-user-phone') || undefined;
+          const mergedUser = currentUser
+            ? { ...currentUser, ...user, phone: user.phone ?? currentUser.phone ?? storedPhone }
+            : { ...user, phone: user.phone ?? storedPhone };
+          if (mergedUser.phone) {
+            localStorage.setItem('partflow-user-phone', mergedUser.phone);
+          }
           set({
             isAuthenticated: true,
             sessionVerified: true,
-            user,
+            user: mergedUser,
             token,
             refreshTokenValue: refreshToken || null,
           });

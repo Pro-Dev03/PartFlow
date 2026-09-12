@@ -60,6 +60,12 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 	if strings.EqualFold(s.db.DriverName(), "sqlite") {
 		overdueDebtExpr = `(SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE remaining_amount > 0 AND date(due_date) < date('now'))`
 	}
+	lowStockExpr := `(SELECT COUNT(*) FROM products p
+			 WHERE p.is_active = true
+			 AND (SELECT COUNT(*) FROM inventory_items ii
+			      WHERE ii.product_id = p.id AND ii.condition <> 'USED' AND ii.status = 'AVAILABLE') > 0
+			 AND (SELECT COUNT(*) FROM inventory_items ii
+			      WHERE ii.product_id = p.id AND ii.condition <> 'USED' AND ii.status = 'AVAILABLE') <= CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END)`
 	query := fmt.Sprintf(`
 		SELECT
 			(SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) as total_sales,
@@ -69,21 +75,12 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 			(SELECT COUNT(*) FROM products WHERE is_active = true) as total_products,
 			(SELECT COUNT(*) FROM customers) as total_customers,
 			(SELECT COUNT(*) FROM suppliers) as total_suppliers,
-			(SELECT COUNT(*) FROM products p
-			 WHERE p.is_active = true
-			 AND p.deleted_at IS NULL
-			 AND (SELECT COUNT(*) FROM inventory_items ii
-			      WHERE ii.product_id = p.id
-			      AND ii.condition <> 'USED'
-			      AND ii.status = 'AVAILABLE') <= CASE
-					WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level
-					ELSE 3
-				END) as low_stock_items,
+			%s as low_stock_items,
 			%s as overdue_debts,
 			(SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE remaining_amount > 0) as outstanding_debts,
 			(SELECT COUNT(*) FROM returns WHERE LOWER(COALESCE(status, 'pending')) IN ('pending', 'approved', 'processing')) as pending_returns,
 			0 as pending_claims
-	`, overdueDebtExpr)
+	`, lowStockExpr, overdueDebtExpr)
 
 	var result struct {
 		TotalSales       float64 `db:"total_sales"`
@@ -172,6 +169,11 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 		stats.TodaySales = today.Sales
 		stats.TodayProfit = today.Profit
 		stats.TodaySupplierReturns = today.SupplierReturns
+		stats.TodayCollected = today.Collected
+		stats.TodayDebtCollected = today.DebtCollected
+		stats.TodaySupplierPaid = today.SupplierPaid
+		stats.TodayExpenses = today.Expenses
+		stats.TodayCashDifference = today.Collected - today.SupplierPaid - today.Expenses + today.SupplierReturns
 	}
 	stats.OutstandingDebts = result.OutstandingDebts
 	stats.ActiveCustomers = result.TotalCustomers
@@ -231,7 +233,7 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 			LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
 			LEFT JOIN products p ON p.id = si.product_id
 			WHERE LOWER(COALESCE(s.status, '')) = 'completed'
-			  AND datetime(s.created_at) >= datetime('now', '-30 days')
+			  AND datetime(s.created_at) >= datetime('now', '-90 days')
 			GROUP BY s.id, s.created_at, s.total_amount, s.tax_amount
 		)
 		SELECT strftime('%%Y-%%m-%%d', created_at) AS name,
@@ -251,7 +253,7 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 				LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
 				LEFT JOIN products p ON p.id = si.product_id
 				WHERE LOWER(COALESCE(s.status, '')) = 'completed'
-				  AND s.created_at >= NOW() - INTERVAL '30 days'
+				  AND s.created_at >= NOW() - INTERVAL '90 days'
 				GROUP BY s.id, s.created_at, s.total_amount, s.tax_amount
 			)
 			SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS name,
@@ -363,7 +365,7 @@ func (s *CachedService) fetchRecentActivity(ctx context.Context) []RecentActivit
 			FROM purchases
 		) AS activity
 		ORDER BY activity_time DESC
-		LIMIT 10
+		LIMIT 5
 	`
 	if s.db.DriverName() != "sqlite" {
 		query = `
@@ -378,7 +380,7 @@ func (s *CachedService) fetchRecentActivity(ctx context.Context) []RecentActivit
 				FROM purchases
 			) AS activity
 			ORDER BY activity_time DESC
-			LIMIT 10
+			LIMIT 5
 		`
 	}
 
@@ -387,6 +389,49 @@ func (s *CachedService) fetchRecentActivity(ctx context.Context) []RecentActivit
 		return []RecentActivityItem{}
 	}
 	return activities
+}
+
+func (s *CachedService) GetActivity(ctx context.Context, page, perPage int, activityType string) (*ActivityPage, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 || perPage > 50 {
+		perPage = 20
+	}
+
+	activityQuery := `(
+		SELECT id, 'sale' AS type, 'بيع' AS title, 'عملية بيع' AS description,
+		       total_amount AS amount, created_at AS activity_time, status
+		FROM sales
+		UNION ALL
+		SELECT id, 'purchase' AS type, 'شراء' AS title, 'عملية شراء' AS description,
+		       total_amount AS amount, created_at AS activity_time, status
+		FROM purchases
+	) AS activity`
+	where := ""
+	args := []interface{}{}
+	if activityType == "sale" || activityType == "purchase" {
+		where = " WHERE type = ?"
+		args = append(args, activityType)
+	}
+
+	var total int
+	countQuery := s.db.Rebind("SELECT COUNT(*) FROM " + activityQuery + where)
+	if err := s.db.GetContext(ctx, &total, countQuery, args...); err != nil {
+		return nil, fmt.Errorf("failed to count activity: %w", err)
+	}
+
+	offset := (page - 1) * perPage
+	query := "SELECT id, type, title, description, amount, activity_time AS time, status FROM " + activityQuery + where + " ORDER BY activity_time DESC LIMIT ? OFFSET ?"
+	query = s.db.Rebind(query)
+	queryArgs := append(args, perPage, offset)
+	var items []RecentActivityItem
+	if err := s.db.SelectContext(ctx, &items, query, queryArgs...); err != nil {
+		return nil, fmt.Errorf("failed to get activity: %w", err)
+	}
+
+	totalPages := (total + perPage - 1) / perPage
+	return &ActivityPage{Items: items, Page: page, PerPage: perPage, Total: total, TotalPages: totalPages}, nil
 }
 
 // InvalidateCache clears the cache (call after data changes)
@@ -400,7 +445,7 @@ func (s *CachedService) GetLowStockItems(ctx context.Context) ([]LowStockItem, e
 		SELECT 
 			p.id,
 			p.name as product_name,
-			COUNT(CASE WHEN i.status = 'AVAILABLE' THEN i.id END) as quantity,
+			COUNT(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN i.id END) as quantity,
 			CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END as min_stock_level,
 			p.cost_price,
 			p.selling_price,
@@ -408,14 +453,11 @@ func (s *CachedService) GetLowStockItems(ctx context.Context) ([]LowStockItem, e
 		FROM products p
 		LEFT JOIN inventory_items i ON p.id = i.product_id
 		WHERE p.is_active = true
-		AND p.deleted_at IS NULL
 		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
-		HAVING COUNT(CASE WHEN i.status = 'AVAILABLE' THEN i.id END) <= CASE
-			WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level
-			ELSE 3
-		END
-		ORDER BY (CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END - COUNT(CASE WHEN i.status = 'AVAILABLE' THEN i.id END)) DESC
-		LIMIT 10
+		HAVING COUNT(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN i.id END) > 0
+			AND COUNT(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN i.id END) <= CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END
+		ORDER BY (CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END - COUNT(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN i.id END)) DESC
+			LIMIT 5
 	`
 
 	var items []LowStockItem

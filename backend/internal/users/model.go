@@ -31,7 +31,8 @@ func (User) TableName() string {
 
 // NewUser creates a new User instance
 func NewUser(email, passwordHash, firstName, lastName string) *User {
-	expiresAt := time.Now().AddDate(1, 0, 0)
+	now := time.Now().UTC()
+	expiresAt := now.AddDate(1, 0, 0)
 	return &User{
 		ID:                    uuid.New(),
 		Email:                 email,
@@ -42,8 +43,8 @@ func NewUser(email, passwordHash, firstName, lastName string) *User {
 		IsVerified:            false,
 		SubscriptionStatus:    "active",
 		SubscriptionExpiresAt: &expiresAt,
-		CreatedAt:             time.Now(),
-		UpdatedAt:             time.Now(),
+		CreatedAt:             now,
+		UpdatedAt:             now,
 	}
 }
 

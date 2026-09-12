@@ -254,7 +254,7 @@ export function PurchasesPage() {
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
         ) : (
-          <div className="hidden md:block">
+          <div className="block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -329,7 +329,7 @@ export function PurchasesPage() {
           </div>
         )}
 
-        <div className="block md:hidden">
+        <div className="hidden">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
           ) : (

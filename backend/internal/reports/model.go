@@ -125,10 +125,13 @@ type MonthlyExpenses struct {
 
 // ExpenseItem represents expense item data
 type ExpenseItem struct {
+	Date         time.Time `json:"date"`
 	CategoryID   uuid.UUID `json:"category_id"`
 	CategoryName string    `json:"category_name"`
+	Description  string    `json:"description"`
 	Amount       float64   `json:"amount"`
 	Count        int       `json:"count"`
+	Status       string    `json:"status"`
 }
 
 // ProfitsReport represents profits report data

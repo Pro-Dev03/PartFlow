@@ -16,6 +16,7 @@ import {
   Bell,
   CheckCircle,
   Printer,
+  FileDown,
   MoreHorizontal
 } from 'lucide-react';
 import '../styles/success-modal.css';
@@ -246,7 +247,7 @@ export function DebtsPage() {
             <p className="mt-1 text-[11px] text-text-tertiary">جميع الديون مدفوعة</p>
           </div>
         ) : (
-          <div className="hidden md:block">
+          <div className="block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -313,7 +314,7 @@ export function DebtsPage() {
           </div>
         )}
 
-        <div className="block md:hidden">
+        <div className="hidden">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
           ) : filteredDebts.length === 0 ? (
@@ -791,6 +792,31 @@ export function DebtsPage() {
               >
                 <Printer style={{ width: '16px', height: '16px' }} />
                 طباعة الإيصال
+              </button>
+              <button
+                onClick={handlePrintReceipt}
+                style={{
+                  flex: 1,
+                  minWidth: '0',
+                  padding: '10px 16px',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#0f172a',
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  minHeight: '40px',
+                }}
+                title="يفتح نافذة الطباعة، اختر حفظ كـ PDF"
+              >
+                <FileDown style={{ width: '16px', height: '16px' }} />
+                حفظ PDF
               </button>
             </div>
           </div>

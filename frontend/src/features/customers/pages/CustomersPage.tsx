@@ -111,11 +111,6 @@ export function CustomersPage() {
     printTable(dataToPrint, ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'الديون'], 'تقرير العملاء');
   };
 
-  const handleRecommendationClick = () => {
-    // Filter for inactive customers (simple implementation)
-    setSearchQuery('');
-  };
-
   const handleSortName = () => {
     handleSort('name');
   };
@@ -168,7 +163,6 @@ export function CustomersPage() {
       }>
         <CustomerStats 
           stats={stats}
-          onRecommendationClick={handleRecommendationClick}
         />
       </Suspense>
 

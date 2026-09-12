@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
@@ -26,6 +27,7 @@ import {
   Plus,
   Package,
   TrendingUp,
+  ArrowLeft,
 } from 'lucide-react';
 
 function getWelcomeKey() {
@@ -36,10 +38,59 @@ function getWelcomeKey() {
   return 'dashboard.welcomeNight';
 }
 
+function formatDashboardActivityTime(value: unknown) {
+  if (!value) return '-';
+  const rawValue = String(value);
+  const parsed = new Date(rawValue.includes('T') ? rawValue : rawValue.replace(' ', 'T'));
+  if (Number.isNaN(parsed.getTime())) return rawValue;
+
+  return new Intl.DateTimeFormat('ar', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(parsed);
+}
+
+type PerformancePoint = {
+  name: string;
+  sales: number;
+  profit: number;
+};
+
+function formatPerformanceDateKey(value: Date) {
+  return [value.getFullYear(), value.getMonth() + 1, value.getDate()]
+    .map((part) => String(part).padStart(2, '0'))
+    .join('-');
+}
+
+function buildPerformanceChartData(points: PerformancePoint[], days: number) {
+  const pointsByDate = new Map(points.map((point) => [point.name, point]));
+  const endDate = new Date();
+  endDate.setHours(0, 0, 0, 0);
+  const startDate = new Date(endDate);
+  startDate.setDate(startDate.getDate() - days + 1);
+
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(startDate);
+    date.setDate(startDate.getDate() + index);
+    const dateKey = formatPerformanceDateKey(date);
+    const point = pointsByDate.get(dateKey);
+    return {
+      name: dateKey,
+      sales: Number(point?.sales ?? 0),
+      profit: Number(point?.profit ?? 0),
+    };
+  });
+}
+
 export function DashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const [chartRange, setChartRange] = useState<1 | 7 | 30 | 90>(7);
   const welcomeMessage = t(getWelcomeKey());
   const { data: dashboardData, isLoading, error } = useQuery({
     queryKey: ['dashboard'],
@@ -102,6 +153,7 @@ export function DashboardPage() {
   }
 
   const stats = dashboardData?.data as DashboardStats | undefined;
+  const chartData = buildPerformanceChartData(stats?.salesChart || [], chartRange);
   const lowStockItems = lowStockItemsData?.data || [];
   const lowStockAlertCount = Math.max(Number(stats?.lowStockCount ?? 0), lowStockItems.length);
   const overdueDebtItems = overdueDebtsData?.data || [];
@@ -190,31 +242,99 @@ export function DashboardPage() {
       </div>
 
         {/* Secondary: Charts Grid - الأداء والتوزيع */}
-        <div style={{ 
+        <div style={{
           marginTop: 'var(--spacing-6)',
-          display: 'grid', 
-          gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.65fr) minmax(0, 0.9fr)', 
-          gap: 'var(--spacing-4)' 
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.65fr) minmax(0, 0.9fr)',
+          gap: 'var(--spacing-4)',
+          alignItems: 'start'
         }}>
-          <Card variant="open">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="w-5 h-5" style={{ color: 'var(--color-success)' }} />
-                {t('dashboard.performance')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {stats?.salesChart && stats.salesChart.length > 0 ? (
-                <SalesChart data={stats.salesChart} />
-              ) : (
-                <div style={{ padding: 'var(--spacing-6)', textAlign: 'center' }}>
-                  <p style={{ fontSize: 'var(--font-size-body)', color: 'var(--text-secondary)' }}>
-                    لا توجد بيانات كافية للعرض
-                  </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
+            <Card variant="open">
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5" style={{ color: 'var(--color-success)' }} />
+                      {t('dashboard.performance')}
+                    </CardTitle>
+                    <p className="mt-1 text-xs text-text-muted">المبيعات والربح الإجمالي قبل خصم المصروفات</p>
+                  </div>
+                  <div className="flex items-center gap-1" aria-label="الفترة الزمنية للرسم البياني">
+                    {([
+                      { days: 1, label: 'اليوم' },
+                      { days: 7, label: '7 أيام' },
+                      { days: 30, label: '30 يومًا' },
+                      { days: 90, label: '90 يومًا' },
+                    ] as const).map(({ days, label }) => (
+                      <Button
+                        key={days}
+                        type="button"
+                        size="sm"
+                        variant={chartRange === days ? 'primary' : 'ghost'}
+                      onClick={() => setChartRange(days)}
+                      >
+                      {label}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardHeader>
+              <CardContent>
+                  {chartData.length > 0 ? (
+                    <SalesChart data={chartData} />
+                ) : (
+                  <div style={{ padding: 'var(--spacing-6)', textAlign: 'center' }}>
+                    <p style={{ fontSize: 'var(--font-size-body)', color: 'var(--text-secondary)' }}>
+                      لا توجد بيانات كافية للعرض
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card variant="open">
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
+                    {t('dashboard.recentActivity')}
+                  </CardTitle>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => navigate('/app/activity')}
+                  >
+                    عرض كل النشاط
+                    <ArrowLeft className="w-4 h-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
+                  {dashboardData?.data?.recent_activity?.length > 0 ? (
+                    dashboardData?.data?.recent_activity?.map((activity: any) => (
+                      <ActivityItem
+                        key={activity.id}
+                        type={activity.type}
+                        title={activity.title}
+                        description={activity.description}
+                        amount={activity.amount}
+                        time={formatDashboardActivityTime(activity.time)}
+                        status={activity.status}
+                      />
+                    ))
+                  ) : (
+                    <p className="text-center text-text-muted py-4">
+                      {t('dashboard.noRecentActivity')}
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
           <Card variant="open">
             <CardHeader>
@@ -241,46 +361,6 @@ export function DashboardPage() {
           </Card>
         </div>
 
-      {/* Secondary: Activity & Notifications - النشاط الأخير */}
-      <div style={{ 
-        marginTop: 'var(--spacing-6)',
-        display: 'grid', 
-        gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)', 
-        gap: 'var(--spacing-4)' 
-      }}>
-        {/* Recent Activity */}
-        <Card variant="open">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
-              {t('dashboard.recentActivity')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
-              {dashboardData?.data?.recent_activity?.length > 0 ? (
-                dashboardData?.data?.recent_activity?.map((activity: any) => (
-                  <ActivityItem
-                    key={activity.id}
-                    type={activity.type}
-                    title={activity.title}
-                    description={activity.description}
-                    amount={activity.amount}
-                    time={activity.time}
-                    status={activity.status}
-                  />
-                ))
-              ) : (
-                <p className="text-center text-text-muted py-4">
-                  {t('dashboard.noRecentActivity')}
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-      </div>
-
     </div>
   );
 }
@@ -298,6 +378,17 @@ function ActivityItem({ type, title, description, amount, time, status }: any) {
   };
 
   const Icon = getIcon();
+  const statusLabels: Record<string, string> = {
+    completed: 'مكتمل',
+    pending: 'قيد الانتظار',
+    reversed: 'تم عكس العملية',
+    cancelled: 'ملغي',
+    received: 'مستلم',
+    ordered: 'تم الطلب',
+    draft: 'مسودة',
+  };
+  const normalizedStatus = String(status || '').toLowerCase();
+  const statusLabel = statusLabels[normalizedStatus] || 'قيد المعالجة';
 
   return (
     <div style={{
@@ -327,8 +418,8 @@ function ActivityItem({ type, title, description, amount, time, status }: any) {
         <p style={{ fontSize: 'var(--font-size-secondary)', fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>{amount}</p>
         <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>{time}</p>
       </div>
-      <Badge variant={status === 'completed' ? 'success' : 'warning'} size="sm">
-        {status === 'completed' ? 'مكتمل' : status}
+      <Badge variant={normalizedStatus === 'completed' ? 'success' : 'warning'} size="sm">
+        {statusLabel}
       </Badge>
     </div>
   );

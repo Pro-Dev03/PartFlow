@@ -60,6 +60,14 @@ export function isExpenseInCurrentMonth(value: string, referenceDate = new Date(
   return datePart === currentMonth;
 }
 
+function getExpenseCategoryErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  if (message.toLowerCase().includes('expense category already exists')) {
+    return 'فئة المصروف موجودة بالفعل';
+  }
+  return message || 'تعذر حفظ الفئة';
+}
+
 export function ExpensesPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -250,7 +258,7 @@ export function ExpensesPage() {
     <div>
       {/* Page Header */}
       <PageHeader
-        eyebrow="Expense Management"
+        eyebrow="إدارة المصروفات"
         title={t('expenses.title')}
         description="إدارة المصروفات والميزانية"
         actions={
@@ -327,17 +335,14 @@ export function ExpensesPage() {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         title={editingExpenseId ? 'تعديل مصروف' : 'إضافة مصروف'}
-        size="xl"
-        headerStyle={{ background: 'var(--bg-surface-2)' }}
-        style={{ overflowX: 'hidden' }}
+        size="lg"
+        headerStyle={{ background: 'var(--bg-surface-2)', borderBottom: '1px solid var(--border-subtle)' }}
       >
         <form
           className="space-y-4"
           style={{
-            background: 'var(--bg-surface-2)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: '14px',
-            padding: '20px',
+            background: 'transparent',
+            padding: '24px',
             width: '100%',
             maxWidth: '100%',
             boxSizing: 'border-box',
@@ -345,7 +350,7 @@ export function ExpensesPage() {
           onSubmit={(event) => {
             event.preventDefault();
             const amount = Number(newExpense.amount);
-            if (!newExpense.description.trim() || !Number.isFinite(amount) || amount <= 0) return;
+            if (!newExpense.description.trim() || !Number.isInteger(amount) || amount <= 0) return;
             if (editingExpenseId) {
               updateExpenseMutation.mutate();
             } else {
@@ -354,8 +359,9 @@ export function ExpensesPage() {
           }}
         >
           <div style={{ width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
-            <label className="mb-2 block text-sm font-medium text-text-secondary">وصف المصروف</label>
             <Input
+              label="وصف المصروف"
+              fullWidth
               value={newExpense.description}
               onChange={(event) => setNewExpense((current) => ({ ...current, description: event.target.value }))}
               placeholder="مثال: فاتورة كهرباء المحل"
@@ -364,16 +370,17 @@ export function ExpensesPage() {
               required
             />
           </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" style={{ minWidth: 0 }}>
-            <div style={{ width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
-              <label className="mb-2 block text-sm font-medium text-text-secondary">المبلغ</label>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" style={{ minWidth: 0 }}>
+            <div className="sm:col-span-2" style={{ width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
               <Input
+                label="المبلغ"
+                fullWidth
                 type="number"
-                min="0.01"
-                step="0.01"
+                min="1"
+                step="1"
                 value={newExpense.amount}
                 onChange={(event) => setNewExpense((current) => ({ ...current, amount: event.target.value }))}
-                placeholder="0.00"
+                placeholder="0"
                 className="w-full min-w-0"
                 style={{ width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
                 required
@@ -393,6 +400,7 @@ export function ExpensesPage() {
                 </Button>
               </div>
               <Select
+                fullWidth
                 value={newExpense.category}
                 onChange={(event) => setNewExpense((current) => ({ ...current, category: event.target.value }))}
                 options={expenseCategories.map((category) => ({ value: category.id, label: category.name }))}
@@ -402,8 +410,9 @@ export function ExpensesPage() {
               />
             </div>
             <div style={{ width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
-              <label className="mb-2 block text-sm font-medium text-text-secondary">التاريخ</label>
               <Input
+                label="التاريخ"
+                fullWidth
                 type="date"
                 value={newExpense.date}
                 onChange={(event) => setNewExpense((current) => ({ ...current, date: event.target.value }))}
@@ -439,7 +448,7 @@ export function ExpensesPage() {
               />
             )}
           </div>
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-3 border-t border-border pt-4">
             <Button type="button" variant="secondary" onClick={() => setIsAddModalOpen(false)}>إلغاء</Button>
             <Button type="submit" variant="primary" disabled={createExpenseMutation.isPending || updateExpenseMutation.isPending}>
               {createExpenseMutation.isPending || updateExpenseMutation.isPending ? 'جاري الحفظ...' : editingExpenseId ? 'حفظ التعديل' : 'حفظ المصروف'}
@@ -492,7 +501,7 @@ export function ExpensesPage() {
           </div>
           {createCategoryMutation.isError && (
             <p className="text-sm text-red-500" role="alert">
-              {createCategoryMutation.error instanceof Error ? createCategoryMutation.error.message : 'تعذر حفظ الفئة'}
+              {getExpenseCategoryErrorMessage(createCategoryMutation.error)}
             </p>
           )}
         </form>

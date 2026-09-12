@@ -5,6 +5,7 @@ import { Button } from './button';
 import { Badge } from './badge';
 import { getButtonSize } from '../../config/button-sizes';
 import { DataTable, Column } from '../tables/data-table';
+import { ActionMenu } from './action-menu';
 
 export interface SupplierCardProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onToggle'> {
   supplier: {
@@ -174,43 +175,16 @@ function SupplierCard({
             >
               {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </Button>
-            <Button
-              variant="ghost"
-              size={getButtonSize('suppliers', 'iconAction')}
-              onClick={() => onView?.(supplier)}
-              aria-label="عرض"
-            >
-              <Eye className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size={getButtonSize('suppliers', 'iconAction')}
-              onClick={() => onEdit?.(supplier)}
-              aria-label="تعديل"
-            >
-              <Edit className="w-3.5 h-3.5" />
-            </Button>
-            {onRestore ? (
-              <Button
-                variant="ghost"
-                size={getButtonSize('suppliers', 'iconAction')}
-                onClick={() => onRestore(supplier)}
-                aria-label="إعادة تفعيل"
-                className="text-green-600 hover:text-green-700 hover:bg-green-50"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-              </Button>
-            ) : (
-              <Button
-                variant="ghost"
-                size={getButtonSize('suppliers', 'iconAction')}
-                onClick={() => onDelete?.(supplier)}
-                aria-label="إيقاف"
-                className="text-red-500 hover:text-red-600 hover:bg-red-50"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
-            )}
+            <ActionMenu
+              label="خيارات المورد"
+              widthClassName="w-48"
+              items={[
+                { label: 'عرض', icon: Eye, onClick: () => onView?.(supplier) },
+                { label: 'تعديل', icon: Edit, onClick: () => onEdit?.(supplier) },
+                ...(onRestore ? [{ label: 'إعادة تفعيل', icon: RotateCcw, onClick: () => onRestore(supplier), danger: false }] : []),
+                { label: onRestore ? 'إيقاف المورد' : 'حذف', icon: onRestore ? RotateCcw : Trash2, onClick: () => (onRestore ? onRestore(supplier) : onDelete?.(supplier)), danger: true },
+              ]}
+            />
           </div>
         </div>
       </div>

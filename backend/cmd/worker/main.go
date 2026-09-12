@@ -13,6 +13,7 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	dbutil "github.com/partflow/smart-store/internal/database"
+	"github.com/partflow/smart-store/internal/expenses"
 	"github.com/partflow/smart-store/pkg/config"
 	"github.com/partflow/smart-store/pkg/database"
 	"github.com/partflow/smart-store/pkg/logger"
@@ -48,6 +49,7 @@ func main() {
 	go startDebtScanWorker(ctx, database.GetDB())
 	go startLowStockScanWorker(ctx, database.GetDB())
 	go startDailyInsightsWorker(ctx, database.GetDB())
+	go startRecurringExpenseWorker(ctx, expenses.NewService(expenses.NewRepository(database.GetDB())))
 
 	logger.Info("Worker service started successfully", nil)
 
@@ -61,6 +63,27 @@ func main() {
 	time.Sleep(5 * time.Second)
 
 	logger.Info("Worker service exited", nil)
+}
+
+func startRecurringExpenseWorker(ctx context.Context, service *expenses.Service) {
+	process := func() {
+		if err := service.EnsureRecurringExpenses(ctx, time.Now().UTC()); err != nil {
+			logger.Error("Failed to generate recurring expenses", err, nil)
+		}
+	}
+	process()
+
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Recurring expense worker stopped", nil)
+			return
+		case <-ticker.C:
+			process()
+		}
+	}
 }
 
 func notifyAllUsers(ctx context.Context, db *sqlx.DB, notifType, title, message string, data string) {

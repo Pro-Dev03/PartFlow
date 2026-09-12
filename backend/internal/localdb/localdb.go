@@ -665,6 +665,7 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 	if _, err := db.Exec(`INSERT OR IGNORE INTO settings (id, key, value, value_type, category, description, is_public, created_at, updated_at)
 		VALUES ('setting-tax-rate', 'tax_rate', '0', 'number', 'financial', 'Tax rate', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 		       ('setting-max-discount-rate', 'max_discount_rate', '15', 'number', 'financial', 'Maximum percentage discount', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+		       ('setting-discounts-enabled', 'discounts_enabled', 'true', 'boolean', 'financial', 'Allow discounts', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 		       ('setting-store-name', 'store_name', 'PartFlow Store', 'string', 'general', 'Store name', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 		       ('setting-currency', 'currency', 'ILS', 'string', 'general', 'Currency', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
 		return fmt.Errorf("seed local settings: %w", err)

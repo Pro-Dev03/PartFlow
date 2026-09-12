@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -646,6 +647,11 @@ func (s *Service) GeneratePaymentReceipt(ctx context.Context, customerID uuid.UU
 		language = "ar"
 	}
 	isRTL := language == "ar"
+	storeName := "PartFlow"
+	_ = s.repo.db.GetContext(ctx, &storeName, "SELECT value FROM settings WHERE key = 'store_name' LIMIT 1")
+	if strings.TrimSpace(storeName) == "" {
+		storeName = "PartFlow"
+	}
 
 	// Create PDF with professional design
 	pdf := gofpdf.New("P", "mm", "A4", "")
@@ -693,7 +699,7 @@ func (s *Service) GeneratePaymentReceipt(ctx context.Context, customerID uuid.UU
 	pdf.Rect(20, 20, 170, 40, "F")
 
 	// Company logo/title
-	writeText("PartFlow", 95, 28, 24.0, true, 255, 255, 255)
+	writeText(storeName, 95, 28, 24.0, true, 255, 255, 255)
 	writeText("Store Management System", 95, 38, 10.0, false, 200, 200, 200)
 
 	// Receipt number and date in header
@@ -784,10 +790,10 @@ func (s *Service) GeneratePaymentReceipt(ctx context.Context, customerID uuid.UU
 
 	if isRTL {
 		writeText("شكراً لتعاملكم معنا", 95, yPos+8, 12.0, true, textMedium, textMedium, textMedium)
-		writeText("PartFlow - نظام إدارة المتاجر", 95, yPos+18, 10.0, false, textLight, textLight, textLight)
+		writeText(fmt.Sprintf("%s - نظام إدارة المتاجر", storeName), 95, yPos+18, 10.0, false, textLight, textLight, textLight)
 	} else {
 		writeText("Thank you for your business", 95, yPos+8, 12.0, true, textMedium, textMedium, textMedium)
-		writeText("PartFlow - Store Management System", 95, yPos+18, 10.0, false, textLight, textLight, textLight)
+		writeText(fmt.Sprintf("%s - Store Management System", storeName), 95, yPos+18, 10.0, false, textLight, textLight, textLight)
 	}
 
 	// ==================== TERMS AND CONDITIONS ====================

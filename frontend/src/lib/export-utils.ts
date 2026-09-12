@@ -226,8 +226,19 @@ export const printPaymentReceipt = (paymentData: {
   customerName: string;
   date: string;
   language?: string;
+  storeName?: string;
 }) => {
   const { amount, method, customerName, date, language = 'ar' } = paymentData;
+  const storeName = paymentData.storeName
+    || (typeof window !== 'undefined' ? localStorage.getItem('partflow-store-name') : null)
+    || 'PartFlow';
+  const safeStoreName = storeName.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character] || character);
   const isRTL = language === 'ar';
 
   // تحويل طريقة الدفع للعربية
@@ -435,7 +446,7 @@ export const printPaymentReceipt = (paymentData: {
       <div class="receipt-container">
         <!-- Header -->
         <div class="header">
-          <div class="logo">PartFlow</div>
+          <div class="logo">${safeStoreName}</div>
           <div class="system-name">${isRTL ? 'نظام إدارة المتاجر' : 'Store Management System'}</div>
           <div class="receipt-number">
             ${isRTL ? 'رقم الإيصال: ' : 'Receipt #: '}${new Date().getTime().toString().slice(-8)}
@@ -496,15 +507,23 @@ export const printPaymentReceipt = (paymentData: {
   // إنشاء نافذة جديدة للطباعة
   const printWindow = window.open('', '_blank');
   if (!printWindow) {
-    console.warn('Failed to open print window');
+    console.warn('Failed to open print window. The browser may have blocked popups.');
     return;
   }
 
+  printWindow.document.open();
   printWindow.document.write(htmlContent);
   printWindow.document.close();
 
-  // انتظار تحميل المحتوى ثم الطباعة
-  printWindow.onload = function() {
+  // Chromium/Electron may not emit onload after document.write. Use one
+  // guarded print trigger with a short fallback for both browser runtimes.
+  let printed = false;
+  const triggerPrint = () => {
+    if (printed || printWindow.closed) return;
+    printed = true;
+    printWindow.focus();
     printWindow.print();
   };
+  printWindow.addEventListener('load', triggerPrint, { once: true });
+  window.setTimeout(triggerPrint, 250);
 };

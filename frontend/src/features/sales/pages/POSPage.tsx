@@ -70,9 +70,26 @@ export function POSPage() {
     queryFn: () => settingsApi.getSetting('tax_rate'),
     retry: false,
   });
+  const { data: discountSetting } = useQuery({
+    queryKey: ['settings', 'max_discount_rate'],
+    queryFn: () => settingsApi.getSetting('max_discount_rate'),
+    retry: false,
+  });
+  const { data: discountsEnabledSetting } = useQuery({
+    queryKey: ['settings', 'discounts_enabled'],
+    queryFn: () => settingsApi.getSetting('discounts_enabled'),
+    retry: false,
+  });
   const systemTaxRate = Number(taxSetting?.data?.value);
+  const configuredMaxDiscount = Number(discountSetting?.data?.value);
+  const maxDiscountRate = Number.isFinite(configuredMaxDiscount) && configuredMaxDiscount >= 0 && configuredMaxDiscount <= 100
+    ? configuredMaxDiscount
+    : 15;
+  const discountsEnabledValue = String(discountsEnabledSetting?.data?.value ?? '').trim().toLowerCase();
+  const discountsEnabled = !['false', '0', 'off', 'disabled'].includes(discountsEnabledValue);
 
   const [taxExempt, setTaxExempt] = useState(false);
+  const [discountRate, setDiscountRate] = useState(0);
 
   // Custom hooks
   const {
@@ -92,7 +109,11 @@ export function POSPage() {
     total: (taxExempt ? item.price : priceWithTax(item.price)) * item.quantity,
   }));
   const displaySubtotal = displayCart.reduce((sum, item) => sum + item.total, 0);
-  const displayTotal = displaySubtotal;
+  const appliedDiscountRate = discountsEnabled
+    ? Math.min(Math.max(Number(discountRate) || 0, 0), maxDiscountRate)
+    : 0;
+  const displayDiscount = Math.round(displaySubtotal * appliedDiscountRate) / 100;
+  const displayTotal = Math.max(0, Math.round((displaySubtotal - displayDiscount) * 100) / 100);
   const {
     paymentMethod,
     setPaymentMethod,
@@ -600,6 +621,7 @@ export function POSPage() {
       payment_amount: parseFloat(paidAmount) || 0,
       total_amount: displayTotal,
       tax_exempt: taxExempt,
+      ...(appliedDiscountRate > 0 ? { discount_type: 'percentage', discount_value: appliedDiscountRate } : {}),
     };
 
     const invoiceData: InvoiceData = {
@@ -644,6 +666,7 @@ export function POSPage() {
     displayCart,
     displaySubtotal,
     displayTotal,
+    appliedDiscountRate,
     taxExempt,
     customers,
     calculateRemaining,
@@ -697,6 +720,7 @@ export function POSPage() {
       payment_amount: displayTotal,
       total_amount: displayTotal,
       tax_exempt: taxExempt,
+      ...(appliedDiscountRate > 0 ? { discount_type: 'percentage', discount_value: appliedDiscountRate } : {}),
     }
 
     const invoiceData: InvoiceData = {
@@ -739,6 +763,7 @@ export function POSPage() {
     displayCart,
     displaySubtotal,
     displayTotal,
+    appliedDiscountRate,
     taxExempt,
     customers,
     getAvailableStockCount,
@@ -1011,6 +1036,23 @@ export function POSPage() {
             />
             <span>معفى من الضريبة لهذه الفاتورة</span>
           </label>
+
+          {discountsEnabled && (
+            <div className="border-b border-border px-3 py-3">
+              <Input
+                label="خصم على الفاتورة (%)"
+                type="number"
+                min="0"
+                max={maxDiscountRate}
+                step="0.01"
+                value={discountRate}
+                onChange={(event) => setDiscountRate(Math.min(Math.max(Number(event.target.value) || 0, 0), maxDiscountRate))}
+              />
+              <p className="mt-1 text-xs text-text-secondary">
+                أقصى خصم مسموح: {maxDiscountRate}%. مثال: فاتورة 1,000 ₪ مع خصم 10% تصبح 900 ₪.
+              </p>
+            </div>
+          )}
 
           {/* Cart Panel */}
           <ModernCartPanel
