@@ -41,8 +41,9 @@ export function AttentionSection({
 
   return (
     <Card variant="ai" style={{
-      background: 'var(--color-primary-08)',
-      border: '1px solid var(--color-primary-20)'
+      background: 'transparent',
+      border: 'none',
+      boxShadow: 'none'
     }}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
