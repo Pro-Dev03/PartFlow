@@ -3,7 +3,7 @@
   "productName": "PartFlow",
   "artifactName": "PartFlow-${version}-${arch}.${ext}",
   "directories": {
-    "output": "dist-electron",
+    "output": "dist-electron-internal",
     "buildResources": "build"
   },
   "files": [
@@ -24,7 +24,6 @@
   "extraMetadata": {
     "main": "electron/main.js"
   },
-  "icon": "build/icon",
   "win": {
     "target": [
       {
@@ -36,16 +35,17 @@
         "arch": ["x64"]
       }
     ],
-    "icon": "build/icon.ico",
     "requestedExecutionLevel": "asInvoker",
-    "signAndEditExecutable": true
+    "signAndEditExecutable": true,
+    "signtoolOptions": {
+      "certificateSubjectName": "PartFlow Internal Code Signing"
+    },
+    "forceCodeSigning": true
   },
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
     "deleteAppDataOnUninstall": false,
-    "installerIcon": "build/icon.ico",
-    "uninstallerIcon": "build/icon.ico",
     "shortcutName": "PartFlow",
     "artifactName": "PartFlow-${version}-setup.exe"
   },

@@ -130,3 +130,42 @@
 ## الخلاصة
 
 تم إصلاح الفجوات البرمجية الأساسية التي ظهرت في الفحص السابق، خصوصاً الكتابة المباشرة إلى PostgreSQL، نقص توكن السحابة في السحب، وبقاء endpoint تغيير وضع التشغيل. نتائج الاختبارات والتجميع كلها ناجحة. الإجراء المتبقي الوحيد خارج المستودع هو تدوير credential قاعدة البيانات والتحقق من إعدادات الأسرار في بيئة الإنتاج.
+
+## ملحق: الشهادة الداخلية
+
+تم إنشاء شهادة Windows داخلية باسم `PartFlow Internal Code Signing` على حساب Windows الحالي.
+
+- thumbprint: `7E53B9CA43FB60FCBA0564D62BA0581394E46818`
+- الصلاحية: حتى 2029-09-12.
+- المفتاح الخاص بقي داخل `Cert:\CurrentUser\My` وغير قابل للتصدير.
+- الشهادة العامة محفوظة خارج المستودع في `C:\Users\Administrator\Desktop\PartFlow-signing\PartFlow-Internal-Code-Signing.cer`.
+- تم تفعيل `forceCodeSigning` في `frontend/electron-builder.json`.
+- تم ضبط `signtoolOptions.certificateSubjectName` لاستخدام الشهادة من مخزن Windows الحالي.
+
+## نتيجة بناء Windows
+
+تم بناء artifacts داخل:
+
+`C:\Users\Administrator\AppData\Local\Temp\PartFlow-electron-signed`
+
+الملفات الموقعة:
+
+- `PartFlow-0.0.0-setup.exe`
+- `PartFlow-0.0.0-portable.exe`
+- `win-unpacked\PartFlow.exe`
+
+تحقق Authenticode وجد التوقيع والموقّع والـthumbprint الصحيحين. يعرض Windows حالة `UnknownError` لأن الشهادة Self-Signed وتنتهي سلسلة الثقة في جذر داخلي، وليست شهادة عامة من جهة إصدار معتمدة. هذا مقبول للاستخدام الداخلي بعد تثبيت ملف `.cer` على أجهزة المتاجر، لكنه لا يزيل SmartScreen على أجهزة عامة.
+
+## تثبيت الثقة على جهاز متجر
+
+انسخ ملف الشهادة العامة إلى الجهاز ثم نفّذ PowerShell بحساب المستخدم الذي سيشغّل التطبيق:
+
+```powershell
+Import-Certificate -FilePath .\PartFlow-Internal-Code-Signing.cer -CertStoreLocation Cert:\CurrentUser\TrustedPublisher
+```
+
+لإدارة عدة أجهزة، وزّع الشهادة عبر Group Policy أو إدارة الأجهزة المؤسسية بدلاً من إرسال المفتاح الخاص. لا ترفع ملف `.pfx` أو المفتاح الخاص إلى GitHub أو Render.
+
+## حدود الحل
+
+هذه ليست شهادة عامة موثوقة من Windows. هي حل مجاني داخلي لمتاجر وأجهزة تحت الإدارة. التوزيع العام ما زال يحتاج شهادة Authenticode مدفوعة أو سيعرض تحذير SmartScreen.
