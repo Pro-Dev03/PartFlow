@@ -215,7 +215,9 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 
 func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 	productCostExpr := "COALESCE(ii.purchase_cost, p.cost_price, p.purchase_price, 0)"
-	if s.db.DriverName() == "sqlite" && !sqliteHasColumns(s.db, "products", "cost_price") {
+	if s.db.DriverName() != "sqlite" {
+		productCostExpr = "COALESCE(ii.purchase_cost, p.cost_price, 0)"
+	} else if !sqliteHasColumns(s.db, "products", "cost_price") {
 		productCostExpr = "COALESCE(ii.purchase_cost, p.purchase_price, 0)"
 	}
 	query := fmt.Sprintf(`
