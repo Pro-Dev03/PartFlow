@@ -55,7 +55,7 @@ export function InventoryDistribution({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Package className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
-          حالات المخزون (تراكمي)
+          حالة المخزون
         </CardTitle>
       </CardHeader>
       <CardContent>
