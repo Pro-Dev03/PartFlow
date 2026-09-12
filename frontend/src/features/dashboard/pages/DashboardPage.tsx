@@ -3,7 +3,7 @@ import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { cn } from '../../../utils';
-import { dashboardApi, debtsApi, notificationsApi } from '../../../services/api/endpoints';
+import { dashboardApi, debtsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
@@ -23,7 +23,6 @@ import {
   AlertTriangle,
   Clock,
   Activity,
-  Bell,
   RotateCcw,
   Plus,
   Package,
@@ -71,12 +70,6 @@ export function DashboardPage() {
     queryFn: () => debtsApi.list({ page: 1, per_page: 100 }),
     refetchInterval: 300000,
     staleTime: 180000,
-  });
-
-  const { data: notificationsData } = useQuery({
-    queryKey: ['notifications', 'dashboard'],
-    queryFn: () => notificationsApi.list(),
-    staleTime: 30000,
   });
 
   if (isLoading) {
@@ -140,7 +133,6 @@ export function DashboardPage() {
       .map((debt: any) => debt.customer_id || debt.customer?.id)
       .filter(Boolean)
   ).size;
-  const notifications = Array.isArray(notificationsData?.data) ? notificationsData.data : [];
   return (
     <div>
       {/* Page Header with Today's Summary */}
@@ -288,31 +280,6 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Notifications */}
-        <Card variant="open">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="w-5 h-5" style={{ color: 'var(--color-info)' }} />
-              {t('notifications.title')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {notifications.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
-                {notifications.slice(0, 5).map((notification: any) => (
-                  <div key={notification.id} className="rounded-lg border border-border p-3">
-                    <p className="text-sm font-medium text-text-primary">{notification.title || notification.message}</p>
-                    {notification.title && notification.message && (
-                      <p className="mt-1 text-xs text-text-secondary">{notification.message}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="py-4 text-center text-text-muted">لا توجد إشعارات فعلية حاليًا</p>
-            )}
-          </CardContent>
-        </Card>
       </div>
 
       {/* Tertiary: Smart Alerts */}
