@@ -106,7 +106,7 @@ export function CustomerList({
                   <TableHead className="w-[12%]">الكود</TableHead>
                   <TableHead className="w-[20%]">الاسم</TableHead>
                   <TableHead className="w-[18%]">الهاتف</TableHead>
-                  <TableHead className="w-[18%] text-center">المشتريات</TableHead>
+                  <TableHead className="w-[18%] text-center">مشتريات العميل (تراكمي)</TableHead>
                   <TableHead className="w-[18%] text-center">الديون</TableHead>
                   <TableHead className="w-[14%] text-end">الإجراءات</TableHead>
                 </TableRow>
@@ -181,7 +181,7 @@ export function CustomerList({
                       <span className="font-medium text-text-secondary">{customer.phone}</span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-text-tertiary">المشتريات</span>
+                      <span className="text-text-tertiary">مشتريات العميل (تراكمي)</span>
                       <span className="font-semibold text-primary">₪{customer.totalPurchases?.toLocaleString() || 0}</span>
                     </div>
                     <div className="flex items-center justify-between gap-2">

@@ -49,7 +49,7 @@ export function CustomerFilters({
 
           <Button variant="secondary" onClick={onSortPurchases} className="gap-2">
             <ArrowUpDown className="h-4 w-4" />
-            <span>المشتريات</span>
+            <span>مشتريات العميل (تراكمي)</span>
             {sortConfig.key === 'totalPurchases' && (
               sortConfig.direction === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : sortConfig.direction === 'desc' ? <ChevronDown className="h-3.5 w-3.5" /> : null
             )}
