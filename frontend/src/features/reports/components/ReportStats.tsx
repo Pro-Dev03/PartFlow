@@ -31,9 +31,9 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
         ];
       case 'debts':
         return [
-          ['إجمالي الديون', value(report.total_debt), DollarSign, 'قيمة الديون الأصلية', 'featured'],
-          ['المدفوع', value(report.total_paid), DollarSign, 'دفعات مسجلة', 'success'],
-          ['المتبقي', value(report.outstanding), DollarSign, 'الرصيد المستحق', 'warning'],
+          ['إجمالي الديون الأصلية', value(report.total_debt), DollarSign, 'قيمة الدين قبل التحصيل', 'featured'],
+          ['المحصّل', value(report.total_paid), DollarSign, 'ما تم تحصيله من المدينين', 'success'],
+          ['غير مسدد', value(report.outstanding), DollarSign, 'المبلغ المتبقي على العملاء', 'warning'],
           ['متأخر', value(report.overdue_debt), AlertTriangle, 'يحتاج متابعة', 'danger'],
         ];
       case 'suppliers':

@@ -19,6 +19,7 @@ export function useDebts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['debts'] });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
     },
   });
 
@@ -74,7 +75,12 @@ export function useDebts() {
     ),
     remainingAmount: debts.reduce((sum, debt) => sum + (debt.remaining_amount || 0), 0),
     overdueCount: debts.filter((debt) => debt.status === 'overdue').length,
-    customerCount: overdueCustomers.length,
+    customerCount: new Set(
+      debts
+        .filter((debt) => Number(debt.remaining_amount || 0) > 0)
+        .map((debt) => debt.customer?.id || debt.customer_id)
+        .filter(Boolean)
+    ).size,
   };
 
   // Helper function to check date range

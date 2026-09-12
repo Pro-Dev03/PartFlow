@@ -1,5 +1,7 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Printer, Download, Package, Layers, Clock, CheckCircle, XCircle } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { Button } from '../ui/button';
 
 interface UsedPartsInvoiceProps {
@@ -35,12 +37,12 @@ interface UsedPartsInvoiceProps {
     taxNumber?: string;
   };
   onPrint?: () => void;
-  onDownload?: () => void;
   onClose?: () => void;
 }
 
-export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onDownload, onClose }: UsedPartsInvoiceProps) {
+export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: UsedPartsInvoiceProps) {
   const invoiceRef = useRef<HTMLDivElement>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const defaultStoreInfo = {
     name: 'PartFlow',
@@ -57,6 +59,44 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onDownload, onC
       onPrint();
     } else {
       window.print();
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!invoiceRef.current || isDownloading) return;
+
+    setIsDownloading(true);
+    try {
+      const canvas = await html2canvas(invoiceRef.current, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+      const margin = 10;
+      const pageWidth = 210;
+      const pageHeight = 297;
+      const imageWidth = pageWidth - margin * 2;
+      const imageHeight = (canvas.height * imageWidth) / canvas.width;
+      const imageData = canvas.toDataURL('image/png');
+      let heightLeft = imageHeight;
+      let position = margin;
+
+      pdf.addImage(imageData, 'PNG', margin, position, imageWidth, imageHeight);
+      heightLeft -= pageHeight - margin * 2;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imageHeight + margin;
+        pdf.addPage();
+        pdf.addImage(imageData, 'PNG', margin, position, imageWidth, imageHeight);
+        heightLeft -= pageHeight - margin * 2;
+      }
+
+      const invoiceNumber = String(saleData.id || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '_');
+      pdf.save(`${invoiceNumber}.pdf`);
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -111,15 +151,14 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onDownload, onC
           <Printer className="w-4 h-4 mr-2" />
           طباعة الفاتورة
         </Button>
-        {onDownload && (
-          <Button
-            onClick={onDownload}
-            variant="secondary"
-          >
-            <Download className="w-4 h-4 mr-2" />
-            حفظ كـ PDF
-          </Button>
-        )}
+        <Button
+          onClick={handleDownload}
+          variant="secondary"
+          disabled={isDownloading}
+        >
+          <Download className="w-4 h-4 mr-2" />
+          {isDownloading ? 'جاري إنشاء PDF...' : 'حفظ كـ PDF'}
+        </Button>
         {onClose && (
           <Button
             onClick={onClose}

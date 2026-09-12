@@ -382,6 +382,9 @@ export function AdvancedPaymentPanel({
           {isCreditAdvanceMissing && (
             <p className="payment-error-text">يرجى إدخال رقم للدفعة المقدمة</p>
           )}
+          {remaining > 0 && paymentMethod === 'credit' && (
+            <p className="payment-remaining">المتبقي كدين: ₪{remaining.toLocaleString()}</p>
+          )}
           {remaining > 0 && paymentMethod === 'cash' && (
             <p className="payment-remaining">المتبقي: ₪{remaining.toLocaleString()}</p>
           )}

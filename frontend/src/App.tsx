@@ -137,6 +137,16 @@ function App() {
     };
   }, []);
 
+  if (isPostLoginVerifying) {
+    return (
+      <ErrorBoundary>
+        <QueryProvider>
+          <SubscriptionVerificationScreen />
+        </QueryProvider>
+      </ErrorBoundary>
+    );
+  }
+
   if (isLoading) {
     return (
       <ErrorBoundary>

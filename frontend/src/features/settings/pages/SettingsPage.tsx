@@ -69,11 +69,11 @@ export function SettingsPage() {
     { id: 'appearance', label: t('settings.appearance'), icon: Palette },
     { id: 'notifications', label: t('settings.notifications'), icon: Bell },
     { id: 'audit', label: t('settings.audit'), icon: FileText },
-    ...(isAdmin && isOwner ? [{ id: 'database', label: 'قاعدة البيانات', icon: Trash2 }] : []),
+    ...(isAdmin ? [{ id: 'database', label: 'قاعدة البيانات', icon: Trash2 }] : []),
   ];
 
   useEffect(() => {
-    if ((!isAdmin || !isOwner) && activeTab === 'database') {
+    if (!isAdmin && activeTab === 'database') {
       setActiveTab('store');
     }
   }, [activeTab, isAdmin, isOwner]);
@@ -186,7 +186,7 @@ export function SettingsPage() {
           {activeTab === 'appearance' && <AppearanceSettings />}
           {activeTab === 'notifications' && <NotificationSettings />}
           {activeTab === 'audit' && <AuditSettings />}
-          {activeTab === 'database' && isAdmin && isOwner && (
+          {activeTab === 'database' && isAdmin && (
             <div className="space-y-6">
               <DatabaseSettings />
               {isAdmin && <SubscriptionManagement />}

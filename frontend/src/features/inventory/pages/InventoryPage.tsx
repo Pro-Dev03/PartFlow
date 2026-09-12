@@ -65,6 +65,7 @@ export function InventoryPage() {
   const [inventoryLedgerProduct, setInventoryLedgerProduct] = useState<Product | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<string | null>(null);
+  const [inventoryItemToDelete, setInventoryItemToDelete] = useState<string | null>(null);
   const [minimumStockProduct, setMinimumStockProduct] = useState<Product | null>(null);
   const [minimumStockValue, setMinimumStockValue] = useState('0');
 
@@ -83,6 +84,7 @@ export function InventoryPage() {
     setFilters,
     refetch,
     deleteProductMutation,
+    deleteInventoryItemMutation,
     createProductMutation,
     updateProductMutation,
     updateMinimumStockMutation,
@@ -214,6 +216,14 @@ export function InventoryPage() {
       deleteProductMutation.mutate(productToDelete);
       setDeleteDialogOpen(false);
       setProductToDelete(null);
+    }
+  };
+
+  const handleConfirmInventoryItemDelete = () => {
+    if (inventoryItemToDelete) {
+      deleteInventoryItemMutation.mutate(inventoryItemToDelete);
+      setDeleteDialogOpen(false);
+      setInventoryItemToDelete(null);
     }
   };
 
@@ -515,6 +525,7 @@ export function InventoryPage() {
         onEditProduct={handleEditProduct}
         onEditMinimumStock={handleEditMinimumStock}
         onDeleteProduct={handleDeleteProduct}
+        onDeleteInventoryItem={(itemId) => { setInventoryItemToDelete(itemId); setDeleteDialogOpen(true); }}
         onClearSearch={handleClearSearch}
         onReorderFromSupplier={(supplierId, productName) => {
           // Navigate to purchases page with pre-filled supplier
@@ -591,6 +602,15 @@ export function InventoryPage() {
         cancelText="إلغاء"
         variant="danger"
         isLoading={deleteProductMutation.isPending}
+      />
+      <ConfirmDialog
+        isOpen={Boolean(inventoryItemToDelete)}
+        onClose={() => setInventoryItemToDelete(null)}
+        onConfirm={handleConfirmInventoryItemDelete}
+        title="حذف عنصر المخزون"
+        message="سيُحذف العنصر إذا لم يرتبط بتاريخ، أو سيُؤرشف مع حفظ الحركة المحاسبية إذا كان مرتبطًا."
+        confirmText="تأكيد الحذف"
+        isLoading={deleteInventoryItemMutation.isPending}
       />
     </div>
   );

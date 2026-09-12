@@ -20,6 +20,7 @@ interface InventoryListProps {
   onEditProduct: (product: Product) => void;
   onEditMinimumStock: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
+  onDeleteInventoryItem?: (itemId: string) => void;
   onClearSearch: () => void;
   onReorderFromSupplier?: (supplierId: string, productName: string) => void;
   onViewInvoice?: (invoiceNumber: string) => void;
@@ -59,6 +60,7 @@ function RowActionMenu({
   onEditProduct,
   onEditMinimumStock,
   onDeleteProduct,
+  onDeleteInventoryItem,
   onViewInventoryLedger,
 }: {
   product: Product;
@@ -77,7 +79,7 @@ function RowActionMenu({
     { label: 'تعديل', icon: PencilLine, onClick: () => onEditProduct(product) },
     { label: 'حد الأدنى', icon: SlidersHorizontal, onClick: () => onEditMinimumStock(product) },
     ...(onViewInventoryLedger ? [{ label: 'سجل الحركات', icon: FileText, onClick: () => onViewInventoryLedger(product.id) }] : []),
-    { label: 'حذف', icon: Trash, onClick: () => onDeleteProduct(product.id), danger: true },
+    { label: 'حذف', icon: Trash, onClick: () => (onDeleteInventoryItem ? onDeleteInventoryItem(product.id) : onDeleteProduct(product.id)), danger: true },
   ];
 
   return (
@@ -159,6 +161,7 @@ export function InventoryList({
   onEditProduct,
   onEditMinimumStock,
   onDeleteProduct,
+  onDeleteInventoryItem,
   onClearSearch,
   onReorderFromSupplier,
   onViewInvoice,
@@ -462,6 +465,7 @@ export function InventoryList({
                               onEditProduct={onEditProduct}
                               onEditMinimumStock={onEditMinimumStock}
                               onDeleteProduct={onDeleteProduct}
+                              onDeleteInventoryItem={onDeleteInventoryItem}
                               onViewInventoryLedger={onViewInventoryLedger}
                             />
                           </div>
@@ -538,6 +542,7 @@ export function InventoryList({
                           onEditProduct={onEditProduct}
                           onEditMinimumStock={onEditMinimumStock}
                           onDeleteProduct={onDeleteProduct}
+                          onDeleteInventoryItem={onDeleteInventoryItem}
                           onViewInventoryLedger={onViewInventoryLedger}
                         />
                       </div>

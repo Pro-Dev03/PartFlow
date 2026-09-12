@@ -1,10 +1,15 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, LogOut, ShieldAlert } from 'lucide-react';
-import { useAuthStore } from '../../../stores/authStore';
+import { useAuthStore, validateSubscriptionWithCloud } from '../../../stores/authStore';
 
 export default function SubscriptionExpiredPage() {
   const navigate = useNavigate();
   const logout = useAuthStore((state) => state.logout);
+
+  useEffect(() => {
+    void validateSubscriptionWithCloud();
+  }, []);
 
   const handleLogout = () => {
     logout();

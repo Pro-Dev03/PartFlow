@@ -395,15 +395,12 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 			if isDebtSale {
 				debtStatus := "pending"
-				if paymentAmount > 0 {
-					debtStatus = "partial"
-				}
 				debtQuery := fmt.Sprintf(`
 					INSERT INTO debts (id, customer_id, sale_id, amount, paid_amount, remaining_amount, due_date, status, notes, created_at, updated_at)
 					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, %s, %s)
 				`, dbutil.NowSQL(s.db), dbutil.NowSQL(s.db))
 				if _, debtErr := tx.ExecContext(ctx, debtQuery,
-					uuid.New(), *req.CustomerID, sale.ID, totalAmount, paymentAmount, debtAmount,
+					uuid.New(), *req.CustomerID, sale.ID, debtAmount, 0, debtAmount,
 					time.Now().AddDate(0, 0, 30), debtStatus, "Sale: "+invoiceNumber); debtErr != nil {
 					return nil, fmt.Errorf("failed to create sale debt: %w", debtErr)
 				}

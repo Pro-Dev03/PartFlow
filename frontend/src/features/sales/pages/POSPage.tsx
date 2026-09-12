@@ -770,7 +770,7 @@ export function POSPage() {
           id: String(customer.id),
           name: customer.name,
         });
-        setCustomerBalance(customer.balance || 0);
+        setCustomerBalance(customer.current_balance ?? customer.balance ?? 0);
         setCustomerCreditLimit(customer.credit_limit);
       }
     } else {
@@ -1226,7 +1226,6 @@ export function POSPage() {
           <UsedPartsInvoice
             saleData={lastSaleData}
             onPrint={() => window.print()}
-            onDownload={() => window.print()}
             onClose={() => setIsInvoiceModalOpen(false)}
           />
         )}

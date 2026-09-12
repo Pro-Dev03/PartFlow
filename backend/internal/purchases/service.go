@@ -644,7 +644,7 @@ func (s *Service) ReversePurchase(ctx context.Context, id uuid.UUID, userID uuid
 	for _, item := range items {
 		updateItemQuery := fmt.Sprintf(`
 			UPDATE inventory_items
-			SET status = 'RETURNED', updated_at = %s
+			SET status = 'REVERSED', updated_at = %s
 			WHERE id = $1
 		`, dbutil.NowSQL(s.db))
 		if _, err = tx.ExecContext(ctx, updateItemQuery, item.ID); err != nil {

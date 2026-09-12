@@ -198,6 +198,7 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
         isAuthenticated: true,
         sessionVerified: true,
       });
+      goToAppDashboard();
       return true;
     } catch {
       // A cloud outage is not proof of an active subscription.
@@ -231,6 +232,15 @@ function goToSubscriptionExpiredPage(): void {
     currentUrl.hash = '#/subscription-expired';
     window.location.href = currentUrl.toString();
   }
+}
+
+function goToAppDashboard(): void {
+  if (typeof window === 'undefined' || !window.location.hash.includes('/subscription-expired')) {
+    return;
+  }
+
+  window.location.hash = '#/app/dashboard';
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
 }
 
 function isInvalidTokenError(error: unknown): boolean {

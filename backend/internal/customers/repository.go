@@ -717,7 +717,7 @@ func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) e
 		// supported builds.
 		var debtID string
 		if err := r.db.GetContext(ctx, &debtID, `SELECT id FROM debts WHERE customer_id = $1 AND remaining_amount > 0 AND status IN ('pending','partial','overdue') ORDER BY due_date ASC, created_at ASC LIMIT 1`, payment.CustomerID); err == nil {
-			_, _ = r.db.ExecContext(ctx, `UPDATE debts SET remaining_amount = MAX(0, remaining_amount - $1), status = CASE WHEN remaining_amount - $1 <= 0 THEN 'paid' ELSE 'partial' END, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, payment.Amount, debtID)
+			_, _ = r.db.ExecContext(ctx, `UPDATE debts SET paid_amount = MIN(amount, paid_amount + $1), remaining_amount = MAX(0, remaining_amount - $1), status = CASE WHEN remaining_amount - $1 <= 0 THEN 'paid' ELSE 'partial' END, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, payment.Amount, debtID)
 		}
 		return nil
 	}
@@ -761,6 +761,7 @@ func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) e
 		)
 		UPDATE debts 
 		SET remaining_amount = GREATEST(0, remaining_amount - $2),
+		    paid_amount = LEAST(amount, paid_amount + $2),
 		    updated_at = NOW()
 		WHERE id = (SELECT id FROM ordered_debts LIMIT 1)
 		RETURNING remaining_amount

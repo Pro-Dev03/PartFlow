@@ -3,7 +3,7 @@ import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { cn } from '../../../utils';
-import { dashboardApi, notificationsApi } from '../../../services/api/endpoints';
+import { dashboardApi, debtsApi, notificationsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
@@ -66,6 +66,13 @@ export function DashboardPage() {
     staleTime: 180000,
   });
 
+  const { data: debtsData } = useQuery({
+    queryKey: ['debts'],
+    queryFn: () => debtsApi.list({ page: 1, per_page: 100 }),
+    refetchInterval: 300000,
+    staleTime: 180000,
+  });
+
   const { data: notificationsData } = useQuery({
     queryKey: ['notifications', 'dashboard'],
     queryFn: () => notificationsApi.list(),
@@ -106,6 +113,33 @@ export function DashboardPage() {
   const stats = dashboardData?.data as DashboardStats | undefined;
   const lowStockItems = lowStockItemsData?.data || [];
   const overdueDebtItems = overdueDebtsData?.data || [];
+  const debtRows = Array.isArray(debtsData?.data) ? debtsData.data : [];
+  const unpaidDebtItems = debtRows
+    .filter((debt: any) => Number(debt.remaining_amount ?? debt.remainingAmount ?? 0) > 0)
+    .map((debt: any) => {
+      const dueDate = debt.due_date || debt.dueDate;
+      const dueDay = dueDate ? String(dueDate).slice(0, 10) : '';
+      const today = new Date();
+      const todayDay = [today.getFullYear(), today.getMonth() + 1, today.getDate()]
+        .map((part) => String(part).padStart(2, '0'))
+        .join('-');
+      const daysOverdue = dueDay && dueDay < todayDay
+        ? Math.floor((Date.parse(`${todayDay}T00:00:00`) - Date.parse(`${dueDay}T00:00:00`)) / (1000 * 60 * 60 * 24))
+        : 0;
+      return {
+        id: String(debt.id),
+        customer_name: debt.customer_name || debt.customer?.name || 'عميل',
+        remaining_amount: Number(debt.remaining_amount ?? debt.remainingAmount ?? 0),
+        due_date: dueDate || '',
+        days_overdue: daysOverdue,
+      };
+    });
+  const unpaidDebtorCount = new Set(
+    debtRows
+      .filter((debt: any) => Number(debt.remaining_amount ?? debt.remainingAmount ?? 0) > 0)
+      .map((debt: any) => debt.customer_id || debt.customer?.id)
+      .filter(Boolean)
+  ).size;
   const notifications = Array.isArray(notificationsData?.data) ? notificationsData.data : [];
   return (
     <div>
@@ -148,10 +182,12 @@ export function DashboardPage() {
           overdueDebtsCount={stats?.overdueDebts as number}
           lowStockItems={lowStockItems}
           overdueDebtItems={overdueDebtItems}
+          unpaidDebtsCount={unpaidDebtorCount}
+          unpaidDebtItems={unpaidDebtItems}
         />
         <SmartActions
           lowStockCount={stats?.lowStockCount as number}
-          overdueDebtsCount={stats?.overdueDebts as number}
+          overdueDebtsCount={unpaidDebtorCount}
         />
       </div>
 

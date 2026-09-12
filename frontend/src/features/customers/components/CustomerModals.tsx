@@ -6,7 +6,8 @@ import { getButtonSize } from '../../../config/button-sizes';
 import { Customer } from '../types/customers.types';
 import { User, DollarSign, ShoppingCart, Calendar, CreditCard, FileText, History, AlertTriangle } from 'lucide-react';
 import { LedgerEntry } from '../../../components/ui/financial-timeline';
-import { customersApi } from '../../../services/api/endpoints';
+import { customersApi, salesApi } from '../../../services/api/endpoints';
+import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
 
 // Lazy load heavy FinancialTimeline component
 const FinancialTimeline = lazy(() => import('../../../components/ui/financial-timeline').then(m => ({ default: m.FinancialTimeline })));
@@ -35,6 +36,13 @@ export function CustomerModals({
 }: CustomerModalsProps) {
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
   const [loadingLedger, setLoadingLedger] = useState(false);
+  const [customerSales, setCustomerSales] = useState<any[]>([]);
+  const [isSalesHistoryOpen, setIsSalesHistoryOpen] = useState(false);
+  const [loadingSales, setLoadingSales] = useState(false);
+  const [salesError, setSalesError] = useState('');
+  const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
+  const [invoiceData, setInvoiceData] = useState<any>(null);
+  const [loadingInvoice, setLoadingInvoice] = useState(false);
 
   // Load ledger entries when viewing a customer
   useEffect(() => {
@@ -68,6 +76,77 @@ export function CustomerModals({
       setLedgerEntries([]);
     } finally {
       setLoadingLedger(false);
+    }
+  };
+
+  const loadCustomerSales = async () => {
+    if (!selectedCustomer) return;
+
+    setIsSalesHistoryOpen(true);
+    setLoadingSales(true);
+    setSalesError('');
+    try {
+      const response = await salesApi.list({
+        customer_id: selectedCustomer.id,
+        page: 1,
+        per_page: 100,
+      });
+      const payload = response?.data ?? response;
+      const sales = Array.isArray(payload)
+        ? payload
+        : payload?.sales ?? payload?.data ?? [];
+      setCustomerSales(Array.isArray(sales) ? sales : []);
+    } catch (error) {
+      console.error('Failed to load customer sales:', error);
+      setCustomerSales([]);
+      setSalesError('تعذر تحميل فواتير العميل. حاول مرة أخرى.');
+    } finally {
+      setLoadingSales(false);
+    }
+  };
+
+  const openSaleInvoice = async (sale: any) => {
+    setLoadingInvoice(true);
+    try {
+      const response = await salesApi.get(String(sale.id));
+      const payload = response?.data ?? response;
+      const saleDetails = payload?.sale ?? payload;
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      const total = Number(saleDetails.total_amount ?? sale.total_amount ?? 0);
+      const paidAmount = Number(saleDetails.paid_amount ?? sale.paid_amount ?? 0);
+
+      setInvoiceData({
+        id: saleDetails.invoice_number || sale.invoice_number || saleDetails.id,
+        customerName: selectedCustomer?.name || '',
+        customerPhone: selectedCustomer?.phone,
+        saleDate: saleDetails.sale_date || sale.created_at || new Date().toISOString(),
+        items: items.map((item: any) => ({
+          name: item.product_name || item.name || 'منتج',
+          condition: item.condition || 'NEW',
+          grade: item.grade,
+          sellingPrice: Number(item.unit_price ?? item.selling_price ?? 0),
+          quantity: Number(item.quantity ?? 1),
+          total: Number(item.total_amount ?? item.total ?? 0),
+          partType: item.part_type || item.partType,
+          partTypeColor: item.part_type_color || item.partTypeColor,
+        })),
+        subtotal: Number(saleDetails.subtotal ?? total),
+        total,
+        paidAmount,
+        remaining: Math.max(total - paidAmount, 0),
+        paymentMethod: saleDetails.payment_method === 'debt'
+          ? 'credit'
+          : saleDetails.payment_method === 'transfer'
+            ? 'bank_transfer'
+            : saleDetails.payment_method || 'cash',
+      });
+      setIsSalesHistoryOpen(false);
+      setIsInvoiceOpen(true);
+    } catch (error) {
+      console.error('Failed to load sale invoice:', error);
+      setSalesError('تعذر تحميل تفاصيل الفاتورة. حاول مرة أخرى.');
+    } finally {
+      setLoadingInvoice(false);
     }
   };
   return (
@@ -211,6 +290,7 @@ export function CustomerModals({
                   variant="secondary"
                   size={getButtonSize('customers', 'modalAction')}
                   style={{ flex: 1 }}
+                  onClick={loadCustomerSales}
                 >
                   <ShoppingCart className="w-4 h-4 mr-2" />
                   بيع جديد
@@ -285,6 +365,67 @@ export function CustomerModals({
               </Button>
             </div>
           </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={isSalesHistoryOpen}
+        onClose={() => setIsSalesHistoryOpen(false)}
+        title={`فواتير ${selectedCustomer?.name || 'العميل'}`}
+        variant="modern"
+        size="xl"
+      >
+        {loadingSales ? (
+          <div className="flex min-h-40 items-center justify-center">
+            <div className="animate-spin rounded-full border-2 border-text-muted/20 border-t-primary" style={{ width: '36px', height: '36px' }} />
+          </div>
+        ) : salesError ? (
+          <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-center text-red-600">{salesError}</div>
+        ) : customerSales.length === 0 ? (
+          <div className="rounded-lg border border-border p-6 text-center text-text-secondary">لا توجد فواتير مسجلة لهذا العميل.</div>
+        ) : (
+          <div className="space-y-3">
+            {customerSales.map((sale) => {
+              const total = Number(sale.total_amount ?? 0);
+              const paid = Number(sale.paid_amount ?? 0);
+              return (
+                <button
+                  key={sale.id}
+                  type="button"
+                  onClick={() => openSaleInvoice(sale)}
+                  disabled={loadingInvoice}
+                  className="flex w-full items-center justify-between rounded-lg border border-border bg-surface p-4 text-right transition hover:border-primary hover:bg-surface-elevated disabled:opacity-60"
+                >
+                  <span>
+                    <span className="block font-semibold text-text-primary">{sale.invoice_number || sale.id}</span>
+                    <span className="mt-1 block text-sm text-text-secondary">
+                      {sale.sale_date ? new Date(sale.sale_date).toLocaleDateString('ar-SA') : 'بدون تاريخ'}
+                    </span>
+                  </span>
+                  <span>
+                    <span className="block font-semibold text-text-primary">₪{total.toLocaleString()}</span>
+                    <span className="mt-1 block text-sm text-text-secondary">المتبقي: ₪{Math.max(total - paid, 0).toLocaleString()}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={isInvoiceOpen}
+        onClose={() => setIsInvoiceOpen(false)}
+        title="فاتورة البيع"
+        variant="modern"
+        size="xl"
+      >
+        {invoiceData && (
+          <UsedPartsInvoice
+            saleData={invoiceData}
+            onPrint={() => window.print()}
+            onClose={() => setIsInvoiceOpen(false)}
+          />
         )}
       </Modal>
     </>

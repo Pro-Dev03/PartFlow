@@ -280,7 +280,7 @@ export const itemSpecsApi = {
 
 // Sales endpoints
 export const salesApi = {
-  list: (params?: PaginationParams & { search?: string; available_for_return?: boolean }) =>
+  list: (params?: PaginationParams & { search?: string; customer_id?: string; status?: string; available_for_return?: boolean }) =>
     apiClient.get('/sales', params),
   get: (id: string) => apiClient.get(`/sales/${id}`),
   create: (data: SaleCreateRequest) => apiClient.post('/sales', data),

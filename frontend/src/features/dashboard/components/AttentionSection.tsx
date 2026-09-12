@@ -24,13 +24,17 @@ interface AttentionSectionProps {
   overdueDebtsCount?: number;
   lowStockItems?: LowStockItem[];
   overdueDebtItems?: OverdueDebtItem[];
+  unpaidDebtsCount?: number;
+  unpaidDebtItems?: OverdueDebtItem[];
 }
 
 export function AttentionSection({
   lowStockCount = 0,
   overdueDebtsCount = 0,
   lowStockItems = [],
-  overdueDebtItems = []
+  overdueDebtItems = [],
+  unpaidDebtsCount = 0,
+  unpaidDebtItems = [],
 }: AttentionSectionProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -111,8 +115,63 @@ export function AttentionSection({
             </div>
           )}
 
-          {/* Overdue Debts Alert with Details */}
-          {overdueDebtsCount > 0 && (
+          {/* Unpaid Debts Alert with Details */}
+          {unpaidDebtsCount > 0 && (
+            <div style={{
+              padding: '16px',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--color-danger-08)',
+              border: '1px solid var(--color-danger-20)'
+            }}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-danger-15)' }}>
+                  <AlertTriangle className="w-5 h-5" style={{ color: 'var(--color-danger)' }} />
+                </div>
+                <div>
+                  <p style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                    <span className="numeric-quantity">{unpaidDebtsCount}</span> عملاء لديهم ديون غير مسددة
+                  </p>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    تحتاج متابعة التحصيل
+                  </p>
+                </div>
+              </div>
+
+              {unpaidDebtItems.length > 0 && (
+                <div className="flex flex-col gap-2 mb-3">
+                  {unpaidDebtItems.slice(0, 3).map((debt) => (
+                    <div key={debt.id} className="flex items-center justify-between" style={{
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--color-danger-05)'
+                    }}>
+                      <div className="flex-1">
+                        <p style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-primary)' }}>
+                          {debt.customer_name}
+                        </p>
+                        <p style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                          غير مسدد: ₪{debt.remaining_amount.toLocaleString()}
+                          {debt.days_overdue > 0 ? ` | متأخر ${debt.days_overdue} يوم` : ' | غير متأخر بعد'}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Button
+                variant="secondary"
+                onClick={() => navigate('/app/debts')}
+                className="w-full"
+                style={{ background: 'var(--color-danger-10)', border: '1px solid var(--color-danger-20)' }}
+              >
+                عرض الديون وتسجيل التحصيل ←
+              </Button>
+            </div>
+          )}
+
+          {/* Legacy overdue source remains as a fallback while debt rows load. */}
+          {overdueDebtsCount > 0 && unpaidDebtsCount === 0 && (
             <div style={{
               padding: '16px',
               borderRadius: 'var(--radius-md)',
@@ -177,7 +236,7 @@ export function AttentionSection({
           )}
 
           {/* No Alerts */}
-          {lowStockCount === 0 && overdueDebtsCount === 0 && (
+          {lowStockCount === 0 && overdueDebtsCount === 0 && unpaidDebtsCount === 0 && (
             <div style={{
               padding: '20px',
               borderRadius: 'var(--radius-md)',

@@ -178,6 +178,18 @@ export function useInventory() {
     },
   });
 
+  const deleteInventoryItemMutation = useMutation({
+    mutationFn: (itemId: string) => inventoryApi.delete(itemId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      toast.success('تم حذف/أرشفة عنصر المخزون بنجاح');
+    },
+    onError: (error: any) => {
+      console.error('Delete inventory item failed:', error);
+      toast.error(error?.message || 'تعذر حذف عنصر المخزون');
+    },
+  });
+
   const archiveProductMutation = useMutation({
     mutationFn: (productId: string) => productsApi.archive(productId),
     onSuccess: () => {
@@ -360,6 +372,7 @@ export function useInventory() {
     
     // Mutations
     deleteProductMutation,
+    deleteInventoryItemMutation,
     archiveProductMutation,
     createProductMutation,
     updateProductMutation,

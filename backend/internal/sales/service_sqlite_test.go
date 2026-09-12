@@ -239,7 +239,7 @@ func TestCreateSaleSQLiteCreatesLinkedCreditDebt(t *testing.T) {
 	if err := db.QueryRow(`SELECT current_balance FROM customers WHERE id = $1`, customerID).Scan(&balance); err != nil {
 		t.Fatal(err)
 	}
-	if amount != 25 || paid != 5 || remaining != 20 || balance != 20 || debtSaleID != sale.ID.String() {
+	if amount != 20 || paid != 0 || remaining != 20 || balance != 20 || debtSaleID != sale.ID.String() {
 		t.Fatalf("debt values amount=%v paid=%v remaining=%v balance=%v sale_id=%s", amount, paid, remaining, balance, debtSaleID)
 	}
 }
