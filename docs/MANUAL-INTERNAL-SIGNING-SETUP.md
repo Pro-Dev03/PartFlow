@@ -319,8 +319,8 @@ c8651ca build: create one-click internal certificate installer
 
 1. افتح Render Dashboard ثم خدمة `partflow-backend`.
 2. أضف أو حدّث `DATABASE_URL` إلى رابط Supabase الحالي بعد تدوير كلمة المرور.
-3. حدّث `DATABASE_URL` لخدمة `partflow-worker` بنفس القيمة.
-4. أعد تشغيل/انشر الخدمتين.
-5. نفّذ `GET /health` ثم جرّب تسجيل الدخول.
+3. أعد تشغيل/انشر خدمة `partflow-backend`.
+4. نفّذ `GET /health` ثم جرّب تسجيل الدخول.
 
 لا تضع رابط قاعدة البيانات في GitHub أو هذا التقرير؛ استخدم Render Environment Variables فقط.
+
