@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -177,6 +178,49 @@ func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *J
 		&row.CreatedAt,
 		&row.UpdatedAt,
 	)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		now := time.Now().UTC().Format(time.RFC3339)
+		phone := ""
+		if validation.Data.User.Phone != nil {
+			phone = *validation.Data.User.Phone
+		}
+		firstName := validation.Data.User.FirstName
+		lastName := validation.Data.User.LastName
+		if firstName == "" {
+			firstName = validation.Data.FirstName
+		}
+		if lastName == "" {
+			lastName = validation.Data.LastName
+		}
+		if _, err = db.ExecContext(ctx, `
+			INSERT INTO users (
+				id, email, password_hash, first_name, last_name, phone,
+				is_active, is_verified, subscription_status, subscription_expires_at,
+				created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8, $9, $10, $10)
+		`, userID.String(), validation.Data.User.Email, "", firstName, lastName, phone,
+			validation.cloudAccountIsActive(), validation.cloudSubscriptionStatus(),
+			validation.cloudSubscriptionExpiresAt(), now); err != nil {
+			return nil, fmt.Errorf("failed to create local cloud user: %w", err)
+		}
+		err = db.QueryRowContext(ctx, `
+			SELECT id, email, first_name, last_name, phone, is_active,
+			       subscription_status, subscription_expires_at, created_at, updated_at
+			FROM users WHERE id = $1
+		`, userID).Scan(
+			&row.ID,
+			&row.Email,
+			&row.FirstName,
+			&row.LastName,
+			&row.Phone,
+			&row.IsActive,
+			&row.SubscriptionStatus,
+			&row.SubscriptionExpiresAt,
+			&row.CreatedAt,
+			&row.UpdatedAt,
+		)
+	}
 
 	if err != nil {
 		return nil, fmt.Errorf("user not found in local database: %w", err)
