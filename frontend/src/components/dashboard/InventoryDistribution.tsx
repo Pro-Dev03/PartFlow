@@ -17,9 +17,12 @@ interface InventoryDistributionProps {
 
 export function InventoryDistribution({ 
   data, 
-  totalValue = 0, 
-  totalItems = 0 
+  totalValue = 0
 }: InventoryDistributionProps) {
+  const availableItem = data.find((item) => item.name === 'متاح');
+  const availableItems = availableItem?.count ?? 0;
+  const availableValue = availableItem?.value ?? 0;
+
   const getStatusColor = (status?: string) => {
     switch (status) {
       case 'good': return 'var(--color-success)';
@@ -225,14 +228,14 @@ export function InventoryDistribution({
               fontWeight: '600', 
               color: 'var(--text-secondary)' 
             }}>
-              الإجمالي
+              المتاح للبيع
             </span>
             <div style={{ display: 'flex', gap: '16px' }}>
               <span style={{ 
                 fontSize: '12px', 
                 color: 'var(--text-secondary)' 
               }}>
-                {totalItems} قطعة
+                {availableItems} قطعة
               </span>
               <span style={{ 
                 fontSize: '13px', 
@@ -240,7 +243,7 @@ export function InventoryDistribution({
                 color: 'var(--color-primary)',
                 fontFamily: 'var(--font-family-mono)'
               }}>
-                ₪{totalValue.toLocaleString()}
+                ₪{availableValue.toLocaleString()}
               </span>
             </div>
           </div>
