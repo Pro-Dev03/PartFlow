@@ -317,9 +317,9 @@ c8651ca build: create one-click internal certificate installer
 
 بعد نشر إعداد `sync: false`:
 
-1. افتح Render Dashboard ثم خدمة `partflow-backend`.
+1. افتح Render Dashboard ثم خدمة `partflow-api` (`https://partflow-api.onrender.com`).
 2. أضف أو حدّث `DATABASE_URL` إلى رابط Supabase الحالي بعد تدوير كلمة المرور.
-3. أعد تشغيل/انشر خدمة `partflow-backend`.
+3. أعد تشغيل/انشر خدمة `partflow-api`.
 4. نفّذ `GET /health` ثم جرّب تسجيل الدخول.
 
 لا تضع رابط قاعدة البيانات في GitHub أو هذا التقرير؛ استخدم Render Environment Variables فقط.

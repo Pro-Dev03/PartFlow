@@ -1,48 +1,9 @@
 services:
-  # Render Key Value (optional; the current worker does not require it)
+  # The API already exists as partflow-api.onrender.com and is managed
+  # separately in Render. Keep it out of this Blueprint to avoid a duplicate.
   - type: keyvalue
     name: partflow-redis
     plan: free
     ipAllowList: []
     maxmemoryPolicy: noeviction
-
-  # Backend API
-  - type: web
-    name: partflow-backend
-    runtime: docker
-    plan: free
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
-    region: oregon
-    branch: main
-    healthCheckPath: /health
-    envVars:
-      # The cloud authority must use the Supabase database that contains the
-      # subscription accounts; do not silently bind authentication to Render DB.
-      - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: partflow-redis
-          property: connectionString
-      - key: JWT_SECRET
-        generateValue: true
-      - key: SERVER_MODE
-        value: release
-      - key: PARTFLOW_ADMIN_EMAILS
-        sync: false
-      - key: PARTFLOW_ALLOW_PUBLIC_REGISTRATION
-        # Render environment values are strings, even for boolean settings.
-        value: "false"
-      - key: CORS_ALLOWED_ORIGINS
-        value: http://localhost:5174
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_KEY
-        sync: false
-      - key: APP_ENV
-        value: production
-      - key: APP_PORT
-        value: 8080
 
