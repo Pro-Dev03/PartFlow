@@ -1,12 +1,4 @@
 services:
-  # PostgreSQL Database
-  - type: pserv
-    name: partflow-db
-    plan: free
-    databaseName: partflow
-    databaseVersion: 15
-    ipAllowList: []
-
   # Render Key Value (optional; the current worker does not require it)
   - type: keyvalue
     name: partflow-redis
@@ -17,7 +9,7 @@ services:
   # Backend API
   - type: web
     name: partflow-backend
-    env: docker
+    runtime: docker
     plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
@@ -41,7 +33,8 @@ services:
       - key: PARTFLOW_ADMIN_EMAILS
         sync: false
       - key: PARTFLOW_ALLOW_PUBLIC_REGISTRATION
-        value: false
+        # Render environment values are strings, even for boolean settings.
+        value: "false"
       - key: CORS_ALLOWED_ORIGINS
         value: http://localhost:5174
       - key: SUPABASE_URL
@@ -56,7 +49,7 @@ services:
   # Background Worker
   - type: worker
     name: partflow-worker
-    env: docker
+    runtime: docker
     plan: free
     dockerfilePath: ./worker/Dockerfile
     # The Dockerfile uses the repository root as context to build
