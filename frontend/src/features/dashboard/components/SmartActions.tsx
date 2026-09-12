@@ -194,13 +194,13 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
                   className="w-12 h-12 rounded-full flex items-center justify-center transition-transform duration-200 group-hover:scale-110"
                   style={{ 
                     background: isPrimary 
-                      ? 'var(--color-primary)' 
+                      ? 'var(--color-primary)'
                       : isWarning 
                       ? 'var(--color-warning-15)'
                       : isDanger
                       ? 'var(--color-danger-15)'
                       : 'var(--color-primary-10)',
-                    border: `1px solid ${isPrimary ? 'var(--color-primary-40)' : 
+                    border: `1px solid ${isPrimary ? 'var(--color-primary-40)' :
                                     isWarning ? 'var(--color-warning-25)' :
                                     isDanger ? 'var(--color-danger-25)' :
                                     'var(--color-primary-15)'}`
@@ -219,7 +219,7 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
                 <span 
                   className="text-xs font-medium text-center leading-tight"
                   style={{ 
-                    color: isPrimary ? 'var(--color-primary)' : 
+                    color: isPrimary ? 'var(--color-primary)' :
                            isWarning ? 'var(--color-warning)' :
                            isDanger ? 'var(--color-danger)' :
                            'var(--text-primary)',
