@@ -280,7 +280,7 @@ func (s *CachedService) fetchInventoryDistribution(ctx context.Context) *Invento
 				ELSE selling_price
 			END), 0) AS value,
 		       CASE
-				WHEN UPPER(COALESCE(inventory_items.status, '')) = 'SOLD' THEN
+				WHEN UPPER(COALESCE(inventory_items.status, 'UNKNOWN')) = 'SOLD' THEN
 					COALESCE((SELECT SUM(s.total_amount) FROM sales s
 						WHERE LOWER(COALESCE(s.status, 'completed')) = 'completed'), 0)
 				ELSE 0
