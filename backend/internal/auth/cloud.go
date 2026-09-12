@@ -180,6 +180,31 @@ func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *J
 	)
 
 	if errors.Is(err, sql.ErrNoRows) {
+		cloudEmail := strings.TrimSpace(validation.Data.User.Email)
+		if cloudEmail == "" {
+			cloudEmail = strings.TrimSpace(validation.Data.Email)
+		}
+		if cloudEmail != "" {
+			err = db.QueryRowContext(ctx, `
+				SELECT id, email, first_name, last_name, phone, is_active,
+				       subscription_status, subscription_expires_at, created_at, updated_at
+				FROM users WHERE lower(email) = lower($1)
+			`, cloudEmail).Scan(
+				&row.ID,
+				&row.Email,
+				&row.FirstName,
+				&row.LastName,
+				&row.Phone,
+				&row.IsActive,
+				&row.SubscriptionStatus,
+				&row.SubscriptionExpiresAt,
+				&row.CreatedAt,
+				&row.UpdatedAt,
+			)
+		}
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
 		now := time.Now().UTC().Format(time.RFC3339)
 		phone := ""
 		if validation.Data.User.Phone != nil {
@@ -193,13 +218,17 @@ func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *J
 		if lastName == "" {
 			lastName = validation.Data.LastName
 		}
+		cloudEmail := strings.TrimSpace(validation.Data.User.Email)
+		if cloudEmail == "" {
+			cloudEmail = strings.TrimSpace(validation.Data.Email)
+		}
 		if _, err = db.ExecContext(ctx, `
 			INSERT INTO users (
 				id, email, password_hash, first_name, last_name, phone,
 				is_active, is_verified, subscription_status, subscription_expires_at,
 				created_at, updated_at
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8, $9, $10, $10)
-		`, userID.String(), validation.Data.User.Email, "", firstName, lastName, phone,
+		`, userID.String(), cloudEmail, "", firstName, lastName, phone,
 			validation.cloudAccountIsActive(), validation.cloudSubscriptionStatus(),
 			validation.cloudSubscriptionExpiresAt(), now); err != nil {
 			return nil, fmt.Errorf("failed to create local cloud user: %w", err)
