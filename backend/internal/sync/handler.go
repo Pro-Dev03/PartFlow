@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/localdb"
 )
 
 type Handler struct {
@@ -64,6 +65,61 @@ var snapshotTables = []struct {
 
 func NewHandler(db *sqlx.DB) *Handler {
 	return &Handler{db: db}
+}
+
+type PushOperation struct {
+	ID             string `json:"id"`
+	EntityType     string `json:"entity_type"`
+	EntityID       string `json:"entity_id"`
+	Operation      string `json:"operation"`
+	Payload        string `json:"payload"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+type PushRequest struct {
+	Operations []PushOperation `json:"operations"`
+}
+
+type PushRejectedOperation struct {
+	ID       string `json:"id"`
+	Error    string `json:"error"`
+	Conflict bool   `json:"conflict"`
+}
+
+// PushData accepts queue entries only, keeping the cloud contract separate
+// from full SQLite snapshots and preserving manual owner-controlled sync.
+func (h *Handler) PushData(c *gin.Context) {
+	var request PushRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "invalid sync push payload"})
+		return
+	}
+	if len(request.Operations) == 0 || len(request.Operations) > 50 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "sync push must contain between 1 and 50 operations"})
+		return
+	}
+
+	accepted := make([]string, 0, len(request.Operations))
+	rejected := make([]PushRejectedOperation, 0)
+	for _, operation := range request.Operations {
+		entry := localdb.SyncQueueEntry{
+			ID: operation.ID, EntityType: operation.EntityType, EntityID: operation.EntityID,
+			Operation: operation.Operation, Payload: operation.Payload, Idempotency: operation.IdempotencyKey,
+		}
+		if err := ApplyCloudOperation(h.db, entry); err != nil {
+			rejected = append(rejected, PushRejectedOperation{
+				ID: operation.ID, Error: err.Error(),
+				Conflict: strings.Contains(strings.ToLower(err.Error()), "sync conflict"),
+			})
+			continue
+		}
+		accepted = append(accepted, operation.ID)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+		"accepted_ids": accepted, "rejected": rejected,
+		"processed": len(accepted), "failed": len(rejected),
+	}})
 }
 
 // GetInitialData returns all user data for initial sync

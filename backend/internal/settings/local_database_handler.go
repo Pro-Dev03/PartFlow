@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/partflow/smart-store/internal/localdb"
 	"github.com/partflow/smart-store/internal/sync"
-	"github.com/partflow/smart-store/pkg/database"
 )
 
 type LocalDatabaseHandler struct{}
@@ -23,10 +22,6 @@ type LocalDatabaseHandler struct{}
 // writes and metadata updates to avoid transient SQLITE_BUSY/constraint
 // failures while keeping the cloud fetch itself concurrent-safe.
 var cloudSnapshotMu stdsync.Mutex
-
-type OperatingModeRequest struct {
-	Mode string `json:"mode"`
-}
 
 type OfflineSessionRequest struct {
 	UserID       string `json:"user_id"`
@@ -39,107 +34,6 @@ type OfflineSessionRequest struct {
 
 func NewLocalDatabaseHandler() *LocalDatabaseHandler {
 	return &LocalDatabaseHandler{}
-}
-
-func (h *LocalDatabaseHandler) GetOperatingMode(c *gin.Context) {
-	database, err := localdb.Open()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "فشل فتح قاعدة البيانات المحلية",
-			"details": err.Error(),
-		})
-		return
-	}
-	defer database.DB.Close()
-
-	mode, err := localdb.GetMetadata(database.DB, "operating_mode")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "فشل قراءة وضع التشغيل المحلي",
-			"details": err.Error(),
-		})
-		return
-	}
-	if mode == "" || mode == "offline" {
-		mode = "online"
-	}
-
-	pendingSyncCount, err := localdb.GetPendingSyncCount(database.DB)
-	if err != nil {
-		pendingSyncCount = 0
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"mode":                 mode,
-			"local_database":       database.Path,
-			"database_initialized": true,
-			"pending_sync_count":   pendingSyncCount,
-		},
-	})
-}
-
-func (h *LocalDatabaseHandler) SetOperatingMode(c *gin.Context) {
-	var request OperatingModeRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "تعذر قراءة وضع التشغيل", "details": err.Error()})
-		return
-	}
-	if request.Mode != "online" {
-		c.JSON(http.StatusGone, gin.H{"error": "تم إيقاف وضع التشغيل دون اتصال", "details": "cloud verification is required before operating the application"})
-		return
-	}
-
-	localDB, err := localdb.Open()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "فشل تهيئة قاعدة البيانات المحلية",
-			"details": err.Error(),
-		})
-		return
-	}
-	defer localDB.DB.Close()
-
-	if err := localdb.SetMetadata(localDB.DB, "operating_mode", request.Mode); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "فشل حفظ وضع التشغيل المحلي",
-			"details": err.Error(),
-		})
-		return
-	}
-
-	// Synchronization is deliberately explicit via POST /settings/sync. Do not
-	// use the local SQLite connection as the online source during a mode switch.
-	if request.Mode == "offline" && strings.EqualFold(os.Getenv("PARTFLOW_LEGACY_MODE_SEED"), "true") {
-		postgresDB := database.GetDB()
-		if postgresDB == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "قاعدة البيانات الرئيسية غير متاحة"})
-			return
-		}
-		if err := sync.SeedLocalDatabaseFromOnline(postgresDB, localDB.DB); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "فشل تجهيز البيانات للـ offline",
-				"details": err.Error(),
-			})
-			return
-		}
-	}
-
-	pendingSyncCount, err := localdb.GetPendingSyncCount(localDB.DB)
-	if err != nil {
-		pendingSyncCount = 0
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"mode":                 request.Mode,
-			"local_database":       localDB.Path,
-			"database_initialized": true,
-			"pending_sync_count":   pendingSyncCount,
-		},
-	})
 }
 
 // SyncCloudData downloads the authenticated user's snapshot from the cloud
@@ -162,6 +56,8 @@ func (h *LocalDatabaseHandler) SyncCloudData(c *gin.Context) {
 		return
 	}
 	request.Header.Set("Authorization", authorization)
+	// Forward the cloud token because the cloud API does not trust the local JWT.
+	request.Header.Set("X-PartFlow-Cloud-Token", strings.TrimSpace(c.GetHeader("X-PartFlow-Cloud-Token")))
 	request.Header.Set("Accept", "application/json")
 
 	client := &http.Client{Timeout: 20 * time.Second}
@@ -244,24 +140,95 @@ func (h *LocalDatabaseHandler) SyncLocalDataToCloud(c *gin.Context) {
 	}
 	defer sqliteDB.DB.Close()
 
-	postgresDB := database.GetDB()
-	if postgresDB == nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "قاعدة البيانات السحابية غير متاحة"})
-		return
-	}
-
-	result, err := sync.ProcessPendingOfflineQueue(postgresDB, sqliteDB.DB, 50)
+	entries, err := localdb.ListPendingSyncOperations(sqliteDB.DB, 50)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل قراءة طابور المزامنة المحلي", "details": err.Error()})
 		return
+	}
+	if len(entries) == 0 {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"processed": 0, "failed": 0, "direction": "local_to_cloud"}})
+		return
+	}
+
+	// Push only pending queue entries through the cloud API; the local service
+	// must never use its PostgreSQL connection as an implicit sync channel.
+	operations := make([]sync.PushOperation, 0, len(entries))
+	for _, entry := range entries {
+		operations = append(operations, sync.PushOperation{
+			ID: entry.ID, EntityType: entry.EntityType, EntityID: entry.EntityID,
+			Operation: entry.Operation, Payload: entry.Payload, IdempotencyKey: entry.Idempotency,
+		})
+	}
+	payload, err := json.Marshal(sync.PushRequest{Operations: operations})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تجهيز طابور المزامنة", "details": err.Error()})
+		return
+	}
+	cloudBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PARTFLOW_CLOUD_API_URL")), "/")
+	if cloudBaseURL == "" {
+		cloudBaseURL = "https://partflow-api.onrender.com/api/v1"
+	}
+	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, cloudBaseURL+"/sync/push", strings.NewReader(string(payload)))
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "تعذر تجهيز طلب رفع المزامنة", "details": err.Error()})
+		return
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", strings.TrimSpace(c.GetHeader("Authorization")))
+	// The cloud guard validates this token before accepting any queue entry.
+	request.Header.Set("X-PartFlow-Cloud-Token", strings.TrimSpace(c.GetHeader("X-PartFlow-Cloud-Token")))
+	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "تعذر الاتصال بالخادم السحابي للمزامنة", "details": err.Error()})
+		return
+	}
+	defer response.Body.Close()
+	var result struct {
+		Success bool `json:"success"`
+		Data    struct {
+			AcceptedIDs []string `json:"accepted_ids"`
+			Rejected    []struct {
+				ID       string `json:"id"`
+				Error    string `json:"error"`
+				Conflict bool   `json:"conflict"`
+			} `json:"rejected"`
+			Processed int `json:"processed"`
+			Failed    int `json:"failed"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil || response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices || !result.Success {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "فشل رفع التغييرات المحلية إلى السحابة"})
+		return
+	}
+
+	// Mark only cloud-accepted entries as synced so rejected or conflicted data
+	// remains locally retryable and visible to the owner.
+	accepted := make(map[string]struct{}, len(result.Data.AcceptedIDs))
+	for _, id := range result.Data.AcceptedIDs {
+		accepted[id] = struct{}{}
+	}
+	for _, entry := range entries {
+		if _, ok := accepted[entry.ID]; ok {
+			_ = localdb.MarkSyncOperationSucceeded(sqliteDB.DB, entry.ID)
+		}
+	}
+	for _, rejected := range result.Data.Rejected {
+		for _, entry := range entries {
+			if entry.ID != rejected.ID {
+				continue
+			}
+			if rejected.Conflict {
+				_ = localdb.RecordSyncConflict(sqliteDB.DB, entry.EntityType, entry.EntityID, entry.EntityType, entry.Operation, "", "", rejected.Error, entry.Payload)
+			}
+			_ = localdb.MarkSyncOperationFailed(sqliteDB.DB, entry.ID, rejected.Error)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"processed": result.Processed,
-			"failed":    result.Failed,
-			"errors":    result.Errors,
+			"processed": result.Data.Processed,
+			"failed":    result.Data.Failed,
 			"direction": "local_to_cloud",
 		},
 	})

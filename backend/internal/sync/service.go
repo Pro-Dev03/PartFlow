@@ -175,6 +175,12 @@ func syncOneItem(postgresDB *sqlx.DB, sqliteDB *sql.DB, entry localdb.SyncQueueE
 	}
 }
 
+// ApplyCloudOperation applies one authenticated queue operation on the cloud
+// database without requiring the cloud service to open the device SQLite DB.
+func ApplyCloudOperation(postgresDB *sqlx.DB, entry localdb.SyncQueueEntry) error {
+	return syncOneItem(postgresDB, nil, entry)
+}
+
 func detectSyncConflict(postgresDB *sqlx.DB, sqliteDB *sql.DB, tableName string, entry localdb.SyncQueueEntry, payload map[string]any) error {
 	localUpdatedAt := extractUpdatedAt(payload)
 	if localUpdatedAt == "" || entry.EntityID == "" {
@@ -202,8 +208,12 @@ func detectSyncConflict(postgresDB *sqlx.DB, sqliteDB *sql.DB, tableName string,
 	}
 
 	reason := fmt.Sprintf("remote data is newer than local change (%s > %s)", remoteUpdatedAt, localUpdatedAt)
-	if recordErr := localdb.RecordSyncConflict(sqliteDB, entry.EntityType, entry.EntityID, tableName, entry.Operation, localUpdatedAt, remoteUpdatedAt, reason, entry.Payload); recordErr != nil {
-		return fmt.Errorf("detect sync conflict: %w", recordErr)
+	// Device-side sync records conflicts locally; the cloud endpoint only
+	// rejects the operation because it cannot access device SQLite storage.
+	if sqliteDB != nil {
+		if recordErr := localdb.RecordSyncConflict(sqliteDB, entry.EntityType, entry.EntityID, tableName, entry.Operation, localUpdatedAt, remoteUpdatedAt, reason, entry.Payload); recordErr != nil {
+			return fmt.Errorf("detect sync conflict: %w", recordErr)
+		}
 	}
 	return fmt.Errorf("sync conflict: %s", reason)
 }

@@ -1,9 +1,13 @@
 package sync
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -55,5 +59,44 @@ func TestGetInitialDataReturnsSingleTenantTables(t *testing.T) {
 		if len(response.Data[key]) != 1 {
 			t.Fatalf("%s rows = %d, want 1", key, len(response.Data[key]))
 		}
+	}
+}
+
+func TestPushDataRejectsEmptyBatch(t *testing.T) {
+	// An empty push must never reach the database or be reported as a sync success.
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest("POST", "/sync/push", strings.NewReader(`{"operations":[]}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	NewHandler(nil).PushData(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+}
+
+func TestPushDataRejectsOversizedBatch(t *testing.T) {
+	// The batch limit prevents an owner action from becoming an unbounded cloud write.
+	operations := make([]PushOperation, 51)
+	for index := range operations {
+		operations[index] = PushOperation{ID: fmt.Sprintf("operation-%d", index)}
+	}
+	body, err := json.Marshal(PushRequest{Operations: operations})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest("POST", "/sync/push", bytes.NewReader(body))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	NewHandler(nil).PushData(ctx)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
 	}
 }
