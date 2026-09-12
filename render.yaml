@@ -25,10 +25,10 @@ services:
     branch: main
     healthCheckPath: /health
     envVars:
+      # The cloud authority must use the Supabase database that contains the
+      # subscription accounts; do not silently bind authentication to Render DB.
       - key: DATABASE_URL
-        fromDatabase:
-          name: partflow-db
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           type: keyvalue
@@ -65,10 +65,9 @@ services:
     region: oregon
     branch: main
     envVars:
+      # The worker must read the same Supabase data as the API service.
       - key: DATABASE_URL
-        fromDatabase:
-          name: partflow-db
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           type: keyvalue
