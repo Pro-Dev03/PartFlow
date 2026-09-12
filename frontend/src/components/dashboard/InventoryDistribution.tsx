@@ -53,8 +53,9 @@ export function InventoryDistribution({
 
   return (
     <Card style={{
-      background: 'var(--bg-surface)',
-      border: '1px solid var(--border-default)'
+      background: 'transparent',
+      border: 'none',
+      boxShadow: 'none'
     }}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
