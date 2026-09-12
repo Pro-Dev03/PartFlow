@@ -13,7 +13,6 @@ import { SalesChart } from '../../../components/charts/SalesChart';
 import { DashboardMetrics } from '../components/DashboardMetrics';
 import { AttentionSection } from '../components/AttentionSection';
 import { SmartActions } from '../components/SmartActions';
-import { SmartAlerts } from '../../../components/notifications/smart-alerts';
 import { InventoryDistribution } from '../../../components/dashboard/InventoryDistribution';
 import { getButtonSize } from '../../../config/button-sizes';
 import { DashboardStats } from '../../../types/api';
@@ -27,7 +26,6 @@ import {
   Plus,
   Package,
   TrendingUp,
-  Sparkles,
 } from 'lucide-react';
 
 function getWelcomeKey() {
@@ -282,39 +280,6 @@ export function DashboardPage() {
 
       </div>
 
-      {/* Tertiary: Smart Alerts */}
-      <div style={{ marginTop: 'var(--spacing-6)' }}>
-        <Card variant="open">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
-              {t('notifications.smartAlerts')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SmartAlerts alerts={[
-              ...(lowStockItems.length > 0 ? [{
-                id: 'dashboard-low-stock',
-                type: 'warning' as const,
-                title: 'مخزون منخفض',
-                message: `${lowStockItems.length} منتجًا يحتاج إلى إعادة طلب.`,
-                priority: 'high' as const,
-                actionLabel: 'فتح المخزون',
-                onAction: () => navigate('/app/inventory'),
-              }] : []),
-              ...(overdueDebtItems.length > 0 ? [{
-                id: 'dashboard-overdue-debts',
-                type: 'warning' as const,
-                title: 'ديون متأخرة',
-                message: `${overdueDebtItems.length} عميلًا لديه دفعة متأخرة.`,
-                priority: 'urgent' as const,
-                actionLabel: 'فتح الديون',
-                onAction: () => navigate('/app/debts'),
-              }] : []),
-            ]} />
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }
