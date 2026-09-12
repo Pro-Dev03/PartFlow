@@ -327,7 +327,7 @@ func inventoryStatusPresentation(status string) (name, color, health string) {
 	case "REVERSED":
 		return "شراء ملغى", "#f59e0b", "low"
 	case "SOLD":
-		return "مباع", "#64748b", "low"
+		return "قطع مباعة (قبل الضريبة)", "#64748b", "low"
 	case "DAMAGED", "IN_REPAIR", "IN REPAIR":
 		return "تالف/قيد الإصلاح", "#ef4444", "critical"
 	default:
