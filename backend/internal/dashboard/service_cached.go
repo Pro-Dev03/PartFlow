@@ -72,11 +72,13 @@ func (s *CachedService) fetchFromDatabase(ctx context.Context) (*DashboardStats,
 			(SELECT COUNT(*) FROM products p
 			 WHERE p.is_active = true
 			 AND p.deleted_at IS NULL
-			 AND p.min_stock_level > 0
 			 AND (SELECT COUNT(*) FROM inventory_items ii
 			      WHERE ii.product_id = p.id
 			      AND ii.condition <> 'USED'
-			      AND ii.status = 'AVAILABLE') < p.min_stock_level) as low_stock_items,
+			      AND ii.status = 'AVAILABLE') <= CASE
+					WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level
+					ELSE 3
+				END) as low_stock_items,
 			%s as overdue_debts,
 			(SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE remaining_amount > 0) as outstanding_debts,
 			(SELECT COUNT(*) FROM returns WHERE LOWER(COALESCE(status, 'pending')) IN ('pending', 'approved', 'processing')) as pending_returns,
@@ -399,7 +401,7 @@ func (s *CachedService) GetLowStockItems(ctx context.Context) ([]LowStockItem, e
 			p.id,
 			p.name as product_name,
 			COUNT(CASE WHEN i.status = 'AVAILABLE' THEN i.id END) as quantity,
-			p.min_stock_level,
+			CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END as min_stock_level,
 			p.cost_price,
 			p.selling_price,
 			p.preferred_supplier_id
@@ -407,10 +409,12 @@ func (s *CachedService) GetLowStockItems(ctx context.Context) ([]LowStockItem, e
 		LEFT JOIN inventory_items i ON p.id = i.product_id
 		WHERE p.is_active = true
 		AND p.deleted_at IS NULL
-		AND p.min_stock_level > 0
 		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
-		HAVING COUNT(CASE WHEN i.status = 'AVAILABLE' THEN i.id END) < p.min_stock_level
-		ORDER BY (p.min_stock_level - COUNT(CASE WHEN i.status = 'AVAILABLE' THEN i.id END)) DESC
+		HAVING COUNT(CASE WHEN i.status = 'AVAILABLE' THEN i.id END) <= CASE
+			WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level
+			ELSE 3
+		END
+		ORDER BY (CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END - COUNT(CASE WHEN i.status = 'AVAILABLE' THEN i.id END)) DESC
 		LIMIT 10
 	`
 

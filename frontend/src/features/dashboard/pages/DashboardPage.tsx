@@ -103,6 +103,7 @@ export function DashboardPage() {
 
   const stats = dashboardData?.data as DashboardStats | undefined;
   const lowStockItems = lowStockItemsData?.data || [];
+  const lowStockAlertCount = Math.max(Number(stats?.lowStockCount ?? 0), lowStockItems.length);
   const overdueDebtItems = overdueDebtsData?.data || [];
   const debtRows = Array.isArray(debtsData?.data) ? debtsData.data : [];
   const unpaidDebtItems = debtRows
@@ -168,7 +169,7 @@ export function DashboardPage() {
       {/* Priority 1: Attention Section - يحتاج انتباهك */}
       <div className="dashboard-s-flow" style={{ marginTop: 'var(--spacing-6)' }}>
         <AttentionSection
-          lowStockCount={stats?.lowStockCount as number}
+          lowStockCount={lowStockAlertCount}
           overdueDebtsCount={stats?.overdueDebts as number}
           lowStockItems={lowStockItems}
           overdueDebtItems={overdueDebtItems}
@@ -176,7 +177,7 @@ export function DashboardPage() {
           unpaidDebtItems={unpaidDebtItems}
         />
         <SmartActions
-          lowStockCount={stats?.lowStockCount as number}
+          lowStockCount={lowStockAlertCount}
           overdueDebtsCount={unpaidDebtorCount}
         />
       </div>
@@ -184,7 +185,7 @@ export function DashboardPage() {
       {/* Priority 3: Today's Performance - أداء اليوم */}
       <div style={{ marginTop: 'var(--spacing-6)' }}>
         <DashboardMetrics 
-         stats={stats}
+         stats={stats ? { ...stats, lowStockCount: lowStockAlertCount } : stats}
         />
       </div>
 
