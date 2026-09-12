@@ -5,6 +5,7 @@ interface CategoryItem {
   name: string;
   count: number;
   value: number;
+  taxInclusiveValue?: number;
   color: string;
   status?: 'good' | 'low' | 'critical';
 }
@@ -182,6 +183,15 @@ export function InventoryDistribution({
                         {percentage.toFixed(1)}%
                       </span>
                     </div>
+                    {item.taxInclusiveValue && item.taxInclusiveValue > item.value && (
+                      <div style={{
+                        fontSize: '10px',
+                        color: 'var(--text-secondary)',
+                        marginBottom: '8px'
+                      }}>
+                        مباع شامل الضريبة: ₪{item.taxInclusiveValue.toLocaleString()}
+                      </div>
+                    )}
 
                     {/* Progress Bar */}
                     <div 

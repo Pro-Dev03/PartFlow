@@ -273,21 +273,28 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 
 func (s *CachedService) fetchInventoryDistribution(ctx context.Context) *InventoryDistributionData {
 	query := `
-		SELECT UPPER(COALESCE(status, 'UNKNOWN')) AS status,
+		SELECT UPPER(COALESCE(inventory_items.status, 'UNKNOWN')) AS status,
 		       COUNT(*) AS count,
 		       COALESCE(SUM(CASE
-				WHEN UPPER(COALESCE(status, '')) = 'REVERSED' THEN purchase_cost
+				WHEN UPPER(COALESCE(inventory_items.status, '')) = 'REVERSED' THEN purchase_cost
 				ELSE selling_price
-			END), 0) AS value
+			END), 0) AS value,
+		       CASE
+				WHEN UPPER(COALESCE(inventory_items.status, '')) = 'SOLD' THEN
+					COALESCE((SELECT SUM(s.total_amount) FROM sales s
+						WHERE LOWER(COALESCE(s.status, 'completed')) = 'completed'), 0)
+				ELSE 0
+			END AS tax_inclusive_value
 		FROM inventory_items
-		GROUP BY UPPER(COALESCE(status, 'UNKNOWN'))
+		GROUP BY UPPER(COALESCE(inventory_items.status, 'UNKNOWN'))
 		ORDER BY status
 	`
 
 	var rows []struct {
-		Status string  `db:"status"`
-		Count  int     `db:"count"`
-		Value  float64 `db:"value"`
+		Status            string  `db:"status"`
+		Count             int     `db:"count"`
+		Value             float64 `db:"value"`
+		TaxInclusiveValue float64 `db:"tax_inclusive_value"`
 	}
 	if err := s.db.SelectContext(ctx, &rows, query); err != nil {
 		return nil
@@ -299,11 +306,12 @@ func (s *CachedService) fetchInventoryDistribution(ctx context.Context) *Invento
 	for _, row := range rows {
 		name, color, health := inventoryStatusPresentation(row.Status)
 		data = append(data, InventoryDistributionItem{
-			Name:   name,
-			Count:  row.Count,
-			Value:  row.Value,
-			Color:  color,
-			Status: health,
+			Name:              name,
+			Count:             row.Count,
+			Value:             row.Value,
+			TaxInclusiveValue: row.TaxInclusiveValue,
+			Color:             color,
+			Status:            health,
 		})
 		totalItems += row.Count
 		totalValue += row.Value

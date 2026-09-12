@@ -88,11 +88,12 @@ type InventoryDistributionData struct {
 
 // InventoryDistributionItem represents inventory distribution item
 type InventoryDistributionItem struct {
-	Name   string  `json:"name"`
-	Count  int     `json:"count"`
-	Value  float64 `json:"value"`
-	Color  string  `json:"color"`
-	Status string  `json:"status"`
+	Name              string  `json:"name"`
+	Count             int     `json:"count"`
+	Value             float64 `json:"value"`
+	TaxInclusiveValue float64 `json:"taxInclusiveValue,omitempty"`
+	Color             string  `json:"color"`
+	Status            string  `json:"status"`
 }
 
 // Alert represents a dashboard alert
