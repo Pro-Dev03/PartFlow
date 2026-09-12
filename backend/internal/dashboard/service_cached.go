@@ -275,7 +275,10 @@ func (s *CachedService) fetchInventoryDistribution(ctx context.Context) *Invento
 	query := `
 		SELECT UPPER(COALESCE(status, 'UNKNOWN')) AS status,
 		       COUNT(*) AS count,
-		       COALESCE(SUM(selling_price), 0) AS value
+		       COALESCE(SUM(CASE
+				WHEN UPPER(COALESCE(status, '')) = 'REVERSED' THEN purchase_cost
+				ELSE selling_price
+			END), 0) AS value
 		FROM inventory_items
 		GROUP BY UPPER(COALESCE(status, 'UNKNOWN'))
 		ORDER BY status
