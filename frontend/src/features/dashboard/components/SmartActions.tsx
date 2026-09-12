@@ -102,7 +102,8 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
             className="w-8 h-8 rounded-lg flex items-center justify-center"
             style={{ 
               background: 'var(--color-primary-15)',
-              border: '1px solid var(--color-primary-25)'
+              border: '1px solid var(--color-primary-25)',
+              borderRadius: '50%'
             }}
           >
             <Zap className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />
@@ -116,8 +117,8 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
           className="grid gap-3"
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-            gap: '12px'
+            gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))',
+            gap: '8px'
           }}
         >
           {allActions.map((action, index) => {
@@ -131,24 +132,15 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
               <button
                 key={index}
                 onClick={() => navigate(action.path)}
-                className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl transition-all duration-200 cursor-pointer group"
+                className="flex flex-col items-center justify-center gap-2 p-3 transition-all duration-200 cursor-pointer group"
                 style={{
-                  background: isPrimary ? 'var(--gradient-primary)' : 
-                            !isUrgent ? 'transparent' :
-                            isWarning ? action.bgColor :
-                            isDanger ? action.bgColor :
-                            action.bgColor,
-                  border: `1px solid ${isPrimary ? 'var(--color-primary-30)' : 
-                                       !isUrgent ? 'transparent' :
-                                       isWarning ? 'var(--color-warning-30)' :
-                                       isDanger ? 'var(--color-danger-30)' :
-                                       'var(--border-default)'}`,
-                  color: isPrimary ? '#FFFFFF' : action.color,
-                  boxShadow: isUrgent ? 'var(--shadow-glow)' : 
-                            isPrimary ? 'var(--shadow-glow)' : 
-                            'none',
+                  background: 'transparent',
+                  border: '1px solid transparent',
+                  borderRadius: 'var(--radius-lg)',
+                  color: action.color,
+                  boxShadow: 'none',
                   transform: 'translateY(0)',
-                  minHeight: '72px',
+                  minHeight: '96px',
                   position: 'relative'
                 }}
                 onMouseEnter={(e) => {
@@ -158,6 +150,11 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
                     : isPrimary 
                     ? 'var(--shadow-glow-strong)' 
                     : 'var(--shadow-md)';
+                  e.currentTarget.style.background = isPrimary
+                    ? 'var(--color-primary-08)'
+                    : isUrgent
+                    ? action.bgColor || 'var(--bg-surface-elevated)'
+                    : 'var(--bg-surface-elevated)';
                   e.currentTarget.style.borderColor = isUrgent 
                     ? (isWarning ? 'var(--color-warning-40)' : 'var(--color-danger-40)')
                     : isPrimary 
@@ -171,6 +168,7 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
                     : isPrimary 
                     ? 'var(--shadow-glow)' 
                     : 'var(--shadow-sm)';
+                  e.currentTarget.style.background = 'transparent';
                   e.currentTarget.style.borderColor = isUrgent 
                     ? (isWarning ? 'var(--color-warning-30)' : 'var(--color-danger-30)')
                     : isPrimary 
@@ -193,16 +191,16 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
                   />
                 )}
                 <div 
-                  className="w-10 h-10 rounded-lg flex items-center justify-center transition-transform duration-200 group-hover:scale-110"
+                  className="w-12 h-12 rounded-full flex items-center justify-center transition-transform duration-200 group-hover:scale-110"
                   style={{ 
                     background: isPrimary 
-                      ? 'rgba(255, 255, 255, 0.15)' 
+                      ? 'var(--color-primary)' 
                       : isWarning 
                       ? 'var(--color-warning-15)'
                       : isDanger
                       ? 'var(--color-danger-15)'
                       : 'var(--color-primary-10)',
-                    border: `1px solid ${isPrimary ? 'rgba(255, 255, 255, 0.2)' : 
+                    border: `1px solid ${isPrimary ? 'var(--color-primary-40)' : 
                                     isWarning ? 'var(--color-warning-25)' :
                                     isDanger ? 'var(--color-danger-25)' :
                                     'var(--color-primary-15)'}`
@@ -221,7 +219,7 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
                 <span 
                   className="text-xs font-medium text-center leading-tight"
                   style={{ 
-                    color: isPrimary ? '#FFFFFF' : 
+                    color: isPrimary ? 'var(--color-primary)' : 
                            isWarning ? 'var(--color-warning)' :
                            isDanger ? 'var(--color-danger)' :
                            'var(--text-primary)',
