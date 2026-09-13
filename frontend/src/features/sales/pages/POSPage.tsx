@@ -7,6 +7,7 @@ import { useUIStore } from '../../../stores/uiStore';
 import { Modal } from '../../../components/ui/modal';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
+import { PartFlowLogo } from '../../../components/branding/PartFlowLogo';
 import {
   productsApi,
   salesApi,
