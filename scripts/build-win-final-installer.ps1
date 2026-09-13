@@ -70,12 +70,19 @@ finally {
 }
 
 $bundleDir = Join-Path $resolvedOutputDir 'partflow-bundle'
+if (Test-Path $bundleDir) {
+    Remove-Item -Recurse -Force $bundleDir
+}
 New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
 
 $backendBundlePath = Join-Path $bundleDir 'partflow-api.exe'
 Copy-Item (Join-Path $resolvedOutputDir 'partflow-api.exe') $backendBundlePath -Force
 
-$installerFiles = Get-ChildItem (Join-Path $resolvedFrontendDir 'dist-electron') -File -Recurse -Filter *.exe | Select-Object -ExpandProperty FullName
+$electronOutputDir = Join-Path $resolvedFrontendDir 'dist-electron-internal'
+if (-not (Test-Path $electronOutputDir)) {
+    throw "Electron build output was not found: $electronOutputDir"
+}
+$installerFiles = Get-ChildItem $electronOutputDir -File -Filter *.exe | Select-Object -ExpandProperty FullName
 foreach ($installerFile in $installerFiles) {
     Copy-Item $installerFile $bundleDir -Force
 }

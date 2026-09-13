@@ -12,6 +12,7 @@ import { InitialDataSyncModal } from './features/settings/components/InitialData
 import { isInitialSyncNeeded } from './hooks/useInitialDataSync';
 import { authApi } from './services/api/endpoints';
 import { SubscriptionVerificationScreen } from './features/auth/components/SubscriptionVerificationScreen';
+import { initializeProductImages } from './services/localProductImages';
 
 // Lazy load auth pages separately
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -80,6 +81,10 @@ function InitialSyncController() {
 function App() {
   const checkAuth = useAuthStore((state) => state.checkAuth);
   const { isAuthenticated, sessionVerified, isLoading, isPostLoginVerifying } = useAuthStore();
+
+  useEffect(() => {
+    void initializeProductImages();
+  }, []);
 
   // HashRouter is required by the packaged Electron build, but a normal
   // browser can still open a deep link such as /app/sales directly. Normalize

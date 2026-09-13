@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, shell, Tray, Menu, nativeImage, ipcMain } from 'electron';
 import { spawn, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -65,6 +65,63 @@ function getBundledDatabasePath() {
     ? path.join(__dirname, '..', '..', 'local-partflow.db')
     : path.join(process.resourcesPath, 'partflow.db');
 }
+
+function getProductImagesPath() {
+  return path.join(app.getPath('userData'), 'data', 'product-images');
+}
+
+function safeProductId(productId) {
+  const value = String(productId || '').trim();
+  return /^[a-zA-Z0-9_-]+$/.test(value) ? value : null;
+}
+
+function dataUrlToBuffer(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:image\/(jpeg|jpg|png|webp);base64,(.+)$/);
+  if (!match) return null;
+  return Buffer.from(match[2], 'base64');
+}
+
+async function readProductImages() {
+  const imagesPath = getProductImagesPath();
+  await fs.promises.mkdir(imagesPath, { recursive: true });
+  const files = await fs.promises.readdir(imagesPath);
+  const result = {};
+  for (const file of files) {
+    if (!file.endsWith('.jpg')) continue;
+    const productId = file.slice(0, -4);
+    const image = await fs.promises.readFile(path.join(imagesPath, file));
+    result[productId] = `data:image/jpeg;base64,${image.toString('base64')}`;
+  }
+  return result;
+}
+
+ipcMain.handle('product-images:list', () => readProductImages());
+ipcMain.handle('product-images:save', async (_event, productId, dataUrl) => {
+  const safeId = safeProductId(productId);
+  const image = dataUrlToBuffer(dataUrl);
+  if (!safeId || !image || image.length > 5 * 1024 * 1024) {
+    throw new Error('Invalid product image');
+  }
+
+  const imagesPath = getProductImagesPath();
+  await fs.promises.mkdir(imagesPath, { recursive: true });
+  const target = path.join(imagesPath, `${safeId}.jpg`);
+  const temporary = `${target}.tmp`;
+  await fs.promises.writeFile(temporary, image);
+  await fs.promises.rm(target, { force: true });
+  await fs.promises.rename(temporary, target);
+  return `data:image/jpeg;base64,${image.toString('base64')}`;
+});
+ipcMain.handle('product-images:delete', async (_event, productId) => {
+  const safeId = safeProductId(productId);
+  if (!safeId) return false;
+  try {
+    await fs.promises.unlink(path.join(getProductImagesPath(), `${safeId}.jpg`));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  return true;
+});
 
 async function waitForBackend() {
   for (let attempt = 0; attempt < 30; attempt += 1) {

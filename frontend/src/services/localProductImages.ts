@@ -1,6 +1,8 @@
 const STORAGE_KEY = 'partflow.local.product-images';
 
 type ProductImages = Record<string, string>;
+let cachedImages: ProductImages = {};
+let initialized = false;
 
 function readImages(): ProductImages {
   try {
@@ -11,15 +13,51 @@ function readImages(): ProductImages {
   }
 }
 
+function isDesktopStorageAvailable(): boolean {
+  return typeof window !== 'undefined' && Boolean(window.partflowDesktop?.productImages);
+}
+
+export async function initializeProductImages(): Promise<void> {
+  if (initialized) return;
+  initialized = true;
+  const legacyImages = readImages();
+  cachedImages = legacyImages;
+
+  if (!isDesktopStorageAvailable()) return;
+
+  try {
+    const storedImages = await window.partflowDesktop!.productImages!.list();
+    cachedImages = { ...legacyImages, ...(storedImages || {}) };
+    for (const [productId, image] of Object.entries(legacyImages)) {
+      if (!storedImages?.[productId]) {
+        await window.partflowDesktop!.productImages!.save(productId, image);
+      }
+    }
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Keep the legacy browser storage available if the desktop bridge is unavailable.
+  }
+}
+
 export function getLocalProductImage(productId: string): string | undefined {
-  return readImages()[String(productId)];
+  const key = String(productId);
+  if (!initialized) cachedImages = { ...readImages(), ...cachedImages };
+  return cachedImages[key];
 }
 
 export function setLocalProductImage(productId: string, image: string | null): void {
-  const images = readImages();
-  if (image) images[String(productId)] = image;
-  else delete images[String(productId)];
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(images));
+  const key = String(productId);
+  if (image) cachedImages[key] = image;
+  else delete cachedImages[key];
+
+  if (isDesktopStorageAvailable()) {
+    void (image
+      ? window.partflowDesktop!.productImages!.save(key, image)
+      : window.partflowDesktop!.productImages!.delete(key));
+    return;
+  }
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(cachedImages));
 }
 
 export function compressProductImage(file: File): Promise<string> {
