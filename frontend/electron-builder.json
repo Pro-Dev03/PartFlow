@@ -27,6 +27,10 @@
     {
       "from": "public/partflow-logo.png",
       "to": "partflow-logo.png"
+    },
+    {
+      "from": "public/partflow-logo.ico",
+      "to": "partflow-logo.ico"
     }
   ],
   "extraMetadata": {
