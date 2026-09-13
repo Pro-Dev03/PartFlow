@@ -138,7 +138,7 @@ async function startBackend() {
 
 function ensureTrayIcon() {
   const iconPath = isDev
-    ? path.join(__dirname, '..', 'build', 'partflow-logo.png')
+    ? path.join(__dirname, '..', 'public', 'partflow-logo.png')
     : path.join(process.resourcesPath, 'partflow-logo.png');
 
   try {
