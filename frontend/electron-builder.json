@@ -44,7 +44,7 @@
       }
     ],
     "requestedExecutionLevel": "asInvoker",
-    "icon": "public/partflow-logo.png",
+    "icon": "public/partflow-logo.ico",
     "signAndEditExecutable": true,
     "signtoolOptions": {
       "certificateSubjectName": "PartFlow Internal Code Signing"
