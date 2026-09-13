@@ -101,12 +101,14 @@ type AcquisitionRequest struct {
 
 // AcquisitionItemRequest represents acquisition item creation request
 type AcquisitionItemRequest struct {
-	ProductID    uuid.UUID `json:"product_id" binding:"required"`
-	SerialNumber string    `json:"serial_number"`
-	Condition    string    `json:"condition" binding:"required,oneof=new used refurbished"`
-	Grade        string    `json:"grade" binding:"omitempty,oneof=excellent very_good good fair poor"`
-	UnitCost     float64   `json:"unit_cost" binding:"required,min=0"`
-	Notes        string    `json:"notes"`
+	ProductID    uuid.UUID  `json:"product_id" binding:"required"`
+	PartTypeID   *uuid.UUID `json:"part_type_id"`
+	SerialNumber string     `json:"serial_number"`
+	Condition    string     `json:"condition" binding:"required,oneof=new used refurbished"`
+	Grade        string     `json:"grade" binding:"omitempty,oneof=excellent very_good good fair poor"`
+	UnitCost     float64    `json:"unit_cost" binding:"required,min=0"`
+	SellingPrice float64    `json:"selling_price" binding:"required,min=0"`
+	Notes        string     `json:"notes"`
 }
 
 // AcquisitionUpdateRequest represents acquisition update request

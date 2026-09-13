@@ -30,6 +30,7 @@ import { ViewMode, ItemInputMethodType, Product } from '../types/inventory.types
 import { inventoryApi } from '../../../services/api/endpoints';
 import { toast } from 'sonner';
 import { getLocalProductImage, setLocalProductImage } from '../../../services/localProductImages';
+import { generateSku } from '../../../utils/sku';
 
 interface InventoryMovementResponse {
   id: string;
@@ -232,7 +233,7 @@ export function InventoryPage() {
       // Update existing product - map to API field names
       const apiData = {
         name: productData.name,
-        sku: productData.sku || `SKU-${Date.now()}`,
+        sku: productData.sku || generateSku(),
         selling_price: productData.sellingPrice,
         cost_price: productData.costPrice,
         min_stock_level: Number(productData.min_stock_level) || 0,
@@ -250,7 +251,7 @@ export function InventoryPage() {
       // Add new product - map to API field names
       const apiData = {
         name: productData.name,
-        sku: productData.sku || `SKU-${Date.now()}`,
+        sku: productData.sku || generateSku(),
         selling_price: productData.sellingPrice,
         cost_price: productData.costPrice,
         min_stock_level: Number(productData.min_stock_level) || 0,
@@ -310,7 +311,7 @@ export function InventoryPage() {
         setSelectedProduct({
           id: '',
           name: '',
-          sku: '',
+          sku: generateSku(),
           sellingPrice: 0,
           costPrice: 0,
           stock: 0,
@@ -334,7 +335,7 @@ export function InventoryPage() {
     setSelectedProduct({
       id: '',
       name: '',
-      sku: '',
+      sku: generateSku(),
       sellingPrice: 0,
       costPrice: 0,
       stock: 0,

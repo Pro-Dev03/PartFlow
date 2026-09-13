@@ -156,14 +156,14 @@ func (s *Service) CreateAcquisition(ctx context.Context, req *AcquisitionRequest
 		itemCode := fmt.Sprintf("ACQ-%s", strings.ToUpper(strings.ReplaceAll(inventoryID.String()[:13], "-", "")))
 		barcode := fmt.Sprintf("ACQ-%s", strings.ToUpper(strings.ReplaceAll(inventoryID.String(), "-", "")))
 		inventoryQuery := fmt.Sprintf(`
-			INSERT INTO inventory_items (id, product_id, item_code, barcode, serial_number,
+			INSERT INTO inventory_items (id, product_id, part_type_id, item_code, barcode, serial_number,
 				condition, grade, purchase_cost, selling_price, status, supplier_id,
 				purchase_date, notes, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, %s, %s)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, %s, %s)
 		`, dbutil.NowSQL(s.db), dbutil.NowSQL(s.db))
-		if _, err = tx.ExecContext(ctx, inventoryQuery, inventoryID, itemReq.ProductID, itemCode, barcode,
+		if _, err = tx.ExecContext(ctx, inventoryQuery, inventoryID, itemReq.ProductID, itemReq.PartTypeID, itemCode, barcode,
 			nullableString(itemReq.SerialNumber), strings.ToUpper(condition), strings.ToUpper(grade),
-			itemReq.UnitCost, itemReq.UnitCost, "AVAILABLE", req.SupplierID, req.AcquisitionDate, nullableString(itemReq.Notes)); err != nil {
+			itemReq.UnitCost, itemReq.SellingPrice, "AVAILABLE", req.SupplierID, req.AcquisitionDate, nullableString(itemReq.Notes)); err != nil {
 			return nil, fmt.Errorf("failed to create inventory item for acquisition: %w", err)
 		}
 		if _, err = tx.ExecContext(ctx, fmt.Sprintf(`UPDATE acquisition_items SET inventory_item_id = $1, item_status = 'available', updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db)), inventoryID, item.ID); err != nil {

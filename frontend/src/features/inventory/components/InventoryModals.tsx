@@ -281,9 +281,7 @@ export function InventoryModals({
                      setSelectedProduct((prev) => prev ? {
                        ...prev,
                        costPrice,
-                       sellingPrice: prev.sellingPrice > 0
-                         ? prev.sellingPrice
-                         : calculateSuggestedSellingPrice(costPrice, profitMargin),
+                       sellingPrice: calculateSuggestedSellingPrice(costPrice, profitMargin),
                      } : prev);
                    }}
                    placeholder="0.00"
@@ -490,9 +488,7 @@ export function InventoryModals({
                       setSelectedProduct({
                         ...selectedProduct,
                         costPrice,
-                        sellingPrice: selectedProduct.sellingPrice > 0
-                          ? selectedProduct.sellingPrice
-                          : calculateSuggestedSellingPrice(costPrice, profitMargin),
+                        sellingPrice: calculateSuggestedSellingPrice(costPrice, profitMargin),
                       });
                     }}
                     placeholder="0.00"
@@ -523,7 +519,7 @@ export function InventoryModals({
                     onChange={(e) => setSelectedProduct({ ...selectedProduct, sellingPrice: Number(e.target.value) })}
                     placeholder="0.00"
                     min="0"
-                    step="0.01"
+                    step="1"
                     style={{
                       fontSize: '14px',
                       fontWeight: '500',
@@ -540,7 +536,7 @@ export function InventoryModals({
                     display: 'block',
                     letterSpacing: '0.2px'
                   }}>
-                    الكمية بدون فاتورة
+                    الكمية الحالية
                     <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
                   </label>
                   <Input 
@@ -555,6 +551,9 @@ export function InventoryModals({
                       borderRadius: '10px'
                     }}
                   />
+                  <p style={{ margin: '5px 0 0', color: 'var(--text-tertiary)', fontSize: '11px' }}>
+                    الرصيد الحالي للمخزون
+                  </p>
                 </div>
               </div>
             </div>
@@ -736,9 +735,7 @@ export function InventoryModals({
                       setSelectedProduct((prev) => prev ? {
                         ...prev,
                         costPrice,
-                        sellingPrice: prev.sellingPrice > 0
-                          ? prev.sellingPrice
-                          : calculateSuggestedSellingPrice(costPrice, profitMargin),
+                        sellingPrice: calculateSuggestedSellingPrice(costPrice, profitMargin),
                       } : prev);
                     }}
                     placeholder="0.00"
@@ -758,6 +755,7 @@ export function InventoryModals({
                     رمز المنتج (SKU)
                   </label>
                   <Input 
+                    value={selectedProduct?.sku || ''}
                     placeholder="مثال: CPU-001"
                     onChange={(e) => setSelectedProduct((prev: Product | null) => ({ ...prev, sku: e.target.value } as Product))}
                     style={{
@@ -894,7 +892,7 @@ export function InventoryModals({
                   value={selectedProduct?.sellingPrice || ''}
                     placeholder="0.00"
                     min="0"
-                    step="0.01"
+                    step="1"
                     onChange={(e) => setSelectedProduct((prev: Product | null) => ({ ...prev, sellingPrice: Number(e.target.value) } as Product))}
                     style={{
                       fontSize: '14px',
@@ -912,7 +910,7 @@ export function InventoryModals({
                     display: 'block',
                     letterSpacing: '0.2px'
                   }}>
-                    الكمية بدون فاتورة
+                    الكمية الافتتاحية
                     <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
                   </label>
                   <Input 
@@ -926,6 +924,9 @@ export function InventoryModals({
                       borderRadius: '10px'
                     }}
                   />
+                  <p style={{ margin: '5px 0 0', color: 'var(--text-tertiary)', fontSize: '11px' }}>
+                    تُضاف مباشرة إلى المخزون دون إنشاء فاتورة شراء
+                  </p>
                 </div>
                 <div>
                   <label style={{

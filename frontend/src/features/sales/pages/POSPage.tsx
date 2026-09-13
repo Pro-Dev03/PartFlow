@@ -127,13 +127,19 @@ export function POSPage() {
   } = usePayment();
 
   // Handle used part from navigation
+  const processedUsedPartNavigation = useRef<string | null>(null);
   useEffect(() => {
     const usedPart = (location.state as { usedPart?: PosCartProduct } | null)
       ?.usedPart;
     if (!usedPart) return;
+
+    const navigationKey = `${location.key}:${usedPart.inventoryItemId ?? usedPart.id}`;
+    if (processedUsedPartNavigation.current === navigationKey) return;
+    processedUsedPartNavigation.current = navigationKey;
+
     addToCart(usedPart);
     window.history.replaceState({}, document.title, window.location.href);
-  }, [addToCart, location.state]);
+  }, [addToCart, location.key, location.state]);
 
   // Local state
   const [searchQuery, setSearchQuery] = useState('');
@@ -1028,32 +1034,34 @@ export function POSPage() {
             </button>
           </div>
 
-          <label className="flex items-center gap-2 border-b border-border px-3 py-3 text-sm text-text-secondary">
-            <input
-              type="checkbox"
-              checked={taxExempt}
-              onChange={(event) => setTaxExempt(event.target.checked)}
-              className="h-4 w-4 accent-cyan"
-            />
-            <span>معفى من الضريبة لهذه الفاتورة</span>
-          </label>
-
-          {discountsEnabled && (
-            <div className="border-b border-border px-3 py-3">
-              <Input
-                label="خصم على الفاتورة (%)"
-                type="number"
-                min="0"
-                max={maxDiscountRate}
-                step="0.01"
-                value={discountRate}
-                onChange={(event) => setDiscountRate(Math.min(Math.max(Number(event.target.value) || 0, 0), maxDiscountRate))}
+          <div className="pos-invoice-controls">
+            <label className="pos-tax-toggle">
+              <input
+                type="checkbox"
+                checked={taxExempt}
+                onChange={(event) => setTaxExempt(event.target.checked)}
+                className="h-4 w-4 accent-cyan"
               />
-              <p className="mt-1 text-xs text-text-secondary">
-                أقصى خصم مسموح: {maxDiscountRate}%. مثال: فاتورة 1,000 ₪ مع خصم 10% تصبح 900 ₪.
-              </p>
-            </div>
-          )}
+              <span>معفى من الضريبة لهذه الفاتورة</span>
+            </label>
+
+            {discountsEnabled && (
+              <div className="pos-discount-control">
+                <Input
+                  label="خصم على الفاتورة (%)"
+                  type="number"
+                  min="0"
+                  max={maxDiscountRate}
+                  step="0.01"
+                  value={discountRate}
+                  onChange={(event) => setDiscountRate(Math.min(Math.max(Number(event.target.value) || 0, 0), maxDiscountRate))}
+                />
+                <p className="pos-discount-help">
+                  أقصى خصم: {maxDiscountRate}%
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* Cart Panel */}
           <ModernCartPanel

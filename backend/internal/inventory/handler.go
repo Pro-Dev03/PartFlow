@@ -60,6 +60,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		inventory.GET("/items", h.ListInventoryItems)
 		inventory.GET("/items/:id", h.GetInventoryItem)
 		inventory.DELETE("/items/:id", h.DeleteInventoryItem)
+		inventory.PATCH("/items/:id/classification", h.UpdateItemClassification)
 		inventory.PATCH("/items/:id/status", h.UpdateItemStatus)
 		inventory.POST("/items/:id/receive", h.ReceiveItem)
 		inventory.POST("/items/:id/adjust", h.AdjustInventory)
@@ -85,6 +86,32 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		tradeIns.POST("", h.CreateTradeIn)
 	}
+}
+
+// UpdateItemClassification updates the condition and part type of an inventory item.
+func (h *Handler) UpdateItemClassification(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req struct {
+		Condition  Condition  `json:"condition" binding:"required"`
+		PartTypeID *uuid.UUID `json:"part_type_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	item, err := h.service.UpdateItemClassification(c.Request.Context(), id, req.Condition, req.PartTypeID)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, item)
 }
 
 // CreateInventoryItem creates a new inventory item

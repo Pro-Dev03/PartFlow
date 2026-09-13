@@ -1,16 +1,19 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { acquisitionsApi, inventoryApi } from '../../../services/api/endpoints';
+import { acquisitionsApi, inventoryApi, partTypesApi } from '../../../services/api/endpoints';
 import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
 import { PageHeader } from '../../../components/ui/page-header';
 import { StatCard } from '../../../components/ui/stat-card';
+import { Select } from '../../../components/ui/select';
 import { ArrowRight, Package, ShoppingCart, TrendingUp } from 'lucide-react';
 import { formatPrice } from '../../../utils';
 
 export function UsedPartsStockPage() {
   const navigate = useNavigate();
+  const [selectedPartType, setSelectedPartType] = useState('');
   const { data, isLoading } = useQuery({
     queryKey: ['inventory', 'used-stock'],
     queryFn: () => inventoryApi.list({ page: 1, per_page: 100 }),
@@ -19,6 +22,12 @@ export function UsedPartsStockPage() {
     queryKey: ['acquisitions', 'used-stock'],
     queryFn: () => acquisitionsApi.list({ page: 1, per_page: 100, type: 'CUSTOMER' }),
   });
+  const { data: partTypesData, isLoading: isLoadingPartTypes } = useQuery({
+    queryKey: ['part-types'],
+    queryFn: () => partTypesApi.list(),
+  });
+
+  const partTypes = Array.isArray(partTypesData?.data) ? partTypesData.data : [];
 
   const acquisitionItems = (Array.isArray(acquisitionsData?.data)
     ? acquisitionsData.data
@@ -27,7 +36,8 @@ export function UsedPartsStockPage() {
 
   const items = (Array.isArray(data?.data) ? data.data : data?.data?.items || [])
     .filter((item: any) => String(item.condition || '').toUpperCase() === 'USED')
-    .filter((item: any) => String(item.status || '').toUpperCase() === 'AVAILABLE');
+    .filter((item: any) => String(item.status || '').toUpperCase() === 'AVAILABLE')
+    .filter((item: any) => !selectedPartType || item.part_type_id === selectedPartType);
   const usedPurchaseValue = items.reduce((total: number, item: any) => total + Number(item.purchase_cost || 0), 0);
   const usedSellingValue = items.reduce((total: number, item: any) => total + Number(item.selling_price || 0), 0);
 
@@ -54,6 +64,18 @@ export function UsedPartsStockPage() {
               رجوع
             </Button>
             <Button variant="secondary" onClick={() => navigate('/app/usedparts')}>شراء قطعة مستعملة</Button>
+            <Select
+              value={selectedPartType}
+              onChange={(e) => setSelectedPartType(e.target.value)}
+              loading={isLoadingPartTypes}
+              options={[
+                { value: '', label: 'جميع أنواع القطع' },
+                ...partTypes.map((partType: any) => ({ value: partType.id, label: partType.name_ar })),
+              ]}
+              emptyMessage="لا توجد أنواع قطع"
+              size="sm"
+              className="min-w-48"
+            />
           </div>
         }
       />

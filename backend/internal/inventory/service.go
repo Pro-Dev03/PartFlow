@@ -109,6 +109,27 @@ func (s *Service) GetInventoryItem(ctx context.Context, id uuid.UUID) (*Inventor
 	return s.repo.GetInventoryItemByID(ctx, id)
 }
 
+// UpdateItemClassification updates the condition and part type of an inventory item.
+func (s *Service) UpdateItemClassification(ctx context.Context, id uuid.UUID, condition Condition, partTypeID *uuid.UUID) (*InventoryItem, error) {
+	if !isValidCondition(condition) {
+		return nil, ErrInvalidCondition
+	}
+
+	item, err := s.repo.GetInventoryItemByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	item.Condition = string(condition)
+	item.PartTypeID = partTypeID
+	item.UpdatedAt = time.Now()
+	if err := s.repo.UpdateInventoryItem(ctx, item); err != nil {
+		return nil, err
+	}
+
+	return item, nil
+}
+
 // LookupBarcode looks up a product or item by barcode
 func (s *Service) LookupBarcode(ctx context.Context, barcode string) (*InventoryItem, error) {
 	// Try to find as inventory item first

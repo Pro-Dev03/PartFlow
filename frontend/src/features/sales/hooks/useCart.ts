@@ -33,18 +33,23 @@ export function normalizePosPrice(...values: unknown[]): number {
   return numericValue;
 }
 
+function getCartItemKey(item: PosCartProduct): string {
+  return String(item.barcode || item.inventoryItemId || item.sku || item.id);
+}
+
 export function useCart(soundEnabled: boolean = true, taxRate: number = 0) {
   const [cart, setCart] = useState<CartItem[]>([]);
 
   const addToCart = useCallback((item: PosCartProduct, requestedQuantity = 1) => {
     const quantityToAdd = Math.max(1, requestedQuantity);
+    const itemKey = getCartItemKey(item);
     const price = normalizePosPrice(item.price, item.sellingPrice, item.selling_price);
     const purchaseCost = normalizePosPrice(item.purchaseCost, item.costPrice, item.cost_price);
     setCart((currentCart) => {
-      const existingItem = currentCart.find((c) => c.barcode === item.barcode);
+      const existingItem = currentCart.find((c) => c.barcode === itemKey);
       if (existingItem) {
         return currentCart.map((c) =>
-          c.barcode === item.barcode
+          c.barcode === itemKey
             ? { ...c, quantity: c.quantity + quantityToAdd, total: (c.quantity + quantityToAdd) * c.price }
             : c
         );
@@ -54,7 +59,7 @@ export function useCart(soundEnabled: boolean = true, taxRate: number = 0) {
         inventoryItemId: item.inventoryItemId,
         serialNumber: item.serialNumber,
         name: item.name,
-        barcode: item.barcode,
+        barcode: itemKey,
         price,
         quantity: quantityToAdd,
         total: quantityToAdd * price,

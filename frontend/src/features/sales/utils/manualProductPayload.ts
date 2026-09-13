@@ -1,3 +1,5 @@
+import { generateSku } from '../../../utils/sku';
+
 export type ManualProductInput = {
   name: string;
   price: string;
@@ -10,7 +12,7 @@ export function buildManualProductPayload(input: ManualProductInput) {
   const price = Number(input.price) || 0;
   const quantity = Number(input.quantity) || 1;
   const rawBarcode = (input.barcode ?? '').trim();
-  const generatedSku = input.sku?.trim() || `SKU-${Date.now()}`;
+  const generatedSku = input.sku?.trim() || generateSku();
 
   return {
     name: input.name.trim(),

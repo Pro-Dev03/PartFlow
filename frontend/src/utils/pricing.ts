@@ -5,5 +5,5 @@ export function calculateSuggestedSellingPrice(costPrice: number, profitMargin: 
     return 0;
   }
 
-  return Number((costPrice / (1 - profitMargin / 100)).toFixed(2));
+  return Math.round(costPrice / (1 - profitMargin / 100));
 }

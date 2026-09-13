@@ -5,6 +5,7 @@ import { Button } from '../ui/button';
 import { Select } from '../ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { suppliersApi } from '../../services/api/endpoints';
+import { generateSku } from '../../utils/sku';
 
 interface ProductFormProps {
   onSubmit: (data: ProductFormData) => void;
@@ -28,7 +29,7 @@ export interface ProductFormData {
 export function ProductForm({ onSubmit, onCancel, initialData }: ProductFormProps) {
   const [formData, setFormData] = useState<ProductFormData>({
     name: initialData?.name || '',
-    sku: initialData?.sku || '',
+    sku: initialData?.sku || generateSku(),
     category: initialData?.category || '',
     description: initialData?.description || '',
     cost_price: initialData?.cost_price || 0,

@@ -10,6 +10,7 @@ import { Select } from '../../../components/ui/select';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
+import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
 import {
@@ -22,6 +23,7 @@ import {
   Type,
   Camera,
   ShoppingCart,
+  Trash2,
   CheckCircle,
   XCircle,
   AlertTriangle,
@@ -40,12 +42,16 @@ export function UsedPartsPage() {
   const [acquisitionCustomer, setAcquisitionCustomer] = useState('');
   const [acquisitionCustomerManual, setAcquisitionCustomerManual] = useState('');
   const [acquisitionProduct, setAcquisitionProduct] = useState('');
+  const [acquisitionPartType, setAcquisitionPartType] = useState('');
   const [acquisitionCondition, setAcquisitionCondition] = useState('used');
   const [acquisitionGrade, setAcquisitionGrade] = useState('good');
   const [acquisitionPrice, setAcquisitionPrice] = useState('');
+  const [acquisitionSellingPrice, setAcquisitionSellingPrice] = useState('');
   const [acquisitionSerialNumber, setAcquisitionSerialNumber] = useState('');
   const [acquisitionNotes, setAcquisitionNotes] = useState('');
   const [paymentStatus, setPaymentStatus] = useState('payable');
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [partToDelete, setPartToDelete] = useState<string | null>(null);
 
   // Barcode scanner state
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -109,6 +115,32 @@ export function UsedPartsPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => inventoryApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      setIsDeleteDialogOpen(false);
+      setPartToDelete(null);
+      toast.success('تم حذف القطعة من المخزون');
+    },
+    onError: (error) => {
+      console.error('Failed to delete used part:', error);
+      toast.error('فشل حذف القطعة');
+    },
+  });
+
+  const handleDeletePart = (id: string) => {
+    setPartToDelete(id);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (partToDelete) {
+      deleteMutation.mutate(partToDelete);
+    }
+  };
+
   // Barcode scan handler
   const handleBarcodeScan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,22 +172,24 @@ export function UsedPartsPage() {
   const handleSubmitAcquisition = async () => {
     const customerValue = isCustomerManual ? acquisitionCustomerManual : acquisitionCustomer;
 
-    if (!customerValue || !acquisitionProduct || !acquisitionPrice) {
+    if (!customerValue || !acquisitionProduct || !acquisitionPartType || !acquisitionPrice || !acquisitionSellingPrice) {
       toast.error('يرجى ملء جميع الحقول المطلوبة');
       return;
     }
 
     const data = {
       type: 'CUSTOMER',
-      acquisition_date: new Date().toISOString().split('T')[0],
+      acquisition_date: new Date().toISOString(),
       customer_id: isCustomerManual ? undefined : acquisitionCustomer,
       customer_name: isCustomerManual ? acquisitionCustomerManual : undefined,
       items: [{
         product_id: acquisitionProduct,
+        part_type_id: acquisitionPartType,
         serial_number: acquisitionSerialNumber,
         condition: acquisitionCondition,
         grade: acquisitionGrade,
         unit_cost: parseFloat(acquisitionPrice),
+        selling_price: parseFloat(acquisitionSellingPrice),
         notes: acquisitionNotes,
       }],
       payment_status: paymentStatus,
@@ -170,9 +204,11 @@ export function UsedPartsPage() {
     setAcquisitionCustomerManual('');
     setIsCustomerManual(false);
     setAcquisitionProduct('');
+    setAcquisitionPartType('');
     setAcquisitionCondition('used');
     setAcquisitionGrade('good');
     setAcquisitionPrice('');
+    setAcquisitionSellingPrice('');
     setAcquisitionSerialNumber('');
     setAcquisitionNotes('');
     setPaymentStatus('payable');
@@ -556,6 +592,15 @@ export function UsedPartsPage() {
                     >
                       بيع
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDeletePart(item.id)}
+                      title="حذف القطعة"
+                      aria-label="حذف القطعة"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -670,6 +715,29 @@ export function UsedPartsPage() {
               emptyMessage="لا يوجد منتجات"
               style={{ borderRadius: '12px', height: '48px' }}
             />
+            <label style={{
+              fontSize: '14px',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '12px',
+              marginTop: '16px',
+              display: 'block',
+              letterSpacing: '0.2px'
+            }}>
+              نوع القطعة
+              <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
+            </label>
+            <Select
+              value={acquisitionPartType}
+              onChange={(e) => setAcquisitionPartType(e.target.value)}
+              loading={partTypesLoading}
+              options={[
+                { value: '', label: 'اختر نوع القطعة...' },
+                ...partTypes.map((pt: any) => ({ value: pt.id, label: pt.name_ar })),
+              ]}
+              emptyMessage="لا توجد أنواع قطع"
+              style={{ borderRadius: '12px', height: '48px' }}
+            />
           </div>
 
           {/* Item Details in Grid */}
@@ -695,9 +763,7 @@ export function UsedPartsPage() {
                 value={acquisitionCondition}
                 onChange={(e) => setAcquisitionCondition(e.target.value)}
                 options={[
-                  { value: 'new', label: 'جديد' },
                   { value: 'used', label: 'مستعمل' },
-                  { value: 'refurbished', label: 'مجدّد' },
                 ]}
                 style={{ borderRadius: '12px', height: '48px' }}
               />
@@ -735,7 +801,7 @@ export function UsedPartsPage() {
             </div>
           </div>
 
-          {/* Serial Number & Price in Grid */}
+          {/* Serial Number and prices in grid */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             {/* Serial Number */}
             <div style={{
@@ -763,7 +829,7 @@ export function UsedPartsPage() {
               />
             </div>
 
-            {/* Price */}
+            {/* Purchase Price */}
             <div style={{
               padding: '20px',
               background: 'var(--bg-surface-elevated)',
@@ -791,6 +857,32 @@ export function UsedPartsPage() {
             </div>
           </div>
 
+          <div style={{
+            padding: '20px',
+            background: 'var(--bg-surface-elevated)',
+            borderRadius: '16px',
+            border: '1px solid var(--border-subtle)'
+          }}>
+            <label style={{
+              fontSize: '14px',
+              fontWeight: '600',
+              color: 'var(--text-primary)',
+              marginBottom: '12px',
+              display: 'block',
+              letterSpacing: '0.2px'
+            }}>
+              سعر البيع
+              <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
+            </label>
+            <Input
+              type="number"
+              value={acquisitionSellingPrice}
+              onChange={(e) => setAcquisitionSellingPrice(e.target.value)}
+              placeholder="أدخل سعر البيع..."
+              style={{ borderRadius: '12px', height: '48px' }}
+            />
+          </div>
+
           {/* Payment Status */}
           <div style={{
             padding: '20px',
@@ -813,8 +905,6 @@ export function UsedPartsPage() {
               onChange={(e) => setPaymentStatus(e.target.value)}
               options={[
                 { value: 'paid', label: 'مدفوع' },
-                { value: 'payable', label: 'مستحق الدفع' },
-                { value: 'partial', label: 'دفع جزئي' },
               ]}
               style={{ borderRadius: '12px', height: '48px' }}
             />
@@ -932,6 +1022,23 @@ export function UsedPartsPage() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => {
+          if (!deleteMutation.isPending) {
+            setIsDeleteDialogOpen(false);
+            setPartToDelete(null);
+          }
+        }}
+        onConfirm={handleConfirmDelete}
+        title="حذف القطعة"
+        message="هل أنت متأكد من حذف هذه القطعة من المخزون؟ قد يتم أرشفتها بدل حذفها نهائيًا إذا كانت مرتبطة بعمليات سابقة."
+        confirmText="حذف القطعة"
+        cancelText="إلغاء"
+        variant="danger"
+        isLoading={deleteMutation.isPending}
+      />
 
     </div>
   );
