@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { partTypesApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
@@ -10,7 +10,9 @@ import { Modal } from '../../../components/ui/modal';
 import { Badge } from '../../../components/ui/badge';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { getButtonSize } from '../../../config/button-sizes';
+import { useLayout } from '../../../contexts/LayoutContext';
 import { toast } from 'sonner';
+import { compressPartTypeImage, getPartTypeImage, setPartTypeImage } from '../../../services/localPartTypeImages';
 import { 
   Plus, 
   Edit, 
@@ -21,7 +23,12 @@ import {
   Zap,
   Box,
   Thermometer,
-  Package
+  Package,
+  Power,
+  PowerOff,
+  ImagePlus,
+  Upload,
+  X
 } from 'lucide-react';
 
 const iconMap: Record<string, any> = {
@@ -34,8 +41,51 @@ const iconMap: Record<string, any> = {
   package: Package,
 };
 
+const partTypeIconOptions = [
+  { value: 'box', icon: Box },
+  { value: 'monitor', icon: Monitor },
+  { value: 'cpu', icon: Cpu },
+  { value: 'hard-drive', icon: HardDrive },
+  { value: 'zap', icon: Zap },
+  { value: 'thermometer', icon: Thermometer },
+  { value: 'package', icon: Package },
+];
+
+const partTypeColorOptions = ['#14b8a6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6B7280'];
+
+function PartTypeImageField({ value, onChange }: { value?: string; onChange: (value?: string) => void }) {
+  const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !file.type.startsWith('image/')) return;
+    try {
+      onChange(await compressPartTypeImage(file));
+    } catch {
+      toast.error('تعذر تجهيز الصورة');
+    }
+  };
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-text mb-2">صورة نوع القطعة</label>
+      <div className="flex items-center gap-3 rounded-xl border border-dashed border-[var(--border-default)] bg-[var(--bg-surface-elevated)] p-3">
+        <label className="group relative flex h-[88px] w-[104px] shrink-0 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-[var(--color-primary-30)] bg-[var(--color-primary-08)] transition-all hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-10)]">
+          {value ? <img src={value} alt="معاينة نوع القطعة" className="h-full w-full object-cover" /> : <><span className="mb-1 flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-primary-15)] text-[var(--color-primary)]"><ImagePlus className="h-5 w-5" /></span><span className="text-[11px] font-semibold text-[var(--text-primary)]">رفع صورة</span></>}
+          {value && <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-xs font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100"><Upload className="me-1.5 h-3.5 w-3.5" />استبدال</span>}
+          <input type="file" accept="image/*" onChange={handleChange} hidden />
+        </label>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {value && <button type="button" onClick={() => onChange(undefined)} className="inline-flex w-fit items-center gap-1.5 text-xs text-[var(--color-danger)] hover:underline"><X className="w-3.5 h-3.5" />إزالة الصورة</button>}
+          <span className="truncate text-[10px] text-text-secondary">JPG أو PNG أو WEBP، حتى 5MB</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PartTypesPage() {
   const queryClient = useQueryClient();
+  const { setFullWidth } = useLayout();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedPartType, setSelectedPartType] = useState<any>(null);
@@ -48,6 +98,12 @@ export function PartTypesPage() {
     color: '#14b8a6',
     sort_order: 0
   });
+  const [newPartTypeImage, setNewPartTypeImage] = useState<string>();
+
+  useEffect(() => {
+    setFullWidth(true);
+    return () => setFullWidth(false);
+  }, [setFullWidth]);
 
   const { data: partTypesData, isLoading } = useQuery({
     queryKey: ['part-types'],
@@ -58,10 +114,15 @@ export function PartTypesPage() {
 
   const createMutation = useMutation({
     mutationFn: (data: any) => partTypesApi.create(data),
-    onSuccess: () => {
+    onSuccess: (response) => {
+      const createdPartType = (response?.data as any)?.part_type ?? response?.data;
+      if (createdPartType?.id && newPartTypeImage) {
+        setPartTypeImage(createdPartType.id, newPartTypeImage);
+      }
       queryClient.invalidateQueries({ queryKey: ['part-types'] });
       setIsCreateModalOpen(false);
       setNewPartType({ name_ar: '', name_en: '', icon: 'box', color: '#14b8a6', sort_order: 0 });
+      setNewPartTypeImage(undefined);
       toast.success('تم إضافة نوع القطعة بنجاح');
     },
     onError: () => {
@@ -93,6 +154,15 @@ export function PartTypesPage() {
     },
   });
 
+  const toggleActiveMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => partTypesApi.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['part-types'] });
+      toast.success('تم تحديث حالة نوع القطعة');
+    },
+    onError: () => toast.error('فشل تحديث حالة نوع القطعة'),
+  });
+
   const handleCreate = () => {
     if (!newPartType.name_ar || !newPartType.name_en) {
       toast.error('يرجى ملء جميع الحقول المطلوبة');
@@ -106,6 +176,7 @@ export function PartTypesPage() {
       toast.error('يرجى ملء جميع الحقول المطلوبة');
       return;
     }
+    setPartTypeImage(selectedPartType.id, selectedPartType.image_url || null);
     updateMutation.mutate({
       id: selectedPartType.id,
       data: selectedPartType
@@ -117,9 +188,24 @@ export function PartTypesPage() {
     setDeleteDialogOpen(true);
   };
 
+  const handleToggleActive = (partType: any) => {
+    toggleActiveMutation.mutate({
+      id: partType.id,
+      data: {
+        name_ar: partType.name_ar,
+        name_en: partType.name_en,
+        icon: partType.icon || 'box',
+        color: partType.color || '#14b8a6',
+        is_active: !partType.is_active,
+        sort_order: partType.sort_order || 0,
+      },
+    });
+  };
+
   const handleConfirmDelete = () => {
     if (partTypeToDelete) {
       deleteMutation.mutate(partTypeToDelete);
+      setPartTypeImage(partTypeToDelete, null);
       setDeleteDialogOpen(false);
       setPartTypeToDelete(null);
     }
@@ -171,29 +257,44 @@ export function PartTypesPage() {
               </Button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
               {partTypes.map((partType: any) => (
                 <div
                   key={partType.id}
-                  className="p-4 rounded-lg border border-gray-700 hover:border-cyan-500 transition-colors"
+                  className="transition-all duration-300"
                   style={{
-                    background: `linear-gradient(135deg, ${partType.color}20 0%, transparent 100%)`,
-                    borderColor: partType.is_active ? partType.color : '#374151'
+                    position: 'relative',
+                    opacity: partType.is_active ? 1 : 0.6,
+                    transform: 'translateY(0)'
                   }}
                 >
-                  <div className="flex items-start justify-between mb-3">
-                    <div
-                      className="p-2 rounded-lg"
-                      style={{ background: `${partType.color}30`, color: partType.color }}
-                    >
-                      {getIconComponent(partType.icon)}
-                    </div>
-                    <div className="flex gap-2">
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '4px', background: `linear-gradient(90deg, ${partType.color || '#14b8a6'}, ${partType.color || '#14b8a6'}dd)`, borderRadius: '12px 12px 0 0', opacity: partType.is_active ? 1 : 0.3 }} />
+                  <Card style={{ background: 'var(--card-bg)', border: `1px solid ${partType.is_active ? 'var(--card-border)' : 'rgba(107, 114, 128, 0.3)'}`, borderRadius: '12px', overflow: 'hidden', paddingTop: '8px' }}>
+                    <CardContent style={{ padding: '20px' }}>
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center gap-4">
+                          <div style={{ width: '72px', height: '72px', flex: '0 0 72px', overflow: 'hidden', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `linear-gradient(135deg, ${partType.color || '#14b8a6'}15, ${partType.color || '#14b8a6'}08)`, border: `2px solid ${partType.color || '#14b8a6'}25`, boxShadow: `0 4px 12px ${partType.color || '#14b8a6'}15` }}>
+                            {partType.image_url || getPartTypeImage(partType.id) ? (
+                              <img src={partType.image_url || getPartTypeImage(partType.id)} alt={partType.name_ar} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            ) : <span style={{ color: partType.color || '#14b8a6' }}>{getIconComponent(partType.icon)}</span>}
+                          </div>
+                          <div>
+                            <h3 className="text-base font-bold text-text-primary mb-1">{partType.name_ar}</h3>
+                            <p className="text-xs text-text-secondary">{partType.name_en}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <button type="button" onClick={() => handleToggleActive(partType)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors" style={{ background: partType.is_active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)', border: partType.is_active ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(107, 114, 128, 0.2)', color: partType.is_active ? 'var(--color-success)' : 'var(--text-secondary)' }} title={partType.is_active ? 'تعطيل نوع القطعة' : 'تفعيل نوع القطعة'}>
+                          {partType.is_active ? <PowerOff className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
+                          {partType.is_active ? 'نشط' : 'غير نشط'}
+                        </button>
+                        <div className="flex gap-2">
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => {
-                          setSelectedPartType(partType);
+                          setSelectedPartType({ ...partType, image_url: getPartTypeImage(partType.id) });
                           setIsEditModalOpen(true);
                         }}
                       >
@@ -206,13 +307,10 @@ export function PartTypesPage() {
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
-                    </div>
-                  </div>
-                  <h3 className="font-semibold text-lg mb-1">{partType.name_ar}</h3>
-                  <p className="text-sm text-gray-400 mb-2">{partType.name_en}</p>
-                  <Badge variant={partType.is_active ? 'success' : 'secondary'}>
-                    {partType.is_active ? 'نشط' : 'معطل'}
-                  </Badge>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
               ))}
             </div>
@@ -228,9 +326,9 @@ export function PartTypesPage() {
         variant="modern"
         size="sm"
       >
-        <div className="space-y-4">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label className="block text-sm font-medium text-text mb-2">الاسم بالعربية</label>
+            <label className="block text-sm font-medium text-text-primary mb-2">الاسم بالعربية *</label>
             <Input
               value={newPartType.name_ar}
               onChange={(e) => setNewPartType({ ...newPartType, name_ar: e.target.value })}
@@ -238,7 +336,7 @@ export function PartTypesPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-text mb-2">الاسم بالإنجليزية</label>
+            <label className="block text-sm font-medium text-text-primary mb-2">الاسم بالإنجليزية *</label>
             <Input
               value={newPartType.name_en}
               onChange={(e) => setNewPartType({ ...newPartType, name_en: e.target.value })}
@@ -246,30 +344,52 @@ export function PartTypesPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-text mb-2">الأيقونة</label>
-            <select
-              value={newPartType.icon}
-              onChange={(e) => setNewPartType({ ...newPartType, icon: e.target.value })}
-              className="w-full p-2 rounded bg-gray-800 border border-gray-700 text-white"
-            >
-              <option value="box">صندوق</option>
-              <option value="monitor">شاشة</option>
-              <option value="cpu">معالج</option>
-              <option value="hard-drive">قرص صلب</option>
-              <option value="zap">طاقة</option>
-              <option value="thermometer">تبريد</option>
-              <option value="package">قطعة</option>
-            </select>
+            <label className="block text-sm font-medium text-text-primary mb-2">الأيقونة</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '8px' }}>
+              {partTypeIconOptions.map(({ value, icon: Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setNewPartType({ ...newPartType, icon: value })}
+                  style={{
+                    padding: '8px',
+                    borderRadius: '8px',
+                    border: newPartType.icon === value ? '2px solid var(--color-primary)' : '1px solid var(--border-default)',
+                    background: newPartType.icon === value ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-surface)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer'
+                  }}
+                  aria-label={value}
+                >
+                  <Icon className="w-5 h-5" style={{ color: 'var(--text-primary)' }} />
+                </button>
+              ))}
+            </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-text mb-2">اللون</label>
-            <Input
-              type="color"
-              value={newPartType.color}
-              onChange={(e) => setNewPartType({ ...newPartType, color: e.target.value })}
-              className="h-10"
-            />
+            <label className="block text-sm font-medium text-text-primary mb-2">اللون</label>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {partTypeColorOptions.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setNewPartType({ ...newPartType, color })}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '50%',
+                    background: color,
+                    border: newPartType.color === color ? '3px solid var(--color-primary)' : '2px solid var(--border-default)',
+                    cursor: 'pointer'
+                  }}
+                  aria-label={color}
+                />
+              ))}
+            </div>
           </div>
+          <PartTypeImageField value={newPartTypeImage} onChange={setNewPartTypeImage} />
           <div>
             <label className="block text-sm font-medium text-text mb-2">ترتيب العرض</label>
             <Input
@@ -286,7 +406,7 @@ export function PartTypesPage() {
               إلغاء
             </Button>
             <Button variant="primary" onClick={handleCreate}>
-              إضافة
+              {createMutation.isPending ? 'جاري الإضافة...' : 'إضافة'}
             </Button>
           </div>
         </div>
@@ -341,6 +461,10 @@ export function PartTypesPage() {
                 className="h-10"
               />
             </div>
+            <PartTypeImageField
+              value={selectedPartType.image_url}
+              onChange={(image_url) => setSelectedPartType({ ...selectedPartType, image_url })}
+            />
             <div>
               <label className="block text-sm font-medium text-text mb-2">الحالة</label>
               <Select

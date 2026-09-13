@@ -966,6 +966,23 @@ func (s *Service) GetSellerBalances(ctx context.Context) ([]SellerBalance, error
 
 // CreateSellerBalancePayment applies a payment to the oldest unpaid acquisition for a seller.
 func (s *Service) CreateSellerBalancePayment(ctx context.Context, customerID uuid.UUID, amount float64, userID uuid.UUID) (*SellerPayment, error) {
+	if amount <= 0 {
+		return nil, fmt.Errorf("payment amount must be greater than zero")
+	}
+	var outstanding float64
+	if err := s.db.GetContext(ctx, &outstanding, `
+		SELECT COALESCE(SUM(total_cost - paid_amount), 0)
+		FROM acquisitions
+		WHERE customer_id = $1
+		  AND type = 'CUSTOMER'
+		  AND status NOT IN ('cancelled', 'reversed')
+	`, customerID); err != nil {
+		return nil, fmt.Errorf("failed to calculate seller balance: %w", err)
+	}
+	if amount > outstanding {
+		return nil, fmt.Errorf("payment amount exceeds seller balance")
+	}
+
 	var acquisitionID uuid.UUID
 	err := s.db.GetContext(ctx, &acquisitionID, `
 		SELECT id

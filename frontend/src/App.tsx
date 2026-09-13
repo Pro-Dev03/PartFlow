@@ -13,6 +13,8 @@ import { isInitialSyncNeeded } from './hooks/useInitialDataSync';
 import { authApi } from './services/api/endpoints';
 import { SubscriptionVerificationScreen } from './features/auth/components/SubscriptionVerificationScreen';
 import { initializeProductImages } from './services/localProductImages';
+import { initializePartTypeImages } from './services/localPartTypeImages';
+import { initializeCategoryImages } from './services/localCategoryImages';
 
 // Lazy load auth pages separately
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -84,6 +86,8 @@ function App() {
 
   useEffect(() => {
     void initializeProductImages();
+    void initializePartTypeImages();
+    void initializeCategoryImages();
   }, []);
 
   // HashRouter is required by the packaged Electron build, but a normal

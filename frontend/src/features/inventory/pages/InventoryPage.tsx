@@ -29,7 +29,8 @@ import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { ViewMode, ItemInputMethodType, Product } from '../types/inventory.types';
 import { inventoryApi } from '../../../services/api/endpoints';
 import { toast } from 'sonner';
-import { getLocalProductImage, setLocalProductImage } from '../../../services/localProductImages';
+import { getLocalProductImage } from '../../../services/localProductImages';
+import { getCategoryImage } from '../../../services/localCategoryImages';
 import { generateSku } from '../../../utils/sku';
 
 interface InventoryMovementResponse {
@@ -149,7 +150,7 @@ export function InventoryPage() {
       category_id: product.category_id,
       price: product.price,
       barcode: product.barcode,
-      image_url: product.image_url || getLocalProductImage(product.id),
+      image_url: product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined),
       min_stock_level: Number((product as Record<string, unknown>).min_stock_level ?? 0),
     };
     setSelectedProduct(mappedProduct);
@@ -183,7 +184,7 @@ export function InventoryPage() {
       category_id: product.category_id,
       price: product.price,
       barcode: product.barcode,
-      image_url: product.image_url || getLocalProductImage(product.id),
+      image_url: product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined),
       min_stock_level: Number((product as Record<string, unknown>).min_stock_level ?? 0),
     };
     setSelectedProduct(mappedProduct);
@@ -242,7 +243,6 @@ export function InventoryPage() {
         category_id: productData.category_id,
         barcode: productData.barcode,
       };
-      setLocalProductImage(selectedProduct.id, productData.image_url || null);
       updateProductMutation.mutate({ id: selectedProduct.id, data: apiData });
       setIsEditModalOpen(false);
       setSelectedProduct(null);
@@ -263,9 +263,6 @@ export function InventoryPage() {
       createProductMutation.mutate(apiData, {
         onSuccess: async (response: any) => {
           const product = response?.data?.product ?? response?.data;
-          if (product?.id && productData.image_url) {
-            setLocalProductImage(product.id, productData.image_url);
-          }
           const quantity = Math.max(0, Math.floor(Number(productData.stock) || 0));
           if (!product?.id || quantity === 0) {
             return;

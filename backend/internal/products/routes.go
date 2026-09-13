@@ -39,6 +39,7 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 		products.GET("/barcode/:barcode", handler.GetProductByBarcode)
 		products.GET("", handler.ListProducts)
 		products.PUT("/:id", handler.UpdateProduct)
+		products.PATCH("/:id/name", handler.UpdateProductName)
 		products.PATCH("/:id/min-stock", handler.UpdateMinimumStock)
 		products.DELETE("/:id", handler.DeleteProduct)
 		products.POST("/:id/restore", handler.RestoreProduct)

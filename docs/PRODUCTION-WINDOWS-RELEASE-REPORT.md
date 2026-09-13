@@ -81,6 +81,24 @@ partflow.local.product-images
 %APPDATA%\PartFlow\data\product-images\
 ```
 
+وتُحفظ الصور المشتركة لأنواع القطع في مجلد مستقل:
+
+```text
+%APPDATA%\PartFlow\data\part-type-images\
+```
+
+كل صورة تُسمى باستخدام `part_type_id`، لذلك تظهر الصورة نفسها لكل القطع التابعة
+لنفس النوع في نقطة البيع ومخزون القطع المستعملة.
+
+وتُحفظ صور التصنيفات المركزية للمنتجات في:
+
+```text
+%APPDATA%\PartFlow\data\category-images\
+```
+
+كل صورة تُسمى باستخدام `category_id`، وتُستخدم تلقائيًا لمنتجات التصنيف عند
+عدم وجود صورة خاصة بالمنتج.
+
 وقاعدة البيانات المحلية تحفظ في:
 
 ```text

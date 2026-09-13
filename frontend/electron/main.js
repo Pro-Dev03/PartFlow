@@ -70,6 +70,14 @@ function getProductImagesPath() {
   return path.join(app.getPath('userData'), 'data', 'product-images');
 }
 
+function getPartTypeImagesPath() {
+  return path.join(app.getPath('userData'), 'data', 'part-type-images');
+}
+
+function getCategoryImagesPath() {
+  return path.join(app.getPath('userData'), 'data', 'category-images');
+}
+
 function safeProductId(productId) {
   const value = String(productId || '').trim();
   return /^[a-zA-Z0-9_-]+$/.test(value) ? value : null;
@@ -117,6 +125,90 @@ ipcMain.handle('product-images:delete', async (_event, productId) => {
   if (!safeId) return false;
   try {
     await fs.promises.unlink(path.join(getProductImagesPath(), `${safeId}.jpg`));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  return true;
+});
+
+async function readPartTypeImages() {
+  const imagesPath = getPartTypeImagesPath();
+  await fs.promises.mkdir(imagesPath, { recursive: true });
+  const files = await fs.promises.readdir(imagesPath);
+  const result = {};
+  for (const file of files) {
+    if (!file.endsWith('.jpg')) continue;
+    const partTypeId = file.slice(0, -4);
+    const image = await fs.promises.readFile(path.join(imagesPath, file));
+    result[partTypeId] = `data:image/jpeg;base64,${image.toString('base64')}`;
+  }
+  return result;
+}
+
+ipcMain.handle('part-type-images:list', () => readPartTypeImages());
+ipcMain.handle('part-type-images:save', async (_event, partTypeId, dataUrl) => {
+  const safeId = safeProductId(partTypeId);
+  const image = dataUrlToBuffer(dataUrl);
+  if (!safeId || !image || image.length > 5 * 1024 * 1024) {
+    throw new Error('Invalid part type image');
+  }
+
+  const imagesPath = getPartTypeImagesPath();
+  await fs.promises.mkdir(imagesPath, { recursive: true });
+  const target = path.join(imagesPath, `${safeId}.jpg`);
+  const temporary = `${target}.tmp`;
+  await fs.promises.writeFile(temporary, image);
+  await fs.promises.rm(target, { force: true });
+  await fs.promises.rename(temporary, target);
+  return `data:image/jpeg;base64,${image.toString('base64')}`;
+});
+ipcMain.handle('part-type-images:delete', async (_event, partTypeId) => {
+  const safeId = safeProductId(partTypeId);
+  if (!safeId) return false;
+  try {
+    await fs.promises.unlink(path.join(getPartTypeImagesPath(), `${safeId}.jpg`));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  return true;
+});
+
+async function readCategoryImages() {
+  const imagesPath = getCategoryImagesPath();
+  await fs.promises.mkdir(imagesPath, { recursive: true });
+  const files = await fs.promises.readdir(imagesPath);
+  const result = {};
+  for (const file of files) {
+    if (!file.endsWith('.jpg')) continue;
+    const categoryId = file.slice(0, -4);
+    const image = await fs.promises.readFile(path.join(imagesPath, file));
+    result[categoryId] = `data:image/jpeg;base64,${image.toString('base64')}`;
+  }
+  return result;
+}
+
+ipcMain.handle('category-images:list', () => readCategoryImages());
+ipcMain.handle('category-images:save', async (_event, categoryId, dataUrl) => {
+  const safeId = safeProductId(categoryId);
+  const image = dataUrlToBuffer(dataUrl);
+  if (!safeId || !image || image.length > 5 * 1024 * 1024) {
+    throw new Error('Invalid category image');
+  }
+
+  const imagesPath = getCategoryImagesPath();
+  await fs.promises.mkdir(imagesPath, { recursive: true });
+  const target = path.join(imagesPath, `${safeId}.jpg`);
+  const temporary = `${target}.tmp`;
+  await fs.promises.writeFile(temporary, image);
+  await fs.promises.rm(target, { force: true });
+  await fs.promises.rename(temporary, target);
+  return `data:image/jpeg;base64,${image.toString('base64')}`;
+});
+ipcMain.handle('category-images:delete', async (_event, categoryId) => {
+  const safeId = safeProductId(categoryId);
+  if (!safeId) return false;
+  try {
+    await fs.promises.unlink(path.join(getCategoryImagesPath(), `${safeId}.jpg`));
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }

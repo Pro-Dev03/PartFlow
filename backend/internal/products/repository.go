@@ -724,6 +724,21 @@ func (r *Repository) UpdateProduct(ctx context.Context, product *Product) error 
 	return nil
 }
 
+func (r *Repository) UpdateProductName(ctx context.Context, id uuid.UUID, name string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE products SET name = $1, updated_at = $2 WHERE id = $3`, name, time.Now(), id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrProductNotFound
+	}
+	return nil
+}
+
 func (r *Repository) UpdateMinimumStock(ctx context.Context, id uuid.UUID, minStockLevel int) error {
 	result, err := r.db.ExecContext(ctx, `UPDATE products SET min_stock_level = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`, minStockLevel, time.Now(), id)
 	if err != nil {

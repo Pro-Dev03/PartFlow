@@ -216,6 +216,7 @@ export const productsApi = {
   get: (id: string) => apiClient.get(`/products/${id}`),
   create: (data: ProductCreateRequest) => apiClient.post('/products', data),
   update: (id: string, data: ProductUpdateRequest) => apiClient.put(`/products/${id}`, data),
+  updateName: (id: string, name: string) => apiClient.patch(`/products/${id}/name`, { name }),
   updateMinimumStock: (id: string, minStockLevel: number) => apiClient.patch(`/products/${id}/min-stock`, { min_stock_level: minStockLevel }),
   delete: (id: string) => apiClient.delete(`/products/${id}`),
   archive: (id: string) => apiClient.post(`/products/${id}/archive`),
@@ -247,7 +248,7 @@ export const inventoryApi = {
   create: (data: InventoryCreateRequest) => apiClient.post('/inventory/items', data),
   update: (id: string, data: InventoryUpdateRequest) => apiClient.put(`/inventory/items/${id}`, data),
   updateStatus: (id: string, status: string) => apiClient.patch(`/inventory/items/${id}/status`, { status }),
-  delete: (id: string) => apiClient.delete(`/inventory/items/${id}`),
+  delete: (id: string, params?: { permanent?: boolean }) => apiClient.delete(`/inventory/items/${id}`, params),
   movements: <T = unknown>(itemId: string) => apiClient.get<T>(`/inventory/items/${itemId}/history`),
   createTradeIn: (data: InventoryCreateRequest) => apiClient.post('/inventory/trade-ins', data),
 };
@@ -574,6 +575,8 @@ export const acquisitionsApi = {
     apiClient.put(`/acquisitions/${id}/status`, { status }),
   createPayment: (id: string, data: any) => 
     apiClient.post(`/acquisitions/${id}/payments`, data),
+  createSellerBalancePayment: (customerId: string, data: { amount: number }) =>
+    apiClient.post(`/acquisitions/seller-balances/${customerId}/payments`, data),
   getAging: (alertLevel?: string) => 
     apiClient.get('/acquisitions/aging', { alert_level: alertLevel }),
   getSellerBalances: () => 

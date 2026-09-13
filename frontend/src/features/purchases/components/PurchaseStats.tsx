@@ -34,10 +34,10 @@ export function PurchaseStats({ stats }: PurchaseStatsProps) {
         compact
       />
       <StatCard
-        title="تم إلغاء عملية الشراء"
+        title="عمليات ملغاة"
         value={stats.reversedCount}
         icon={RotateCcw}
-        variant="destructive"
+        variant="danger"
         compact
       />
       <StatCard

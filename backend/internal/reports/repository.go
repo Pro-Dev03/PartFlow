@@ -400,7 +400,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 
 	report.ByPaymentMethod = make(map[string]float64)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(payment_method, 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯'), COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) as total
+		`SELECT COALESCE(payment_method, 'غير محدد'), COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) as total
 		 FROM sales
 		 WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
@@ -437,7 +437,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 	err := r.db.GetContext(ctx, &report.TotalItems,
 		`SELECT COUNT(*) FROM inventory_items ii
 		 JOIN products p ON p.id = ii.product_id
-		 WHERE ii.status = 'AVAILABLE' AND p.deleted_at IS NULL`)
+		 WHERE ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' AND p.deleted_at IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve inventory totals: %w", err)
 	}
@@ -445,7 +445,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 	err = r.db.GetContext(ctx, &report.TotalValue,
 		`SELECT COALESCE(SUM(ii.purchase_cost), 0) FROM inventory_items ii
 		 JOIN products p ON p.id = ii.product_id
-		 WHERE ii.status = 'AVAILABLE' AND p.deleted_at IS NULL`)
+		 WHERE ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' AND p.deleted_at IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve inventory value: %w", err)
 	}
@@ -454,7 +454,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		`SELECT ii.condition, COUNT(*), COALESCE(SUM(ii.purchase_cost), 0)
 		 FROM inventory_items ii
 		 JOIN products p ON p.id = ii.product_id
-		 WHERE ii.status = 'AVAILABLE' AND p.deleted_at IS NULL
+		 WHERE ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' AND p.deleted_at IS NULL
 		 GROUP BY ii.condition`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve inventory conditions: %w", err)
@@ -511,11 +511,11 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 	_ = rows.Err()
 	rows.Close()
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(c.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'), COUNT(*)
+		`SELECT COALESCE(c.name, 'غير مصنف'), COUNT(*)
 		 FROM inventory_items ii
 		 JOIN products p ON p.id = ii.product_id
 		 LEFT JOIN categories c ON c.id = p.category_id
-		 WHERE ii.status = 'AVAILABLE' AND p.deleted_at IS NULL
+			 WHERE ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' AND p.deleted_at IS NULL
 		 GROUP BY c.name ORDER BY COUNT(*) DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve inventory categories: %w", err)
@@ -533,24 +533,24 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 	rows.Close()
 
 	overstockQuery := `SELECT p.id, p.name,
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'),
+		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED'),
 		        (SELECT COALESCE(SUM(si.quantity), 0) / 3 FROM sale_items si
 		         JOIN sales s ON s.id = si.sale_id
 		         WHERE si.product_id = p.id AND s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
 		           AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')),
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE') /
+		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') /
 		        GREATEST((SELECT COALESCE(SUM(si.quantity), 0) / 3 FROM sale_items si
 		                  JOIN sales s ON s.id = si.sale_id
 		                  WHERE si.product_id = p.id AND s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
 		                    AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 1)
 		 FROM products p
 		 WHERE p.is_active = true AND p.deleted_at IS NULL
-		   AND (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE') > 0
+		   AND (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') > 0
 		   AND ((SELECT COALESCE(SUM(si.quantity), 0) FROM sale_items si
 		         JOIN sales s ON s.id = si.sale_id
 		         WHERE si.product_id = p.id AND s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
 		           AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) = 0 OR
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE') /
+		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') /
 		        GREATEST((SELECT COALESCE(SUM(si.quantity), 0) / 3 FROM sale_items si
 		                  JOIN sales s ON s.id = si.sale_id
 		                  WHERE si.product_id = p.id AND s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
@@ -558,24 +558,24 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		 ORDER BY 3 DESC`
 	if dbutil.IsSQLite(r.db) {
 		overstockQuery = `SELECT p.id, p.name,
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'),
+		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED'),
 		        (SELECT COALESCE(SUM(si.quantity), 0) / 3.0 FROM sale_items si
 		         JOIN sales s ON s.id = si.sale_id
 		         WHERE si.product_id = p.id AND s.sale_date >= datetime('now', '-90 days')
 		           AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')),
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE') /
+		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') /
 		        MAX((SELECT COALESCE(SUM(si.quantity), 0) / 3.0 FROM sale_items si
 		                  JOIN sales s ON s.id = si.sale_id
 		                  WHERE si.product_id = p.id AND s.sale_date >= datetime('now', '-90 days')
 		                    AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 1)
 		 FROM products p
 		 WHERE p.is_active = 1 AND p.deleted_at IS NULL
-		   AND (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE') > 0
+		   AND (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') > 0
 		   AND ((SELECT COALESCE(SUM(si.quantity), 0) FROM sale_items si
 		         JOIN sales s ON s.id = si.sale_id
 		         WHERE si.product_id = p.id AND s.sale_date >= datetime('now', '-90 days')
 		           AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) = 0 OR
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE') /
+		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') /
 		        MAX((SELECT COALESCE(SUM(si.quantity), 0) / 3.0 FROM sale_items si
 		                  JOIN sales s ON s.id = si.sale_id
 		                  WHERE si.product_id = p.id AND s.sale_date >= datetime('now', '-90 days')
@@ -598,7 +598,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		        CURRENT_DATE - COALESCE(MAX(s.sale_date), DATE '0001-01-01'),
 		        COALESCE(SUM(ii.purchase_cost), 0)
 		 FROM products p
-		 JOIN inventory_items ii ON ii.product_id = p.id AND ii.status = 'AVAILABLE'
+		 JOIN inventory_items ii ON ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED'
 		 LEFT JOIN sale_items si ON si.product_id = p.id
 		 LEFT JOIN sales s ON s.id = si.sale_id
 		   AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
@@ -611,7 +611,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		        CAST(julianday('now') - julianday(COALESCE(MAX(s.sale_date), '0001-01-01T00:00:00Z')) AS INTEGER),
 		        COALESCE(SUM(ii.purchase_cost), 0)
 		 FROM products p
-		 JOIN inventory_items ii ON ii.product_id = p.id AND ii.status = 'AVAILABLE'
+		 JOIN inventory_items ii ON ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED'
 		 LEFT JOIN sale_items si ON si.product_id = p.id
 		 LEFT JOIN sales s ON s.id = si.sale_id
 		   AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
@@ -882,7 +882,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 
 	report.ByCategory = make(map[string]float64)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(c.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'),
+		`SELECT COALESCE(NULLIF(TRIM(c.name), ''), p.name, 'غير مصنف'),
 		        COALESCE(SUM((COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) - (si.quantity * COALESCE(si.unit_cost, 0))), 0)
 		 FROM sale_items si
 		 JOIN sales s ON s.id = si.sale_id
@@ -890,7 +890,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		 LEFT JOIN categories c ON c.id = p.category_id
 		 WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
-		 GROUP BY c.name ORDER BY SUM(COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) DESC`,
+		 GROUP BY c.name, p.name ORDER BY SUM(COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) DESC`,
 		startDate, endDate)
 	if err == nil {
 		for rows.Next() {
@@ -1018,6 +1018,36 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 	var report PurchasesReport
 	report.StartDate = startDate
 	report.EndDate = endDate
+	_ = r.db.GetContext(ctx, &report.UsedPartPurchases, `
+		SELECT
+		  (SELECT COUNT(*) FROM acquisitions a
+		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed')
+		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
+		     AND date(a.acquisition_date) <= date(substr($2, 1, 10))),
+		  (SELECT COUNT(*) FROM acquisition_items ai JOIN acquisitions a ON a.id = ai.acquisition_id
+		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed')
+		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
+		     AND date(a.acquisition_date) <= date(substr($2, 1, 10))),
+		  (SELECT COALESCE(SUM(a.total_cost), 0) FROM acquisitions a
+		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed')
+		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
+		     AND date(a.acquisition_date) <= date(substr($2, 1, 10))),
+		  (SELECT COALESCE(SUM(a.paid_amount), 0) FROM acquisitions a
+		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed')
+		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
+		     AND date(a.acquisition_date) <= date(substr($2, 1, 10))),
+		  (SELECT COALESCE(SUM(a.total_cost - a.paid_amount), 0) FROM acquisitions a
+		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed')
+		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
+		     AND date(a.acquisition_date) <= date(substr($2, 1, 10))),
+		  (SELECT COUNT(*) FROM inventory_items ii JOIN acquisition_items ai ON ai.inventory_item_id = ii.id JOIN acquisitions a ON a.id = ai.acquisition_id
+		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed') AND ii.status = 'AVAILABLE'
+		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
+		     AND date(a.acquisition_date) <= date(substr($2, 1, 10))),
+		  (SELECT COUNT(*) FROM inventory_items ii JOIN acquisition_items ai ON ai.inventory_item_id = ii.id JOIN acquisitions a ON a.id = ai.acquisition_id
+		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed') AND ii.status = 'SOLD'
+		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
+		     AND date(a.acquisition_date) <= date(substr($2, 1, 10)))`, startDate, endDate)
 	itemTotalColumn := "total_amount"
 	if dbutil.IsSQLite(r.db) {
 		itemTotalColumn = "item_total"
@@ -1120,7 +1150,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 
 	report.ByCategory = make(map[string]int)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(c.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'), COALESCE(SUM(pi.quantity), 0)
+		`SELECT COALESCE(c.name, 'غير مصنف'), COALESCE(SUM(pi.quantity), 0)
 		 FROM purchase_items pi
 		 JOIN purchases p ON p.id = pi.purchase_id
 		 JOIN products pr ON pr.id = pi.product_id
@@ -1387,14 +1417,14 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	// Get payment method breakdown for gross sales
 	report.ByCategory = make(map[string]float64)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(c.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'), COALESCE(SUM(COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)), 0) AS total
+		`SELECT COALESCE(c.name, p.name, 'غير مصنف'), COALESCE(SUM(COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)), 0) AS total
 		 FROM sale_items si
 		 JOIN sales s ON s.id = si.sale_id
 		 JOIN products p ON p.id = si.product_id
 			 LEFT JOIN categories c ON c.id = p.category_id
 				 WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) <= date(substr($2, 1, 10))
 			   AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
-			 GROUP BY c.name
+				 GROUP BY c.name, p.name
 		 ORDER BY total DESC`,
 		startDate, endDate)
 	if err == nil {

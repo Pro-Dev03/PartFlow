@@ -2,6 +2,8 @@ package products
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/partflow/smart-store/internal/dashboard"
@@ -245,6 +247,18 @@ func (s *Service) UpdateProduct(ctx context.Context, id uuid.UUID, req *ProductR
 	dashboard.InvalidateDashboardCacheWithReason("product_updated")
 
 	return product, nil
+}
+
+func (s *Service) UpdateProductName(ctx context.Context, id uuid.UUID, name string) (*Product, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("product name is required")
+	}
+	if err := s.repo.UpdateProductName(ctx, id, name); err != nil {
+		return nil, err
+	}
+	dashboard.InvalidateDashboardCacheWithReason("product_name_updated")
+	return s.repo.GetProductByID(ctx, id)
 }
 
 func (s *Service) UpdateMinimumStock(ctx context.Context, id uuid.UUID, minStockLevel int) error {

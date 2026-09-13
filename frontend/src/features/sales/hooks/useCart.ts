@@ -34,7 +34,7 @@ export function normalizePosPrice(...values: unknown[]): number {
 }
 
 function getCartItemKey(item: PosCartProduct): string {
-  return String(item.barcode || item.inventoryItemId || item.sku || item.id);
+  return String(item.inventoryItemId || item.barcode || item.sku || item.id);
 }
 
 export function useCart(soundEnabled: boolean = true, taxRate: number = 0) {
@@ -46,8 +46,13 @@ export function useCart(soundEnabled: boolean = true, taxRate: number = 0) {
     const price = normalizePosPrice(item.price, item.sellingPrice, item.selling_price);
     const purchaseCost = normalizePosPrice(item.purchaseCost, item.costPrice, item.cost_price);
     setCart((currentCart) => {
-      const existingItem = currentCart.find((c) => c.barcode === itemKey);
+      const existingItem = currentCart.find((c) =>
+        item.inventoryItemId
+          ? c.inventoryItemId === item.inventoryItemId
+          : c.barcode === itemKey
+      );
       if (existingItem) {
+        if (item.inventoryItemId) return currentCart;
         return currentCart.map((c) =>
           c.barcode === itemKey
             ? { ...c, quantity: c.quantity + quantityToAdd, total: (c.quantity + quantityToAdd) * c.price }
@@ -86,7 +91,7 @@ export function useCart(soundEnabled: boolean = true, taxRate: number = 0) {
     }
     setCart((currentCart) => currentCart.map((item) =>
       item.barcode === barcode
-        ? { ...item, quantity, total: quantity * item.price }
+        ? { ...item, quantity: item.inventoryItemId ? 1 : quantity, total: (item.inventoryItemId ? 1 : quantity) * item.price }
         : item
     ));
   }, [removeFromCart]);

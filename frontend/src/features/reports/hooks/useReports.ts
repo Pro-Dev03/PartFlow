@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { reportsApi, inventoryApi, productsApi } from '../../../services/api/endpoints';
+import { reportsApi, inventoryApi, productsApi, acquisitionsApi, customersApi } from '../../../services/api/endpoints';
 
 export function useReports(selectedReport: string, dateRange: string, customStartDate?: string, customEndDate?: string) {
   // Calculate date range based on selection
@@ -74,13 +74,29 @@ export function useReports(selectedReport: string, dateRange: string, customStar
         case 'returns-analysis':
           return reportsApi.returnsAnalysis();
         case 'used-items': {
-          const [inventoryResponse, productsResponse] = await Promise.all([
+          const [inventoryResponse, productsResponse, acquisitionsResponse, customersResponse] = await Promise.all([
             inventoryApi.list({ condition: 'USED', page: 1, per_page: 100 }),
             productsApi.list({ page: 1, per_page: 100 }),
+            acquisitionsApi.list({ type: 'CUSTOMER', page: 1, per_page: 100 }),
+            customersApi.list({ page: 1, per_page: 100 }),
           ]);
           const products = (productsResponse.data?.products || []) as Array<{ id: string; name: string }>;
           const productNames = new Map(products.map(product => [product.id, product.name]));
-          const items = inventoryResponse.data?.items || [];
+          const customers = Array.isArray(customersResponse.data) ? customersResponse.data : [];
+          const customerNames = new Map(customers.map((customer: any) => [customer.id, customer.name]));
+          const sellerByInventoryItemId = new Map<string, string>();
+          const acquisitions = Array.isArray(acquisitionsResponse.data) ? acquisitionsResponse.data : [];
+          acquisitions.forEach((acquisition: any) => {
+            const sellerName = customerNames.get(acquisition.customer_id) || 'بائع غير معروف';
+            (acquisition.items || []).forEach((acquisitionItem: any) => {
+              if (acquisitionItem.inventory_item_id) {
+                sellerByInventoryItemId.set(acquisitionItem.inventory_item_id, sellerName);
+              }
+            });
+          });
+          const items = (inventoryResponse.data?.items || []).filter(
+            item => String(item.status || '').toUpperCase() !== 'ARCHIVED'
+          );
           return {
             ...inventoryResponse,
             data: {
@@ -88,6 +104,7 @@ export function useReports(selectedReport: string, dateRange: string, customStar
               items: items.map(item => ({
                 ...item,
                 product_name: productNames.get(item.product_id) || 'منتج غير معروف',
+                seller_name: sellerByInventoryItemId.get(item.id) || 'غير محدد',
               })),
             },
           };

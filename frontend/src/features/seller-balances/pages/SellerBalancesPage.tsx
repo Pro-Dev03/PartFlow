@@ -47,8 +47,8 @@ export function SellerBalancesPage() {
   });
 
   const createPaymentMutation = useMutation({
-    mutationFn: ({ acquisitionId, amount }: { acquisitionId: string; amount: number }) =>
-      acquisitionsApi.createPayment(acquisitionId, { amount }),
+    mutationFn: ({ customerId, amount }: { customerId: string; amount: number }) =>
+      acquisitionsApi.createSellerBalancePayment(customerId, { amount }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['seller-balances'] });
       queryClient.invalidateQueries({ queryKey: ['acquisitions'] });
@@ -64,22 +64,25 @@ export function SellerBalancesPage() {
   });
 
   const handleMakePayment = () => {
-    if (!selectedSeller || !paymentAmount) {
+    if (!selectedSeller || !selectedSeller.customer_id || !paymentAmount) {
       toast.error('يرجى إدخال مبلغ الدفعة');
       return;
     }
 
-    const amount = parseFloat(paymentAmount) * 100; // Convert to cents
-    // This is a simplified approach - in reality you'd need the specific acquisition ID
+    const amount = parseFloat(paymentAmount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > selectedSeller.balance) {
+      toast.error(`يجب أن يكون المبلغ بين 0.01 و ₪${selectedSeller.balance.toFixed(2)}`);
+      return;
+    }
     createPaymentMutation.mutate({ 
-      acquisitionId: selectedSeller.customer_id || '', 
+      customerId: selectedSeller.customer_id,
       amount 
     });
   };
 
   const getBalanceStatus = (balance: number) => {
-    if (balance > 0) return { variant: 'warning' as const, label: 'مستحق للمتجر' };
-    if (balance < 0) return { variant: 'danger' as const, label: 'مستحق للبائع' };
+    if (balance > 0) return { variant: 'warning' as const, label: 'مستحق للبائع' };
+    if (balance < 0) return { variant: 'info' as const, label: 'رصيد زائد للمتجر' };
     return { variant: 'success' as const, label: 'متوازن' };
   };
 
@@ -115,7 +118,7 @@ export function SellerBalancesPage() {
               <div>
                 <p className="text-sm text-gray-400">إجمالي المشتريات</p>
                 <p className="text-2xl font-bold">
-                  ₪{balances.reduce((sum: number, b: SellerBalance) => sum + b.total_acquired, 0) / 100}
+                  ₪{balances.reduce((sum: number, b: SellerBalance) => sum + b.total_acquired, 0).toFixed(2)}
                 </p>
               </div>
             </div>
@@ -130,7 +133,7 @@ export function SellerBalancesPage() {
               <div>
                 <p className="text-sm text-gray-400">إجمالي المدفوعات</p>
                 <p className="text-2xl font-bold">
-                  ₪{balances.reduce((sum: number, b: SellerBalance) => sum + b.total_paid, 0) / 100}
+                  ₪{balances.reduce((sum: number, b: SellerBalance) => sum + b.total_paid, 0).toFixed(2)}
                 </p>
               </div>
             </div>
@@ -143,9 +146,9 @@ export function SellerBalancesPage() {
                 <DollarSign className="w-5 h-5 text-orange" />
               </div>
               <div>
-                <p className="text-sm text-gray-400">إجمالي الرصيد المستحق</p>
+                <p className="text-sm text-gray-400">المستحق للبائعين</p>
                 <p className="text-2xl font-bold">
-                  ₪{Math.abs(balances.reduce((sum: number, b: SellerBalance) => sum + b.balance, 0)) / 100}
+                  ₪{balances.reduce((sum: number, b: SellerBalance) => sum + Math.max(b.balance, 0), 0).toFixed(2)}
                 </p>
               </div>
             </div>
@@ -206,13 +209,13 @@ export function SellerBalancesPage() {
                         <div>
                           <p className="text-xs text-[var(--text-secondary)]">إجمالي المشتريات</p>
                           <p className="text-lg font-bold text-[var(--text-primary)]">
-                            ₪{(balance.total_acquired / 100).toFixed(2)}
+                            ₪{balance.total_acquired.toFixed(2)}
                           </p>
                         </div>
                         <div>
                           <p className="text-xs text-[var(--text-secondary)]">إجمالي المدفوعات</p>
                           <p className="text-lg font-bold text-[var(--text-primary)]">
-                            ₪{(balance.total_paid / 100).toFixed(2)}
+                            ₪{balance.total_paid.toFixed(2)}
                           </p>
                         </div>
                         <div>
@@ -222,7 +225,7 @@ export function SellerBalancesPage() {
                                    balance.balance < 0 ? 'var(--color-danger)' : 
                                    'var(--color-success)'
                           }}>
-                            ₪{(Math.abs(balance.balance) / 100).toFixed(2)}
+                            ₪{Math.abs(balance.balance).toFixed(2)}
                           </p>
                         </div>
                       </div>
@@ -230,7 +233,7 @@ export function SellerBalancesPage() {
 
                     <div className="flex flex-col items-end gap-2 mr-4">
                       <Badge variant={status.variant}>{status.label}</Badge>
-                      {balance.balance !== 0 && (
+                      {balance.balance > 0 && (
                         <Button
                           variant="primary"
                           size="sm"
@@ -276,7 +279,7 @@ export function SellerBalancesPage() {
                        selectedSeller.balance < 0 ? 'var(--color-danger)' : 
                        'var(--color-success)'
               }}>
-                ₪{(Math.abs(selectedSeller.balance) / 100).toFixed(2)}
+                ₪{Math.abs(selectedSeller.balance).toFixed(2)}
               </p>
             </div>
           )}
@@ -291,7 +294,14 @@ export function SellerBalancesPage() {
               onChange={(e) => setPaymentAmount(e.target.value)}
               placeholder="أدخل المبلغ..."
               step="0.01"
+              min="0.01"
+              max={selectedSeller?.balance}
             />
+            {selectedSeller && (
+              <p className="mt-2 text-xs text-[var(--text-secondary)]">
+                الحد الأقصى للدفعة: ₪{selectedSeller.balance.toFixed(2)}
+              </p>
+            )}
           </div>
 
           <div className="flex gap-3 justify-end pt-4 border-t border-[var(--border-subtle)]">

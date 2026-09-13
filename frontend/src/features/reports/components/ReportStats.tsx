@@ -74,14 +74,12 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
         const getStatus = (item: any) => String(item.status || '').trim().toUpperCase();
         const availableItems = items.filter((item: any) => getStatus(item) === 'AVAILABLE');
         const soldItems = items.filter((item: any) => getStatus(item) === 'SOLD');
-        const damagedItems = items.filter((item: any) => getStatus(item) === 'DAMAGED');
         const availableCost = availableItems.reduce((sum: number, item: any) => sum + Number(item.purchase_cost || 0), 0);
         const availableRetail = availableItems.reduce((sum: number, item: any) => sum + Number(item.selling_price || 0), 0);
         return [
           ['إجمالي القطع', count(items.length), Package, 'قطع مستعملة مسجلة', 'featured'],
           ['المتاحة', count(availableItems.length), Package, 'جاهزة للبيع', 'success'],
           ['المباعة', count(soldItems.length), TrendingUp, 'قطع تم بيعها', 'info'],
-          ['التالفة', count(damagedItems.length), AlertTriangle, 'ليست ضمن المخزون المتاح', 'danger'],
           ['قيمة التكلفة', value(availableCost), DollarSign, 'للقطع المتاحة فقط', 'warning'],
           ['قيمة البيع', value(availableRetail), DollarSign, 'المتوقع من المتاح', 'success'],
           ['الربح المحتمل', value(availableRetail - availableCost), TrendingUp, 'للقطع المتاحة فقط', 'default'],

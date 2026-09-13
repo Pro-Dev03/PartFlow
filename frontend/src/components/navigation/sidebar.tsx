@@ -18,7 +18,6 @@ import {
   Layers,
   Tag,
   FileText,
-  UserCheck,
 } from 'lucide-react';
 import { cn } from '../../utils';
 import type { LucideIcon } from 'lucide-react';
@@ -78,7 +77,6 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
       items: [
         { id: 'inventory', icon: Package, label: t('nav.inventory') || 'المنتجات', path: '/app/inventory' },
         { id: 'used-parts', icon: Layers, label: 'مخزون القطع المستعملة', path: '/app/usedparts' },
-        { id: 'seller-balances', icon: UserCheck, label: 'رصيد البائعين', path: '/app/seller-balances' },
       ]
     },
     {

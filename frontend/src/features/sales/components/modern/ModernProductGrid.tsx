@@ -5,6 +5,7 @@ import { getLocalProductImage } from '../../../../services/localProductImages';
 
 type SearchProduct = ProductCardProps['product'] & {
   category_id?: string;
+  category_image_url?: string;
   sales_count?: number;
 };
 
@@ -94,7 +95,7 @@ function ModernProductCard({ product, taxRate, taxExempt, onClick }: ModernProdu
   const isLowStock = stock > 0 && stock <= 3;
   const isOutOfStock = stock <= 0;
   const stockStatus = isOutOfStock ? 'نفد المخزون' : isLowStock ? 'قليل' : 'متوفر';
-  const imageUrl = product.image_url || getLocalProductImage(String(product.id));
+  const imageUrl = product.image_url || getLocalProductImage(String(product.id)) || product.category_image_url;
 
   return (
     <button

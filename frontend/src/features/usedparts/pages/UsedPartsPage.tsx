@@ -13,6 +13,7 @@ import { Modal } from '../../../components/ui/modal';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
+import { getPartTypeImage } from '../../../services/localPartTypeImages';
 import {
   Plus,
   Layers,
@@ -24,6 +25,7 @@ import {
   Camera,
   ShoppingCart,
   Trash2,
+  Pencil,
   CheckCircle,
   XCircle,
   AlertTriangle,
@@ -41,7 +43,7 @@ export function UsedPartsPage() {
   const [isCustomerManual, setIsCustomerManual] = useState(false);
   const [acquisitionCustomer, setAcquisitionCustomer] = useState('');
   const [acquisitionCustomerManual, setAcquisitionCustomerManual] = useState('');
-  const [acquisitionProduct, setAcquisitionProduct] = useState('');
+  const [acquisitionProductName, setAcquisitionProductName] = useState('');
   const [acquisitionPartType, setAcquisitionPartType] = useState('');
   const [acquisitionCondition, setAcquisitionCondition] = useState('used');
   const [acquisitionGrade, setAcquisitionGrade] = useState('good');
@@ -52,6 +54,15 @@ export function UsedPartsPage() {
   const [paymentStatus, setPaymentStatus] = useState('payable');
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [partToDelete, setPartToDelete] = useState<string | null>(null);
+  const [partToEdit, setPartToEdit] = useState<any | null>(null);
+  const [editPurchaseCost, setEditPurchaseCost] = useState('');
+  const [editSellingPrice, setEditSellingPrice] = useState('');
+  const [editProductName, setEditProductName] = useState('');
+  const [editPartType, setEditPartType] = useState('');
+  const [editCondition, setEditCondition] = useState('used');
+  const [editGrade, setEditGrade] = useState('good');
+  const [editSerialNumber, setEditSerialNumber] = useState('');
+  const [editNotes, setEditNotes] = useState('');
 
   // Barcode scanner state
   const [barcodeInput, setBarcodeInput] = useState('');
@@ -80,8 +91,13 @@ export function UsedPartsPage() {
     queryFn: () => customersApi.list({ page: 1, per_page: 100 }),
   });
 
-  const { data: productsData, isLoading: productsLoading } = useQuery({
-    queryKey: ['products'],
+  const { data: acquisitionsData } = useQuery({
+    queryKey: ['acquisitions', 'used-parts-sellers'],
+    queryFn: () => acquisitionsApi.list({ type: 'CUSTOMER', page: 1, per_page: 100 }),
+  });
+
+  const { data: productsData } = useQuery({
+    queryKey: ['products', 'used-parts-edit'],
     queryFn: () => productsApi.list({ page: 1, per_page: 100 }),
   });
 
@@ -93,7 +109,18 @@ export function UsedPartsPage() {
   const partTypes = Array.isArray(partTypesData?.data) ? partTypesData.data : [];
   const customers = Array.isArray(customersData?.data) ? customersData.data : [];
   const products = Array.isArray(productsData?.data?.products) ? productsData.data.products : [];
-
+  const productById = new Map(products.map((product: any) => [product.id, product]));
+  const customerNames = new Map(customers.map((customer: any) => [customer.id, customer.name]));
+  const sellerByInventoryItemId = new Map<string, string>();
+  const acquisitions = Array.isArray(acquisitionsData?.data) ? acquisitionsData.data : [];
+  acquisitions.forEach((acquisition: any) => {
+    const sellerName = customerNames.get(acquisition.customer_id) || 'بائع غير معروف';
+    (acquisition.items || []).forEach((acquisitionItem: any) => {
+      if (acquisitionItem.inventory_item_id) {
+        sellerByInventoryItemId.set(acquisitionItem.inventory_item_id, sellerName);
+      }
+    });
+  });
   // Handle part types error gracefully
   if (partTypesError) {
     console.warn('Failed to load part types:', partTypesError);
@@ -116,7 +143,7 @@ export function UsedPartsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => inventoryApi.delete(id),
+    mutationFn: (id: string) => inventoryApi.delete(id, { permanent: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -130,6 +157,28 @@ export function UsedPartsPage() {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: async (data: any) => {
+      await inventoryApi.update(data.id, data);
+      if (data.product_update) {
+            await productsApi.update(data.product_update.id, {
+              ...data.product_update,
+              name: data.product_name.trim(),
+              sku: data.product_update.sku || `USED-${data.product_update.id}`,
+              cost_price: Number(data.product_update.cost_price ?? data.purchase_cost),
+              selling_price: Number(data.selling_price),
+            });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
+      setPartToEdit(null);
+      toast.success('تم تحديث القطعة بنجاح');
+    },
+    onError: () => toast.error('فشل تحديث القطعة'),
+  });
+
   const handleDeletePart = (id: string) => {
     setPartToDelete(id);
     setIsDeleteDialogOpen(true);
@@ -139,6 +188,41 @@ export function UsedPartsPage() {
     if (partToDelete) {
       deleteMutation.mutate(partToDelete);
     }
+  };
+
+  const handleEditPart = (item: any) => {
+    setPartToEdit(item);
+    setEditProductName(item.product_name || item.product?.name || '');
+    setEditPartType(item.part_type_id || '');
+    setEditCondition(String(item.condition || 'used').toLowerCase());
+    setEditGrade(String(item.grade || 'good').toLowerCase());
+    setEditSerialNumber(item.serial_number || '');
+    setEditPurchaseCost(String(item.purchase_cost ?? ''));
+    setEditSellingPrice(String(item.selling_price ?? ''));
+    setEditNotes(item.notes || '');
+  };
+
+  const handleSaveEdit = () => {
+    if (!partToEdit) return;
+    const purchaseCost = Number(editPurchaseCost);
+    const sellingPrice = Number(editSellingPrice);
+    if (!Number.isFinite(purchaseCost) || purchaseCost < 0 || !Number.isFinite(sellingPrice) || sellingPrice < 0) {
+      toast.error('أدخل أسعارًا صحيحة');
+      return;
+    }
+    updateMutation.mutate({
+      id: partToEdit.id,
+      product_id: partToEdit.product_id,
+      product_name: editProductName,
+      product_update: productById.get(partToEdit.product_id),
+      part_type_id: editPartType || null,
+      condition: editCondition,
+      grade: editGrade,
+      serial_number: editSerialNumber,
+      purchase_cost: purchaseCost,
+      selling_price: sellingPrice,
+      notes: editNotes,
+    });
   };
 
   // Barcode scan handler
@@ -151,7 +235,7 @@ export function UsedPartsPage() {
         
         if (product && product.id) {
           // Open acquisition modal with product pre-filled
-          setAcquisitionProduct(product.id);
+          setAcquisitionProductName(product.name || '');
           setIsAcquisitionModalOpen(true);
         } else {
           if (soundEnabled) {
@@ -172,8 +256,21 @@ export function UsedPartsPage() {
   const handleSubmitAcquisition = async () => {
     const customerValue = isCustomerManual ? acquisitionCustomerManual : acquisitionCustomer;
 
-    if (!customerValue || !acquisitionProduct || !acquisitionPartType || !acquisitionPrice || !acquisitionSellingPrice) {
+    if (!customerValue || !acquisitionProductName.trim() || !acquisitionPartType || !acquisitionPrice || !acquisitionSellingPrice) {
       toast.error('يرجى ملء جميع الحقول المطلوبة');
+      return;
+    }
+
+    const productResponse = await productsApi.create({
+      name: acquisitionProductName.trim(),
+      sku: `USED-${Date.now()}`,
+      cost_price: parseFloat(acquisitionPrice),
+      selling_price: parseFloat(acquisitionSellingPrice),
+      condition: 'used',
+    });
+    const createdProduct = (productResponse.data as any)?.product ?? productResponse.data;
+    if (!createdProduct?.id) {
+      toast.error('تعذر إنشاء القطعة بالاسم المدخل');
       return;
     }
 
@@ -183,7 +280,7 @@ export function UsedPartsPage() {
       customer_id: isCustomerManual ? undefined : acquisitionCustomer,
       customer_name: isCustomerManual ? acquisitionCustomerManual : undefined,
       items: [{
-        product_id: acquisitionProduct,
+        product_id: createdProduct.id,
         part_type_id: acquisitionPartType,
         serial_number: acquisitionSerialNumber,
         condition: acquisitionCondition,
@@ -203,7 +300,7 @@ export function UsedPartsPage() {
     setAcquisitionCustomer('');
     setAcquisitionCustomerManual('');
     setIsCustomerManual(false);
-    setAcquisitionProduct('');
+    setAcquisitionProductName('');
     setAcquisitionPartType('');
     setAcquisitionCondition('used');
     setAcquisitionGrade('good');
@@ -219,7 +316,8 @@ export function UsedPartsPage() {
     navigate('/app/sales', {
       state: {
         usedPart: {
-          id: item.id,
+          id: item.product_id || item.product?.id,
+          inventoryItemId: item.id,
           name: item.product_name || item.product?.name || 'قطعة مستعملة',
           barcode: item.serial_number || item.barcode || item.id,
           price: item.selling_price,
@@ -542,9 +640,15 @@ export function UsedPartsPage() {
                   background: partType ? `linear-gradient(135deg, ${partType.color}15 0%, transparent 100%)` : undefined
                 }}
               >
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    {partType && (
+                <CardContent className="p-3">
+                  <div className="flex items-start justify-between mb-2">
+                      {getPartTypeImage(String(item.part_type_id)) ? (
+                        <img
+                          src={getPartTypeImage(String(item.part_type_id))}
+                          alt={item.product_name || 'نوع القطعة'}
+                          style={{ width: '96px', height: '72px', objectFit: 'cover', display: 'block', borderRadius: '10px', flex: '0 0 96px' }}
+                        />
+                      ) : partType && (
                       <div
                         className="p-2 rounded-lg"
                         style={{ background: `${partType.color}30`, color: partType.color }}
@@ -554,15 +658,21 @@ export function UsedPartsPage() {
                     )}
                   </div>
                   
-                  <h3 className="font-semibold mb-1">
+                  <h3 className="font-semibold text-sm mb-1">
                     {item.product_name || item.product?.name || 'قطعة بدون اسم'}
                   </h3>
                   
                   {partType && (
-                    <p className="text-sm text-gray-400 mb-2">{partType.name_ar}</p>
+                    <p className="text-xs text-gray-400 mb-2">{partType.name_ar}</p>
                   )}
                   
                   <div className="space-y-2 mb-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">اشتريت من:</span>
+                      <span className="text-[var(--text-primary)]">
+                        {sellerByInventoryItemId.get(item.id) || 'غير محدد'}
+                      </span>
+                    </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-400">اشتريت بـ:</span>
                       <span>₪{item.purchase_cost.toFixed(2)}</span>
@@ -591,6 +701,15 @@ export function UsedPartsPage() {
                       onClick={() => handleSellItem(item)}
                     >
                       بيع
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleEditPart(item)}
+                      title="تعديل القطعة"
+                      aria-label="تعديل القطعة"
+                    >
+                      <Pencil className="w-4 h-4" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -704,15 +823,11 @@ export function UsedPartsPage() {
               المنتج
               <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
             </label>
-            <Select
-              value={acquisitionProduct}
-              onChange={(e) => setAcquisitionProduct(e.target.value)}
-              loading={productsLoading}
-              options={[
-                { value: '', label: 'اختر المنتج...' },
-                ...products.map((p) => ({ value: p.id, label: p.name })),
-              ]}
-              emptyMessage="لا يوجد منتجات"
+            <Input
+              type="text"
+              value={acquisitionProductName}
+              onChange={(e) => setAcquisitionProductName(e.target.value)}
+              placeholder="اكتب اسم القطعة..."
               style={{ borderRadius: '12px', height: '48px' }}
             />
             <label style={{
@@ -1019,6 +1134,102 @@ export function UsedPartsPage() {
               <ShoppingCart className="w-5 h-5" style={{ position: 'relative', zIndex: 1 }} />
               <span style={{ position: 'relative', zIndex: 1 }}>شراء</span>
             </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(partToEdit)}
+        onClose={() => !updateMutation.isPending && setPartToEdit(null)}
+        title="تعديل القطعة المستعملة"
+        variant="modern"
+        size="md"
+      >
+        <div className="space-y-4">
+          <label className="block text-sm font-medium text-[var(--text-primary)]">
+            اسم القطعة
+            <Input type="text" value={editProductName} onChange={(event) => setEditProductName(event.target.value)} className="mt-2" />
+          </label>
+          <label className="block text-sm font-medium text-[var(--text-primary)]">
+            نوع القطعة
+            <Select
+              value={editPartType}
+              onChange={(event) => setEditPartType(event.target.value)}
+              options={[
+                { value: '', label: 'بدون نوع' },
+                ...partTypes.map((partType: any) => ({ value: partType.id, label: partType.name_ar })),
+              ]}
+              className="mt-2"
+            />
+          </label>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="block text-sm font-medium text-[var(--text-primary)]">
+              الحالة
+              <Select
+                value={editCondition}
+                onChange={(event) => setEditCondition(event.target.value)}
+                options={[{ value: 'used', label: 'مستعمل' }, { value: 'refurbished', label: 'مجدد' }, { value: 'new', label: 'جديد' }]}
+                className="mt-2"
+              />
+            </label>
+            <label className="block text-sm font-medium text-[var(--text-primary)]">
+              التقييم
+              <Select
+                value={editGrade}
+                onChange={(event) => setEditGrade(event.target.value)}
+                options={[
+                  { value: 'excellent', label: 'ممتاز' },
+                  { value: 'very_good', label: 'جيد جدًا' },
+                  { value: 'good', label: 'جيد' },
+                  { value: 'fair', label: 'متوسط' },
+                  { value: 'poor', label: 'ضعيف' },
+                ]}
+                className="mt-2"
+              />
+            </label>
+          </div>
+          <label className="block text-sm font-medium text-[var(--text-primary)]">
+            الرقم التسلسلي
+            <Input type="text" value={editSerialNumber} onChange={(event) => setEditSerialNumber(event.target.value)} className="mt-2" />
+          </label>
+          <label className="block text-sm font-medium text-[var(--text-primary)]">
+            سعر الشراء
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={editPurchaseCost}
+              onChange={(event) => setEditPurchaseCost(event.target.value)}
+              className="mt-2"
+            />
+          </label>
+          <label className="block text-sm font-medium text-[var(--text-primary)]">
+            سعر البيع
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={editSellingPrice}
+              onChange={(event) => setEditSellingPrice(event.target.value)}
+              className="mt-2"
+            />
+          </label>
+          <label className="block text-sm font-medium text-[var(--text-primary)]">
+            ملاحظات
+            <Input
+              type="text"
+              value={editNotes}
+              onChange={(event) => setEditNotes(event.target.value)}
+              className="mt-2"
+            />
+          </label>
+          <div className="flex justify-end gap-3 border-t border-[var(--border-subtle)] pt-4">
+            <Button variant="secondary" onClick={() => setPartToEdit(null)} disabled={updateMutation.isPending}>
+              إلغاء
+            </Button>
+            <Button variant="primary" onClick={handleSaveEdit} disabled={updateMutation.isPending}>
+              {updateMutation.isPending ? 'جاري الحفظ...' : 'حفظ التعديل'}
+            </Button>
           </div>
         </div>
       </Modal>

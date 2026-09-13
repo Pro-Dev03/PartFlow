@@ -10,6 +10,7 @@ import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { getButtonSize } from '../../../config/button-sizes';
 import { toast } from 'sonner';
 import { useLayout } from '../../../contexts/LayoutContext';
+import { compressCategoryImage, getCategoryImage, setCategoryImage } from '../../../services/localCategoryImages';
 
 import {
   Plus,
@@ -36,7 +37,10 @@ import {
   Speaker,
   Cable,
   Power,
-  PowerOff
+  PowerOff,
+  ImagePlus,
+  Upload,
+  X
 } from 'lucide-react';
 
 const iconMap: Record<string, any> = {
@@ -90,6 +94,41 @@ const colorOptions = [
   '#EC4899', '#06B6D4', '#6B7280', '#14B8A6', '#F97316'
 ];
 
+function CategoryImageField({ value, onChange }: { value?: string; onChange: (value?: string) => void }) {
+  const handleChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !file.type.startsWith('image/')) return;
+    try {
+      onChange(await compressCategoryImage(file));
+    } catch {
+      toast.error('تعذر تجهيز صورة التصنيف');
+    }
+  };
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-text-primary mb-2">صورة منتجات التصنيف</label>
+      <div className="flex items-center gap-3 rounded-xl border border-dashed border-[var(--border-default)] bg-[var(--bg-surface-elevated)] p-3">
+        <label className="group relative flex h-[88px] w-[104px] shrink-0 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-[var(--color-primary-30)] bg-[var(--color-primary-08)] transition-all hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-10)]">
+          {value ? <img src={value} alt="معاينة صورة التصنيف" className="h-full w-full object-cover" /> : <><span className="mb-1 flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-primary-15)] text-[var(--color-primary)]"><ImagePlus className="h-5 w-5" /></span><span className="text-[11px] font-semibold text-[var(--text-primary)]">رفع صورة</span></>}
+          {value && <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-xs font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100"><Upload className="me-1.5 h-3.5 w-3.5" />استبدال</span>}
+          <input type="file" accept="image/*" onChange={handleChange} hidden />
+        </label>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {value && (
+            <button type="button" onClick={() => onChange(undefined)} className="inline-flex w-fit items-center gap-1.5 text-xs text-[var(--color-danger)] hover:underline">
+              <X className="w-3.5 h-3.5" />
+              إزالة الصورة
+            </button>
+          )}
+          <span className="truncate text-[10px] text-text-secondary">JPG أو PNG أو WEBP، حتى 5MB</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function CategoriesPage() {
   const queryClient = useQueryClient();
   const { setFullWidth } = useLayout();
@@ -105,6 +144,7 @@ export function CategoriesPage() {
     color: '#3B82F6',
     is_active: true
   });
+  const [newCategoryImage, setNewCategoryImage] = useState<string>();
 
   useEffect(() => {
     setFullWidth(true);
@@ -158,10 +198,15 @@ export function CategoriesPage() {
       };
       return categoriesApi.create(apiData);
     },
-    onSuccess: () => {
+    onSuccess: (response) => {
+      const createdCategory = (response?.data as any)?.category ?? response?.data;
+      if (createdCategory?.id && newCategoryImage) {
+        setCategoryImage(createdCategory.id, newCategoryImage);
+      }
       queryClient.invalidateQueries({ queryKey: ['categories'] });
       setIsCreateModalOpen(false);
       setNewCategory({ name: '', description: '', icon: 'smartphone', color: '#3B82F6', is_active: true });
+      setNewCategoryImage(undefined);
       toast.success('تم إضافة التصنيف بنجاح');
     },
     onError: (error: any) => {
@@ -241,6 +286,7 @@ export function CategoriesPage() {
       toast.error('يرجى إدخال اسم التصنيف');
       return;
     }
+    setCategoryImage(selectedCategory.id, selectedCategory.image_url || null);
     updateMutation.mutate({
       id: selectedCategory.id,
       data: selectedCategory
@@ -255,6 +301,7 @@ export function CategoriesPage() {
   const handleConfirmDelete = () => {
     if (categoryToDelete) {
       deleteMutation.mutate(categoryToDelete.id);
+      setCategoryImage(categoryToDelete.id, null);
       setDeleteDialogOpen(false);
       setCategoryToDelete(null);
     }
@@ -279,7 +326,8 @@ export function CategoriesPage() {
     setSelectedCategory({
       ...category,
       icon: category.icon || 'smartphone',
-      color: category.color || '#3B82F6'
+      color: category.color || '#3B82F6',
+      image_url: getCategoryImage(category.id)
     });
     setIsEditModalOpen(true);
   };
@@ -397,12 +445,11 @@ export function CategoriesPage() {
                           e.currentTarget.style.boxShadow = `0 4px 12px ${categoryColor}15`;
                         }}
                       >
-                        <CategoryIcon style={{ 
-                          width: '28px', 
-                          height: '28px', 
-                          color: categoryColor,
-                          strokeWidth: 2
-                        }} />
+                        {getCategoryImage(category.id) ? (
+                          <img src={getCategoryImage(category.id)} alt={category.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '12px' }} />
+                        ) : (
+                          <CategoryIcon style={{ width: '28px', height: '28px', color: categoryColor, strokeWidth: 2 }} />
+                        )}
                       </div>
                       
                       <div>
@@ -606,6 +653,8 @@ export function CategoriesPage() {
             />
           </div>
 
+          <CategoryImageField value={newCategoryImage} onChange={setNewCategoryImage} />
+
           <div>
             <label className="block text-sm font-medium text-text-primary mb-2">
               الأيقونة
@@ -704,6 +753,11 @@ export function CategoriesPage() {
                 placeholder="وصف قصير للتصنيف"
               />
             </div>
+
+            <CategoryImageField
+              value={selectedCategory.image_url}
+              onChange={(image_url) => setSelectedCategory({ ...selectedCategory, image_url })}
+            />
 
             <div>
               <label className="block text-sm font-medium text-text-primary mb-2">

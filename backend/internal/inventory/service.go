@@ -109,6 +109,51 @@ func (s *Service) GetInventoryItem(ctx context.Context, id uuid.UUID) (*Inventor
 	return s.repo.GetInventoryItemByID(ctx, id)
 }
 
+func (s *Service) UpdateInventoryItemDetails(ctx context.Context, id uuid.UUID, partTypeID *uuid.UUID, serialNumber, condition, grade *string, purchaseCost, sellingPrice *float64, notes *string) (*InventoryItem, error) {
+	item, err := s.repo.GetInventoryItemByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if purchaseCost != nil {
+		if *purchaseCost < 0 {
+			return nil, fmt.Errorf("purchase cost cannot be negative")
+		}
+		item.PurchaseCost = *purchaseCost
+	}
+	if partTypeID != nil {
+		item.PartTypeID = partTypeID
+	}
+	if serialNumber != nil {
+		item.SerialNumber = serialNumber
+	}
+	if condition != nil {
+		normalizedCondition := strings.ToUpper(strings.TrimSpace(*condition))
+		if isValidCondition(Condition(normalizedCondition)) {
+			item.Condition = normalizedCondition
+		}
+	}
+	if grade != nil {
+		normalizedGrade := strings.ToUpper(strings.TrimSpace(*grade))
+		if isValidGrade(Grade(normalizedGrade)) {
+			item.Grade = &normalizedGrade
+		}
+	}
+	if sellingPrice != nil {
+		if *sellingPrice < 0 {
+			return nil, fmt.Errorf("selling price cannot be negative")
+		}
+		item.SellingPrice = *sellingPrice
+	}
+	if notes != nil {
+		item.Notes = notes
+	}
+	item.UpdatedAt = time.Now()
+	if err := s.repo.UpdateInventoryItem(ctx, item); err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
 // UpdateItemClassification updates the condition and part type of an inventory item.
 func (s *Service) UpdateItemClassification(ctx context.Context, id uuid.UUID, condition Condition, partTypeID *uuid.UUID) (*InventoryItem, error) {
 	if !isValidCondition(condition) {
@@ -685,10 +730,19 @@ func (s *Service) ListInventoryItems(ctx context.Context, page, perPage int, fil
 	return s.repo.ListInventoryItems(ctx, perPage, offset, filters)
 }
 
-func (s *Service) DeleteInventoryItem(ctx context.Context, itemID, userID uuid.UUID) error {
+func (s *Service) DeleteInventoryItem(ctx context.Context, itemID, userID uuid.UUID, permanent bool) error {
 	item, err := s.repo.GetInventoryItemByID(ctx, itemID)
 	if err != nil {
 		return err
+	}
+	if permanent {
+		if !strings.EqualFold(item.Condition, string(ConditionUsed)) {
+			return fmt.Errorf("permanent deletion is only allowed for used parts")
+		}
+		if strings.EqualFold(string(item.Status), string(StatusSold)) {
+			return ErrCannotDeleteSoldItem
+		}
+		return s.repo.DeleteUsedInventoryItem(ctx, itemID)
 	}
 	protected, err := s.repo.HasProtectedHistory(ctx, itemID)
 	if err != nil {

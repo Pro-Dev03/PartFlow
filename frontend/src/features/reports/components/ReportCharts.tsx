@@ -7,6 +7,11 @@ interface ReportChartsProps {
 }
 
 export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
+  const normalizeReportLabel = (value: unknown): string => {
+    const label = String(value ?? '').trim();
+    return label.includes('Ø') || label.includes('Ù') ? 'غير مصنف' : label;
+  };
+
   // Process data for charts
   const processChartData = () => {
     const report = data?.data ?? data;
@@ -53,7 +58,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
         })).filter((item: { value: number }) => Number.isFinite(item.value))
       : [];
     const objectData = (source: Record<string, unknown> | undefined) =>
-      Object.entries(source || {}).map(([label, value]) => ({ label, value: Number(value) }))
+      Object.entries(source || {}).map(([label, value]) => ({ label: normalizeReportLabel(label), value: Number(value) }))
         .filter(item => Number.isFinite(item.value) && item.value > 0);
     const categoryData = objectData(report.by_category);
     const inventoryProductData = Array.isArray(report.low_stock_items)
@@ -79,6 +84,13 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       : [];
     const returnedProductData = Array.isArray(report.by_product)
       ? report.by_product.map((item: any) => ({ label: String(item.product_name || 'غير معروف'), value: Number(item.refund_amount || 0) }))
+          .filter((item: { value: number }) => Number.isFinite(item.value) && item.value > 0)
+      : [];
+    const netSalesProductData = Array.isArray(report.top_returned_products)
+      ? report.top_returned_products.map((item: any) => ({
+          label: String(item.product_name || 'غير معروف'),
+          value: Number(item.net_revenue ?? item.gross_revenue ?? 0),
+        }))
           .filter((item: { value: number }) => Number.isFinite(item.value) && item.value > 0)
       : [];
     const distributionData = reportType === 'inventory' && inventoryProductData.length > 0
@@ -128,6 +140,8 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       sourceData: reportType === 'suppliers' ? supplierSourceData : sourceData,
       productData: reportType === 'products'
         ? categoryData
+        : reportType === 'net-sales'
+          ? netSalesProductData.length > 0 ? netSalesProductData : categoryData
         : reportType === 'suppliers'
           ? supplierData
           : reportType === 'inventory'
@@ -161,6 +175,8 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       <SimpleBarChart
         title={reportType === 'products'
           ? 'يحتاج انتباهك'
+          : reportType === 'net-sales'
+            ? 'صافي المبيعات حسب المنتج'
           : reportType === 'expenses'
             ? 'المصروفات حسب الفئة'
             : reportType === 'suppliers' || reportType === 'purchases'
@@ -170,7 +186,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
         color="#14b8a6"
         loading={loading}
       />
-      {!(reportType === 'purchases' && trendData.length <= 1) && (
+      {reportType !== 'used-items' && !(reportType === 'purchases' && trendData.length <= 1) && (
         <div style={{ gridColumn: '1 / -1', width: '100%', maxWidth: '1200px', marginInline: 'auto' }}>
           <SimpleLineChart
             title={reportType === 'suppliers'

@@ -22,6 +22,10 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 func inventoryItemFromMap(record map[string]any) (*InventoryItem, error) {
 	item := &InventoryItem{}
+	if raw, ok := record["product_name"]; ok && raw != nil && raw != "" {
+		value := fmt.Sprint(raw)
+		item.ProductName = &value
+	}
 	if raw, ok := record["id"]; ok && raw != nil {
 		parsed, err := parseUUIDValue(raw)
 		if err != nil {
@@ -293,6 +297,38 @@ func (r *Repository) DeleteInventoryItem(ctx context.Context, itemID uuid.UUID) 
 	return nil
 }
 
+func (r *Repository) DeleteUsedInventoryItem(ctx context.Context, itemID uuid.UUID) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start used part deletion: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM inventory_movements WHERE item_id = $1`, itemID); err != nil {
+		return fmt.Errorf("failed to remove used part history: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM item_history WHERE inventory_item_id = $1`, itemID); err != nil {
+		return fmt.Errorf("failed to remove used part timeline: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM item_repair_costs WHERE inventory_item_id = $1`, itemID); err != nil {
+		return fmt.Errorf("failed to remove used part repair history: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM acquisition_items WHERE inventory_item_id = $1`, itemID); err != nil {
+		return fmt.Errorf("failed to unlink used part acquisition: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM inventory_items WHERE id = $1`, itemID)
+	if err != nil {
+		return fmt.Errorf("failed to permanently delete used part: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected == 0 {
+		return ErrItemNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit used part deletion: %w", err)
+	}
+	return nil
+}
+
 // GetInventoryItemByID retrieves an inventory item by ID
 func (r *Repository) GetInventoryItemByID(ctx context.Context, id uuid.UUID) (*InventoryItem, error) {
 	query := `
@@ -474,9 +510,11 @@ func (r *Repository) UpdateItemStatus(ctx context.Context, id uuid.UUID, status 
 func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, filters map[string]interface{}) ([]*InventoryItem, int64, error) {
 	// Build base query
 	baseQuery := `
-		SELECT id, product_id, part_type_id, item_code, barcode, serial_number,
-		       condition, grade, purchase_cost, selling_price, status, location_id,
-		       supplier_id, purchase_date, sold_at, notes, created_at, updated_at,
+		SELECT inventory_items.id, inventory_items.product_id, p.name AS product_name,
+		       inventory_items.part_type_id, inventory_items.item_code, inventory_items.barcode, inventory_items.serial_number,
+		       inventory_items.condition, inventory_items.grade, inventory_items.purchase_cost, inventory_items.selling_price,
+		       inventory_items.status, inventory_items.location_id, inventory_items.supplier_id, inventory_items.purchase_date,
+		       inventory_items.sold_at, inventory_items.notes, inventory_items.created_at, inventory_items.updated_at,
 			   COALESCE((
 		       SELECT COUNT(*)
 		       FROM inventory_items ii2
@@ -489,9 +527,10 @@ func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, 
 		       AND ii3.status = 'AVAILABLE'
 			   ), 0) AS available_quantity
 		FROM inventory_items
-		WHERE 1=1
+		LEFT JOIN products p ON inventory_items.product_id = p.id
+		WHERE UPPER(COALESCE(inventory_items.status, '')) <> 'ARCHIVED'
 	`
-	countQuery := `SELECT COUNT(*) FROM inventory_items WHERE 1=1`
+	countQuery := `SELECT COUNT(*) FROM inventory_items WHERE UPPER(COALESCE(status, '')) <> 'ARCHIVED'`
 
 	args := []interface{}{}
 	argCount := 0
@@ -500,40 +539,40 @@ func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, 
 	if condition, ok := filters["condition"].(string); ok && condition != "" {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND condition = ` + param
-		countQuery += ` AND condition = ` + param
+		baseQuery += ` AND inventory_items.condition = ` + param
+		countQuery += ` AND inventory_items.condition = ` + param
 		args = append(args, condition)
 	}
 
 	if status, ok := filters["status"].(string); ok && status != "" {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND status = ` + param
-		countQuery += ` AND status = ` + param
+		baseQuery += ` AND inventory_items.status = ` + param
+		countQuery += ` AND inventory_items.status = ` + param
 		args = append(args, status)
 	}
 
 	if productID, ok := filters["product_id"].(uuid.UUID); ok && productID != uuid.Nil {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND product_id = ` + param
-		countQuery += ` AND product_id = ` + param
+		baseQuery += ` AND inventory_items.product_id = ` + param
+		countQuery += ` AND inventory_items.product_id = ` + param
 		args = append(args, productID)
 	}
 
 	if partTypeID, ok := filters["part_type_id"].(uuid.UUID); ok && partTypeID != uuid.Nil {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND part_type_id = ` + param
-		countQuery += ` AND part_type_id = ` + param
+		baseQuery += ` AND inventory_items.part_type_id = ` + param
+		countQuery += ` AND inventory_items.part_type_id = ` + param
 		args = append(args, partTypeID)
 	}
 
 	if locationID, ok := filters["location_id"].(uuid.UUID); ok && locationID != uuid.Nil {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND location_id = ` + param
-		countQuery += ` AND location_id = ` + param
+		baseQuery += ` AND inventory_items.location_id = ` + param
+		countQuery += ` AND inventory_items.location_id = ` + param
 		args = append(args, locationID)
 	}
 
@@ -547,7 +586,7 @@ func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, 
 	// Add pagination
 	argCount++
 	param := fmt.Sprintf("$%d", argCount)
-	baseQuery += ` ORDER BY created_at DESC LIMIT ` + param
+	baseQuery += ` ORDER BY inventory_items.created_at DESC LIMIT ` + param
 	args = append(args, limit)
 
 	argCount++
@@ -606,11 +645,11 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 		FROM inventory_items ii
 		LEFT JOIN products p ON ii.product_id = p.id
 		LEFT JOIN suppliers s ON ii.supplier_id = s.id
-		WHERE 1=1
+		WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'
 	`
 	countQuery := `
 		SELECT COUNT(*) FROM inventory_items ii
-		WHERE 1=1
+		WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'
 	`
 
 	args := []interface{}{}

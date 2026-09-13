@@ -125,7 +125,11 @@ export function useInventory() {
   ), [safeInventoryItems]);
 
   const regularProducts = useMemo(
-    () => safeProducts.filter((product: Product) => !usedProductIds.has(product.id) || regularProductIds.has(product.id)),
+    () => safeProducts.filter((product: Product) => {
+      const sku = String((product as any).sku || '').trim().toUpperCase();
+      const isUsedProduct = usedProductIds.has(product.id) || sku.startsWith('USED-');
+      return !isUsedProduct || regularProductIds.has(product.id);
+    }),
     [regularProductIds, safeProducts, usedProductIds]
   );
 

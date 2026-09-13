@@ -18,6 +18,11 @@ func TestRepositoryListInventoryItemsHandlesSQLiteTextTimestamps(t *testing.T) {
 	defer db.Close()
 
 	_, err = db.Exec(`
+		CREATE TABLE products (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+
 		CREATE TABLE inventory_items (
 			id TEXT PRIMARY KEY,
 			product_id TEXT,
@@ -47,6 +52,10 @@ func TestRepositoryListInventoryItemsHandlesSQLiteTextTimestamps(t *testing.T) {
 	updatedAt := time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
 	productID := uuid.New().String()
 	itemID := uuid.New().String()
+	_, err = db.Exec(`INSERT INTO products (id, name) VALUES (?, ?)`, productID, "Test product")
+	if err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
 
 	_, err = db.Exec(`
 		INSERT INTO inventory_items (
@@ -70,6 +79,9 @@ func TestRepositoryListInventoryItemsHandlesSQLiteTextTimestamps(t *testing.T) {
 	}
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if items[0].ProductName == nil || *items[0].ProductName != "Test product" {
+		t.Fatalf("ProductName = %v, want Test product", items[0].ProductName)
 	}
 	if items[0].CreatedAt.IsZero() {
 		t.Fatal("CreatedAt is zero after SQLite text timestamp scan")

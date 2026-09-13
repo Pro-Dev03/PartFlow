@@ -205,6 +205,18 @@ type PurchasesReport struct {
 	BySupplier            []SupplierPurchases `json:"by_supplier"`
 	ByCategory            map[string]int      `json:"by_category"`
 	ByMonth               []MonthlyPurchases  `json:"by_month"`
+	UsedPartPurchases     UsedPartPurchases   `json:"used_part_purchases"`
+}
+
+// UsedPartPurchases summarizes customer acquisitions of used parts.
+type UsedPartPurchases struct {
+	AcquisitionCount int     `json:"acquisition_count"`
+	ItemCount        int     `json:"item_count"`
+	TotalCost        float64 `json:"total_cost"`
+	TotalPaid        float64 `json:"total_paid"`
+	Outstanding      float64 `json:"outstanding"`
+	AvailableItems   int     `json:"available_items"`
+	SoldItems        int     `json:"sold_items"`
 }
 
 // SupplierPurchases represents supplier purchases data

@@ -59,6 +59,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		inventory.GET("/items-with-supplier", h.ListInventoryItemsWithSupplierInfo)
 		inventory.GET("/items", h.ListInventoryItems)
 		inventory.GET("/items/:id", h.GetInventoryItem)
+		inventory.PUT("/items/:id", h.UpdateInventoryItem)
 		inventory.DELETE("/items/:id", h.DeleteInventoryItem)
 		inventory.PATCH("/items/:id/classification", h.UpdateItemClassification)
 		inventory.PATCH("/items/:id/status", h.UpdateItemStatus)
@@ -86,6 +87,33 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		tradeIns.POST("", h.CreateTradeIn)
 	}
+}
+
+func (h *Handler) UpdateInventoryItem(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	var req struct {
+		PartTypeID   *uuid.UUID `json:"part_type_id"`
+		SerialNumber *string    `json:"serial_number"`
+		Condition    *string    `json:"condition"`
+		Grade        *string    `json:"grade"`
+		PurchaseCost *float64   `json:"purchase_cost"`
+		SellingPrice *float64   `json:"selling_price"`
+		Notes        *string    `json:"notes"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	item, err := h.service.UpdateInventoryItemDetails(c.Request.Context(), id, req.PartTypeID, req.SerialNumber, req.Condition, req.Grade, req.PurchaseCost, req.SellingPrice, req.Notes)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, item)
 }
 
 // UpdateItemClassification updates the condition and part type of an inventory item.
@@ -156,7 +184,8 @@ func (h *Handler) DeleteInventoryItem(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	if err := h.service.DeleteInventoryItem(c.Request.Context(), id, getUserID(c)); err != nil {
+	permanent := strings.EqualFold(c.Query("permanent"), "true")
+	if err := h.service.DeleteInventoryItem(c.Request.Context(), id, getUserID(c), permanent); err != nil {
 		handleError(c, err)
 		return
 	}

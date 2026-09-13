@@ -48,6 +48,7 @@ const (
 type InventoryItem struct {
 	ID           uuid.UUID  `json:"id" db:"id"`
 	ProductID    *uuid.UUID `json:"product_id" db:"product_id"`
+	ProductName  *string    `json:"product_name,omitempty" db:"product_name"`
 	PartTypeID   *uuid.UUID `json:"part_type_id" db:"part_type_id"`
 	ItemCode     *string    `json:"item_code" db:"item_code"`
 	Barcode      *string    `json:"barcode" db:"barcode"`

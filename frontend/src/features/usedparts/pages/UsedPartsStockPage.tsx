@@ -10,6 +10,7 @@ import { StatCard } from '../../../components/ui/stat-card';
 import { Select } from '../../../components/ui/select';
 import { ArrowRight, Package, ShoppingCart, TrendingUp } from 'lucide-react';
 import { formatPrice } from '../../../utils';
+import { getPartTypeImage } from '../../../services/localPartTypeImages';
 
 export function UsedPartsStockPage() {
   const navigate = useNavigate();
@@ -92,7 +93,14 @@ export function UsedPartsStockPage() {
             {items.map((item: any) => (
               <Card key={item.id}>
                 <CardContent className="p-4 space-y-3">
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-start gap-3">
+                    {getPartTypeImage(String(item.part_type_id)) && (
+                      <img
+                        src={getPartTypeImage(String(item.part_type_id))}
+                        alt={item.product_name || 'نوع القطعة'}
+                        style={{ width: '64px', height: '64px', objectFit: 'cover', display: 'block', borderRadius: '10px', flex: '0 0 64px' }}
+                      />
+                    )}
                     <h3 className="font-semibold">{item.product_name || item.product?.name || 'قطعة مستعملة'}</h3>
                     <Badge variant={String(item.status || '').toUpperCase() === 'AVAILABLE' ? 'success' : 'secondary'}>
                       {getStatusLabel(item.status)}
@@ -101,7 +109,7 @@ export function UsedPartsStockPage() {
                   <p className="text-sm text-gray-400">سعر الشراء: {formatPrice(Number(item.purchase_cost || 0))}</p>
                   <p className="text-sm text-cyan">سعر البيع: {formatPrice(Number(item.selling_price || 0))}</p>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="primary" className="flex-1" disabled={String(item.status || '').toUpperCase() !== 'AVAILABLE'} onClick={() => navigate('/app/sales', { state: { usedPart: { id: item.id, name: item.product_name || 'قطعة مستعملة', price: item.selling_price, stock: 1, isTradeIn: true } } })}>
+                    <Button size="sm" variant="primary" className="flex-1" disabled={String(item.status || '').toUpperCase() !== 'AVAILABLE'} onClick={() => navigate('/app/sales', { state: { usedPart: { id: item.product_id || item.product?.id, inventoryItemId: item.id, name: item.product_name || 'قطعة مستعملة', price: item.selling_price, stock: 1, isTradeIn: true } } })}>
                       <ShoppingCart className="w-3 h-3" /> بيع
                     </Button>
                   </div>

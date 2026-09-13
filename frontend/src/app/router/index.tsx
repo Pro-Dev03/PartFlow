@@ -21,7 +21,6 @@ const SettingsPage = lazy(() => import('../../features/settings/pages/SettingsPa
 
 const UsedPartsPage = lazy(() => import('../../features/usedparts/pages/UsedPartsPage').then(m => ({ default: m.UsedPartsPage })));
 const UsedPartsStockPage = lazy(() => import('../../features/usedparts/pages/UsedPartsStockPage').then(m => ({ default: m.UsedPartsStockPage })));
-const SellerBalancesPage = lazy(() => import('../../features/seller-balances/pages/SellerBalancesPage').then(m => ({ default: m.SellerBalancesPage })));
 const PartTypesPage = lazy(() => import('../../features/parttypes/pages/PartTypesPage').then(m => ({ default: m.PartTypesPage })));
 const ReturnDetailsPage = lazy(() => import('../../features/returns/pages/ReturnDetailsPage').then(m => ({ default: m.ReturnDetailsPage })));
 const SupplierReturnsPage = lazy(() => import('../../features/supplier-returns/pages/SupplierReturnsPage').then(m => ({ default: m.SupplierReturnsPage })));
@@ -47,7 +46,6 @@ export const appRoutes = (
     <Route path="inventory" element={<InventoryPage />} />
     <Route path="usedparts" element={<UsedPartsPage />} />
     <Route path="usedparts/stock" element={<UsedPartsStockPage />} />
-    <Route path="seller-balances" element={<SellerBalancesPage />} />
     <Route path="customers" element={<CustomersPage />} />
     <Route path="debts" element={<DebtsPage />} />
     <Route path="suppliers" element={<SuppliersPage />} />

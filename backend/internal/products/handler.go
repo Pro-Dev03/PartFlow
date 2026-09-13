@@ -557,6 +557,27 @@ func (h *Handler) UpdateProduct(c *gin.Context) {
 	response.OK(c, product, "Operation successful")
 }
 
+func (h *Handler) UpdateProductName(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid product id")
+		return
+	}
+	var req struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	product, err := h.service.UpdateProductName(c.Request.Context(), id, req.Name)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.OK(c, product, "Operation successful")
+}
+
 func (h *Handler) UpdateMinimumStock(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {

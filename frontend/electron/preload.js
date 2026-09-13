@@ -11,4 +11,14 @@ contextBridge.exposeInMainWorld('partflowDesktop', {
     save: (productId, dataUrl) => ipcRenderer.invoke('product-images:save', productId, dataUrl),
     delete: (productId) => ipcRenderer.invoke('product-images:delete', productId),
   },
+    partTypeImages: {
+      list: () => ipcRenderer.invoke('part-type-images:list'),
+      save: (partTypeId, dataUrl) => ipcRenderer.invoke('part-type-images:save', partTypeId, dataUrl),
+      delete: (partTypeId) => ipcRenderer.invoke('part-type-images:delete', partTypeId),
+    },
+  categoryImages: {
+    list: () => ipcRenderer.invoke('category-images:list'),
+    save: (categoryId, dataUrl) => ipcRenderer.invoke('category-images:save', categoryId, dataUrl),
+    delete: (categoryId) => ipcRenderer.invoke('category-images:delete', categoryId),
+  },
 });

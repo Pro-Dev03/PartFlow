@@ -151,7 +151,7 @@ export function PurchasesPage() {
       received: { label: 'تم الاستلام', variant: 'default' },
       completed: { label: 'تم الاستلام', variant: 'default' },
       cancelled: { label: 'ملغي', variant: 'destructive' },
-      reversed: { label: 'تم إلغاء عملية الشراء', variant: 'destructive' },
+      reversed: { label: 'ملغاة', variant: 'danger' },
       partially_received: { label: 'استلام جزئي', variant: 'secondary' },
     };
     return variants[status] || { label: status, variant: 'default' };
@@ -286,7 +286,7 @@ export function PurchasesPage() {
                       <TableCell className="text-center font-semibold text-success">₪{purchase.paid_amount?.toLocaleString()}</TableCell>
                       <TableCell className="text-center font-semibold text-text-secondary">₪{purchase.remaining?.toLocaleString()}</TableCell>
                       <TableCell className="text-text-secondary">{purchase.expected_delivery_date ? new Date(purchase.expected_delivery_date).toLocaleDateString('en-US') : '-'}</TableCell>
-                      <TableCell><Badge variant={statusBadge.variant} size="sm">{statusBadge.label}</Badge></TableCell>
+                      <TableCell><Badge variant={statusBadge.variant} size="sm" className="whitespace-nowrap">{statusBadge.label}</Badge></TableCell>
                       <TableCell className="text-end">
                         <div className="flex items-center justify-end gap-2">
                           {Number(purchase.remaining || 0) > 0 && !['cancelled', 'reversed'].includes(normalizedStatus) && (
@@ -344,7 +344,7 @@ export function PurchasesPage() {
                         <div className="font-semibold text-text-primary">{purchase.invoice_number}</div>
                         <div className="mt-1 text-[11px] text-text-tertiary">{purchase.supplier?.name || purchase.supplier_name}</div>
                       </div>
-                      <Badge variant={statusBadge.variant} size="sm">{statusBadge.label}</Badge>
+                      <Badge variant={statusBadge.variant} size="sm" className="whitespace-nowrap">{statusBadge.label}</Badge>
                     </div>
 
                     <div className="space-y-2 text-sm">

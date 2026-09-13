@@ -415,6 +415,7 @@ export function ReportsPage() {
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                     <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المنتج</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>اشتريت من</th>
                     <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>اشتريت بـ</th>
                     <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>بعت بـ</th>
                     <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الربح</th>
@@ -432,6 +433,9 @@ export function ReportsPage() {
                         <tr key={index} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                           <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>
                             {item.product_name || item.name || '-'}
+                          </td>
+                          <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                            {item.seller_name || 'غير محدد'}
                           </td>
                           <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
                             ₪{purchaseCost.toFixed(2)}

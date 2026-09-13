@@ -194,6 +194,7 @@ export interface Sale {
 
 export interface SaleItem {
   product_id: string;
+  inventory_item_id?: string;
   quantity: number;
   unit_price: number;
   is_trade_in?: boolean;
