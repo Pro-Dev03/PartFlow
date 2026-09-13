@@ -25,6 +25,7 @@ const PartTypesPage = lazy(() => import('../../features/parttypes/pages/PartType
 const ReturnDetailsPage = lazy(() => import('../../features/returns/pages/ReturnDetailsPage').then(m => ({ default: m.ReturnDetailsPage })));
 const SupplierReturnsPage = lazy(() => import('../../features/supplier-returns/pages/SupplierReturnsPage').then(m => ({ default: m.SupplierReturnsPage })));
 const CategoriesPage = lazy(() => import('../../features/categories/pages/CategoriesPage').then(m => ({ default: m.CategoriesPage })));
+const ArchivePage = lazy(() => import('../../features/archive/pages/ArchivePage').then(m => ({ default: m.ArchivePage })));
 
 // Loading component for lazy loaded routes
 export function PageLoader() {
@@ -62,6 +63,7 @@ export const appRoutes = (
     <Route path="settings" element={<SettingsPage />} />
     <Route path="categories" element={<CategoriesPage />} />
     <Route path="part-types" element={<PartTypesPage />} />
+    <Route path="archive" element={<ArchivePage />} />
     {/* Catch all - redirect to dashboard */}
     <Route path="*" element={<DashboardPage />} />
   </Routes>

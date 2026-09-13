@@ -37,6 +37,7 @@ import { Purchase } from '../types/purchases.types';
 import { handleSmartDelete } from '../../../utils/smartDelete';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { Modal } from '../../../components/ui/modal';
+import { PaginationControls } from '../../../components/ui/pagination-controls';
 import { toast } from 'sonner';
 
 export function PurchasesPage() {
@@ -59,6 +60,10 @@ export function PurchasesPage() {
     receivePurchaseMutation,
     deletePurchaseMutation,
     reversePurchaseMutation,
+    page,
+    pageSize,
+    total,
+    setPage,
   } = usePurchases();
   const [purchaseToReceive, setPurchaseToReceive] = useState<string | null>(null);
   const [purchaseToPay, setPurchaseToPay] = useState<any | null>(null);
@@ -328,6 +333,8 @@ export function PurchasesPage() {
             </Table>
           </div>
         )}
+
+        <PaginationControls page={page} pageSize={pageSize} total={total} onPageChange={setPage} isLoading={isLoading} />
 
         <div className="hidden">
           {isLoading ? (

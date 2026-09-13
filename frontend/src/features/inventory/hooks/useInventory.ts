@@ -1,10 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { productsApi, inventoryApi, barcodeApi, categoriesApi } from '../../../services/api/endpoints';
 import { Product, InventoryItem, FilterConfig, SortConfig } from '../types/inventory.types';
 import { useDebounce } from '../../../hooks/useDebounce';
 import { Category } from '../../../types/models';
+import { getLocalProductImage } from '../../../services/localProductImages';
+import { getCategoryImage } from '../../../services/localCategoryImages';
 
 export function useInventory() {
   const queryClient = useQueryClient();
@@ -12,21 +14,24 @@ export function useInventory() {
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: '', direction: null });
   const [filters, setFilters] = useState<FilterConfig[]>([]);
+  const [productPage, setProductPage] = useState(1);
+  const [inventoryPage, setInventoryPage] = useState(1);
+  const pageSize = 10;
 
   // Fetch data with debounce search for scalability
   const { data: productsData, isLoading: productsLoading, refetch: refetchProducts } = useQuery({
-    queryKey: ['products', debouncedSearchQuery],
+    queryKey: ['products', productPage, pageSize, debouncedSearchQuery],
     queryFn: () => {
       if (debouncedSearchQuery) {
         // Search mode - use API search when query exists
         return productsApi.list({
-          page: 1,
-          per_page: 50,
+          page: productPage,
+          per_page: pageSize,
           search: debouncedSearchQuery
         });
       } else {
         // Initial load - fetch limited results for performance
-        return productsApi.list({ page: 1, per_page: 50 });
+        return productsApi.list({ page: productPage, per_page: pageSize });
       }
     },
     enabled: true, // Always enabled, but will refetch when search changes
@@ -38,9 +43,9 @@ export function useInventory() {
   });
 
   const { data: inventoryData, isLoading: inventoryLoading, refetch: refetchInventory } = useQuery({
-    queryKey: ['inventory', debouncedSearchQuery, filters],
+    queryKey: ['inventory', inventoryPage, pageSize, debouncedSearchQuery, filters],
     queryFn: () => {
-      const params: any = { page: 1, per_page: 100, exclude_condition: 'USED' };
+      const params: any = { page: inventoryPage, per_page: pageSize, exclude_condition: 'USED' };
       
       // Apply search
       if (debouncedSearchQuery) {
@@ -78,6 +83,11 @@ export function useInventory() {
       return inventoryApi.listWithSupplier(params);
     },
   });
+
+  useEffect(() => {
+    setProductPage(1);
+    setInventoryPage(1);
+  }, [debouncedSearchQuery, filters]);
 
   const products = (productsData?.data?.products as Product[]) || [];
   const inventoryItems = (inventoryData?.data?.items as InventoryItem[]) || [];
@@ -165,6 +175,19 @@ export function useInventory() {
       map.set(productId, hasProductTotal ? Math.max(current, stock) : current + stock);
     });
 
+    return map;
+  }, [safeInventoryItems]);
+
+  const inventoryConditionMap = useMemo(() => {
+    const map = new Map<string, string>();
+    safeInventoryItems.forEach((item: any) => {
+      if (isUsedItemCondition(item.condition)) return;
+      const productId = String(item.product_id || item.product?.id || item.productId || '').trim();
+      const condition = String(item.condition || '').trim();
+      if (productId && condition && !map.has(productId)) {
+        map.set(productId, condition);
+      }
+    });
     return map;
   }, [safeInventoryItems]);
 
@@ -260,7 +283,9 @@ export function useInventory() {
     result = result.map((product: Product) => ({
       ...product,
       category_name: categoryMap.get(product.category_id) || product.category || product.category_name || '-',
-      stock: Number(inventoryStockMap.get(product.id) ?? product.stock ?? product.quantity ?? 0)
+      condition: product.condition || inventoryConditionMap.get(product.id) || '',
+      stock: Number(inventoryStockMap.get(product.id) ?? product.stock ?? product.quantity ?? 0),
+      image_url: product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined),
     }));
 
     // Search filter
@@ -305,7 +330,7 @@ export function useInventory() {
     }
 
     return result;
-  }, [regularProducts, searchQuery, filters, sortConfig, categoryMap, inventoryStockMap]);
+  }, [regularProducts, searchQuery, filters, sortConfig, categoryMap, inventoryStockMap, inventoryConditionMap]);
 
   const filteredProducts = useMemo(() => {
     return processedProducts.filter((product: Product) => {
@@ -384,5 +409,12 @@ export function useInventory() {
     
     // Helpers
     lookupProduct,
+    productPage,
+    inventoryPage,
+    pageSize,
+    productTotal: Number(productsData?.meta?.total || safeProducts.length),
+    inventoryTotal: Number(inventoryData?.meta?.total || safeInventoryItems.length),
+    setProductPage,
+    setInventoryPage,
   };
 }

@@ -381,7 +381,7 @@ function ActivityItem({ type, title, description, amount, time, status }: any) {
   const statusLabels: Record<string, string> = {
     completed: 'مكتمل',
     pending: 'قيد الانتظار',
-    reversed: 'تم عكس العملية',
+    reversed: 'إلغاء الشراء',
     cancelled: 'ملغي',
     received: 'مستلم',
     ordered: 'تم الطلب',

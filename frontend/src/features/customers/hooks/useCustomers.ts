@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { customersApi } from '../../../services/api/endpoints';
@@ -8,6 +8,8 @@ import { useDebounce } from '../../../hooks/useDebounce';
 export function useCustomers() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: '', direction: null });
 
@@ -18,17 +20,21 @@ export function useCustomers() {
       if (debouncedSearchQuery) {
         // Search mode - use API search when query exists
         return customersApi.list({
-          page: 1,
-          per_page: 50,
+          page,
+          per_page: pageSize,
           search: debouncedSearchQuery
         });
       } else {
         // Initial load - fetch limited results for performance
-        return customersApi.list({ page: 1, per_page: 50 });
+        return customersApi.list({ page, per_page: pageSize });
       }
     },
     enabled: true, // Always enabled, but will refetch when search changes
   });
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearchQuery]);
 
   // The backend uses snake_case for persisted fields while the customer UI
   // historically used camelCase summary fields. Normalize both shapes here
@@ -186,5 +192,9 @@ export function useCustomers() {
     
     // Helpers
     handleSort,
+    page,
+    pageSize,
+    total: Number(customersData?.meta?.total || customersData?.data?.length || 0),
+    setPage,
   };
 }

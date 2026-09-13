@@ -44,6 +44,10 @@ export function CustomersPage() {
     updateMutation,
     deleteMutation,
     handleSort,
+    page,
+    pageSize,
+    total,
+    setPage,
   } = useCustomers();
 
   const handleClearSearch = () => {
@@ -184,6 +188,7 @@ export function CustomersPage() {
         onViewCustomer={handleViewCustomer}
         onEditCustomer={handleEditCustomer}
         onDeleteCustomer={handleDeleteCustomer}
+        pagination={{ page, pageSize, total, onPageChange: setPage }}
       />
 
       {/* Customer Modals */}

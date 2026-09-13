@@ -645,12 +645,17 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 		FROM inventory_items ii
 		LEFT JOIN products p ON ii.product_id = p.id
 		LEFT JOIN suppliers s ON ii.supplier_id = s.id
-		WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'
 	`
 	countQuery := `
 		SELECT COUNT(*) FROM inventory_items ii
-		WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'
 	`
+	if includeArchived, ok := filters["include_archived"].(bool); !ok || !includeArchived {
+		baseQuery += ` WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'`
+		countQuery += ` WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'`
+	} else {
+		baseQuery += ` WHERE 1=1`
+		countQuery += ` WHERE 1=1`
+	}
 
 	args := []interface{}{}
 	argCount := 0
@@ -943,11 +948,15 @@ func (r *Repository) CreateMovement(ctx context.Context, movement *InventoryMove
 // GetMovementsByItem retrieves movements for a specific item
 func (r *Repository) GetMovementsByItem(ctx context.Context, itemID uuid.UUID, limit, offset int) ([]*InventoryMovement, int64, error) {
 	query := `
-		SELECT id, item_id, movement_type, quantity,
-		       before_quantity, after_quantity, reference_type, reference_id, reason, created_by, created_at
-		FROM inventory_movements
-		WHERE item_id = $1
-		ORDER BY created_at DESC
+		SELECT im.id, im.item_id, im.movement_type, im.quantity,
+		       im.before_quantity, im.after_quantity, im.reference_type, im.reference_id,
+		       c.name AS customer_name, s.invoice_number,
+		       im.reason, im.created_by, im.created_at
+		FROM inventory_movements im
+		LEFT JOIN sales s ON s.id = im.reference_id
+		LEFT JOIN customers c ON c.id = s.customer_id
+		WHERE im.item_id = $1
+		ORDER BY im.created_at DESC
 		LIMIT $2 OFFSET $3
 	`
 
@@ -987,7 +996,21 @@ func (r *Repository) GetMovementsByItem(ctx context.Context, itemID uuid.UUID, l
 }
 
 func movementFromMap(record map[string]any) (*InventoryMovement, error) {
-	movement := &InventoryMovement{ID: parseInventoryUUID(record["id"]), ItemID: parseInventoryNullableUUID(record["item_id"]), ProductID: parseInventoryNullableUUID(record["product_id"]), MovementType: MovementType(strings.TrimSpace(fmt.Sprint(record["movement_type"]))), Quantity: int(toFloat64(record["quantity"])), BeforeQuantity: int(toFloat64(record["before_quantity"])), AfterQuantity: int(toFloat64(record["after_quantity"])), ReferenceType: strings.TrimSpace(fmt.Sprint(record["reference_type"])), ReferenceID: parseInventoryNullableUUID(record["reference_id"]), Reason: parseInventoryNullableString(record["reason"]), CreatedBy: parseInventoryUUID(record["created_by"])}
+	movement := &InventoryMovement{
+		ID:             parseInventoryUUID(record["id"]),
+		ItemID:         parseInventoryNullableUUID(record["item_id"]),
+		ProductID:      parseInventoryNullableUUID(record["product_id"]),
+		MovementType:   MovementType(strings.TrimSpace(fmt.Sprint(record["movement_type"]))),
+		Quantity:       int(toFloat64(record["quantity"])),
+		BeforeQuantity: int(toFloat64(record["before_quantity"])),
+		AfterQuantity:  int(toFloat64(record["after_quantity"])),
+		ReferenceType:  strings.TrimSpace(fmt.Sprint(record["reference_type"])),
+		ReferenceID:    parseInventoryNullableUUID(record["reference_id"]),
+		CustomerName:   parseInventoryNullableString(record["customer_name"]),
+		InvoiceNumber:  parseInventoryNullableString(record["invoice_number"]),
+		Reason:         parseInventoryNullableString(record["reason"]),
+		CreatedBy:      parseInventoryUUID(record["created_by"]),
+	}
 	if value, err := dbutil.ParseTimestamp(record["created_at"]); err == nil {
 		movement.CreatedAt = value
 	}

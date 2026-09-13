@@ -1,20 +1,32 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, AlertCircle, Headset, X } from 'lucide-react';
 
 interface LoginFormProps {
   isDark: boolean;
   isLoading: boolean;
+  externalError?: string;
   onSubmit: (email: string, password: string) => Promise<void>;
 }
 
-export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
+export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginFormProps) {
   const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+
+  useEffect(() => {
+    if (!showForgotPassword) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowForgotPassword(false);
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [showForgotPassword]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,7 +94,7 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
       </div>
 
       {/* Error message */}
-      {error && (
+      {(error || externalError) && (
         <div
           style={{
             marginBottom: '18px',
@@ -100,7 +112,7 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
           <span style={{ color: 'var(--color-danger)', flexShrink: 0 }}>
             <AlertCircle style={{ width: '12px', height: '12px' }} />
           </span>
-          <span>{error}</span>
+          <span>{externalError || error}</span>
         </div>
       )}
 
@@ -247,6 +259,7 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
           </label>
           <button
             type="button"
+            onClick={() => setShowForgotPassword(true)}
             style={{
               color: isDark ? '#14b8a6' : '#2563EB',
               fontSize: '11px',
@@ -282,6 +295,127 @@ export function LoginForm({ isDark, isLoading, onSubmit }: LoginFormProps) {
           {isLoading ? 'جاري تسجيل الدخول...' : t('auth.signIn')}
         </button>
       </form>
+
+      {showForgotPassword && (
+        <div
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setShowForgotPassword(false);
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            background: 'rgba(2, 6, 23, 0.62)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="forgot-password-title"
+            style={{
+              width: 'min(100%, 430px)',
+              position: 'relative',
+              overflow: 'hidden',
+              border: isDark ? '1px solid rgba(148, 163, 184, 0.18)' : '1px solid rgba(0, 0, 0, 0.1)',
+              borderRadius: '18px',
+              padding: '28px',
+              background: isDark
+                ? 'linear-gradient(145deg, rgba(17, 24, 39, 0.98), rgba(9, 14, 24, 0.98))'
+                : 'linear-gradient(145deg, rgba(255, 255, 255, 0.99), rgba(249, 250, 251, 0.99))',
+              boxShadow: '0 24px 80px rgba(0, 0, 0, 0.35)',
+              color: isDark ? '#f1f7ff' : '#111827',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowForgotPassword(false)}
+              aria-label="إغلاق"
+              style={{
+                position: 'absolute',
+                top: '16px',
+                insetInlineStart: '16px',
+                width: '34px',
+                height: '34px',
+                display: 'grid',
+                placeItems: 'center',
+                border: 'none',
+                borderRadius: '9px',
+                background: isDark ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.06)',
+                color: isDark ? '#a8b4c7' : '#64748b',
+                cursor: 'pointer',
+              }}
+            >
+              <X size={17} />
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px', paddingInlineStart: '4px' }}>
+              <div
+                style={{
+                  width: '46px',
+                  height: '46px',
+                  flexShrink: 0,
+                  display: 'grid',
+                  placeItems: 'center',
+                  borderRadius: '13px',
+                  background: isDark ? 'rgba(20, 184, 166, 0.14)' : 'rgba(37, 99, 235, 0.1)',
+                  color: isDark ? '#5eead4' : '#2563eb',
+                }}
+              >
+                <Headset size={23} />
+              </div>
+              <div style={{ paddingTop: '2px' }}>
+                <h2 id="forgot-password-title" style={{ margin: 0, fontSize: '19px', fontWeight: 750 }}>
+                  نسيت كلمة المرور؟
+                </h2>
+                <p style={{ margin: '8px 0 0', color: isDark ? '#9aa8bc' : '#64748b', fontSize: '12px', lineHeight: 1.8 }}>
+                  لا تقلق، يمكن للإدارة مساعدتك في استعادة الوصول إلى حسابك.
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: '22px',
+                padding: '15px 16px',
+                border: isDark ? '1px solid rgba(20, 184, 166, 0.2)' : '1px solid rgba(37, 99, 235, 0.16)',
+                borderRadius: '12px',
+                background: isDark ? 'rgba(20, 184, 166, 0.07)' : 'rgba(37, 99, 235, 0.05)',
+                color: isDark ? '#d8f4ff' : '#1e3a8a',
+                fontSize: '12px',
+                lineHeight: 1.9,
+              }}
+            >
+              تواصل مع مسؤول النظام أو الإدارة لتغيير كلمة المرور والتحقق من بيانات حسابك.
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowForgotPassword(false)}
+              style={{
+                width: '100%',
+                marginTop: '22px',
+                padding: '12px',
+                border: 'none',
+                borderRadius: '10px',
+                background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)',
+                color: 'var(--text-on-primary)',
+                fontSize: '12px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                boxShadow: '0 4px 18px rgba(37, 99, 235, 0.24)',
+              }}
+            >
+              فهمت
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

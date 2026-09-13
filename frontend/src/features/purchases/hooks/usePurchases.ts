@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { purchasesApi, suppliersApi } from '../../../services/api/endpoints';
 import { Purchase, PurchaseFormData, PurchaseStats } from '../types/purchases.types';
@@ -11,12 +11,18 @@ export function usePurchases() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [viewFilter, setViewFilter] = useState<'active' | 'received' | 'archived' | 'all'>('active');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const debouncedSearchQuery = useDebounce(searchQuery, 250);
 
   const { data: purchasesData, isLoading } = useQuery({
-    queryKey: ['purchases'],
-    queryFn: () => purchasesApi.list({ page: 1, per_page: 100 }),
+    queryKey: ['purchases', page, pageSize],
+    queryFn: () => purchasesApi.list({ page, per_page: pageSize }),
   });
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearchQuery, statusFilter, viewFilter]);
 
   const { data: suppliersData, isLoading: suppliersLoading } = useQuery({
     queryKey: ['suppliers'],
@@ -164,5 +170,9 @@ export function usePurchases() {
     updatePurchaseMutation,
     deletePurchaseMutation,
     reversePurchaseMutation,
+    page,
+    pageSize,
+    total: Number(purchasesData?.meta?.total || purchases.length),
+    setPage,
   };
 }

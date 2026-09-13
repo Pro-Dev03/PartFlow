@@ -142,6 +142,8 @@ type InventoryMovement struct {
 	AfterQuantity  int          `json:"after_quantity" db:"after_quantity"`
 	ReferenceType  string       `json:"reference_type" db:"reference_type"` // sale, purchase, return, etc.
 	ReferenceID    *uuid.UUID   `json:"reference_id" db:"reference_id"`
+	CustomerName   *string      `json:"customer_name,omitempty" db:"customer_name"`
+	InvoiceNumber  *string      `json:"invoice_number,omitempty" db:"invoice_number"`
 	Reason         *string      `json:"reason" db:"reason"`
 	CreatedBy      uuid.UUID    `json:"created_by" db:"created_by"`
 	CreatedAt      time.Time    `json:"created_at" db:"created_at"`

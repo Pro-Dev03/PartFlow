@@ -10,6 +10,7 @@ import { PageHeader } from '../../../components/ui/page-header';
 import { StatCard } from '../../../components/ui/stat-card';
 import { Select } from '../../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { PaginationControls } from '../../../components/ui/pagination-controls';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
@@ -78,6 +79,8 @@ export function ExpensesPage() {
   const [expenseToDelete, setExpenseToDelete] = useState<any | null>(null);
   const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const [newExpense, setNewExpense] = useState({
     description: '',
     amount: '',
@@ -88,8 +91,8 @@ export function ExpensesPage() {
   });
 
   const { data: expensesData, isLoading } = useQuery({
-    queryKey: ['expenses'],
-    queryFn: () => expensesApi.list({ page: 1, per_page: 100 }),
+    queryKey: ['expenses', page, pageSize],
+    queryFn: () => expensesApi.list({ page, per_page: pageSize }),
   });
 
   const { data: expenseCategoriesData, isLoading: isLoadingExpenseCategories } = useQuery({
@@ -196,6 +199,12 @@ export function ExpensesPage() {
       || expense.category === categoryFilter;
     return matchesSearch && matchesCategory;
   });
+
+  const totalExpenses = Number(expensesData?.meta?.total || expensesData?.data?.total || expenses.length);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, categoryFilter]);
 
   const thisMonthExpenses = expenses.filter((e: any) => isExpenseInCurrentMonth(e.date));
 
@@ -583,7 +592,8 @@ export function ExpensesPage() {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan" />
             </div>
           ) : (
-            <Table>
+            <>
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>التاريخ</TableHead>
@@ -652,7 +662,9 @@ export function ExpensesPage() {
                   </TableRow>
                 ))}
               </TableBody>
-            </Table>
+              </Table>
+              <PaginationControls page={page} pageSize={pageSize} total={totalExpenses} onPageChange={setPage} isLoading={isLoading} />
+            </>
           )}
         </CardContent>
       </Card>

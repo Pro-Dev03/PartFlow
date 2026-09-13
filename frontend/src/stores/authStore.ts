@@ -13,6 +13,7 @@ interface AuthState {
   token: string | null;
   refreshTokenValue: string | null;
   cloudToken: string | null;
+  loginError: string | null;
   isLoading: boolean;
   isPostLoginVerifying: boolean;
   setPostLoginVerifying: (value: boolean) => void;
@@ -120,6 +121,15 @@ async function refreshCloudAccessToken(): Promise<string | null> {
   }
   useAuthStore.setState({ cloudToken: nextToken });
   return nextToken as string;
+}
+
+async function classifyLocalLoginFailure(email: string, password: string): Promise<boolean> {
+  try {
+    await authApi.login(email, password);
+    return false;
+  } catch (error) {
+    return shouldRedirectToSubscriptionExpired(error);
+  }
 }
 
 export async function validateSubscriptionWithCloud(): Promise<boolean> {
@@ -321,6 +331,7 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       refreshTokenValue: null,
       cloudToken: null,
+      loginError: null,
       isLoading: false,
         isPostLoginVerifying: false,
         setPostLoginVerifying: (value: boolean) => set({ isPostLoginVerifying: value }),
@@ -328,7 +339,7 @@ export const useAuthStore = create<AuthState>()(
           login: async (email: string, password: string) => {
         clearPersistedAuthStorage();
         apiClient.logout();
-        set({ isLoading: true });
+        set({ isLoading: true, loginError: null });
         try {
           // Authenticate with the cloud authority before creating a local session.
           const data = await authApi.loginWithCloud(email, password) as {
@@ -386,10 +397,23 @@ export const useAuthStore = create<AuthState>()(
           startTokenRefresh();
           return;
         } catch (error) {
+          if (shouldRedirectToSubscriptionExpired(error)) {
+            goToSubscriptionExpiredPage();
+          } else if (error && typeof error === 'object' && (error as { status?: number }).status === 401) {
+            if (await classifyLocalLoginFailure(email, password)) {
+              goToSubscriptionExpiredPage();
+            }
+          }
           if (!window.location.hash.includes('/subscription-expired')) {
-            forceLogoutToLogin(error instanceof Error ? error.message : 'Login failed');
+            stopTokenRefresh();
+            apiClient.logout();
+            TokenManager.clearToken();
+            TokenManager.clearRefreshToken();
+            localStorage.removeItem('cloud_token');
+            localStorage.removeItem('cloud_refresh_token');
           }
           set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
+          set({ loginError: shouldRedirectToSubscriptionExpired(error) ? null : 'invalid credentials' });
           throw error;
         }
       },

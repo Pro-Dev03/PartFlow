@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { inventoryApi, partTypesApi, customersApi, productsApi, barcodeApi, acquisitionsApi } from '../../../services/api/endpoints';
@@ -11,6 +11,7 @@ import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { PaginationControls } from '../../../components/ui/pagination-controls';
 import { toast } from 'sonner';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
 import { getPartTypeImage } from '../../../services/localPartTypeImages';
@@ -37,6 +38,8 @@ export function UsedPartsPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPartType, setSelectedPartType] = useState<string>('');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   
   // Acquisition modal state
   const [isAcquisitionModalOpen, setIsAcquisitionModalOpen] = useState(false);
@@ -74,11 +77,15 @@ export function UsedPartsPage() {
   };
 
   const { data: inventoryData, isLoading } = useQuery({
-    queryKey: ['inventory'],
-    queryFn: () => inventoryApi.list({ page: 1, per_page: 100 }),
+    queryKey: ['inventory', 'used-parts', page, pageSize],
+    queryFn: () => inventoryApi.list({ page, per_page: pageSize, condition: 'USED', status: 'AVAILABLE' }),
     staleTime: 0,
     refetchOnMount: 'always',
   });
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, selectedPartType]);
 
   const { data: partTypesData, error: partTypesError, isLoading: partTypesLoading } = useQuery({
     queryKey: ['part-types'],
@@ -352,6 +359,7 @@ export function UsedPartsPage() {
     
     return matchesSearch && matchesType;
   });
+  const totalUsedParts = Number(inventoryData?.meta?.total || inventoryItems.length);
 
   const formatCurrency = (value: number) => `₪${new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 0,
@@ -726,6 +734,17 @@ export function UsedPartsPage() {
             );
           })}
         </div>
+      )}
+      {filteredParts.length > 0 && (
+        <Card className="mt-4">
+          <PaginationControls
+            page={page}
+            pageSize={pageSize}
+            total={totalUsedParts}
+            onPageChange={setPage}
+            isLoading={isLoading}
+          />
+        </Card>
       )}
 
       {/* Acquisition Modal */}

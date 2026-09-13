@@ -62,10 +62,19 @@ type InventoryReport struct {
 	TotalValue     float64            `json:"total_value"`
 	ByCondition    map[string]int     `json:"by_condition"`
 	ByCategory     map[string]int     `json:"by_category"`
+	Items          []InventoryItem    `json:"items"`
 	LowStockItems  []LowStockItem     `json:"low_stock_items"`
 	OverstockItems []OverstockItem    `json:"overstock_items"`
 	StagnantItems  []StagnantItem     `json:"stagnant_items"`
 	Valuation      InventoryValuation `json:"valuation"`
+}
+
+// InventoryItem represents a product and its current available stock.
+type InventoryItem struct {
+	ProductID    uuid.UUID `json:"product_id"`
+	ProductName  string    `json:"product_name"`
+	CurrentStock int       `json:"current_stock"`
+	MinStock     int       `json:"min_stock"`
 }
 
 // LowStockItem represents low stock item

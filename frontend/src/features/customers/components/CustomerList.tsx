@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Badge } from '../../../components/ui/badge';
 import { Users, Eye, Edit, Trash2, Phone, UserRound, Inbox } from 'lucide-react';
 import { ActionMenu } from '../../../components/ui/action-menu';
+import { PaginationControls } from '../../../components/ui/pagination-controls';
 import { Customer } from '../types/customers.types';
 
 interface CustomerListProps {
@@ -12,6 +13,7 @@ interface CustomerListProps {
   onViewCustomer: (customer: Customer) => void;
   onEditCustomer: (customer: Customer) => void;
   onDeleteCustomer: (customerId: string) => void;
+  pagination: { page: number; pageSize: number; total: number; onPageChange: (page: number) => void };
 }
 
 export function CustomerList({
@@ -20,6 +22,7 @@ export function CustomerList({
   onViewCustomer,
   onEditCustomer,
   onDeleteCustomer,
+  pagination,
 }: CustomerListProps) {
   return (
     <div className="rounded-[16px] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[0_10px_28px_rgba(15,23,42,0.05)]">
@@ -116,6 +119,7 @@ export function CustomerList({
               ))}
             </TableBody>
           </Table>
+          <PaginationControls {...pagination} />
         </div>
       )}
     </div>

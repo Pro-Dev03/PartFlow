@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
@@ -11,6 +11,7 @@ import { Select } from '../../../components/ui/select';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { PaginationControls } from '../../../components/ui/pagination-controls';
 import { 
   RotateCcw, 
   Plus, 
@@ -70,13 +71,15 @@ export function ReturnsPage() {
   const [editReason, setEditReason] = useState('');
   const [editRefundMethod, setEditRefundMethod] = useState('CASH');
   const [editCondition, setEditCondition] = useState('READY_FOR_SALE');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
 
   const { data: returnsData, isLoading } = useQuery({
-    queryKey: ['returns', statusFilter, returnTypeFilter, refundMethodFilter, searchQuery],
+    queryKey: ['returns', page, pageSize, statusFilter, returnTypeFilter, refundMethodFilter, searchQuery],
     queryFn: () => returnsApi.list({ 
-      page: 1, 
-      per_page: 100,
+      page,
+      per_page: pageSize,
       status: statusFilter,
       return_type: returnTypeFilter,
       refund_method: refundMethodFilter,
@@ -84,7 +87,12 @@ export function ReturnsPage() {
     }),
   });
 
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, statusFilter, returnTypeFilter, refundMethodFilter]);
+
   const returns = (returnsData?.data as Return[]) || [];
+  const totalReturns = Number(returnsData?.meta?.total || returns.length);
 
   const { data: salesReturnsAnalysis } = useQuery({
     queryKey: ['sales-returns-analysis'],
@@ -456,6 +464,18 @@ export function ReturnsPage() {
             );
           })}
         </div>
+      )}
+
+      {returns.length > 0 && (
+        <Card className="mt-4">
+          <PaginationControls
+            page={page}
+            pageSize={pageSize}
+            total={totalReturns}
+            onPageChange={setPage}
+            isLoading={isLoading}
+          />
+        </Card>
       )}
 
       <Modal isOpen={Boolean(editingReturn)} onClose={() => setEditingReturn(null)} title="تعديل المرتجع" size="md">

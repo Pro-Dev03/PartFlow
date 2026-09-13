@@ -49,7 +49,7 @@ func (r *Repository) GetAuditLogByID(ctx context.Context, id uuid.UUID) (*AuditL
 	var auditLog AuditLog
 	query := `
 		SELECT id, user_id, action, entity_type, entity_id,
-			ip_address, user_agent, request_id, changes, description, status, error_message, metadata, created_at
+			COALESCE(ip_address, '') AS ip_address, COALESCE(user_agent, '') AS user_agent, COALESCE(request_id, '') AS request_id, COALESCE(changes, '') AS changes, COALESCE(description, '') AS description, COALESCE(status, 'success') AS status, COALESCE(error_message, '') AS error_message, COALESCE(metadata, '{}') AS metadata, created_at
 		FROM audit_logs
 		WHERE id = $1
 	`
@@ -72,7 +72,7 @@ func (r *Repository) ListAuditLogs(ctx context.Context, req AuditLogListRequest)
 	// Build base query
 	baseQuery := `
 		SELECT id, user_id, action, entity_type, entity_id,
-			ip_address, user_agent, request_id, changes, description, status, error_message, metadata, created_at
+			COALESCE(ip_address, '') AS ip_address, COALESCE(user_agent, '') AS user_agent, COALESCE(request_id, '') AS request_id, COALESCE(changes, '') AS changes, COALESCE(description, '') AS description, COALESCE(status, 'success') AS status, COALESCE(error_message, '') AS error_message, COALESCE(metadata, '{}') AS metadata, created_at
 		FROM audit_logs
 		WHERE 1=1
 	`

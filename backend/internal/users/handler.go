@@ -2,6 +2,7 @@ package users
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -216,6 +217,10 @@ func (h *Handler) ListSubscriptionAccounts(c *gin.Context) {
 
 	payload := make([]UserResponse, 0, len(users))
 	for _, user := range users {
+		status := strings.ToLower(strings.TrimSpace(user.SubscriptionStatus))
+		if (status == "active" || status == "trial") && user.SubscriptionExpiresAt != nil && !time.Now().UTC().Before(user.SubscriptionExpiresAt.UTC()) {
+			user.SubscriptionStatus = "expired"
+		}
 		payload = append(payload, user.ToResponse())
 	}
 

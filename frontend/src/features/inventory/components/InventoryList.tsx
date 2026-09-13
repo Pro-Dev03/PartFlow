@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Badge } from '../../../components/ui/badge';
 import { EmptyState } from '../../../components/ui/empty-state';
 import { Button } from '../../../components/ui/button';
@@ -7,6 +8,9 @@ import { ActionMenu } from '../../../components/ui/action-menu';
 import { Product, InventoryItem, ViewMode } from '../types/inventory.types';
 import { formatPrice, normalizeCurrencyValue } from '../../../utils';
 import { cn } from '../../../utils';
+import { PaginationControls } from '../../../components/ui/pagination-controls';
+import { getLocalProductImage } from '../../../services/localProductImages';
+import { getCategoryImage } from '../../../services/localCategoryImages';
 
 interface InventoryListProps {
   viewMode: ViewMode;
@@ -25,6 +29,8 @@ interface InventoryListProps {
   onReorderFromSupplier?: (supplierId: string, productName: string) => void;
   onViewInvoice?: (invoiceNumber: string) => void;
   onViewInventoryLedger?: (productId: string) => void;
+  pagination?: { page: number; pageSize: number; total: number; onPageChange: (page: number) => void };
+  layoutMode: 'cards' | 'table';
 }
 
 interface ActionButtonProps {
@@ -81,7 +87,7 @@ function RowActionMenu({
         { label: 'إضافة فاتورة', icon: Plus, onClick: () => onAddPurchase(product) },
         { label: 'تعديل', icon: PencilLine, onClick: () => onEditProduct(product) },
         { label: 'حد الأدنى', icon: SlidersHorizontal, onClick: () => onEditMinimumStock(product) },
-        ...(onViewInventoryLedger ? [{ label: 'سجل الحركات', icon: FileText, onClick: () => onViewInventoryLedger(product.id) }] : []),
+          ...(onViewInventoryLedger ? [{ label: 'سجل الحركات', icon: FileText, onClick: () => onViewInventoryLedger(product.id) }] : []),
         { label: 'حذف', icon: Trash, onClick: () => (onDeleteInventoryItem ? onDeleteInventoryItem(product.id) : onDeleteProduct(product.id)), danger: true },
       ]}
     />
@@ -109,6 +115,19 @@ function getStockDisplay(stock: number | undefined, minimumStockLevel?: number):
   return { text: 'متوفر', variant: 'success' };
 }
 
+function getInventoryStatusDisplay(status: unknown): { text: string; variant: 'success' | 'warning' | 'danger' | 'secondary' } {
+  const labels: Record<string, { text: string; variant: 'success' | 'warning' | 'danger' | 'secondary' }> = {
+    AVAILABLE: { text: 'متوفر', variant: 'success' },
+    SOLD: { text: 'مباع', variant: 'info' },
+    RETURNED: { text: 'مرتجع', variant: 'warning' },
+    REVERSED: { text: 'إلغاء الشراء', variant: 'danger' },
+    CANCELLED: { text: 'ملغى', variant: 'danger' },
+    DELETED: { text: 'محذوف', variant: 'danger' },
+    VOID: { text: 'ملغى', variant: 'danger' },
+  };
+  return labels[String(status || '').trim().toUpperCase()] || { text: 'غير محدد', variant: 'secondary' };
+}
+
 function getPrice(product: any): string {
   const value = product.sellingPrice ?? product.selling_price ?? product.price ?? 0;
   return formatPrice(normalizeCurrencyValue(value));
@@ -130,6 +149,8 @@ export function InventoryList({
   onReorderFromSupplier,
   onViewInvoice,
   onViewInventoryLedger,
+  pagination,
+  layoutMode,
 }: InventoryListProps) {
   const getConditionBadge = (condition: string) => {
     const normalized = String(condition || '').trim().toLowerCase();
@@ -138,9 +159,9 @@ export function InventoryList({
       used: { label: 'مستعمل', variant: 'secondary' },
       refurbished: { label: 'مجدد', variant: 'info' },
       parts_only: { label: 'قطع فقط', variant: 'danger' },
-      default: { label: 'افتراضي', variant: 'outline' },
+      default: { label: 'غير محدد', variant: 'outline' },
     };
-    return variants[normalized] || { label: condition || 'افتراضي', variant: 'outline' };
+    return variants[normalized] || { label: condition || 'غير محدد', variant: 'outline' };
   };
 
   const displayProducts = filteredProducts;
@@ -148,6 +169,10 @@ export function InventoryList({
     const condition = String(item?.condition ?? '').trim().toUpperCase();
     return condition !== 'USED';
   });
+  const [inventoryStatusFilter, setInventoryStatusFilter] = useState<'ALL' | 'AVAILABLE' | 'SOLD' | 'REVERSED'>('ALL');
+  const visibleInventoryItems = inventoryStatusFilter === 'ALL'
+    ? displayInventoryItems
+    : displayInventoryItems.filter((item) => String(item.status || '').toUpperCase() === inventoryStatusFilter);
 
   const getStockValue = (product: any): number | undefined => {
     const status = String(product.status || '').trim().toUpperCase();
@@ -196,10 +221,11 @@ export function InventoryList({
               }}
             />
           ) : (
-            <div className="block">
+            <div className={layoutMode === 'table' ? 'block' : 'hidden'}>
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[72px]">الصورة</TableHead>
                     <TableHead className="w-[24%]">الاسم</TableHead>
                     <TableHead className="w-[12%]">SKU</TableHead>
                     <TableHead className="w-[14%]">التصنيف</TableHead>
@@ -218,6 +244,13 @@ export function InventoryList({
 
                     return (
                       <TableRow key={product.id} className="align-middle">
+                        <TableCell>
+                          <div style={{ width: '48px', height: '48px', overflow: 'hidden', borderRadius: '6px' }}>
+                            {product.image_url ? (
+                              <img src={product.image_url} alt={product.name || 'المنتج'} style={{ width: '48px', height: '48px', maxWidth: '48px', maxHeight: '48px', objectFit: 'contain', display: 'block' }} />
+                            ) : <Package className="h-8 w-8 text-text-tertiary" />}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <div className="min-w-0">
                             <div className="max-w-[220px] truncate font-semibold text-text-primary">{product.name || '-'}</div>
@@ -247,6 +280,19 @@ export function InventoryList({
                             >
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
+                            {onViewInventoryLedger && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => onViewInventoryLedger(product.id)}
+                                className="h-8 px-2.5 text-[11px]"
+                                aria-label={`سجل حركات ${product.name || 'المنتج'}`}
+                                title="سجل الحركات"
+                              >
+                                <FileText className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                             <RowActionMenu
                               product={product}
                               onViewProduct={onViewProduct}
@@ -263,10 +309,19 @@ export function InventoryList({
                   })}
                 </TableBody>
               </Table>
+              {pagination && (
+                <PaginationControls
+                  page={pagination.page}
+                  pageSize={pagination.pageSize}
+                  total={pagination.total}
+                  onPageChange={pagination.onPageChange}
+                  isLoading={productsLoading}
+                />
+              )}
             </div>
           )}
 
-          <div className="hidden">
+          <div className={layoutMode === 'cards' ? 'block' : 'hidden'}>
             {productsLoading ? (
               <div className="p-4"><LoadingSpinner /></div>
             ) : displayProducts.length === 0 ? (
@@ -277,7 +332,7 @@ export function InventoryList({
                 action={{ label: 'مسح البحث', onClick: onClearSearch, variant: 'primary' }}
               />
             ) : (
-              <div className="grid gap-3 p-4">
+              <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
                 {displayProducts.map((product: Product) => {
                   const stockVal = getStockValue(product);
                   const stockBadge = getStockDisplay(stockVal, product.min_stock_level);
@@ -285,6 +340,13 @@ export function InventoryList({
 
                   return (
                     <div key={product.id} className="rounded-xl border border-border bg-surface-elevated/25 p-4">
+                      <div className="mb-3 flex items-center justify-center overflow-hidden rounded-lg bg-surface-muted" style={{ height: '144px', minHeight: '144px' }}>
+                        {product.image_url ? (
+                          <img src={product.image_url} alt={product.name || 'المنتج'} className="max-h-full max-w-full object-contain" style={{ width: '100%', height: '100%' }} />
+                        ) : (
+                          <Package className="h-12 w-12 text-text-tertiary" />
+                        )}
+                      </div>
                       <div className="mb-3 flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate font-semibold text-text-primary">{product.name || '-'}</div>
@@ -338,6 +400,15 @@ export function InventoryList({
                 })}
               </div>
             )}
+            {pagination && displayProducts.length > 0 && (
+              <PaginationControls
+                page={pagination.page}
+                pageSize={pagination.pageSize}
+                total={pagination.total}
+                onPageChange={pagination.onPageChange}
+                isLoading={productsLoading}
+              />
+            )}
           </div>
         </div>
       )}
@@ -349,48 +420,74 @@ export function InventoryList({
             <h3 className="text-sm font-semibold text-text-primary">عناصر المخزون</h3>
           </div>
 
+          <div className="flex flex-wrap gap-2 border-b border-border px-5 py-3" role="tablist" aria-label="أقسام حالات المخزون">
+            {([
+              ['ALL', 'الكل'],
+              ['AVAILABLE', 'المتاح'],
+              ['SOLD', 'المباع'],
+              ['REVERSED', 'إلغاء الشراء'],
+            ] as const).map(([status, label]) => (
+              <Button
+                key={status}
+                type="button"
+                size="sm"
+                variant={inventoryStatusFilter === status ? 'primary' : 'ghost'}
+                role="tab"
+                aria-selected={inventoryStatusFilter === status}
+                onClick={() => setInventoryStatusFilter(status)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+
           {inventoryLoading ? (
             <LoadingSpinner />
-          ) : displayInventoryItems.length === 0 ? (
+          ) : visibleInventoryItems.length === 0 ? (
             <EmptyState icon={<Inbox className="h-5 w-5" />} title="لا توجد عناصر" description="لم يتم العثور على عناصر في المخزون" />
           ) : (
-            <div className="block">
+            <div className={layoutMode === 'table' ? 'block' : 'hidden'}>
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-[72px]">الصورة</TableHead>
                     <TableHead className="w-[17%]">المنتج</TableHead>
                     <TableHead className="w-[10%]">الحالة</TableHead>
                     <TableHead className="w-[12%]">المورد</TableHead>
                     <TableHead className="w-[12%]">تاريخ الشراء</TableHead>
                     <TableHead className="w-[12%] text-center">شراء</TableHead>
                     <TableHead className="w-[12%] text-center">بيع</TableHead>
-                    <TableHead className="w-[10%]">الموقع</TableHead>
-                    <TableHead className="w-[10%]">مؤشر</TableHead>
+                    <TableHead className="w-[10%]">حالة القطعة</TableHead>
                     <TableHead className="w-[8%] text-end">الإجراءات</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {displayInventoryItems.map((item: InventoryItem) => {
+                  {visibleInventoryItems.map((item: InventoryItem) => {
                     const condition = item.condition?.toLowerCase() || '';
                     const condBadge = getConditionBadge(condition);
-                    const itemStatus = item.status === 'AVAILABLE' ? 'متوفر' : item.status || 'غير محدد';
-                    const itemStatusVariant = item.status === 'AVAILABLE' ? 'success' : 'warning';
+                    const itemStatus = getInventoryStatusDisplay(item.status);
 
                     return (
                       <TableRow key={item.id}>
+                        <TableCell>
+                          <div style={{ width: '48px', height: '48px', overflow: 'hidden', borderRadius: '6px' }}>
+                            {((item as any).image_url || (item.product as any)?.image_url || getLocalProductImage(item.product_id || item.id) || getCategoryImage((item as any).category_id || '')) ? (
+                              <img src={(item as any).image_url || (item.product as any)?.image_url || getLocalProductImage(item.product_id || item.id) || getCategoryImage((item as any).category_id || '')} alt={item.product_name || 'عنصر المخزون'} style={{ width: '48px', height: '48px', maxWidth: '48px', maxHeight: '48px', objectFit: 'contain', display: 'block' }} />
+                            ) : <PackageOpen className="h-8 w-8 text-text-tertiary" />}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <div className="min-w-0">
                             <div className="truncate font-semibold text-text-primary">{item.product_name || item.product?.name || '-'}</div>
                             <div className="mt-0.5 text-[11px] text-text-tertiary">{item.barcode || item.product?.barcode || '-'}</div>
                           </div>
                         </TableCell>
-                        <TableCell><Badge variant={condBadge.variant} size="sm">{condBadge.label}</Badge></TableCell>
+                        <TableCell><Badge variant={itemStatus.variant} size="sm">{itemStatus.text}</Badge></TableCell>
                         <TableCell className="text-text-secondary">{item.supplier_name || '-'}</TableCell>
                         <TableCell className="text-text-secondary">{item.purchase_date ? new Date(item.purchase_date).toLocaleDateString('ar-SA') : '-'}</TableCell>
                         <TableCell className="text-center font-medium text-text-secondary">{formatPrice(normalizeCurrencyValue(item.purchase_cost ?? 0))}</TableCell>
                         <TableCell className="text-center font-medium text-primary">{formatPrice(normalizeCurrencyValue(item.selling_price ?? item.price ?? 0))}</TableCell>
-                        <TableCell className="text-text-secondary">{item.location || '-'}</TableCell>
-                        <TableCell><Badge variant={itemStatusVariant} size="sm">{itemStatus}</Badge></TableCell>
+                        <TableCell><Badge variant={condBadge.variant} size="sm">{condBadge.label}</Badge></TableCell>
                         <TableCell className="text-end">
                           <div className="flex items-center justify-end gap-2">
                             <Button type="button" variant="primary" size="sm" onClick={() => onViewProduct({
@@ -439,26 +536,45 @@ export function InventoryList({
                   })}
                 </TableBody>
               </Table>
+              {pagination && (
+                <PaginationControls
+                  page={pagination.page}
+                  pageSize={pagination.pageSize}
+                  total={pagination.total}
+                  onPageChange={pagination.onPageChange}
+                  isLoading={inventoryLoading}
+                />
+              )}
             </div>
           )}
 
-          <div className="hidden">
+          <div className={layoutMode === 'cards' ? 'block' : 'hidden'}>
             {inventoryLoading ? (
               <div className="p-4"><LoadingSpinner /></div>
-            ) : displayInventoryItems.length === 0 ? (
+            ) : visibleInventoryItems.length === 0 ? (
               <EmptyState icon={<Inbox className="h-5 w-5" />} title="لا توجد عناصر" description="لم يتم العثور على عناصر في المخزون" />
             ) : (
-              <div className="grid gap-3 p-4">
-                {displayInventoryItems.map((item: InventoryItem) => {
+              <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+                {visibleInventoryItems.map((item: InventoryItem) => {
                   const condBadge = getConditionBadge(item.condition?.toLowerCase() || '');
                   return (
                     <div key={item.id} className="rounded-xl border border-border bg-surface-elevated/25 p-4">
+                      <div className="mb-3 flex items-center justify-center overflow-hidden rounded-lg bg-surface-muted" style={{ height: '144px', minHeight: '144px' }}>
+                        {((item as any).image_url || (item.product as any)?.image_url || getLocalProductImage(item.product_id || item.id) || getCategoryImage((item as any).category_id || '')) ? (
+                          <img src={(item as any).image_url || (item.product as any)?.image_url || getLocalProductImage(item.product_id || item.id) || getCategoryImage((item as any).category_id || '')} alt={item.product_name || 'عنصر المخزون'} className="max-h-full max-w-full object-contain" style={{ width: '100%', height: '100%' }} />
+                        ) : (
+                          <PackageOpen className="h-12 w-12 text-text-tertiary" />
+                        )}
+                      </div>
                       <div className="mb-3 flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate font-semibold text-text-primary">{item.product_name || item.product?.name || '-'}</div>
                           <div className="mt-1 text-[11px] text-text-tertiary">{item.barcode || item.product?.barcode || '-'}</div>
                         </div>
-                        <Badge variant={item.status === 'AVAILABLE' ? 'success' : 'warning'} size="sm">{item.status === 'AVAILABLE' ? 'متوفر' : item.status || 'غير محدد'}</Badge>
+                        {(() => {
+                          const itemStatus = getInventoryStatusDisplay(item.status);
+                          return <Badge variant={itemStatus.variant} size="sm">{itemStatus.text}</Badge>;
+                        })()}
                       </div>
 
                       <div className="space-y-2 text-sm">
@@ -514,6 +630,15 @@ export function InventoryList({
                   );
                 })}
               </div>
+            )}
+            {pagination && visibleInventoryItems.length > 0 && (
+              <PaginationControls
+                page={pagination.page}
+                pageSize={pagination.pageSize}
+                total={pagination.total}
+                onPageChange={pagination.onPageChange}
+                isLoading={inventoryLoading}
+              />
             )}
           </div>
         </div>

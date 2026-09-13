@@ -429,6 +429,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 
 	report.ByCondition = make(map[string]int)
 	report.ByCategory = make(map[string]int)
+	report.Items = []InventoryItem{}
 	report.LowStockItems = []LowStockItem{}
 	report.OverstockItems = []OverstockItem{}
 	report.StagnantItems = []StagnantItem{}
@@ -489,13 +490,49 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT p.id, p.name,
+				COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' AND ii.condition <> 'USED' THEN 1 ELSE 0 END), 0),
+				p.min_stock_level
+		 FROM products p
+		 LEFT JOIN inventory_items ii ON ii.product_id = p.id
+		 WHERE p.is_active = true AND p.deleted_at IS NULL
+		   AND EXISTS (
+				SELECT 1 FROM inventory_items available_item
+				WHERE available_item.product_id = p.id
+				  AND UPPER(COALESCE(available_item.condition, '')) <> 'USED'
+		   )
+		 GROUP BY p.id, p.name, p.min_stock_level
+		 ORDER BY p.name`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve inventory items: %w", err)
+	}
+	for rows.Next() {
+		var item InventoryItem
+		if err := rows.Scan(&item.ProductID, &item.ProductName, &item.CurrentStock, &item.MinStock); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan inventory item: %w", err)
+		}
+		report.Items = append(report.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read inventory items: %w", err)
+	}
+	rows.Close()
+
+	rows, err = r.db.QueryContext(ctx,
+		`SELECT p.id, p.name,
 				 COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' AND ii.condition <> 'USED' THEN 1 ELSE 0 END), 0),
 		        p.min_stock_level, p.min_stock_level
 		 FROM products p
 		 LEFT JOIN inventory_items ii ON ii.product_id = p.id
 		 WHERE p.is_active = true AND p.deleted_at IS NULL AND p.min_stock_level > 0
+		   AND EXISTS (
+				SELECT 1 FROM inventory_items available_item
+				WHERE available_item.product_id = p.id
+				  AND UPPER(COALESCE(available_item.condition, '')) <> 'USED'
+		   )
 		 GROUP BY p.id, p.name, p.min_stock_level
-			 HAVING COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' AND ii.condition <> 'USED' THEN 1 ELSE 0 END), 0) < p.min_stock_level
+			 HAVING COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' AND ii.condition <> 'USED' THEN 1 ELSE 0 END), 0) <= p.min_stock_level
 			 ORDER BY (p.min_stock_level - COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' AND ii.condition <> 'USED' THEN 1 ELSE 0 END), 0)) DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve low stock items: %w", err)

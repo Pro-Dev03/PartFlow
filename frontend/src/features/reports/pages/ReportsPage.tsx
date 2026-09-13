@@ -381,6 +381,11 @@ export function ReportsPage() {
             </div>
           ) : selectedReport === 'inventory' && reportPayload && typeof reportPayload === 'object' ? (
             <div className="horizontal-scroll">
+              {(() => {
+                const inventoryItems = Array.isArray((reportPayload as Record<string, unknown>).items)
+                  ? (reportPayload as Record<string, unknown[]>).items as Record<string, unknown>[]
+                  : [];
+                return (
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
@@ -391,22 +396,34 @@ export function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {Array.isArray((reportPayload as Record<string, unknown>).low_stock_items) && ((reportPayload as any).low_stock_items.length > 0)
-                    ? ((reportPayload as any).low_stock_items as Record<string, unknown>[]).map((item: any, index: number) => (
+                  {inventoryItems.length > 0
+                    ? inventoryItems.map((item, index) => (
                         <tr key={String(item.product_id || index)} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                           <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(item.product_name || 'منتج غير معروف')}</td>
                           <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>{Number(item.current_stock ?? 0)}</td>
-                          <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>{Number(item.min_stock ?? item.reorder_level ?? 0)}</td>
+                          <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>{Number(item.min_stock ?? 0)}</td>
                           <td style={{ padding: '12px' }}>
-                            <Badge variant="warning">منخفض</Badge>
+                            <Badge variant={Number(item.current_stock ?? 0) <= 0
+                              ? 'danger'
+                              : Number(item.min_stock ?? 0) > 0 && Number(item.current_stock ?? 0) <= Number(item.min_stock ?? 0)
+                                ? 'warning'
+                                : 'success'}>
+                              {Number(item.current_stock ?? 0) <= 0
+                                ? 'نفد'
+                                : Number(item.min_stock ?? 0) > 0 && Number(item.current_stock ?? 0) <= Number(item.min_stock ?? 0)
+                                  ? 'منخفض'
+                                  : 'متوفر'}
+                            </Badge>
                           </td>
                         </tr>
                       ))
                     : (
-                      <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد منتجات منخفضة المخزون في الفترة الحالية</td></tr>
+                      <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد منتجات في المخزون</td></tr>
                     )}
                 </tbody>
               </table>
+                );
+              })()}
             </div>
           ) : selectedReport === 'used-items' ? (
             // تقرير القطع المستعملة - عرض خاص

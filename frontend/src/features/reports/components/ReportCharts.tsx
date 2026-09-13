@@ -186,7 +186,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
         color="#14b8a6"
         loading={loading}
       />
-      {reportType !== 'used-items' && !(reportType === 'purchases' && trendData.length <= 1) && (
+      {reportType !== 'inventory' && reportType !== 'debts' && reportType !== 'used-items' && !(reportType === 'purchases' && trendData.length <= 1) && (
         <div style={{ gridColumn: '1 / -1', width: '100%', maxWidth: '1200px', marginInline: 'auto' }}>
           <SimpleLineChart
             title={reportType === 'suppliers'

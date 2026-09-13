@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../../stores/authStore';
+import { useTranslation } from '../../../hooks/useTranslation';
 import { Sun, Moon, Globe } from 'lucide-react';
 
 // Components
@@ -11,8 +12,12 @@ import { SubscriptionVerificationScreen } from '../components/SubscriptionVerifi
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login, isLoading, setPostLoginVerifying } = useAuthStore();
+  const { t } = useTranslation();
+  const { login, isLoading, loginError: authLoginError, setPostLoginVerifying } = useAuthStore();
   const [isVerifyingSubscription, setIsVerifyingSubscription] = useState(false);
+  const [loginError, setLoginError] = useState(() => (
+    typeof window !== 'undefined' ? sessionStorage.getItem('partflow-login-error') || '' : ''
+  ));
   const [isDark, setIsDark] = useState(true);
   const [language, setLanguage] = useState('ar');
 
@@ -54,6 +59,8 @@ export function LoginPage() {
   };
 
   const handleSubmit = async (email: string, password: string) => {
+    setLoginError('');
+    sessionStorage.removeItem('partflow-login-error');
     setPostLoginVerifying(true);
     setIsVerifyingSubscription(true);
     try {
@@ -64,6 +71,9 @@ export function LoginPage() {
     } catch (err) {
       setPostLoginVerifying(false);
       setIsVerifyingSubscription(false);
+      const message = t('auth.invalidCredentials');
+      sessionStorage.setItem('partflow-login-error', message);
+      setLoginError(message);
       throw err;
     }
   };
@@ -144,7 +154,12 @@ export function LoginPage() {
               </button>
             </div>
             <div style={{ width: '100%', maxWidth: '360px', margin: '0 auto' }}>
-              <LoginForm isDark={isDark} isLoading={isLoading} onSubmit={handleSubmit} />
+              <LoginForm
+                isDark={isDark}
+                isLoading={isLoading}
+                externalError={authLoginError === 'invalid credentials' ? t('auth.invalidCredentials') : loginError}
+                onSubmit={handleSubmit}
+              />
             </div>
           </div>
         </div>

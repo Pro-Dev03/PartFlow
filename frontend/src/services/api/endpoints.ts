@@ -43,7 +43,11 @@ export const authApi = {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload?.error?.message || payload?.error || 'تعذر تسجيل الدخول.');
+      const error: any = new Error(payload?.error?.message || payload?.error || 'تعذر تسجيل الدخول.');
+      error.status = response.status;
+      error.code = payload?.code || payload?.error?.code || (response.status === 403 ? 'SUBSCRIPTION_EXPIRED' : undefined);
+      error.response = payload;
+      throw error;
     }
     return payload?.data ?? payload;
   },
@@ -235,6 +239,8 @@ export const categoriesApi = {
 export const inventoryApi = {
   list: (params?: InventoryListParams) =>
     apiClient.get('/inventory/items', params),
+  listArchived: (params?: PaginationParams) =>
+    apiClient.get('/inventory/archive', params),
   listWithSupplier: (params?: InventoryListParams & { 
     exclude_condition?: string;
     supplier_id?: string;
@@ -595,6 +601,12 @@ export const notificationsApi = {
   markAllAsRead: () => apiClient.put('/notifications/read-all', {}),
   getUnreadCount: () => apiClient.get('/notifications/unread-count'),
   updatePreferences: (data: any) => apiClient.put('/notifications/preferences', data),
+};
+
+export const auditApi = {
+  list: (params?: PaginationParams & { entity_type?: string; action?: string; search?: string }) =>
+    apiClient.get('/audit', params),
+  get: (id: string) => apiClient.get(`/audit/${id}`),
 };
 
 // Global search endpoint

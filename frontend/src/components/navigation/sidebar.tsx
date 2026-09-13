@@ -18,6 +18,7 @@ import {
   Layers,
   Tag,
   FileText,
+  Archive,
 } from 'lucide-react';
 import { cn } from '../../utils';
 import type { LucideIcon } from 'lucide-react';
@@ -100,6 +101,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
       items: [
         { id: 'categories', icon: Tag, label: 'التصنيفات', path: '/app/categories' },
         { id: 'part-types', icon: FileText, label: 'أنواع القطع', path: '/app/part-types' },
+        { id: 'archive', icon: Archive, label: 'الأرشيف والسجل التاريخي', path: '/app/archive' },
         { id: 'settings', icon: Settings, label: t('nav.settings') || 'الإعدادات', path: '/app/settings' },
       ]
     }

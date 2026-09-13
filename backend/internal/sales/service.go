@@ -3,7 +3,6 @@ package sales
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -314,14 +313,14 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			if itemCondition == "USED" {
 				reason = "Sold used item: " + invoiceNumber
 			}
-			var beforeQuantity int
-			if err = tx.GetContext(ctx, &beforeQuantity, `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1`, items[i].ProductID); err != nil && err != sql.ErrNoRows {
+			var afterQuantity int
+			if err = tx.GetContext(ctx, &afterQuantity, `
+				SELECT COUNT(*) FROM inventory_items
+				WHERE product_id = $1 AND status = 'AVAILABLE'
+			`, items[i].ProductID); err != nil {
 				return nil, fmt.Errorf("failed to read inventory quantity: %w", err)
 			}
-			afterQuantity := beforeQuantity - 1
-			if afterQuantity < 0 {
-				afterQuantity = 0
-			}
+			beforeQuantity := afterQuantity + 1
 			_, err = tx.ExecContext(ctx, movementQuery,
 				uuid.New(), itemID, "SALE",
 				-1, beforeQuantity, afterQuantity, "sale", sale.ID, reason, userID, time.Now())

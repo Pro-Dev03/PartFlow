@@ -131,7 +131,7 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 			(SELECT COUNT(*) FROM products p
 			 WHERE p.is_active = true
 			 AND p.min_stock_level > 0
-			 AND COALESCE((SELECT COUNT(i.id) FROM inventory_items i WHERE i.product_id = p.id AND i.status = 'AVAILABLE'), 0) < p.min_stock_level) as low_stock_items,
+			 AND COALESCE((SELECT COUNT(i.id) FROM inventory_items i WHERE i.product_id = p.id AND i.status = 'AVAILABLE'), 0) <= p.min_stock_level) as low_stock_items,
 			(SELECT COALESCE(SUM(current_balance), 0) FROM customers
 			 WHERE current_balance > 0) as overdue_debts,
 			(SELECT COUNT(*) FROM sales WHERE status = 'pending') as pending_orders,

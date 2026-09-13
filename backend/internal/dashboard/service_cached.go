@@ -280,6 +280,7 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 func (s *CachedService) fetchInventoryDistribution(ctx context.Context) *InventoryDistributionData {
 	query := `
 		SELECT UPPER(COALESCE(inventory_items.status, 'UNKNOWN')) AS status,
+		       UPPER(COALESCE(inventory_items.condition, '')) AS condition,
 		       COUNT(*) AS count,
 		       COALESCE(SUM(CASE
 				WHEN UPPER(COALESCE(inventory_items.status, '')) = 'REVERSED' THEN purchase_cost
@@ -292,12 +293,14 @@ func (s *CachedService) fetchInventoryDistribution(ctx context.Context) *Invento
 				ELSE 0
 			END AS tax_inclusive_value
 		FROM inventory_items
-		GROUP BY UPPER(COALESCE(inventory_items.status, 'UNKNOWN'))
+		WHERE UPPER(COALESCE(inventory_items.status, 'UNKNOWN')) <> 'ARCHIVED'
+		GROUP BY UPPER(COALESCE(inventory_items.status, 'UNKNOWN')), UPPER(COALESCE(inventory_items.condition, ''))
 		ORDER BY status
 	`
 
 	var rows []struct {
 		Status            string  `db:"status"`
+		Condition         string  `db:"condition"`
 		Count             int     `db:"count"`
 		Value             float64 `db:"value"`
 		TaxInclusiveValue float64 `db:"tax_inclusive_value"`
@@ -310,7 +313,7 @@ func (s *CachedService) fetchInventoryDistribution(ctx context.Context) *Invento
 	var totalValue float64
 	var totalItems int
 	for _, row := range rows {
-		name, color, health := inventoryStatusPresentation(row.Status)
+		name, color, health := inventoryStatusPresentation(row.Status, row.Condition)
 		data = append(data, InventoryDistributionItem{
 			Name:              name,
 			Count:             row.Count,
@@ -330,7 +333,15 @@ func (s *CachedService) fetchInventoryDistribution(ctx context.Context) *Invento
 	}
 }
 
-func inventoryStatusPresentation(status string) (name, color, health string) {
+func inventoryStatusPresentation(status, condition string) (name, color, health string) {
+	if strings.EqualFold(strings.TrimSpace(condition), "USED") {
+		if strings.EqualFold(strings.TrimSpace(status), "SOLD") {
+			return "قطع مستعملة مباعة", "#8b5cf6", "low"
+		}
+		if strings.EqualFold(strings.TrimSpace(status), "AVAILABLE") {
+			return "قطع مستعملة متاحة", "#06b6d4", "good"
+		}
+	}
 	switch strings.ToUpper(strings.TrimSpace(status)) {
 	case "AVAILABLE", "IN_STOCK", "IN STOCK":
 		return "متاح", "#10b981", "good"
@@ -344,6 +355,8 @@ func inventoryStatusPresentation(status string) (name, color, health string) {
 		return "قطع مباعة", "#64748b", "low"
 	case "DAMAGED", "IN_REPAIR", "IN REPAIR":
 		return "تالف/قيد الإصلاح", "#ef4444", "critical"
+	case "ARCHIVED":
+		return "مؤرشف", "#94a3b8", ""
 	default:
 		if strings.TrimSpace(status) == "" {
 			return "غير محدد", "#94a3b8", "low"

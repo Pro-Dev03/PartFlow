@@ -718,6 +718,22 @@ export function InventoryModals({
                     }}
                   />
                 </div>
+                <div>
+                  <label style={{
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: 'var(--text-secondary)',
+                    marginBottom: '8px',
+                    display: 'block'
+                  }}>
+                    الباركود
+                  </label>
+                  <Input
+                    value={selectedProduct?.barcode || ''}
+                    placeholder="امسح أو أدخل الباركود"
+                    onChange={(e) => setSelectedProduct((prev: Product | null) => ({ ...prev, barcode: e.target.value } as Product))}
+                  />
+                </div>
               </div>
             </div>
 

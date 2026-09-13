@@ -203,7 +203,7 @@ func (h *MainHandler) GetLowStockItems(c *gin.Context) {
 		  AND COALESCE((SELECT COUNT(*) FROM inventory_items ii 
 					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0) > 0
 		  AND COALESCE((SELECT COUNT(*) FROM inventory_items ii 
-					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0) < p.min_stock_level
+					  WHERE ii.product_id = p.id AND ii.condition <> 'USED'), 0) <= p.min_stock_level
 		ORDER BY quantity ASC
 	`
 

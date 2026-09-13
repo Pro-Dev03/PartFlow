@@ -772,6 +772,15 @@ func (s *Service) ListInventoryItemsWithSupplierInfo(ctx context.Context, page, 
 	return s.repo.ListInventoryItemsWithSupplierInfo(ctx, perPage, offset, filters)
 }
 
+// ListArchivedInventoryItems returns items removed from active inventory.
+func (s *Service) ListArchivedInventoryItems(ctx context.Context, page, perPage int) ([]*InventoryItemWithSupplier, int64, error) {
+	offset := (page - 1) * perPage
+	return s.repo.ListInventoryItemsWithSupplierInfo(ctx, perPage, offset, map[string]interface{}{
+		"status":           string(StatusArchived),
+		"include_archived": true,
+	})
+}
+
 func (s *Service) CreateLocation(ctx context.Context, req *LocationRequest) (*Location, error) {
 	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Type) == "" {
 		return nil, fmt.Errorf("location name and type are required")

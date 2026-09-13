@@ -11,6 +11,8 @@ export interface InventoryMovement {
   afterQuantity: number;
   referenceType?: string;
   referenceId?: string;
+  customerName?: string;
+  invoiceNumber?: string;
   reason?: string;
   createdBy?: string;
 }
@@ -30,6 +32,27 @@ export function InventoryLedger({
   isLoading = false,
   error = null,
 }: InventoryLedgerProps) {
+  const getReferenceLabel = (referenceType?: string) => {
+    const labels: Record<string, string> = {
+      PURCHASE: 'شراء',
+      SALE: 'بيع',
+      RETURN: 'مرتجع',
+      SUPPLIER_RETURN: 'مرتجع مورد',
+      ADJUSTMENT: 'تعديل مخزون',
+      TRANSFER: 'نقل مخزون',
+    };
+    return labels[String(referenceType || '').toUpperCase()] || referenceType || 'غير محدد';
+  };
+
+  const formatMovementDate = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString('ar-SA', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    });
+  };
+
   const getMovementIcon = (type: InventoryMovement['type']) => {
     switch (type) {
       case 'PURCHASE':
@@ -76,11 +99,11 @@ export function InventoryLedger({
       case 'RELEASE':
         return { label: 'إلغاء الحجز', variant: 'secondary' as const };
       case 'REVERSE_PURCHASE':
-        return { label: 'إلغاء عملية الشراء', variant: 'danger' as const };
+        return { label: 'إلغاء الشراء', variant: 'danger' as const };
       case 'REVERSE_SALE':
         return { label: 'إلغاء عملية البيع', variant: 'success' as const };
       case 'REVERSE_RETURN':
-        return { label: 'عكس المرتجع', variant: 'secondary' as const };
+        return { label: 'إلغاء المرتجع', variant: 'secondary' as const };
       default:
         return { label: 'أخرى', variant: 'default' as const };
     }
@@ -101,6 +124,14 @@ export function InventoryLedger({
               </p>
             </div>
           )}
+          <div style={{ textAlign: 'left' }}>
+            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '2px' }}>
+              عدد الحركات
+            </p>
+            <p style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>
+              {movements.length}
+            </p>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -172,30 +203,41 @@ export function InventoryLedger({
                           {badge.label}
                         </Badge>
                         <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          {new Date(movement.date).toLocaleDateString('ar-SA')}
+                          {formatMovementDate(movement.date)}
                         </span>
                       </div>
                       <p style={{ fontSize: '13px', color: 'var(--text-primary)', marginBottom: '2px' }}>
-                        {movement.reason || badge.label}
+                        {movement.type === 'SALE' || movement.type === 'REVERSE_SALE'
+                          ? `${badge.label} إلى ${movement.customerName || 'عميل نقدي'}`
+                          : movement.reason || badge.label}
                       </p>
-                      {movement.referenceType && (
+                      {movement.invoiceNumber && (
                         <p style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                          المرجع: {movement.referenceType} #{movement.referenceId}
+                          الفاتورة: {movement.invoiceNumber}
                         </p>
                       )}
-                      <div style={{ display: 'flex', gap: '12px', marginTop: '4px', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-                        <span>قبل: {movement.beforeQuantity}</span>
-                        <span>→</span>
-                        <span>بعد: {movement.afterQuantity}</span>
-                      </div>
+                      {movement.referenceType && (
+                        <p style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                          المرجع: {getReferenceLabel(movement.referenceType)}{movement.referenceId ? ` #${movement.referenceId}` : ''}
+                        </p>
+                      )}
+                      {movement.beforeQuantity === 0 && movement.afterQuantity === 0 && movement.quantity !== 0 ? (
+                        <div style={{ marginTop: '4px', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                          الرصيد قبل وبعد الحركة غير مسجل لهذه الحركة القديمة
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '4px', fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                          <span>قبل: {movement.beforeQuantity}</span>
+                          <span>→</span>
+                          <span>بعد: {movement.afterQuantity}</span>
+                        </div>
+                      )}
                     </div>
                     <div style={{ textAlign: 'right', marginRight: '12px' }}>
                       <p style={{
                         fontSize: '14px',
                         fontWeight: '600',
-                        color: movement.type === 'PURCHASE' || movement.type === 'RETURN' ? 'var(--success)' :
-                               movement.type === 'SALE' || movement.type === 'DAMAGE' ? 'var(--danger)' :
-                               'var(--text-primary)'
+                           color: movement.quantity > 0 ? 'var(--success)' : movement.quantity < 0 ? 'var(--danger)' : 'var(--text-primary)'
                       }}>
                         {movement.quantity > 0 ? '+' : ''}{movement.quantity}
                       </p>

@@ -316,6 +316,9 @@ func handleAuthError(c *gin.Context, err error) {
 	message := "internal server error"
 
 	switch {
+	case errors.Is(err, ErrSubscriptionExpired):
+		status = http.StatusForbidden
+		message = "اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة."
 	case errors.Is(err, ErrUserNotFound):
 		status = http.StatusNotFound
 		message = err.Error()

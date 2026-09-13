@@ -26,4 +26,7 @@ var (
 
 	// ErrUnauthorized is returned when user is not authorized
 	ErrUnauthorized = errors.New("unauthorized")
+
+	// ErrSubscriptionExpired is returned when credentials are valid but access is no longer permitted.
+	ErrSubscriptionExpired = errors.New("subscription expired")
 )

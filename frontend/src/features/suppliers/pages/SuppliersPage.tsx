@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useToast } from '../../../hooks/useToast';
@@ -12,6 +12,7 @@ import { LoadingSpinner } from '../../../components/ui/loading-spinner';
 import { SupplierCard } from '../../../components/ui/supplier-card';
 import { SupplierModals } from '../components/SupplierModals';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { PaginationControls } from '../../../components/ui/pagination-controls';
 import type { SupplierFormData } from '../../../components/forms/SupplierForm';
 import { Supplier } from '../../../types/models';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
@@ -47,23 +48,23 @@ export function SuppliersPage() {
   const [showOutstandingOnly, setShowOutstandingOnly] = useState(false);
   const [sortBy, setSortBy] = useState<'recent' | 'outstanding' | 'purchases'>('recent');
   const [showInactive, setShowInactive] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
 
   const { data: suppliersData, isLoading, refetch } = useQuery({
-    queryKey: ['suppliers', debouncedSearchQuery, showInactive],
-    queryFn: () => {
-      if (debouncedSearchQuery) {
-        return suppliersApi.list({
-          page: 1,
-          per_page: 50,
-          search: debouncedSearchQuery,
-          is_active: !showInactive
-        });
-      } else {
-        return suppliersApi.list({ page: 1, per_page: 50, is_active: !showInactive });
-      }
-    },
+    queryKey: ['suppliers', page, pageSize, debouncedSearchQuery, showInactive],
+    queryFn: () => suppliersApi.list({
+      page,
+      per_page: pageSize,
+      ...(debouncedSearchQuery ? { search: debouncedSearchQuery } : {}),
+      is_active: !showInactive,
+    }),
     enabled: true,
   });
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearchQuery, showInactive]);
 
   const { data: supplierInventory, isLoading: inventoryLoading } = useQuery({
     queryKey: ['supplier-inventory', expandedSupplierId],
@@ -84,7 +85,7 @@ export function SuppliersPage() {
       return 0;
     });
 
-  const totalSuppliers = suppliers.length;
+  const totalSuppliers = Number(suppliersData?.meta?.total || suppliers.length);
   const totalPurchases = suppliers.reduce((sum: number, s: Supplier) => sum + ('totalPurchases' in s ? (s as Record<string, unknown>).totalPurchases as number : 0), 0);
   const totalPaid = suppliers.reduce((sum: number, s: Supplier) => sum + ('paidAmount' in s ? (s as Record<string, unknown>).paidAmount as number : 0), 0);
   const totalOutstanding = suppliers.reduce((sum: number, s: Supplier) => sum + ('outstanding' in s ? (s as Record<string, unknown>).outstanding as number : 0), 0);
@@ -415,6 +416,15 @@ export function SuppliersPage() {
                 />
               ))}
             </div>
+          )}
+          {filteredSuppliers.length > 0 && (
+            <PaginationControls
+              page={page}
+              pageSize={pageSize}
+              total={totalSuppliers}
+              onPageChange={setPage}
+              isLoading={isLoading}
+            />
           )}
         </CardContent>
       </Card>

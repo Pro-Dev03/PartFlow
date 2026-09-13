@@ -1,24 +1,33 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { acquisitionsApi, inventoryApi, partTypesApi } from '../../../services/api/endpoints';
 import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { PageHeader } from '../../../components/ui/page-header';
 import { StatCard } from '../../../components/ui/stat-card';
 import { Select } from '../../../components/ui/select';
-import { ArrowRight, Package, ShoppingCart, TrendingUp } from 'lucide-react';
+import { ArrowRight, Package, ShoppingCart, TrendingUp, LayoutGrid, List } from 'lucide-react';
 import { formatPrice } from '../../../utils';
 import { getPartTypeImage } from '../../../services/localPartTypeImages';
+import { PaginationControls } from '../../../components/ui/pagination-controls';
 
 export function UsedPartsStockPage() {
   const navigate = useNavigate();
   const [selectedPartType, setSelectedPartType] = useState('');
+  const [layoutMode, setLayoutMode] = useState<'cards' | 'table'>('cards');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const { data, isLoading } = useQuery({
-    queryKey: ['inventory', 'used-stock'],
-    queryFn: () => inventoryApi.list({ page: 1, per_page: 100 }),
+    queryKey: ['inventory', 'used-stock', page, pageSize],
+    queryFn: () => inventoryApi.list({ page, per_page: pageSize, condition: 'USED', status: 'AVAILABLE' }),
   });
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedPartType]);
   const { data: acquisitionsData, isLoading: isLoadingAcquisitions } = useQuery({
     queryKey: ['acquisitions', 'used-stock'],
     queryFn: () => acquisitionsApi.list({ page: 1, per_page: 100, type: 'CUSTOMER' }),
@@ -77,6 +86,14 @@ export function UsedPartsStockPage() {
               size="sm"
               className="min-w-48"
             />
+            <Button variant={layoutMode === 'cards' ? 'primary' : 'secondary'} onClick={() => setLayoutMode('cards')} aria-label="عرض البطاقات" title="عرض البطاقات">
+              <LayoutGrid className="w-4 h-4" />
+              بطاقات
+            </Button>
+            <Button variant={layoutMode === 'table' ? 'primary' : 'secondary'} onClick={() => setLayoutMode('table')} aria-label="عرض الجدول" title="عرض الجدول">
+              <List className="w-4 h-4" />
+              جدول
+            </Button>
           </div>
         }
       />
@@ -89,6 +106,46 @@ export function UsedPartsStockPage() {
             <StatCard title="قيمة الشراء" value={formatPrice(usedPurchaseValue)} icon={Package} subtitle="تكلفة القطع المستعملة فقط" />
             <StatCard title="قيمة البيع" value={formatPrice(usedSellingValue)} icon={TrendingUp} subtitle="قيمة القطع المستعملة المتاحة" variant="success" />
           </div>
+          {layoutMode === 'table' ? (
+            <div className="overflow-x-auto rounded-xl border border-border bg-surface">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>الصورة</TableHead>
+                    <TableHead>القطعة</TableHead>
+                    <TableHead>النوع</TableHead>
+                    <TableHead>حالة المخزون</TableHead>
+                    <TableHead>سعر الشراء</TableHead>
+                    <TableHead>سعر البيع</TableHead>
+                    <TableHead>الإجراء</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item: any) => (
+                    <TableRow key={item.id}>
+                      <TableCell>
+                        {getPartTypeImage(String(item.part_type_id)) ? (
+                          <div style={{ width: '64px', height: '48px', overflow: 'hidden', borderRadius: '6px' }}>
+                            <img src={getPartTypeImage(String(item.part_type_id))} alt={item.product_name || 'نوع القطعة'} style={{ width: '64px', height: '48px', maxWidth: '64px', maxHeight: '48px', objectFit: 'cover', display: 'block' }} />
+                          </div>
+                        ) : <Package className="h-8 w-8 text-text-tertiary" />}
+                      </TableCell>
+                      <TableCell className="font-medium">{item.product_name || item.product?.name || 'قطعة مستعملة'}</TableCell>
+                      <TableCell>{partTypes.find((partType: any) => partType.id === item.part_type_id)?.name_ar || '-'}</TableCell>
+                      <TableCell><Badge variant="success">{getStatusLabel(item.status)}</Badge></TableCell>
+                      <TableCell>{formatPrice(Number(item.purchase_cost || 0))}</TableCell>
+                      <TableCell className="font-semibold text-cyan">{formatPrice(Number(item.selling_price || 0))}</TableCell>
+                      <TableCell>
+                        <Button size="sm" variant="primary" onClick={() => navigate('/app/sales', { state: { usedPart: { id: item.product_id || item.product?.id, inventoryItemId: item.id, name: item.product_name || 'قطعة مستعملة', price: item.selling_price, stock: 1, isTradeIn: true } } })}>
+                          <ShoppingCart className="w-3 h-3" /> بيع
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {items.map((item: any) => (
               <Card key={item.id}>
@@ -117,6 +174,18 @@ export function UsedPartsStockPage() {
               </Card>
             ))}
           </div>
+          )}
+          {items.length > 0 && (
+            <Card>
+              <PaginationControls
+                page={page}
+                pageSize={pageSize}
+                total={Number(data?.meta?.total || items.length)}
+                onPageChange={setPage}
+                isLoading={isLoading}
+              />
+            </Card>
+          )}
         </div>
       )}
     </div>

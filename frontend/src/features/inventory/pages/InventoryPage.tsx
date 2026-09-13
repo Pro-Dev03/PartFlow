@@ -9,7 +9,7 @@ import { Modal } from '../../../components/ui/modal';
 import { Input } from '../../../components/ui/input';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { Plus, Download, Printer, Package, PackageOpen } from 'lucide-react';
+import { Plus, Download, Printer, Package, PackageOpen, LayoutGrid, List } from 'lucide-react';
 
 // Custom hooks
 import { useInventory } from '../hooks/useInventory';
@@ -26,7 +26,7 @@ import type { InventoryMovement } from '../../../components/ui/inventory-ledger'
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 
 // Types
-import { ViewMode, ItemInputMethodType, Product } from '../types/inventory.types';
+import { ViewMode, Product } from '../types/inventory.types';
 import { inventoryApi } from '../../../services/api/endpoints';
 import { toast } from 'sonner';
 import { getLocalProductImage } from '../../../services/localProductImages';
@@ -41,6 +41,8 @@ interface InventoryMovementResponse {
   after_quantity: number;
   reference_type?: string;
   reference_id?: string;
+  customer_name?: string;
+  invoice_number?: string;
   reason?: string;
   created_by?: string;
   created_at: string;
@@ -53,12 +55,11 @@ export function InventoryPage() {
   const location = useLocation();
   const isMobile = useIsMobile();
   const [viewMode, setViewMode] = useState<ViewMode>('products');
+  const [layoutMode, setLayoutMode] = useState<'cards' | 'table'>('cards');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
-  const [inputMethod, setInputMethod] = useState<ItemInputMethodType>('barcode');
-  const [isCameraScannerOpen, setIsCameraScannerOpen] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [showInventoryLedger, setShowInventoryLedger] = useState(false);
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
@@ -91,6 +92,13 @@ export function InventoryPage() {
     updateProductMutation,
     updateMinimumStockMutation,
     lookupProduct,
+    productPage,
+    inventoryPage,
+    pageSize,
+    productTotal,
+    inventoryTotal,
+    setProductPage,
+    setInventoryPage,
   } = useInventory();
 
   // Handle edit product from navigation state
@@ -102,6 +110,25 @@ export function InventoryPage() {
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state, navigate, location.pathname]);
+
+  useEffect(() => {
+    const categoryId = location.state?.createProductCategoryId;
+    if (!categoryId) return;
+    setSelectedProduct({
+      id: '',
+      name: '',
+      sku: generateSku(),
+      sellingPrice: 0,
+      costPrice: 0,
+      stock: 0,
+      condition: 'new',
+      category_id: categoryId,
+      barcode: '',
+    });
+    setIsCreatingProduct(true);
+    setIsEditModalOpen(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
 
   useEffect(() => {
     const search = new URLSearchParams(location.search).get('search') || '';
@@ -321,13 +348,6 @@ export function InventoryPage() {
     }
   };
 
-  const handleCameraScan = (barcode: string) => {
-    setBarcodeInput(barcode);
-    // Create a proper event object for the barcode scan
-    const event = new Event('submit', { bubbles: true, cancelable: true }) as unknown as React.FormEvent<HTMLFormElement>;
-    handleBarcodeScan(event);
-  };
-
   const handleManualAdd = () => {
     setSelectedProduct({
       id: '',
@@ -356,13 +376,14 @@ export function InventoryPage() {
 
   const handleViewInventoryLedger = async (productId: string) => {
     const product = filteredProducts.find((item) => item.id === productId) ?? null;
-    const inventoryItem = (inventoryItems as any[]).find((item: any) =>
+    const productInventoryItems = (inventoryItems as any[]).filter((item: any) =>
       item.product_id === productId ||
       item.product?.id === productId ||
       item.productId === productId ||
       item.product_name === product?.name
     );
-    const itemId = inventoryItem?.id || productId;
+    const itemIds = productInventoryItems.map((item: any) => item.id).filter(Boolean);
+    if (itemIds.length === 0) itemIds.push(productId);
 
     setInventoryLedgerLoading(true);
     setInventoryLedgerError(null);
@@ -370,8 +391,12 @@ export function InventoryPage() {
     setInventoryLedgerProduct(product);
 
     try {
-      const response = await inventoryApi.movements<{ movements?: InventoryMovementResponse[] }>(itemId);
-      const movements = response.data?.movements ?? [];
+      const responses = await Promise.all(itemIds.map((itemId) =>
+        inventoryApi.movements<{ movements?: InventoryMovementResponse[] }>(itemId)
+      ));
+      const movements = responses
+        .flatMap((response) => response.data?.movements ?? [])
+        .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
       setInventoryMovements(movements.map((movement) => ({
         id: movement.id,
         type: movement.movement_type,
@@ -380,6 +405,8 @@ export function InventoryPage() {
         afterQuantity: movement.after_quantity,
         referenceType: movement.reference_type,
         referenceId: movement.reference_id,
+        customerName: movement.customer_name,
+        invoiceNumber: movement.invoice_number,
         reason: movement.reason,
         createdBy: movement.created_by,
         date: movement.created_at,
@@ -453,16 +480,10 @@ export function InventoryPage() {
 
       {/* Inventory Scanner */}
       <InventoryScanner
-        inputMethod={inputMethod}
-        setInputMethod={setInputMethod}
         barcodeInput={barcodeInput}
         setBarcodeInput={setBarcodeInput}
         onBarcodeScan={handleBarcodeScan}
-        onCameraScan={handleCameraScan}
         onManualAdd={handleManualAdd}
-        isCameraScannerOpen={isCameraScannerOpen}
-        onCameraOpen={() => setIsCameraScannerOpen(true)}
-        onCameraClose={() => setIsCameraScannerOpen(false)}
       />
 
       {/* Inventory Filters */}
@@ -510,6 +531,24 @@ export function InventoryPage() {
           📊
           سجل الحركات
         </Button>
+        <Button
+          variant={layoutMode === 'cards' ? 'primary' : 'secondary'}
+          onClick={() => setLayoutMode('cards')}
+          aria-label="عرض البطاقات"
+          title="عرض البطاقات"
+        >
+          <LayoutGrid className="w-3 h-3 me-1.5" />
+          بطاقات
+        </Button>
+        <Button
+          variant={layoutMode === 'table' ? 'primary' : 'secondary'}
+          onClick={() => setLayoutMode('table')}
+          aria-label="عرض الجدول"
+          title="عرض الجدول"
+        >
+          <List className="w-3 h-3 me-1.5" />
+          جدول
+        </Button>
       </div>
 
       {/* Inventory List */}
@@ -536,6 +575,10 @@ export function InventoryPage() {
           navigate('/app/purchases', { state: { supplierId } });
         }}
         onViewInventoryLedger={handleViewInventoryLedger}
+        pagination={viewMode === 'products'
+          ? { page: productPage, pageSize, total: productTotal, onPageChange: setProductPage }
+          : { page: inventoryPage, pageSize, total: inventoryTotal, onPageChange: setInventoryPage }}
+        layoutMode={layoutMode}
       />
 
       {/* Inventory Ledger - Conditionally rendered */}
@@ -543,7 +586,7 @@ export function InventoryPage() {
         <div style={{ marginTop: '24px' }}>
           <InventoryLedger
             movements={inventoryMovements}
-            title="سجل حركات المخزون"
+            title={`سجل حركات المخزون: ${inventoryLedgerProduct?.name || 'المنتج المحدد'}`}
             currentStock={inventoryLedgerProduct?.stock}
             isLoading={inventoryLedgerLoading}
             error={inventoryLedgerError}

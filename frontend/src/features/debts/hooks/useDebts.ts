@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { debtsApi } from '../../../services/api/endpoints';
 import { Debt, DebtStats } from '../types/debts.types';
@@ -8,10 +8,16 @@ export function useDebts() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const { data: overdueCustomersData, isLoading, refetch } = useQuery({
-    queryKey: ['debts'],
-    queryFn: () => debtsApi.list({ page: 1, per_page: 100 }),
+    queryKey: ['debts', page, pageSize],
+    queryFn: () => debtsApi.list({ page, per_page: pageSize }),
   });
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, searchFilters]);
 
   const recordPaymentMutation = useMutation({
     mutationFn: ({ customerId, amount, method }: { customerId: string; amount: number; method: string }) =>
@@ -55,6 +61,7 @@ export function useDebts() {
 
     return customerDebts.map((debt: any) => ({
       ...debt,
+      status: Number(debt.remaining_amount ?? debt.remainingAmount ?? 0) <= 0 ? 'paid' : debt.status,
       invoiceNumber: debt.invoice_number || debt.invoiceNumber || '',
       dueDate: debt.due_date, // Map due_date to dueDate for consistency
       remainingAmount: debt.remaining_amount, // Map remaining_amount to remainingAmount
@@ -177,5 +184,9 @@ export function useDebts() {
     searchFilters,
     setSearchFilters,
     recordPaymentMutation,
+    page,
+    pageSize,
+    total: Number(overdueCustomersData?.meta?.total || rawDebts.length),
+    setPage,
   };
 }

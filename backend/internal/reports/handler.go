@@ -592,7 +592,7 @@ func (h *Handler) GenerateProductsReport(c *gin.Context) {
 			JOIN products p ON ii.product_id = p.id
 			WHERE ii.status = 'AVAILABLE' AND p.min_stock_level > 0
 			GROUP BY p.id, p.min_stock_level
-			HAVING COUNT(ii.id) < p.min_stock_level
+			HAVING COUNT(ii.id) <= p.min_stock_level
 		) low_stock`)
 	if err != nil {
 		lowStockCount = 0

@@ -17,6 +17,9 @@ import { toast } from 'sonner';
 
 import { Button } from '../../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Modal } from '../../../components/ui/modal';
+import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { TableActionButton } from '../../../components/ui/table-action-button';
 import { settingsApi } from '../../../services/api/endpoints';
 import type { User } from '../../../types/models';
 
@@ -35,6 +38,15 @@ const getDaysRemaining = (value?: string | null) => {
   return Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
 };
 
+const getSubscriptionStatus = (user: User) => {
+  const status = (user.subscription_status ?? 'active').toLowerCase();
+  const remainingDays = getDaysRemaining(user.subscription_expires_at ?? undefined);
+  if ((status === 'active' || status === 'trial') && remainingDays === 0 && user.subscription_expires_at) {
+    return 'expired';
+  }
+  return status;
+};
+
 const statusStyles: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
   expired: 'bg-red-100 text-red-700 border border-red-200',
@@ -48,7 +60,10 @@ export function SubscriptionManagement() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expired' | 'canceled'>('all');
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [deleteUser, setDeleteUser] = useState<User | null>(null);
   const [passwordUser, setPasswordUser] = useState<User | null>(null);
+  const [extensionUser, setExtensionUser] = useState<User | null>(null);
+  const [extensionDays, setExtensionDays] = useState('30');
   const [newPassword, setNewPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [createForm, setCreateForm] = useState({
@@ -80,7 +95,7 @@ export function SubscriptionManagement() {
     const list = Array.isArray(subscribersData) ? subscribersData : [];
     const normalized = list.filter((user) => {
       const matchesSearch = !search || `${user.first_name ?? ''} ${user.last_name ?? ''} ${user.email}`.toLowerCase().includes(search.toLowerCase());
-      const status = (user.subscription_status ?? 'active').toLowerCase();
+      const status = getSubscriptionStatus(user);
       const matchesStatus = statusFilter === 'all' || status === statusFilter;
       return matchesSearch && matchesStatus;
     });
@@ -175,6 +190,7 @@ export function SubscriptionManagement() {
   });
 
   const resetPassword = (user: User) => {
+    setExtensionUser(null);
     setPasswordUser(user);
     setNewPassword('');
     setPasswordConfirmation('');
@@ -184,6 +200,37 @@ export function SubscriptionManagement() {
     setPasswordUser(null);
     setNewPassword('');
     setPasswordConfirmation('');
+  };
+
+  const openExtensionDialog = (user: User) => {
+    setPasswordUser(null);
+    setExtensionUser(user);
+    setExtensionDays('30');
+  };
+
+  const closeExtensionDialog = () => {
+    setExtensionUser(null);
+    setExtensionDays('30');
+  };
+
+  const submitManualExtension = () => {
+    const days = Number(extensionDays);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) {
+      toast.error('أدخل مدة صحيحة بين يوم واحد و3650 يومًا');
+      return;
+    }
+    if (extensionUser) {
+      renewMutation.mutate({ id: extensionUser.id, days }, { onSuccess: closeExtensionDialog });
+    }
+  };
+
+  const previewExtensionDate = () => {
+    const days = Number(extensionDays);
+    if (!Number.isInteger(days) || days < 1) return 'أدخل مدة صحيحة';
+    const currentExpiry = extensionUser?.subscription_expires_at ? new Date(extensionUser.subscription_expires_at) : null;
+    const baseDate = currentExpiry && currentExpiry.getTime() > Date.now() ? currentExpiry : new Date();
+    baseDate.setDate(baseDate.getDate() + days);
+    return formatExpiry(baseDate.toISOString());
   };
 
   const submitPasswordChange = () => {
@@ -206,9 +253,12 @@ export function SubscriptionManagement() {
       toast.error('لا يمكن حذف حساب المالك الأساسي');
       return;
     }
-    if (window.confirm(`هل تريد حذف حساب ${user.email}؟ لا يمكن التراجع عن هذا الإجراء.`)) {
-      deleteMutation.mutate(user.id);
-    }
+    setDeleteUser(user);
+  };
+
+  const confirmDeleteSubscriber = () => {
+    if (!deleteUser) return;
+    deleteMutation.mutate(deleteUser.id, { onSuccess: () => setDeleteUser(null) });
   };
 
   const summary = {
@@ -274,8 +324,7 @@ export function SubscriptionManagement() {
         </CardHeader>
         <CardContent className="space-y-4">
           {showCreateForm && (
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-              <div className="mb-3 text-sm font-semibold">إنشاء حساب مشترك</div>
+            <Modal isOpen={true} onClose={() => setShowCreateForm(false)} title="إنشاء حساب مشترك" size="md" variant="modern">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {([
                   ['firstName', 'الاسم الأول', 'text'],
@@ -305,7 +354,7 @@ export function SubscriptionManagement() {
                 </Button>
                 <Button variant="secondary" onClick={() => setShowCreateForm(false)}>إلغاء</Button>
               </div>
-            </div>
+            </Modal>
           )}
 
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -354,9 +403,9 @@ export function SubscriptionManagement() {
                 </thead>
                 <tbody>
                   {subscribers.map((user) => {
-                    const status = (user.subscription_status ?? 'active').toLowerCase();
+                    const status = getSubscriptionStatus(user);
                     const remainingDays = getDaysRemaining(user.subscription_expires_at ?? undefined);
-                    const isExpired = status === 'expired' || (remainingDays === 0 && !!user.subscription_expires_at);
+                    const isExpired = status === 'expired';
                     const isOwner = user.email.toLowerCase() === 'owner@partflow.com';
                     return (
                       <tr key={user.id} className="border-b border-border/70 align-middle">
@@ -370,7 +419,7 @@ export function SubscriptionManagement() {
                         </td>
                         <td className="px-3 py-3">
                           <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusStyles[status] ?? statusStyles.active}`}>
-                            {status === 'active' ? 'نشط' : status === 'expired' ? 'منتهي' : status === 'canceled' || status === 'cancelled' ? 'موقوف' : status}
+                            {status === 'active' ? 'نشط' : status === 'trial' ? 'تجريبي' : status === 'expired' ? 'منتهي' : status === 'canceled' || status === 'cancelled' ? 'موقوف' : status}
                           </span>
                         </td>
                         <td className="px-3 py-3">
@@ -386,16 +435,13 @@ export function SubscriptionManagement() {
                         </td>
                         <td className="px-3 py-3">
                           <div className="flex flex-wrap gap-2">
-                            <Button
-                              size="icon"
-                              variant="secondary"
-                              onClick={() => renewMutation.mutate({ id: user.id, days: 30 })}
+                            <TableActionButton
+                              onClick={() => openExtensionDialog(user)}
                               disabled={renewMutation.isPending}
-                              title="تجديد 30 يومًا"
-                              aria-label="تجديد 30 يومًا"
-                            >
-                              <CalendarClock className="h-4 w-4" />
-                            </Button>
+                              label="تمديد الاشتراك"
+                              variant="secondary"
+                              icon={<CalendarClock className="h-4 w-4" />}
+                            />
                             <Button
                               size="icon"
                               variant="success"
@@ -453,45 +499,100 @@ export function SubscriptionManagement() {
       </Card>
 
       {passwordUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-xl border border-border bg-background p-5 shadow-xl">
-            <div className="mb-4">
-              <h3 className="text-lg font-semibold">تغيير كلمة المرور</h3>
-              <p className="mt-1 text-sm text-muted-foreground">الحساب: {passwordUser.email}</p>
+        <Modal isOpen={true} onClose={closePasswordDialog} title="تغيير كلمة المرور" size="sm" variant="modern">
+          <p className="mb-4 text-sm text-muted-foreground">الحساب: {passwordUser.email}</p>
+          <div className="space-y-3">
+            <label className="block space-y-1 text-sm">
+              <span className="text-muted-foreground">كلمة المرور الجديدة</span>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 outline-none"
+                autoFocus
+              />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span className="text-muted-foreground">تأكيد كلمة المرور</span>
+              <input
+                type="password"
+                value={passwordConfirmation}
+                onChange={(event) => setPasswordConfirmation(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') submitPasswordChange();
+                }}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 outline-none"
+              />
+            </label>
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="secondary" onClick={closePasswordDialog}>إلغاء</Button>
+            <Button onClick={submitPasswordChange} disabled={passwordMutation.isPending}>
+              {passwordMutation.isPending ? 'جارِ الحفظ...' : 'حفظ كلمة المرور'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {extensionUser && (
+        <Modal isOpen={true} onClose={closeExtensionDialog} title="تمديد الاشتراك يدويًا" size="sm" variant="modern">
+          <p className="mb-5 text-sm text-muted-foreground">الحساب: {extensionUser.email}</p>
+          <div className="space-y-4">
+            <div>
+              <p className="mb-2 text-sm font-medium">اختر مدة التمديد</p>
+              <div className="flex flex-wrap gap-2">
+                {[7, 30, 90].map((days) => (
+                  <Button
+                    key={days}
+                    type="button"
+                    size="sm"
+                    variant={extensionDays === String(days) ? 'primary' : 'secondary'}
+                    onClick={() => setExtensionDays(String(days))}
+                  >
+                    {days} يومًا
+                  </Button>
+                ))}
+              </div>
             </div>
-            <div className="space-y-3">
-              <label className="block space-y-1 text-sm">
-                <span className="text-muted-foreground">كلمة المرور الجديدة</span>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(event) => setNewPassword(event.target.value)}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 outline-none"
-                  autoFocus
-                />
-              </label>
-              <label className="block space-y-1 text-sm">
-                <span className="text-muted-foreground">تأكيد كلمة المرور</span>
-                <input
-                  type="password"
-                  value={passwordConfirmation}
-                  onChange={(event) => setPasswordConfirmation(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') submitPasswordChange();
-                  }}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 outline-none"
-                />
-              </label>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button variant="secondary" onClick={closePasswordDialog}>إلغاء</Button>
-              <Button onClick={submitPasswordChange} disabled={passwordMutation.isPending}>
-                {passwordMutation.isPending ? 'جارِ الحفظ...' : 'حفظ كلمة المرور'}
-              </Button>
+
+            <label className="block space-y-1 text-sm">
+              <span className="text-muted-foreground">مدة مخصصة بالأيام</span>
+              <input
+                type="number"
+                min="1"
+                max="3650"
+                value={extensionDays}
+                onChange={(event) => setExtensionDays(event.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 outline-none"
+                autoFocus
+              />
+            </label>
+
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">
+              <span className="text-muted-foreground">تاريخ الانتهاء الجديد المتوقع</span>
+              <strong className="mt-1 block text-foreground">{previewExtensionDate()}</strong>
             </div>
           </div>
-        </div>
+
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="secondary" onClick={closeExtensionDialog}>إلغاء</Button>
+            <Button onClick={submitManualExtension} disabled={renewMutation.isPending}>
+              {renewMutation.isPending ? 'جارِ التمديد...' : 'تأكيد التمديد'}
+            </Button>
+          </div>
+        </Modal>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(deleteUser)}
+        onClose={() => setDeleteUser(null)}
+        onConfirm={confirmDeleteSubscriber}
+        title="حذف حساب المشترك"
+        message={deleteUser ? `هل تريد حذف حساب ${deleteUser.email}؟ لا يمكن التراجع عن هذا الإجراء.` : ''}
+        confirmText="حذف الحساب"
+        variant="danger"
+        isLoading={deleteMutation.isPending}
+      />
     </div>
   );
 }

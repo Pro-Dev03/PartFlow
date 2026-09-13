@@ -302,7 +302,7 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 
 	// Check subscription status (from worktrack)
 	if err := s.checkSubscriptionStatus(user.SubscriptionStatus, user.SubscriptionExpiresAt); err != nil {
-		return nil, ErrUnauthorized
+		return nil, ErrSubscriptionExpired
 	}
 
 	// Update last login

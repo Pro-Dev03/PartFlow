@@ -130,7 +130,7 @@ func (s *Service) RenewSubscription(ctx context.Context, id uuid.UUID, days int)
 		return nil, err
 	}
 	normalizedStatus := strings.ToLower(strings.TrimSpace(user.SubscriptionStatus))
-	if user.SubscriptionExpiresAt == nil || normalizedStatus == "expired" || normalizedStatus == "canceled" || normalizedStatus == "cancelled" || normalizedStatus == "deleted" {
+	if user.SubscriptionExpiresAt == nil || !time.Now().UTC().Before(user.SubscriptionExpiresAt.UTC()) || normalizedStatus == "expired" || normalizedStatus == "canceled" || normalizedStatus == "cancelled" || normalizedStatus == "deleted" {
 		newExpiry := time.Now().UTC().AddDate(0, 0, days)
 		user.SubscriptionExpiresAt = &newExpiry
 		user.SubscriptionStatus = "active"
@@ -158,6 +158,9 @@ func (s *Service) GetSubscriptionSummary(ctx context.Context) (map[string]int, e
 	for _, user := range users {
 		counts["total"]++
 		normalizedStatus := strings.ToLower(strings.TrimSpace(user.SubscriptionStatus))
+		if (normalizedStatus == "active" || normalizedStatus == "trial") && user.SubscriptionExpiresAt != nil && !time.Now().UTC().Before(user.SubscriptionExpiresAt.UTC()) {
+			normalizedStatus = "expired"
+		}
 		switch normalizedStatus {
 		case "active":
 			counts["active"]++

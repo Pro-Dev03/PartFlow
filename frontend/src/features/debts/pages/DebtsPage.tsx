@@ -4,6 +4,7 @@ import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { PaginationControls } from '../../../components/ui/pagination-controls';
 import { Badge } from '../../../components/ui/badge';
 import { getButtonSize } from '../../../config/button-sizes';
 import { 
@@ -56,6 +57,10 @@ export function DebtsPage() {
     setSearchQuery,
     setSearchFilters,
     recordPaymentMutation,
+    page,
+    pageSize,
+    total,
+    setPage,
   } = useDebts();
 
   // Get current language for receipt
@@ -283,7 +288,9 @@ export function DebtsPage() {
                             {aging.label}
                           </Badge>
                           <span className="text-[11px] text-text-secondary">
-                            {aging.category.startsWith('OVERDUE')
+                            {aging.category === 'PAID'
+                              ? 'تم السداد بالكامل'
+                              : aging.category.startsWith('OVERDUE')
                               ? `متأخر فعلياً ${aging.days} ${aging.days === 1 ? 'يوم' : 'يوماً'}`
                               : aging.days > 0
                                 ? `متبقي ${aging.days} ${aging.days === 1 ? 'يوم' : 'أيام'}`
@@ -292,8 +299,8 @@ export function DebtsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm">
-                          {aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
+                        <Badge variant={aging.category === 'PAID' ? 'success' : aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm">
+                          {aging.category === 'PAID' ? 'مدفوع' : aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-end">
@@ -311,6 +318,7 @@ export function DebtsPage() {
                 })}
               </TableBody>
             </Table>
+            <PaginationControls page={page} pageSize={pageSize} total={total} onPageChange={setPage} isLoading={isLoading} />
           </div>
         )}
 
@@ -335,8 +343,8 @@ export function DebtsPage() {
                         <div className="mt-1 text-[11px] text-text-tertiary">{debt.invoiceNumber || 'فاتورة غير مرتبطة'}</div>
                         <div className="mt-1 text-[11px] text-text-tertiary">{debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('en-GB') : 'غير محدد'}</div>
                       </div>
-                      <Badge variant={aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm">
-                        {aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
+                      <Badge variant={aging.category === 'PAID' ? 'success' : aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm">
+                        {aging.category === 'PAID' ? 'مدفوع' : aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
                       </Badge>
                     </div>
 
@@ -541,7 +549,7 @@ export function DebtsPage() {
                 </div>
                 <div>
                   <label className="text-small font-medium text-text mb-sm block">الحالة</label>
-                  <Input value={selectedDebt.status === 'overdue' ? 'متأخر' : selectedDebt.status === 'partial' ? 'جزئي' : 'معلق'} disabled />
+                  <Input value={Number(selectedDebt.remaining_amount ?? selectedDebt.remainingAmount ?? 0) <= 0 ? 'مدفوع' : selectedDebt.status === 'overdue' ? 'متأخر' : selectedDebt.status === 'partial' ? 'جزئي' : 'معلق'} disabled />
                 </div>
                 <div className="flex gap-sm justify-end" style={{ gridColumn: '1 / -1' }}>
                   <Button variant="secondary" size={getButtonSize('debts', 'modalAction')} onClick={() => setIsViewModalOpen(false)}>

@@ -13,7 +13,7 @@ const PAGE_SIZE = 10;
 const statusLabels: Record<string, string> = {
   completed: 'مكتمل',
   pending: 'قيد الانتظار',
-  reversed: 'تم عكس العملية',
+  reversed: 'إلغاء الشراء',
   cancelled: 'ملغي',
   received: 'مستلم',
   ordered: 'تم الطلب',

@@ -7,35 +7,40 @@ export function useReports(selectedReport: string, dateRange: string, customStar
     const now = new Date();
     const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     const formatDate = (date: Date) => date.toISOString().split('T')[0];
+    const formatExclusiveEndDate = (date: Date) => {
+      const exclusiveEnd = new Date(date);
+      exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
+      return formatDate(exclusiveEnd);
+    };
     
     switch (dateRange) {
       case 'today':
         return {
           start_date: formatDate(today),
-          end_date: formatDate(today)
+          end_date: formatExclusiveEndDate(today)
         };
       case 'thisWeek':
         const weekStart = new Date(today);
         weekStart.setUTCDate(today.getUTCDate() - today.getUTCDay());
         return {
           start_date: formatDate(weekStart),
-          end_date: formatDate(today)
+          end_date: formatExclusiveEndDate(today)
         };
       case 'thisMonth':
         const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
         return {
           start_date: formatDate(monthStart),
-          end_date: formatDate(today)
+          end_date: formatExclusiveEndDate(today)
         };
       case 'thisYear':
         const yearStart = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
         return {
           start_date: formatDate(yearStart),
-          end_date: formatDate(today)
+          end_date: formatExclusiveEndDate(today)
         };
       case 'custom':
         return customStartDate && customEndDate
-          ? { start_date: customStartDate, end_date: customEndDate }
+          ? { start_date: customStartDate, end_date: formatExclusiveEndDate(new Date(`${customEndDate}T00:00:00Z`)) }
           : {};
       default:
         return {};

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { categoriesApi } from '../../../services/api/endpoints';
 import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
@@ -131,6 +132,7 @@ function CategoryImageField({ value, onChange }: { value?: string; onChange: (va
 
 export function CategoriesPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { setFullWidth } = useLayout();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -476,6 +478,26 @@ export function CategoriesPage() {
                     </div>
                     
                     <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        onClick={() => navigate('/app/inventory', { state: { createProductCategoryId: category.id } })}
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '10px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: 'var(--bg-surface-elevated)',
+                          border: '1px solid var(--border-subtle)',
+                          color: 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        title="إضافة منتج لهذا التصنيف"
+                        aria-label="إضافة منتج لهذا التصنيف"
+                      >
+                        <Plus style={{ width: '16px', height: '16px' }} />
+                      </button>
                       <button
                         onClick={() => handleEdit(category)}
                         style={{
