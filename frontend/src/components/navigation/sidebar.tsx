@@ -23,6 +23,7 @@ import {
 import { cn } from '../../utils';
 import type { LucideIcon } from 'lucide-react';
 import { settingsApi } from '../../services/api/endpoints';
+import { PartFlowLogo } from '../branding/PartFlowLogo';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -139,24 +140,18 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
         {!isCollapsed && (
           <div className="flex items-center gap-[var(--spacing-3)]">
             <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-lg)] border shadow-[var(--shadow-glow)]"
+              className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[var(--radius-lg)] border shadow-[var(--shadow-glow)]"
               style={{
                 background: 'var(--color-primary-08)',
                 borderColor: 'var(--color-primary-25)',
                 boxShadow: '0 4px 14px var(--color-primary-15)',
-                width: '40px',
-                minWidth: '40px',
-                height: '40px',
-                minHeight: '40px',
+                width: '52px',
+                minWidth: '52px',
+                height: '52px',
+                minHeight: '52px',
               }}
             >
-              <img
-                src="./favicon.svg?v=3"
-                alt=""
-                aria-hidden="true"
-                className="block h-5 w-5 shrink-0"
-                style={{ width: '20px', height: '20px' }}
-              />
+              <PartFlowLogo size={52} priority />
             </div>
             <div className="brand-text">
               <span className="max-w-[170px] truncate text-lg font-bold tracking-[0.5px] text-[var(--text-primary)]" title={storeName}>{storeName}</span>
@@ -166,24 +161,18 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
         )}
         {isCollapsed && (
           <div
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-lg)] border shadow-[var(--shadow-glow)]"
+            className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[var(--radius-lg)] border shadow-[var(--shadow-glow)]"
             style={{
               background: 'var(--color-primary-08)',
               borderColor: 'var(--color-primary-25)',
               boxShadow: '0 4px 14px var(--color-primary-15)',
-              width: '40px',
-              minWidth: '40px',
-              height: '40px',
-              minHeight: '40px',
+              width: '52px',
+              minWidth: '52px',
+              height: '52px',
+              minHeight: '52px',
             }}
           >
-            <img
-              src="/favicon.svg?v=3"
-              alt=""
-              aria-hidden="true"
-              className="block h-5 w-5 shrink-0"
-              style={{ width: '20px', height: '20px' }}
-            />
+            <PartFlowLogo size={52} priority />
           </div>
         )}
       </div>

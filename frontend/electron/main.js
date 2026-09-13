@@ -137,7 +137,9 @@ async function startBackend() {
 }
 
 function ensureTrayIcon() {
-  const iconPath = path.join(__dirname, '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+  const iconPath = isDev
+    ? path.join(__dirname, '..', 'build', 'partflow-logo.png')
+    : path.join(process.resourcesPath, 'partflow-logo.png');
 
   try {
     return nativeImage.createFromPath(iconPath).resize({ width: 18, height: 18 });

@@ -23,6 +23,10 @@
     {
       "from": "build/PartFlow-Internal-Code-Signing.cer",
       "to": "PartFlow-Internal-Code-Signing.cer"
+    },
+    {
+      "from": "build/partflow-logo.png",
+      "to": "partflow-logo.png"
     }
   ],
   "extraMetadata": {
@@ -40,6 +44,7 @@
       }
     ],
     "requestedExecutionLevel": "asInvoker",
+    "icon": "build/partflow-logo.png",
     "signAndEditExecutable": true,
     "signtoolOptions": {
       "certificateSubjectName": "PartFlow Internal Code Signing"

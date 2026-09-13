@@ -1,4 +1,5 @@
 import { CloudCog, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { PartFlowLogo } from '../../../components/branding/PartFlowLogo';
 
 export function SubscriptionVerificationScreen() {
   return (
@@ -78,7 +79,7 @@ export function SubscriptionVerificationScreen() {
             boxShadow: '0 20px 60px rgba(34, 211, 238, 0.16)',
           }}
         >
-          <ShieldCheck size={44} strokeWidth={1.6} />
+          <PartFlowLogo size={66} priority />
         </div>
 
         <p style={{ margin: '0 0 10px', color: '#67e8f9', fontSize: '12px', fontWeight: 800, letterSpacing: '0.16em' }}>

@@ -1,3 +1,5 @@
+import { PartFlowLogo } from '../../../components/branding/PartFlowLogo';
+
 interface BrandPanelProps {
   isDark: boolean;
 }
@@ -36,7 +38,7 @@ export function BrandPanel({ isDark }: BrandPanelProps) {
             boxShadow: isDark ? '0 0 30px rgba(34, 211, 238, 0.10)' : '0 0 30px rgba(37, 99, 235, 0.08)',
           }}
         >
-          <span style={{ fontSize: '19px', fontWeight: '800', letterSpacing: '-1px' }}>PF</span>
+          <PartFlowLogo size={44} priority />
         </div>
         <div>
           <div
