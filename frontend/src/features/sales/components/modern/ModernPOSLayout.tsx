@@ -1,3 +1,5 @@
+import { PartFlowLogo } from '../../../components/branding/PartFlowLogo';
+
 import { ReactNode } from 'react';
 import { cn } from '../../../../utils';
 
@@ -59,7 +61,9 @@ export function ModernHeader({
     <div className="pos-modern-header-content">
       <div className="pos-modern-header-left">
         <div className="pos-modern-logo">
-          <div className="pos-modern-logo-icon">PF</div>
+          <div className="pos-modern-logo-icon">
+            <PartFlowLogo size={36} priority />
+          </div>
         </div>
         <div className="pos-modern-header-titles">
           <h1 className="pos-modern-title">{title}</h1>

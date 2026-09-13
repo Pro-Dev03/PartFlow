@@ -821,7 +821,7 @@ export function POSPage() {
             }} />
           </button>
           <div className="pos-logo">
-            <span className="logo-text">PF</span>
+            <PartFlowLogo size={36} priority />
           </div>
           <div className="pos-header-titles">
             <h1 className="pos-main-title">نقطة البيع</h1>
