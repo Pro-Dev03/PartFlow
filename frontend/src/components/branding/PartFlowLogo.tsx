@@ -1,3 +1,5 @@
+import logoUrl from '../../assets/partflow-logo.png';
+
 interface PartFlowLogoProps {
   size?: number;
   className?: string;
@@ -7,7 +9,7 @@ interface PartFlowLogoProps {
 export function PartFlowLogo({ size = 44, className = '', priority = false }: PartFlowLogoProps) {
   return (
     <img
-      src="./partflow-logo.png?v=2"
+      src={logoUrl}
       alt="PartFlow"
       width={size}
       height={size}
