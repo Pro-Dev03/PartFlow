@@ -1,6 +1,6 @@
 export type ViewMode = 'products' | 'items';
 
-export type ItemInputMethodType = 'barcode' | 'camera' | 'manual';
+export type ItemInputMethodType = 'barcode' | 'manual';
 
 export interface Product {
   id: string;
