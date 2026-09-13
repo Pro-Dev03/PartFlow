@@ -731,6 +731,7 @@ export function InventoryModals({
                   <Input
                     value={selectedProduct?.barcode || ''}
                     placeholder="امسح أو أدخل الباركود"
+                    autoFocus={isCreatingProduct}
                     onChange={(e) => setSelectedProduct((prev: Product | null) => ({ ...prev, barcode: e.target.value } as Product))}
                   />
                 </div>

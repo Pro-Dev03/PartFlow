@@ -256,7 +256,16 @@ export function InventoryPage() {
     }
   };
 
-  const handleSaveProduct = (productData: Product) => {
+  const handleSaveProduct = async (productData: Product) => {
+    const barcode = productData.barcode?.trim() || '';
+    if (!selectedProduct?.id && barcode) {
+      const existingProduct = await lookupProduct(barcode);
+      if (existingProduct) {
+        toast.error('هذا الباركود مسجل لمنتج موجود بالفعل');
+        return;
+      }
+    }
+
     if (selectedProduct && selectedProduct.id) {
       // Update existing product - map to API field names
       const apiData = {
