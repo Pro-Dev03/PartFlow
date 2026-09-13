@@ -7,7 +7,7 @@ interface PartFlowLogoProps {
 export function PartFlowLogo({ size = 44, className = '', priority = false }: PartFlowLogoProps) {
   return (
     <img
-      src="/partflow-logo.png?v=1"
+      src="./partflow-logo.png?v=2"
       alt="PartFlow"
       width={size}
       height={size}
