@@ -439,6 +439,29 @@ export const reportsApi = {
 };
 
 // Settings endpoints
+const cloudSettingsRequest = async <T>(endpoint: string, options: RequestInit = {}) => {
+  const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
+  if (!cloudToken) throw new Error('لا توجد جلسة مالك سحابية نشطة.');
+
+  const response = await fetch(`${getCloudApiUrl()}${endpoint}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${cloudToken}`,
+      'X-PartFlow-Cloud-Token': cloudToken,
+      ...(options.headers ?? {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || payload?.error || 'تعذر الاتصال بالخدمة السحابية.');
+  }
+  return {
+    data: payload?.data ?? payload,
+    meta: payload?.meta,
+  };
+};
+
 export const settingsApi = {
   getRegionalSettings: () => apiClient.get('/settings/regional'),
   initializeRegionalSettings: (timezone: string) => apiClient.post('/settings/regional/initialize', { timezone }),
@@ -450,36 +473,29 @@ export const settingsApi = {
     apiClient.post('/settings/sync/push', {}),
   getUsers: (params?: { page?: number; per_page?: number }) =>
     apiClient.get('/users', params),
-  getSubscribers: (params?: { page?: number; per_page?: number; search?: string; is_active?: boolean }) =>
-    apiClient.get('/users/subscriptions', params),
+  getSubscribers: (params?: { page?: number; per_page?: number; search?: string; is_active?: boolean }) => {
+    const query = new URLSearchParams();
+    Object.entries(params ?? {}).forEach(([key, value]) => {
+      if (value !== undefined) query.set(key, String(value));
+    });
+    return cloudSettingsRequest(`/users/subscriptions${query.size ? `?${query.toString()}` : ''}`);
+  },
   getSubscriptionSummary: () =>
-    apiClient.get('/users/subscription-summary'),
+    cloudSettingsRequest('/users/subscription-summary'),
   updateSubscriptionStatus: (id: string, payload: { subscription_status: string; subscription_expires_at?: string | null; subscription_days?: number }) =>
     apiClient.put(`/users/${id}/subscription`, payload),
   renewSubscription: (id: string, days: number) =>
     apiClient.post(`/users/${id}/subscription/renew`, { days }),
   createUser: (data: any) => apiClient.post('/users', data),
   createUserInCloud: async (data: any) => {
-    const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
-    if (!cloudToken) throw new Error('لا توجد جلسة مالك سحابية نشطة.');
-
-    const response = await fetch(`${getCloudApiUrl()}/users`, {
+    const response = await cloudSettingsRequest('/users', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${cloudToken}`,
-        'X-PartFlow-Cloud-Token': cloudToken,
-      },
       body: JSON.stringify(data),
     });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload?.error?.message || payload?.error || 'تعذر إنشاء الحساب السحابي.');
-    }
-    return payload?.data ?? payload;
+    return response.data;
   },
   updateUser: (id: string, data: any) => apiClient.put(`/users/${id}`, data),
-  deleteUser: (id: string) => apiClient.delete(`/users/${id}`),
+  deleteUser: (id: string) => cloudSettingsRequest(`/users/${id}`, { method: 'DELETE' }),
   getTaxRate: () => apiClient.get('/settings/tax-rate'),
   updateTaxRate: (taxRate: number) => apiClient.put('/settings/tax-rate', { tax_rate: taxRate }),
   getPublicSettings: () => apiClient.get('/settings/public'),
