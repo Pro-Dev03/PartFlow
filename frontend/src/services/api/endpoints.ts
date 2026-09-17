@@ -483,9 +483,9 @@ export const settingsApi = {
   getSubscriptionSummary: () =>
     cloudSettingsRequest('/users/subscription-summary'),
   updateSubscriptionStatus: (id: string, payload: { subscription_status: string; subscription_expires_at?: string | null; subscription_days?: number }) =>
-    apiClient.put(`/users/${id}/subscription`, payload),
+    cloudSettingsRequest(`/users/${id}/subscription`, { method: 'PUT', body: JSON.stringify(payload) }),
   renewSubscription: (id: string, days: number) =>
-    apiClient.post(`/users/${id}/subscription/renew`, { days }),
+    cloudSettingsRequest(`/users/${id}/subscription/renew`, { method: 'POST', body: JSON.stringify({ days }) }),
   createUser: (data: any) => apiClient.post('/users', data),
   createUserInCloud: async (data: any) => {
     const response = await cloudSettingsRequest('/users', {
@@ -494,7 +494,7 @@ export const settingsApi = {
     });
     return response.data;
   },
-  updateUser: (id: string, data: any) => apiClient.put(`/users/${id}`, data),
+  updateUser: (id: string, data: any) => cloudSettingsRequest(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteUser: (id: string) => cloudSettingsRequest(`/users/${id}`, { method: 'DELETE' }),
   getTaxRate: () => apiClient.get('/settings/tax-rate'),
   updateTaxRate: (taxRate: number) => apiClient.put('/settings/tax-rate', { tax_rate: taxRate }),
