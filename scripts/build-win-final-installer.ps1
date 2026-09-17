@@ -88,7 +88,10 @@ Write-Step "Packaging desktop installer"
 $electronConfigPath = Join-Path $resolvedFrontendDir '.partflow-electron-builder.release.json'
 $electronConfig = Get-Content (Join-Path $resolvedFrontendDir 'electron-builder.json') -Raw | ConvertFrom-Json
 $electronConfig.directories.output = $resolvedElectronOutputDir
-$electronConfig.extraMetadata.version = $Version
+if ($null -eq $electronConfig.extraMetadata) {
+    $electronConfig | Add-Member -MemberType NoteProperty -Name extraMetadata -Value ([pscustomobject]@{})
+}
+$electronConfig.extraMetadata | Add-Member -MemberType NoteProperty -Name version -Value $Version -Force
 $electronConfig.extraResources[0].from = $backendInput
 $electronConfig | ConvertTo-Json -Depth 10 | Set-Content -Path $electronConfigPath -Encoding UTF8
 Push-Location $resolvedFrontendDir
