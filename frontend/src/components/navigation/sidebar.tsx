@@ -24,6 +24,7 @@ import { cn } from '../../utils';
 import type { LucideIcon } from 'lucide-react';
 import { settingsApi } from '../../services/api/endpoints';
 import { PartFlowLogo } from '../branding/PartFlowLogo';
+import { BarcodeScanner } from '../business/BarcodeScanner';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -46,6 +47,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [activeItem, setActiveItem] = useState('dashboard');
+  const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
   const { data: storeNameSetting } = useQuery({
     queryKey: ['settings', 'store_name'],
     queryFn: () => settingsApi.getSetting('store_name'),
@@ -233,6 +235,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
             isCollapsed && 'justify-center'
           )}
           title={isCollapsed ? 'مسح الباركود' : undefined}
+          onClick={() => setIsBarcodeScannerOpen(true)}
           onMouseEnter={(e) => {
             e.currentTarget.classList.add('sidebar-scan-button-hover');
           }}
@@ -246,6 +249,11 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
           )}
         </button>
       </div>
+
+      <BarcodeScanner
+        isOpen={isBarcodeScannerOpen}
+        onClose={() => setIsBarcodeScannerOpen(false)}
+      />
     </aside>
   );
 }

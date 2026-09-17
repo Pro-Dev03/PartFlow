@@ -434,8 +434,13 @@ export function InventoryPage() {
   };
 
   const handleRecommendationClick = (action: string) => {
-    if (action === 'search_intel') {
-      setSearchQuery('Intel');
+    if (action === 'low_stock') {
+      setSearchQuery('');
+      setFilters([
+        ...filters.filter((filter) => filter.key !== 'low_stock'),
+        { key: 'low_stock', value: 'true' },
+      ]);
+      setViewMode('products');
     }
   };
 

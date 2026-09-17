@@ -36,6 +36,7 @@ export function UsedPartsPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPartType, setSelectedPartType] = useState<string>('');
+  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 10;
   
@@ -71,10 +72,21 @@ export function UsedPartsPage() {
   };
 
   const { data: inventoryData, isLoading } = useQuery({
-    queryKey: ['inventory', 'used-parts', page, pageSize],
-    queryFn: () => inventoryApi.list({ page, per_page: pageSize, condition: 'USED', status: 'AVAILABLE' }),
+    queryKey: ['inventory', 'used-parts', page, pageSize, showLowStockOnly],
+    queryFn: () => inventoryApi.list({
+      page: showLowStockOnly ? 1 : page,
+      per_page: showLowStockOnly ? 1000 : pageSize,
+      condition: 'USED',
+      status: 'AVAILABLE',
+    }),
     staleTime: 0,
     refetchOnMount: 'always',
+  });
+
+  const { data: usedPartsInsightData } = useQuery({
+    queryKey: ['inventory', 'used-parts-insight'],
+    queryFn: () => inventoryApi.list({ page: 1, per_page: 1000, condition: 'USED', status: 'AVAILABLE' }),
+    staleTime: 60000,
   });
 
   useEffect(() => {
@@ -325,12 +337,36 @@ export function UsedPartsPage() {
     const status = String(item.status || '').trim().toUpperCase();
     return condition === 'USED' && status === 'AVAILABLE';
   });
+  const usedPartsForInsight = Array.isArray(usedPartsInsightData?.data)
+    ? usedPartsInsightData.data
+    : Array.isArray(usedPartsInsightData?.data?.items)
+      ? usedPartsInsightData.data.items
+      : usedParts;
+  const usedStockByProduct = new Map<string, number>();
+  usedPartsForInsight.forEach((item: any) => {
+    const productId = String(item.product_id || item.product?.id || item.productId || '').trim();
+    if (productId) {
+      usedStockByProduct.set(productId, (usedStockByProduct.get(productId) || 0) + 1);
+    }
+  });
+  const lowStockUsedProductIds = new Set(
+    Array.from(usedStockByProduct.entries())
+      .filter(([productId, stock]) => {
+        const product = productById.get(productId) as any;
+        const minimumStock = Math.max(1, Number(product?.min_stock_level) || 3);
+        return stock <= minimumStock;
+      })
+      .map(([productId]) => productId),
+  );
+  const lowStockUsedCount = lowStockUsedProductIds.size;
   const sellableUsedParts = usedParts.filter(
     (item: any) => String(item.status || '').trim().toUpperCase() !== 'DAMAGED'
   );
 
   // Filter by search and part type
   const filteredParts = usedParts.filter((item: any) => {
+    const productId = String(item.product_id || item.product?.id || item.productId || '').trim();
+    if (showLowStockOnly && !lowStockUsedProductIds.has(productId)) return false;
     const matchesSearch = !searchQuery ||
       (item.product_name && item.product_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (item.notes && item.notes.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -420,6 +456,33 @@ export function UsedPartsPage() {
         </Button>
       </div>
 
+      <div className="premium-insight mb-3">
+        <div className="premium-insight-icon"><TrendingUp className="h-3.5 w-3.5" /></div>
+        <div className="premium-insight-copy">
+          <p className="premium-insight-title">تنبيه مخزون القطع المستعملة</p>
+          <p className="premium-insight-text">
+            {lowStockUsedCount > 0
+              ? `يوجد ${lowStockUsedCount} منتج مستعمل عند الحد الأدنى أو أقل ويحتاج إلى إعادة الطلب.`
+              : 'مخزون القطع المستعملة مستقر حاليًا حسب الحدود الدنيا المحددة.'}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={lowStockUsedCount === 0}
+          onClick={() => {
+            setShowLowStockOnly(true);
+            setSearchQuery('');
+            setSelectedPartType('');
+            setPage(1);
+          }}
+          className="premium-insight-action"
+        >
+          {lowStockUsedCount > 0 ? 'عرض منخفض المخزون' : 'المخزون مستقر'}
+        </Button>
+      </div>
+
       <div className="mb-4 grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
         <StatCard title="إجمالي القطع" value={usedParts.length} icon={Layers} variant="featured" compact />
         <StatCard title="قيمة البيع" value={formatCurrency(totalSellingValue)} icon={ShoppingCart} variant="success" compact />
@@ -479,6 +542,7 @@ export function UsedPartsPage() {
                 onClick={() => {
                   setSearchQuery('');
                   setSelectedPartType('');
+                  setShowLowStockOnly(false);
                 }}
                 className="h-10 px-4"
               >

@@ -14,7 +14,6 @@ import { Card, CardContent } from '../ui/card';
 import { 
   Scan, 
   X, 
-  Camera, 
   Keyboard,
   CheckCircle,
   AlertCircle,
@@ -36,7 +35,6 @@ interface BarcodeScannerProps {
 
 export function BarcodeScanner({ isOpen, onClose, onScanComplete, context = BarcodeContext.LOOKUP }: BarcodeScannerProps) {
   const { t } = useTranslation();
-  const [mode, setMode] = useState<'camera' | 'keyboard'>('keyboard');
   const [barcode, setBarcode] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<any>(null);
@@ -249,28 +247,6 @@ export function BarcodeScanner({ isOpen, onClose, onScanComplete, context = Barc
             </div>
           </div>
 
-          {/* Mode Toggle */}
-          <div className="flex gap-2 mb-6">
-            <Button
-              variant={mode === 'keyboard' ? 'primary' : 'secondary'}
-              size="sm"
-              className="gap-2"
-              onClick={() => setMode('keyboard')}
-            >
-              <Keyboard className="w-3.5 h-3.5" />
-              {t('scanner.manualInput')}
-            </Button>
-            <Button
-              variant={mode === 'camera' ? 'primary' : 'secondary'}
-              size="sm"
-              className="gap-2"
-              onClick={() => setMode('camera')}
-            >
-              <Camera className="w-3.5 h-3.5" />
-              {t('scanner.cameraScanner')}
-            </Button>
-          </div>
-
           {/* Scan Result */}
           {scanResult ? (
             <div className="space-y-4">
@@ -306,55 +282,29 @@ export function BarcodeScanner({ isOpen, onClose, onScanComplete, context = Barc
               )}
 
               {/* Manual Input */}
-              {mode === 'keyboard' && (
-                <form onSubmit={handleManualSubmit} className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
-                      {t('scanner.scanBarcode')}
-                    </label>
-                    <Input
-                      ref={inputRef}
-                      value={barcode}
-                      onChange={(e) => setBarcode(e.target.value)}
-                      placeholder={t('scanner.scanBarcode')}
-                      autoFocus
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    className="w-full gap-2"
-                    isLoading={isScanning}
-                    disabled={!barcode.trim()}
-                  >
-                    <Scan className="w-4 h-4" />
-                    {t('scanner.scan')}
-                  </Button>
-                </form>
-              )}
-
-              {/* Camera Scanner */}
-              {mode === 'camera' && (
-                <div className="space-y-4">
-                  <div className="aspect-video bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center">
-                    <div className="text-center">
-                      <Camera className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {t('scanner.scanning')}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    className="w-full gap-2"
-                    onClick={() => {
-                      // Simulate camera scan
-                      processBarcode('BC-' + Date.now());
-                    }}
-                  >
-                    <Scan className="w-4 h-4" />
-                    {t('scanner.scan')}
-                  </Button>
+              <form onSubmit={handleManualSubmit} className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+                    {t('scanner.scanBarcode')}
+                  </label>
+                  <Input
+                    ref={inputRef}
+                    value={barcode}
+                    onChange={(e) => setBarcode(e.target.value)}
+                    placeholder={t('scanner.scanBarcode')}
+                    autoFocus
+                  />
                 </div>
-              )}
+                <Button
+                  type="submit"
+                  className="w-full gap-2"
+                  isLoading={isScanning}
+                  disabled={!barcode.trim()}
+                >
+                  <Scan className="w-4 h-4" />
+                  {t('scanner.scan')}
+                </Button>
+              </form>
 
               {/* Create Product Option */}
               {error && (

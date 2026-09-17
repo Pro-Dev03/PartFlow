@@ -16,6 +16,20 @@ func TestLoad_RejectsDefaultJWTSecretInReleaseMode(t *testing.T) {
 	}
 }
 
+func TestLoad_UsesAppPortAlias(t *testing.T) {
+	t.Setenv("SERVER_PORT", "")
+	t.Setenv("APP_PORT", "18080")
+	t.Setenv("DATABASE_URL", "sqlite://test.db")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	if cfg.ServerPort != "18080" {
+		t.Fatalf("ServerPort = %q, want APP_PORT value", cfg.ServerPort)
+	}
+}
+
 func TestLoad_RejectsDisabledAuthInReleaseMode(t *testing.T) {
 	t.Setenv("SERVER_MODE", "release")
 	t.Setenv("DATABASE_URL", "sqlite://test.db")

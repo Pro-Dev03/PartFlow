@@ -164,7 +164,7 @@ export function PartTypesPage() {
   });
 
   const handleCreate = () => {
-    if (!newPartType.name_ar || !newPartType.name_en) {
+    if (!newPartType.name_ar) {
       toast.error('يرجى ملء جميع الحقول المطلوبة');
       return;
     }
@@ -172,7 +172,7 @@ export function PartTypesPage() {
   };
 
   const handleUpdate = () => {
-    if (!selectedPartType?.name_ar || !selectedPartType?.name_en) {
+    if (!selectedPartType?.name_ar) {
       toast.error('يرجى ملء جميع الحقول المطلوبة');
       return;
     }
@@ -328,19 +328,11 @@ export function PartTypesPage() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label className="block text-sm font-medium text-text-primary mb-2">الاسم بالعربية *</label>
+            <label className="block text-sm font-medium text-text-primary mb-2">اسم نوع القطعة *</label>
             <Input
               value={newPartType.name_ar}
-              onChange={(e) => setNewPartType({ ...newPartType, name_ar: e.target.value })}
+              onChange={(e) => setNewPartType({ ...newPartType, name_ar: e.target.value, name_en: e.target.value })}
               placeholder="مثال: كرت شاشة"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-2">الاسم بالإنجليزية *</label>
-            <Input
-              value={newPartType.name_en}
-              onChange={(e) => setNewPartType({ ...newPartType, name_en: e.target.value })}
-              placeholder="مثال: Graphics Card"
             />
           </div>
           <div>
@@ -390,14 +382,6 @@ export function PartTypesPage() {
             </div>
           </div>
           <PartTypeImageField value={newPartTypeImage} onChange={setNewPartTypeImage} />
-          <div>
-            <label className="block text-sm font-medium text-text mb-2">ترتيب العرض</label>
-            <Input
-              type="number"
-              value={newPartType.sort_order}
-              onChange={(e) => setNewPartType({ ...newPartType, sort_order: parseInt(e.target.value) || 0 })}
-            />
-          </div>
           <div className="flex justify-end gap-3 pt-4">
             <Button
               variant="secondary"
@@ -423,17 +407,10 @@ export function PartTypesPage() {
         {selectedPartType && (
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-text mb-2">الاسم بالعربية</label>
+              <label className="block text-sm font-medium text-text mb-2">اسم نوع القطعة *</label>
               <Input
                 value={selectedPartType.name_ar || ''}
-                onChange={(e) => setSelectedPartType({ ...selectedPartType, name_ar: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text mb-2">الاسم بالإنجليزية</label>
-              <Input
-                value={selectedPartType.name_en || ''}
-                onChange={(e) => setSelectedPartType({ ...selectedPartType, name_en: e.target.value })}
+                onChange={(e) => setSelectedPartType({ ...selectedPartType, name_ar: e.target.value, name_en: e.target.value })}
               />
             </div>
             <div>
@@ -474,14 +451,6 @@ export function PartTypesPage() {
                   { value: 'true', label: 'نشط' },
                   { value: 'false', label: 'معطل' },
                 ]}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text mb-2">ترتيب العرض</label>
-              <Input
-                type="number"
-                value={selectedPartType.sort_order || 0}
-                onChange={(e) => setSelectedPartType({ ...selectedPartType, sort_order: parseInt(e.target.value) || 0 })}
               />
             </div>
             <div className="flex justify-end gap-3 pt-4">

@@ -20,7 +20,7 @@ interface InventoryStatsProps {
   isMobile: boolean;
 }
 
-export function InventoryStats({ products, inventoryItems, supplierOnly, isMobile }: InventoryStatsProps) {
+export function InventoryStats({ products, inventoryItems, supplierOnly, onRecommendationClick, isMobile }: InventoryStatsProps) {
   const activeStatuses = new Set(['AVAILABLE']);
   const inactiveStatuses = new Set(['SOLD', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
   const { data: completeInventoryData } = useQuery({
@@ -90,14 +90,26 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, isMobil
 
   return (
     <>
-      {/* AI Inventory Insight */}
+      {/* Inventory Insight */}
       <div className="premium-insight">
         <div className="premium-insight-icon"><TrendingUp className="h-3.5 w-3.5" /></div>
         <div className="premium-insight-copy">
-          <p className="premium-insight-title">AI Inventory Insight · قيد التطوير</p>
-          <p className="premium-insight-text">ستوفر تحليلات ذكية للمخزون وتوصيات لتحسين إدارة القطع والطلبات.</p>
+          <p className="premium-insight-title">AI Inventory Insight</p>
+          <p className="premium-insight-text">
+            {lowStockItems > 0
+              ? `يوجد ${lowStockItems} منتج يحتاج إلى إعادة الطلب حسب الحد الأدنى للمخزون.`
+              : 'المخزون مستقر حاليًا ولا توجد منتجات تحت الحد الأدنى.'}
+          </p>
         </div>
-        <Button variant="secondary" size={getButtonSize('inventory', 'recommendation')} disabled className="premium-insight-action">قيد التطوير</Button>
+        <Button
+          variant="secondary"
+          size={getButtonSize('inventory', 'recommendation')}
+          disabled={lowStockItems === 0}
+          onClick={() => onRecommendationClick('low_stock')}
+          className="premium-insight-action"
+        >
+          {lowStockItems > 0 ? 'عرض منخفض المخزون' : 'المخزون مستقر'}
+        </Button>
       </div>
 
       {/* Stats Cards */}

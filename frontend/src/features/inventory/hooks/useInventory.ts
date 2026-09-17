@@ -17,21 +17,25 @@ export function useInventory() {
   const [productPage, setProductPage] = useState(1);
   const [inventoryPage, setInventoryPage] = useState(1);
   const pageSize = 10;
+  const lowStockOnly = filters.some((filter) => filter.key === 'low_stock');
 
   // Fetch data with debounce search for scalability
   const { data: productsData, isLoading: productsLoading, refetch: refetchProducts } = useQuery({
-    queryKey: ['products', productPage, pageSize, debouncedSearchQuery],
+    queryKey: ['products', lowStockOnly ? 'low-stock' : productPage, lowStockOnly ? 1000 : pageSize, debouncedSearchQuery],
     queryFn: () => {
       if (debouncedSearchQuery) {
         // Search mode - use API search when query exists
         return productsApi.list({
-          page: productPage,
-          per_page: pageSize,
+          page: lowStockOnly ? 1 : productPage,
+          per_page: lowStockOnly ? 1000 : pageSize,
           search: debouncedSearchQuery
         });
       } else {
         // Initial load - fetch limited results for performance
-        return productsApi.list({ page: productPage, per_page: pageSize });
+        return productsApi.list({
+          page: lowStockOnly ? 1 : productPage,
+          per_page: lowStockOnly ? 1000 : pageSize,
+        });
       }
     },
     enabled: true, // Always enabled, but will refetch when search changes
@@ -351,6 +355,12 @@ export function useInventory() {
           // Handle category filter specially
           if (filter.key === 'category_id') {
             return product.category_id === filter.value;
+          }
+
+          if (filter.key === 'low_stock') {
+            const stock = Number(product.stock ?? 0);
+            const minimumStock = Math.max(1, Number(product.min_stock_level) || 3);
+            return stock > 0 && stock <= minimumStock;
           }
 
           const value = product[filter.key as keyof Product];
