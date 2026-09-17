@@ -43,6 +43,12 @@ $certificateInput = Join-Path $resolvedFrontendDir 'build\PartFlow-Internal-Code
 if (-not (Test-Path $certificateInput)) {
     throw "Release certificate was not found: $certificateInput"
 }
+$signingCertificate = Get-ChildItem 'Cert:\CurrentUser\My' |
+    Where-Object { $_.Subject -eq 'CN=PartFlow Internal Code Signing' -and $_.HasPrivateKey } |
+    Select-Object -First 1
+if ($null -eq $signingCertificate) {
+    throw "Signing certificate with private key was not found in the current user's certificate store."
+}
 
 Write-Step "Validating toolchain"
 if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
@@ -59,6 +65,10 @@ try {
 }
 finally {
     Pop-Location
+}
+$backendSignature = Set-AuthenticodeSignature -FilePath $backendInput -Certificate $signingCertificate
+if ($null -eq $backendSignature.SignerCertificate -or $backendSignature.SignerCertificate.Subject -ne $signingCertificate.Subject) {
+    throw "Backend executable signing failed: $backendInput"
 }
 
 Write-Step "Installing frontend dependencies"
