@@ -17,7 +17,7 @@ import { SmartActions } from '../components/SmartActions';
 import { InventoryDistribution } from '../../../components/dashboard/InventoryDistribution';
 import { getButtonSize } from '../../../config/button-sizes';
 import { DashboardStats } from '../../../types/api';
-import { addStoreDays, formatStoreDateTime, getStoreDateKey } from '../../../utils/store-time';
+import { addStoreDays, formatStoreActivityDateTime, formatStoreDateTime, getStoreDateKey } from '../../../utils/store-time';
 import {
   ShoppingCart,
   DollarSign,
@@ -78,6 +78,13 @@ export function DashboardPage() {
     staleTime: 60000,
   });
 
+  const { data: recentActivityData } = useQuery({
+    queryKey: ['dashboard-activity', 'recent'],
+    queryFn: () => dashboardApi.getActivity({ page: 1, per_page: 5 }),
+    refetchInterval: 120000,
+    staleTime: 60000,
+  });
+
   // Low stock items and overdue debts for attention section
   const { data: lowStockItemsData } = useQuery({
     queryKey: ['low-stock-items'],
@@ -132,6 +139,7 @@ export function DashboardPage() {
   }
 
   const stats = dashboardData?.data as DashboardStats | undefined;
+  const recentActivities = recentActivityData?.data?.items || dashboardData?.data?.recent_activity || [];
   const chartData = buildPerformanceChartData(stats?.salesChart || [], chartRange);
   const activeCustomerCount = Number(stats?.activeCustomers ?? 0);
   const lowStockItems = lowStockItemsData?.data || [];
@@ -308,16 +316,16 @@ export function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
-                  {dashboardData?.data?.recent_activity?.length > 0 ? (
-                    dashboardData?.data?.recent_activity?.map((activity: any) => (
+                  {recentActivities.length > 0 ? (
+                    recentActivities.map((activity: any) => (
                       <ActivityItem
                         key={activity.id}
                         type={activity.type}
                         title={activity.title}
                         description={activity.description}
                         amount={activity.amount}
-                        time={activity.type === 'sale' && activity.sale_date
-                          ? String(activity.sale_date)
+                        time={activity.type === 'sale'
+                          ? formatStoreActivityDateTime(activity.time, activity.sale_date)
                           : formatDashboardActivityTime(activity.time)}
                         sellerName={activity.type === 'sale' ? activity.seller_name : undefined}
                         status={activity.status}

@@ -96,6 +96,21 @@ export function formatStoreDateTime(value: string | Date | null | undefined, loc
   }).format(parsed);
 }
 
+export function formatStoreActivityDateTime(
+  eventTime: string | Date | null | undefined,
+  businessDate?: string | null,
+  locale = getRegionalProfile().locale,
+): string {
+  const formattedTime = formatStoreDateTime(eventTime, locale);
+  if (!businessDate) return formattedTime;
+
+  const formattedDate = formatStoreDate(businessDate, locale);
+  const separatorIndex = Math.max(formattedTime.lastIndexOf('،'), formattedTime.lastIndexOf(','));
+  if (formattedDate === 'غير محدد' || separatorIndex < 0) return formattedTime;
+
+  return `${formattedDate}،${formattedTime.slice(separatorIndex + 1)}`;
+}
+
 export function getStoreDateKey(value: string | Date | null | undefined): string | null {
   const parsed = parseBackendTimestamp(value);
   if (!parsed) return null;

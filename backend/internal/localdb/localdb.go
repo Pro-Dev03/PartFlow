@@ -1104,6 +1104,16 @@ func migrateLegacySchema(db *sql.DB) error {
 		columnName string
 		columnDef  string
 	}{
+		// Older local databases may have been created before the category
+		// metadata columns were added. Keep category writes compatible with
+		// those databases instead of relying on CREATE TABLE IF NOT EXISTS.
+		{tableName: "categories", columnName: "description", columnDef: "description TEXT"},
+		{tableName: "categories", columnName: "parent_id", columnDef: "parent_id TEXT"},
+		{tableName: "categories", columnName: "icon", columnDef: "icon TEXT"},
+		{tableName: "categories", columnName: "color", columnDef: "color TEXT"},
+		{tableName: "categories", columnName: "is_active", columnDef: "is_active INTEGER NOT NULL DEFAULT 1"},
+		{tableName: "categories", columnName: "created_at", columnDef: "created_at TEXT NOT NULL DEFAULT ''"},
+		{tableName: "categories", columnName: "updated_at", columnDef: "updated_at TEXT NOT NULL DEFAULT ''"},
 		{tableName: "products", columnName: "preferred_supplier_id", columnDef: "preferred_supplier_id TEXT"},
 		{tableName: "products", columnName: "brand_id", columnDef: "brand_id TEXT"},
 		{tableName: "products", columnName: "model", columnDef: "model TEXT"},
@@ -1262,26 +1272,11 @@ func migrateLegacySchema(db *sql.DB) error {
 	if err := recoverHistoricalSupplierReturns(db); err != nil {
 		return err
 	}
-	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_returns_customer_return_active
-		ON supplier_returns(customer_return_id)
-		WHERE customer_return_id IS NOT NULL AND status IN ('PENDING', 'SHIPPED', 'RECEIVED')`); err != nil {
-		return fmt.Errorf("create supplier return source index: %w", err)
+	if err := deduplicateSupplierReturnItems(db); err != nil {
+		return fmt.Errorf("deduplicate supplier return items: %w", err)
 	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_supplier_returns_source_status ON supplier_returns(source_status)`); err != nil {
-		return fmt.Errorf("create supplier return source status index: %w", err)
-	}
-	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_returns_customer_return_once
-		ON supplier_returns(customer_return_id) WHERE customer_return_id IS NOT NULL`); err != nil {
-		return fmt.Errorf("create supplier return customer return uniqueness index: %w", err)
-	}
-	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_return_items_customer_return_item
-		ON supplier_return_items(customer_return_id, inventory_item_id)
-		WHERE customer_return_id IS NOT NULL AND inventory_item_id IS NOT NULL`); err != nil {
-		return fmt.Errorf("create supplier return item source index: %w", err)
-	}
-	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_return_items_supplier_return_purchase_item
-		ON supplier_return_items(supplier_return_id, purchase_item_id)`); err != nil {
-		return fmt.Errorf("create supplier return item purchase index: %w", err)
+	if err := ensureSupplierReturnUniqueIndexes(db); err != nil {
+		return err
 	}
 	if err := normalizeSaleDates(db); err != nil {
 		return err
@@ -1320,6 +1315,71 @@ func migrateLegacySchema(db *sql.DB) error {
 			if !strings.Contains(err.Error(), "already exists") {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func ensureSupplierReturnUniqueIndexes(db *sql.DB) error {
+	indexStatements := []struct {
+		sql  string
+		name string
+	}{
+		{sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_returns_customer_return_active
+			ON supplier_returns(customer_return_id)
+			WHERE customer_return_id IS NOT NULL AND status IN ('PENDING', 'SHIPPED', 'RECEIVED')`, name: "idx_supplier_returns_customer_return_active"},
+		{sql: `CREATE INDEX IF NOT EXISTS idx_supplier_returns_source_status ON supplier_returns(source_status)`, name: "idx_supplier_returns_source_status"},
+		{sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_returns_customer_return_once
+			ON supplier_returns(customer_return_id) WHERE customer_return_id IS NOT NULL`, name: "idx_supplier_returns_customer_return_once"},
+		{sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_return_items_customer_return_item
+			ON supplier_return_items(customer_return_id, inventory_item_id)
+			WHERE customer_return_id IS NOT NULL AND inventory_item_id IS NOT NULL`, name: "idx_supplier_return_items_customer_return_item"},
+		{sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_return_items_supplier_return_purchase_item
+			ON supplier_return_items(supplier_return_id, purchase_item_id)`, name: "idx_supplier_return_items_supplier_return_purchase_item"},
+	}
+	for _, statement := range indexStatements {
+		if _, err := db.Exec(statement.sql); err != nil {
+			if err := deduplicateSupplierReturnItems(db); err != nil {
+				return fmt.Errorf("repair duplicate supplier return bridge rows: %w", err)
+			}
+			if _, retryErr := db.Exec(statement.sql); retryErr != nil {
+				return fmt.Errorf("create supplier return index %s: %w", statement.name, retryErr)
+			}
+		}
+	}
+	return nil
+}
+
+func deduplicateSupplierReturnItems(db *sql.DB) error {
+	queries := []string{
+		`DELETE FROM supplier_return_items
+		WHERE rowid IN (
+			SELECT rowid FROM (
+				SELECT rowid,
+					ROW_NUMBER() OVER (
+						PARTITION BY COALESCE(supplier_return_id, ''), COALESCE(purchase_item_id, '')
+						ORDER BY rowid
+					) AS rn
+				FROM supplier_return_items
+				WHERE COALESCE(supplier_return_id, '') <> '' AND COALESCE(purchase_item_id, '') <> ''
+			) WHERE rn > 1
+		)`,
+		`DELETE FROM supplier_return_items
+		WHERE rowid IN (
+			SELECT rowid FROM (
+				SELECT rowid,
+					ROW_NUMBER() OVER (
+						PARTITION BY COALESCE(customer_return_id, ''), COALESCE(inventory_item_id, '')
+						ORDER BY rowid
+					) AS rn
+				FROM supplier_return_items
+				WHERE COALESCE(customer_return_id, '') <> '' AND COALESCE(inventory_item_id, '') <> ''
+			) WHERE rn > 1
+		)`,
+	}
+	for _, query := range queries {
+		if _, err := db.Exec(query); err != nil {
+			return err
 		}
 	}
 	return nil

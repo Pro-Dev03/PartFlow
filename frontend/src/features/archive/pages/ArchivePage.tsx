@@ -75,6 +75,15 @@ const getReturnCondition = (condition?: string) => ({
   PARTS: 'قطع غيار',
 }[String(condition || '').toUpperCase()] || condition || 'غير محدد');
 
+const normalizeAuditEntityType = (entityType?: string) => {
+  const normalized = String(entityType || '').trim().toLowerCase();
+  if (!normalized) return 'unknown';
+  if (normalized === 'inventory_item' || normalized === 'inventoryitem' || normalized === 'stock') return 'inventory';
+  if (normalized === 'sale' || normalized === 'sales') return 'sale';
+  if (normalized === 'purchase' || normalized === 'purchases') return 'purchase';
+  return normalized;
+};
+
 const translateAuditAction = (action?: string) => {
   const labels: Record<string, string> = {
     CREATE_SALE: 'إنشاء عملية بيع',
@@ -95,6 +104,7 @@ const translateAuditAction = (action?: string) => {
 };
 
 const translateEntityType = (entityType?: string) => {
+  const normalized = normalizeAuditEntityType(entityType);
   const labels: Record<string, string> = {
     sale: 'بيع',
     purchase: 'شراء',
@@ -104,7 +114,7 @@ const translateEntityType = (entityType?: string) => {
     customer: 'عميل',
     supplier: 'مورد',
   };
-  return labels[String(entityType || '').toLowerCase()] || entityType || 'سجل';
+  return labels[normalized] || entityType || 'سجل';
 };
 
 const translateMovementType = (movementType?: string) => {
@@ -227,7 +237,7 @@ export function ArchivePage() {
   }, [archivedReturns, searchQuery]);
 
   const auditRows = useMemo(() => auditLogs.map((log) => {
-    const entityType = String(log.entity_type || '').toLowerCase();
+    const entityType = normalizeAuditEntityType(log.entity_type);
     const entityId = String(log.entity_id || '');
     const sale = entityType === 'sale' ? sales.find((item) => String(item.id) === entityId) : undefined;
     const purchase = entityType === 'purchase' ? purchases.find((item: any) => String(item.id) === entityId) : undefined;
@@ -267,7 +277,7 @@ export function ArchivePage() {
 
   const visibleAudit = auditEntityFilter === 'all'
     ? filteredAudit
-    : filteredAudit.filter((row) => row.entityType === auditEntityFilter);
+    : filteredAudit.filter((row) => normalizeAuditEntityType(row.entityType) === auditEntityFilter);
   const successfulAuditCount = visibleAudit.filter(({ log }) => log.status !== 'failure').length;
   const failedAuditCount = visibleAudit.filter(({ log }) => log.status === 'failure').length;
   const getAuditIcon = (entityType: string) => {

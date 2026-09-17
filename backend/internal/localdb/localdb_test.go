@@ -1,6 +1,7 @@
 package localdb
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 )
@@ -141,6 +142,78 @@ func TestOpenInitializesLocalDatabase(t *testing.T) {
 	var userCount int
 	if err := database.DB.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", "owner@partflow.com").Scan(&userCount); err != nil || userCount != 1 {
 		t.Fatalf("default owner user missing in local SQLite DB: %v", err)
+	}
+}
+
+func TestDeduplicateSupplierReturnItems(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "supplier-return-duplicates.db"))
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE supplier_returns (
+			id TEXT PRIMARY KEY,
+			customer_return_id TEXT,
+			sale_id TEXT,
+			purchase_id TEXT,
+			supplier_id TEXT,
+			return_number TEXT NOT NULL UNIQUE,
+			status TEXT NOT NULL DEFAULT 'PENDING',
+			source_status TEXT NOT NULL DEFAULT 'RESOLVED',
+			reason TEXT NOT NULL,
+			refund_amount REAL NOT NULL DEFAULT 0,
+			notes TEXT,
+			created_by TEXT,
+			return_reason TEXT,
+			return_date TEXT,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE supplier_return_items (
+			id TEXT PRIMARY KEY,
+			customer_return_id TEXT,
+			sale_id TEXT,
+			sale_item_id TEXT,
+			inventory_item_id TEXT,
+			supplier_return_id TEXT NOT NULL,
+			purchase_item_id TEXT NOT NULL,
+			product_id TEXT NOT NULL,
+			quantity INTEGER NOT NULL CHECK (quantity > 0),
+			unit_cost REAL NOT NULL,
+			barcode TEXT,
+			serial_number TEXT,
+			purchase_cost REAL DEFAULT 0,
+			return_reason TEXT,
+			return_date TEXT,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+	`); err != nil {
+		t.Fatalf("create test tables: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO supplier_returns (id, customer_return_id, sale_id, purchase_id, supplier_id, return_number, status, source_status, reason, refund_amount, notes, created_by, return_reason, return_date, created_at, updated_at)
+		VALUES ('sr-1', 'ret-1', 'sale-1', 'purchase-1', 'supplier-1', 'SRET-001', 'PENDING', 'RESOLVED', 'CUSTOMER_RETURN', 0, '', 'user', 'CUSTOMER_RETURN', '2026-09-17', '2026-09-17T00:00:00Z', '2026-09-17T00:00:00Z');
+		INSERT INTO supplier_return_items (id, customer_return_id, sale_id, sale_item_id, inventory_item_id, supplier_return_id, purchase_item_id, product_id, quantity, unit_cost, barcode, serial_number, purchase_cost, return_reason, return_date, created_at)
+		VALUES
+			('sri-1', 'ret-1', 'sale-1', 'sale-item-1', 'inv-1', 'sr-1', 'pi-1', 'prod-1', 1, 10, 'BC-1', 'SER-1', 10, 'CUSTOMER_RETURN', '2026-09-17', '2026-09-17T00:00:00Z'),
+			('sri-2', 'ret-1', 'sale-1', 'sale-item-1', 'inv-1', 'sr-1', 'pi-1', 'prod-1', 1, 10, 'BC-1', 'SER-1', 10, 'CUSTOMER_RETURN', '2026-09-17T00:10:00Z', '2026-09-17T00:10:00Z');
+	`); err != nil {
+		t.Fatalf("seed duplicate records: %v", err)
+	}
+
+	if err := deduplicateSupplierReturnItems(db); err != nil {
+		t.Fatalf("deduplicateSupplierReturnItems() error = %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM supplier_return_items WHERE supplier_return_id = 'sr-1' AND purchase_item_id = 'pi-1'`).Scan(&count); err != nil {
+		t.Fatalf("query duplicate count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("duplicate rows kept after cleanup = %d, want 1", count)
 	}
 }
 

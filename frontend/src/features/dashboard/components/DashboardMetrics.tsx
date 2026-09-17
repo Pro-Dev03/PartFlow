@@ -40,8 +40,8 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
   // Keep currency output stable when the API returns decimal or negative values.
   const formatCurrency = (value: number) =>
     Number.isFinite(value)
-      ? value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      : '0.00';
+      ? value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+      : '0';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-5)' }}>

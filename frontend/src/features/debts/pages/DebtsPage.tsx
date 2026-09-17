@@ -11,12 +11,12 @@ import { getButtonSize } from '../../../config/button-sizes';
 import { 
   DollarSign, 
   AlertTriangle,
-  AlertCircle,
   Calendar,
   Zap,
   Eye,
   Bell,
   CheckCircle,
+  UserRound,
   Printer,
   FileDown,
   MoreHorizontal
@@ -228,16 +228,6 @@ export function DebtsPage() {
         }
       />
 
-      {/* AI Debt Insight */}
-      <div className="premium-insight">
-        <div className="premium-insight-icon"><AlertCircle className="h-3.5 w-3.5" /></div>
-        <div className="premium-insight-copy">
-          <p className="premium-insight-title">AI Debt Insight · قيد التطوير</p>
-          <p className="premium-insight-text">ستوفر تحليلات ذكية للتقادم وتوصيات لمتابعة التحصيل.</p>
-        </div>
-        <Button variant="secondary" size={getButtonSize('debts', 'recommendation')} disabled className="premium-insight-action">قيد التطوير</Button>
-      </div>
-
       {/* Stats Cards + Advanced Search - side by side on desktop */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginBottom: '12px' }}>
         <DebtStats stats={stats} />
@@ -248,13 +238,15 @@ export function DebtsPage() {
         />
       </div>
 
-      <div className="rounded-[12px] border border-border bg-surface shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
-        <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+      <div className="rounded-[16px] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[0_10px_28px_rgba(15,23,42,0.05)]">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-5 py-4">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-primary" />
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
+              <AlertTriangle className="h-4 w-4" />
+            </span>
             <div>
-              <h3 className="text-sm font-semibold text-text-primary">قائمة الديون</h3>
-              <p className="mt-0.5 text-[11px] text-text-tertiary">جميع الديون المفتوحة والمتأخرة — {filteredDebts.length} سجل</p>
+              <h3 className="text-sm font-extrabold text-[var(--text-primary)]">قائمة الديون</h3>
+              <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">الديون المفتوحة والمتأخرة · {filteredDebts.length} سجل</p>
             </div>
           </div>
         </div>
@@ -270,8 +262,8 @@ export function DebtsPage() {
             <p className="mt-1 text-[11px] text-text-tertiary">جميع الديون مدفوعة</p>
           </div>
         ) : (
-          <div className="block">
-            <Table>
+          <div className="overflow-x-auto">
+            <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[18%]">العميل / الفاتورة</TableHead>
@@ -283,29 +275,40 @@ export function DebtsPage() {
                   <TableHead className="w-[10%] text-end">الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
+              <TableBody className="divide-y divide-[var(--border-subtle)]" dir="rtl">
                 {filteredDebts.map((debt: any) => {
                   const aging = getDebtAging(debt.dueDate, debt.status);
                   return (
-                    <TableRow key={debt.id} className="cursor-pointer hover:bg-surface-elevated/30" onClick={() => handleViewDebt(debt)}>
+                    <TableRow key={debt.id} dir="rtl" className="cursor-pointer transition-all duration-200 hover:bg-[var(--color-primary-05)] [&>td]:h-[76px]" onClick={() => handleViewDebt(debt)}>
                       <TableCell>
-                        <div className="font-semibold text-text-primary">{debt.customer?.name}</div>
-                        <div className="mt-1 text-xs text-text-tertiary">{debt.invoiceNumber || 'فاتورة غير مرتبطة'}</div>
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-subtle)] bg-[var(--color-primary-10)] text-[var(--primary)] shadow-sm">
+                            <UserRound className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate font-black text-[var(--text-primary)]">{debt.customer?.name || 'عميل غير محدد'}</div>
+                            <div className="mt-0.5 truncate text-[11px] font-medium text-[var(--text-tertiary)]">{debt.invoiceNumber || 'فاتورة غير مرتبطة'}</div>
+                          </div>
+                        </div>
                       </TableCell>
-                      <TableCell className="text-center font-medium text-text-primary">₪{debt.amount?.toLocaleString()}</TableCell>
-                      <TableCell className="text-center font-medium text-danger">₪{debt.remainingAmount?.toLocaleString() || '0'}</TableCell>
+                      <TableCell className="text-center font-black text-[var(--text-primary)]">₪{debt.amount?.toLocaleString() || '0'}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant={Number(debt.remainingAmount || 0) > 0 ? 'danger' : 'success'} size="sm" className="min-w-[82px] justify-center rounded-full">
+                          ₪{debt.remainingAmount?.toLocaleString() || '0'}
+                        </Badge>
+                      </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2 text-text-secondary">
-                          <Calendar className="h-3.5 w-3.5" />
-                            {formatStoreDate(debt.dueDate, 'en-GB')}
+                        <div className="flex items-center gap-2 font-semibold text-[var(--text-secondary)]">
+                          <Calendar className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                          {formatStoreDate(debt.dueDate, 'en-GB')}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col items-start gap-1.5">
-                          <Badge variant={aging.variant} size="sm" title={`موعد السداد: ${formatStoreDate(debt.dueDate, 'ar-SA')}`}>
+                          <Badge variant={aging.variant} size="sm" className="rounded-full" title={`موعد السداد: ${formatStoreDate(debt.dueDate, 'ar-SA')}`}>
                             {aging.label}
                           </Badge>
-                          <span className="text-[11px] text-text-secondary">
+                          <span className="text-[11px] font-medium text-[var(--text-secondary)]">
                             {aging.category === 'PAID'
                               ? 'تم السداد بالكامل'
                               : aging.category.startsWith('OVERDUE')
@@ -317,12 +320,12 @@ export function DebtsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={aging.category === 'PAID' ? 'success' : aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm">
+                        <Badge variant={aging.category === 'PAID' ? 'success' : aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm" className="rounded-full">
                           {aging.category === 'PAID' ? 'مدفوع' : aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-end">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1">
                           <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="عرض الدين" title="عرض الدين">
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
@@ -339,53 +342,6 @@ export function DebtsPage() {
             <PaginationControls page={page} pageSize={pageSize} total={total} onPageChange={setPage} isLoading={isLoading} />
           </div>
         )}
-
-        <div className="hidden">
-          {isLoading ? (
-            <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
-          ) : filteredDebts.length === 0 ? (
-            <div className="px-4 py-12 text-center">
-              <DollarSign className="mx-auto mb-4 h-10 w-10 text-text-secondary" />
-              <p className="text-sm text-text-secondary">لا توجد ديون</p>
-              <p className="mt-1 text-[11px] text-text-tertiary">جميع الديون مدفوعة</p>
-            </div>
-          ) : (
-            <div className="grid gap-3 p-4">
-              {filteredDebts.map((debt: any) => {
-                const aging = getDebtAging(debt.dueDate, debt.status);
-                return (
-                  <div key={debt.id} className="rounded-xl border border-border bg-surface-elevated/25 p-4" onClick={() => handleViewDebt(debt)}>
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-semibold text-text-primary">{debt.customer?.name}</div>
-                        <div className="mt-1 text-[11px] text-text-tertiary">{debt.invoiceNumber || 'فاتورة غير مرتبطة'}</div>
-                        <div className="mt-1 text-[11px] text-text-tertiary">{debt.dueDate ? formatStoreDate(debt.dueDate, 'en-GB') : 'غير محدد'}</div>
-                      </div>
-                      <Badge variant={aging.category === 'PAID' ? 'success' : aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm">
-                        {aging.category === 'PAID' ? 'مدفوع' : aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
-                      </Badge>
-                    </div>
-
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">المبلغ</span><span className="font-semibold text-text-primary">₪{debt.amount?.toLocaleString()}</span></div>
-                      <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">المتبقي</span><span className="font-semibold text-danger">₪{debt.remainingAmount?.toLocaleString() || '0'}</span></div>
-                      <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">التصنيف</span><Badge variant={aging.variant} size="sm">{aging.label}</Badge></div>
-                    </div>
-
-                    <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
-                      <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="عرض الدين" title="عرض الدين">
-                        <Eye className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} className="text-text-secondary hover:text-text-primary" aria-label="تسجيل دفعة" title="تسجيل دفعة">
-                        <DollarSign className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Payment Modal */}

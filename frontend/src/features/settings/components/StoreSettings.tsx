@@ -15,6 +15,7 @@ export function StoreSettings() {
   const { data: storeNameSetting, isLoading } = useQuery({
     queryKey: ['settings', 'store_name'],
     queryFn: () => settingsApi.getSetting('store_name'),
+    retry: false,
   });
   const updateStoreNameMutation = useMutation({
     mutationFn: (storeName: string) => settingsApi.updateSetting('store_name', storeName),

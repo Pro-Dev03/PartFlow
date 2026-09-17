@@ -1,9 +1,8 @@
 import { type HTMLAttributes } from 'react';
 import { cn } from '../../utils';
-import { Phone, Mail, Package, Eye, Edit, Trash2, ChevronDown, ChevronUp, CircleDollarSign, RotateCcw } from 'lucide-react';
+import { Phone, Mail, Package, Eye, Edit, Trash2, ChevronDown, ChevronUp, CircleDollarSign, RotateCcw, UserRound } from 'lucide-react';
 import { Button } from './button';
 import { Badge } from './badge';
-import { getButtonSize } from '../../config/button-sizes';
 import { DataTable, Column } from '../tables/data-table';
 import { ActionMenu } from './action-menu';
 
@@ -60,7 +59,6 @@ function SupplierCard({
   ...props
 }: SupplierCardProps) {
   const avatar = getAvatarStyle(supplier.name || '؟');
-  const initial = (supplier.name || '؟').trim().charAt(0);
   const outstanding = supplier.outstanding || 0;
   const hasOutstanding = outstanding > 0;
 
@@ -78,54 +76,54 @@ function SupplierCard({
   return (
     <div
       className={cn(
-        'group relative rounded-xl border border-border bg-surface',
-        'transition-all duration-200 ease-out',
-        'hover:border-primary hover:shadow-[0_4px_12px_rgba(37,99,235,0.12)]',
+        'group relative overflow-hidden rounded-[18px] border border-[var(--border-default)] border-t-4 border-t-[var(--primary)] bg-[var(--bg-surface)]',
+        'shadow-[0_8px_22px_rgba(15,23,42,0.04)] transition-all duration-200 ease-out',
+        'hover:-translate-y-0.5 hover:border-[var(--primary)] hover:shadow-[0_12px_30px_rgba(37,99,235,0.12)]',
         'active:scale-[0.99]',
         className
       )}
       {...props}
     >
-      <div className="p-4">
+      <div className="bg-[var(--color-primary-05)]/35 p-5">
         {/* Header: avatar + name + outstanding */}
         <div className="flex items-start gap-3">
           <div
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border text-base font-bold"
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-subtle)] text-xl font-black shadow-sm"
             style={{ background: avatar.bg, color: avatar.color }}
             aria-hidden="true"
           >
-            {initial}
+            <UserRound className="h-6 w-6" aria-hidden="true" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <span className="block truncate text-sm font-semibold text-text-primary">
+                <span className="block truncate text-lg font-black text-[var(--text-primary)]">
                   {supplier.name}
                 </span>
-                <span className="mt-0.5 block text-tiny text-text-muted">
+                <span className="mt-1 block truncate text-[11px] font-medium text-[var(--text-muted)]">
                   رمز المورد: {('code' in supplier && supplier.code) || '-'}
                 </span>
               </div>
               {hasOutstanding ? (
-                <Badge variant="danger" size="sm">
+                <Badge variant="danger" size="sm" className="rounded-full">
                   {formatCurrency(outstanding)}
                 </Badge>
               ) : (
-                <Badge variant="success" size="sm">
+                <Badge variant="success" size="sm" className="rounded-full">
                   مسدد
                 </Badge>
               )}
             </div>
 
             {/* Contact */}
-            <div className="mt-2 space-y-1.5">
-              <div className="flex items-center gap-2 text-small text-text-secondary">
-                <Phone className="h-3.5 w-3.5 text-text-muted" />
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <div className="flex min-w-0 items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]/70 px-2.5 py-2 text-small font-medium text-[var(--text-secondary)]">
+                <Phone className="h-3.5 w-3.5 text-[var(--text-muted)]" />
                 <span className="truncate" dir="ltr">{supplier.phone || '-'}</span>
               </div>
               {supplier.email ? (
-                <div className="flex items-center gap-2 text-small text-text-secondary">
-                  <Mail className="h-3.5 w-3.5 text-text-muted" />
+                <div className="flex min-w-0 items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]/70 px-2.5 py-2 text-small font-medium text-[var(--text-secondary)]">
+                  <Mail className="h-3.5 w-3.5 text-[var(--text-muted)]" />
                   <span className="truncate">{supplier.email}</span>
                 </div>
               ) : null}
@@ -134,22 +132,22 @@ function SupplierCard({
         </div>
 
         {/* Finance summary */}
-        <div className="mt-4 grid grid-cols-3 gap-2 rounded-lg border border-border bg-surface-elevated p-3">
+        <div className="mt-5 grid grid-cols-3 gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3.5 shadow-sm">
           <div className="text-center">
-            <div className="text-tiny text-text-muted">المشتريات</div>
-            <div className="mt-0.5 text-small font-semibold text-text-primary">
+            <div className="text-[11px] font-medium text-[var(--text-muted)]">المشتريات</div>
+            <div className="mt-1 text-small font-black text-[var(--text-primary)]">
               {formatCurrency(supplier.totalPurchases)}
             </div>
           </div>
-          <div className="text-center border-x border-border">
-            <div className="text-tiny text-text-muted">المدفوع</div>
-            <div className="mt-0.5 text-small font-semibold text-green">
+          <div className="border-x border-[var(--border-subtle)] text-center">
+            <div className="text-[11px] font-medium text-[var(--text-muted)]">المدفوع</div>
+            <div className="mt-1 text-small font-black text-[var(--color-success)]">
               {formatCurrency(supplier.paidAmount)}
             </div>
           </div>
           <div className="text-center">
-            <div className="text-tiny text-text-muted">المستحق</div>
-            <div className={`mt-0.5 flex items-center justify-center gap-1 text-small font-semibold ${hasOutstanding ? 'text-red-500' : 'text-text-secondary'}`}>
+            <div className="text-[11px] font-medium text-[var(--text-muted)]">المستحق</div>
+            <div className={`mt-1 flex items-center justify-center gap-1 text-small font-black ${hasOutstanding ? 'text-[var(--color-danger)]' : 'text-[var(--text-secondary)]'}`}>
               {hasOutstanding && <CircleDollarSign className="h-3.5 w-3.5" />}
               {formatCurrency(outstanding)}
             </div>
@@ -157,8 +155,8 @@ function SupplierCard({
         </div>
 
         {/* Last purchase + actions */}
-        <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
-          <div className="flex items-center gap-1.5 text-tiny text-text-tertiary">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-4">
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--text-muted)]">
             <span>آخر شراء:</span>
             <span>
               {supplier.lastPurchase
@@ -168,12 +166,14 @@ function SupplierCard({
           </div>
           <div className="flex items-center gap-1">
             <Button
-              variant="ghost"
-              size={getButtonSize('suppliers', 'iconAction')}
+              variant="secondary"
+              size="sm"
+              className="gap-1.5 rounded-lg"
               onClick={() => onToggle?.(supplier.id)}
               aria-label={expanded ? 'إخفاء البضاعة' : 'عرض البضاعة'}
             >
               {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              <span>{expanded ? 'إخفاء البضاعة' : 'عرض البضاعة'}</span>
             </Button>
             <ActionMenu
               label="خيارات المورد"
@@ -191,7 +191,7 @@ function SupplierCard({
 
       {/* Expandable inventory */}
       {expanded && (
-        <div className="border-t border-border p-4 bg-surface-elevated">
+        <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/60 p-4">
           <div className="mb-4 flex items-center gap-2">
             <Package className="w-4 h-4 text-primary" />
             <h4 className="font-semibold text-text">بضاعة المورد - {supplier.name}</h4>

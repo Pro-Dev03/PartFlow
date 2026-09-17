@@ -1,13 +1,19 @@
 import { useRef, useState } from 'react'
 import NeonAIBot from './neon-ai-bot'
+import type { AssistantInteraction } from '../../lib/assistant-interaction'
+import AssistantCue from './assistant-cue'
+
+type AssistantAvatarState = 'idle' | 'greeting' | 'listening' | 'thinking' | 'speaking' | 'attention' | 'error' | 'offline'
 
 interface FloatingAIButtonProps {
   onClick: (position: { x: number; y: number }) => void
+  assistantState?: AssistantAvatarState
+  interaction?: AssistantInteraction | null
 }
 
 const DRAG_THRESHOLD = 10
 
-export default function FloatingAIButton({ onClick }: FloatingAIButtonProps) {
+export default function FloatingAIButton({ onClick, assistantState = 'idle', interaction }: FloatingAIButtonProps) {
   const [position, setPosition] = useState({ x: -1, y: -1 })
   const [isDragging, setIsDragging] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
@@ -145,7 +151,10 @@ export default function FloatingAIButton({ onClick }: FloatingAIButtonProps) {
       onClick={handleClick}
     >
       <div className="relative bot-hover-effect" style={{ width: '80px', height: '80px' }}>
-        <NeonAIBot size={80} />
+        {assistantState !== 'idle' && interaction && (
+          <AssistantCue interaction={interaction} placement="above-avatar" />
+        )}
+        <NeonAIBot size={80} state={assistantState} />
       </div>
       <style>{`
         .bot-hover-effect:hover .sparkle-container {

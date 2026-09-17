@@ -5,6 +5,9 @@ import { useAuthStore } from '../../stores/authStore';
 import { customersApi } from '../../services/api/endpoints';
 import FloatingAIButton from './floating-ai-button';
 import AIChatModern from './ai-chat-modern';
+import type { AssistantInteraction } from '../../lib/assistant-interaction';
+
+type AssistantAvatarState = 'idle' | 'greeting' | 'listening' | 'thinking' | 'speaking' | 'attention' | 'error' | 'offline';
 
 const STORAGE_KEY = 'partflow-assistant-cache';
 
@@ -35,6 +38,8 @@ export default function AIAssistantWrapper() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatAnchor, setChatAnchor] = useState({ x: 20, y: 20 });
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [assistantState, setAssistantState] = useState<AssistantAvatarState>('idle');
+  const [assistantInteraction, setAssistantInteraction] = useState<AssistantInteraction | null>(null);
 
   useEffect(() => {
     if (!isAuthReady) {
@@ -200,6 +205,8 @@ export default function AIAssistantWrapper() {
 
   const handleClose = () => {
     setIsChatOpen(false);
+    setAssistantState('idle');
+    setAssistantInteraction(null);
   };
 
   if (isLoading) {
@@ -208,7 +215,11 @@ export default function AIAssistantWrapper() {
 
   return (
     <>
-      <FloatingAIButton onClick={handleButtonClick} />
+      <FloatingAIButton
+        onClick={handleButtonClick}
+        assistantState={isChatOpen ? assistantState : 'idle'}
+        interaction={isChatOpen ? assistantInteraction : null}
+      />
       {isChatOpen && (
         <AIChatModern
           onClose={handleClose}
@@ -216,6 +227,8 @@ export default function AIAssistantWrapper() {
           embedded={false}
           isOffline={!isOnline}
           assistantContext={assistantContext}
+          onStateChange={setAssistantState}
+          onInteractionChange={setAssistantInteraction}
         />
       )}
     </>

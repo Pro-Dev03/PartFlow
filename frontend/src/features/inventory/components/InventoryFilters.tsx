@@ -47,7 +47,16 @@ export function InventoryFilters({
     queryFn: () => categoriesApi.list(),
   });
 
-  const suppliers = (suppliersData?.data?.suppliers as any[]) || [];
+  const supplierPayload = suppliersData?.data;
+  const suppliers = (
+    Array.isArray(supplierPayload)
+      ? supplierPayload
+      : Array.isArray(supplierPayload?.suppliers)
+        ? supplierPayload.suppliers
+        : Array.isArray(suppliersData?.suppliers)
+          ? suppliersData.suppliers
+          : []
+  ) as any[];
   const categories = (categoriesData?.data as any[]) || [];
   
   // Advanced filters state

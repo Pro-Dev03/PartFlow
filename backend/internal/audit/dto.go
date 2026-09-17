@@ -27,6 +27,7 @@ func CreateAuditLog(req *AuditLogRequest, ipAddress, userAgent, requestID string
 		ID:           uuid.New(),
 		UserID:       req.UserID,
 		Action:       req.Action,
+		EntityType:   req.EntityType,
 		EntityID:     req.EntityID,
 		IPAddress:    ipAddress,
 		UserAgent:    userAgent,

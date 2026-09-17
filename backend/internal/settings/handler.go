@@ -39,6 +39,7 @@ var financialSettingMetadata = map[string]struct {
 	isPublic     bool
 }{
 	"currency":                    {"ILS", "string", "general", "العملة الافتراضية", true},
+	"store_name":                  {"PartFlow Store", "string", "general", "اسم المتجر", true},
 	"discounts_enabled":           {"true", "boolean", "financial", "السماح بالخصومات", false},
 	"tax_rate":                    {"0", "number", "financial", "نسبة الضريبة المئوية", true},
 	"max_discount_rate":           {"15", "number", "financial", "الحد الأقصى للخصم المئوي", false},

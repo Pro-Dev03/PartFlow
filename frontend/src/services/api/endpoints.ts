@@ -214,6 +214,11 @@ export const dashboardApi = {
     apiClient.post('/aggregations/update', { start_date: startDate, end_date: endDate, force }),
 };
 
+export const assistantApi = {
+  reply: (message: string, conversation: Array<{ role: string; content: string }> = []) =>
+    apiClient.post('/assistant/reply', { message, conversation }),
+};
+
 // Products endpoints
 export const productsApi = {
   list: (params?: ProductListParams) => 

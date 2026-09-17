@@ -194,6 +194,8 @@ export function InventoryPage() {
       barcode: product.barcode,
       image_url: product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined),
       min_stock_level: Number((product as Record<string, unknown>).min_stock_level ?? 0),
+      supplier_id: String((product as Record<string, unknown>).supplier_id ?? (product as Record<string, any>).supplier?.id ?? ''),
+      supplier_name: String((product as Record<string, unknown>).supplier_name ?? (product as Record<string, any>).supplier?.name ?? ''),
     };
     setSelectedProduct(mappedProduct);
     setIsViewModalOpen(true);
@@ -228,6 +230,8 @@ export function InventoryPage() {
       barcode: product.barcode,
       image_url: product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined),
       min_stock_level: Number((product as Record<string, unknown>).min_stock_level ?? 0),
+      supplier_id: String((product as Record<string, unknown>).supplier_id ?? (product as Record<string, any>).supplier?.id ?? ''),
+      supplier_name: String((product as Record<string, unknown>).supplier_name ?? (product as Record<string, any>).supplier?.name ?? ''),
     };
     setSelectedProduct(mappedProduct);
     setIsCreatingProduct(false);

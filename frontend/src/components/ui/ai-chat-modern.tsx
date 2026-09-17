@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Send, Loader2 } from 'lucide-react';
-import { generateAssistantReply } from '../../lib/assistant-response';
+import { assistantApi } from '../../services/api/endpoints';
 import type { AssistantContext } from '../../lib/assistant-response';
+import { getAssistantInteraction, getAssistantNavigationPath, getSystemInteraction, inferAssistantIntent, type AssistantInteraction } from '../../lib/assistant-interaction';
 import NeonAIBot from './neon-ai-bot';
+import AssistantCue from './assistant-cue';
+
+type AssistantAction = { label: string; path: string };
+
+type AssistantState = 'idle' | 'greeting' | 'listening' | 'thinking' | 'speaking' | 'attention' | 'error' | 'offline';
 
 type ChatMessage = {
   id: string;
@@ -10,6 +16,7 @@ type ChatMessage = {
   text: string;
   timestamp: Date;
   status?: 'sending' | 'sent' | 'delivered';
+  actions?: AssistantAction[];
 };
 
 interface AIChatModernProps {
@@ -19,6 +26,8 @@ interface AIChatModernProps {
   isOffline?: boolean;
   assistantContext?: AssistantContext;
   onSendMessage?: (text: string) => void;
+  onStateChange?: (state: AssistantState) => void;
+  onInteractionChange?: (interaction: AssistantInteraction | null) => void;
 }
 
 interface QuickAction {
@@ -27,15 +36,6 @@ interface QuickAction {
   query: string;
 }
 
-const defaultContext: AssistantContext = {
-  lowStockCount: 0,
-  overdueDebtsCount: 0,
-  salesToday: 0,
-  salesYesterday: 0,
-  lowStockItems: [],
-  overdueDebts: [],
-};
-
 export default function AIChatModern({
   onClose,
   position,
@@ -43,6 +43,8 @@ export default function AIChatModern({
   isOffline,
   assistantContext,
   onSendMessage,
+  onStateChange,
+  onInteractionChange,
 }: AIChatModernProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -50,9 +52,63 @@ export default function AIChatModern({
   const [isInitialized, setIsInitialized] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useRef(true);
+  const stateTimerRef = useRef<number | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
 
   const offlineMode = isOffline ?? (typeof navigator !== 'undefined' && !navigator.onLine);
-  const context = assistantContext || defaultContext;
+  const [assistantState, setAssistantState] = useState<AssistantState>(offlineMode ? 'offline' : 'idle');
+  const [interaction, setInteraction] = useState<AssistantInteraction>(() => (
+    offlineMode ? getSystemInteraction('offline') : getAssistantInteraction('GREETING')
+  ));
+
+  const clearStateTimer = () => {
+    if (stateTimerRef.current !== null) {
+      window.clearTimeout(stateTimerRef.current);
+      stateTimerRef.current = null;
+    }
+  };
+
+  const transitionToIdle = (delay: number) => {
+    clearStateTimer();
+    stateTimerRef.current = window.setTimeout(() => {
+      if (mountedRef.current) setAssistantState('idle');
+    }, delay);
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      clearStateTimer();
+      onStateChange?.('idle');
+    };
+  }, [onStateChange]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    if (offlineMode) {
+      clearStateTimer();
+      setAssistantState('offline');
+      setInteraction(getSystemInteraction('offline'));
+    } else if (isTyping) {
+      setAssistantState('thinking');
+    } else {
+      setAssistantState((current) => current === 'offline' ? 'idle' : current);
+    }
+  }, [offlineMode, isTyping]);
+
+  useEffect(() => {
+    onStateChange?.(assistantState);
+  }, [assistantState, onStateChange]);
+
+  useEffect(() => {
+    onInteractionChange?.(interaction);
+    return () => onInteractionChange?.(null);
+  }, [interaction, onInteractionChange]);
 
   const quickActions: QuickAction[] = [
     { icon: '📦', label: 'إدارة المخزون', query: 'ما حال المخزون؟' },
@@ -63,6 +119,7 @@ export default function AIChatModern({
 
   useEffect(() => {
     if (!isInitialized) {
+      setAssistantState(offlineMode ? 'offline' : 'greeting');
       const welcomeMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -72,11 +129,16 @@ export default function AIChatModern({
       };
       setMessages([welcomeMessage]);
       setIsInitialized(true);
+      if (!offlineMode) {
+        transitionToIdle(900);
+      }
     }
-  }, [isInitialized]);
+  }, [isInitialized, offlineMode]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, isTyping]);
 
   useEffect(() => {
@@ -88,6 +150,16 @@ export default function AIChatModern({
   }, [inputText]);
 
   const showQuickActions = messages.length === 1 && messages[0].role === 'assistant';
+  const stateLabels: Record<AssistantState, string> = {
+    idle: 'جاهز',
+    greeting: 'يرحب بك',
+    listening: 'يستمع',
+    thinking: 'يفكر',
+    speaking: 'يرد',
+    attention: 'يحتاج انتباهك',
+    offline: 'غير متصل',
+    error: 'تعذر الرد',
+  };
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -100,6 +172,10 @@ export default function AIChatModern({
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
       }
+      @keyframes assistantCueIn {
+        from { opacity: 0; transform: translateY(4px) scale(0.98); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
     `;
     document.head.appendChild(style);
     return () => {
@@ -107,68 +183,89 @@ export default function AIChatModern({
     };
   }, []);
 
-  const handleSendMessage = () => {
-    if (!inputText.trim()) return;
+  const requestReply = async (text: string) => {
+    if (!text || isTyping) return;
+    if (offlineMode) {
+      clearStateTimer();
+      setAssistantState('offline');
+      setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: 'المساعد غير متاح بدون اتصال حاليًا.', timestamp: new Date(), status: 'delivered' }]);
+      return;
+    }
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      text: inputText.trim(),
+      text,
       timestamp: new Date(),
       status: 'sent',
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    messagesRef.current = [...messagesRef.current, userMessage];
     setInputText('');
+    const localNavigationPath = getAssistantNavigationPath(text);
+    if (localNavigationPath) {
+      setInteraction(getAssistantInteraction('NAVIGATION', text));
+      setAssistantState('speaking');
+      window.setTimeout(() => {
+        if (!mountedRef.current) return;
+        window.location.hash = localNavigationPath;
+        onClose?.();
+      }, 220);
+      return;
+    }
     setIsTyping(true);
-
-    setTimeout(() => {
-      const response = generateAssistantReply(userMessage.text, context);
-
+    clearStateTimer();
+    setInteraction(getAssistantInteraction(inferAssistantIntent(text), text));
+    setAssistantState('thinking');
+    try {
+      const response = await assistantApi.reply(userMessage.text, messagesRef.current.slice(-10).map((item) => ({ role: item.role, content: item.text })));
+      const reply = response?.data?.reply ?? response?.reply;
+      if (!reply) throw new Error('Assistant returned no reply');
       const assistantMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        text: response,
+        text: reply,
         timestamp: new Date(),
         status: 'delivered',
+        actions: Array.isArray(response?.data?.actions) ? response.data.actions : [],
       };
-
       setMessages((prev) => [...prev, assistantMessage]);
+      messagesRef.current = [...messagesRef.current, assistantMessage];
+      const intent = String(response?.data?.intent ?? response?.intent ?? '').toUpperCase();
+      setInteraction(getAssistantInteraction(intent, text));
+      if (intent === 'NAVIGATION' && assistantMessage.actions?.[0]?.path) {
+        window.location.hash = assistantMessage.actions[0].path;
+        onClose?.();
+        return;
+      }
+      const hasAttention = (intent === 'LOW_STOCK' && Number(assistantContext?.lowStockCount ?? 0) > 0)
+        || (intent === 'DEBTS' && Number(assistantContext?.overdueDebtsCount ?? 0) > 0);
+      if (hasAttention) {
+        setAssistantState('attention');
+        stateTimerRef.current = window.setTimeout(() => {
+          if (!mountedRef.current) return;
+          setAssistantState('speaking');
+          transitionToIdle(Math.min(1800, Math.max(700, reply.length * 18)));
+        }, 420);
+      } else {
+        setAssistantState('speaking');
+        transitionToIdle(Math.min(1800, Math.max(700, reply.length * 18)));
+      }
+      onSendMessage?.(userMessage.text);
+    } catch {
+      clearStateTimer();
+      setInteraction(getSystemInteraction('error'));
+      setAssistantState('error');
+      setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: 'assistant', text: 'تعذر جلب بيانات المتجر حاليًا. جرّب مرة ثانية.', timestamp: new Date(), status: 'delivered' }]);
+      transitionToIdle(1200);
+    } finally {
       setIsTyping(false);
-    }, 600);
-
-    onSendMessage?.(inputText);
+    }
   };
 
-  const handleQuickAction = (query: string) => {
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      text: query,
-      timestamp: new Date(),
-      status: 'sent',
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setIsTyping(true);
-
-    setTimeout(() => {
-      const response = generateAssistantReply(query, context);
-
-      const assistantMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        text: response,
-        timestamp: new Date(),
-        status: 'delivered',
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
-      setIsTyping(false);
-    }, 600);
-
-    onSendMessage?.(query);
-  };
+  const handleSendMessage = () => { void requestReply(inputText.trim()); };
+  const handleQuickAction = (query: string) => { void requestReply(query); };
 
   const MessageBubble = ({ message }: { message: ChatMessage }) => {
     const isUser = message.role === 'user';
@@ -185,7 +282,7 @@ export default function AIChatModern({
       >
         {!isUser && (
           <div style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <NeonAIBot size={32} />
+            <NeonAIBot size={32} state={assistantState} />
           </div>
         )}
         <div
@@ -205,6 +302,29 @@ export default function AIChatModern({
             whiteSpace: 'pre-line',
             margin: 0
           }}>{message.text}</p>
+          {message.actions && message.actions.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px', direction: 'rtl' }}>
+              {message.actions.map((action) => (
+                <button
+                  key={`${message.id}-${action.path}`}
+                  type="button"
+                  onClick={() => { window.location.hash = action.path; }}
+                  style={{
+                    border: '1px solid rgba(6, 182, 212, 0.35)',
+                    borderRadius: '7px',
+                    padding: '5px 8px',
+                    background: 'rgba(236, 254, 255, 0.8)',
+                    color: '#155e75',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          )}
           <p style={{
             fontSize: '11px',
             marginTop: '4px',
@@ -221,6 +341,13 @@ export default function AIChatModern({
     );
   };
 
+  const cue = assistantState === 'offline'
+    ? getSystemInteraction('offline')
+    : assistantState === 'error'
+      ? getSystemInteraction('error')
+      : assistantState === 'listening'
+        ? { ...interaction, label: 'أستمع لك...' }
+        : interaction;
   const chatContent = (
     <div
       style={{
@@ -243,16 +370,20 @@ export default function AIChatModern({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          flexShrink: 0
+          flexShrink: 0,
+          position: 'relative'
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-          <div style={{ width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <NeonAIBot size={40} />
+          <div style={{ width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+            {assistantState !== 'idle' && (
+              <AssistantCue interaction={cue} placement="above-header-avatar" />
+            )}
+            <NeonAIBot size={40} state={assistantState} />
           </div>
           <div>
             <h2 style={{ color: '#ffffff', fontWeight: 'bold', fontSize: '14px', margin: 0 }}>أمان</h2>
-            <p style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '12px', margin: 0 }}>المساعد الذكي • {offlineMode ? 'أوفلاين' : 'متصل الآن'}</p>
+            <p style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '12px', margin: 0 }}>المساعد الذكي • {offlineMode ? 'أوفلاين' : stateLabels[assistantState]}</p>
           </div>
         </div>
 
@@ -298,7 +429,7 @@ export default function AIChatModern({
           {isTyping && (
             <div style={{ display: 'flex', justifyContent: 'flex-start', gap: '8px' }}>
               <div style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <NeonAIBot size={32} />
+                <NeonAIBot size={32} state="thinking" />
               </div>
               <div
                 style={{
@@ -360,7 +491,14 @@ export default function AIChatModern({
           <textarea
             ref={inputRef}
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            onChange={(e) => {
+              const nextValue = e.target.value;
+              setInputText(nextValue);
+              if (!isTyping && !offlineMode) {
+                clearStateTimer();
+                setAssistantState(nextValue.trim() ? 'listening' : 'idle');
+              }
+            }}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())}
             placeholder="اكتب رسالتك..."
             rows={1}

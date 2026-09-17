@@ -7,11 +7,13 @@ import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
+import { EmptyState } from '../../../components/ui/empty-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { getButtonSize } from '../../../config/button-sizes';
 import {
   Plus,
+  ShoppingCart,
   Eye,
   Download,
   Printer,
@@ -20,6 +22,8 @@ import {
   Trash2,
   RotateCcw,
   DollarSign,
+  UserRound,
+  Inbox,
 } from 'lucide-react';
 
 // Custom hooks
@@ -212,10 +216,14 @@ export function PurchasesPage() {
         setStatusFilter={setStatusFilter}
       />
 
-      <div className="rounded-[12px] border border-border bg-surface shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
-        <div className="flex flex-col gap-3 border-b border-border px-5 py-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-text-primary">
+      <div className="rounded-[16px] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[0_10px_28px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-3 border-b border-[var(--border-subtle)] px-5 py-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
+              <ShoppingCart className="h-4 w-4" />
+            </span>
+            <div>
+            <h3 className="text-sm font-extrabold text-[var(--text-primary)]">
               {viewFilter === 'active'
                 ? 'المشتريات الحالية'
                 : viewFilter === 'received'
@@ -224,7 +232,8 @@ export function PurchasesPage() {
                     ? 'أرشيف المشتريات'
                     : 'كل المشتريات'}
             </h3>
-            <p className="mt-0.5 text-[11px] text-text-tertiary">{filteredPurchases.length} عملية شراء مطابقة</p>
+            <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">{filteredPurchases.length} عملية شراء مطابقة</p>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2" role="tablist" aria-label="عرض المشتريات">
@@ -250,9 +259,15 @@ export function PurchasesPage() {
           <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
+        ) : filteredPurchases.length === 0 ? (
+          <EmptyState
+            icon={<Inbox className="h-5 w-5" />}
+            title="لا توجد مشتريات"
+            description="لم يتم العثور على عمليات شراء مطابقة للفلاتر الحالية"
+          />
         ) : (
-          <div className="block">
-            <Table>
+          <div className="hidden overflow-x-auto md:block">
+            <Table className="min-w-[1100px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[12%]">رقم الطلب</TableHead>
@@ -267,25 +282,35 @@ export function PurchasesPage() {
                   <TableHead className="w-[6%] text-end">الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
+              <TableBody className="divide-y divide-[var(--border-subtle)]" dir="rtl">
                 {filteredPurchases.map((purchase: any) => {
                   const normalizedStatus = purchase.status === 'completed' ? 'received' : purchase.status;
                   const statusBadge = getStatusBadge(purchase.status);
                   return (
-                    <TableRow key={purchase.id}>
-                      <TableCell className="font-semibold text-text-primary">{purchase.invoice_number}</TableCell>
-                      <TableCell className="text-text-secondary">{purchase.supplier?.name || purchase.supplier_name}</TableCell>
-                      <TableCell className="text-text-secondary">{purchase.total_items || purchase.items?.length || 0} قطع</TableCell>
+                    <TableRow key={purchase.id} dir="rtl" className="transition-all duration-200 hover:bg-[var(--color-primary-05)] [&>td]:h-[76px]">
+                      <TableCell className="font-mono text-xs font-extrabold text-[var(--primary)]">{purchase.invoice_number}</TableCell>
+                      <TableCell>
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-subtle)] bg-[var(--color-primary-10)] text-[var(--primary)] shadow-sm">
+                            <UserRound className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate font-black text-[var(--text-primary)]">{purchase.supplier?.name || purchase.supplier_name || 'مورد غير محدد'}</div>
+                            <div className="mt-0.5 text-[11px] font-medium text-[var(--text-tertiary)]">مورد مسجل</div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-semibold text-[var(--text-secondary)]">{purchase.total_items || purchase.items?.length || 0} قطع</TableCell>
                       <TableCell className="text-center">
                         {Number(purchase.tax_amount || 0) > 0 ? `₪${Number(purchase.tax_amount).toLocaleString()}` : <Badge variant="outline" size="sm">بدون ضريبة</Badge>}
                       </TableCell>
-                      <TableCell className="text-center font-semibold text-text-primary">₪{purchase.total_amount?.toLocaleString()}</TableCell>
-                      <TableCell className="text-center font-semibold text-success">₪{purchase.paid_amount?.toLocaleString()}</TableCell>
-                      <TableCell className="text-center font-semibold text-text-secondary">₪{purchase.remaining?.toLocaleString()}</TableCell>
-                      <TableCell className="text-text-secondary">{purchase.expected_delivery_date ? new Date(purchase.expected_delivery_date).toLocaleDateString('en-US') : '-'}</TableCell>
-                      <TableCell><Badge variant={statusBadge.variant} size="sm" className="whitespace-nowrap">{statusBadge.label}</Badge></TableCell>
+                      <TableCell className="text-center font-black text-[var(--text-primary)]">₪{purchase.total_amount?.toLocaleString() || '0'}</TableCell>
+                      <TableCell className="text-center font-black text-[var(--color-success)]">₪{purchase.paid_amount?.toLocaleString() || '0'}</TableCell>
+                      <TableCell className="text-center"><Badge variant={Number(purchase.remaining || 0) > 0 ? 'warning' : 'success'} size="sm" className="min-w-[82px] justify-center rounded-full">₪{purchase.remaining?.toLocaleString() || '0'}</Badge></TableCell>
+                      <TableCell className="font-semibold text-[var(--text-secondary)]">{purchase.expected_delivery_date ? new Date(purchase.expected_delivery_date).toLocaleDateString('en-US') : '-'}</TableCell>
+                      <TableCell><Badge variant={statusBadge.variant} size="sm" className="whitespace-nowrap rounded-full">{statusBadge.label}</Badge></TableCell>
                       <TableCell className="text-end">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-1">
                           {Number(purchase.remaining || 0) > 0 && !['cancelled', 'reversed'].includes(normalizedStatus) && (
                             <Button variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); setPurchaseToPay(purchase); setPaymentAmount(''); }} className="text-text-secondary hover:text-text-primary" title="تسجيل دفعة" aria-label="تسجيل دفعة">
                               <DollarSign className="h-4 w-4" />
@@ -333,7 +358,7 @@ export function PurchasesPage() {
 
         <PaginationControls page={page} pageSize={pageSize} total={total} onPageChange={setPage} isLoading={isLoading} />
 
-        <div className="hidden">
+        <div className="md:hidden">
           {isLoading ? (
             <div className="flex h-64 items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
           ) : (

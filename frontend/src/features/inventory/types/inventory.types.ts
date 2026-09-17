@@ -16,6 +16,8 @@ export interface Product {
   barcode?: string;
   image_url?: string;
   min_stock_level?: number;
+  supplier_id?: string;
+  supplier_name?: string;
 }
 
 export interface InventoryItem {

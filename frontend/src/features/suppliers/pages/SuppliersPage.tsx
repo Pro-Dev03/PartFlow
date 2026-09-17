@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { PageHeader } from '../../../components/ui/page-header';
+import { EmptyState } from '../../../components/ui/empty-state';
 import { LoadingSpinner } from '../../../components/ui/loading-spinner';
 import { SupplierCard } from '../../../components/ui/supplier-card';
 import { SupplierModals } from '../components/SupplierModals';
@@ -25,10 +26,6 @@ import {
   Plus,
   Filter,
   DollarSign,
-  Sparkles,
-  Target,
-  TrendingUp,
-  AlertTriangle,
   Download,
   Printer,
   RefreshCw
@@ -246,80 +243,6 @@ export function SuppliersPage() {
         </Card>
       </div>
 
-      {/* AI Insights */}
-      <Card variant="ai">
-        <CardHeader>
-          <CardTitle style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Sparkles style={{ width: '20px', height: '20px', color: 'var(--color-primary)' }} />
-            AI Insights - الموردين
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <div style={{ display: 'flex', gap: '14px' }}>
-              <div style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'rgba(34, 211, 238, 0.1)',
-                flexShrink: 0
-              }}>
-                <Target style={{ width: '16px', height: '16px', color: 'var(--color-primary)' }} />
-              </div>
-              <div>
-                <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>فرصة تحسين التوريد</p>
-                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  المورد "إلكترونيات المتقدمة" يقدم أسعاراً أقل 15% من المنافسين مع جودة مماثلة. يُنصح بزيادة حجم التعامل.
-                </p>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '14px' }}>
-              <div style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'rgba(251, 191, 36, 0.1)',
-                flexShrink: 0
-              }}>
-                <AlertTriangle style={{ width: '16px', height: '16px', color: 'var(--color-warning)' }} />
-              </div>
-              <div>
-                <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>تنبيه تأخير التوريد</p>
-                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  المورد "شاشات المستقبل" تأخر 3 مرات هذا الشهر. يُنصح بالبحث عن بدائل أو تقييم العقد.
-                </p>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '14px' }}>
-              <div style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'rgba(52, 211, 153, 0.1)',
-                flexShrink: 0
-              }}>
-                <TrendingUp style={{ width: '16px', height: '16px', color: 'var(--color-success)' }} />
-              </div>
-              <div>
-                <p style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>أداء ممتاز</p>
-                <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                  المورد "بطاريات القوة" حقق 100% من مواعيد التسليم هذا الربع. يُنصح بتجديد العقد تلقائياً.
-                </p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Search and Filters */}
       <Card>
         <CardContent className="p-4">
@@ -387,12 +310,20 @@ export function SuppliersPage() {
       </Card>
 
       {/* Suppliers Grid */}
-      <Card>
-        <CardHeader>
+      <Card className="rounded-[16px] border-[var(--border-default)] shadow-[0_10px_28px_rgba(15,23,42,0.05)]">
+        <CardHeader className="border-b border-[var(--border-subtle)] px-5 py-4">
           <div className="flex items-center justify-between gap-3">
-            <CardTitle>{showInactive ? 'الموردون المعطلون' : 'الموردون النشطون'} ({filteredSuppliers.length})</CardTitle>
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
+                <Truck className="h-4 w-4" />
+              </span>
+              <div>
+                <CardTitle className="text-sm font-extrabold text-[var(--text-primary)]">{showInactive ? 'الموردون المعطلون' : 'الموردون النشطون'} ({filteredSuppliers.length})</CardTitle>
+                <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">إدارة بيانات الموردين وحساباتهم المالية</p>
+              </div>
+            </div>
             <Button
-              variant="outline"
+              variant="secondary"
               size={getButtonSize('suppliers', 'headerActions')}
               onClick={() => refetch()}
               className="gap-2"
@@ -402,15 +333,18 @@ export function SuppliersPage() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-5">
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
               <LoadingSpinner size="md" color="cyan" />
             </div>
           ) : filteredSuppliers.length === 0 ? (
-            <div className="text-center py-8 text-text-muted">
-              لا يوجد موردين
-            </div>
+            <EmptyState
+              icon={<Truck className="h-5 w-5" />}
+              title={showInactive ? 'لا يوجد موردون معطلون' : 'لا يوجد موردون نشطون'}
+              description={searchQuery ? 'جرّب تعديل عبارة البحث أو إزالة الفلاتر' : 'أضف أول مورد لبدء إدارة المشتريات'}
+              size="sm"
+            />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredSuppliers.map((supplier: any) => (

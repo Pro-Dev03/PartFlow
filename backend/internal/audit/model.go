@@ -28,6 +28,7 @@ type AuditLog struct {
 type AuditLogRequest struct {
 	UserID       uuid.UUID `json:"user_id" binding:"required"`
 	Action       string    `json:"action" binding:"required"`
+	EntityType   string    `json:"entity_type"`
 	EntityID     uuid.UUID `json:"entity_id" binding:"required"`
 	Changes      string    `json:"changes"`
 	Description  string    `json:"description"`

@@ -10,6 +10,7 @@ import (
 
 	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/acquisitions"
+	"github.com/partflow/smart-store/internal/assistant"
 	"github.com/partflow/smart-store/internal/audit"
 	"github.com/partflow/smart-store/internal/auth"
 	"github.com/partflow/smart-store/internal/barcodes"
@@ -68,6 +69,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	partTypesService := parttypes.NewService(partTypesRepo)
 	ledgerService := ledgers.NewService(db)
 	acquisitionService := acquisitions.NewService(db)
+	assistantService := assistant.NewService(db)
 
 	// Initialize all handlers
 	authHandler := auth.NewHandler(authService, db)
@@ -90,6 +92,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	localDatabaseHandler := settings.NewLocalDatabaseHandler()
 	ledgerHandler := ledgers.NewHandler(ledgerService)
 	acquisitionHandler := acquisitions.NewHandler(acquisitionService)
+	assistantHandler := assistant.NewHandler(assistantService)
 	paymentTransactionsHandler := paymenttransactions.NewHandler(db)
 	debtsHandler := debts.NewHandler(db)
 
@@ -128,6 +131,8 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 		protected.Use(middleware.Auth(), auth.CloudGuard(authService))
 		paymentTransactionsHandler.RegisterRoutes(v1, protected)
 		{
+			protected.POST("/assistant/reply", assistantHandler.Reply)
+
 			// Dashboard routes
 			protected.GET("/dashboard/stats", dashboardHandler.GetDashboardStats)
 			protected.GET("/dashboard/activity", dashboardHandler.GetRecentActivity)

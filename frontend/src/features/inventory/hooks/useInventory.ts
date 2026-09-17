@@ -135,7 +135,21 @@ export function useInventory() {
 
     completeInventoryItems.forEach((item: any) => {
       const productId = String(item.product_id || item.product?.id || item.productId || '').trim();
-      if (!productId || productsById.has(productId)) return;
+      if (!productId) return;
+
+      const supplierId = String(item.supplier_id || item.supplier?.id || '').trim();
+      const supplierName = String(item.supplier_name || item.supplier?.name || '').trim();
+      const existingProduct = productsById.get(productId);
+      if (existingProduct) {
+        if ((!existingProduct.supplier_id && supplierId) || (!existingProduct.supplier_name && supplierName)) {
+          productsById.set(productId, {
+            ...existingProduct,
+            supplier_id: existingProduct.supplier_id || supplierId,
+            supplier_name: existingProduct.supplier_name || supplierName,
+          });
+        }
+        return;
+      }
 
       const productName = String(item.product_name || item.product?.name || '').trim();
       if (!productName) return;
@@ -152,6 +166,8 @@ export function useInventory() {
         category: item.category_name,
         category_id: item.category_id,
         barcode: item.barcode,
+        supplier_id: supplierId,
+        supplier_name: item.supplier_name,
       });
     });
 

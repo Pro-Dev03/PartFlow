@@ -127,9 +127,20 @@ type Alert struct {
 // OPTIMIZED: Using aggregation tables for much better performance
 func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error) {
 	stats := &DashboardStats{}
+	refundAmountExpr := "0"
+	if isSQLiteDriver(s.db.DriverName()) {
+		switch {
+		case sqliteHasColumns(s.db, "returns", "total_refund_amount"):
+			refundAmountExpr = "total_refund_amount"
+		case sqliteHasColumns(s.db, "returns", "refund_amount"):
+			refundAmountExpr = "refund_amount"
+		}
+	} else {
+		refundAmountExpr = "total_refund_amount"
+	}
 
 	// SQLite-safe queries: local mode does not always have aggregation tables.
-	query := `
+	query := fmt.Sprintf(`
 		SELECT
 			(SELECT COUNT(*) FROM products p
 			 WHERE p.is_active = true
@@ -145,9 +156,9 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 			(SELECT COUNT(*) FROM customers) as total_customers,
 			(SELECT COUNT(*) FROM suppliers) as total_suppliers,
 			(SELECT COUNT(*) FROM returns WHERE status = 'pending') as pending_returns,
-			(SELECT COALESCE(SUM(refund_amount), 0) FROM returns WHERE status = 'completed') as total_refunded,
+			(SELECT COALESCE(SUM(%s), 0) FROM returns WHERE status = 'completed') as total_refunded,
 			(SELECT COUNT(*) FROM returns WHERE status = 'completed') as total_returns
-	`
+	`, refundAmountExpr)
 
 	var result struct {
 		TotalSales     float64 `db:"total_sales"`

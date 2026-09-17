@@ -29,6 +29,15 @@ func inventoryQuantityExpressions(ctx context.Context, db *sqlx.DB, productRef s
 	return fmt.Sprintf(`(SELECT COUNT(*) FROM inventory_items ii2 WHERE ii2.product_id = %s)`, productRef), fmt.Sprintf(`(SELECT COUNT(*) FROM inventory_items ii3 WHERE ii3.product_id = %s AND UPPER(TRIM(COALESCE(ii3.status, ''))) = 'AVAILABLE')`, productRef)
 }
 
+func sqliteHasColumn(db *sqlx.DB, tableName string, columnName string) bool {
+	if !dbutil.IsSQLite(db) {
+		return true
+	}
+	var count int
+	err := db.Get(&count, `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, tableName, columnName)
+	return err == nil && count > 0
+}
+
 func inventoryItemFromMap(record map[string]any) (*InventoryItem, error) {
 	item := &InventoryItem{}
 	if raw, ok := record["product_name"]; ok && raw != nil && raw != "" {
@@ -624,15 +633,21 @@ func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, 
 // ListInventoryItemsWithSupplierInfo retrieves inventory items with supplier information
 func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, limit, offset int, filters map[string]interface{}) ([]*InventoryItemWithSupplier, int64, error) {
 	currentQuantityExpr, availableQuantityExpr := inventoryQuantityExpressions(ctx, r.db, "ii.product_id")
+	categoryExpr := "p.category_id"
+	if !sqliteHasColumn(r.db, "products", "category_id") {
+		categoryExpr = "ii.category_id"
+	}
 	// Backfill legacy inventory rows whenever the list is read. This also covers
 	// products imported after SQLite startup, when the startup migration ran too early.
-	_, _ = r.db.ExecContext(ctx, `
+	if categoryExpr == "p.category_id" {
+		_, _ = r.db.ExecContext(ctx, `
 		UPDATE inventory_items
 		SET category_id = (SELECT p.category_id FROM products p WHERE p.id = inventory_items.product_id)
 		WHERE category_id IS NULL
 		  AND product_id IS NOT NULL
 		  AND EXISTS (SELECT 1 FROM products p WHERE p.id = inventory_items.product_id AND p.category_id IS NOT NULL)
-	`)
+		`)
+	}
 
 	// Build base query with JOIN to suppliers
 	baseQuery := fmt.Sprintf(`
@@ -644,15 +659,15 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 			%s AS available_quantity,
 			p.name as product_name,
 			p.selling_price as product_selling_price,
-			CAST(COALESCE(ii.category_id, p.category_id) AS TEXT) as category_id,
-			(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(COALESCE(ii.category_id, p.category_id) AS TEXT) LIMIT 1) as category_name,
+			CAST(COALESCE(ii.category_id, %s) AS TEXT) as category_id,
+			(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(COALESCE(ii.category_id, %s) AS TEXT) LIMIT 1) as category_name,
 			s.name as supplier_name,
 			s.phone as supplier_phone
 		FROM inventory_items ii
 		LEFT JOIN products p ON ii.product_id = p.id
-		LEFT JOIN categories c ON c.id = COALESCE(ii.category_id, p.category_id)
+			LEFT JOIN categories c ON c.id = COALESCE(ii.category_id, %s)
 		LEFT JOIN suppliers s ON ii.supplier_id = s.id
-	`, currentQuantityExpr, availableQuantityExpr)
+	`, currentQuantityExpr, availableQuantityExpr, categoryExpr, categoryExpr, categoryExpr)
 	countQuery := `
 		SELECT COUNT(*) FROM inventory_items ii
 	`
@@ -701,8 +716,8 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 	if categoryID, ok := filters["category_id"].(uuid.UUID); ok && categoryID != uuid.Nil {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND p.category_id = ` + param
-		countQuery += ` AND p.category_id = ` + param
+		baseQuery += ` AND ` + categoryExpr + ` = ` + param
+		countQuery += ` AND ` + categoryExpr + ` = ` + param
 		args = append(args, categoryID)
 	}
 

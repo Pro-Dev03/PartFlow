@@ -12,6 +12,7 @@ import { Select } from '../../../components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { PaginationControls } from '../../../components/ui/pagination-controls';
 import { Badge } from '../../../components/ui/badge';
+import { EmptyState } from '../../../components/ui/empty-state';
 import { Modal } from '../../../components/ui/modal';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { 
@@ -24,7 +25,9 @@ import {
   CheckCircle2,
   Calendar,
   Download,
-  Printer
+  Printer,
+  ReceiptText,
+  Inbox
 } from 'lucide-react';
 
 export function normalizeExpenseForDisplay(expense: any) {
@@ -582,18 +585,34 @@ export function ExpensesPage() {
       </Card>
 
       {/* Expenses Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>سجل المصروفات</CardTitle>
+      <Card className="rounded-[16px] border-[var(--border-default)] shadow-[0_10px_28px_rgba(15,23,42,0.05)]">
+        <CardHeader className="border-b border-[var(--border-subtle)] px-5 py-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
+              <ReceiptText className="h-4 w-4" />
+            </span>
+            <div>
+              <CardTitle className="text-sm font-extrabold text-[var(--text-primary)]">سجل المصروفات</CardTitle>
+              <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">متابعة المصروفات وحالات اعتمادها</p>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           {isLoading ? (
-            <div className="flex items-center justify-center h-64">
+            <div className="flex h-64 items-center justify-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan" />
             </div>
+          ) : filteredExpenses.length === 0 ? (
+            <EmptyState
+              icon={<Inbox className="h-5 w-5" />}
+              title="لا توجد مصروفات"
+              description={searchQuery || categoryFilter ? 'لم يتم العثور على مصروفات مطابقة للفلاتر الحالية' : 'أضف أول مصروف لبدء متابعة ميزانية المتجر'}
+              size="sm"
+            />
           ) : (
             <>
-              <Table>
+              <div className="overflow-x-auto">
+              <Table className="min-w-[760px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>التاريخ</TableHead>
@@ -605,35 +624,35 @@ export function ExpensesPage() {
                   <TableHead className="text-start">الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
+              <TableBody className="divide-y divide-[var(--border-subtle)]" dir="rtl">
                 {filteredExpenses.map((expense: any) => (
-                  <TableRow key={expense.id}>
-                    <TableCell>
+                  <TableRow key={expense.id} dir="rtl" className="transition-colors duration-200 hover:bg-[var(--color-primary-05)] [&>td]:h-[68px]">
+                    <TableCell className="font-semibold text-[var(--text-secondary)]">
                       {formatExpenseDate(expense.date)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">
+                      <Badge variant="outline" className="rounded-full">
                         {getCategoryLabel(expense.category)}
                       </Badge>
                     </TableCell>
-                    <TableCell>{expense.description || '-'}</TableCell>
-                    <TableCell className="font-bold">
+                    <TableCell className="font-bold text-[var(--text-primary)]">{expense.description || '-'}</TableCell>
+                    <TableCell className="font-black text-[var(--primary)]">
                       ₪{Number(expense.amount || 0).toLocaleString()}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={expense.status === 'approved' ? 'success' : expense.status === 'rejected' ? 'danger' : 'warning'}>
+                      <Badge variant={expense.status === 'approved' ? 'success' : expense.status === 'rejected' ? 'danger' : 'warning'} className="rounded-full">
                         {expense.status === 'approved' ? 'معتمد' : expense.status === 'rejected' ? 'مرفوض' : 'قيد الانتظار'}
                       </Badge>
                     </TableCell>
                     <TableCell>
                       {expense.recurring ? (
-                        <Badge variant="secondary">
+                        <Badge variant="secondary" className="rounded-full">
                           {expense.recurringPeriod === 'monthly' ? 'شهري' :
                            expense.recurringPeriod === 'weekly' ? 'أسبوعي' :
                            expense.recurringPeriod === 'yearly' ? 'سنوي' : 'نعم'}
                         </Badge>
                       ) : (
-                        <span className="text-text-muted">-</span>
+                        <span className="text-[var(--text-muted)]">-</span>
                       )}
                     </TableCell>
                     <TableCell className="text-start">
@@ -663,6 +682,7 @@ export function ExpensesPage() {
                 ))}
               </TableBody>
               </Table>
+              </div>
               <PaginationControls page={page} pageSize={pageSize} total={totalExpenses} onPageChange={setPage} isLoading={isLoading} />
             </>
           )}

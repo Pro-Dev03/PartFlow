@@ -62,7 +62,7 @@ export function TradeInModal({
       productId: (isProductManual || !productValue) ? undefined : tradeInProduct,
       productName: isProductManual ? tradeInProductManual : undefined,
       partTypeId: tradeInPartType,
-      purchaseCost: parseFloat(tradeInPrice) * 100, // تحويل للسنت
+      purchaseCost: parseFloat(tradeInPrice),
       specifications: tradeInSpecifications,
     };
 

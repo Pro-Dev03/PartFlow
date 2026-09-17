@@ -389,6 +389,10 @@ export function InventoryList({
                           <span className="font-medium text-text-secondary">{product.category_name || product.category || product.categoryName || '-'}</span>
                         </div>
                         <div className="flex items-center justify-between gap-2">
+                          <span className="text-text-tertiary">المورد</span>
+                          <span className="font-medium text-text-secondary">{product.supplier_name || 'غير محدد'}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
                           <span className="text-text-tertiary">الحالة</span>
                           <Badge variant={conditionBadge.variant} size="sm">{conditionBadge.label}</Badge>
                         </div>
@@ -533,6 +537,8 @@ export function InventoryList({
                               categoryName: '',
                               status: item.status || 'AVAILABLE',
                               barcode: item.barcode || '',
+                              supplier_id: item.supplier_id || '',
+                              supplier_name: item.supplier_name || '',
                             } as Product)} aria-label="عرض العنصر" title="عرض العنصر">
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
@@ -550,6 +556,8 @@ export function InventoryList({
                                 categoryName: '',
                                 status: item.status || 'AVAILABLE',
                                 barcode: item.barcode || '',
+                                supplier_id: item.supplier_id || '',
+                                supplier_name: item.supplier_name || '',
                               } as Product}
                               onViewProduct={onViewProduct}
                               onAddPurchase={onAddPurchase}

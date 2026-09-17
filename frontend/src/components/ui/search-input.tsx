@@ -45,11 +45,11 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
             type="button"
             onClick={onClear}
             aria-label="مسح البحث"
-            className="pf-search-clear absolute top-1/2 left-2 -translate-y-1/2"
+            className="pf-search-clear absolute left-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] shadow-sm transition-colors hover:border-[var(--primary)] hover:bg-[var(--color-primary-10)] hover:text-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/30"
             disabled={isLoading}
           >
             {isLoading ? (
-              <div className="animate-spin rounded-full border-2 border-text-muted/20 border-t-text-muted" />
+              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-text-muted/20 border-t-text-muted" />
             ) : (
               <X 
                 style={{ 

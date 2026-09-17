@@ -7,6 +7,7 @@ import { PageHeader } from '../../../components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
+import { formatStoreActivityDateTime } from '../../../utils/store-time';
 
 const PAGE_SIZE = 10;
 
@@ -31,12 +32,6 @@ function getActivityIcon(type: string) {
     case 'return': return RotateCcw;
     default: return Activity;
   }
-}
-
-function formatActivityTime(value: string, saleDate?: string) {
-  if (saleDate) return saleDate;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ar');
 }
 
 export function ActivityPage() {
@@ -138,7 +133,7 @@ export function ActivityPage() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <p style={{ fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>₪{Number(item.amount || 0).toLocaleString('en-US')}</p>
-                      <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>{formatActivityTime(item.time, item.type === 'sale' ? item.sale_date : undefined)}</p>
+                      <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>{formatStoreActivityDateTime(item.time, item.type === 'sale' ? item.sale_date : undefined, 'ar')}</p>
                     </div>
                     <Badge variant={normalizedStatus === 'completed' ? 'success' : 'warning'} size="sm">
                       {getStatusLabel(item.status)}

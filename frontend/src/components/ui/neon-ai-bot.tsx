@@ -1,8 +1,9 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 
 type FaceState = 'idle' | 'sleepy' | 'hello' | 'thinking' | 'surprise' | 'focus' | 'joy' | 'confidence' | 'creativity' | 'energy'
+type AvatarState = 'idle' | 'greeting' | 'listening' | 'thinking' | 'speaking' | 'attention' | 'error' | 'offline'
 
-export default function NeonAIBot({ size = 64 }: { size?: number }) {
+export default function NeonAIBot({ size = 64, state = 'idle' }: { size?: number; state?: AvatarState }) {
   const gradientId = useId().replace(/:/g, '')
   const botBgId = `bot-bg-${gradientId}`
   const botFaceId = `bot-face-${gradientId}`
@@ -22,6 +23,25 @@ export default function NeonAIBot({ size = 64 }: { size?: number }) {
   const [bubbleText, setBubbleText] = useState('')
   const [bubbleEmoji, setBubbleEmoji] = useState('')
 
+  useEffect(() => {
+    const nextFaceState: Record<AvatarState, FaceState> = {
+      idle: 'idle',
+      greeting: 'hello',
+      listening: 'focus',
+      thinking: 'thinking',
+      speaking: 'joy',
+      attention: 'surprise',
+      error: 'surprise',
+      offline: 'sleepy',
+    };
+    setFaceState(nextFaceState[state]);
+    setIsSleepy(state === 'offline');
+    setIsWaving(state === 'greeting');
+    setPulse(state === 'thinking' || state === 'attention' || state === 'error');
+    setFloat(state === 'greeting' || state === 'speaking');
+    setWave(state === 'greeting');
+  }, [state]);
+
   // Particle positions
   const particles = useMemo(() => 
     Array.from({ length: 8 }).map((_, i) => ({
@@ -36,6 +56,7 @@ export default function NeonAIBot({ size = 64 }: { size?: number }) {
 
   // Basic animations (blink, pulse, float)
   useEffect(() => {
+    if (state !== 'idle') return;
     const blinkTimer = setInterval(() => {
       if (faceState === 'idle') {
         setBlink(true)
@@ -43,115 +64,10 @@ export default function NeonAIBot({ size = 64 }: { size?: number }) {
       }
     }, 3200)
 
-    const pulseTimer = setInterval(() => {
-      setPulse(true)
-      window.setTimeout(() => setPulse(false), 1200)
-    }, 2500)
-
-    const floatTimer = setInterval(() => {
-      setFloat(true)
-      window.setTimeout(() => setFloat(false), 700)
-    }, 4200)
-
-    const waveTimer = setInterval(() => {
-      if (faceState === 'idle') {
-        setWave(true)
-        window.setTimeout(() => setWave(false), 1100)
-      }
-    }, 7000)
-
     return () => {
       clearInterval(blinkTimer)
-      clearInterval(pulseTimer)
-      clearInterval(floatTimer)
-      clearInterval(waveTimer)
     }
-  }, [faceState])
-
-  // Coordinated facial expression system
-  useEffect(() => {
-    const DURATION = 2500 // Duration of each effect
-    const GAP = 10000    // 10 seconds gap between effects
-    let timeoutIds: number[] = []
-    
-    const clearAllTimeouts = () => {
-      timeoutIds.forEach(id => clearTimeout(id))
-      timeoutIds = []
-    }
-
-    const setExpression = (state: FaceState, duration: number, text?: string, emoji?: string) => {
-      if (faceState !== 'idle' && state !== 'idle') return false
-      
-      setFaceState(state)
-      setIsSleepy(state === 'sleepy')
-      setIsWaving(state === 'hello')
-      
-      if (text) {
-        setBubbleText(text)
-        setBubbleEmoji(emoji || '')
-        setShowBubble(true)
-      }
-      
-      const t = window.setTimeout(() => {
-        setFaceState('idle')
-        setIsSleepy(false)
-        setIsWaving(false)
-        setShowBubble(false)
-      }, duration)
-      
-      timeoutIds.push(t)
-      return true
-    }
-
-    // Animation sequence - 10 seconds gap AFTER each effect ends
-    const runSequence = () => {
-      // Calculate start times: each effect starts after previous ends + 10s gap
-      // Effect 1 at 2s, Effect 2 at 2 + 2.5 + 10 = 14.5s, etc.
-      const timings = [
-        2000,                    // 1. Sleepy: starts at 2s
-        2000 + DURATION + GAP,   // 2. Hello: 14.5s
-        2 * (DURATION + GAP) + 2000, // 3. Thinking: 27s
-        3 * (DURATION + GAP) + 2000, // 4. Surprise: 39.5s
-        4 * (DURATION + GAP) + 2000, // 5. Focus: 52s
-        5 * (DURATION + GAP) + 2000, // 6. Joy: 64.5s
-        6 * (DURATION + GAP) + 2000, // 7. Confidence: 77s
-        7 * (DURATION + GAP) + 2000, // 8. Creativity: 89.5s
-        8 * (DURATION + GAP) + 2000, // 9. Energy: 102s
-      ]
-      
-      const expressions: Array<{state: FaceState, text: string, emoji: string}> = [
-        { state: 'sleepy', text: 'Zzz', emoji: '💤' },
-        { state: 'hello', text: 'مرحباً!', emoji: '👋' },
-        { state: 'thinking', text: '...', emoji: '🤔' },
-        { state: 'surprise', text: 'واو!', emoji: '😲' },
-        { state: 'focus', text: 'جاري التحليل...', emoji: '🧐' },
-        { state: 'joy', text: 'رائع!', emoji: '😄' },
-        { state: 'confidence', text: 'تم!', emoji: '💪' },
-        { state: 'creativity', text: 'فكرة جديدة!', emoji: '💡' },
-        { state: 'energy', text: 'هيا!', emoji: '⚡' },
-      ]
-      
-      timings.forEach((time, index) => {
-        const t = window.setTimeout(() => {
-          const expr = expressions[index]
-          setExpression(expr.state, DURATION, expr.text, expr.emoji)
-        }, time)
-        timeoutIds.push(t)
-      })
-    }
-
-    // Total cycle: 102s + 2.5s duration = ~105s
-    const totalCycle = 8 * (DURATION + GAP) + DURATION + 2000
-    
-    const initialDelay = window.setTimeout(runSequence, 1000)
-    const sequenceInterval = setInterval(runSequence, totalCycle)
-    timeoutIds.push(initialDelay)
-
-    return () => {
-      clearInterval(sequenceInterval)
-      clearAllTimeouts()
-    }
-  }, [])
+  }, [faceState, state])
 
   // Eye rendering based on state
   const renderEyes = () => {
@@ -349,6 +265,17 @@ export default function NeonAIBot({ size = 64 }: { size?: number }) {
         transform: float ? 'translateY(-3px)' : 'translateY(0px)',
         transition: 'transform 0.55s ease-out',
         position: 'relative',
+        animation: state === 'idle'
+          ? 'bot-breathe 4.5s ease-in-out infinite'
+          : state === 'thinking'
+            ? 'bot-think 1.8s ease-in-out infinite'
+            : state === 'speaking'
+              ? 'bot-speak 0.9s ease-in-out infinite'
+              : state === 'attention'
+                ? 'bot-attention 0.8s ease-in-out 2'
+                : state === 'error'
+                  ? 'bot-error 0.6s ease-in-out 2'
+                  : 'none',
       }}
       className="relative flex items-center justify-center"
     >
@@ -524,6 +451,32 @@ export default function NeonAIBot({ size = 64 }: { size?: number }) {
         @keyframes energy-zap {
           0%, 100% { opacity: 0; }
           50% { opacity: 1; }
+        }
+
+        @keyframes bot-breathe {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-1px) scale(1.015); }
+        }
+
+        @keyframes bot-think {
+          0%, 100% { transform: translateY(0) rotate(0deg); }
+          50% { transform: translateY(-2px) rotate(-2deg); }
+        }
+
+        @keyframes bot-speak {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-2px); }
+        }
+
+        @keyframes bot-attention {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.06); }
+        }
+
+        @keyframes bot-error {
+          0%, 100% { transform: translateX(0); }
+          35% { transform: translateX(-2px); }
+          70% { transform: translateX(2px); }
         }
 
         .sparkle-star {

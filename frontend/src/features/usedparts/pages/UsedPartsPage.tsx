@@ -456,33 +456,6 @@ export function UsedPartsPage() {
         </Button>
       </div>
 
-      <div className="premium-insight mb-3">
-        <div className="premium-insight-icon"><TrendingUp className="h-3.5 w-3.5" /></div>
-        <div className="premium-insight-copy">
-          <p className="premium-insight-title">تنبيه مخزون القطع المستعملة</p>
-          <p className="premium-insight-text">
-            {lowStockUsedCount > 0
-              ? `يوجد ${lowStockUsedCount} منتج مستعمل عند الحد الأدنى أو أقل ويحتاج إلى إعادة الطلب.`
-              : 'مخزون القطع المستعملة مستقر حاليًا حسب الحدود الدنيا المحددة.'}
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          disabled={lowStockUsedCount === 0}
-          onClick={() => {
-            setShowLowStockOnly(true);
-            setSearchQuery('');
-            setSelectedPartType('');
-            setPage(1);
-          }}
-          className="premium-insight-action"
-        >
-          {lowStockUsedCount > 0 ? 'عرض منخفض المخزون' : 'المخزون مستقر'}
-        </Button>
-      </div>
-
       <div className="mb-4 grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
         <StatCard title="إجمالي القطع" value={usedParts.length} icon={Layers} variant="featured" compact />
         <StatCard title="قيمة البيع" value={formatCurrency(totalSellingValue)} icon={ShoppingCart} variant="success" compact />

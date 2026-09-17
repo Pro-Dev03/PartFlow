@@ -76,6 +76,7 @@ func (s *Service) LogAction(ctx context.Context, userID uuid.UUID, action, entit
 	req := &AuditLogRequest{
 		UserID:      userID,
 		Action:      action,
+		EntityType:  entityType,
 		EntityID:    entityID,
 		Description: description,
 		Status:      status,
@@ -93,6 +94,7 @@ func (s *Service) LogActionWithChanges(ctx context.Context, userID uuid.UUID, ac
 	req := &AuditLogRequest{
 		UserID:      userID,
 		Action:      action,
+		EntityType:  entityType,
 		EntityID:    entityID,
 		Changes:     changesStr,
 		Description: description,
@@ -108,6 +110,7 @@ func (s *Service) LogLogin(ctx context.Context, userID uuid.UUID, ipAddress, use
 	req := &AuditLogRequest{
 		UserID:      userID,
 		Action:      "login",
+		EntityType:  "user",
 		EntityID:    userID,
 		Description: "User logged in",
 		Status:      "success",
@@ -122,6 +125,7 @@ func (s *Service) LogLogout(ctx context.Context, userID uuid.UUID, ipAddress, us
 	req := &AuditLogRequest{
 		UserID:      userID,
 		Action:      "logout",
+		EntityType:  "user",
 		EntityID:    userID,
 		Description: "User logged out",
 		Status:      "success",
@@ -151,6 +155,7 @@ func (s *Service) LogError(ctx context.Context, userID uuid.UUID, action, entity
 	req := &AuditLogRequest{
 		UserID:       userID,
 		Action:       action,
+		EntityType:   entityType,
 		EntityID:     entityID,
 		Description:  description,
 		Status:       "failure",

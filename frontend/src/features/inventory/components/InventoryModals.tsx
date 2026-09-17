@@ -6,6 +6,7 @@ import { Package, Plus, Sparkles, Tag, DollarSign } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { categoriesApi, settingsApi } from '../../../services/api/endpoints';
 import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
+import { formatPrice } from '../../../utils/helpers';
 
 interface InventoryModalsProps {
   isViewModalOpen: boolean;
@@ -78,12 +79,16 @@ export function InventoryModals({
                 <Input value={selectedProduct.sku || ''} disabled />
               </div>
               <div>
+                <label className="text-small font-medium text-text mb-sm block">المورد</label>
+                <Input value={selectedProduct.supplier_name || 'غير محدد'} disabled />
+              </div>
+              <div>
                 <label className="text-small font-medium text-text mb-sm block">سعر التكلفة</label>
-                <Input value={`₪${selectedProduct.costPrice || 0}`} disabled />
+                <Input value={formatPrice(selectedProduct.costPrice || 0)} disabled />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">سعر البيع قبل الضريبة</label>
-                <Input value={`₪${selectedProduct.sellingPrice || 0}`} disabled />
+                <Input value={formatPrice(selectedProduct.sellingPrice || 0)} disabled />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">الضريبة</label>
@@ -95,7 +100,7 @@ export function InventoryModals({
               <div>
                 <label className="text-small font-medium text-text mb-sm block">السعر النهائي للعميل</label>
                 <Input
-                  value={`₪${((Number(selectedProduct.sellingPrice) || 0) * (1 + taxRate / 100)).toFixed(2)}`}
+                  value={formatPrice((Number(selectedProduct.sellingPrice) || 0) * (1 + taxRate / 100))}
                   disabled
                 />
               </div>

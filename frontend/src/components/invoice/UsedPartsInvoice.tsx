@@ -150,6 +150,13 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
     return methodMap[method] || method;
   };
 
+  const formatInvoiceAmount = (value: number | undefined | null) => {
+    const amount = Number(value ?? 0);
+    return Number.isFinite(amount)
+      ? amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+      : '0';
+  };
+
   return (
     <div className="space-y-4">
       {/* Action Buttons */}
@@ -229,7 +236,7 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
             <Layers className="w-5 h-5" />
             تفاصيل المنتجات
           </h3>
-          <table className="w-full border-collapse">
+          <table className="w-full border-collapse text-sm" dir="rtl">
             <thead>
               <tr className="bg-gray-100 border-b-2 border-gray-800">
                 <th className="p-3 text-right">القطعة</th>
@@ -278,9 +285,9 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
                       <div className="text-xs text-gray-600">{getConditionText(item.grade)}</div>
                     )}
                   </td>
-                  <td className="p-3 text-center">{item.quantity}</td>
-                  <td className="p-3 text-center font-semibold">{item.sellingPrice.toFixed(2)} ₪</td>
-                  <td className="p-3 text-center font-bold">{item.total.toFixed(2)} ₪</td>
+                  <td className="whitespace-nowrap p-3 text-center align-middle">{item.quantity}</td>
+                  <td className="whitespace-nowrap p-3 text-center align-middle font-semibold">{formatInvoiceAmount(item.sellingPrice)} ₪</td>
+                  <td className="whitespace-nowrap p-3 text-center align-middle font-bold">{formatInvoiceAmount(item.total)} ₪</td>
                 </tr>
               ))}
             </tbody>
@@ -312,28 +319,28 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
           <div className="space-y-2">
             <div className="flex justify-between border-t-2 border-gray-800 pt-2">
               <span className="font-bold text-lg">الإجمالي:</span>
-              <span className="font-bold text-lg">{saleData.total.toFixed(2)} ₪</span>
+              <span className="font-bold text-lg">{formatInvoiceAmount(saleData.total)} ₪</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600">المدفوع:</span>
-              <span className="font-semibold">{saleData.paidAmount.toFixed(2)} ₪</span>
+              <span className="font-semibold">{formatInvoiceAmount(saleData.paidAmount)} ₪</span>
             </div>
             {(saleData.cashReceived ?? 0) > saleData.paidAmount && (
               <>
                 <div className="flex justify-between">
                   <span className="text-gray-600">المبلغ المستلم:</span>
-                  <span className="font-semibold">{saleData.cashReceived?.toFixed(2)} ₪</span>
+                  <span className="font-semibold">{formatInvoiceAmount(saleData.cashReceived)} ₪</span>
                 </div>
                 <div className="flex justify-between text-green-700">
                   <span className="font-semibold">المردود:</span>
-                  <span className="font-semibold">{(saleData.changeAmount ?? saleData.cashReceived! - saleData.paidAmount).toFixed(2)} ₪</span>
+                  <span className="font-semibold">{formatInvoiceAmount(saleData.changeAmount ?? saleData.cashReceived! - saleData.paidAmount)} ₪</span>
                 </div>
               </>
             )}
             {saleData.remaining > 0 && (
               <div className="flex justify-between text-red">
                 <span className="font-semibold">المتبقي:</span>
-                <span className="font-semibold">{saleData.remaining.toFixed(2)} ₪</span>
+                <span className="font-semibold">{formatInvoiceAmount(saleData.remaining)} ₪</span>
               </div>
             )}
           </div>
@@ -348,7 +355,7 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
               {saleData.paymentAllocations.map((allocation, index) => (
                 <div key={`${allocation.method}-${index}`} className="flex justify-between gap-3">
                   <span>{getPaymentMethodText(allocation.method)}</span>
-                  <span className="font-semibold">{allocation.amount.toFixed(2)} ₪</span>
+                  <span className="font-semibold">{formatInvoiceAmount(allocation.amount)} ₪</span>
                 </div>
               ))}
             </div>
