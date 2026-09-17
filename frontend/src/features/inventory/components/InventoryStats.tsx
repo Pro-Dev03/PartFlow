@@ -1,11 +1,12 @@
 import { StatCard } from '../../../components/ui/stat-card';
 import { Button } from '../../../components/ui/button';
 import { useQuery } from '@tanstack/react-query';
-import { settingsApi } from '../../../services/api/endpoints';
+import { inventoryApi, settingsApi } from '../../../services/api/endpoints';
 import { getButtonSize } from '../../../config/button-sizes';
 import { normalizeCurrencyValue } from '../../../utils';
 import { 
   Package, 
+  PackageOpen,
   TrendingUp, 
   AlertTriangle 
 } from 'lucide-react';
@@ -14,20 +15,31 @@ import { InventoryItem, Product } from '../types/inventory.types';
 interface InventoryStatsProps {
   products: Product[];
   inventoryItems: InventoryItem[];
+  supplierOnly: boolean;
   onRecommendationClick: (action: string) => void;
   isMobile: boolean;
 }
 
-export function InventoryStats({ products, inventoryItems, isMobile }: InventoryStatsProps) {
+export function InventoryStats({ products, inventoryItems, supplierOnly, isMobile }: InventoryStatsProps) {
   const activeStatuses = new Set(['AVAILABLE']);
   const inactiveStatuses = new Set(['SOLD', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
+  const { data: completeInventoryData } = useQuery({
+    queryKey: ['inventory', 'stats', supplierOnly ? 'supplier' : 'general'],
+    queryFn: () => inventoryApi.listWithSupplier({
+      page: 1,
+      per_page: 1000,
+      ...(supplierOnly ? { supplier_only: 'true' } : { exclude_condition: 'USED' }),
+    }),
+    staleTime: 60000,
+  });
   const { data: taxSetting } = useQuery({
     queryKey: ['settings', 'tax_rate'],
     queryFn: () => settingsApi.getSetting('tax_rate'),
     retry: false,
   });
 
-  const normalizedItems = inventoryItems.reduce((acc: Map<string, { stock: number; unitPrice: number; condition: string }>, item: InventoryItem) => {
+  const statsInventoryItems = (completeInventoryData?.data?.items as InventoryItem[]) || inventoryItems;
+  const normalizedItems = statsInventoryItems.reduce((acc: Map<string, { stock: number; unitPrice: number; condition: string }>, item: InventoryItem) => {
     const status = String((item as any).status || '').trim().toUpperCase();
     const productId = String((item as any).product_id || (item as any).product?.id || '').trim();
 
@@ -59,15 +71,15 @@ export function InventoryStats({ products, inventoryItems, isMobile }: Inventory
     return acc;
   }, new Map());
 
-  const visibleProductIds = new Set(products.map((product) => product.id));
   const summaryItems = Array.from(normalizedItems.entries())
-    .filter(([productId, item]) => visibleProductIds.has(productId) && item.condition !== 'USED')
+    .filter(([, item]) => supplierOnly || item.condition !== 'USED')
     .map(([productId, item]) => ({
       ...item,
       minimumStockLevel: Math.max(1, Number(products.find((product) => product.id === productId)?.min_stock_level) || 3),
     }));
 
   const lowStockItems = summaryItems.filter((item) => item.stock > 0 && item.stock <= item.minimumStockLevel).length;
+  const availablePieceCount = summaryItems.reduce((total, item) => total + item.stock, 0);
 
   const totalInventoryValue = summaryItems.reduce((total, item) => total + (item.stock * item.unitPrice), 0);
   const formattedValue = `₪${Math.round(totalInventoryValue).toLocaleString('en-US')}`;
@@ -93,10 +105,17 @@ export function InventoryStats({ products, inventoryItems, isMobile }: Inventory
            className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard 
           title="إجمالي العناصر" 
-          value={products.length}
+          value={summaryItems.length}
           icon={Package}
           subtitle="إجمالي العناصر"
           variant="featured"
+        />
+        <StatCard
+          title="القطع المتاحة"
+          value={<span className="numeric-quantity">{availablePieceCount}</span>}
+          icon={PackageOpen}
+          subtitle="القطع العامة الجاهزة للبيع"
+          variant="success"
         />
         <StatCard 
           title="إجمالي قيمة البيع قبل الضريبة"

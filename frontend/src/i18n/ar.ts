@@ -78,6 +78,7 @@ export const ar = {
     registerSuccess: 'تم إنشاء الحساب بنجاح',
     logoutSuccess: 'تم تسجيل الخروج بنجاح',
     invalidCredentials: 'بيانات الدخول غير صحيحة',
+    connectionError: 'تعذر الاتصال بالخادم. تحقق من تشغيل الخادم واتصال الشبكة ثم حاول مرة أخرى.',
     passwordMismatch: 'كلمات المرور غير متطابقة',
     welcomeBack: 'مرحباً بعودتك',
     signInToAccount: 'سجل الدخول إلى حسابك',

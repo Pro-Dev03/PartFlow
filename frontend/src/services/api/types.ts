@@ -158,6 +158,7 @@ export interface InventoryItem {
 
 export interface InventoryCreateRequest {
   product_id: string;
+  quantity?: number;
   serial_number?: string;
   condition: 'new' | 'used';
   grade?: string;
@@ -166,6 +167,24 @@ export interface InventoryCreateRequest {
   supplier_id?: string;
   part_type_id?: string;
   status?: 'PURCHASED' | 'RECEIVED' | 'AVAILABLE';
+  notes?: string;
+}
+
+export interface OpeningStockCreateRequest {
+  product_id: string;
+  mode: 'quantity' | 'individual';
+  quantity: number;
+  business_date: string;
+  item_code?: string;
+  barcode?: string;
+  serial_number?: string;
+  part_type_id?: string;
+  condition: 'NEW' | 'USED' | 'REFURBISHED' | 'DAMAGED' | 'FOR_PARTS';
+  grade?: string;
+  purchase_cost: number;
+  selling_price: number;
+  supplier_id?: string;
+  customer_id?: string;
   notes?: string;
 }
 
@@ -186,6 +205,8 @@ export interface Sale {
   customer_name?: string;
   total_amount: number;
   paid_amount: number;
+  cash_received?: number;
+  change_amount?: number;
   payment_method: 'cash' | 'card' | 'transfer' | 'debt';
   status: 'completed' | 'pending' | 'cancelled';
   created_at?: string;
@@ -206,10 +227,45 @@ export interface SaleCreateRequest {
   items: SaleItem[];
   payment_method: 'cash' | 'card' | 'transfer' | 'debt';
   payment_amount: number;
+  cash_received?: number;
   total_amount: number;
   tax_exempt?: boolean;
   discount_type?: 'percentage' | 'fixed';
   discount_value?: number;
+  payment_allocations?: PaymentAllocationRequest[];
+  payment_transaction_id?: string;
+}
+
+export interface PaymentAllocationRequest {
+  amount: number;
+  method: 'cash' | 'card' | 'transfer' | 'debt' | 'checks';
+  check_number?: string;
+  bank_name?: string;
+  check_date?: string;
+}
+
+export interface PaymentTransactionCreateRequest {
+  order_id: string;
+  sale_id?: string;
+  amount_minor: number;
+  currency?: string;
+  description?: string;
+  idempotency_key: string;
+  success_url?: string;
+  failure_url?: string;
+  cancel_url?: string;
+}
+
+export interface PaymentTransaction {
+  id: string;
+  order_id?: string;
+  sale_id?: string;
+  provider: string;
+  provider_payment_id?: string;
+  status: 'pending' | 'processing' | 'paid' | 'failed' | 'cancelled' | 'refunded' | 'partially_refunded';
+  amount_minor: number;
+  currency: string;
+  checkout_url?: string;
 }
 
 // Debt Types

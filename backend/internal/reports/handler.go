@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/pkg/middleware"
 )
 
@@ -15,6 +16,13 @@ import (
 type Handler struct {
 	service *Service
 	repo    *Repository
+}
+
+func maxFloat(value, minimum float64) float64 {
+	if value < minimum {
+		return minimum
+	}
+	return value
 }
 
 // NewHandler creates a new report handler
@@ -206,8 +214,12 @@ func parseDate(dateStr string) (time.Time, error) {
 		"01/02/2006",
 	}
 
+	location, err := accounting.StoreLocation()
+	if err != nil {
+		return time.Time{}, err
+	}
 	for _, format := range formats {
-		if t, err := time.Parse(format, dateStr); err == nil {
+		if t, err := time.ParseInLocation(format, dateStr, location); err == nil {
 			return t, nil
 		}
 	}
@@ -219,12 +231,12 @@ func parseDate(dateStr string) (time.Time, error) {
 // Invalid dates are rejected instead of silently falling back to the default
 // range, which could otherwise produce a report for the wrong period.
 func parseReportDateRange(c *gin.Context) (time.Time, time.Time, error) {
-	// Truncate works on the absolute instant (UTC), not the local calendar
-	// day.  That caused the default report window to start at 17:00 on the
-	// previous day for western time zones.  Build boundaries from the local
-	// calendar instead so today's records are always included.
-	now := time.Now()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	location, err := accounting.StoreLocation()
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	now := time.Now().In(location)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 	startDate := todayStart.AddDate(0, -1, 0)
 	endDate := todayStart.AddDate(0, 0, 1)
 
@@ -637,19 +649,25 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 	}
 
 	var purchaseTotals struct {
-		Total float64 `db:"total"`
-		Paid  float64 `db:"paid"`
-		Open  float64 `db:"open"`
+		Total    float64 `db:"total"`
+		Paid     float64 `db:"paid"`
+		Returns  float64 `db:"returns"`
+		Payments float64 `db:"payments"`
+		Open     float64 `db:"open"`
 	}
 	if err := h.repo.db.GetContext(c.Request.Context(), &purchaseTotals,
 		`SELECT COALESCE(SUM(total_amount), 0) AS total,
 		        COALESCE(SUM(paid_amount), 0) AS paid,
-		        COALESCE(SUM(total_amount - paid_amount), 0) AS open
+		        COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE status = 'COMPLETED'), 0) AS returns,
+		        COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS payments,
+		        0 AS open
 		 FROM purchases
 		 WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`); err == nil {
 		reportData["total_purchases"] = purchaseTotals.Total
-		reportData["total_paid"] = purchaseTotals.Paid
-		reportData["total_outstanding"] = purchaseTotals.Open
+		reportData["supplier_return_credits"] = purchaseTotals.Returns
+		reportData["supplier_payments"] = purchaseTotals.Payments
+		reportData["total_paid"] = purchaseTotals.Payments
+		reportData["total_outstanding"] = purchaseTotals.Total - purchaseTotals.Returns - purchaseTotals.Payments
 	} else {
 		reportData["total_purchases"] = 0
 		reportData["total_paid"] = 0
@@ -660,8 +678,8 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 	rows, err := h.repo.db.QueryContext(c.Request.Context(), `
 			SELECT COALESCE(s.name, 'مورد غير معروف'),
 				COALESCE(SUM(p.total_amount), 0),
-				COALESCE(SUM(p.paid_amount), 0),
-				COALESCE(SUM(p.total_amount - p.paid_amount), 0)
+				COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = p.supplier_id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0),
+				COALESCE(SUM(p.total_amount), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = p.supplier_id AND sr.status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = p.supplier_id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0)
 			FROM purchases p
 			LEFT JOIN suppliers s ON s.id = p.supplier_id
 			WHERE LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
@@ -688,13 +706,13 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 	rows, err = h.repo.db.QueryContext(c.Request.Context(),
 		`SELECT s.id, s.name,
 		        COALESCE(SUM(p.total_amount), 0) AS total_purchases,
-		        COALESCE(SUM(p.paid_amount), 0) AS total_paid,
-		        COALESCE(SUM(p.total_amount - p.paid_amount), 0) AS balance
+		        COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) AS total_paid,
+		        COALESCE(SUM(p.total_amount), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = s.id AND sr.status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) AS balance
 				FROM suppliers s
 				JOIN purchases p ON p.supplier_id = s.id
 				WHERE LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY s.id, s.name
-		 HAVING SUM(p.total_amount - p.paid_amount) > 0
+			 HAVING COALESCE(SUM(p.total_amount), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = s.id AND sr.status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) > 0
 		 ORDER BY balance DESC`)
 	if err == nil {
 		defer rows.Close()
@@ -710,7 +728,7 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 			}
 			suppliersWithBalance = append(suppliersWithBalance, map[string]interface{}{
 				"id": id, "name": name, "total_purchases": totalPurchases,
-				"total_paid": totalPaid, "balance": balance,
+				"total_paid": totalPaid, "balance": maxFloat(balance, 0),
 			})
 		}
 		_ = rows.Err()

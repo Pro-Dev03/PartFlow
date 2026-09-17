@@ -80,6 +80,7 @@ export interface Location {
 export interface PartType {
   id: string;
   name: string;
+  name_ar?: string;
   name_en?: string;
   description?: string;
   created_at: string;

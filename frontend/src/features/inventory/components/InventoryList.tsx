@@ -18,6 +18,7 @@ interface InventoryListProps {
   filteredInventoryItems: InventoryItem[];
   productsLoading: boolean;
   inventoryLoading: boolean;
+  inventoryStockMap?: Map<string, number>;
   searchQuery: string;
   onViewProduct: (product: Product) => void;
   onAddPurchase: (product: Product) => void;
@@ -31,6 +32,7 @@ interface InventoryListProps {
   onViewInventoryLedger?: (productId: string) => void;
   pagination?: { page: number; pageSize: number; total: number; onPageChange: (page: number) => void };
   layoutMode: 'cards' | 'table';
+  supplierOnly?: boolean;
 }
 
 interface ActionButtonProps {
@@ -115,6 +117,16 @@ function getStockDisplay(stock: number | undefined, minimumStockLevel?: number):
   return { text: 'متوفر', variant: 'success' };
 }
 
+type ProductStockSection = 'out-of-stock' | 'low-stock' | 'available';
+
+function getProductStockSection(stock: number | undefined, minimumStockLevel?: number): ProductStockSection {
+  if (stock === 0) return 'out-of-stock';
+  if (stock !== undefined && stock > 0 && stock <= Math.max(1, Number(minimumStockLevel) || 3)) {
+    return 'low-stock';
+  }
+  return 'available';
+}
+
 function getInventoryStatusDisplay(status: unknown): { text: string; variant: 'success' | 'warning' | 'danger' | 'secondary' } {
   const labels: Record<string, { text: string; variant: 'success' | 'warning' | 'danger' | 'secondary' }> = {
     AVAILABLE: { text: 'متوفر', variant: 'success' },
@@ -139,6 +151,7 @@ export function InventoryList({
   filteredInventoryItems,
   productsLoading,
   inventoryLoading,
+  inventoryStockMap,
   onViewProduct,
   onAddPurchase,
   onEditProduct,
@@ -151,6 +164,7 @@ export function InventoryList({
   onViewInventoryLedger,
   pagination,
   layoutMode,
+  supplierOnly = false,
 }: InventoryListProps) {
   const getConditionBadge = (condition: string) => {
     const normalized = String(condition || '').trim().toLowerCase();
@@ -164,10 +178,9 @@ export function InventoryList({
     return variants[normalized] || { label: condition || 'غير محدد', variant: 'outline' };
   };
 
-  const displayProducts = filteredProducts;
   const displayInventoryItems = filteredInventoryItems.filter((item: InventoryItem) => {
     const condition = String(item?.condition ?? '').trim().toUpperCase();
-    return condition !== 'USED';
+    return supplierOnly || condition !== 'USED';
   });
   const [inventoryStatusFilter, setInventoryStatusFilter] = useState<'ALL' | 'AVAILABLE' | 'SOLD' | 'REVERSED'>('ALL');
   const visibleInventoryItems = inventoryStatusFilter === 'ALL'
@@ -175,6 +188,11 @@ export function InventoryList({
     : displayInventoryItems.filter((item) => String(item.status || '').toUpperCase() === inventoryStatusFilter);
 
   const getStockValue = (product: any): number | undefined => {
+    const mappedStock = inventoryStockMap?.get(String(product.id));
+    if (mappedStock !== undefined) {
+      return mappedStock;
+    }
+
     const status = String(product.status || '').trim().toUpperCase();
     const inactiveStatuses = new Set(['SOLD', 'RETURNED', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
 
@@ -197,6 +215,17 @@ export function InventoryList({
 
     return value;
   };
+
+  const displayProducts = [...filteredProducts].sort((left, right) => {
+    const sectionOrder: Record<ProductStockSection, number> = {
+      'out-of-stock': 0,
+      'low-stock': 1,
+      available: 2,
+    };
+    const leftSection = getProductStockSection(getStockValue(left), left.min_stock_level);
+    const rightSection = getProductStockSection(getStockValue(right), right.min_stock_level);
+    return sectionOrder[leftSection] - sectionOrder[rightSection];
+  });
 
   return (
     <>
@@ -271,10 +300,9 @@ export function InventoryList({
                           <div className="flex items-center justify-end gap-2">
                             <Button
                               type="button"
-                              variant="primary"
-                              size="sm"
+                              variant="ghost"
+                              size="icon"
                               onClick={() => onViewProduct(product)}
-                              className="h-8 px-2.5 text-[11px]"
                               aria-label="عرض المنتج"
                               title="عرض المنتج"
                             >
@@ -377,10 +405,11 @@ export function InventoryList({
                       <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
                         <Button
                           type="button"
-                          variant="primary"
-                          size="sm"
+                          variant="ghost"
+                          size="icon"
                           onClick={() => onViewProduct(product)}
-                          className="h-8 px-3 text-[11px]"
+                          aria-label={`عرض المنتج ${product.name || ''}`}
+                          title="عرض المنتج"
                         >
                           <Eye className="h-3.5 w-3.5" />
                           عرض
@@ -417,7 +446,7 @@ export function InventoryList({
         <div className="rounded-[12px] border border-border bg-surface shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
           <div className="flex items-center gap-2 border-b border-border px-5 py-4">
             <PackageOpen className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-semibold text-text-primary">عناصر المخزون</h3>
+            <h3 className="text-sm font-semibold text-text-primary">{supplierOnly ? 'مشتريات الموردين' : 'عناصر المخزون'}</h3>
           </div>
 
           <div className="flex flex-wrap gap-2 border-b border-border px-5 py-3" role="tablist" aria-label="أقسام حالات المخزون">
@@ -480,6 +509,7 @@ export function InventoryList({
                           <div className="min-w-0">
                             <div className="truncate font-semibold text-text-primary">{item.product_name || item.product?.name || '-'}</div>
                             <div className="mt-0.5 text-[11px] text-text-tertiary">{item.barcode || item.product?.barcode || '-'}</div>
+                            <div className="mt-0.5 text-[11px] text-text-tertiary">التصنيف: {item.category_name || 'بدون تصنيف'}</div>
                           </div>
                         </TableCell>
                         <TableCell><Badge variant={itemStatus.variant} size="sm">{itemStatus.text}</Badge></TableCell>
@@ -490,7 +520,7 @@ export function InventoryList({
                         <TableCell><Badge variant={condBadge.variant} size="sm">{condBadge.label}</Badge></TableCell>
                         <TableCell className="text-end">
                           <div className="flex items-center justify-end gap-2">
-                            <Button type="button" variant="primary" size="sm" onClick={() => onViewProduct({
+                            <Button type="button" variant="ghost" size="icon" onClick={() => onViewProduct({
                               id: item.id,
                               name: item.product_name || item.product?.name || '-',
                               sku: item.product?.sku || item.sku || item.barcode || '',
@@ -503,7 +533,7 @@ export function InventoryList({
                               categoryName: '',
                               status: item.status || 'AVAILABLE',
                               barcode: item.barcode || '',
-                            } as Product)} className="h-8 px-2.5 text-[11px]" aria-label="عرض العنصر" title="عرض العنصر">
+                            } as Product)} aria-label="عرض العنصر" title="عرض العنصر">
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
                             <RowActionMenu
@@ -570,6 +600,7 @@ export function InventoryList({
                         <div className="min-w-0">
                           <div className="truncate font-semibold text-text-primary">{item.product_name || item.product?.name || '-'}</div>
                           <div className="mt-1 text-[11px] text-text-tertiary">{item.barcode || item.product?.barcode || '-'}</div>
+                          <div className="mt-0.5 text-[11px] text-text-tertiary">التصنيف: {item.category_name || 'بدون تصنيف'}</div>
                         </div>
                         {(() => {
                           const itemStatus = getInventoryStatusDisplay(item.status);

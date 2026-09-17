@@ -49,6 +49,7 @@ type InventoryItem struct {
 	ID           uuid.UUID  `json:"id" db:"id"`
 	ProductID    *uuid.UUID `json:"product_id" db:"product_id"`
 	ProductName  *string    `json:"product_name,omitempty" db:"product_name"`
+	CategoryID   *uuid.UUID `json:"category_id" db:"category_id"`
 	PartTypeID   *uuid.UUID `json:"part_type_id" db:"part_type_id"`
 	ItemCode     *string    `json:"item_code" db:"item_code"`
 	Barcode      *string    `json:"barcode" db:"barcode"`
@@ -60,6 +61,7 @@ type InventoryItem struct {
 	Status       string     `json:"status" db:"status"`
 	LocationID   *uuid.UUID `json:"location_id" db:"location_id"`
 	SupplierID   *uuid.UUID `json:"supplier_id" db:"supplier_id"`
+	CustomerID   *uuid.UUID `json:"customer_id" db:"customer_id"`
 	PurchaseDate *time.Time `json:"purchase_date" db:"purchase_date"`
 	SoldAt       *time.Time `json:"sold_at" db:"sold_at"`
 	Notes        *string    `json:"notes" db:"notes"`
@@ -137,6 +139,8 @@ type InventoryMovement struct {
 	ItemID         *uuid.UUID   `json:"item_id" db:"item_id"`
 	ProductID      *uuid.UUID   `json:"product_id" db:"product_id"`
 	MovementType   MovementType `json:"movement_type" db:"movement_type"`
+	SourceType     string       `json:"source_type" db:"source_type"`
+	BusinessDate   *time.Time   `json:"business_date,omitempty" db:"business_date"`
 	Quantity       int          `json:"quantity" db:"quantity"`
 	BeforeQuantity int          `json:"before_quantity" db:"before_quantity"`
 	AfterQuantity  int          `json:"after_quantity" db:"after_quantity"`
@@ -176,6 +180,7 @@ type Reservation struct {
 // InventoryItemRequest represents inventory item creation/update request
 type InventoryItemRequest struct {
 	ProductID    *uuid.UUID `json:"product_id"`
+	Quantity     int        `json:"quantity"`
 	PartTypeID   *uuid.UUID `json:"part_type_id"`
 	ItemCode     *string    `json:"item_code"`
 	Barcode      *string    `json:"barcode"`
@@ -187,6 +192,7 @@ type InventoryItemRequest struct {
 	Status       Status     `json:"status"`
 	LocationID   *uuid.UUID `json:"location_id"`
 	SupplierID   *uuid.UUID `json:"supplier_id"`
+	CustomerID   *uuid.UUID `json:"customer_id"`
 	Notes        *string    `json:"notes"`
 }
 
@@ -218,6 +224,33 @@ type AdjustmentRequest struct {
 	Reason      *string   `json:"reason"`
 }
 
+// ProductQuantityAdjustmentRequest changes the aggregate quantity for a product.
+type ProductQuantityAdjustmentRequest struct {
+	NewQuantity int     `json:"new_quantity" binding:"min=0"`
+	Reason      *string `json:"reason"`
+}
+
+// OpeningStockRequest records stock that existed before the system started
+// without creating a purchase or supplier relationship.
+type OpeningStockRequest struct {
+	ProductID    *uuid.UUID `json:"product_id" binding:"required"`
+	Mode         string     `json:"mode" binding:"required"`
+	Quantity     int        `json:"quantity" binding:"required"`
+	BusinessDate string     `json:"business_date" binding:"required"`
+	ItemCode     *string    `json:"item_code"`
+	Barcode      *string    `json:"barcode"`
+	SerialNumber *string    `json:"serial_number"`
+	PartTypeID   *uuid.UUID `json:"part_type_id"`
+	Condition    Condition  `json:"condition"`
+	Grade        *Grade     `json:"grade"`
+	PurchaseCost float64    `json:"purchase_cost"`
+	SellingPrice float64    `json:"selling_price"`
+	SupplierID   *uuid.UUID `json:"supplier_id"`
+	CustomerID   *uuid.UUID `json:"customer_id"`
+	LocationID   *uuid.UUID `json:"location_id"`
+	Notes        *string    `json:"notes"`
+}
+
 // TransferRequest represents inventory transfer request
 type TransferRequest struct {
 	ItemID         uuid.UUID `json:"item_id" binding:"required"`
@@ -237,27 +270,30 @@ type ReservationRequest struct {
 
 // InventoryItemWithSupplier represents an inventory item with supplier and product join info
 type InventoryItemWithSupplier struct {
-	ID                uuid.UUID  `json:"id" db:"id"`
-	ProductID         *uuid.UUID `json:"product_id" db:"product_id"`
-	PartTypeID        *uuid.UUID `json:"part_type_id" db:"part_type_id"`
-	ItemCode          *string    `json:"item_code" db:"item_code"`
-	Barcode           *string    `json:"barcode" db:"barcode"`
-	SerialNumber      *string    `json:"serial_number" db:"serial_number"`
-	Condition         string     `json:"condition" db:"condition"`
-	Grade             *string    `json:"grade" db:"grade"`
-	PurchaseCost      float64    `json:"purchase_cost" db:"purchase_cost"`
-	SellingPrice      float64    `json:"selling_price" db:"selling_price"`
-	Status            string     `json:"status" db:"status"`
-	LocationID        *uuid.UUID `json:"location_id" db:"location_id"`
-	SupplierID        *uuid.UUID `json:"supplier_id" db:"supplier_id"`
-	PurchaseDate      *time.Time `json:"purchase_date" db:"purchase_date"`
-	SoldAt            *time.Time `json:"sold_at" db:"sold_at"`
-	Notes             *string    `json:"notes" db:"notes"`
-	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
-	CurrentQuantity   int        `json:"current_quantity" db:"current_quantity"`
-	AvailableQuantity int        `json:"available_quantity" db:"available_quantity"`
-	ProductName       *string    `json:"product_name" db:"product_name"`
-	SupplierName      *string    `json:"supplier_name" db:"supplier_name"`
-	SupplierPhone     *string    `json:"supplier_phone" db:"supplier_phone"`
+	ID                  uuid.UUID  `json:"id" db:"id"`
+	ProductID           *uuid.UUID `json:"product_id" db:"product_id"`
+	CategoryID          *uuid.UUID `json:"category_id" db:"category_id"`
+	PartTypeID          *uuid.UUID `json:"part_type_id" db:"part_type_id"`
+	ItemCode            *string    `json:"item_code" db:"item_code"`
+	Barcode             *string    `json:"barcode" db:"barcode"`
+	SerialNumber        *string    `json:"serial_number" db:"serial_number"`
+	Condition           string     `json:"condition" db:"condition"`
+	Grade               *string    `json:"grade" db:"grade"`
+	PurchaseCost        float64    `json:"purchase_cost" db:"purchase_cost"`
+	SellingPrice        float64    `json:"selling_price" db:"selling_price"`
+	Status              string     `json:"status" db:"status"`
+	LocationID          *uuid.UUID `json:"location_id" db:"location_id"`
+	SupplierID          *uuid.UUID `json:"supplier_id" db:"supplier_id"`
+	PurchaseDate        *time.Time `json:"purchase_date" db:"purchase_date"`
+	SoldAt              *time.Time `json:"sold_at" db:"sold_at"`
+	Notes               *string    `json:"notes" db:"notes"`
+	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at" db:"updated_at"`
+	CurrentQuantity     int        `json:"current_quantity" db:"current_quantity"`
+	AvailableQuantity   int        `json:"available_quantity" db:"available_quantity"`
+	ProductName         *string    `json:"product_name" db:"product_name"`
+	ProductSellingPrice *float64   `json:"product_selling_price,omitempty" db:"product_selling_price"`
+	CategoryName        *string    `json:"category_name" db:"category_name"`
+	SupplierName        *string    `json:"supplier_name" db:"supplier_name"`
+	SupplierPhone       *string    `json:"supplier_phone" db:"supplier_phone"`
 }

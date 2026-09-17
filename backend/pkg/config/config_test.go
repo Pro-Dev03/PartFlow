@@ -57,7 +57,7 @@ func TestLoad_RejectsLocalAuthBypassInReleaseMode(t *testing.T) {
 
 func TestResolveDatabaseURL_LocalModeFallsBackToSQLite(t *testing.T) {
 	t.Setenv("DB_CONNECTION_MODE", "local")
-	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DATABASE_URL", "postgresql://cloud.example.test/postgres")
 	t.Setenv("DATABASE_URL_LOCAL", "")
 	t.Setenv("DATABASE_URL_CLOUD", "")
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", "C:/tmp/partflow-local.db")

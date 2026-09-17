@@ -24,7 +24,7 @@ import {
 
 // Custom hooks
 import { usePurchases } from '../hooks/usePurchases';
-import { purchasesApi } from '../../../services/api/endpoints';
+import { categoriesApi, purchasesApi } from '../../../services/api/endpoints';
 
 // Components
 import { PurchaseStats } from '../components/PurchaseStats';
@@ -82,6 +82,11 @@ export function PurchasesPage() {
     purchaseDetails?.supplier ||
     purchaseDetailsData?.data?.supplier ||
     purchaseDetailsData?.supplier;
+  const { data: categoriesData } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => categoriesApi.list(),
+  });
+  const categories = (categoriesData?.data || categoriesData || []) as Array<{ id: string; name: string }>;
   const purchaseDetailsRemaining =
     purchaseDetails?.remaining ??
     purchaseDetailsData?.data?.remaining ??
@@ -130,20 +135,7 @@ export function PurchasesPage() {
   };
 
   // Handle reverse purchase
-  const handleReversePurchase = async (purchaseId: string) => {
-    try {
-      const response = await purchasesApi.getUsedItemsInfo(purchaseId);
-      const usedItems = Array.isArray(response?.data) ? response.data : [];
-      const soldItems = usedItems.filter((item: any) => Number(item.sold_quantity || 0) > 0);
-      if (soldItems.length > 0) {
-        toast.error('لا يمكن إلغاء عملية الشراء لأن القطعة قد تم بيعها بالفعل.');
-        return;
-      }
-    } catch (error) {
-      console.error('Failed to check purchase items before reversal:', error);
-      toast.error('تعذر التحقق من حالة القطعة. حاول مرة أخرى.');
-      return;
-    }
+  const handleReversePurchase = (purchaseId: string) => {
     setReversalReason('');
     setPurchaseToReverse(purchaseId);
   };
@@ -317,6 +309,11 @@ export function PurchasesPage() {
                             </>
                           )}
                           {normalizedStatus === 'received' && (
+                            <Button variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); navigate(`/app/purchases/edit/${purchase.id}`); }} className="text-text-secondary hover:text-text-primary" title="تعديل الشراء وتحديث المخزون" aria-label="تعديل الشراء وتحديث المخزون">
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {normalizedStatus === 'received' && (
                             <Button variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); void handleReversePurchase(purchase.id); }} className="text-warning hover:text-warning" title="إلغاء عملية الشراء" aria-label="إلغاء عملية الشراء">
                               <RotateCcw className="h-4 w-4" />
                             </Button>
@@ -381,9 +378,8 @@ export function PurchasesPage() {
                           <RotateCcw className="h-4 w-4" />
                         </Button>
                       )}
-                      <Button variant="primary" size="sm" onClick={() => setPurchaseToView(purchase.id)} className="h-8 px-3 text-[11px]">
+                      <Button variant="ghost" size="icon" onClick={() => setPurchaseToView(purchase.id)} aria-label="عرض تفاصيل الشراء" title="عرض تفاصيل الشراء">
                         <Eye className="h-3.5 w-3.5" />
-                        عرض
                       </Button>
                     </div>
                   </div>
@@ -433,7 +429,12 @@ export function PurchasesPage() {
               <div className="space-y-2">
                 {purchaseItems.map((item: any) => (
                   <div key={item.id} className="flex justify-between border-b border-border py-2">
-                    <span>{item.product_name || item.product?.name || 'قطعة'}</span>
+                    <div>
+                      <div>{item.product_name || item.product?.name || 'قطعة'}</div>
+                      <div className="text-xs text-text-muted">
+                        التصنيف: {categories.find((category) => category.id === item.category_id)?.name || 'بدون تصنيف'}
+                      </div>
+                    </div>
                     <span>{item.quantity} × ₪{Number(item.unit_cost || 0).toLocaleString('en-US')}</span>
                   </div>
                 ))}

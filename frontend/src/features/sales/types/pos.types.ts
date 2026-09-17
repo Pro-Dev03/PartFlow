@@ -18,6 +18,14 @@ export interface CartItem {
 
 export type PaymentMethod = 'cash' | 'card' | 'credit' | 'checks';
 
+export interface PaymentAllocation {
+  amount: number;
+  method: PaymentMethod;
+  check_number?: string;
+  bank_name?: string;
+  check_date?: string;
+}
+
 export type ItemInputMethodType = 'barcode' | 'camera' | 'manual';
 
 export interface InvoiceData {
@@ -29,8 +37,11 @@ export interface InvoiceData {
   subtotal: number;
   total: number;
   paidAmount: number;
+  cashReceived?: number;
+  changeAmount?: number;
   remaining: number;
   paymentMethod: PaymentMethod;
+  paymentAllocations?: PaymentAllocation[];
 }
 
 export interface InvoiceItem {

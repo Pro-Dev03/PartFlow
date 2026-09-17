@@ -15,6 +15,7 @@ import { SubscriptionVerificationScreen } from './features/auth/components/Subsc
 import { initializeProductImages } from './services/localProductImages';
 import { initializePartTypeImages } from './services/localPartTypeImages';
 import { initializeCategoryImages } from './services/localCategoryImages';
+import { RegionalProfileLoader } from './components/RegionalProfileLoader';
 
 // Lazy load auth pages separately
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -116,18 +117,12 @@ function App() {
   useEffect(() => {
     const validate = () => {
       void validateSubscriptionWithCloud().then((valid) => {
-        if (!valid && useAuthStore.getState().isAuthenticated) {
-          useAuthStore.getState().logout();
-          window.location.hash = '#/login';
-        }
+        if (!valid) return;
       });
     };
     const handleOffline = () => {
-      const state = useAuthStore.getState();
-      if (state.isAuthenticated) {
-        state.logout();
-      }
-      window.location.hash = '#/login';
+      // Keep the workspace open during a temporary network outage. Cloud
+      // validation resumes on the next online event.
     };
     window.addEventListener('online', validate);
     window.addEventListener('offline', handleOffline);
@@ -170,6 +165,7 @@ function App() {
     <ErrorBoundary>
       <QueryProvider>
         <InitialSyncController />
+        {isAuthenticated && sessionVerified && <RegionalProfileLoader />}
         <Router>
           <PagePreloader />
           <Routes>

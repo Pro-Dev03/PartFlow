@@ -6,6 +6,7 @@ import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { toast } from 'sonner';
+import { formatStoreDate } from '../../../utils/store-time';
 import { 
   ArrowRight,
   RotateCcw,
@@ -245,7 +246,7 @@ export function ReturnDetailsPage() {
             </div>
             <div>
               <p className="text-sm text-gray-400">التاريخ</p>
-              <p className="font-semibold">{new Date(returnItem.return_date).toLocaleDateString('ar-SA')}</p>
+              <p className="font-semibold">{formatStoreDate(returnItem.return_date, 'ar-SA')}</p>
             </div>
             <div>
               <p className="text-sm text-gray-400">نوع المرتجع</p>

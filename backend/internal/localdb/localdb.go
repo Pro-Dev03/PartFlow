@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/accounting"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
@@ -45,12 +46,41 @@ func Open() (*Database, error) {
 		return nil, err
 	}
 
+	if err := restoreProductsWithAvailableInventory(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
 	if err := ensureDefaultOwnerUser(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 
 	return &Database{DB: db, Path: path}, nil
+}
+
+// Keep active inventory usable when an older product deletion left its stock rows behind.
+func restoreProductsWithAvailableInventory(db *sql.DB) error {
+	_, err := db.Exec(`
+		UPDATE products
+		SET deleted_at = NULL,
+		    is_active = 1,
+		    category_id = COALESCE(category_id, (
+			SELECT ii.category_id
+			FROM inventory_items ii
+			WHERE ii.product_id = products.id
+			  AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE'
+			  AND ii.category_id IS NOT NULL
+			LIMIT 1
+		)),
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE deleted_at IS NOT NULL
+		  AND EXISTS (
+			SELECT 1 FROM inventory_items ii
+			WHERE ii.product_id = products.id AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE'
+		  )
+	`)
+	return err
 }
 
 func ensureDefaultOwnerUser(db *sql.DB) error {
@@ -297,13 +327,15 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     selling_price REAL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'AVAILABLE',
     supplier_id TEXT,
+	customer_id TEXT,
     purchase_date TEXT,
     sold_at TEXT,
     notes TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (product_id) REFERENCES products(id),
-    FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+	FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
+	FOREIGN KEY (customer_id) REFERENCES customers(id)
 );
 
 CREATE TABLE IF NOT EXISTS sales (
@@ -314,6 +346,8 @@ CREATE TABLE IF NOT EXISTS sales (
     tax_amount REAL DEFAULT 0,
     discount_amount REAL DEFAULT 0,
     paid_amount REAL DEFAULT 0,
+	cash_received REAL DEFAULT 0,
+	change_amount REAL DEFAULT 0,
     remaining_amount REAL DEFAULT 0,
     payment_method TEXT,
     status TEXT NOT NULL DEFAULT 'completed',
@@ -359,6 +393,7 @@ CREATE TABLE IF NOT EXISTS purchase_items (
     quantity INTEGER NOT NULL,
     unit_price REAL NOT NULL,
     item_total REAL NOT NULL,
+	serial_number TEXT,
     created_at TEXT NOT NULL,
     FOREIGN KEY (purchase_id) REFERENCES purchases(id),
     FOREIGN KEY (product_id) REFERENCES products(id)
@@ -377,6 +412,97 @@ CREATE TABLE IF NOT EXISTS payments (
     FOREIGN KEY (customer_id) REFERENCES customers(id),
     FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
 );
+
+CREATE TABLE IF NOT EXISTS payment_transactions (
+	id TEXT PRIMARY KEY,
+	order_id TEXT,
+	sale_id TEXT,
+	payment_id TEXT,
+	provider TEXT NOT NULL,
+	provider_payment_id TEXT,
+	provider_transaction_id TEXT,
+	status TEXT NOT NULL,
+	amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+	currency TEXT NOT NULL,
+	idempotency_key TEXT NOT NULL,
+	checkout_url TEXT,
+	failure_code TEXT,
+	failure_message TEXT,
+	metadata TEXT NOT NULL DEFAULT '{}',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	paid_at TEXT,
+	cancelled_at TEXT,
+	UNIQUE(provider, idempotency_key),
+	FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE SET NULL,
+	FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_sale ON payment_transactions(sale_id);
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_order ON payment_transactions(order_id);
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_provider_id ON payment_transactions(provider, provider_payment_id);
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_status ON payment_transactions(status);
+
+CREATE TABLE IF NOT EXISTS payment_refunds (
+	id TEXT PRIMARY KEY,
+	payment_transaction_id TEXT NOT NULL,
+	provider_refund_id TEXT,
+	amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+	currency TEXT NOT NULL,
+	status TEXT NOT NULL,
+	idempotency_key TEXT NOT NULL UNIQUE,
+	reason TEXT,
+	failure_message TEXT,
+	created_by TEXT,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	FOREIGN KEY (payment_transaction_id) REFERENCES payment_transactions(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS return_payment_refunds (
+	id TEXT PRIMARY KEY,
+	return_id TEXT NOT NULL UNIQUE,
+	payment_transaction_id TEXT NOT NULL,
+	payment_refund_id TEXT,
+	status TEXT NOT NULL DEFAULT 'pending',
+	amount_minor INTEGER NOT NULL,
+	idempotency_key TEXT NOT NULL UNIQUE,
+	error_message TEXT,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_refunds_transaction ON payment_refunds(payment_transaction_id);
+
+CREATE TABLE IF NOT EXISTS payment_webhook_events (
+	id TEXT PRIMARY KEY,
+	provider TEXT NOT NULL,
+	provider_event_id TEXT NOT NULL,
+	event_type TEXT,
+	payment_transaction_id TEXT,
+	payload TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'received',
+	error_message TEXT,
+	received_at TEXT NOT NULL,
+	processed_at TEXT,
+	UNIQUE(provider, provider_event_id),
+	FOREIGN KEY (payment_transaction_id) REFERENCES payment_transactions(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS sale_payment_allocations (
+	id TEXT PRIMARY KEY,
+	sale_id TEXT NOT NULL,
+	amount REAL NOT NULL CHECK (amount > 0),
+	payment_method TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'pending',
+	check_number TEXT,
+	bank_name TEXT,
+	check_date TEXT,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_sale_payment_allocations_sale ON sale_payment_allocations(sale_id);
 
 CREATE TABLE IF NOT EXISTS debts (
     id TEXT PRIMARY KEY,
@@ -472,28 +598,48 @@ CREATE TABLE IF NOT EXISTS warranty_claims (
 
 CREATE TABLE IF NOT EXISTS supplier_returns (
     id TEXT PRIMARY KEY,
+	customer_return_id TEXT,
+	sale_id TEXT,
     purchase_id TEXT NOT NULL,
     supplier_id TEXT NOT NULL,
     return_number TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL DEFAULT 'PENDING',
+	source_status TEXT NOT NULL DEFAULT 'RESOLVED',
     reason TEXT NOT NULL,
     refund_amount REAL NOT NULL DEFAULT 0,
     notes TEXT,
     created_by TEXT,
+	return_reason TEXT,
+	return_date TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (customer_return_id) REFERENCES returns(id),
+	FOREIGN KEY (sale_id) REFERENCES sales(id),
     FOREIGN KEY (purchase_id) REFERENCES purchases(id),
     FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
 );
 
 CREATE TABLE IF NOT EXISTS supplier_return_items (
     id TEXT PRIMARY KEY,
+	customer_return_id TEXT,
+	sale_id TEXT,
+	sale_item_id TEXT,
+	inventory_item_id TEXT,
     supplier_return_id TEXT NOT NULL,
     purchase_item_id TEXT NOT NULL,
     product_id TEXT NOT NULL,
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     unit_cost REAL NOT NULL,
+	barcode TEXT,
+	serial_number TEXT,
+	purchase_cost REAL DEFAULT 0,
+	return_reason TEXT,
+	return_date TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	FOREIGN KEY (customer_return_id) REFERENCES returns(id),
+	FOREIGN KEY (sale_id) REFERENCES sales(id),
+	FOREIGN KEY (sale_item_id) REFERENCES sale_items(id),
+	FOREIGN KEY (inventory_item_id) REFERENCES inventory_items(id),
     FOREIGN KEY (supplier_return_id) REFERENCES supplier_returns(id),
     FOREIGN KEY (purchase_item_id) REFERENCES purchase_items(id),
     FOREIGN KEY (product_id) REFERENCES products(id)
@@ -622,6 +768,17 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 	for _, statement := range compatibilitySchema {
 		if _, err := db.Exec(statement); err != nil {
 			return fmt.Errorf("initialize compatibility schema: %w", err)
+		}
+	}
+	for _, statement := range []string{
+		`ALTER TABLE sales ADD COLUMN cash_received REAL DEFAULT 0`,
+		`ALTER TABLE sales ADD COLUMN change_amount REAL DEFAULT 0`,
+		`ALTER TABLE inventory_items ADD COLUMN customer_id TEXT`,
+		`ALTER TABLE inventory_movements ADD COLUMN source_type TEXT`,
+		`ALTER TABLE inventory_movements ADD COLUMN business_date TEXT`,
+	} {
+		if _, err := db.Exec(statement); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			return fmt.Errorf("upgrade local schema: %w", err)
 		}
 	}
 	if err := ensureTradeInsInventoryItemNullable(db); err != nil {
@@ -932,6 +1089,16 @@ func dropRetiredAcquisitionColumns(db *sql.DB) error {
 }
 
 func migrateLegacySchema(db *sql.DB) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS sale_payment_allocations (
+		id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, amount REAL NOT NULL CHECK (amount > 0),
+		payment_method TEXT NOT NULL, check_number TEXT, bank_name TEXT, check_date TEXT,
+		created_at TEXT NOT NULL, FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
+	)`); err != nil {
+		return fmt.Errorf("create sale payment allocations table: %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_sale_payment_allocations_sale ON sale_payment_allocations(sale_id)`); err != nil {
+		return fmt.Errorf("create sale payment allocations index: %w", err)
+	}
 	migrations := []struct {
 		tableName  string
 		columnName string
@@ -953,8 +1120,39 @@ func migrateLegacySchema(db *sql.DB) error {
 		{tableName: "inventory_items", columnName: "location_id", columnDef: "location_id TEXT"},
 		{tableName: "inventory_items", columnName: "grade", columnDef: "grade TEXT"},
 		{tableName: "inventory_items", columnName: "part_type_id", columnDef: "part_type_id TEXT"},
+		{tableName: "inventory_items", columnName: "serial_number", columnDef: "serial_number TEXT"},
+		{tableName: "supplier_returns", columnName: "customer_return_id", columnDef: "customer_return_id TEXT"},
+		{tableName: "supplier_returns", columnName: "sale_id", columnDef: "sale_id TEXT"},
+		{tableName: "supplier_returns", columnName: "return_reason", columnDef: "return_reason TEXT"},
+		{tableName: "supplier_returns", columnName: "return_date", columnDef: "return_date TEXT"},
+		{tableName: "supplier_returns", columnName: "source_status", columnDef: "source_status TEXT NOT NULL DEFAULT 'RESOLVED'"},
+		{tableName: "supplier_return_items", columnName: "customer_return_id", columnDef: "customer_return_id TEXT"},
+		{tableName: "supplier_return_items", columnName: "sale_id", columnDef: "sale_id TEXT"},
+		{tableName: "supplier_return_items", columnName: "sale_item_id", columnDef: "sale_item_id TEXT"},
+		{tableName: "supplier_return_items", columnName: "inventory_item_id", columnDef: "inventory_item_id TEXT"},
+		{tableName: "supplier_return_items", columnName: "barcode", columnDef: "barcode TEXT"},
+		{tableName: "supplier_return_items", columnName: "serial_number", columnDef: "serial_number TEXT"},
+		{tableName: "supplier_return_items", columnName: "purchase_cost", columnDef: "purchase_cost REAL DEFAULT 0"},
+		{tableName: "supplier_return_items", columnName: "return_reason", columnDef: "return_reason TEXT"},
+		{tableName: "supplier_return_items", columnName: "return_date", columnDef: "return_date TEXT"},
+		{tableName: "purchase_items", columnName: "barcode", columnDef: "barcode TEXT"},
+		{tableName: "purchase_items", columnName: "serial_number", columnDef: "serial_number TEXT"},
 		{tableName: "inventory_items", columnName: "sold_at", columnDef: "sold_at TEXT"},
 		{tableName: "inventory_items", columnName: "notes", columnDef: "notes TEXT"},
+		{tableName: "inventory_items", columnName: "category_id", columnDef: "category_id TEXT"},
+		{tableName: "inventory_movements", columnName: "item_id", columnDef: "item_id TEXT"},
+		{tableName: "inventory_movements", columnName: "product_id", columnDef: "product_id TEXT"},
+		{tableName: "inventory_movements", columnName: "quantity", columnDef: "quantity INTEGER NOT NULL DEFAULT 0"},
+		{tableName: "inventory_movements", columnName: "before_quantity", columnDef: "before_quantity INTEGER NOT NULL DEFAULT 0"},
+		{tableName: "inventory_movements", columnName: "after_quantity", columnDef: "after_quantity INTEGER NOT NULL DEFAULT 0"},
+		{tableName: "inventory_movements", columnName: "reference_type", columnDef: "reference_type TEXT"},
+		{tableName: "inventory_movements", columnName: "reference_id", columnDef: "reference_id TEXT"},
+		{tableName: "inventory_movements", columnName: "reason", columnDef: "reason TEXT"},
+		{tableName: "inventory_movements", columnName: "created_by", columnDef: "created_by TEXT"},
+		{tableName: "inventory_movements", columnName: "is_reversed", columnDef: "is_reversed INTEGER NOT NULL DEFAULT 0"},
+		{tableName: "inventory_movements", columnName: "reversed_by", columnDef: "reversed_by TEXT"},
+		{tableName: "inventory_movements", columnName: "reversed_at", columnDef: "reversed_at TEXT"},
+		{tableName: "inventory_movements", columnName: "reversal_reason", columnDef: "reversal_reason TEXT"},
 		{tableName: "acquisition_items", columnName: "condition", columnDef: "condition TEXT"},
 		{tableName: "acquisition_items", columnName: "grade", columnDef: "grade TEXT"},
 		{tableName: "acquisition_items", columnName: "unit_cost", columnDef: "unit_cost REAL DEFAULT 0"},
@@ -970,7 +1168,9 @@ func migrateLegacySchema(db *sql.DB) error {
 		{tableName: "sales", columnName: "user_id", columnDef: "user_id TEXT"},
 		{tableName: "sales", columnName: "sale_date", columnDef: "sale_date TEXT"},
 		{tableName: "sales", columnName: "subtotal", columnDef: "subtotal REAL DEFAULT 0"},
-		{tableName: "sales", columnName: "cost_amount", columnDef: "cost_amount REAL DEFAULT 0"},
+		// Keep this nullable so legacy sales continue to use the line-cost
+		// fallback; zero is a valid official stored sale cost.
+		{tableName: "sales", columnName: "cost_amount", columnDef: "cost_amount REAL"},
 		{tableName: "sales", columnName: "gross_profit", columnDef: "gross_profit REAL DEFAULT 0"},
 		{tableName: "sales", columnName: "net_profit", columnDef: "net_profit REAL DEFAULT 0"},
 		{tableName: "sales", columnName: "payment_status", columnDef: "payment_status TEXT DEFAULT 'paid'"},
@@ -1042,6 +1242,8 @@ func migrateLegacySchema(db *sql.DB) error {
 		{tableName: "returns", columnName: "approved_at", columnDef: "approved_at TEXT"},
 		{tableName: "returns", columnName: "internal_notes", columnDef: "internal_notes TEXT"},
 		{tableName: "audit_logs", columnName: "request_id", columnDef: "request_id TEXT"},
+		{tableName: "audit_logs", columnName: "old_values", columnDef: "old_values TEXT"},
+		{tableName: "audit_logs", columnName: "new_values", columnDef: "new_values TEXT"},
 		{tableName: "audit_logs", columnName: "changes", columnDef: "changes TEXT"},
 		{tableName: "audit_logs", columnName: "description", columnDef: "description TEXT"},
 		{tableName: "audit_logs", columnName: "status", columnDef: "status TEXT DEFAULT 'success'"},
@@ -1053,6 +1255,48 @@ func migrateLegacySchema(db *sql.DB) error {
 		if err := ensureColumnExists(db, migration.tableName, migration.columnName, migration.columnDef); err != nil {
 			return err
 		}
+	}
+	if err := allowMissingSupplierReturnSource(db); err != nil {
+		return err
+	}
+	if err := recoverHistoricalSupplierReturns(db); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_returns_customer_return_active
+		ON supplier_returns(customer_return_id)
+		WHERE customer_return_id IS NOT NULL AND status IN ('PENDING', 'SHIPPED', 'RECEIVED')`); err != nil {
+		return fmt.Errorf("create supplier return source index: %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_supplier_returns_source_status ON supplier_returns(source_status)`); err != nil {
+		return fmt.Errorf("create supplier return source status index: %w", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_returns_customer_return_once
+		ON supplier_returns(customer_return_id) WHERE customer_return_id IS NOT NULL`); err != nil {
+		return fmt.Errorf("create supplier return customer return uniqueness index: %w", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_return_items_customer_return_item
+		ON supplier_return_items(customer_return_id, inventory_item_id)
+		WHERE customer_return_id IS NOT NULL AND inventory_item_id IS NOT NULL`); err != nil {
+		return fmt.Errorf("create supplier return item source index: %w", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_return_items_supplier_return_purchase_item
+		ON supplier_return_items(supplier_return_id, purchase_item_id)`); err != nil {
+		return fmt.Errorf("create supplier return item purchase index: %w", err)
+	}
+	if err := normalizeSaleDates(db); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE inventory_items SET category_id = (SELECT category_id FROM products WHERE products.id = inventory_items.product_id) WHERE category_id IS NULL`); err != nil {
+		return err
+	}
+	// Repair the legacy purchase item whose classification predates the inventory
+	// category column and is still available from the purchase workflow.
+	if _, err := db.Exec(`
+		UPDATE inventory_items
+		SET category_id = (SELECT id FROM categories WHERE name = 'GTX 1660 SUPER' LIMIT 1)
+		WHERE item_code = 'ITM-1912f09c-001' AND category_id IS NULL
+	`); err != nil {
+		return err
 	}
 
 	if err := ensureIndexExists(db, "idx_products_preferred_supplier", "products", "preferred_supplier_id"); err != nil {
@@ -1076,6 +1320,179 @@ func migrateLegacySchema(db *sql.DB) error {
 			if !strings.Contains(err.Error(), "already exists") {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func recoverHistoricalSupplierReturns(db *sql.DB) error {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS supplier_return_recovery_runs (id INTEGER PRIMARY KEY CHECK (id = 1), completed_at TEXT NOT NULL)`); err != nil {
+		return fmt.Errorf("create supplier return recovery marker: %w", err)
+	}
+	var completed int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM supplier_return_recovery_runs WHERE id = 1`).Scan(&completed); err != nil {
+		return err
+	}
+	if completed > 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin supplier return recovery: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`
+		INSERT INTO supplier_returns
+			(id, customer_return_id, sale_id, purchase_id, supplier_id, return_number, status, source_status, reason, notes, return_reason, return_date, created_at, updated_at)
+		SELECT lower(printf('%s-%s-%s-%s-%s', substr(hex(randomblob(16)),1,8), substr(hex(randomblob(16)),9,4), substr(hex(randomblob(16)),13,4), substr(hex(randomblob(16)),17,4), substr(hex(randomblob(16)),21,12))), r.id, r.sale_id, pi.purchase_id, p.supplier_id,
+			'SRET-' || upper(substr(replace(r.id, '-', ''), 1, 10)),
+			CASE WHEN pi.id IS NULL OR p.id IS NULL THEN 'NEEDS_SOURCE_DATA' ELSE 'PENDING' END,
+			CASE WHEN pi.id IS NULL OR p.id IS NULL THEN 'NEEDS_SOURCE_DATA' ELSE 'RESOLVED' END,
+			COALESCE(r.reason, 'CUSTOMER_RETURN'), 'Historical recovery', COALESCE(r.reason, 'CUSTOMER_RETURN'),
+			COALESCE(r.return_date, r.created_at), COALESCE(r.created_at, CURRENT_TIMESTAMP), CURRENT_TIMESTAMP
+		FROM returns r
+		LEFT JOIN return_items ri ON ri.return_id = r.id
+		LEFT JOIN sale_items si ON si.id = ri.sale_item_id
+		LEFT JOIN inventory_items ii ON ii.id = ri.inventory_item_id AND ii.id = si.inventory_item_id
+		LEFT JOIN purchase_items pi ON pi.product_id = si.product_id
+			AND (NULLIF(pi.serial_number, '') = NULLIF(ii.serial_number, '')
+			 OR NULLIF(pi.barcode, '') = NULLIF(ii.barcode, '')
+			 OR ii.item_code LIKE 'ITM-' || substr(replace(pi.purchase_id, '-', ''), 1, 8) || '-%')
+		LEFT JOIN purchases p ON p.id = pi.purchase_id
+		WHERE UPPER(COALESCE(r.item_condition_after_return, '')) IN ('RETURN_TO_SUPPLIER', 'SUPPLIER_RETURN')
+		  AND NOT EXISTS (SELECT 1 FROM supplier_returns sr WHERE sr.customer_return_id = r.id)
+		GROUP BY r.id`); err != nil {
+		return fmt.Errorf("recover historical supplier return requests: %w", err)
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO supplier_return_items
+			(id, customer_return_id, sale_id, sale_item_id, inventory_item_id, supplier_return_id, purchase_item_id, product_id, quantity, unit_cost, barcode, serial_number, purchase_cost, return_reason, return_date)
+		SELECT lower(printf('%s-%s-%s-%s-%s', substr(hex(randomblob(16)),1,8), substr(hex(randomblob(16)),9,4), substr(hex(randomblob(16)),13,4), substr(hex(randomblob(16)),17,4), substr(hex(randomblob(16)),21,12))), r.id, r.sale_id, ri.sale_item_id, ri.inventory_item_id, sr.id, pi.id, ri.product_id,
+			COALESCE(ri.quantity_returned, 0), COALESCE(ri.original_cost, ii.purchase_cost, pi.unit_price, 0),
+			COALESCE(NULLIF(ri.barcode, ''), ii.barcode), COALESCE(NULLIF(ri.serial_number, ''), ii.serial_number),
+			COALESCE(ri.original_cost, ii.purchase_cost, pi.unit_price, 0), r.reason, COALESCE(r.return_date, r.created_at)
+		FROM returns r
+		JOIN return_items ri ON ri.return_id = r.id
+		JOIN sale_items si ON si.id = ri.sale_item_id
+		JOIN inventory_items ii ON ii.id = ri.inventory_item_id AND ii.id = si.inventory_item_id
+		JOIN purchase_items pi ON pi.product_id = si.product_id
+		JOIN purchases p ON p.id = pi.purchase_id
+		JOIN supplier_returns sr ON sr.customer_return_id = r.id
+		WHERE sr.source_status = 'RESOLVED'
+		  AND (NULLIF(pi.serial_number, '') = NULLIF(ii.serial_number, '')
+		   OR NULLIF(pi.barcode, '') = NULLIF(ii.barcode, '')
+		   OR ii.item_code LIKE 'ITM-' || substr(replace(pi.purchase_id, '-', ''), 1, 8) || '-%')
+		  AND NOT EXISTS (SELECT 1 FROM supplier_return_items sri WHERE sri.customer_return_id = r.id AND sri.inventory_item_id = ri.inventory_item_id)`); err != nil {
+		return fmt.Errorf("recover historical supplier return items: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO supplier_return_recovery_runs (id, completed_at) VALUES (1, CURRENT_TIMESTAMP)`); err != nil {
+		return fmt.Errorf("record supplier return recovery: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit supplier return recovery: %w", err)
+	}
+	return nil
+}
+
+func allowMissingSupplierReturnSource(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(supplier_returns)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	purchaseRequired, supplierRequired := false, false
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, dataType string
+		var defaultValue interface{}
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == "purchase_id" {
+			purchaseRequired = notNull == 1
+		}
+		if name == "supplier_id" {
+			supplierRequired = notNull == 1
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !purchaseRequired && !supplierRequired {
+		return nil
+	}
+
+	if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		return err
+	}
+	defer db.Exec(`PRAGMA foreign_keys = ON`)
+	statements := []string{
+		`ALTER TABLE supplier_return_items RENAME TO supplier_return_items_legacy`,
+		`ALTER TABLE supplier_returns RENAME TO supplier_returns_legacy`,
+		`CREATE TABLE supplier_returns (
+			id TEXT PRIMARY KEY, customer_return_id TEXT, sale_id TEXT,
+			purchase_id TEXT, supplier_id TEXT, return_number TEXT NOT NULL UNIQUE,
+			status TEXT NOT NULL DEFAULT 'PENDING', source_status TEXT NOT NULL DEFAULT 'RESOLVED',
+			reason TEXT NOT NULL, refund_amount REAL NOT NULL DEFAULT 0, notes TEXT,
+			created_by TEXT, return_reason TEXT, return_date TEXT,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (customer_return_id) REFERENCES returns(id), FOREIGN KEY (sale_id) REFERENCES sales(id),
+			FOREIGN KEY (purchase_id) REFERENCES purchases(id), FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+		)`,
+		`CREATE TABLE supplier_return_items (
+			id TEXT PRIMARY KEY, customer_return_id TEXT, sale_id TEXT, sale_item_id TEXT, inventory_item_id TEXT,
+			supplier_return_id TEXT NOT NULL, purchase_item_id TEXT NOT NULL, product_id TEXT NOT NULL,
+			quantity INTEGER NOT NULL CHECK (quantity > 0), unit_cost REAL NOT NULL, barcode TEXT, serial_number TEXT,
+			purchase_cost REAL DEFAULT 0, return_reason TEXT, return_date TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (supplier_return_id) REFERENCES supplier_returns(id)
+		)`,
+		`INSERT INTO supplier_return_items SELECT id, customer_return_id, sale_id, sale_item_id, inventory_item_id, supplier_return_id, purchase_item_id, product_id, quantity, unit_cost, barcode, serial_number, purchase_cost, return_reason, return_date, created_at FROM supplier_return_items_legacy`,
+		`DROP TABLE supplier_return_items_legacy`,
+		`INSERT INTO supplier_returns (id, customer_return_id, sale_id, purchase_id, supplier_id, return_number, status, source_status, reason, refund_amount, notes, created_by, return_reason, return_date, created_at, updated_at)
+		 SELECT id, customer_return_id, sale_id, purchase_id, supplier_id, return_number, status, COALESCE(source_status, 'RESOLVED'), reason, refund_amount, notes, created_by, return_reason, return_date, created_at, updated_at FROM supplier_returns_legacy`,
+		`DROP TABLE supplier_returns_legacy`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			return fmt.Errorf("allow missing supplier return source: %w", err)
+		}
+	}
+	return nil
+}
+
+func normalizeSaleDates(db *sql.DB) error {
+	rows, err := db.Query(`SELECT id, created_at FROM sales WHERE created_at IS NOT NULL`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	updates := make([]struct{ id, date string }, 0)
+	for rows.Next() {
+		var id, raw string
+		if err := rows.Scan(&id, &raw); err != nil {
+			return err
+		}
+		value := strings.TrimSpace(raw)
+		parsed, parseErr := time.Parse(time.RFC3339Nano, strings.Replace(value, " ", "T", 1))
+		if parseErr != nil {
+			parsed, parseErr = time.Parse("2006-01-02 15:04:05", value)
+		}
+		if parseErr != nil {
+			continue
+		}
+		storeDate, dateErr := accounting.StoreDate(parsed)
+		if dateErr != nil {
+			return dateErr
+		}
+		updates = append(updates, struct{ id, date string }{id: id, date: storeDate})
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, update := range updates {
+		if _, err := db.Exec(`UPDATE sales SET sale_date = ? WHERE id = ?`, update.date, update.id); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1113,6 +1530,9 @@ func SeedLocalSnapshot(db *sql.DB, snapshot map[string]any) error {
 		{key: "products", table: "products"},
 		{key: "inventory", table: "inventory"},
 		{key: "locations", table: "locations"},
+		// sale_items may reference inventory_items, so load inventory items
+		// before sales and their dependent rows.
+		{key: "inventory_items", table: "inventory_items"},
 		{key: "sales", table: "sales"},
 		{key: "sale_items", table: "sale_items"},
 		{key: "purchases", table: "purchases"},
@@ -1138,7 +1558,6 @@ func SeedLocalSnapshot(db *sql.DB, snapshot map[string]any) error {
 		{key: "returns", table: "returns"},
 		{key: "return_items", table: "return_items"},
 		{key: "used_parts", table: "used_parts"},
-		{key: "inventory_items", table: "inventory_items"},
 		{key: "inventory_movements", table: "inventory_movements"},
 		{key: "reservations", table: "reservations"},
 		{key: "barcodes", table: "barcodes"},

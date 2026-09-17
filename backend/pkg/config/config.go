@@ -223,9 +223,9 @@ func ResolveDatabaseURL() (string, string, error) {
 		if url := choose(localCandidates...); url != "" {
 			return url, "local", nil
 		}
-		if primaryURL != "" {
-			return primaryURL, "database_url", nil
-		}
+		// Local mode must never fall back to DATABASE_URL because .env commonly
+		// contains the cloud connection. Falling back would silently bypass the
+		// SQLite-first data policy.
 		return defaultLocalSQLiteURL(), "local", nil
 	case "cloud":
 		if url := choose(cloudCandidates...); url != "" {

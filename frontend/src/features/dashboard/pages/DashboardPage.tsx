@@ -17,6 +17,7 @@ import { SmartActions } from '../components/SmartActions';
 import { InventoryDistribution } from '../../../components/dashboard/InventoryDistribution';
 import { getButtonSize } from '../../../config/button-sizes';
 import { DashboardStats } from '../../../types/api';
+import { addStoreDays, formatStoreDateTime, getStoreDateKey } from '../../../utils/store-time';
 import {
   ShoppingCart,
   DollarSign,
@@ -39,19 +40,7 @@ function getWelcomeKey() {
 }
 
 function formatDashboardActivityTime(value: unknown) {
-  if (!value) return '-';
-  const rawValue = String(value);
-  const parsed = new Date(rawValue.includes('T') ? rawValue : rawValue.replace(' ', 'T'));
-  if (Number.isNaN(parsed.getTime())) return rawValue;
-
-  return new Intl.DateTimeFormat('ar', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).format(parsed);
+  return value ? formatStoreDateTime(String(value), 'ar') : '-';
 }
 
 type PerformancePoint = {
@@ -60,23 +49,13 @@ type PerformancePoint = {
   profit: number;
 };
 
-function formatPerformanceDateKey(value: Date) {
-  return [value.getFullYear(), value.getMonth() + 1, value.getDate()]
-    .map((part) => String(part).padStart(2, '0'))
-    .join('-');
-}
-
 function buildPerformanceChartData(points: PerformancePoint[], days: number) {
   const pointsByDate = new Map(points.map((point) => [point.name, point]));
-  const endDate = new Date();
-  endDate.setHours(0, 0, 0, 0);
-  const startDate = new Date(endDate);
-  startDate.setDate(startDate.getDate() - days + 1);
+  const endDate = getStoreDateKey(new Date()) || '';
+  const startDate = addStoreDays(endDate, -days + 1);
 
   return Array.from({ length: days }, (_, index) => {
-    const date = new Date(startDate);
-    date.setDate(startDate.getDate() + index);
-    const dateKey = formatPerformanceDateKey(date);
+    const dateKey = addStoreDays(startDate, index);
     const point = pointsByDate.get(dateKey);
     return {
       name: dateKey,
@@ -154,19 +133,30 @@ export function DashboardPage() {
 
   const stats = dashboardData?.data as DashboardStats | undefined;
   const chartData = buildPerformanceChartData(stats?.salesChart || [], chartRange);
+  const activeCustomerCount = Number(stats?.activeCustomers ?? 0);
   const lowStockItems = lowStockItemsData?.data || [];
-  const lowStockAlertCount = Math.max(Number(stats?.lowStockCount ?? 0), lowStockItems.length);
-  const overdueDebtItems = overdueDebtsData?.data || [];
+  const lowStockAlertCount = Number(stats?.lowStockCount ?? 0);
+  const todayDay = getStoreDateKey(new Date()) || '';
+  const overdueDebtItems = (overdueDebtsData?.data || []).filter((debt: any) => {
+    const dueDate = debt.due_date || debt.dueDate;
+    const dueDay = dueDate ? String(dueDate).slice(0, 10) : '';
+    return Number(debt.remaining_amount ?? debt.remainingAmount ?? 0) > 0 && dueDay && dueDay < todayDay;
+  });
+  const overdueDebtCount = new Set(
+    overdueDebtItems
+      .map((debt: any) => debt.customer_id || debt.customerId || debt.customer?.id)
+      .filter(Boolean)
+  ).size;
   const debtRows = Array.isArray(debtsData?.data) ? debtsData.data : [];
   const unpaidDebtItems = debtRows
-    .filter((debt: any) => Number(debt.remaining_amount ?? debt.remainingAmount ?? 0) > 0)
+    .filter((debt: any) => {
+      const dueDate = debt.due_date || debt.dueDate;
+      const dueDay = dueDate ? String(dueDate).slice(0, 10) : '';
+      return Number(debt.remaining_amount ?? debt.remainingAmount ?? 0) > 0 && dueDay && dueDay < todayDay;
+    })
     .map((debt: any) => {
       const dueDate = debt.due_date || debt.dueDate;
       const dueDay = dueDate ? String(dueDate).slice(0, 10) : '';
-      const today = new Date();
-      const todayDay = [today.getFullYear(), today.getMonth() + 1, today.getDate()]
-        .map((part) => String(part).padStart(2, '0'))
-        .join('-');
       const daysOverdue = dueDay && dueDay < todayDay
         ? Math.floor((Date.parse(`${todayDay}T00:00:00`) - Date.parse(`${dueDay}T00:00:00`)) / (1000 * 60 * 60 * 24))
         : 0;
@@ -180,7 +170,11 @@ export function DashboardPage() {
     });
   const unpaidDebtorCount = new Set(
     debtRows
-      .filter((debt: any) => Number(debt.remaining_amount ?? debt.remainingAmount ?? 0) > 0)
+      .filter((debt: any) => {
+        const dueDate = debt.due_date || debt.dueDate;
+        const dueDay = dueDate ? String(dueDate).slice(0, 10) : '';
+        return Number(debt.remaining_amount ?? debt.remainingAmount ?? 0) > 0 && dueDay && dueDay < todayDay;
+      })
       .map((debt: any) => debt.customer_id || debt.customer?.id)
       .filter(Boolean)
   ).size;
@@ -222,7 +216,7 @@ export function DashboardPage() {
       <div className="dashboard-s-flow" style={{ marginTop: 'var(--spacing-6)' }}>
         <AttentionSection
           lowStockCount={lowStockAlertCount}
-          overdueDebtsCount={stats?.overdueDebts as number}
+          overdueDebtsCount={overdueDebtCount}
           lowStockItems={lowStockItems}
           overdueDebtItems={overdueDebtItems}
           unpaidDebtsCount={unpaidDebtorCount}
@@ -237,7 +231,7 @@ export function DashboardPage() {
       {/* Priority 3: Today's Performance - أداء اليوم */}
       <div style={{ marginTop: 'var(--spacing-6)' }}>
         <DashboardMetrics 
-         stats={stats ? { ...stats, lowStockCount: lowStockAlertCount } : stats}
+         stats={stats ? { ...stats, lowStockCount: lowStockAlertCount, activeCustomers: activeCustomerCount } : stats}
         />
       </div>
 
@@ -322,7 +316,10 @@ export function DashboardPage() {
                         title={activity.title}
                         description={activity.description}
                         amount={activity.amount}
-                        time={formatDashboardActivityTime(activity.time)}
+                        time={activity.type === 'sale' && activity.sale_date
+                          ? String(activity.sale_date)
+                          : formatDashboardActivityTime(activity.time)}
+                        sellerName={activity.type === 'sale' ? activity.seller_name : undefined}
                         status={activity.status}
                       />
                     ))
@@ -366,7 +363,7 @@ export function DashboardPage() {
 }
 
 // Activity Item Component
-function ActivityItem({ type, title, description, amount, time, status }: any) {
+function ActivityItem({ type, title, description, amount, time, sellerName, status }: any) {
   const getIcon = () => {
     switch (type) {
       case 'sale': return ShoppingCart;
@@ -412,7 +409,9 @@ function ActivityItem({ type, title, description, amount, time, status }: any) {
       </div>
       <div style={{ flex: 1 }}>
         <p style={{ fontSize: 'var(--font-size-secondary)', fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>{title}</p>
-        <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>{description}</p>
+        <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>
+          {type === 'sale' && sellerName ? `بواسطة: ${sellerName}` : description}
+        </p>
       </div>
       <div style={{ textAlign: 'right' }}>
         <p style={{ fontSize: 'var(--font-size-secondary)', fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>{amount}</p>

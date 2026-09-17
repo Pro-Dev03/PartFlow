@@ -16,12 +16,15 @@ import {
   Plus
 } from 'lucide-react'
 import { cn } from '../../../../utils'
-import { PaymentMethod } from '../../types/pos.types'
+import { PaymentAllocation, PaymentMethod } from '../../types/pos.types'
 
 interface SplitPayment {
   id: string
   method: PaymentMethod
   amount: number
+  checkNumber?: string
+  checkBank?: string
+  checkDate?: string
 }
 
 interface AdvancedPaymentPanelProps {
@@ -32,6 +35,9 @@ interface AdvancedPaymentPanelProps {
   total: number
   isProcessing: boolean
   onCheckout: () => void
+  onPaymentAllocationsChange?: (allocations: PaymentAllocation[]) => void
+  electronicPaymentsEnabled?: boolean
+  enabledElectronicMethods?: string[]
   selectedCustomer?: string
   customerBalance?: number
   customerCreditLimit?: number
@@ -68,6 +74,9 @@ export function AdvancedPaymentPanel({
   total,
   isProcessing,
   onCheckout,
+  onPaymentAllocationsChange,
+  electronicPaymentsEnabled = false,
+  enabledElectronicMethods = [],
   selectedCustomer,
   customerBalance = 0,
   customerCreditLimit,
@@ -87,6 +96,25 @@ export function AdvancedPaymentPanel({
   const isCreditSale = paymentMethod === 'credit'
   const isCreditSaleWithoutCustomer = isCreditSale && !selectedCustomer
   const isCreditAdvanceMissing = isCreditSale && paidAmount.trim() === ''
+
+  useEffect(() => {
+    setPaid(parseFloat(paidAmount) || 0)
+  }, [paidAmount])
+
+  useEffect(() => {
+    const allocations: PaymentAllocation[] = isSplitMode
+      ? splitPayments.map((payment) => ({
+          amount: payment.amount,
+          method: payment.method,
+          ...(payment.method === 'checks' ? { check_number: payment.checkNumber, bank_name: payment.checkBank, check_date: payment.checkDate } : {}),
+        }))
+      : [{
+          amount: paid,
+          method: paymentMethod,
+          ...(paymentMethod === 'checks' ? { check_number: checkNumber, bank_name: checkBank, check_date: checkDate } : {}),
+        }]
+    onPaymentAllocationsChange?.(allocations.filter((allocation) => allocation.amount > 0))
+  }, [checkBank, checkDate, checkNumber, isSplitMode, paid, paymentMethod, splitPayments, onPaymentAllocationsChange])
 
   useEffect(() => {
     if (paymentMethod !== 'cash') return
@@ -115,14 +143,21 @@ export function AdvancedPaymentPanel({
     setSplitPayments(splitPayments.filter(p => p.id !== id))
   }
 
-  const updateSplitPayment = (id: string, field: 'method' | 'amount', value: string | number) => {
+  const updateSplitPayment = (
+    id: string,
+    field: 'method' | 'amount' | 'checkNumber' | 'checkBank' | 'checkDate',
+    value: string | number,
+  ) => {
     setSplitPayments(splitPayments.map(p => {
       if (p.id !== id) return p
       if (field === 'method') return { ...p, method: value as PaymentMethod }
-      return { ...p, amount: Number(value) }
+      if (field === 'amount') return { ...p, amount: Number(value) }
+      return { ...p, [field]: String(value) }
     }))
   }
 
+  const hasIncompleteCheck = (paymentMethod === 'checks' && !isSplitMode && !checkNumber.trim()) ||
+    (isSplitMode && splitPayments.some((payment) => payment.method === 'checks' && !payment.checkNumber?.trim()))
   const isCheckoutDisabled =
     isProcessing ||
     total === 0 ||
@@ -130,6 +165,7 @@ export function AdvancedPaymentPanel({
      !isSplitMode && 
      paid < total) ||
     (isSplitMode && splitPayments.reduce((sum, p) => sum + p.amount, 0) < total) ||
+    hasIncompleteCheck ||
     isCreditSaleWithoutCustomer ||
     isCreditAdvanceMissing
 
@@ -165,11 +201,11 @@ export function AdvancedPaymentPanel({
       </div>
 
       {/* Electronic Payments */}
-      {(paymentMethod === 'card') && (
+      {(paymentMethod === 'card' && electronicPaymentsEnabled && enabledElectronicMethods.length > 0) && (
         <div className="payment-section">
           <label className="section-label">الدفع الإلكتروني</label>
           <div className="electronic-methods">
-            {ELECTRONIC_METHODS.map(({ id, label, icon: Icon }) => (
+            {ELECTRONIC_METHODS.filter(({ id }) => enabledElectronicMethods.includes(id)).map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 className={cn('electronic-btn', selectedElectronic === id && 'active')}
@@ -227,6 +263,30 @@ export function AdvancedPaymentPanel({
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
+                {payment.method === 'checks' && (
+                  <div className="split-check-details">
+                    <input
+                      type="text"
+                      placeholder="رقم الشيك"
+                      value={payment.checkNumber || ''}
+                      onChange={(e) => updateSplitPayment(payment.id, 'checkNumber', e.target.value)}
+                      className="check-input"
+                    />
+                    <input
+                      type="text"
+                      placeholder="اسم البنك"
+                      value={payment.checkBank || ''}
+                      onChange={(e) => updateSplitPayment(payment.id, 'checkBank', e.target.value)}
+                      className="check-input"
+                    />
+                    <input
+                      type="date"
+                      value={payment.checkDate || ''}
+                      onChange={(e) => updateSplitPayment(payment.id, 'checkDate', e.target.value)}
+                      className="check-input"
+                    />
+                  </div>
+                )}
               </div>
             ))}
             <button className="add-split-btn" onClick={addSplitPayment}>
@@ -244,7 +304,7 @@ export function AdvancedPaymentPanel({
       </div>
 
       {/* Check Details */}
-      {paymentMethod === 'checks' && (
+      {(paymentMethod === 'checks' || (isSplitMode && splitPayments.some((payment) => payment.method === 'checks'))) && (
         <div className="payment-section">
           <label className="section-label">تفاصيل الشيك</label>
           <div className="check-details">

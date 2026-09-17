@@ -23,6 +23,31 @@ func NewService(repo *Repository, db *sqlx.DB) *Service {
 
 // CreateInventoryItem creates a new inventory item with validation
 func (s *Service) CreateInventoryItem(ctx context.Context, req *InventoryItemRequest, userID uuid.UUID) (*InventoryItem, error) {
+	quantity := req.Quantity
+	if quantity <= 0 {
+		return nil, ErrInvalidQuantity
+	}
+	if quantity > 10000 {
+		return nil, fmt.Errorf("inventory quantity cannot exceed 10000")
+	}
+
+	var firstItem *InventoryItem
+	for index := 0; index < quantity; index++ {
+		singleRequest := *req
+		singleRequest.Quantity = 0
+		item, err := s.createInventoryItem(ctx, &singleRequest, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create inventory quantity at item %d: %w", index+1, err)
+		}
+		if firstItem == nil {
+			firstItem = item
+		}
+	}
+
+	return firstItem, nil
+}
+
+func (s *Service) createInventoryItem(ctx context.Context, req *InventoryItemRequest, userID uuid.UUID) (*InventoryItem, error) {
 	// Validate condition
 	if !isValidCondition(req.Condition) {
 		return nil, ErrInvalidCondition
@@ -109,7 +134,7 @@ func (s *Service) GetInventoryItem(ctx context.Context, id uuid.UUID) (*Inventor
 	return s.repo.GetInventoryItemByID(ctx, id)
 }
 
-func (s *Service) UpdateInventoryItemDetails(ctx context.Context, id uuid.UUID, partTypeID *uuid.UUID, serialNumber, condition, grade *string, purchaseCost, sellingPrice *float64, notes *string) (*InventoryItem, error) {
+func (s *Service) UpdateInventoryItemDetails(ctx context.Context, id uuid.UUID, categoryID, partTypeID *uuid.UUID, serialNumber, condition, grade *string, purchaseCost, sellingPrice *float64, notes *string) (*InventoryItem, error) {
 	item, err := s.repo.GetInventoryItemByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -119,6 +144,9 @@ func (s *Service) UpdateInventoryItemDetails(ctx context.Context, id uuid.UUID, 
 			return nil, fmt.Errorf("purchase cost cannot be negative")
 		}
 		item.PurchaseCost = *purchaseCost
+	}
+	if categoryID != nil {
+		item.CategoryID = categoryID
 	}
 	if partTypeID != nil {
 		item.PartTypeID = partTypeID
@@ -622,6 +650,54 @@ func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, u
 	return nil
 }
 
+// AdjustProductQuantity adjusts a product's aggregate stock without requiring an individual item.
+func (s *Service) AdjustProductQuantity(ctx context.Context, productID uuid.UUID, newQuantity int, reason *string, userID uuid.UUID) error {
+	if newQuantity < 0 {
+		return fmt.Errorf("new quantity cannot be negative")
+	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin product quantity adjustment: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var currentQuantity int
+	if err := tx.GetContext(ctx, &currentQuantity, `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1`, productID); err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to read product quantity: %w", err)
+	}
+	if currentQuantity == newQuantity {
+		return tx.Commit()
+	}
+	quantityDiff := newQuantity - currentQuantity
+	updatedAt := dbutil.NowSQL(s.db)
+	result, err := tx.ExecContext(ctx, fmt.Sprintf(`UPDATE inventory SET quantity = $1, updated_at = %s WHERE product_id = $2`, updatedAt), newQuantity, productID)
+	if err != nil {
+		return fmt.Errorf("failed to update product quantity: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES ($1, $2, $3, %s, %s)`, updatedAt, updatedAt), uuid.New(), productID, newQuantity); err != nil {
+			return fmt.Errorf("failed to create product inventory: %w", err)
+		}
+	}
+	if reason == nil {
+		defaultReason := "Product quantity adjustment"
+		reason = &defaultReason
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO inventory_movements (id, item_id, product_id, movement_type, quantity, before_quantity, after_quantity, reference_type, reference_id, reason, created_by, created_at) VALUES ($1, NULL, $2, 'ADJUSTMENT', $3, $4, $5, 'product_quantity_adjustment', $2, $6, $7, CURRENT_TIMESTAMP)`, uuid.New(), productID, quantityDiff, currentQuantity, newQuantity, reason, userID); err != nil {
+		return fmt.Errorf("failed to record product quantity adjustment: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit product quantity adjustment: %w", err)
+	}
+	committed = true
+	return nil
+}
+
 // TransferItem transfers an item between locations with full automation
 func (s *Service) TransferItem(ctx context.Context, req *TransferRequest, userID uuid.UUID) error {
 	// Start transaction for atomic operation
@@ -754,16 +830,46 @@ func (s *Service) DeleteInventoryItem(ctx context.Context, itemID, userID uuid.U
 	if strings.EqualFold(string(item.Status), string(StatusSold)) {
 		return ErrCannotDeleteSoldItem
 	}
-	if err := s.repo.UpdateItemStatus(ctx, itemID, string(StatusArchived)); err != nil {
-		return err
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin inventory item deletion: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	updatedAt := dbutil.NowSQL(s.db)
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE inventory_items SET status = $1, updated_at = %s WHERE id = $2
+	`, updatedAt), string(StatusArchived), itemID); err != nil {
+		return fmt.Errorf("failed to archive inventory item: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE inventory
+		SET quantity = CASE WHEN COALESCE(quantity, 0) > 0 THEN quantity - 1 ELSE 0 END,
+			updated_at = %s
+		WHERE product_id = $1
+	`, updatedAt), item.ProductID); err != nil {
+		return fmt.Errorf("failed to update inventory quantity: %w", err)
 	}
 	reason := "Inventory item removed from active inventory"
-	return s.repo.CreateMovement(ctx, &InventoryMovement{
-		ID: uuid.New(), ItemID: &itemID, ProductID: item.ProductID,
-		MovementType: MovementAdjustment, Quantity: -1, BeforeQuantity: 1, AfterQuantity: 0,
-		ReferenceType: "inventory_removal", ReferenceID: &itemID, Reason: &reason,
-		CreatedBy: userID, CreatedAt: time.Now(),
-	})
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		INSERT INTO inventory_movements (id, item_id, product_id, movement_type,
+			quantity, before_quantity, after_quantity, reference_type, reference_id,
+			reason, created_by, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, %s)
+	`, updatedAt), uuid.New(), itemID, item.ProductID, MovementAdjustment,
+		-1, 1, 0, "inventory_removal", itemID, reason, userID); err != nil {
+		return fmt.Errorf("failed to create inventory removal movement: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit inventory item deletion: %w", err)
+	}
+	committed = true
+	return nil
 }
 
 // ListInventoryItemsWithSupplierInfo lists inventory items with supplier information

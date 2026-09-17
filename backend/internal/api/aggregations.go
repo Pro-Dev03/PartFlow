@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/aggregations"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
@@ -18,6 +19,18 @@ import (
 // AggregationHandler handles aggregation endpoints (ARCHITECTURE-PRINCIPLES.md)
 type AggregationHandler struct {
 	db *sqlx.DB
+}
+
+func storeLocation() *time.Location {
+	location, err := accounting.StoreLocation()
+	if err != nil {
+		return time.UTC
+	}
+	return location
+}
+
+func storeNow() time.Time {
+	return time.Now().In(storeLocation())
 }
 
 // NewAggregationHandler creates a new aggregation handler
@@ -110,6 +123,61 @@ func (h *AggregationHandler) sqliteProductCostExpression(ctx context.Context) st
 	return "COALESCE(ii.purchase_cost, p.cost_price, p.purchase_price, 0)"
 }
 
+func (h *AggregationHandler) sqliteHasColumns(ctx context.Context, table string, required ...string) bool {
+	rows, err := h.db.QueryxContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	found := make(map[string]bool)
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, dataType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return false
+		}
+		found[strings.ToLower(name)] = true
+	}
+	if err := rows.Err(); err != nil {
+		return false
+	}
+	for _, column := range required {
+		if !found[strings.ToLower(column)] {
+			return false
+		}
+	}
+	return true
+}
+
+// applyOfficialSaleCostSQL keeps aggregation summaries on the same per-sale
+// COGS contract as reports and the dashboard. Legacy rows with NULL
+// cost_amount use line cost; an official zero remains zero.
+func (h *AggregationHandler) applyOfficialSaleCostSQL(ctx context.Context, query string) string {
+	if dbutil.IsSQLite(h.db) && !h.sqliteHasColumns(ctx, "sales", "cost_amount") {
+		return query
+	}
+	query = strings.ReplaceAll(query,
+		`SELECT si.sale_id, SUM(si.quantity) AS total_items, SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)) AS total_cost FROM sale_items si LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id GROUP BY si.sale_id`,
+		`SELECT s2.id AS sale_id, SUM(si.quantity) AS total_items, CASE WHEN s2.cost_amount IS NOT NULL THEN s2.cost_amount ELSE COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) END AS total_cost FROM sales s2 LEFT JOIN sale_items si ON si.sale_id = s2.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id GROUP BY s2.id, s2.cost_amount`)
+	query = strings.ReplaceAll(query,
+		`SELECT si.sale_id, SUM(si.quantity) AS total_items, SUM(si.quantity * COALESCE(p.cost_price, 0)) AS total_cost FROM sale_items si LEFT JOIN products p ON p.id = si.product_id GROUP BY si.sale_id`,
+		`SELECT s2.id AS sale_id, SUM(si.quantity) AS total_items, CASE WHEN s2.cost_amount IS NOT NULL THEN s2.cost_amount ELSE COALESCE(SUM(si.quantity * COALESCE(p.cost_price, 0)), 0) END AS total_cost FROM sales s2 LEFT JOIN sale_items si ON si.sale_id = s2.id LEFT JOIN products p ON p.id = si.product_id GROUP BY s2.id, s2.cost_amount`)
+	query = strings.ReplaceAll(query,
+		`SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost FROM sales s`,
+		`SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount, CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount ELSE COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) END AS total_cost FROM sales s`)
+	query = strings.ReplaceAll(query,
+		`SELECT s.id, s.total_amount - COALESCE(s.tax_amount, 0) AS total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost FROM sales s`,
+		`SELECT s.id, s.total_amount - COALESCE(s.tax_amount, 0) AS total_amount, CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount ELSE COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) END AS total_cost FROM sales s`)
+	query = strings.ReplaceAll(query,
+		`SELECT s.id, s.total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost FROM sales s`,
+		`SELECT s.id, s.total_amount, CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount ELSE COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) END AS total_cost FROM sales s`)
+	query = strings.ReplaceAll(query,
+		`SELECT si.sale_id,SUM(si.quantity*COALESCE(p.cost_price,0)) AS total_cost FROM sale_items si LEFT JOIN products p ON p.id=si.product_id GROUP BY si.sale_id`,
+		`SELECT s2.id AS sale_id, CASE WHEN s2.cost_amount IS NOT NULL THEN s2.cost_amount ELSE COALESCE(SUM(si.quantity*COALESCE(p.cost_price,0)),0) END AS total_cost FROM sales s2 LEFT JOIN sale_items si ON si.sale_id=s2.id LEFT JOIN products p ON p.id=si.product_id GROUP BY s2.id,s2.cost_amount`)
+	return query
+}
+
 func buildDailySalesSummaryQuery() string {
 	return `
 		SELECT
@@ -196,7 +264,7 @@ func buildMonthlySalesSummaryQueryForDB(db *sqlx.DB) string {
 
 // GetDailySalesSummary returns daily sales summary
 func (h *AggregationHandler) GetDailySalesSummary(c *gin.Context) {
-	dateStr := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	dateStr := c.DefaultQuery("date", storeNow().Format("2006-01-02"))
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
@@ -228,7 +296,7 @@ func (h *AggregationHandler) GetDailySalesSummary(c *gin.Context) {
 
 // GetMonthlySalesSummary returns monthly sales summary
 func (h *AggregationHandler) GetMonthlySalesSummary(c *gin.Context) {
-	now := time.Now()
+	now := storeNow()
 	year, month := now.Year(), int(now.Month())
 	if value := c.Query("year"); value != "" {
 		if _, err := fmt.Sscanf(value, "%d", &year); err != nil {
@@ -243,7 +311,7 @@ func (h *AggregationHandler) GetMonthlySalesSummary(c *gin.Context) {
 		}
 	}
 	summary := aggregations.MonthlySalesSummary{Year: year, Month: month}
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, storeLocation())
 	if err := h.refreshSQLiteSummaries(c.Request.Context(), start, start.AddDate(0, 1, -1)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update sales summary"})
 		return
@@ -264,7 +332,7 @@ func (h *AggregationHandler) GetMonthlySalesSummary(c *gin.Context) {
 
 // GetDailyInventorySummary returns daily inventory summary
 func (h *AggregationHandler) GetDailyInventorySummary(c *gin.Context) {
-	dateStr := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	dateStr := c.DefaultQuery("date", storeNow().Format("2006-01-02"))
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
@@ -291,7 +359,7 @@ func (h *AggregationHandler) GetMonthlyInventorySummary(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, storeLocation())
 	end := start.AddDate(0, 1, -1)
 	if err := h.refreshSQLiteSummaries(c.Request.Context(), start, end); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update inventory summary"})
@@ -309,7 +377,7 @@ func (h *AggregationHandler) GetMonthlyInventorySummary(c *gin.Context) {
 
 // GetDailyDebtSummary returns daily debt summary
 func (h *AggregationHandler) GetDailyDebtSummary(c *gin.Context) {
-	dateStr := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	dateStr := c.DefaultQuery("date", storeNow().Format("2006-01-02"))
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
@@ -336,7 +404,7 @@ func (h *AggregationHandler) GetMonthlyDebtSummary(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, storeLocation())
 	end := start.AddDate(0, 1, -1)
 	if err := h.refreshSQLiteSummaries(c.Request.Context(), start, end); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update debt summary"})
@@ -354,7 +422,7 @@ func (h *AggregationHandler) GetMonthlyDebtSummary(c *gin.Context) {
 
 // GetDailyProfitSummary returns daily profit summary
 func (h *AggregationHandler) GetDailyProfitSummary(c *gin.Context) {
-	dateStr := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	dateStr := c.DefaultQuery("date", storeNow().Format("2006-01-02"))
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
@@ -381,7 +449,7 @@ func (h *AggregationHandler) GetMonthlyProfitSummary(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, storeLocation())
 	end := start.AddDate(0, 1, -1)
 	if err := h.refreshSQLiteSummaries(c.Request.Context(), start, end); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profit summary"})
@@ -421,8 +489,8 @@ func (h *AggregationHandler) UpdateAggregations(c *gin.Context) {
 		return
 	}
 
-	startDate := time.Now().AddDate(0, 0, -30)
-	endDate := time.Now()
+	startDate := storeNow().AddDate(0, 0, -30)
+	endDate := storeNow()
 	var err error
 	if req.StartDate != "" {
 		startDate, err = time.Parse("2006-01-02", req.StartDate)
@@ -457,7 +525,7 @@ func (h *AggregationHandler) UpdateAggregations(c *gin.Context) {
 
 // parseAggregationMonth parses optional year/month parameters consistently.
 func parseAggregationMonth(c *gin.Context) (int, int, error) {
-	now := time.Now()
+	now := storeNow()
 	year, month := now.Year(), int(now.Month())
 	if value := c.Query("year"); value != "" {
 		if _, err := fmt.Sscanf(value, "%d", &year); err != nil || year < 2000 || year > 9999 {
@@ -622,12 +690,18 @@ func (h *AggregationHandler) refreshSQLiteSummaries(ctx context.Context, startDa
 	)`); err != nil {
 		return fmt.Errorf("ensure SQLite aggregation dependencies: %w", err)
 	}
-	for day := startDate.Truncate(24 * time.Hour); !day.After(endDate); day = day.AddDate(0, 0, 1) {
+	location := storeLocation()
+	localStart := startDate.In(location)
+	day := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, location)
+	localEnd := endDate.In(location)
+	endDay := time.Date(localEnd.Year(), localEnd.Month(), localEnd.Day(), 0, 0, 0, 0, location)
+	for ; !day.After(endDay); day = day.AddDate(0, 0, 1) {
 		if err := h.refreshSQLiteDay(ctx, day); err != nil {
 			return err
 		}
 	}
-	for month := time.Date(startDate.Year(), startDate.Month(), 1, 0, 0, 0, 0, time.UTC); !month.After(endDate); month = month.AddDate(0, 1, 0) {
+	month := time.Date(localStart.Year(), localStart.Month(), 1, 0, 0, 0, 0, location)
+	for ; !month.After(endDay); month = month.AddDate(0, 1, 0) {
 		if err := h.refreshSQLiteMonth(ctx, month); err != nil {
 			return err
 		}
@@ -678,7 +752,12 @@ func (h *AggregationHandler) sqliteReturnProfitAvailable(ctx context.Context) bo
 // legacy and current schemas used different column names; explicit upserts are
 // deterministic and keep dashboard values tied to the source tables.
 func (h *AggregationHandler) refreshPostgresSummaries(ctx context.Context, startDate, endDate time.Time) error {
-	for day := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, time.UTC); !day.After(endDate); day = day.AddDate(0, 0, 1) {
+	location := storeLocation()
+	localStart := startDate.In(location)
+	day := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, location)
+	localEnd := endDate.In(location)
+	endDay := time.Date(localEnd.Year(), localEnd.Month(), localEnd.Day(), 0, 0, 0, 0, location)
+	for ; !day.After(endDay); day = day.AddDate(0, 0, 1) {
 		date := day.Format("2006-01-02")
 		queries := []string{
 			`INSERT INTO daily_sales_summary (summary_date,date,total_sales,total_revenue,total_profit,total_customers,average_order_value,total_items_sold,cash_sales,card_sales,debt_sales,updated_at)
@@ -700,12 +779,14 @@ func (h *AggregationHandler) refreshPostgresSummaries(ctx context.Context, start
 			if index > 0 {
 				query = strings.Replace(query, "SELECT $1::date,", "SELECT $1::date,$1::date,", 1)
 			}
+			query = h.applyOfficialSaleCostSQL(ctx, query)
 			if _, err := h.db.ExecContext(ctx, query, date); err != nil {
 				return fmt.Errorf("refresh PostgreSQL summaries for %s: %w", date, err)
 			}
 		}
 	}
-	for month := time.Date(startDate.Year(), startDate.Month(), 1, 0, 0, 0, 0, time.UTC); !month.After(endDate); month = month.AddDate(0, 1, 0) {
+	month := time.Date(localStart.Year(), localStart.Month(), 1, 0, 0, 0, 0, location)
+	for ; !month.After(endDay); month = month.AddDate(0, 1, 0) {
 		year, monthNumber := month.Year(), int(month.Month())
 		next := month.AddDate(0, 1, 0).Format("2006-01-02")
 		start := month.Format("2006-01-02")
@@ -780,7 +861,8 @@ func (h *AggregationHandler) refreshSQLiteDay(ctx context.Context, day time.Time
 			`, []any{date, date, date}}
 	}
 	for _, item := range queries {
-		query := strings.ReplaceAll(item.query, "date(COALESCE(s.sale_date, s.created_at))", saleDateExpr)
+		query := h.applyOfficialSaleCostSQL(ctx, item.query)
+		query = strings.ReplaceAll(query, "date(COALESCE(s.sale_date, s.created_at))", saleDateExpr)
 		query = strings.ReplaceAll(query, "COALESCE(s.tax_amount, 0)", saleTaxExpr)
 		query = strings.ReplaceAll(query, "COALESCE(ii.purchase_cost, p.cost_price, 0)", productCostExpr)
 		query = strings.ReplaceAll(query, "p.cost_price", productPriceRef)
@@ -817,7 +899,7 @@ func (h *AggregationHandler) refreshSQLiteMonth(ctx context.Context, month time.
 			SELECT ?, ?, COALESCE(SUM(CASE WHEN date(created_at) < ? AND remaining_amount > 0 THEN remaining_amount ELSE 0 END), 0), COALESCE(SUM(CASE WHEN date(created_at) >= ? AND date(created_at) < ? THEN amount ELSE 0 END), 0), COALESCE((SELECT SUM(amount) FROM payments WHERE customer_id IS NOT NULL AND date(created_at) >= ? AND date(created_at) < ?), 0), COALESCE(SUM(CASE WHEN due_date < ? AND remaining_amount > 0 THEN remaining_amount ELSE 0 END), 0), COALESCE(SUM(CASE WHEN due_date < ? AND remaining_amount > 0 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN remaining_amount <= 0 AND date(updated_at) >= ? AND date(updated_at) < ? THEN amount ELSE 0 END), 0), CURRENT_TIMESTAMP FROM debts
 			`, []any{year, monthNumber, end, start, end, start, end, end, end, start, end}},
 		{`INSERT OR REPLACE INTO monthly_profit_summary (year, month, gross_profit, net_profit, total_revenue, total_cost, profit_margin, updated_at)
-			WITH sale_costs AS (SELECT s.id, s.total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) >= ? AND date(COALESCE(s.sale_date, s.created_at)) < ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) >= ? AND date(expense_date) < ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')), returns_total AS (SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded, COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost FROM returns r JOIN return_items ri ON ri.return_id = r.id LEFT JOIN sale_items si ON si.id = ri.sale_item_id LEFT JOIN products p ON p.id = ri.product_id WHERE date(r.return_date) >= ? AND date(r.return_date) < ? AND upper(COALESCE(r.status, '')) = 'COMPLETED')
+			WITH sale_costs AS (SELECT s.id, s.total_amount - COALESCE(s.tax_amount, 0) AS total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) >= ? AND date(COALESCE(s.sale_date, s.created_at)) < ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) >= ? AND date(expense_date) < ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')), returns_total AS (SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded, COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost FROM returns r JOIN return_items ri ON ri.return_id = r.id LEFT JOIN sale_items si ON si.id = ri.sale_item_id LEFT JOIN products p ON p.id = ri.product_id WHERE date(r.return_date) >= ? AND date(r.return_date) < ? AND upper(COALESCE(r.status, '')) = 'COMPLETED')
 			SELECT ?, ?, totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost, totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost - expenses_total.amount, totals.revenue - returns_total.refunded, totals.cost - returns_total.returned_cost, CASE WHEN totals.revenue - returns_total.refunded = 0 THEN 0 ELSE ((totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost - expenses_total.amount) / (totals.revenue - returns_total.refunded)) * 100 END, CURRENT_TIMESTAMP FROM totals, expenses_total, returns_total
 			`, []any{start, end, start, end, start, end, year, monthNumber}},
 	}
@@ -828,12 +910,13 @@ func (h *AggregationHandler) refreshSQLiteMonth(ctx context.Context, month time.
 			query string
 			args  []any
 		}{`INSERT OR REPLACE INTO monthly_profit_summary (year, month, gross_profit, net_profit, total_revenue, total_cost, profit_margin, updated_at)
-			WITH sale_costs AS (SELECT s.id, s.total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) >= ? AND date(COALESCE(s.sale_date, s.created_at)) < ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) >= ? AND date(expense_date) < ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed'))
+			WITH sale_costs AS (SELECT s.id, s.total_amount - COALESCE(s.tax_amount, 0) AS total_amount, COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id WHERE date(COALESCE(s.sale_date, s.created_at)) >= ? AND date(COALESCE(s.sale_date, s.created_at)) < ? AND lower(COALESCE(s.status, 'completed')) = 'completed' GROUP BY s.id), totals AS (SELECT COALESCE(SUM(total_amount), 0) AS revenue, COALESCE(SUM(total_cost), 0) AS cost FROM sale_costs), expenses_total AS (SELECT COALESCE(SUM(amount), 0) AS amount FROM expenses WHERE date(expense_date) >= ? AND date(expense_date) < ? AND lower(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed'))
 			SELECT ?, ?, totals.revenue - totals.cost, totals.revenue - totals.cost - expenses_total.amount, totals.revenue, totals.cost, CASE WHEN totals.revenue = 0 THEN 0 ELSE ((totals.revenue - totals.cost - expenses_total.amount) / totals.revenue) * 100 END, CURRENT_TIMESTAMP FROM totals, expenses_total
 			`, []any{start, end, start, end, year, monthNumber}}
 	}
 	for _, item := range queries {
-		query := strings.ReplaceAll(item.query, "date(COALESCE(s.sale_date, s.created_at))", saleDateExpr)
+		query := h.applyOfficialSaleCostSQL(ctx, item.query)
+		query = strings.ReplaceAll(query, "date(COALESCE(s.sale_date, s.created_at))", saleDateExpr)
 		query = strings.ReplaceAll(query, "COALESCE(s.tax_amount, 0)", saleTaxExpr)
 		query = strings.ReplaceAll(query, "COALESCE(ii.purchase_cost, p.cost_price, 0)", productCostExpr)
 		query = strings.ReplaceAll(query, "p.cost_price", productPriceRef)

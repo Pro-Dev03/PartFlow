@@ -157,8 +157,9 @@ type CreateDebtCollectionRequest struct {
 
 // ProcessDebtPaymentRequest represents request to process debt payment
 type ProcessDebtPaymentRequest struct {
-	Amount float64 `json:"amount" binding:"required,gt=0"`
-	Method string  `json:"method" binding:"required"`
+	Amount    float64 `json:"amount" binding:"required,gt=0"`
+	Method    string  `json:"method" binding:"required"`
+	Reference *string `json:"reference,omitempty"`
 }
 
 // PaymentReceiptRequest represents request to generate payment receipt

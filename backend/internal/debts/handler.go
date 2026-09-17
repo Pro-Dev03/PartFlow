@@ -11,12 +11,21 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
+	"github.com/partflow/smart-store/internal/dashboard"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 type Handler struct {
 	db    *sqlx.DB
 	cache *debtsCache
+}
+
+type DebtSummary struct {
+	TotalDebt       float64 `json:"total_debt" db:"total_debt"`
+	PaidAmount      float64 `json:"paid_amount" db:"paid_amount"`
+	RemainingAmount float64 `json:"remaining_amount" db:"remaining_amount"`
+	CustomerCount   int     `json:"customer_count" db:"customer_count"`
 }
 
 type debtsCache struct {
@@ -52,6 +61,22 @@ func NewHandler(db *sqlx.DB) *Handler {
 	}
 }
 
+func (h *Handler) loadDebtSummary() (DebtSummary, error) {
+	query := `
+		SELECT
+			COALESCE(SUM(amount), 0) AS total_debt,
+			COALESCE(SUM(CASE WHEN amount > COALESCE(remaining_amount, 0) THEN amount - COALESCE(remaining_amount, 0) ELSE 0 END), 0) AS paid_amount,
+			COALESCE(SUM(COALESCE(remaining_amount, 0)), 0) AS remaining_amount,
+			COUNT(DISTINCT CASE WHEN COALESCE(remaining_amount, 0) > 0 THEN customer_id END) AS customer_count
+		FROM debts
+	`
+	var summary DebtSummary
+	if err := h.db.Get(&summary, query); err != nil {
+		return DebtSummary{}, fmt.Errorf("failed to load debt summary: %w", err)
+	}
+	return summary, nil
+}
+
 // RegisterRoutes registers debt routes
 func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	debts := router.Group("/debts")
@@ -72,6 +97,11 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 func (h *Handler) ListDebts(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	summary, err := h.loadDebtSummary()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	offset := (page - 1) * perPage
 	if dbutil.IsSQLite(h.db) {
@@ -104,7 +134,7 @@ func (h *Handler) ListDebts(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		response := gin.H{"success": true, "data": data, "meta": gin.H{"page": page, "per_page": perPage, "total": total}}
+		response := gin.H{"success": true, "data": data, "meta": gin.H{"page": page, "per_page": perPage, "total": total, "summary": summary}}
 		c.JSON(http.StatusOK, response)
 		return
 	}
@@ -172,6 +202,7 @@ func (h *Handler) ListDebts(c *gin.Context) {
 			"page":     page,
 			"per_page": perPage,
 			"total":    total,
+			"summary":  summary,
 		},
 	}
 
@@ -271,6 +302,7 @@ func (h *Handler) CreateDebt(c *gin.Context) {
 		return
 	}
 	h.cache.set(nil, 0)
+	dashboard.InvalidateDashboardCache()
 
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
@@ -319,6 +351,7 @@ func (h *Handler) UpdateDebt(c *gin.Context) {
 		return
 	}
 	h.cache.set(nil, 0)
+	dashboard.InvalidateDashboardCache()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -340,6 +373,7 @@ func (h *Handler) DeleteDebt(c *gin.Context) {
 		return
 	}
 	h.cache.set(nil, 0)
+	dashboard.InvalidateDashboardCache()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -430,15 +464,20 @@ func (h *Handler) GetOverdueDebts(c *gin.Context) {
 		return
 	}
 	if dbutil.IsSQLite(h.db) {
+		storeDate, err := accounting.StoreDate(time.Now())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		var rows []struct {
 			ID, CustomerID, CustomerName, DueDate, CreatedAt string
 			Amount, RemainingAmount                          float64
 			DaysOverdue                                      int
 		}
 		query := `SELECT d.id, d.customer_id, c.name AS customer_name, d.amount, d.remaining_amount, d.due_date,
-			CAST(julianday('now') - julianday(d.due_date) AS INTEGER) AS days_overdue, d.created_at
-			FROM debts d JOIN customers c ON d.customer_id = c.id WHERE date(d.due_date) < date('now') AND d.remaining_amount > 0 ORDER BY d.due_date ASC`
-		if err := h.db.Select(&rows, query); err != nil {
+			CAST(julianday(?) - julianday(substr(d.due_date, 1, 10)) AS INTEGER) AS days_overdue, d.created_at
+			FROM debts d JOIN customers c ON d.customer_id = c.id WHERE date(substr(d.due_date, 1, 10)) < date(?) AND d.remaining_amount > 0 ORDER BY d.due_date ASC`
+		if err := h.db.Select(&rows, query, storeDate, storeDate); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -465,14 +504,19 @@ func (h *Handler) GetOverdueDebts(c *gin.Context) {
 
 	query := `
 		SELECT d.id, d.customer_id, c.name as customer_name, d.amount, d.remaining_amount,
-		       d.due_date, (CURRENT_DATE - d.due_date) as days_overdue, d.created_at
+		       d.due_date, ($1::date - d.due_date::date) as days_overdue, d.created_at
 		FROM debts d
 		JOIN customers c ON d.customer_id = c.id
-		WHERE d.due_date < CURRENT_DATE AND d.remaining_amount > 0
+		WHERE d.due_date < $1::date AND d.remaining_amount > 0
 		ORDER BY d.due_date ASC
 	`
 
-	rows, err := h.db.Query(query)
+	storeDate, err := accounting.StoreDate(time.Now())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	rows, err := h.db.Query(query, storeDate)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -528,15 +572,27 @@ func (h *Handler) GetDebtSummary(c *gin.Context) {
 		SELECT 
 			COALESCE(SUM(amount), 0) as total_debts,
 			COALESCE(SUM(remaining_amount), 0) as total_remaining,
-			COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE AND remaining_amount > 0 THEN remaining_amount ELSE 0 END), 0) as overdue_debts,
-			COUNT(CASE WHEN due_date < CURRENT_DATE AND remaining_amount > 0 THEN 1 END) as overdue_count,
+			COALESCE(SUM(CASE WHEN due_date < $1::date AND remaining_amount > 0 THEN remaining_amount ELSE 0 END), 0) as overdue_debts,
+			COUNT(CASE WHEN due_date < $1::date AND remaining_amount > 0 THEN 1 END) as overdue_count,
 			COALESCE(SUM(CASE WHEN status = 'pending' THEN remaining_amount ELSE 0 END), 0) as pending_debts,
 			COALESCE(SUM(CASE WHEN remaining_amount = 0 THEN amount ELSE 0 END), 0) as paid_debts
 		FROM debts
 	`
 
-	row := h.db.QueryRow(query)
-	err := row.Scan(&summary.TotalDebts, &summary.TotalRemaining, &summary.OverdueDebts, &summary.OverdueCount, &summary.PendingDebts, &summary.PaidDebts)
+	storeDate, err := accounting.StoreDate(time.Now())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if dbutil.IsSQLite(h.db) {
+		query = strings.ReplaceAll(query, "$1::date", "date(?)")
+	}
+	args := []any{storeDate}
+	if dbutil.IsSQLite(h.db) {
+		args = []any{storeDate, storeDate}
+	}
+	row := h.db.QueryRow(query, args...)
+	err = row.Scan(&summary.TotalDebts, &summary.TotalRemaining, &summary.OverdueDebts, &summary.OverdueCount, &summary.PendingDebts, &summary.PaidDebts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -597,6 +653,7 @@ func (h *Handler) AddPayment(c *gin.Context) {
 			return
 		}
 		h.cache.set(nil, 0)
+		dashboard.InvalidateDashboardCache()
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "payment added successfully"})
 		return
 	}
@@ -643,6 +700,7 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	dashboard.InvalidateDashboardCache()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

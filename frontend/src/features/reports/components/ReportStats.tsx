@@ -21,7 +21,7 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
           ['قيمة البيع المتوقعة', value(report.valuation?.total_retail_with_tax ?? report.valuation?.total_retail), DollarSign, 'للمخزون الجاهز للبيع شامل الضريبة', 'success'],
           ['الربح المحتمل', value(report.valuation?.potential_profit), TrendingUp, 'قبل البيع', 'success'],
           ['منخفض المخزون', count(report.low_stock_items?.length), AlertTriangle, 'منتجات تحتاج إعادة طلب', 'warning'],
-          ['راكد', count(report.stagnant_items?.length), AlertTriangle, 'بدون حركة 30 يومًا', 'danger'],
+          ['بضاعة بلا حركة', count(report.stagnant_items?.length), AlertTriangle, 'لم تُبع منذ 30 يومًا أو أكثر', 'danger'],
         ];
       case 'products':
         return [
@@ -32,7 +32,7 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
       case 'debts':
         return [
           ['إجمالي الديون الأصلية', value(report.total_debt), DollarSign, 'قيمة الدين قبل التحصيل', 'featured'],
-          ['المحصّل', value(report.total_paid), DollarSign, 'ما تم تحصيله من المدينين', 'success'],
+          ['تم السداد', value(report.total_paid), DollarSign, 'إجمالي المبلغ الذي سدده العملاء', 'success'],
           ['غير مسدد', value(report.outstanding), DollarSign, 'المبلغ المتبقي على العملاء', 'warning'],
           ['متأخر', value(report.overdue_debt), AlertTriangle, 'يحتاج متابعة', 'danger'],
         ];

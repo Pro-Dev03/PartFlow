@@ -13,6 +13,7 @@ interface DashboardMetricsProps {
     todayExpenses?: number;
     todayCashDifference?: number;
     outstandingDebts?: number;
+    outstandingDebtorCount?: number;
     activeCustomers?: number;
     lowStockCount?: number;
   };
@@ -32,7 +33,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
   const todayCashDifference = Number(stats?.todayCashDifference ?? 0);
   const profitMargin = stats?.profitMargin;
   const outstandingDebts = Number(stats?.outstandingDebts ?? 0);
-  const activeCustomers = Number(stats?.activeCustomers ?? 0);
+  const outstandingDebtorCount = Number(stats?.outstandingDebtorCount ?? 0);
   // The attention card and this metric must use the same live product count.
   const lowStockCount = stats?.lowStockCount ?? 0;
 
@@ -67,8 +68,8 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
             trend={stats?.profitTrend}
             trendUp={stats?.profitTrendUp}
             subtitle={profitMargin
-              ? `بعد الخصم - هامش الربح: ${profitMargin}%`
-              : 'بعد خصم تكلفة المنتجات والمصاريف والمرتجعات'}
+              ? `المبيعات - التكلفة - المصروفات - المرتجعات | هامش الربح: ${profitMargin}%`
+              : 'المبيعات - تكلفة المنتجات - المصروفات - المرتجعات + تكلفة المرتجعات'}
             onClick={() => navigate('/app/reports?report=profit')}
           />
           <StatCard
@@ -77,7 +78,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
             icon={AlertTriangle}
             trend={stats?.debtsTrend}
             trendUp={stats?.debtsTrendUp}
-            subtitle={<span className="numeric-quantity">{activeCustomers} عميل</span>}
+            subtitle={<span className="numeric-quantity">{outstandingDebtorCount} عميل</span>}
             variant="warning"
             onClick={() => navigate('/app/debts')}
           />
@@ -125,10 +126,10 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
             onClick={() => navigate('/app/purchases')}
           />
           <StatCard
-            title="المصروفات المدفوعة اليوم"
+            title="المصروفات المحاسبية اليوم"
             value={<span className="numeric-metric">₪{formatCurrency(todayExpenses)}</span>}
             icon={DollarSign}
-            subtitle="مصروفات التشغيل المسجلة"
+            subtitle="مصروفات معتمدة داخلة في الربح، دون إثبات دفع نقدي"
             variant="warning"
             onClick={() => navigate('/app/expenses')}
           />

@@ -64,14 +64,30 @@ export function PurchaseDetailsPage() {
               <p className="mt-3 text-xs text-text-muted">Purchase تاريخية بالقيمة الإجمالية؛ صافي رصيد المورد يحسب المرتجعات والدفعات على مستوى الحساب.</p>
             </div>
             <div>
-              <h2 className="font-semibold mb-3">القطع</h2>
-              <div className="space-y-2">
-                {items.map((item: any) => (
-                  <div key={item.id} className="flex justify-between border-b border-border py-2">
-                    <span>{item.product_name || item.product?.name || 'قطعة'}</span>
-                    <span>{item.quantity} × ₪{Number(item.unit_cost || 0).toLocaleString('en-US')}</span>
+              <h2 className="font-semibold mb-3">تفاصيل العناصر</h2>
+              <div className="overflow-x-auto rounded border border-border">
+                <div className="min-w-[640px]">
+                  <div className="grid grid-cols-4 gap-4 border-b border-border bg-surface-muted px-4 py-3 text-sm font-semibold text-text-muted">
+                    <span>المنتج</span>
+                    <span>الكمية في الفاتورة</span>
+                    <span>سعر الوحدة</span>
+                    <span>إجمالي العنصر</span>
                   </div>
-                ))}
+                  {items.map((item: any) => {
+                    const quantity = Number(item.quantity || 0);
+                    const unitCost = Number(item.unit_cost || 0);
+                    const itemTotal = quantity * unitCost;
+
+                    return (
+                      <div key={item.id} className="grid grid-cols-4 gap-4 border-b border-border px-4 py-3 last:border-b-0">
+                        <span>{item.product_name || item.product?.name || 'قطعة'}</span>
+                        <span>{quantity.toLocaleString('en-US')}</span>
+                        <span>₪{unitCost.toLocaleString('en-US')}</span>
+                        <span className="font-semibold">₪{itemTotal.toLocaleString('en-US')}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </CardContent>

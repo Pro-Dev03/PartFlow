@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -25,6 +26,7 @@ func (r *Repository) CreateAuditLog(ctx context.Context, auditLog *AuditLog) err
 	if auditLog.ID == uuid.Nil {
 		auditLog.ID = uuid.New()
 	}
+	auditLog.CreatedAt = auditLog.CreatedAt.Round(0)
 	query := `
 		INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id,
 			ip_address, user_agent, request_id, changes, description, status, error_message, metadata, created_at)
@@ -48,7 +50,8 @@ func (r *Repository) CreateAuditLog(ctx context.Context, auditLog *AuditLog) err
 func (r *Repository) GetAuditLogByID(ctx context.Context, id uuid.UUID) (*AuditLog, error) {
 	var auditLog AuditLog
 	query := `
-		SELECT id, user_id, action, entity_type, entity_id,
+		SELECT id, COALESCE(NULLIF(user_id, ''), '00000000-0000-0000-0000-000000000000') AS user_id, action, entity_type,
+			COALESCE(NULLIF(entity_id, ''), '00000000-0000-0000-0000-000000000000') AS entity_id,
 			COALESCE(ip_address, '') AS ip_address, COALESCE(user_agent, '') AS user_agent, COALESCE(request_id, '') AS request_id, COALESCE(changes, '') AS changes, COALESCE(description, '') AS description, COALESCE(status, 'success') AS status, COALESCE(error_message, '') AS error_message, COALESCE(metadata, '{}') AS metadata, created_at
 		FROM audit_logs
 		WHERE id = $1
@@ -71,7 +74,8 @@ func (r *Repository) ListAuditLogs(ctx context.Context, req AuditLogListRequest)
 
 	// Build base query
 	baseQuery := `
-		SELECT id, user_id, action, entity_type, entity_id,
+		SELECT id, COALESCE(NULLIF(user_id, ''), '00000000-0000-0000-0000-000000000000') AS user_id, action, entity_type,
+			COALESCE(NULLIF(entity_id, ''), '00000000-0000-0000-0000-000000000000') AS entity_id,
 			COALESCE(ip_address, '') AS ip_address, COALESCE(user_agent, '') AS user_agent, COALESCE(request_id, '') AS request_id, COALESCE(changes, '') AS changes, COALESCE(description, '') AS description, COALESCE(status, 'success') AS status, COALESCE(error_message, '') AS error_message, COALESCE(metadata, '{}') AS metadata, created_at
 		FROM audit_logs
 		WHERE 1=1
@@ -171,12 +175,63 @@ func (r *Repository) ListAuditLogs(ctx context.Context, req AuditLogListRequest)
 	baseQuery += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argCount, argCount+1)
 	args = append(args, req.PerPage, offset)
 
-	err = r.db.SelectContext(ctx, &auditLogs, baseQuery, args...)
+	rows, err := r.db.QueryxContext(ctx, baseQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list audit logs: %w", err)
 	}
+	defer rows.Close()
+	for rows.Next() {
+		record := map[string]any{}
+		if err := rows.MapScan(record); err != nil {
+			return nil, 0, fmt.Errorf("failed to scan audit log: %w", err)
+		}
+		log, err := auditLogFromRecord(record)
+		if err != nil {
+			return nil, 0, err
+		}
+		auditLogs = append(auditLogs, log)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate audit logs: %w", err)
+	}
 
 	return auditLogs, count, nil
+}
+
+func auditLogFromRecord(record map[string]any) (AuditLog, error) {
+	parseID := func(value any) uuid.UUID {
+		id, err := uuid.Parse(strings.TrimSpace(fmt.Sprint(value)))
+		if err != nil {
+			return uuid.Nil
+		}
+		return id
+	}
+	valueString := func(value any) string {
+		if value == nil {
+			return ""
+		}
+		return fmt.Sprint(value)
+	}
+	createdAt, err := dbutil.ParseTimestamp(record["created_at"])
+	if err != nil {
+		return AuditLog{}, fmt.Errorf("failed to parse audit timestamp: %w", err)
+	}
+	return AuditLog{
+		ID:           parseID(record["id"]),
+		UserID:       parseID(record["user_id"]),
+		Action:       valueString(record["action"]),
+		EntityType:   valueString(record["entity_type"]),
+		EntityID:     parseID(record["entity_id"]),
+		IPAddress:    valueString(record["ip_address"]),
+		UserAgent:    valueString(record["user_agent"]),
+		RequestID:    valueString(record["request_id"]),
+		Changes:      valueString(record["changes"]),
+		Description:  valueString(record["description"]),
+		Status:       valueString(record["status"]),
+		ErrorMessage: valueString(record["error_message"]),
+		Metadata:     valueString(record["metadata"]),
+		CreatedAt:    createdAt,
+	}, nil
 }
 
 // GetAuditLogSummary retrieves audit log summary statistics

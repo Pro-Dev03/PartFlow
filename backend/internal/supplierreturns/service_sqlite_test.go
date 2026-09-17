@@ -20,6 +20,8 @@ func TestServiceListHandlesSQLiteTextTimestamps(t *testing.T) {
 	_, err = db.Exec(`
 		CREATE TABLE supplier_returns (
 			id TEXT PRIMARY KEY,
+			customer_return_id TEXT,
+			sale_id TEXT,
 			purchase_id TEXT NOT NULL,
 			supplier_id TEXT NOT NULL,
 			return_number TEXT NOT NULL,
@@ -33,6 +35,19 @@ func TestServiceListHandlesSQLiteTextTimestamps(t *testing.T) {
 	`)
 	if err != nil {
 		t.Fatalf("create table: %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE supplier_return_items (
+			id TEXT PRIMARY KEY,
+			supplier_return_id TEXT NOT NULL,
+			inventory_item_id TEXT,
+			barcode TEXT,
+			serial_number TEXT,
+			created_at TEXT NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create supplier return items table: %v", err)
 	}
 
 	id := uuid.New()

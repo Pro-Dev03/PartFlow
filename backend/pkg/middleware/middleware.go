@@ -88,7 +88,7 @@ func requiresCloudAuth() bool {
 
 	value := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")))
 	if value == "" {
-		return true
+		return false
 	}
 	return value == "1" || value == "true" || value == "yes"
 }
@@ -385,15 +385,12 @@ func Auth() gin.HandlerFunc {
 			return
 		}
 
-		// The embedded/local API uses SQLite for business data but delegates account
-		// authorization to Render. This prevents a direct local API call from
-		// bypassing the cloud subscription decision.
+		// Local SQLite mode is the default for the desktop/offline-first app, so an
+		// unset cloud-auth flag must not silently block the local checkout path. The
+		// cloud gate stays enforced only when the app explicitly opts into it.
 		cloudToken := strings.TrimSpace(c.GetHeader("X-PartFlow-Cloud-Token"))
 
-		// Skip cloud validation for local development or when cloud auth is not required
-		if !requiresCloudAuth() || !isLocalDatabaseMode() {
-			// Fall through to local JWT validation
-		} else {
+		if requiresCloudAuth() && isLocalDatabaseMode() {
 			if cloudToken == "" {
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"error": "يلزم توكن الجلسة السحابية للتحقق من الاشتراك",

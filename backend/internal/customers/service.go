@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jung-kurt/gofpdf"
+	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/dashboard"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
@@ -207,6 +208,9 @@ func (s *Service) AddPayment(ctx context.Context, customerID uuid.UUID, req *Pay
 	if err := s.repo.AddPayment(ctx, payment); err != nil {
 		return nil, fmt.Errorf("failed to add payment: %w", err)
 	}
+	if err := s.repo.ApplyPaymentToOldestDebt(ctx, customerID, req.Amount); err != nil {
+		return nil, fmt.Errorf("failed to apply payment to debt: %w", err)
+	}
 
 	// Update customer balance
 	if err := s.repo.UpdateBalance(ctx, customerID, -req.Amount); err != nil {
@@ -315,11 +319,15 @@ func (s *Service) GetCustomerDebtSummary(ctx context.Context, customerID uuid.UU
 	}
 
 	overdueAmount := 0.0
-	overdueQuery := `SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE customer_id = $1 AND due_date < CURRENT_DATE AND remaining_amount > 0`
-	if dbutil.IsSQLite(s.repo.db) {
-		overdueQuery = `SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE customer_id = $1 AND date(due_date) < date('now') AND remaining_amount > 0`
+	storeDate, err := accounting.StoreDate(time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate store date: %w", err)
 	}
-	if err := s.repo.db.GetContext(ctx, &overdueAmount, overdueQuery, customerID); err != nil {
+	overdueQuery := `SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE customer_id = $1 AND due_date < $2::date AND remaining_amount > 0`
+	if dbutil.IsSQLite(s.repo.db) {
+		overdueQuery = `SELECT COALESCE(SUM(remaining_amount), 0) FROM debts WHERE customer_id = ? AND date(substr(due_date, 1, 10)) < date(?) AND remaining_amount > 0`
+	}
+	if err := s.repo.db.GetContext(ctx, &overdueAmount, overdueQuery, customerID, storeDate); err != nil {
 		return nil, fmt.Errorf("failed to calculate overdue debt: %w", err)
 	}
 	daysUntilOverdue := s.calculateDaysUntilOverdue(ctx, customerID)
@@ -568,6 +576,10 @@ func (s *Service) GetPendingDebtCollections(ctx context.Context) ([]DebtCollecti
 
 // ProcessDebtPayment processes a payment for specific debts
 func (s *Service) ProcessDebtPayment(ctx context.Context, customerID uuid.UUID, paymentAmount float64, method string) error {
+	return s.ProcessDebtPaymentWithReference(ctx, customerID, paymentAmount, method, nil)
+}
+
+func (s *Service) ProcessDebtPaymentWithReference(ctx context.Context, customerID uuid.UUID, paymentAmount float64, method string, reference *string) error {
 	if paymentAmount <= 0 {
 		return fmt.Errorf("payment amount must be greater than zero")
 	}
@@ -575,6 +587,15 @@ func (s *Service) ProcessDebtPayment(ctx context.Context, customerID uuid.UUID, 
 	_, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
 		return err
+	}
+	if reference != nil {
+		exists, referenceErr := s.repo.HasPaymentReference(ctx, customerID, *reference)
+		if referenceErr != nil {
+			return referenceErr
+		}
+		if exists {
+			return ErrPaymentDuplicate
+		}
 	}
 
 	// Get unpaid debts
@@ -618,6 +639,7 @@ func (s *Service) ProcessDebtPayment(ctx context.Context, customerID uuid.UUID, 
 		Amount:      paymentAmount,
 		PaymentDate: time.Now(),
 		Method:      method,
+		Reference:   reference,
 		CreatedAt:   time.Now(),
 	}
 

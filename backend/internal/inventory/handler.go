@@ -56,6 +56,8 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	inventory := router.Group("/inventory")
 	{
 		inventory.POST("/items", h.CreateInventoryItem)
+		inventory.POST("/opening-stock", h.CreateOpeningStock)
+		inventory.POST("/products/:id/quantity", h.AdjustProductQuantity)
 		inventory.GET("/items-with-supplier", h.ListInventoryItemsWithSupplierInfo)
 		inventory.GET("/archive", h.ListArchivedInventoryItems)
 		inventory.GET("/items", h.ListInventoryItems)
@@ -90,6 +92,25 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	}
 }
 
+// AdjustProductQuantity adjusts the aggregate quantity for a quantity-based product.
+func (h *Handler) AdjustProductQuantity(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product id"})
+		return
+	}
+	var req ProductQuantityAdjustmentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.service.AdjustProductQuantity(c.Request.Context(), id, req.NewQuantity, req.Reason, getUserID(c)); err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "product quantity adjusted successfully"})
+}
+
 func (h *Handler) UpdateInventoryItem(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -97,6 +118,7 @@ func (h *Handler) UpdateInventoryItem(c *gin.Context) {
 		return
 	}
 	var req struct {
+		CategoryID   *uuid.UUID `json:"category_id"`
 		PartTypeID   *uuid.UUID `json:"part_type_id"`
 		SerialNumber *string    `json:"serial_number"`
 		Condition    *string    `json:"condition"`
@@ -109,7 +131,7 @@ func (h *Handler) UpdateInventoryItem(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	item, err := h.service.UpdateInventoryItemDetails(c.Request.Context(), id, req.PartTypeID, req.SerialNumber, req.Condition, req.Grade, req.PurchaseCost, req.SellingPrice, req.Notes)
+	item, err := h.service.UpdateInventoryItemDetails(c.Request.Context(), id, req.CategoryID, req.PartTypeID, req.SerialNumber, req.Condition, req.Grade, req.PurchaseCost, req.SellingPrice, req.Notes)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -160,6 +182,23 @@ func (h *Handler) CreateInventoryItem(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, item)
+}
+
+// CreateOpeningStock records opening stock without creating a purchase.
+func (h *Handler) CreateOpeningStock(c *gin.Context) {
+	var req OpeningStockRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.service.CreateOpeningStock(c.Request.Context(), &req, getUserID(c))
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, result)
 }
 
 // GetInventoryItem retrieves an inventory item by ID
@@ -293,6 +332,11 @@ func (h *Handler) ListInventoryItemsWithSupplierInfo(c *gin.Context) {
 			filters["product_id"] = id
 		}
 	}
+	if categoryID := c.Query("category_id"); categoryID != "" {
+		if id, err := uuid.Parse(categoryID); err == nil {
+			filters["category_id"] = id
+		}
+	}
 	if partTypeID := c.Query("part_type_id"); partTypeID != "" {
 		if id, err := uuid.Parse(partTypeID); err == nil {
 			filters["part_type_id"] = id
@@ -303,6 +347,9 @@ func (h *Handler) ListInventoryItemsWithSupplierInfo(c *gin.Context) {
 		if id, err := uuid.Parse(supplierID); err == nil {
 			filters["supplier_id"] = id
 		}
+	}
+	if c.Query("supplier_only") == "true" {
+		filters["supplier_only"] = true
 	}
 	if purchaseDateFrom := c.Query("purchase_date_from"); purchaseDateFrom != "" {
 		filters["purchase_date_from"] = purchaseDateFrom
@@ -721,6 +768,7 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 	grade := GradeGood
 	inventoryReq := &InventoryItemRequest{
 		ProductID:    productIDPtr,
+		Quantity:     1,
 		PartTypeID:   req.PartTypeID,
 		Condition:    ConditionUsed,
 		Grade:        &grade,
@@ -788,7 +836,7 @@ func handleError(c *gin.Context, err error) {
 	case ErrItemNotFound, ErrLocationNotFound:
 		status = http.StatusNotFound
 		message = err.Error()
-	case ErrInvalidStatus, ErrInvalidCondition, ErrInvalidGrade:
+	case ErrInvalidStatus, ErrInvalidCondition, ErrInvalidGrade, ErrInvalidQuantity:
 		status = http.StatusBadRequest
 		message = err.Error()
 	case ErrInsufficientStock, ErrItemAlreadyReserved, ErrDuplicateBarcode, ErrDuplicateSerialNumber:

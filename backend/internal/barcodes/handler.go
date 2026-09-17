@@ -21,6 +21,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	barcodes := router.Group("/barcodes")
 	{
 		barcodes.GET("/:code", h.LookupBarcode)
+		barcodes.GET("/resolve/:code", h.ResolveBarcode)
 		barcodes.GET("/product/:code", h.LookupProductByBarcode)
 		barcodes.GET("/sku/:sku", h.LookupProductBySKU)
 		barcodes.POST("/generate", h.GenerateBarcode)
@@ -28,6 +29,15 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		barcodes.GET("", h.ListBarcodes)
 		barcodes.DELETE("/:id", h.DeleteBarcode)
 	}
+}
+
+func (h *Handler) ResolveBarcode(c *gin.Context) {
+	resolution, err := h.service.ResolveBarcode(c.Request.Context(), c.Param("code"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resolution)
 }
 
 // LookupBarcode looks up a barcode by code

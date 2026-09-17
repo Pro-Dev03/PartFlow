@@ -602,7 +602,10 @@ func (r *Repository) UpdateBalance(ctx context.Context, customerID uuid.UUID, am
 func (r *Repository) GetCustomerLedger(ctx context.Context, customerID uuid.UUID) ([]LedgerEntry, float64, float64, float64, error) {
 	// Get ledger entries
 	query := `
-		SELECT id, customer_id, type, amount, balance, description, reference_id, created_at
+		SELECT id, customer_id, type, amount,
+			SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END)
+				OVER (PARTITION BY customer_id ORDER BY created_at ASC, id ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS balance,
+			description, reference_id, created_at
 		FROM customer_ledger
 		WHERE customer_id = $1
 		ORDER BY created_at ASC
@@ -621,7 +624,7 @@ func (r *Repository) GetCustomerLedger(ctx context.Context, customerID uuid.UUID
 			ReferenceID     sql.NullString `db:"reference_id"`
 			CreatedAt       string         `db:"created_at"`
 		}
-		err = r.db.SelectContext(ctx, &rows, `SELECT id, customer_id, COALESCE(type, '') AS type, transaction_type, amount, balance, description, reference_id, created_at FROM customer_ledger WHERE customer_id = $1 ORDER BY created_at ASC`, customerID)
+		err = r.db.SelectContext(ctx, &rows, `SELECT id, customer_id, COALESCE(type, '') AS type, transaction_type, amount, SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) OVER (PARTITION BY customer_id ORDER BY created_at ASC, id ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS balance, description, reference_id, created_at FROM customer_ledger WHERE customer_id = $1 ORDER BY created_at ASC, id ASC`, customerID)
 		if err == nil {
 			entries = make([]LedgerEntry, 0, len(rows))
 			for _, row := range rows {
@@ -685,10 +688,13 @@ func (r *Repository) GetFinancialTimeline(ctx context.Context, customerID uuid.U
 		return entries, err
 	}
 	query := `
-		SELECT id, customer_id, type, amount, balance, description, reference_id, created_at
+		SELECT id, customer_id, type, amount,
+			SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END)
+				OVER (PARTITION BY customer_id ORDER BY created_at ASC, id ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS balance,
+			description, reference_id, created_at
 		FROM customer_ledger
 		WHERE customer_id = $1
-		ORDER BY created_at ASC
+		ORDER BY created_at ASC, id ASC
 	`
 	var entries []LedgerEntry
 	err := r.db.SelectContext(ctx, &entries, query, customerID)
@@ -712,22 +718,15 @@ func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) e
 		if err != nil {
 			return fmt.Errorf("failed to add ledger entry: %w", err)
 		}
-		// Apply the payment to the oldest open debt. SQLite uses MAX instead of
-		// PostgreSQL's GREATEST and does not support UPDATE ... RETURNING in all
-		// supported builds.
-		var debtID string
-		if err := r.db.GetContext(ctx, &debtID, `SELECT id FROM debts WHERE customer_id = $1 AND remaining_amount > 0 AND status IN ('pending','partial','overdue') ORDER BY due_date ASC, created_at ASC LIMIT 1`, payment.CustomerID); err == nil {
-			_, _ = r.db.ExecContext(ctx, `UPDATE debts SET paid_amount = MIN(amount, paid_amount + $1), remaining_amount = MAX(0, remaining_amount - $1), status = CASE WHEN remaining_amount - $1 <= 0 THEN 'paid' ELSE 'partial' END, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, payment.Amount, debtID)
-		}
 		return nil
 	}
 	query := `
-		INSERT INTO customer_payments (id, customer_id, amount, payment_date, method, reference, notes, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO payments (id, reference_number, customer_id, amount, payment_method, payment_date, notes, created_at, updated_at, payment_status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, 'completed')
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		payment.ID, payment.CustomerID, payment.Amount, payment.PaymentDate,
-		payment.Method, payment.Reference, payment.Notes, payment.CreatedAt,
+		payment.ID, "PAY-"+payment.ID.String()[:8], payment.CustomerID, payment.Amount,
+		payment.Method, payment.PaymentDate, payment.Notes, payment.CreatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to add payment: %w", err)
@@ -748,48 +747,32 @@ func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) e
 		return fmt.Errorf("failed to add ledger entry: %w", err)
 	}
 
-	// Update debts table - reduce remaining_amount for unpaid debts
-	// Start with the oldest debt first
-	updateDebtsQuery := `
-		WITH ordered_debts AS (
-			SELECT id, remaining_amount 
-			FROM debts 
-			WHERE customer_id = $1 
-			AND status IN ('pending', 'partial', 'overdue')
-			AND remaining_amount > 0
-			ORDER BY due_date ASC
-		)
-		UPDATE debts 
-		SET remaining_amount = GREATEST(0, remaining_amount - $2),
-		    paid_amount = LEAST(amount, paid_amount + $2),
-		    updated_at = NOW()
-		WHERE id = (SELECT id FROM ordered_debts LIMIT 1)
-		RETURNING remaining_amount
-	`
-	var remainingAmount float64
-	err = r.db.GetContext(ctx, &remainingAmount, updateDebtsQuery, payment.CustomerID, payment.Amount)
-	if err != nil {
-		// Log but don't fail if debts update fails
-		fmt.Printf("Warning: failed to update debts: %v\n", err)
-	}
-
-	// Update debt status based on remaining amount
-	if remainingAmount == 0 {
-		updateStatusQuery := `
-			UPDATE debts 
-			SET status = 'paid',
-			    updated_at = NOW()
-			WHERE customer_id = $1 
-			AND remaining_amount = 0
-			AND status IN ('pending', 'partial', 'overdue')
-		`
-		_, err = r.db.ExecContext(ctx, updateStatusQuery, payment.CustomerID)
-		if err != nil {
-			fmt.Printf("Warning: failed to update debt status: %v\n", err)
-		}
-	}
-
 	return nil
+}
+
+func (r *Repository) ApplyPaymentToOldestDebt(ctx context.Context, customerID uuid.UUID, amount float64) error {
+	if dbutil.IsSQLite(r.db) {
+		_, err := r.db.ExecContext(ctx, `UPDATE debts SET paid_amount = MIN(amount, paid_amount + $1), remaining_amount = MAX(0, remaining_amount - $1), status = CASE WHEN remaining_amount - $1 <= 0 THEN 'paid' ELSE 'partial' END, updated_at = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM debts WHERE customer_id = $2 AND remaining_amount > 0 AND status IN ('pending','partial','overdue') ORDER BY due_date ASC, created_at ASC LIMIT 1)`, amount, customerID)
+		return err
+	}
+	_, err := r.db.ExecContext(ctx, `WITH ordered_debts AS (SELECT id FROM debts WHERE customer_id = $1 AND status IN ('pending', 'partial', 'overdue') AND remaining_amount > 0 ORDER BY due_date ASC LIMIT 1) UPDATE debts SET remaining_amount = GREATEST(0, remaining_amount - $2), paid_amount = LEAST(amount, paid_amount + $2), updated_at = NOW(), status = CASE WHEN remaining_amount - $2 <= 0 THEN 'paid' ELSE status END WHERE id = (SELECT id FROM ordered_debts)`, customerID, amount)
+	return err
+}
+
+func (r *Repository) HasPaymentReference(ctx context.Context, customerID uuid.UUID, reference string) (bool, error) {
+	if strings.TrimSpace(reference) == "" {
+		return false, nil
+	}
+	column := "reference_number"
+	if dbutil.IsSQLite(r.db) {
+		column = "reference"
+	}
+	query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM payments WHERE customer_id = $1 AND %s = $2)`, column)
+	var exists bool
+	if err := r.db.GetContext(ctx, &exists, query, customerID, reference); err != nil {
+		return false, fmt.Errorf("failed to check customer payment reference: %w", err)
+	}
+	return exists, nil
 }
 
 // AddLedgerEntry adds a ledger entry
@@ -804,7 +787,7 @@ func (r *Repository) AddLedgerEntry(ctx context.Context, customerID uuid.UUID, e
 	ledgerQuery := `
 		INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at)
 		SELECT $1, $2, $3, $4, 
-			(SELECT COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0) FROM customer_ledger WHERE customer_id = $2) + 
+			(SELECT COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0) FROM customer_ledger WHERE customer_id = $2) +
 			CASE WHEN $3 = 'debit' THEN $4 ELSE -$4 END,
 			$5, $6, $7
 	`

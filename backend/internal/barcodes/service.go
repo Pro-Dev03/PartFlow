@@ -21,6 +21,28 @@ type ProductInfo struct {
 	Category     string    `json:"category"`
 }
 
+type InventoryItemInfo struct {
+	ID           uuid.UUID  `json:"id"`
+	ProductID    uuid.UUID  `json:"product_id"`
+	Barcode      string     `json:"barcode"`
+	SerialNumber *string    `json:"serial_number,omitempty"`
+	Condition    string     `json:"condition"`
+	SupplierID   *uuid.UUID `json:"supplier_id,omitempty"`
+	PurchaseDate *time.Time `json:"purchase_date,omitempty"`
+	PurchaseCost float64    `json:"purchase_cost"`
+	SellingPrice float64    `json:"selling_price"`
+	Status       string     `json:"status"`
+}
+
+type BarcodeResolution struct {
+	Code          string             `json:"code"`
+	Product       *ProductInfo       `json:"product,omitempty"`
+	InventoryItem *InventoryItemInfo `json:"inventory_item,omitempty"`
+	SaleIDs       []uuid.UUID        `json:"sale_ids"`
+	PurchaseIDs   []uuid.UUID        `json:"purchase_ids"`
+	ReturnIDs     []uuid.UUID        `json:"return_ids"`
+}
+
 type Service struct {
 	repo *Repository
 }
@@ -57,6 +79,12 @@ func (s *Service) LookupProductBySKU(ctx context.Context, sku string) (*ProductI
 	}
 
 	return product, nil
+}
+
+// ResolveBarcode is the single cross-context barcode lookup used by
+// inventory, purchasing, POS, returns, and reporting flows.
+func (s *Service) ResolveBarcode(ctx context.Context, code string) (*BarcodeResolution, error) {
+	return s.repo.ResolveBarcode(ctx, code)
 }
 
 // GenerateBarcode generates a new barcode

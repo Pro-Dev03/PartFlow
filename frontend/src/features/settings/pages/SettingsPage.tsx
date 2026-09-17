@@ -7,7 +7,6 @@ import { authApi } from '../../../services/api/endpoints';
 import {
   Store,
   Palette,
-  Bell,
   FileText,
   DollarSign,
   Trash2,
@@ -18,12 +17,12 @@ import {
 
 // Components
 import { StoreSettings } from '../components/StoreSettings';
-import { NotificationSettings } from '../components/NotificationSettings';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { FinancialSettings } from '../components/FinancialSettings';
 import { AuditSettings } from '../components/AuditSettings';
 import { DatabaseSettings } from '../components/DatabaseSettings';
 import { SubscriptionManagement } from '../components/SubscriptionManagement';
+import { RegionalSettings } from '../components/RegionalSettings';
 
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -76,7 +75,6 @@ export function SettingsPage() {
     { id: 'store', label: t('settings.store'), icon: Store },
     { id: 'financial', label: t('settings.financial'), icon: DollarSign },
     { id: 'appearance', label: t('settings.appearance'), icon: Palette },
-    { id: 'notifications', label: t('settings.notifications'), icon: Bell },
     { id: 'audit', label: t('settings.audit'), icon: FileText },
     ...(isAdmin ? [{ id: 'database', label: 'قاعدة البيانات', icon: Trash2 }] : []),
   ];
@@ -212,10 +210,14 @@ export function SettingsPage() {
 
         {/* Content Area - Futuristic + Minimal */}
         <div className="min-w-0">
-          {activeTab === 'store' && <StoreSettings />}
+          {activeTab === 'store' && (
+            <div className="space-y-5">
+              <StoreSettings />
+              <RegionalSettings canManageRegionalSettings={isActiveSubscription} />
+            </div>
+          )}
           {activeTab === 'financial' && <FinancialSettings />}
           {activeTab === 'appearance' && <AppearanceSettings />}
-          {activeTab === 'notifications' && <NotificationSettings />}
           {activeTab === 'audit' && <AuditSettings />}
           {activeTab === 'database' && isAdmin && (
             <div className="space-y-6">

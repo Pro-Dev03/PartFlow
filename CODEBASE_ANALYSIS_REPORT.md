@@ -10,6 +10,86 @@
 
 ---
 
+## 0. عقد تكامل الباركود عبر دورة المخزون
+
+### القرار المعماري
+
+الباركود ليس وظيفة محصورة في شاشة المنتجات أو نقطة البيع. يجب أن يكون معرفًا تشغيليًا مشتركًا يحافظ على نفس هوية المنتج أو القطعة عبر الدورة التالية:
+
+```text
+Category → Product → Barcode → Purchase / Opening Stock → Receive
+→ Inventory → Used Items / Without Supplier → POS → Sale
+→ Customer Return → Supplier Return → Reports
+```
+
+العقد الأساسي لكل كيان هو الحفاظ على الربط الصحيح بين:
+
+```text
+Product ID / Item ID / Barcode / Serial / Purchase ID / Supplier ID
+```
+
+ولا يجوز لقسم لاحق إنشاء Barcode أو Item جديد لنفس القطعة بدل استخدام الهوية الموجودة.
+
+### المسارات المطلوبة
+
+| المسار | السلوك المطلوب | دليل النجاح |
+|---|---|---|
+| التصنيفات والمنتجات | حفظ Barcode على المنتج مع منع التكرار | Barcode واحد يقود إلى Product واحد، مع بقاء المنتجات بلا Barcode ممكنة |
+| المخزون | عرض Barcode وSerial وCondition وSupplier وPurchase وCost وSale Price وLocation وStatus | البحث أو المسح يفتح Product أو Inventory Item مباشرة |
+| القطع المستعملة | استخدام نفس Barcode وSerial و`inventory_item_id` للقطعة القائمة | المسح يفتح Timeline القطعة ولا ينشئ قطعة جديدة |
+| المشتريات | `Scan Barcode → Find Product → Add to Purchase`، أو إنشاء Product بعد تأكيد المستخدم | لا تدخل الكمية إلى Inventory قبل Receive؛ القطع الفردية تحفظ Barcode وSerial عند الاستلام |
+| Opening Stock / بدون مورد | السماح بـSupplier فارغ دون إسقاط Barcode | تقرير Inventory Without Supplier يدعم البحث والمسح ويعرض Source وCondition |
+| الاستلام | ربط كل Item مستلم بـPurchase ID وSupplier ID والهوية الأصلية | لا يوجد Item بديل لنفس Barcode |
+| POS | البحث بالباركود وإضافة المنتج أو القطعة الصحيحة للسلة | Barcode المرتبط بـSOLD لا يعاد استخدامه كقطعة جديدة |
+| Customer Return | `Scan Barcode → Find Sale/Item → Verify Sold Item → Create Return` | استخدام نفس `item_id` وSerial وBarcode وعدم إنشاء Item جديد |
+| Supplier Return | `Scan Barcode → Find Item → Verify Purchase/Supplier → Create Supplier Return` | معرفة القطعة والشراء والمورد والتكلفة والحالة وربط مرتجع العميل إن وجد |
+| التقارير | إظهار Barcode عند وجوده في Inventory وUsed Items وPurchases وSales وReturns وProducts وSupplier Reports وMovement History | نفس نتيجة البحث بالباركود في كل تقرير |
+
+### خدمة البحث الموحد
+
+تمت إضافة خدمة Backend مركزية في حزمة `internal/barcodes` عبر:
+
+```text
+GET /barcodes/resolve/:code
+```
+
+وتعيد Product وInventory Item والمراجع المرتبطة بـSale وPurchase وReturn. تستخدم الواجهة هذا resolver من خلال `barcodeApi.scan` مع طبقة توافق تحافظ على شكل ProductInfo القديم في POS.
+
+يجب أن تبقى هذه الخدمة هي نقطة lookup المشتركة بدل نسخ منطق lookup في كل شاشة. وتدعم:
+
+```text
+Barcode → Product / Inventory Item / Sale / Purchase / Return
+```
+
+ويحدد السياق ما إذا كان المطلوب فتح المنتج، القطعة، العملية الأصلية، أو سجل المرتجع. يجب أن تكون حالات النتيجة صريحة:
+
+- Barcode موجود مع Product: فتح المنتج.
+- Barcode موجود مع Individual Item: فتح القطعة.
+- Barcode غير موجود: عرض خيار إنشاء Product بعد تأكيد المستخدم، وليس إنشاء Item تلقائيًا.
+- Barcode مكرر: منع الحفظ وشرح سبب التكرار.
+- Barcode مرتبط بقطعة SOLD: رفض استخدامها كقطعة جديدة.
+- Barcode مرتبط بقطعة RETURNED: عرض الحالة الحالية قبل السماح بالعملية.
+
+### الفجوة الحالية في التقرير
+
+يوجد حاليًا lookup مركزي للباركود على مستوى Product وInventory Item مع endpoint resolver واختبار SQLite يثبت أن Barcode واحدًا يعيد نفس Product وItem ومراجع Sale وPurchase وReturn. لكن لا يكفي ذلك لإثبات اكتمال دورة الإنشاء والاستلام والبيع والإرجاع؛ يجب إضافة اختبار E2E ينفذ العمليات نفسها عبر الخدمات، لا مجرد زرع العلاقات في قاعدة البيانات.
+
+كما يجب مراجعة المسارات التي تستخدم `created_at` أو تنشئ Inventory Item من إدخال منتج بلا فاتورة، والتأكد من أنها تحفظ Barcode وSource وCondition وSupplier الاختياري دون تجاوز دورة Receive أو إنشاء هوية مكررة. تم الآن إضافة Barcode إلى `PurchaseItemRequest` و`purchase_items` مع migration، ويحفظه Receive للقطعة الفردية عندما تكون الكمية واحدة. ما زالت هناك حاجة لإكمال حفظ Serial وSource/Opening Stock واختبار دورة Receive الفعلية بدل الاكتفاء بعلاقات fixture.
+
+### معيار القبول
+
+تعتبر منظومة الباركود مكتملة فقط عندما يمر Barcode تجريبي واحد، مثل `FNX-GPU-000421`، عبر:
+
+```text
+Category → Product → Purchase → Receive → Inventory
+→ Used/Without Supplier → POS → Sale
+→ Customer Return / Supplier Return → Reports
+```
+
+وتعيد كل مرحلة الكيان الصحيح نفسه، مع رفض التكرار، وعدم إنشاء Item جديد من البحث أو المسح، وإتاحة البحث اليدوي والمسح بالكاميرا أو قارئ USB HID حيث تدعم الواجهة ذلك. دليل قارئ USB HID الحالي موثق في [docs/BARCODE-HID-SETUP-AND-TEST-GUIDE.md](docs/BARCODE-HID-SETUP-AND-TEST-GUIDE.md)، لكنه لا يثبت وحده تكامل دورة البيانات كاملة.
+
+---
+
 ## 1. 🔴 المشاكل الحرجة
 
 ### 1.1 API التجميعات - بيانات مزيفة موضحة مسبقاً

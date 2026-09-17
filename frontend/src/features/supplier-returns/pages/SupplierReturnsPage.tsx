@@ -9,6 +9,29 @@ import { Select } from '../../../components/ui/select';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { Printer, Trash2, XCircle } from 'lucide-react';
+import { formatDateTime } from '../../../utils/format';
+
+const returnReasonLabels: Record<string, string> = {
+  DAMAGED: 'منتج تالف',
+  DEFECTIVE: 'منتج معيب',
+  WRONG_ITEM: 'صنف غير صحيح',
+  CUSTOMER_CHANGED_MIND: 'تغيير رأي العميل',
+  WARRANTY: 'ضمان',
+};
+
+const statusLabels: Record<string, string> = {
+  PENDING: 'قيد الانتظار',
+  SHIPPED: 'تم الشحن',
+  RECEIVED: 'تم استلامه لدى المورد',
+  COMPLETED: 'مكتمل',
+  REJECTED: 'مرفوض',
+  NEEDS_SOURCE_DATA: 'يحتاج بيانات المصدر',
+  RESOLVED: 'مصدر البيانات مكتمل',
+  NEEDS_SOURCE: 'يحتاج بيانات المصدر',
+};
+
+const readableReturnReason = (value?: string) => returnReasonLabels[String(value || '').toUpperCase()] || value || 'غير محدد';
+const readableStatus = (value?: string) => statusLabels[String(value || '').toUpperCase()] || value || 'غير محدد';
 
 export function SupplierReturnsPage() {
   const queryClient = useQueryClient();
@@ -87,7 +110,7 @@ export function SupplierReturnsPage() {
   });
   const purchases = (purchasesData?.data || []).filter((p: any) => !['reversed', 'cancelled'].includes(p.status));
   const returns = returnsData?.data || [];
-  const pendingReturns = returns.filter((item: any) => item.status === 'PENDING').length;
+  const pendingReturns = returns.filter((item: any) => ['PENDING', 'SHIPPED', 'RECEIVED', 'NEEDS_SOURCE_DATA'].includes(item.status)).length;
   const completedReturns = returns.filter((item: any) => item.status === 'COMPLETED').length;
   const refundTotal = returns
     .filter((item: any) => item.status === 'COMPLETED')
@@ -224,10 +247,28 @@ export function SupplierReturnsPage() {
           {isLoading ? <p>جار التحميل...</p> : visibleReturns.length === 0 ? <p className="text-text-muted">{showArchive ? 'لا توجد طلبات مؤرشفة' : 'لا توجد طلبات نشطة'}</p> : (
             <div className="space-y-3">{visibleReturns.map((item: any) => (
               <div key={item.id} className="flex flex-wrap justify-between gap-3 rounded border p-3">
-                <span className="font-medium">{item.return_number}</span>
-                <span>{item.reason}</span>
-                <span>{item.status === 'PENDING' ? 'قيد الانتظار' : item.status === 'COMPLETED' ? 'مكتمل' : item.status}</span>
+                <span className="font-medium">رقم الطلب: {item.return_number}</span>
+                <span>السبب: {readableReturnReason(item.reason)}</span>
+                <span>الحالة: {item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'يحتاج بيانات المصدر' : readableStatus(item.status)}</span>
                 <span>₪{Number(item.refund_amount || 0).toLocaleString('en-US')}</span>
+                {item.customer_return_id && (
+                  <div className={`basis-full grid gap-2 rounded border p-3 text-xs sm:grid-cols-2 lg:grid-cols-4 ${item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'border-warning/40 bg-warning/10' : 'border-border bg-surface-muted'}`}>
+                    <strong className="sm:col-span-2 lg:col-span-4">{item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'مرتجع عميل يحتاج بيانات الشراء أو المورد' : 'مصدر الطلب: مرتجع عميل'}</strong>
+                    <span data-testid="unresolved-customer-return-id">معرّف مرتجع العميل: {item.customer_return_id}</span>
+                    <span>معرّف البيع: {item.sale_id || '-'}</span>
+                    <span>المورد: {item.supplier_name || item.supplier_id || '-'}</span>
+                    <span>معرّف الشراء: {item.purchase_id || '-'}</span>
+                    <span>معرّف قطعة المخزون: {item.inventory_item_id || '-'}</span>
+                    <span>الباركود: {item.barcode || '-'}</span>
+                    <span>الرقم التسلسلي: {item.serial_number || '-'}</span>
+                    <span>الكمية: {item.quantity || 0}</span>
+                    <span>تكلفة الشراء: ₪{Number(item.purchase_cost || 0).toLocaleString('en-US')}</span>
+                    <span>سبب الإرجاع: {readableReturnReason(item.return_reason || item.reason)}</span>
+                    <span>تاريخ الإرجاع: {item.return_date ? formatDateTime(item.return_date, 'ar-EG') : 'غير محدد'}</span>
+                    <span>حالة المصدر: {readableStatus(item.source_status || item.status)}</span>
+                    <span>مصدر الطلب: {item.source === 'Customer Return' ? 'مرتجع عميل' : item.source || 'غير محدد'}</span>
+                  </div>
+                )}
                 <Button size="sm" variant="secondary" title="طباعة طلب المرتجع" onClick={() => printReturn(item)}>
                   <Printer className="h-4 w-4" /> طباعة
                 </Button>

@@ -3,6 +3,7 @@ import { useTranslation } from '../../../hooks/useTranslation';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { AlertCircle, Package, AlertTriangle, CheckCircle, ArrowRight } from 'lucide-react';
+import { formatStoreDate } from '../../../utils/store-time';
 
 interface LowStockItem {
   id: string;
@@ -38,6 +39,8 @@ export function AttentionSection({
 }: AttentionSectionProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const outOfStockCount = lowStockItems.filter((item) => item.quantity === 0).length;
+  const lowStockOnlyCount = Math.max(lowStockCount - outOfStockCount, 0);
 
   return (
     <Card variant="ai" style={{
@@ -66,11 +69,20 @@ export function AttentionSection({
                 </div>
                 <div>
                   <p style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                    <span className="numeric-quantity">{lowStockCount}</span> {t('dashboard.lowStock')}
+                    <span className="numeric-quantity">{lowStockCount}</span> منتجات تحتاج متابعة
                   </p>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    منتجات وصلت للحد الأدنى - {t('dashboard.urgent')}
+                    المخزون العام عند الحد الأدنى أو أقل
                   </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mb-3" aria-label="ملخص حالة المخزون">
+                <div style={{ padding: '6px 10px', borderRadius: '8px', background: 'var(--color-danger-10)', color: 'var(--color-danger)', fontSize: '12px', fontWeight: 600 }}>
+                  نفذ: <span className="numeric-quantity">{outOfStockCount}</span>
+                </div>
+                <div style={{ padding: '6px 10px', borderRadius: '8px', background: 'var(--color-warning-10)', color: 'var(--color-warning)', fontSize: '12px', fontWeight: 600 }}>
+                  عند الحد الأدنى: <span className="numeric-quantity">{lowStockOnlyCount}</span>
                 </div>
               </div>
               
@@ -80,7 +92,7 @@ export function AttentionSection({
                   {lowStockItems.slice(0, 3).map((item) => (
                     <div key={item.id} className="flex items-center justify-between" style={{
                       padding: '8px 12px',
-                      borderBottom: '1px solid var(--color-warning-15)',
+                      borderBottom: `1px solid ${item.quantity === 0 ? 'var(--color-danger-15)' : 'var(--color-warning-15)'}`,
                       background: 'transparent'
                     }}>
                       <div className="flex-1">
@@ -88,14 +100,20 @@ export function AttentionSection({
                           {item.product_name}
                         </p>
                         <p style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          الكمية: {item.quantity} / الحد الأدنى: {item.min_stock_level}
+                          <span style={{ color: item.quantity === 0 ? 'var(--color-danger)' : 'inherit', fontWeight: item.quantity === 0 ? 600 : 'normal' }}>
+                            {item.quantity === 0 ? 'نفد المخزون' : `المتاح: ${item.quantity}`}
+                          </span>
+                          {` / الحد الأدنى: ${item.min_stock_level}`}
                         </p>
                       </div>
+                      <span style={{ marginInlineEnd: '8px', padding: '4px 8px', borderRadius: '6px', background: item.quantity === 0 ? 'var(--color-danger-10)' : 'var(--color-warning-10)', color: item.quantity === 0 ? 'var(--color-danger)' : 'var(--color-warning)', fontSize: '11px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {item.quantity === 0 ? 'شراء عاجل' : 'إعادة طلب'}
+                      </span>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => navigate(`/app/inventory?search=${item.product_name}`)}
-                        style={{ color: 'var(--color-warning)' }}
+                        style={{ color: item.quantity === 0 ? 'var(--color-danger)' : 'var(--color-warning)' }}
                       >
                         <ArrowRight className="w-4 h-4" />
                       </Button>
@@ -128,10 +146,10 @@ export function AttentionSection({
                 </div>
                 <div>
                   <p style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                    <span className="numeric-quantity">{unpaidDebtsCount}</span> عملاء لديهم ديون غير مسددة
+                    <span className="numeric-quantity">{unpaidDebtsCount}</span> عملاء تجاوزوا موعد السداد
                   </p>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    تحتاج متابعة التحصيل
+                    تحتاج متابعة التحصيل الآن
                   </p>
                 </div>
               </div>
@@ -150,7 +168,8 @@ export function AttentionSection({
                         </p>
                         <p style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                           غير مسدد: ₪{debt.remaining_amount.toLocaleString()}
-                          {debt.days_overdue > 0 ? ` | متأخر ${debt.days_overdue} يوم` : ' | غير متأخر بعد'}
+                          {` | استحق في ${formatStoreDate(debt.due_date, 'ar')}`}
+                          {debt.days_overdue > 0 ? ` | متأخر ${debt.days_overdue} يوم` : ''}
                         </p>
                       </div>
                     </div>

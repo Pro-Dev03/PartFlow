@@ -102,7 +102,8 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
           const activeElement = document.activeElement;
           if (activeElement && (
             activeElement.tagName === 'INPUT' || 
-            activeElement.tagName === 'SELECT'
+            activeElement.tagName === 'SELECT' ||
+            activeElement.tagName === 'TEXTAREA'
           )) {
             const focusableElements = modalRef.current?.querySelectorAll(
               'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])'
@@ -120,6 +121,28 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
                   e.preventDefault();
                   (nextElement as HTMLElement).focus();
                   break;
+                }
+              }
+
+              const nextFieldExists = elementsArray
+                .slice(currentIndex + 1)
+                .some((element) =>
+                  element.tagName === 'INPUT' ||
+                  element.tagName === 'SELECT' ||
+                  element.tagName === 'TEXTAREA'
+                );
+              if (!nextFieldExists) {
+                const actionButtons = Array.from(
+                  modalRef.current.querySelectorAll<HTMLButtonElement>('button:not([disabled])')
+                ).filter((button) => {
+                  const label = `${button.textContent || ''} ${button.getAttribute('aria-label') || ''}`.trim();
+                  return !/إلغاء|إغلاق|cancel|close/i.test(label);
+                });
+                const submitButton = actionButtons[actionButtons.length - 1];
+                if (submitButton) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  submitButton.click();
                 }
               }
             }

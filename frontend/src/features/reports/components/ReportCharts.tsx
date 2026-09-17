@@ -1,4 +1,5 @@
 import { SimpleBarChart, SimpleLineChart, SimplePieChart } from '../../../components/ui/charts';
+import { formatStoreDate } from '../../../utils/store-time';
 
 interface ReportChartsProps {
   data?: any;
@@ -27,7 +28,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
     const rawDailyItems = Array.isArray(report.by_day)
       ? report.by_day.map((item: any) => ({
           dateKey: item.date ? String(item.date).slice(0, 10) : '',
-          label: item.date ? new Date(item.date).toLocaleDateString('ar-SA', { day: 'numeric', month: 'short' }) : 'غير محدد',
+          label: item.date ? formatStoreDate(item.date, 'ar-SA') : 'غير محدد',
           value: Number(item.revenue ?? item.net_revenue ?? 0),
         })).filter((item: { value: number }) => Number.isFinite(item.value))
       : [];
@@ -42,7 +43,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
           const date = new Date(rangeStart.getTime() + index * 24 * 60 * 60 * 1000);
           const dateKey = date.toISOString().slice(0, 10);
           return {
-            label: date.toLocaleDateString('ar-SA', { day: 'numeric', month: 'short', timeZone: 'UTC' }),
+            label: formatStoreDate(date, 'ar-SA'),
             value: Number(valuesByDate.get(dateKey) ?? 0),
           };
         });
@@ -53,7 +54,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       .filter(item => Number.isFinite(item.value) && item.value > 0);
     const monthlyItems = Array.isArray(report.by_month)
       ? report.by_month.map((item: any) => ({
-          label: item.month ? new Date(item.month).toLocaleDateString('ar-SA', { month: 'short', year: 'numeric' }) : 'غير محدد',
+          label: item.month ? formatStoreDate(item.month, 'ar-SA') : 'غير محدد',
           value: Number(reportType === 'profit' ? item.net_profit ?? 0 : item.amount ?? item.cost ?? item.revenue ?? item.net_profit ?? 0),
         })).filter((item: { value: number }) => Number.isFinite(item.value))
       : [];
@@ -103,7 +104,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
     // Trend data by date (if items have date field)
     const dateMap = new Map<string, number>();
     items.forEach((item: any) => {
-      const date = item.date ? new Date(item.date).toLocaleDateString('ar-SA', { day: 'numeric', month: 'short' }) : item.label || 'غير محدد';
+      const date = item.date ? formatStoreDate(item.date, 'ar-SA') : item.label || 'غير محدد';
       const value = Number(item.value ?? item.amount ?? item.revenue ?? 0);
       dateMap.set(date, (dateMap.get(date) || 0) + value);
     });
@@ -151,6 +152,8 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
   };
 
   const { categoryData, trendData, sourceData, productData } = processChartData();
+  const report = data?.data ?? data;
+  const hasReturnedProductData = Array.isArray(report?.by_product) && report.by_product.length > 0;
 
   if (reportType === 'tax') {
     return null;
@@ -172,21 +175,23 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '14px' }}
          className="grid-cols-1 lg:grid-cols-2">
-      <SimpleBarChart
-        title={reportType === 'products'
-          ? 'يحتاج انتباهك'
-          : reportType === 'net-sales'
-            ? 'صافي المبيعات حسب المنتج'
-          : reportType === 'expenses'
-            ? 'المصروفات حسب الفئة'
-            : reportType === 'suppliers' || reportType === 'purchases'
-              ? 'المشتريات حسب المورد'
-              : productData.length > 0 ? 'أفضل المنتجات والمصادر' : 'التوزيع حسب الفئة'}
-        data={productData}
-        color="#14b8a6"
-        loading={loading}
-      />
-      {reportType !== 'inventory' && reportType !== 'debts' && reportType !== 'used-items' && !(reportType === 'purchases' && trendData.length <= 1) && (
+      {(reportType !== 'returns' && reportType !== 'used-items' && reportType !== 'debts') || (reportType === 'returns' && hasReturnedProductData) ? (
+        <SimpleBarChart
+          title={reportType === 'products'
+            ? 'يحتاج انتباهك'
+            : reportType === 'net-sales'
+              ? 'صافي المبيعات حسب المنتج'
+            : reportType === 'expenses'
+              ? 'المصروفات حسب الفئة'
+              : reportType === 'suppliers' || reportType === 'purchases'
+                ? 'المشتريات حسب المورد'
+                : productData.length > 0 ? 'أفضل المنتجات والمصادر' : 'التوزيع حسب الفئة'}
+          data={productData}
+          color="#14b8a6"
+          loading={loading}
+        />
+      ) : null}
+      {reportType !== 'inventory' && reportType !== 'debts' && reportType !== 'used-items' && reportType !== 'returns' && !(reportType === 'purchases' && trendData.length <= 1) && (
         <div style={{ gridColumn: '1 / -1', width: '100%', maxWidth: '1200px', marginInline: 'auto' }}>
           <SimpleLineChart
             title={reportType === 'suppliers'

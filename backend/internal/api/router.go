@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
+	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/acquisitions"
 	"github.com/partflow/smart-store/internal/audit"
 	"github.com/partflow/smart-store/internal/auth"
@@ -20,6 +22,7 @@ import (
 	"github.com/partflow/smart-store/internal/notifications"
 	"github.com/partflow/smart-store/internal/parttypes"
 	"github.com/partflow/smart-store/internal/payments"
+	"github.com/partflow/smart-store/internal/paymenttransactions"
 	"github.com/partflow/smart-store/internal/products"
 	"github.com/partflow/smart-store/internal/purchases"
 	"github.com/partflow/smart-store/internal/reports"
@@ -37,6 +40,7 @@ import (
 // SetupRoutes يقوم بإعداد جميع المسارات بشكل مركزي
 // مستوحى من نمط Fynexa المعماري لكنه متكيف مع احتياجات PartFlow
 func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
+	_ = accounting.LoadStoreTimezone(context.Background(), db)
 	// Initialize all repositories
 	productRepo := products.NewRepository(db)
 	customerRepo := customers.NewRepository(db)
@@ -59,6 +63,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	purchaseService := purchases.NewService(purchaseRepo, db)
 	expenseService := expenses.NewService(expenseRepo)
 	returnService := returns.NewService(returnRepo)
+	returnService.SetElectronicRefundProcessor(paymenttransactions.NewConfiguredService(db))
 	notificationService := notifications.NewService(notificationRepo)
 	partTypesService := parttypes.NewService(partTypesRepo)
 	ledgerService := ledgers.NewService(db)
@@ -85,6 +90,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	localDatabaseHandler := settings.NewLocalDatabaseHandler()
 	ledgerHandler := ledgers.NewHandler(ledgerService)
 	acquisitionHandler := acquisitions.NewHandler(acquisitionService)
+	paymentTransactionsHandler := paymenttransactions.NewHandler(db)
 	debtsHandler := debts.NewHandler(db)
 
 	// Aggregation handler (ARCHITECTURE-PRINCIPLES.md)
@@ -120,6 +126,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 		// Protected routes (auth required)
 		protected := v1.Group("")
 		protected.Use(middleware.Auth(), auth.CloudGuard(authService))
+		paymentTransactionsHandler.RegisterRoutes(v1, protected)
 		{
 			// Dashboard routes
 			protected.GET("/dashboard/stats", dashboardHandler.GetDashboardStats)
@@ -409,6 +416,9 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				// Online/offline switching is intentionally absent: cloud validation
 				// controls access while SQLite remains only the local data store.
 				settings.GET("/public", settingsHandler.GetPublicSettings)
+				settings.GET("/regional", settingsHandler.GetRegionalSettings)
+				settings.POST("/regional/initialize", settingsHandler.InitializeRegionalSettings)
+				settings.PUT("/regional", settingsHandler.UpdateRegionalSettings)
 				settings.GET("/:key", settingsHandler.GetSetting)
 				settings.PUT("/:key", settingsHandler.UpdateSetting)
 				settings.GET("/tax-rate", settingsHandler.GetTaxRate)

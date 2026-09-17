@@ -8,6 +8,7 @@ interface InventoryScannerProps {
   setBarcodeInput: (value: string) => void;
   onBarcodeScan: (e: React.FormEvent) => void;
   onManualAdd: () => void;
+  onOpeningStock: () => void;
 }
 
 export function InventoryScanner({
@@ -15,13 +16,14 @@ export function InventoryScanner({
   setBarcodeInput,
   onBarcodeScan,
   onManualAdd,
+  onOpeningStock,
 }: InventoryScannerProps) {
   return (
     <>
       <Card className="pf-scanner-card">
         <CardHeader>
           <CardTitle className="pf-scanner-title">
-            إضافة قطع للمخزون
+            مصادر إدخال المخزون
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -46,9 +48,13 @@ export function InventoryScanner({
                 </Button>
               </div>
           </form>
-          <Button variant="primary" onClick={onManualAdd} className="mt-4 w-full pf-barcode-action">
+          <Button variant="secondary" onClick={onManualAdd} className="mt-4 w-full pf-barcode-action">
             <Plus className="w-4 h-4 mr-2" />
-            إضافة قطعة يدوياً
+            تعريف منتج / إدخال يدوي
+          </Button>
+          <Button variant="primary" onClick={onOpeningStock} className="mt-2 w-full pf-barcode-action">
+            <Plus className="w-4 h-4 mr-2" />
+            إضافة المخزون الحالي
           </Button>
         </CardContent>
       </Card>

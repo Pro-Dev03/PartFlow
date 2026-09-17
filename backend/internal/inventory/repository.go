@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,14 @@ type Repository struct {
 
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
+}
+
+func inventoryQuantityExpressions(ctx context.Context, db *sqlx.DB, productRef string) (string, string) {
+	var tableExists int
+	if err := db.GetContext(ctx, &tableExists, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'inventory'`); err == nil && tableExists > 0 {
+		return fmt.Sprintf(`COALESCE((SELECT quantity FROM inventory WHERE product_id = %s), (SELECT COUNT(*) FROM inventory_items ii2 WHERE ii2.product_id = %s))`, productRef, productRef), fmt.Sprintf(`COALESCE((SELECT quantity FROM inventory WHERE product_id = %s), (SELECT COUNT(*) FROM inventory_items ii3 WHERE ii3.product_id = %s AND UPPER(TRIM(COALESCE(ii3.status, ''))) = 'AVAILABLE'))`, productRef, productRef)
+	}
+	return fmt.Sprintf(`(SELECT COUNT(*) FROM inventory_items ii2 WHERE ii2.product_id = %s)`, productRef), fmt.Sprintf(`(SELECT COUNT(*) FROM inventory_items ii3 WHERE ii3.product_id = %s AND UPPER(TRIM(COALESCE(ii3.status, ''))) = 'AVAILABLE')`, productRef)
 }
 
 func inventoryItemFromMap(record map[string]any) (*InventoryItem, error) {
@@ -40,6 +49,14 @@ func inventoryItemFromMap(record map[string]any) (*InventoryItem, error) {
 			return nil, fmt.Errorf("parse product_id: %w", err)
 		}
 		item.ProductID = parsed
+	}
+
+	if raw, ok := record["category_id"]; ok && raw != nil {
+		parsed, err := parseNullableUUIDValue(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse category_id: %w", err)
+		}
+		item.CategoryID = parsed
 	}
 
 	if raw, ok := record["part_type_id"]; ok && raw != nil {
@@ -267,23 +284,11 @@ func (r *Repository) CreateInventoryItem(ctx context.Context, item *InventoryIte
 }
 
 func (r *Repository) HasProtectedHistory(ctx context.Context, itemID uuid.UUID) (bool, error) {
-	queries := []string{
-		`SELECT COUNT(*) FROM acquisition_items WHERE inventory_item_id = $1`,
-		`SELECT COUNT(*) FROM sale_items WHERE inventory_item_id = $1`,
-		`SELECT COUNT(*) FROM return_items WHERE inventory_item_id = $1`,
-		`SELECT COUNT(*) FROM inventory_movements WHERE item_id = $1`,
-		`SELECT COUNT(*) FROM trade_ins WHERE inventory_item_id = $1`,
+	var count int
+	if err := r.db.GetContext(ctx, &count, `SELECT COUNT(*) FROM inventory_movements WHERE item_id = $1`, itemID); err != nil {
+		return false, fmt.Errorf("failed to check inventory item history: %w", err)
 	}
-	for _, query := range queries {
-		var count int
-		if err := r.db.GetContext(ctx, &count, query, itemID); err != nil {
-			return false, fmt.Errorf("failed to check inventory item history: %w", err)
-		}
-		if count > 0 {
-			return true, nil
-		}
-	}
-	return false, nil
+	return count > 0, nil
 }
 
 func (r *Repository) DeleteInventoryItem(ctx context.Context, itemID uuid.UUID) error {
@@ -332,7 +337,7 @@ func (r *Repository) DeleteUsedInventoryItem(ctx context.Context, itemID uuid.UU
 // GetInventoryItemByID retrieves an inventory item by ID
 func (r *Repository) GetInventoryItemByID(ctx context.Context, id uuid.UUID) (*InventoryItem, error) {
 	query := `
-		SELECT id, product_id, part_type_id, item_code, barcode, serial_number,
+		SELECT id, product_id, category_id, part_type_id, item_code, barcode, serial_number,
 			   condition, grade, purchase_cost, selling_price, status, location_id,
 			   supplier_id, purchase_date, sold_at, notes, created_at, updated_at,
 			   COALESCE((
@@ -372,7 +377,7 @@ func (r *Repository) GetInventoryItemByID(ctx context.Context, id uuid.UUID) (*I
 // GetInventoryItemByBarcode retrieves an inventory item by barcode
 func (r *Repository) GetInventoryItemByBarcode(ctx context.Context, barcode string) (*InventoryItem, error) {
 	query := `
-		SELECT id, product_id, part_type_id, item_code, barcode, serial_number,
+		SELECT id, product_id, category_id, part_type_id, item_code, barcode, serial_number,
 			   condition, grade, purchase_cost, selling_price, status, location_id,
 			   supplier_id, purchase_date, sold_at, notes, created_at, updated_at,
 			   COALESCE((
@@ -411,7 +416,7 @@ func (r *Repository) GetInventoryItemByBarcode(ctx context.Context, barcode stri
 // GetInventoryItemBySerialNumber retrieves an inventory item by serial number
 func (r *Repository) GetInventoryItemBySerialNumber(ctx context.Context, serialNumber string) (*InventoryItem, error) {
 	query := `
-		SELECT id, product_id, part_type_id, item_code, barcode, serial_number,
+		SELECT id, product_id, category_id, part_type_id, item_code, barcode, serial_number,
 			   condition, grade, purchase_cost, selling_price, status, location_id,
 			   supplier_id, purchase_date, sold_at, notes, created_at, updated_at,
 			   COALESCE((
@@ -449,17 +454,21 @@ func (r *Repository) GetInventoryItemBySerialNumber(ctx context.Context, serialN
 
 // UpdateInventoryItem updates an inventory item
 func (r *Repository) UpdateInventoryItem(ctx context.Context, item *InventoryItem) error {
+	var categoryID interface{}
+	if item.CategoryID != nil {
+		categoryID = item.CategoryID.String()
+	}
 	query := `
 		UPDATE inventory_items
-		SET product_id = $2, part_type_id = $3, item_code = $4, barcode = $5, serial_number = $6,
-		    condition = $7, grade = $8, purchase_cost = $9, selling_price = $10,
-		    status = $11, location_id = $12, supplier_id = $13, purchase_date = $14,
-		    sold_at = $15, notes = $16, updated_at = $17
+		SET product_id = $2, category_id = $3, part_type_id = $4, item_code = $5, barcode = $6, serial_number = $7,
+		    condition = $8, grade = $9, purchase_cost = $10, selling_price = $11,
+		    status = $12, location_id = $13, supplier_id = $14, purchase_date = $15,
+		    sold_at = $16, notes = $17, updated_at = $18
 		WHERE id = $1
 	`
 
 	result, err := r.db.ExecContext(ctx, query,
-		item.ID, item.ProductID, item.PartTypeID, item.ItemCode, item.Barcode, item.SerialNumber,
+		item.ID, item.ProductID, categoryID, item.PartTypeID, item.ItemCode, item.Barcode, item.SerialNumber,
 		item.Condition, item.Grade, item.PurchaseCost, item.SellingPrice,
 		item.Status, item.LocationID, item.SupplierID, item.PurchaseDate, item.SoldAt,
 		item.Notes, item.UpdatedAt,
@@ -508,28 +517,20 @@ func (r *Repository) UpdateItemStatus(ctx context.Context, id uuid.UUID, status 
 
 // ListInventoryItems retrieves a list of inventory items with pagination
 func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, filters map[string]interface{}) ([]*InventoryItem, int64, error) {
+	currentQuantityExpr, availableQuantityExpr := inventoryQuantityExpressions(ctx, r.db, "inventory_items.product_id")
 	// Build base query
-	baseQuery := `
+	baseQuery := fmt.Sprintf(`
 		SELECT inventory_items.id, inventory_items.product_id, p.name AS product_name,
 		       inventory_items.part_type_id, inventory_items.item_code, inventory_items.barcode, inventory_items.serial_number,
 		       inventory_items.condition, inventory_items.grade, inventory_items.purchase_cost, inventory_items.selling_price,
 		       inventory_items.status, inventory_items.location_id, inventory_items.supplier_id, inventory_items.purchase_date,
 		       inventory_items.sold_at, inventory_items.notes, inventory_items.created_at, inventory_items.updated_at,
-			   COALESCE((
-		       SELECT COUNT(*)
-		       FROM inventory_items ii2
-		       WHERE ii2.product_id = inventory_items.product_id
-			   ), 0) AS current_quantity,
-			   COALESCE((
-		       SELECT COUNT(*)
-		       FROM inventory_items ii3
-		       WHERE ii3.product_id = inventory_items.product_id
-		       AND ii3.status = 'AVAILABLE'
-			   ), 0) AS available_quantity
+			   %s AS current_quantity,
+			   %s AS available_quantity
 		FROM inventory_items
 		LEFT JOIN products p ON inventory_items.product_id = p.id
 		WHERE UPPER(COALESCE(inventory_items.status, '')) <> 'ARCHIVED'
-	`
+	`, currentQuantityExpr, availableQuantityExpr)
 	countQuery := `SELECT COUNT(*) FROM inventory_items WHERE UPPER(COALESCE(status, '')) <> 'ARCHIVED'`
 
 	args := []interface{}{}
@@ -622,30 +623,36 @@ func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, 
 
 // ListInventoryItemsWithSupplierInfo retrieves inventory items with supplier information
 func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, limit, offset int, filters map[string]interface{}) ([]*InventoryItemWithSupplier, int64, error) {
+	currentQuantityExpr, availableQuantityExpr := inventoryQuantityExpressions(ctx, r.db, "ii.product_id")
+	// Backfill legacy inventory rows whenever the list is read. This also covers
+	// products imported after SQLite startup, when the startup migration ran too early.
+	_, _ = r.db.ExecContext(ctx, `
+		UPDATE inventory_items
+		SET category_id = (SELECT p.category_id FROM products p WHERE p.id = inventory_items.product_id)
+		WHERE category_id IS NULL
+		  AND product_id IS NOT NULL
+		  AND EXISTS (SELECT 1 FROM products p WHERE p.id = inventory_items.product_id AND p.category_id IS NOT NULL)
+	`)
+
 	// Build base query with JOIN to suppliers
-	baseQuery := `
+	baseQuery := fmt.Sprintf(`
 		SELECT 
 			ii.id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
 			ii.condition, ii.grade, ii.purchase_cost, ii.selling_price, ii.status, ii.location_id,
 			ii.supplier_id, ii.purchase_date, ii.sold_at, ii.notes, ii.created_at, ii.updated_at,
-			COALESCE((
-				SELECT COUNT(*)
-				FROM inventory_items ii2
-				WHERE ii2.product_id = ii.product_id
-			), 0) AS current_quantity,
-			COALESCE((
-				SELECT COUNT(*)
-				FROM inventory_items ii3
-				WHERE ii3.product_id = ii.product_id
-				AND ii3.status = 'AVAILABLE'
-			), 0) AS available_quantity,
+			%s AS current_quantity,
+			%s AS available_quantity,
 			p.name as product_name,
+			p.selling_price as product_selling_price,
+			CAST(COALESCE(ii.category_id, p.category_id) AS TEXT) as category_id,
+			(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(COALESCE(ii.category_id, p.category_id) AS TEXT) LIMIT 1) as category_name,
 			s.name as supplier_name,
 			s.phone as supplier_phone
 		FROM inventory_items ii
 		LEFT JOIN products p ON ii.product_id = p.id
+		LEFT JOIN categories c ON c.id = COALESCE(ii.category_id, p.category_id)
 		LEFT JOIN suppliers s ON ii.supplier_id = s.id
-	`
+	`, currentQuantityExpr, availableQuantityExpr)
 	countQuery := `
 		SELECT COUNT(*) FROM inventory_items ii
 	`
@@ -691,6 +698,13 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 		countQuery += ` AND ii.product_id = ` + param
 		args = append(args, productID)
 	}
+	if categoryID, ok := filters["category_id"].(uuid.UUID); ok && categoryID != uuid.Nil {
+		argCount++
+		param := fmt.Sprintf("$%d", argCount)
+		baseQuery += ` AND p.category_id = ` + param
+		countQuery += ` AND p.category_id = ` + param
+		args = append(args, categoryID)
+	}
 
 	if partTypeID, ok := filters["part_type_id"].(uuid.UUID); ok && partTypeID != uuid.Nil {
 		argCount++
@@ -715,6 +729,10 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 		baseQuery += ` AND ii.supplier_id = ` + param
 		countQuery += ` AND ii.supplier_id = ` + param
 		args = append(args, supplierID)
+	}
+	if supplierOnly, ok := filters["supplier_only"].(bool); ok && supplierOnly {
+		baseQuery += ` AND ii.supplier_id IS NOT NULL`
+		countQuery += ` AND ii.supplier_id IS NOT NULL`
 	}
 
 	if purchaseDateFrom, ok := filters["purchase_date_from"].(string); ok && purchaseDateFrom != "" {
@@ -802,6 +820,7 @@ func inventoryItemWithSupplierFromMap(record map[string]any) (*InventoryItemWith
 	out := &InventoryItemWithSupplier{
 		ID:                item.ID,
 		ProductID:         item.ProductID,
+		CategoryID:        item.CategoryID,
 		PartTypeID:        item.PartTypeID,
 		ItemCode:          item.ItemCode,
 		Barcode:           item.Barcode,
@@ -824,6 +843,16 @@ func inventoryItemWithSupplierFromMap(record map[string]any) (*InventoryItemWith
 	if raw, ok := record["product_name"]; ok && raw != nil && raw != "" {
 		value := fmt.Sprint(raw)
 		out.ProductName = &value
+	}
+	if raw, ok := record["product_selling_price"]; ok && raw != nil {
+		value, err := strconv.ParseFloat(fmt.Sprint(raw), 64)
+		if err == nil {
+			out.ProductSellingPrice = &value
+		}
+	}
+	if raw, ok := record["category_name"]; ok && raw != nil && raw != "" {
+		value := fmt.Sprint(raw)
+		out.CategoryName = &value
 	}
 	if raw, ok := record["supplier_name"]; ok && raw != nil && raw != "" {
 		value := fmt.Sprint(raw)

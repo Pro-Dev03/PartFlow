@@ -526,7 +526,7 @@ func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) e
 		if err != nil {
 			return fmt.Errorf("failed to add local payment: %w", err)
 		}
-		_, err = r.db.ExecContext(ctx, `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT $1, $2, 'credit', 'PAYMENT', $3, COALESCE((SELECT balance FROM supplier_ledger WHERE supplier_id = $2 ORDER BY created_at DESC LIMIT 1), 0) - $3, $4, $5, $6`, uuid.New(), payment.SupplierID, payment.Amount, "Payment: "+payment.Method, payment.ID, payment.CreatedAt)
+		_, err = r.db.ExecContext(ctx, `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT $1, $2, 'credit', 'PAYMENT', $3, COALESCE((SELECT SUM(CASE WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id = $2), 0) - $3, $4, $5, $6`, uuid.New(), payment.SupplierID, payment.Amount, "Payment: "+payment.Method, payment.ID, payment.CreatedAt)
 		return err
 	}
 	query := `
@@ -556,6 +556,22 @@ func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) e
 	}
 
 	return nil
+}
+
+func (r *Repository) HasPaymentReference(ctx context.Context, supplierID uuid.UUID, reference string) (bool, error) {
+	if strings.TrimSpace(reference) == "" {
+		return false, nil
+	}
+	var exists bool
+	column := "reference_number"
+	if dbutil.IsSQLite(r.db) {
+		column = "reference"
+	}
+	query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM payments WHERE supplier_id = $1 AND %s = $2)`, column)
+	if err := r.db.GetContext(ctx, &exists, query, supplierID, reference); err != nil {
+		return false, fmt.Errorf("failed to check supplier payment reference: %w", err)
+	}
+	return exists, nil
 }
 
 // AddLedgerEntry adds a ledger entry

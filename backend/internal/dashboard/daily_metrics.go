@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 )
 
 // todayMetrics contains values for the current business day only. It is kept
@@ -27,30 +28,37 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 		return todayMetrics{}, fmt.Errorf("dashboard database is nil")
 	}
 
-	now = now.UTC()
-	date := now.Format("2006-01-02")
+	date, err := accounting.StoreDate(now)
+	if err != nil {
+		return todayMetrics{}, fmt.Errorf("calculate store date: %w", err)
+	}
+	returnReferenceFilter := ""
+	if isSQLiteDriver(db.DriverName()) {
+		if sqliteHasColumns(db, "returns", "reference_number") {
+			returnReferenceFilter = " AND COALESCE(r.reference_number, '') NOT LIKE 'REV-%%'"
+		}
+	} else {
+		returnReferenceFilter = " AND COALESCE(r.reference_number, '') NOT LIKE 'REV-%'"
+	}
 	query := `
 		WITH sale_costs AS (
 			SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
-				COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.cost_price, 0)), 0) AS total_cost
+				CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount
+				     ELSE COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, ii.purchase_cost, p.cost_price, 0)), 0)
+				END AS total_cost
 			FROM sales s
 			LEFT JOIN sale_items si ON si.sale_id = s.id
 			LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
 			LEFT JOIN products p ON p.id = si.product_id
 			WHERE COALESCE(s.sale_date::date, s.created_at::date) = $1::date
 			  AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
-			GROUP BY s.id, s.total_amount, s.tax_amount
+			GROUP BY s.id, s.total_amount, s.tax_amount, s.cost_amount
 		), totals AS (
 			SELECT COALESCE(SUM(total_amount), 0) AS gross_revenue,
 			       COALESCE(SUM(total_amount - tax_amount), 0) AS revenue,
 			       COALESCE(SUM(total_cost), 0) AS cost
 			FROM sale_costs
-		), expenses_total AS (
-			SELECT COALESCE(SUM(amount), 0) AS amount
-			FROM expenses
-			WHERE expense_date::date = $1::date
-			  AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')
-		), returns_total AS (
+		), expenses_total AS (SELECT 0 AS amount), returns_total AS (
 			SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded,
 			       COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost
 			FROM returns r
@@ -58,15 +66,19 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			LEFT JOIN sale_items si ON si.id = ri.sale_item_id
 			LEFT JOIN products p ON p.id = ri.product_id
 			WHERE r.return_date::date = $1::date
-			  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
+			  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'` + returnReferenceFilter + `
 		)
-		SELECT totals.gross_revenue - returns_total.refunded AS today_sales,
+		SELECT totals.revenue - returns_total.refunded AS today_sales,
 		       totals.revenue - totals.cost - expenses_total.amount - returns_total.refunded + returns_total.returned_cost AS today_profit
 		FROM totals, expenses_total, returns_total
 	`
 	args := []any{date}
 
 	if isSQLiteDriver(db.DriverName()) {
+		productCostRef := "p.cost_price"
+		if !sqliteHasColumns(db, "products", "cost_price") {
+			productCostRef = "p.purchase_price"
+		}
 		productJoin := "LEFT JOIN products p ON p.id = ri.product_id"
 		if !sqliteHasColumns(db, "return_items", "product_id") {
 			productJoin = "LEFT JOIN products p ON p.id = si.product_id"
@@ -74,7 +86,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 		query = fmt.Sprintf(`
 			WITH sale_costs AS (
 				SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
-					COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) AS total_cost
+					COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) AS total_cost
 				FROM sales s
 				LEFT JOIN sale_items si ON si.sale_id = s.id
 				LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
@@ -87,12 +99,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 				       COALESCE(SUM(total_amount - tax_amount), 0) AS revenue,
 				       COALESCE(SUM(total_cost), 0) AS cost
 				FROM sale_costs
-			), expenses_total AS (
-				SELECT COALESCE(SUM(amount), 0) AS amount
-				FROM expenses
-				WHERE date(expense_date) = ?
-				  AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')
-			), returns_total AS (
+			), expenses_total AS (SELECT 0 AS amount), returns_total AS (
 				SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded,
 				       COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost
 				FROM returns r
@@ -100,9 +107,9 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 				LEFT JOIN sale_items si ON si.id = ri.sale_item_id
 				%s
 				WHERE date(r.return_date) = ?
-				  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
+			  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'`+returnReferenceFilter+`
 			)
-			SELECT totals.gross_revenue AS today_sales,
+			SELECT totals.revenue - returns_total.refunded AS today_sales,
 			       totals.revenue - totals.cost - expenses_total.amount - returns_total.refunded + returns_total.returned_cost AS today_profit
 			FROM totals, expenses_total, returns_total
 		`, productJoin)
@@ -111,10 +118,6 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 		// have the returns tables yet. Keep the dashboard usable there while
 		// using the return-aware calculation on the current schema.
 		if !sqliteHasColumns(db, "returns", "total_refund_amount", "return_date", "status") || !sqliteHasColumns(db, "return_items", "quantity_returned", "sale_item_id", "original_cost") {
-			productCostRef := "p.cost_price"
-			if !sqliteHasColumns(db, "products", "cost_price") {
-				productCostRef = "p.purchase_price"
-			}
 			query = fmt.Sprintf(`
 				WITH sale_costs AS (
 					SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
@@ -131,17 +134,24 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 					       COALESCE(SUM(total_amount - tax_amount), 0) AS revenue,
 					       COALESCE(SUM(total_cost), 0) AS cost
 					FROM sale_costs
-				), expenses_total AS (
-					SELECT COALESCE(SUM(amount), 0) AS amount
-					FROM expenses
-					WHERE date(expense_date) = ?
-					  AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')
-				)
-				SELECT totals.gross_revenue AS today_sales,
+				), expenses_total AS (SELECT 0 AS amount)
+				SELECT totals.revenue AS today_sales,
 				       totals.revenue - totals.cost - expenses_total.amount AS today_profit
 				FROM totals, expenses_total
 			`, productCostRef)
 			args = []any{date, date}
+		}
+		if sqliteHasColumns(db, "sales", "sale_date") {
+			query = strings.ReplaceAll(query, "date(s.created_at) = ?", "date(COALESCE(s.sale_date, s.created_at)) = ?")
+		}
+		if sqliteHasColumns(db, "sales", "cost_amount") {
+			query = strings.ReplaceAll(query,
+				"COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) AS total_cost",
+				"CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount ELSE COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) END AS total_cost")
+			query = strings.ReplaceAll(query,
+				fmt.Sprintf("COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, %s, 0)), 0) AS total_cost", productCostRef),
+				fmt.Sprintf("CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount ELSE COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, %s, 0)), 0) END AS total_cost", productCostRef))
+			query = strings.ReplaceAll(query, "GROUP BY s.id, s.total_amount, s.tax_amount", "GROUP BY s.id, s.total_amount, s.tax_amount, s.cost_amount")
 		}
 	}
 	if isSQLiteDriver(db.DriverName()) {
@@ -161,6 +171,15 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 	if err := db.GetContext(ctx, &metrics, query, args...); err != nil {
 		return todayMetrics{}, fmt.Errorf("calculate today's dashboard metrics: %w", err)
 	}
+	expenseStart, expenseEnd, err := accounting.StoreDateBounds(date)
+	if err != nil {
+		return todayMetrics{}, fmt.Errorf("calculate today's accounting period: %w", err)
+	}
+	metrics.Expenses, err = accounting.AccountingExpensesForPeriod(ctx, db, expenseStart, expenseEnd)
+	if err != nil {
+		return todayMetrics{}, err
+	}
+	metrics.Profit -= metrics.Expenses
 	if isSQLiteDriver(db.DriverName()) {
 		if sqliteHasColumns(db, "supplier_returns", "refund_amount", "status", "updated_at", "created_at") {
 			_ = db.GetContext(ctx, &metrics.SupplierReturns, `
@@ -181,30 +200,55 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 	// so older local databases without the payments table remain usable.
 	paymentDateColumn := "created_at"
 	debtPaymentFilter := "1 = 1"
+	customerPaymentFilter := "customer_id IS NOT NULL"
+	supplierPaymentFilter := "supplier_id IS NOT NULL"
 	if sqliteHasColumns(db, "payments", "payment_date") {
-		paymentDateColumn = "payment_date"
+		// SQLite may receive Go's time.Time string, which can include a
+		// monotonic suffix ("m=+"). Keep the parseable date-time prefix.
+		paymentDateColumn = "substr(COALESCE(payment_date, created_at), 1, 19)"
+	}
+	if isSQLiteDriver(db.DriverName()) && paymentDateColumn == "created_at" {
+		paymentDateColumn = "substr(created_at, 1, 19)"
+	}
+	if sqliteHasColumns(db, "payments", "reference_id", "type") {
+		customerPaymentFilter = "(customer_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'customer' AND reference_id IS NOT NULL))"
+		supplierPaymentFilter = "(supplier_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'supplier' AND reference_id IS NOT NULL))"
 	}
 	if sqliteHasColumns(db, "payments", "sale_id") {
-		debtPaymentFilter = "(sale_id IS NULL OR TRIM(sale_id) = '')"
+		// A sale-linked payment is the payment made at checkout, even when the
+		// sale creates a debt. Debt collections are recorded separately with no
+		// sale_id and must be the only values shown in today's debt collection.
+		debtPaymentFilter = "(sale_id IS NULL OR TRIM(sale_id) = '') AND " + customerPaymentFilter
 	}
 	if isSQLiteDriver(db.DriverName()) {
-		_ = db.GetContext(ctx, &metrics.Collected, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE customer_id IS NOT NULL AND date(%s) = ?`, paymentDateColumn), date)
-		var customerPayments float64
-		_ = db.GetContext(ctx, &customerPayments, `SELECT COALESCE(SUM(amount), 0) FROM customer_payments WHERE date(payment_date) = ?`, date)
-		metrics.Collected += customerPayments
-		_ = db.GetContext(ctx, &metrics.DebtCollected, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE customer_id IS NOT NULL AND %s AND date(%s) = ?`, debtPaymentFilter, paymentDateColumn), date)
-		metrics.DebtCollected += customerPayments
-		_ = db.GetContext(ctx, &metrics.SupplierPaid, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE supplier_id IS NOT NULL AND date(%s) = ?`, paymentDateColumn), date)
-		_ = db.GetContext(ctx, &metrics.Expenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date(expense_date) = ? AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, date)
+		_ = db.GetContext(ctx, &metrics.Collected, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE %s AND date(%s) = ?`, customerPaymentFilter, paymentDateColumn), date)
+		_ = db.GetContext(ctx, &metrics.DebtCollected, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE %s AND date(%s) = ?`, debtPaymentFilter, paymentDateColumn), date)
+		_ = db.GetContext(ctx, &metrics.SupplierPaid, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE %s AND date(%s) = ?`, supplierPaymentFilter, paymentDateColumn), date)
+		if sqliteHasColumns(db, "sales", "payment_method", "paid_amount") {
+			var salesCashIn float64
+			dateColumn := "created_at"
+			if sqliteHasColumns(db, "sales", "sale_date") {
+				dateColumn = "COALESCE(sale_date, created_at)"
+			}
+			_ = db.GetContext(ctx, &salesCashIn, fmt.Sprintf(`
+				SELECT COALESCE(SUM(CASE WHEN LOWER(COALESCE(payment_method, '')) IN ('cash', 'cash_payment', 'card', 'credit_card')
+					THEN COALESCE(NULLIF(paid_amount, 0), total_amount) ELSE 0 END), 0)
+				FROM sales
+				WHERE LOWER(COALESCE(status, 'completed')) = 'completed' AND date(%s) = ?`, dateColumn), date)
+			metrics.Collected += salesCashIn
+		}
 	} else {
-		_ = db.GetContext(ctx, &metrics.Collected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE customer_id IS NOT NULL AND payment_date::date = $1::date`, date)
-		var customerPayments float64
-		_ = db.GetContext(ctx, &customerPayments, `SELECT COALESCE(SUM(amount), 0) FROM customer_payments WHERE payment_date::date = $1::date`, date)
-		metrics.Collected += customerPayments
-		_ = db.GetContext(ctx, &metrics.DebtCollected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE customer_id IS NOT NULL AND sale_id IS NULL AND payment_date::date = $1::date`, date)
-		metrics.DebtCollected += customerPayments
-		_ = db.GetContext(ctx, &metrics.SupplierPaid, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE supplier_id IS NOT NULL AND payment_date::date = $1::date`, date)
+		_ = db.GetContext(ctx, &metrics.Collected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE (customer_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'customer' AND reference_id IS NOT NULL)) AND COALESCE(payment_date, created_at)::date = $1::date`, date)
+		_ = db.GetContext(ctx, &metrics.DebtCollected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE sale_id IS NULL AND (customer_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'customer' AND reference_id IS NOT NULL)) AND COALESCE(payment_date, created_at)::date = $1::date`, date)
+		_ = db.GetContext(ctx, &metrics.SupplierPaid, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE (supplier_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'supplier' AND reference_id IS NOT NULL)) AND COALESCE(payment_date, created_at)::date = $1::date`, date)
 		_ = db.GetContext(ctx, &metrics.Expenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date::date = $1::date AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, date)
+		var salesCashIn float64
+		_ = db.GetContext(ctx, &salesCashIn, `
+			SELECT COALESCE(SUM(CASE WHEN LOWER(COALESCE(payment_method, '')) IN ('cash', 'cash_payment', 'card', 'credit_card')
+				THEN COALESCE(NULLIF(paid_amount, 0), total_amount) ELSE 0 END), 0)
+			FROM sales
+			WHERE LOWER(COALESCE(status, 'completed')) = 'completed' AND COALESCE(sale_date::date, created_at::date) = $1::date`, date)
+		metrics.Collected += salesCashIn
 	}
 	return metrics, nil
 }

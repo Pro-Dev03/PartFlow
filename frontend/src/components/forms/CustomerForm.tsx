@@ -69,12 +69,6 @@ export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormPr
             onChange={(e) => setFormData({ ...formData, address: e.target.value })}
           />
 
-          <Input
-            label="حد الائتمان"
-            type="number"
-            value={formData.credit_limit || 0}
-            onChange={(e) => setFormData({ ...formData, credit_limit: parseFloat(e.target.value) || 0 })}
-          />
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               ملاحظات

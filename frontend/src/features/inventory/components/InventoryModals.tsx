@@ -601,7 +601,23 @@ export function InventoryModals({
             </div>
           </div>
         ) : (
-          <div className="space-y-md">
+          <div
+            className="space-y-md"
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || event.shiftKey) return;
+              const target = event.target as HTMLElement;
+              if (target.tagName !== 'INPUT' && target.tagName !== 'SELECT') return;
+
+              const fields = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+                'input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
+              ));
+              if (target === fields[fields.length - 1] && selectedProduct) {
+                event.preventDefault();
+                event.stopPropagation();
+                onSaveProduct(selectedProduct);
+              }
+            }}
+          >
             {/* Basic Information Section */}
             <div style={{ 
               marginBottom: '20px',

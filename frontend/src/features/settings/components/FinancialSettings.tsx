@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
+import { Select } from '../../../components/ui/select';
 import { DollarSign, Save } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { settingsApi } from '../../../services/api/endpoints';
 import { toast } from 'sonner';
 import { DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
+import { ElectronicPaymentSettings } from './ElectronicPaymentSettings';
 
 export function FinancialSettings() {
   const queryClient = useQueryClient();
@@ -88,6 +90,7 @@ export function FinancialSettings() {
   }, [currencySetting, discountsEnabledSetting, discountSetting, marginSetting, taxSetting]);
 
   return (
+    <div className="space-y-6">
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
@@ -96,19 +99,17 @@ export function FinancialSettings() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-md">
-        <div>
-          <label className="mb-2 block text-sm font-medium text-text-primary">العملة الأساسية</label>
-          <select
-            value={financialSettings.currency}
-            onChange={(event) => setFinancialSettings({ ...financialSettings, currency: event.target.value })}
-            className="w-full rounded-lg border border-border bg-surface p-3 text-text-primary"
-          >
-            <option value="ILS">شيكل إسرائيلي (₪)</option>
-            <option value="USD">دولار أمريكي ($)</option>
-            <option value="EUR">يورو (€)</option>
-          </select>
-          <p className="mt-2 text-xs text-text-secondary">الشيكل هو العملة الافتراضية، ويمكن اختيار عملة أخرى عند الحاجة.</p>
-        </div>
+        <Select
+          label="العملة الأساسية"
+          value={financialSettings.currency}
+          onChange={(event) => setFinancialSettings({ ...financialSettings, currency: event.target.value })}
+          helperText="الشيكل هو العملة الافتراضية، ويمكن اختيار عملة أخرى عند الحاجة."
+          options={[
+            { value: 'ILS', label: 'شيكل إسرائيلي (₪)' },
+            { value: 'USD', label: 'دولار أمريكي ($)' },
+            { value: 'EUR', label: 'يورو (€)' },
+          ]}
+        />
         <Input
           label="نسبة الضريبة (%)"
           type="number"
@@ -166,5 +167,7 @@ export function FinancialSettings() {
         </Button>
       </CardContent>
     </Card>
+    <ElectronicPaymentSettings />
+    </div>
   );
 }

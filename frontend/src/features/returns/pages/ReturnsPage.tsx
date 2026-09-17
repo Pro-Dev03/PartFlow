@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { formatStoreDate } from '../../../utils/store-time';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
 import { returnsApi } from '../../../services/api/endpoints';
@@ -93,6 +94,10 @@ export function ReturnsPage() {
 
   const returns = (returnsData?.data as Return[]) || [];
   const totalReturns = Number(returnsData?.meta?.total || returns.length);
+  const activeReturnCount = returns.filter((item) => {
+    const status = String(item.status || '').toUpperCase();
+    return status !== 'CANCELLED' && status !== 'REVERSED';
+  }).length;
 
   const { data: salesReturnsAnalysis } = useQuery({
     queryKey: ['sales-returns-analysis'],
@@ -258,7 +263,7 @@ export function ReturnsPage() {
               </div>
               <div>
                 <p className="text-sm text-gray-400">إجمالي المرتجعات</p>
-                <p className="text-2xl font-bold">{statistics?.total_returns || returns.length}</p>
+                <p className="text-2xl font-bold">{activeReturnCount}</p>
               </div>
             </div>
           </CardContent>
@@ -403,7 +408,7 @@ export function ReturnsPage() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-400">التاريخ:</span>
-                      <span>{new Date(returnItem.return_date).toLocaleDateString('ar-SA')}</span>
+                      <span>{formatStoreDate(returnItem.return_date, 'ar-SA')}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-400">النوع:</span>
@@ -429,13 +434,13 @@ export function ReturnsPage() {
 
                   <div className="flex gap-2">
                     <Button
-                      variant="secondary"
-                      size="sm"
-                      className="flex-1"
+                      variant="ghost"
+                      size="icon"
                       onClick={() => handleViewDetails(returnItem)}
+                      aria-label={`عرض تفاصيل المرتجع ${returnItem.return_number || ''}`}
+                      title="عرض تفاصيل المرتجع"
                     >
-                      <Eye className="w-4 h-4 mr-1" />
-                      التفاصيل
+                      <Eye className="w-4 h-4" />
                     </Button>
                     {returnItem.status === 'APPROVED' && (
                       <Button

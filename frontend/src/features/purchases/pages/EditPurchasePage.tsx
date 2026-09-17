@@ -24,6 +24,8 @@ import {
   DollarSign,
   Box,
   Edit,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { purchasesApi, suppliersApi, productsApi, categoriesApi } from '../../../services/api/endpoints';
 import { usePurchases } from '../hooks/usePurchases';
@@ -42,12 +44,14 @@ export function EditPurchasePage() {
   const [selectedSupplier, setSelectedSupplier] = useState('');
   const [items, setItems] = useState<LineItem[]>([]);
   const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [productPage, setProductPage] = useState(1);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [activeTab, setActiveTab] = useState<'scan' | 'manual'>('manual');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState('');
   const [receiveImmediately, setReceiveImmediately] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   
@@ -78,8 +82,15 @@ export function EditPurchasePage() {
 
   const { data: productsData } = useQuery({
     queryKey: ['products', productSearchQuery],
-    queryFn: () => productsApi.list({ search: productSearchQuery, page: 1, per_page: 20 }),
+    queryFn: () => productsApi.list({ search: productSearchQuery, page: productPage, per_page: 10 }),
   });
+
+  const productTotal = Number(productsData?.data?.total ?? 0);
+  const productTotalPages = Math.max(1, Math.ceil(productTotal / 10));
+
+  useEffect(() => {
+    setProductPage(1);
+  }, [productSearchQuery]);
 
   const { data: categoriesData } = useQuery({
     queryKey: ['categories'],
@@ -138,11 +149,24 @@ export function EditPurchasePage() {
   const categories = (categoriesData?.data as Category[]) || [];
 
   const { updatePurchaseMutation, receivePurchaseMutation } = usePurchases();
+  const purchaseRecord = purchaseData?.data?.purchase || purchaseData?.purchase || purchaseData?.data;
+  const purchasePaid = Number(purchaseRecord?.paid_amount || 0);
+  const paymentMutation = useMutation({
+    mutationFn: (amount: number) => purchasesApi.addPayment(id || '', { amount, paymentMethod: 'cash' }),
+    onSuccess: () => {
+      setPaymentAmount('');
+      void queryClient.invalidateQueries({ queryKey: ['purchase', id] });
+      void queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      toast.success('تم تسجيل الدفعة وتحديث المتبقي');
+    },
+    onError: (error: any) => toast.error(error?.message || 'تعذر تسجيل الدفعة'),
+  });
 
   // Load purchase data when available
   useEffect(() => {
-    if (purchaseData?.data) {
-      const purchase = purchaseData.data;
+    const purchase = purchaseData?.data?.purchase || purchaseData?.purchase || purchaseData?.data;
+    const purchaseItems = purchaseData?.data?.items || purchaseData?.items || purchase?.items;
+    if (purchase) {
       setSelectedSupplier(purchase.supplier_id || '');
       setInvoiceNumber(purchase.invoice_number || '');
       setPurchaseDate(purchase.purchase_date ? new Date(purchase.purchase_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
@@ -150,13 +174,17 @@ export function EditPurchasePage() {
       setNotes(purchase.notes || '');
       
       // Load items
-      if (purchase.items && Array.isArray(purchase.items)) {
-        setItems(purchase.items.map((item: any, index: number) => ({
+      if (Array.isArray(purchaseItems)) {
+        setItems(purchaseItems.map((item: any, index: number) => ({
           key: `${item.product_id}-${index}`,
+          id: item.id,
+          purchase_id: item.purchase_id,
           product_id: item.product_id,
           product_name: item.product_name || item.product?.name || '',
           quantity: Number(item.quantity) || 0,
           unit_cost: Number(item.unit_cost) || 0,
+          selling_price: Number(item.selling_price) || 0,
+          category_id: item.category_id || '',
           condition: item.condition || 'new',
         })));
       }
@@ -167,6 +195,8 @@ export function EditPurchasePage() {
     () => items.reduce((sum, item) => sum + item.quantity * item.unit_cost, 0),
     [items]
   );
+  const purchaseTotal = totalCost;
+  const purchaseRemaining = Math.max(0, purchaseTotal - purchasePaid);
 
   const totalQuantity = useMemo(
     () => items.reduce((sum, item) => sum + item.quantity, 0),
@@ -303,10 +333,13 @@ export function EditPurchasePage() {
       purchase_date: new Date(purchaseDate).toISOString(),
       expected_delivery_date: expectedDate ? new Date(expectedDate).toISOString() : undefined,
       notes: notes || undefined,
-      items: items.map((item) => ({
+        items: items.map((item) => ({
+          id: item.id,
         product_id: item.product_id,
         quantity: item.quantity,
         unit_cost: item.unit_cost,
+        selling_price: item.selling_price,
+        category_id: item.category_id || undefined,
         condition: item.condition,
       })),
     };
@@ -494,6 +527,7 @@ export function EditPurchasePage() {
                     </div>
                   </div>
                   {searchedProducts.length > 0 ? (
+                    <>
                     <div className="border border-border rounded-lg max-h-64 overflow-y-auto">
                       {searchedProducts.map((product) => (
                         <div
@@ -543,6 +577,18 @@ export function EditPurchasePage() {
                         </div>
                       ))}
                     </div>
+                    {productTotalPages > 1 && (
+                      <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs text-text-muted">
+                        <Button type="button" variant="ghost" size="sm" disabled={productPage <= 1} onClick={() => setProductPage((page) => page - 1)}>
+                          <ChevronRight className="h-4 w-4" /> السابق
+                        </Button>
+                        <span>صفحة {productPage} من {productTotalPages}</span>
+                        <Button type="button" variant="ghost" size="sm" disabled={productPage >= productTotalPages} onClick={() => setProductPage((page) => page + 1)}>
+                          التالي <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                    </>
                   ) : (
                     <div className="text-center py-8 text-text-muted">
                       {productSearchQuery ? 'لا توجد نتائج للبحث' : 'ابحث عن منتج للإضافة'}
@@ -566,8 +612,10 @@ export function EditPurchasePage() {
                       <tr>
                         <th className="text-right p-3 text-sm font-medium">المنتج</th>
                         <th className="text-right p-3 text-sm font-medium">الحالة</th>
+                        <th className="text-right p-3 text-sm font-medium">التصنيف</th>
                         <th className="text-right p-3 text-sm font-medium">الكمية</th>
                         <th className="text-right p-3 text-sm font-medium">سعر الوحدة</th>
+                        <th className="text-right p-3 text-sm font-medium">سعر البيع</th>
                         <th className="text-right p-3 text-sm font-medium">الإجمالي</th>
                         <th className="text-right p-3 text-sm font-medium">إجراء</th>
                       </tr>
@@ -591,6 +639,19 @@ export function EditPurchasePage() {
                                 { value: 'refurbished', label: 'مجدد' },
                               ]}
                               className="w-28"
+                              style={{ minWidth: '7rem' }}
+                            />
+                          </td>
+                          <td className="p-3">
+                            <Select
+                              value={item.category_id ?? ''}
+                              onChange={(e) => setItems((prev) => prev.map((current) => current.key === item.key ? { ...current, category_id: e.target.value } : current))}
+                              options={[
+                                { value: '', label: 'بدون تصنيف' },
+                                ...categories.map((category) => ({ value: category.id, label: category.name })),
+                              ]}
+                              className="w-36"
+                              style={{ minWidth: '9rem' }}
                             />
                           </td>
                           <td className="p-3">
@@ -607,6 +668,16 @@ export function EditPurchasePage() {
                               type="number"
                               value={item.unit_cost}
                               onChange={(e) => handleUpdateUnitCost(item.key, parseFloat(e.target.value) || 0)}
+                              className="w-28"
+                              min="0"
+                              step="0.01"
+                            />
+                          </td>
+                          <td className="p-3">
+                            <Input
+                              type="number"
+                              value={item.selling_price ?? 0}
+                              onChange={(e) => setItems((prev) => prev.map((current) => current.key === item.key ? { ...current, selling_price: parseFloat(e.target.value) || 0 } : current))}
                               className="w-28"
                               min="0"
                               step="0.01"
@@ -692,6 +763,41 @@ export function EditPurchasePage() {
                   <span className="text-2xl font-bold text-cyan">₪{totalCost.toFixed(2)}</span>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-emerald-200 bg-emerald-50/40">
+            <CardHeader>
+              <CardTitle>المدفوعات</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-text-muted">المدفوع</span>
+                <span className="font-semibold">₪{Number(purchaseRecord?.paid_amount || 0).toLocaleString('en-US')}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-text-muted">المتبقي</span>
+                <span className="font-semibold">₪{purchaseRemaining.toLocaleString('en-US')}</span>
+              </div>
+              <Input
+                type="number"
+                min="0.01"
+                max={purchaseRemaining}
+                step="0.01"
+                value={paymentAmount}
+                onChange={(event) => setPaymentAmount(event.target.value)}
+                placeholder="مبلغ الدفعة"
+                disabled={purchaseRemaining <= 0 || paymentMutation.isPending}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                onClick={() => paymentMutation.mutate(Number(paymentAmount))}
+                disabled={!Number(paymentAmount) || Number(paymentAmount) <= 0 || Number(paymentAmount) > purchaseRemaining || paymentMutation.isPending}
+              >
+                {paymentMutation.isPending ? 'جاري تسجيل الدفعة...' : 'تسجيل الدفعة'}
+              </Button>
             </CardContent>
           </Card>
 

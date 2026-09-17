@@ -13,10 +13,12 @@ import { SupplierCard } from '../../../components/ui/supplier-card';
 import { SupplierModals } from '../components/SupplierModals';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { PaginationControls } from '../../../components/ui/pagination-controls';
+import { SortButton } from '../../../components/ui/sort-button';
 import type { SupplierFormData } from '../../../components/forms/SupplierForm';
 import { Supplier } from '../../../types/models';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { getButtonSize } from '../../../config/button-sizes';
+import { normalizeSupplier } from '../utils/supplier-normalization';
 import {
   Truck,
   Search,
@@ -72,12 +74,14 @@ export function SuppliersPage() {
     enabled: !!expandedSupplierId,
   });
 
-  const suppliers = (suppliersData?.data as Supplier[]) || [];
+  const suppliers = Array.isArray(suppliersData?.data)
+    ? (suppliersData.data as any[]).map((supplier) => normalizeSupplier(supplier))
+    : [];
 
-  const filteredSuppliers = suppliers.filter((supplier: Supplier) =>
-    supplier.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+  const filteredSuppliers = suppliers.filter((supplier: any) =>
+    (supplier.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
     (supplier.phone || '').includes(searchQuery) ||
-    supplier.code.toLowerCase().includes(searchQuery.toLowerCase())
+    (supplier.code || '').toLowerCase().includes(searchQuery.toLowerCase())
   ).filter((supplier: any) => !showOutstandingOnly || Number(supplier.outstanding || 0) > 0)
     .sort((a: any, b: any) => {
       if (sortBy === 'outstanding') return Number(b.outstanding || 0) - Number(a.outstanding || 0);
@@ -86,9 +90,9 @@ export function SuppliersPage() {
     });
 
   const totalSuppliers = Number(suppliersData?.meta?.total || suppliers.length);
-  const totalPurchases = suppliers.reduce((sum: number, s: Supplier) => sum + ('totalPurchases' in s ? (s as Record<string, unknown>).totalPurchases as number : 0), 0);
-  const totalPaid = suppliers.reduce((sum: number, s: Supplier) => sum + ('paidAmount' in s ? (s as Record<string, unknown>).paidAmount as number : 0), 0);
-  const totalOutstanding = suppliers.reduce((sum: number, s: Supplier) => sum + ('outstanding' in s ? (s as Record<string, unknown>).outstanding as number : 0), 0);
+  const totalPurchases = suppliers.reduce((sum: number, s: any) => sum + Number(s.totalPurchases || 0), 0);
+  const totalPaid = suppliers.reduce((sum: number, s: any) => sum + Number(s.paidAmount || 0), 0);
+  const totalOutstanding = suppliers.reduce((sum: number, s: any) => sum + Number(s.outstanding || 0), 0);
 
   const handleExport = () => {
     const dataToExport = filteredSuppliers.map((supplier: any) => ({
@@ -173,11 +177,11 @@ export function SuppliersPage() {
               <Plus className="w-4 h-4" />
               {t('suppliers.addSupplier')}
             </Button>
-            <Button variant="secondary" size={getButtonSize('suppliers', 'headerActions')} onClick={handleExport} className="gap-2">
+            <Button variant="outline" size={getButtonSize('suppliers', 'headerActions')} onClick={handleExport} className="gap-2">
               <Download className="w-4 h-4" />
               تصدير
             </Button>
-            <Button variant="secondary" size={getButtonSize('suppliers', 'headerActions')} onClick={handlePrint} className="gap-2">
+            <Button variant="outline" size={getButtonSize('suppliers', 'headerActions')} onClick={handlePrint} className="gap-2">
               <Printer className="w-4 h-4" />
               طباعة
             </Button>
@@ -351,16 +355,32 @@ export function SuppliersPage() {
                 {showInactive ? <RotateCcw className="w-4 h-4" /> : <RefreshCw className="w-4 h-4" />}
                 {showInactive ? 'عرض الموردين النشطين' : 'الموردون المعطلون'}
               </Button>
-              <select
-                value={sortBy}
-                onChange={(event) => setSortBy(event.target.value as typeof sortBy)}
-                className="h-10 rounded-md border border-border bg-surface px-3 text-sm text-text"
-                aria-label="ترتيب الموردين"
-              >
-                <option value="recent">الأحدث إضافة</option>
-                <option value="outstanding">الأعلى استحقاقًا</option>
-                <option value="purchases">الأعلى مشتريات</option>
-              </select>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="ترتيب الموردين">
+                <SortButton
+                  label="الأحدث إضافة"
+                  active={sortBy === 'recent'}
+                  direction={sortBy === 'recent' ? 'desc' : null}
+                  onClick={() => setSortBy('recent')}
+                  aria-label="ترتيب الموردين حسب الأحدث إضافة"
+                  className="min-w-0 flex-1"
+                />
+                <SortButton
+                  label="الأعلى استحقاقًا"
+                  active={sortBy === 'outstanding'}
+                  direction={sortBy === 'outstanding' ? 'desc' : null}
+                  onClick={() => setSortBy('outstanding')}
+                  aria-label="ترتيب الموردين حسب الأعلى استحقاقًا"
+                  className="min-w-0 flex-1"
+                />
+                <SortButton
+                  label="الأعلى مشتريات"
+                  active={sortBy === 'purchases'}
+                  direction={sortBy === 'purchases' ? 'desc' : null}
+                  onClick={() => setSortBy('purchases')}
+                  aria-label="ترتيب الموردين حسب الأعلى مشتريات"
+                  className="min-w-0 flex-1"
+                />
+              </div>
             </div>
           </div>
         </CardContent>

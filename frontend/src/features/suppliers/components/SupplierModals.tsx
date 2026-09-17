@@ -6,6 +6,7 @@ import { Input } from '../../../components/ui/input';
 import { SupplierForm, type SupplierFormData } from '../../../components/forms/SupplierForm';
 import { suppliersApi } from '../../../services/api/endpoints';
 import { getButtonSize } from '../../../config/button-sizes';
+import { normalizeSupplier } from '../utils/supplier-normalization';
 
 interface SupplierModalsProps {
   isOpen: boolean;
@@ -43,6 +44,7 @@ export function SupplierModals({
 
   const ledger = (ledgerData?.data as any) || null;
   const entries: any[] = Array.isArray(ledger?.entries) ? ledger.entries : [];
+  const normalizedViewingSupplier = viewingSupplier ? normalizeSupplier(viewingSupplier) : null;
   const paymentMutation = useMutation({
     mutationFn: () => suppliersApi.addPayment(viewingSupplier.id, { amount: Number(paymentAmount), method: 'cash' }),
     onSuccess: () => {
@@ -77,32 +79,32 @@ export function SupplierModals({
         variant="modern"
         size="xl"
       >
-        {viewingSupplier && (
+        {normalizedViewingSupplier && (
           <div className="space-y-md">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">الاسم</label>
-                <Input value={viewingSupplier.name || ''} disabled />
+                <Input value={normalizedViewingSupplier.name || ''} disabled />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">الهاتف</label>
-                <Input value={viewingSupplier.phone || ''} disabled />
+                <Input value={normalizedViewingSupplier.phone || ''} disabled />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">البريد الإلكتروني</label>
-                <Input value={viewingSupplier.email || '-'} disabled />
+                <Input value={normalizedViewingSupplier.email || '-'} disabled />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">إجمالي المشتريات</label>
-                <Input value={`₪${(viewingSupplier.totalPurchases || 0).toLocaleString()}`} disabled />
+                <Input value={`₪${(normalizedViewingSupplier.totalPurchases || 0).toLocaleString()}`} disabled />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">المدفوع</label>
-                <Input value={`₪${(viewingSupplier.paidAmount || 0).toLocaleString()}`} disabled />
+                <Input value={`₪${(normalizedViewingSupplier.paidAmount || 0).toLocaleString()}`} disabled />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">صافي المستحق</label>
-                <Input value={`₪${(viewingSupplier.outstanding || 0).toLocaleString()}`} disabled />
+                <Input value={`₪${(normalizedViewingSupplier.outstanding || 0).toLocaleString()}`} disabled />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">رصيد مرتجعات المورد</label>
@@ -116,7 +118,7 @@ export function SupplierModals({
             <p className="text-xs text-text-muted">صافي المستحق = المستحق الأصلي - Credits المرتجعات - دفعات المورد.</p>
             <div className="flex items-end gap-2 border-t border-border pt-4">
               <Input type="number" min="0.01" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder="مبلغ الدفعة" />
-              <Button onClick={() => paymentMutation.mutate()} disabled={paymentMutation.isPending || Number(paymentAmount) <= 0 || Number(paymentAmount) > Number(ledger?.current_balance ?? viewingSupplier.outstanding ?? 0)}>
+              <Button onClick={() => paymentMutation.mutate()} disabled={paymentMutation.isPending || Number(paymentAmount) <= 0 || Number(paymentAmount) > Number(ledger?.current_balance ?? normalizedViewingSupplier.outstanding ?? 0)}>
                 تسجيل دفعة
               </Button>
             </div>

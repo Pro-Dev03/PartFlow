@@ -138,6 +138,21 @@ export function getArabicErrorMessage(error: any): string {
   return errorMessages.UNKNOWN_ERROR;
 }
 
+export function isNetworkError(error: any): boolean {
+  if (!error) return false;
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return true;
+  if (error.name === 'AbortError' || error.status === 0) return true;
+  if (['NETWORK_ERROR', 'TIMEOUT', 'TIMEOUT_ERROR', 'CONNECTION_FAILED'].includes(error.code)) return true;
+
+  const message = String(error.message || '').toLowerCase();
+  return message.includes('failed to fetch')
+    || message.includes('networkerror')
+    || message.includes('network error')
+    || message.includes('connection refused')
+    || message.includes('request timeout');
+}
+
 export function isRetryableError(error: any): boolean {
   if (!error) return false;
 

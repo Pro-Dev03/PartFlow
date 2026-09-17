@@ -21,6 +21,8 @@ type Sale struct {
 	GrossProfit    float64    `json:"gross_profit" db:"gross_profit"`
 	NetProfit      float64    `json:"net_profit" db:"net_profit"`
 	PaidAmount     float64    `json:"paid_amount" db:"paid_amount"`
+	CashReceived   float64    `json:"cash_received" db:"cash_received"`
+	ChangeAmount   float64    `json:"change_amount" db:"change_amount"`
 	PaymentMethod  *string    `json:"payment_method,omitempty" db:"payment_method"`
 	PaymentStatus  string     `json:"payment_status" db:"payment_status"`
 	Status         string     `json:"status" db:"status"`
@@ -36,20 +38,36 @@ type Sale struct {
 
 // SaleItem represents an item in a sale
 type SaleItem struct {
-	ID              uuid.UUID  `json:"id" db:"id"`
-	SaleID          uuid.UUID  `json:"sale_id" db:"sale_id"`
-	ProductID       uuid.UUID  `json:"product_id" db:"product_id"`
-	ProductName     *string    `json:"product_name,omitempty" db:"product_name"`
-	InventoryItemID *uuid.UUID `json:"inventory_item_id,omitempty" db:"inventory_item_id"`
-	SerialNumber    *string    `json:"serial_number,omitempty" db:"serial_number"`
-	Quantity        int        `json:"quantity" db:"quantity"`
-	UnitPrice       float64    `json:"unit_price" db:"unit_price"`
-	UnitCost        float64    `json:"unit_cost" db:"unit_cost"`
-	DiscountAmount  float64    `json:"discount_amount" db:"discount_amount"`
-	TaxAmount       float64    `json:"tax_amount" db:"tax_amount"`
-	TotalAmount     float64    `json:"total_amount" db:"total_amount"`
-	SupplierID      *uuid.UUID `json:"supplier_id,omitempty" db:"supplier_id"`
-	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
+	ID                uuid.UUID  `json:"id" db:"id"`
+	SaleID            uuid.UUID  `json:"sale_id" db:"sale_id"`
+	ProductID         uuid.UUID  `json:"product_id" db:"product_id"`
+	ProductName       *string    `json:"product_name,omitempty" db:"product_name"`
+	InventoryItemID   *uuid.UUID `json:"inventory_item_id,omitempty" db:"inventory_item_id"`
+	SerialNumber      *string    `json:"serial_number,omitempty" db:"serial_number"`
+	Quantity          int        `json:"quantity" db:"quantity"`
+	ReturnedQuantity  int        `json:"returned_quantity" db:"returned_quantity"`
+	RemainingQuantity int        `json:"remaining_quantity" db:"remaining_quantity"`
+	UnitPrice         float64    `json:"unit_price" db:"unit_price"`
+	UnitCost          float64    `json:"unit_cost" db:"unit_cost"`
+	DiscountAmount    float64    `json:"discount_amount" db:"discount_amount"`
+	TaxAmount         float64    `json:"tax_amount" db:"tax_amount"`
+	TotalAmount       float64    `json:"total_amount" db:"total_amount"`
+	SupplierID        *uuid.UUID `json:"supplier_id,omitempty" db:"supplier_id"`
+	SupplierName      *string    `json:"supplier_name,omitempty" db:"supplier_name"`
+	InventorySource   string     `json:"inventory_source" db:"inventory_source"`
+	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+}
+
+type PaymentAllocation struct {
+	ID          uuid.UUID `json:"id" db:"id"`
+	SaleID      uuid.UUID `json:"sale_id" db:"sale_id"`
+	Amount      float64   `json:"amount" db:"amount"`
+	Method      string    `json:"method" db:"payment_method"`
+	Status      string    `json:"status" db:"status"`
+	CheckNumber *string   `json:"check_number,omitempty" db:"check_number"`
+	BankName    *string   `json:"bank_name,omitempty" db:"bank_name"`
+	CheckDate   *string   `json:"check_date,omitempty" db:"check_date"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 
 // TableName returns the table name for the Sale model

@@ -3,9 +3,10 @@ import { Button } from '../../../components/ui/button';
 import { SearchInput } from '../../../components/ui/search-input';
 import { Select } from '../../../components/ui/select';
 import { Input } from '../../../components/ui/input';
+import { SortButton } from '../../../components/ui/sort-button';
 import { getButtonSize } from '../../../config/button-sizes';
 import { cn } from '../../../utils';
-import { Filter, ArrowUpDown, ChevronUp, ChevronDown, Zap } from 'lucide-react';
+import { Filter, Zap } from 'lucide-react';
 import { FilterConfig, SortConfig } from '../types/inventory.types';
 import { useQuery } from '@tanstack/react-query';
 import { suppliersApi, categoriesApi } from '../../../services/api/endpoints';
@@ -195,19 +196,14 @@ export function InventoryFilters({
                   }}>{filters.filter(f => f.key === 'condition' || f.key === 'category_id').length}</span>
                 )}
               </Button>
-              <Button
-                variant="secondary"
-                size={getButtonSize('inventory', 'headerActions')}
+              <SortButton
                 onClick={() => handleSort('name')}
-                className={cn("gap-2", isMobile ? "flex-1" : "")}
-              >
-                <ArrowUpDown className="w-4 h-4" />
-                <span>ترتيب</span>
-                {sortConfig.key === 'name' && (
-                  sortConfig.direction === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> :
-                  sortConfig.direction === 'desc' ? <ChevronDown className="w-3.5 h-3.5" /> : null
-                )}
-              </Button>
+                label="الاسم"
+                active={sortConfig.key === 'name'}
+                direction={sortConfig.key === 'name' ? sortConfig.direction : null}
+                className={cn(isMobile ? "flex-1" : "")}
+                aria-label="ترتيب المخزون حسب الاسم"
+              />
               <Button
                 variant="secondary"
                 size={getButtonSize('inventory', 'headerActions')}

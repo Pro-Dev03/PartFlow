@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
@@ -59,6 +60,9 @@ type localReturnRow struct {
 	ProcessedBy              sql.NullString `db:"processed_by"`
 	ApprovedBy               sql.NullString `db:"approved_by"`
 	ApprovedAt               sql.NullString `db:"approved_at"`
+	CreatedByName            sql.NullString `db:"created_by_name"`
+	ProcessedByName          sql.NullString `db:"processed_by_name"`
+	ApprovedByName           sql.NullString `db:"approved_by_name"`
 	Notes                    sql.NullString `db:"notes"`
 	InternalNotes            sql.NullString `db:"internal_notes"`
 	CreatedAt                sql.NullString `db:"created_at"`
@@ -102,11 +106,11 @@ func (row localReturnRow) model() Return {
 		DebtID: localUUIDPtr(row.DebtID), DebtAdjustment: row.DebtAdjustment, CustomerCredit: row.CustomerCredit,
 		Reason: row.Reason.String, ReasonDetail: row.ReasonDetail.String, ItemConditionAfterReturn: row.ItemConditionAfterReturn.String,
 		IsWarrantyClaim: row.IsWarrantyClaim != 0, WarrantyID: localUUIDPtr(row.WarrantyID), WarrantyValidUntil: localTimePtr(row.WarrantyValidUntil),
-		CreatedBy: localUUIDPtr(row.CreatedBy), ProcessedBy: localUUIDPtr(row.ProcessedBy), ApprovedBy: localUUIDPtr(row.ApprovedBy), ApprovedAt: localTimePtr(row.ApprovedAt),
+		CreatedBy: localUUIDPtr(row.CreatedBy), ProcessedBy: localUUIDPtr(row.ProcessedBy), ApprovedBy: localUUIDPtr(row.ApprovedBy), ApprovedAt: localTimePtr(row.ApprovedAt), CreatedByName: row.CreatedByName.String, ProcessedByName: row.ProcessedByName.String, ApprovedByName: row.ApprovedByName.String,
 		Notes: row.Notes.String, InternalNotes: row.InternalNotes.String, CreatedAt: localTime(row.CreatedAt), UpdatedAt: localTime(row.UpdatedAt)}
 }
 
-const localReturnColumns = `id, return_number, COALESCE(reference_number,'') AS reference_number, COALESCE(sale_id,'') AS sale_id, COALESCE(purchase_id,'') AS purchase_id, COALESCE(customer_id, (SELECT customer_id FROM sales WHERE sales.id = returns.sale_id),'') AS customer_id, COALESCE((SELECT name FROM customers WHERE customers.id = COALESCE(returns.customer_id, (SELECT customer_id FROM sales WHERE sales.id = returns.sale_id))),'') AS customer_name, return_date, return_type, status, total_refund_amount, COALESCE(refund_method,'') AS refund_method, refund_date, COALESCE(refund_reference,'') AS refund_reference, debt_id, debt_adjustment, customer_credit, COALESCE(reason,'') AS reason, COALESCE(reason_detail,'') AS reason_detail, COALESCE(item_condition_after_return,'') AS item_condition_after_return, is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at, COALESCE(notes,'') AS notes, COALESCE(internal_notes,'') AS internal_notes, created_at, updated_at`
+const localReturnColumns = `id, return_number, COALESCE(reference_number,'') AS reference_number, COALESCE(sale_id,'') AS sale_id, COALESCE(purchase_id,'') AS purchase_id, COALESCE(customer_id, (SELECT customer_id FROM sales WHERE sales.id = returns.sale_id),'') AS customer_id, COALESCE((SELECT name FROM customers WHERE customers.id = COALESCE(returns.customer_id, (SELECT customer_id FROM sales WHERE sales.id = returns.sale_id))),'') AS customer_name, return_date, return_type, status, total_refund_amount, COALESCE(refund_method,'') AS refund_method, refund_date, COALESCE(refund_reference,'') AS refund_reference, debt_id, debt_adjustment, customer_credit, COALESCE(reason,'') AS reason, COALESCE(reason_detail,'') AS reason_detail, COALESCE(item_condition_after_return,'') AS item_condition_after_return, is_warranty_claim, warranty_id, warranty_valid_until, created_by, processed_by, approved_by, approved_at, COALESCE((SELECT first_name || ' ' || last_name FROM users WHERE users.id = returns.created_by), '') AS created_by_name, COALESCE((SELECT first_name || ' ' || last_name FROM users WHERE users.id = returns.processed_by), '') AS processed_by_name, COALESCE((SELECT first_name || ' ' || last_name FROM users WHERE users.id = returns.approved_by), '') AS approved_by_name, COALESCE(notes,'') AS notes, COALESCE(internal_notes,'') AS internal_notes, created_at, updated_at`
 
 func sqliteHasColumns(db *sqlx.DB, table string, required ...string) bool {
 	rows, err := db.Query("PRAGMA table_info(" + table + ")")
@@ -308,7 +312,7 @@ func (r *Repository) ListReturns(ctx context.Context, req ReturnListRequest) ([]
 		if req.PerPage < 1 {
 			req.PerPage = 20
 		}
-		where := " WHERE 1=1"
+		where := " WHERE 1=1 AND COALESCE(reference_number, '') NOT LIKE 'REV-%'"
 		args := make([]interface{}, 0)
 		if req.CustomerID != nil {
 			where += " AND customer_id = ?"
@@ -383,15 +387,20 @@ func (r *Repository) ListReturns(ctx context.Context, req ReturnListRequest) ([]
 			r.debt_id, r.debt_adjustment, r.customer_credit, COALESCE(r.reason, '') AS reason,
 			COALESCE(r.reason_detail, '') AS reason_detail, COALESCE(r.item_condition_after_return, '') AS item_condition_after_return,
 			r.is_warranty_claim, r.warranty_id, r.warranty_valid_until, r.created_by, r.processed_by, r.approved_by, r.approved_at,
+			COALESCE((SELECT first_name || ' ' || last_name FROM users WHERE users.id = r.created_by), '') AS created_by_name,
+			COALESCE((SELECT first_name || ' ' || last_name FROM users WHERE users.id = r.processed_by), '') AS processed_by_name,
+			COALESCE((SELECT first_name || ' ' || last_name FROM users WHERE users.id = r.approved_by), '') AS approved_by_name,
 			COALESCE(r.notes, '') AS notes, COALESCE(r.internal_notes, '') AS internal_notes, r.created_at, r.updated_at
 		FROM returns r
 		LEFT JOIN sales s ON s.id = r.sale_id
 		LEFT JOIN customers c ON c.id = COALESCE(r.customer_id, s.customer_id)
 		WHERE 1=1
+			AND COALESCE(r.reference_number, '') NOT LIKE 'REV-%'
 	`
 
 	countQuery := `
-		SELECT COUNT(*) FROM returns WHERE 1=1
+		SELECT COUNT(*) FROM returns
+		WHERE 1=1 AND COALESCE(reference_number, '') NOT LIKE 'REV-%'
 	`
 
 	args := []interface{}{}
@@ -610,6 +619,50 @@ func (r *Repository) AddDebtAdjustmentLedgerEntry(ctx context.Context, returnRec
 	if returnRecord.CustomerID == uuid.Nil || returnRecord.RefundMethod != "DEBT_ADJUSTMENT" {
 		return nil
 	}
+	if dbutil.IsSQLite(r.db) && returnRecord.DebtID != nil {
+		tx, err := r.db.BeginTxx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("begin debt adjustment: %w", err)
+		}
+		defer tx.Rollback()
+
+		var existing int
+		if err := tx.GetContext(ctx, &existing, `SELECT COUNT(*) FROM customer_ledger WHERE customer_id = ? AND reference_id = ? AND type = 'credit'`, returnRecord.CustomerID, returnRecord.ID); err != nil {
+			return fmt.Errorf("check debt adjustment idempotency: %w", err)
+		}
+		if existing > 0 {
+			return tx.Commit()
+		}
+
+		var currentDebt float64
+		if err := tx.GetContext(ctx, &currentDebt, `SELECT COALESCE(remaining_amount, 0) FROM debts WHERE id = ?`, *returnRecord.DebtID); err != nil {
+			return fmt.Errorf("read debt for adjustment: %w", err)
+		}
+		adjustment := returnRecord.TotalRefundAmount
+		if adjustment < 0 {
+			adjustment = 0
+		}
+		applied := adjustment
+		if applied > currentDebt {
+			applied = currentDebt
+		}
+		customerCredit := adjustment - applied
+		if _, err := tx.ExecContext(ctx, `UPDATE debts SET paid_amount = MIN(amount, COALESCE(paid_amount, 0) + ?), remaining_amount = MAX(0, COALESCE(remaining_amount, 0) - ?), status = CASE WHEN COALESCE(remaining_amount, 0) - ? <= 0 THEN 'paid' ELSE status END, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, applied, applied, applied, *returnRecord.DebtID); err != nil {
+			return fmt.Errorf("apply debt adjustment: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE returns SET debt_adjustment = ?, customer_credit = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, applied, customerCredit, returnRecord.ID); err != nil {
+			return fmt.Errorf("store debt adjustment result: %w", err)
+		}
+		var previousBalance float64
+		_ = tx.GetContext(ctx, &previousBalance, `SELECT COALESCE(balance, 0) FROM customer_ledger WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1`, returnRecord.CustomerID)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at) VALUES (?, ?, 'credit', ?, ?, ?, ?, CURRENT_TIMESTAMP)`, uuid.New(), returnRecord.CustomerID, adjustment, previousBalance-adjustment, "Customer return: "+returnRecord.ReturnNumber, returnRecord.ID); err != nil {
+			return fmt.Errorf("record debt adjustment ledger: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE customers SET current_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, previousBalance-adjustment, returnRecord.CustomerID); err != nil {
+			return fmt.Errorf("update customer credit: %w", err)
+		}
+		return tx.Commit()
+	}
 
 	nowSQL := dbutil.NowSQL(r.db)
 	query := fmt.Sprintf(`
@@ -650,7 +703,7 @@ func (r *Repository) AddDebtAdjustmentLedgerEntry(ctx context.Context, returnRec
 func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]ReturnItem, error) {
 	if dbutil.IsSQLite(r.db) {
 		var rows []localReturnItemRow
-		if err := r.db.SelectContext(ctx, &rows, `SELECT id,return_id,sale_item_id,product_id,inventory_item_id,serial_number,barcode,quantity_returned,original_quantity,unit_price,total_refund_amount,original_condition,returned_condition,condition_notes,resolution,inventory_status,inspection_required,inspection_date,inspection_result,inspection_notes,original_cost,repair_cost,created_at,updated_at FROM return_items WHERE return_id = ? ORDER BY created_at`, returnID.String()); err != nil {
+		if err := r.db.SelectContext(ctx, &rows, `SELECT ri.id,ri.return_id,ri.sale_item_id,ri.product_id,ri.inventory_item_id,COALESCE(NULLIF(ri.serial_number, ''), ii.serial_number, '') AS serial_number,COALESCE(NULLIF(ri.barcode, ''), ii.barcode, '') AS barcode,ri.quantity_returned,ri.original_quantity,ri.unit_price,ri.total_refund_amount,ri.original_condition,ri.returned_condition,ri.condition_notes,ri.resolution,ri.inventory_status,ri.inspection_required,ri.inspection_date,ri.inspection_result,ri.inspection_notes,ri.original_cost,ri.repair_cost,ri.created_at,ri.updated_at FROM return_items ri LEFT JOIN inventory_items ii ON ii.id = ri.inventory_item_id WHERE ri.return_id = ? ORDER BY ri.created_at`, returnID.String()); err != nil {
 			return nil, fmt.Errorf("failed to get return items: %w", err)
 		}
 		items := make([]ReturnItem, 0, len(rows))
@@ -661,7 +714,9 @@ func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]
 	}
 	var items []ReturnItem
 	query := `
-		SELECT id, return_id, sale_item_id, product_id, inventory_item_id, serial_number, barcode,
+		SELECT ri.id, ri.return_id, ri.sale_item_id, ri.product_id, ri.inventory_item_id,
+			COALESCE(NULLIF(ri.serial_number, ''), ii.serial_number, '') AS serial_number,
+			COALESCE(NULLIF(ri.barcode, ''), ii.barcode, '') AS barcode,
 			quantity_returned, original_quantity, unit_price, total_refund_amount,
 			COALESCE(original_condition, '') AS original_condition, COALESCE(returned_condition, '') AS returned_condition,
 			COALESCE(condition_notes, '') AS condition_notes, COALESCE(resolution, '') AS resolution,
@@ -669,9 +724,10 @@ func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]
 			inspection_required, inspection_date, COALESCE(inspection_result, '') AS inspection_result,
 			COALESCE(inspection_notes, '') AS inspection_notes,
 			original_cost, repair_cost, created_at, updated_at
-		FROM return_items
-		WHERE return_id = $1
-		ORDER BY created_at
+		FROM return_items ri
+		LEFT JOIN inventory_items ii ON ii.id = ri.inventory_item_id
+		WHERE ri.return_id = $1
+		ORDER BY ri.created_at
 	`
 
 	err := r.db.SelectContext(ctx, &items, query, returnID)
@@ -779,24 +835,29 @@ func (r *Repository) GetCustomerInfo(ctx context.Context, customerID uuid.UUID) 
 func (r *Repository) GetSaleInfo(ctx context.Context, saleID uuid.UUID) (*SaleInfo, error) {
 	if dbutil.IsSQLite(r.db) {
 		var row struct {
-			ID            string  `db:"id"`
-			InvoiceNumber string  `db:"invoice_number"`
-			SaleDate      string  `db:"sale_date"`
-			TotalAmount   float64 `db:"total_amount"`
-			CustomerID    string  `db:"customer_id"`
+			ID             string         `db:"id"`
+			InvoiceNumber  string         `db:"invoice_number"`
+			SaleDate       string         `db:"sale_date"`
+			Subtotal       float64        `db:"subtotal"`
+			DiscountAmount float64        `db:"discount_amount"`
+			TotalAmount    float64        `db:"total_amount"`
+			CustomerID     sql.NullString `db:"customer_id"`
 		}
-		if err := r.db.GetContext(ctx, &row, `SELECT id,invoice_number,sale_date,total_amount,customer_id FROM sales WHERE id = ?`, saleID.String()); err != nil {
+		if err := r.db.GetContext(ctx, &row, `SELECT id,invoice_number,sale_date,subtotal,discount_amount,total_amount,customer_id FROM sales WHERE id = ?`, saleID.String()); err != nil {
 			if err == sql.ErrNoRows {
 				return nil, ErrSaleNotFound
 			}
 			return nil, fmt.Errorf("failed to get sale info: %w", err)
 		}
 		id, _ := uuid.Parse(row.ID)
-		cid, _ := uuid.Parse(row.CustomerID)
-		return &SaleInfo{ID: id, InvoiceNumber: row.InvoiceNumber, SaleDate: localTime(sql.NullString{String: row.SaleDate, Valid: row.SaleDate != ""}), TotalAmount: row.TotalAmount, CustomerID: cid}, nil
+		var cid uuid.UUID
+		if row.CustomerID.Valid {
+			cid, _ = uuid.Parse(row.CustomerID.String)
+		}
+		return &SaleInfo{ID: id, InvoiceNumber: row.InvoiceNumber, SaleDate: localTime(sql.NullString{String: row.SaleDate, Valid: row.SaleDate != ""}), Subtotal: row.Subtotal, DiscountAmount: row.DiscountAmount, TotalAmount: row.TotalAmount, CustomerID: cid}, nil
 	}
 	var sale SaleInfo
-	query := `SELECT id, invoice_number, sale_date, total_amount, COALESCE(customer_id, '00000000-0000-0000-0000-000000000000'::uuid) AS customer_id FROM sales WHERE id = $1`
+	query := `SELECT id, invoice_number, sale_date, subtotal, discount_amount, total_amount, COALESCE(customer_id, '00000000-0000-0000-0000-000000000000'::uuid) AS customer_id FROM sales WHERE id = $1`
 
 	err := r.db.GetContext(ctx, &sale, query, saleID)
 	if err != nil {
@@ -809,22 +870,24 @@ func (r *Repository) GetSaleInfo(ctx context.Context, saleID uuid.UUID) (*SaleIn
 }
 
 type SaleItemInfo struct {
-	ID        uuid.UUID `db:"id"`
-	ProductID uuid.UUID `db:"product_id"`
-	Quantity  int       `db:"quantity"`
-	UnitPrice float64   `db:"unit_price"`
+	ID              uuid.UUID  `db:"id"`
+	ProductID       uuid.UUID  `db:"product_id"`
+	InventoryItemID *uuid.UUID `db:"inventory_item_id"`
+	Quantity        int        `db:"quantity"`
+	UnitPrice       float64    `db:"unit_price"`
 }
 
 // GetSaleItemInfo retrieves sale item information
 func (r *Repository) GetSaleItemInfo(ctx context.Context, saleItemID uuid.UUID) (SaleItemInfo, error) {
 	if dbutil.IsSQLite(r.db) {
 		var row struct {
-			ID        string  `db:"id"`
-			ProductID string  `db:"product_id"`
-			Quantity  int     `db:"quantity"`
-			UnitPrice float64 `db:"unit_price"`
+			ID              string  `db:"id"`
+			ProductID       string  `db:"product_id"`
+			InventoryItemID string  `db:"inventory_item_id"`
+			Quantity        int     `db:"quantity"`
+			UnitPrice       float64 `db:"unit_price"`
 		}
-		if err := r.db.GetContext(ctx, &row, `SELECT id,product_id,quantity,unit_price FROM sale_items WHERE id = ?`, saleItemID.String()); err != nil {
+		if err := r.db.GetContext(ctx, &row, `SELECT id,product_id,COALESCE(inventory_item_id,'') AS inventory_item_id,quantity,unit_price FROM sale_items WHERE id = ?`, saleItemID.String()); err != nil {
 			if err == sql.ErrNoRows {
 				return SaleItemInfo{}, ErrSaleItemNotFound
 			}
@@ -832,11 +895,15 @@ func (r *Repository) GetSaleItemInfo(ctx context.Context, saleItemID uuid.UUID) 
 		}
 		id, _ := uuid.Parse(row.ID)
 		pid, _ := uuid.Parse(row.ProductID)
-		return SaleItemInfo{ID: id, ProductID: pid, Quantity: row.Quantity, UnitPrice: row.UnitPrice}, nil
+		var inventoryItemID *uuid.UUID
+		if parsed, parseErr := uuid.Parse(row.InventoryItemID); parseErr == nil {
+			inventoryItemID = &parsed
+		}
+		return SaleItemInfo{ID: id, ProductID: pid, InventoryItemID: inventoryItemID, Quantity: row.Quantity, UnitPrice: row.UnitPrice}, nil
 	}
 	var item SaleItemInfo
 
-	query := `SELECT id, product_id, quantity, unit_price FROM sale_items WHERE id = $1`
+	query := `SELECT id, product_id, inventory_item_id, quantity, unit_price FROM sale_items WHERE id = $1`
 
 	err := r.db.GetContext(ctx, &item, query, saleItemID)
 	if err != nil {
@@ -1114,6 +1181,10 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 	}
 
 	isSQLite := dbutil.IsSQLite(r.db)
+	periodStart, periodEnd, err := accounting.StoreDateRange(time.Now(), 30)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate return statistics period: %w", err)
+	}
 	if isSQLite && !sqliteHasColumns(r.db, "returns", "return_type") {
 		query := `
 			SELECT
@@ -1126,9 +1197,10 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) AS defective_returns,
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_returns
 			FROM returns
-			WHERE COALESCE(return_date, created_at) >= date('now', '-30 days')
+			WHERE date(substr(COALESCE(return_date, created_at), 1, 10)) >= date(?)
+			  AND date(substr(COALESCE(return_date, created_at), 1, 10)) < date(?)
 		`
-		err := r.db.GetContext(ctx, &row, query)
+		err := r.db.GetContext(ctx, &row, query, periodStart, periodEnd)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get return statistics: %w", err)
 		}
@@ -1155,7 +1227,10 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 			COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) as defective_returns,
 			COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) as warranty_returns
 		FROM returns
-		WHERE return_date >= date('now', '-30 days')
+		WHERE date(substr(return_date, 1, 10)) >= date(?)
+		  AND date(substr(return_date, 1, 10)) < date(?)
+		  AND COALESCE(reference_number, '') NOT LIKE 'REV-%'
+		  AND UPPER(COALESCE(status, '')) <> 'CANCELLED'
 	`
 	if !isSQLite {
 		query = `
@@ -1169,11 +1244,14 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) AS defective_returns,
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_returns
 			FROM returns
-			WHERE return_date >= CURRENT_DATE - INTERVAL '30 days'
+			WHERE return_date::date >= $1::date
+			  AND return_date::date < $2::date
+			  AND COALESCE(reference_number, '') NOT LIKE 'REV-%'
+			  AND UPPER(COALESCE(status, '')) <> 'CANCELLED'
 		`
 	}
 
-	err := r.db.GetContext(ctx, &row, query)
+	err = r.db.GetContext(ctx, &row, query, periodStart, periodEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get return statistics: %w", err)
 	}
@@ -1212,7 +1290,7 @@ func (r *Repository) GetMonthlyReturnsAnalysis(ctx context.Context) ([]MonthlyRe
 				WrittenOff             int             `db:"written_off"`
 			}
 			query := `
-				SELECT date(return_date, 'start of month') AS month,
+				SELECT strftime('%Y-%m-01', substr(return_date, 1, 10)) AS month,
 					COUNT(DISTINCT id) AS total_returns,
 					COUNT(DISTINCT customer_id) AS unique_customers,
 					COALESCE(SUM(total_refund_amount), 0) AS total_refund_amount,
@@ -1228,7 +1306,7 @@ func (r *Repository) GetMonthlyReturnsAnalysis(ctx context.Context) ([]MonthlyRe
 					SUM(CASE WHEN UPPER(COALESCE(item_condition_after_return, '')) IN ('WRITE_OFF', 'DAMAGED') THEN 1 ELSE 0 END) AS written_off
 				FROM returns
 				WHERE UPPER(COALESCE(status, '')) = 'COMPLETED'
-				GROUP BY date(return_date, 'start of month')
+				GROUP BY strftime('%Y-%m', substr(return_date, 1, 10))
 				ORDER BY month DESC
 				LIMIT 12`
 			if err := r.db.SelectContext(ctx, &rows, query); err != nil {
@@ -1480,6 +1558,41 @@ func (r *Repository) UpdateReturnItemStatus(ctx context.Context, itemID uuid.UUI
 			return ErrReturnItemNotFound
 		}
 		return fmt.Errorf("failed to update return item status: %w", err)
+	}
+	return nil
+}
+
+// UpdateInventoryForReturnItem applies the inventory decision made for a completed customer return.
+func (r *Repository) UpdateInventoryForReturnItem(ctx context.Context, itemID uuid.UUID, newStatus string) error {
+	query := `UPDATE inventory_items SET status = $2, sold_at = NULL, updated_at = NOW() WHERE id = $1`
+	args := []interface{}{itemID, newStatus}
+	if dbutil.IsSQLite(r.db) {
+		query = `UPDATE inventory_items SET status = ?, sold_at = NULL, updated_at = ? WHERE id = ?`
+		args = []interface{}{newStatus, time.Now().UTC().Format(time.RFC3339Nano), itemID.String()}
+	}
+
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to update returned inventory item: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		return fmt.Errorf("inventory item %s was not found", itemID)
+	}
+	if strings.EqualFold(strings.TrimSpace(newStatus), "AVAILABLE") {
+		result, err := r.db.ExecContext(ctx, `UPDATE inventory SET quantity = quantity + 1, updated_at = CURRENT_TIMESTAMP WHERE product_id = (SELECT product_id FROM inventory_items WHERE id = $1)`, itemID)
+		if err != nil {
+			return fmt.Errorf("failed to restore returned inventory quantity: %w", err)
+		}
+		quantityRows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to read restored inventory quantity: %w", err)
+		}
+		if quantityRows == 0 {
+			if _, err := r.db.ExecContext(ctx, `INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) SELECT $1, product_id, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM inventory_items WHERE id = $2`, uuid.New(), itemID); err != nil {
+				return fmt.Errorf("failed to create restored inventory quantity: %w", err)
+			}
+		}
 	}
 	return nil
 }

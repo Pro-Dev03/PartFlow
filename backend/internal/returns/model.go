@@ -14,6 +14,7 @@ type Return struct {
 
 	// Source information
 	SaleID       uuid.UUID `json:"sale_id" db:"sale_id"`
+	SaleInvoice  string    `json:"sale_invoice,omitempty" db:"-"`
 	PurchaseID   uuid.UUID `json:"purchase_id" db:"purchase_id"`
 	CustomerID   uuid.UUID `json:"customer_id" db:"customer_id"`
 	CustomerName string    `json:"customer_name,omitempty" db:"customer_name"`
@@ -24,10 +25,14 @@ type Return struct {
 	Status     string    `json:"status" db:"status"`           // PENDING, APPROVED, PROCESSING, COMPLETED, REJECTED, CANCELLED
 
 	// Financial details
-	TotalRefundAmount float64    `json:"total_refund_amount" db:"total_refund_amount"`
-	RefundMethod      string     `json:"refund_method" db:"refund_method"` // CASH, DEBT_ADJUSTMENT, EXCHANGE, BANK_TRANSFER
-	RefundDate        *time.Time `json:"refund_date" db:"refund_date"`
-	RefundReference   string     `json:"refund_reference" db:"refund_reference"`
+	TotalRefundAmount    float64    `json:"total_refund_amount" db:"total_refund_amount"`
+	RefundMethod         string     `json:"refund_method" db:"refund_method"` // CASH, DEBT_ADJUSTMENT, EXCHANGE, BANK_TRANSFER
+	RefundDate           *time.Time `json:"refund_date" db:"refund_date"`
+	RefundReference      string     `json:"refund_reference" db:"refund_reference"`
+	RefundStatus         string     `json:"refund_status" db:"-"`
+	PaymentTransactionID *uuid.UUID `json:"payment_transaction_id,omitempty" db:"-"`
+	PaymentRefundID      *uuid.UUID `json:"payment_refund_id,omitempty" db:"-"`
+	RefundError          string     `json:"refund_error,omitempty" db:"-"`
 
 	// Debt integration
 	DebtID         *uuid.UUID `json:"debt_id" db:"debt_id"`
@@ -45,10 +50,13 @@ type Return struct {
 	WarrantyValidUntil *time.Time `json:"warranty_valid_until" db:"warranty_valid_until"`
 
 	// Approval workflow
-	CreatedBy   *uuid.UUID `json:"created_by" db:"created_by"`
-	ProcessedBy *uuid.UUID `json:"processed_by" db:"processed_by"`
-	ApprovedBy  *uuid.UUID `json:"approved_by" db:"approved_by"`
-	ApprovedAt  *time.Time `json:"approved_at" db:"approved_at"`
+	CreatedBy       *uuid.UUID `json:"created_by" db:"created_by"`
+	ProcessedBy     *uuid.UUID `json:"processed_by" db:"processed_by"`
+	ApprovedBy      *uuid.UUID `json:"approved_by" db:"approved_by"`
+	ApprovedAt      *time.Time `json:"approved_at" db:"approved_at"`
+	CreatedByName   string     `json:"created_by_name,omitempty" db:"created_by_name"`
+	ProcessedByName string     `json:"processed_by_name,omitempty" db:"processed_by_name"`
+	ApprovedByName  string     `json:"approved_by_name,omitempty" db:"approved_by_name"`
 
 	// Notes and audit
 	Notes         string    `json:"notes" db:"notes"`
@@ -173,11 +181,13 @@ type CustomerInfo struct {
 
 // SaleInfo represents sale information
 type SaleInfo struct {
-	ID            uuid.UUID `json:"id" db:"id"`
-	InvoiceNumber string    `json:"invoice_number" db:"invoice_number"`
-	SaleDate      time.Time `json:"sale_date" db:"sale_date"`
-	TotalAmount   float64   `json:"total_amount" db:"total_amount"`
-	CustomerID    uuid.UUID `json:"customer_id" db:"customer_id"`
+	ID             uuid.UUID `json:"id" db:"id"`
+	InvoiceNumber  string    `json:"invoice_number" db:"invoice_number"`
+	SaleDate       time.Time `json:"sale_date" db:"sale_date"`
+	Subtotal       float64   `json:"subtotal" db:"subtotal"`
+	DiscountAmount float64   `json:"discount_amount" db:"discount_amount"`
+	TotalAmount    float64   `json:"total_amount" db:"total_amount"`
+	CustomerID     uuid.UUID `json:"customer_id" db:"customer_id"`
 }
 
 // ReturnListRequest represents return list query parameters

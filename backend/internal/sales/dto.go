@@ -4,15 +4,26 @@ import "github.com/google/uuid"
 
 // CreateSaleRequest represents the request to create a sale
 type CreateSaleRequest struct {
-	CustomerID    *uuid.UUID        `json:"customer_id,omitempty"`
-	Items         []SaleItemRequest `json:"items" binding:"required"`
-	PaymentMethod *string           `json:"payment_method,omitempty"`
-	PaymentAmount float64           `json:"payment_amount,omitempty"`
-	Notes         *string           `json:"notes,omitempty"`
-	TaxRate       float64           `json:"tax_rate"` // Made optional - will default to 0 if not provided
-	TaxExempt     bool              `json:"tax_exempt,omitempty"`
-	DiscountType  string            `json:"discount_type"` // "percentage" or "fixed"
-	DiscountValue float64           `json:"discount_value"`
+	CustomerID           *uuid.UUID                 `json:"customer_id,omitempty"`
+	Items                []SaleItemRequest          `json:"items" binding:"required"`
+	PaymentMethod        *string                    `json:"payment_method,omitempty"`
+	PaymentAmount        float64                    `json:"payment_amount,omitempty"`
+	CashReceived         float64                    `json:"cash_received,omitempty"`
+	Notes                *string                    `json:"notes,omitempty"`
+	TaxRate              float64                    `json:"tax_rate"` // Made optional - will default to 0 if not provided
+	TaxExempt            bool                       `json:"tax_exempt,omitempty"`
+	DiscountType         string                     `json:"discount_type"` // "percentage" or "fixed"
+	DiscountValue        float64                    `json:"discount_value"`
+	PaymentAllocations   []PaymentAllocationRequest `json:"payment_allocations,omitempty"`
+	PaymentTransactionID *uuid.UUID                 `json:"payment_transaction_id,omitempty"`
+}
+
+type PaymentAllocationRequest struct {
+	Amount      float64 `json:"amount" binding:"gt=0"`
+	Method      string  `json:"method" binding:"required"`
+	CheckNumber string  `json:"check_number,omitempty"`
+	BankName    string  `json:"bank_name,omitempty"`
+	CheckDate   string  `json:"check_date,omitempty"`
 }
 
 // SaleItemRequest represents an item in a sale request

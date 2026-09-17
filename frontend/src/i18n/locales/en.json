@@ -132,6 +132,7 @@
     "rememberMe": "Remember me",
     "loginError": "Login failed",
     "invalidCredentials": "Invalid email or password",
+    "connectionError": "Unable to connect to the server. Check the server and your network connection, then try again.",
     "welcomeBack": "Welcome back",
     "signInToAccount": "Sign in to your account",
     "noAccount": "Don't have an account?",

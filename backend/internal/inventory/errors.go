@@ -27,6 +27,9 @@ var (
 	// ErrInvalidGrade is returned when grade is invalid
 	ErrInvalidGrade = errors.New("invalid grade")
 
+	// ErrInvalidQuantity is returned when inventory quantity is zero or negative
+	ErrInvalidQuantity = errors.New("inventory quantity must be greater than zero")
+
 	// ErrDuplicateBarcode is returned when barcode already exists
 	ErrDuplicateBarcode = errors.New("barcode already exists")
 
@@ -38,4 +41,7 @@ var (
 
 	// ErrTransferFailed is returned when transfer fails
 	ErrTransferFailed = errors.New("inventory transfer failed")
+
+	ErrInvalidOpeningStockMode = errors.New("opening stock mode must be quantity or individual")
+	ErrInvalidBusinessDate     = errors.New("opening stock business_date must use YYYY-MM-DD")
 )

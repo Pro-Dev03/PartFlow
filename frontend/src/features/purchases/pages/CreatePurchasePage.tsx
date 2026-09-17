@@ -24,6 +24,8 @@ import {
   DollarSign,
   Box,
   Edit,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { suppliersApi, productsApi, categoriesApi, purchasesApi } from '../../../services/api/endpoints';
 import { usePurchases } from '../hooks/usePurchases';
@@ -44,6 +46,7 @@ export function CreatePurchasePage() {
   const [selectedSupplier, setSelectedSupplier] = useState('');
   const [items, setItems] = useState<LineItem[]>([]);
   const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [productPage, setProductPage] = useState(1);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [activeTab, setActiveTab] = useState<'scan' | 'manual'>('manual');
   const [invoiceNumber, setInvoiceNumber] = useState('');
@@ -89,8 +92,15 @@ export function CreatePurchasePage() {
 
   const { data: productsData } = useQuery({
     queryKey: ['products', productSearchQuery],
-    queryFn: () => productsApi.list({ search: productSearchQuery, page: 1, per_page: 20 }),
+    queryFn: () => productsApi.list({ search: productSearchQuery, page: productPage, per_page: 10 }),
   });
+
+  const productTotal = Number(productsData?.data?.total ?? 0);
+  const productTotalPages = Math.max(1, Math.ceil(productTotal / 10));
+
+  useEffect(() => {
+    setProductPage(1);
+  }, [productSearchQuery]);
 
   const { data: categoriesData } = useQuery({
     queryKey: ['categories'],
@@ -113,6 +123,8 @@ export function CreatePurchasePage() {
           product_name: newProduct.name,
           quantity: 1,
           unit_cost: newProduct.cost_price || 0,
+          selling_price: newProduct.selling_price || 0,
+          category_id: newProduct.category_id || '',
           condition: 'new',
         },
       ]);
@@ -177,6 +189,8 @@ export function CreatePurchasePage() {
       product_name: product.name,
       quantity: 1,
       unit_cost: Number(product.cost_price) || 0,
+      selling_price: Number((product as any).selling_price) || 0,
+      category_id: (product as any).category_id || '',
       condition: 'new',
     }]);
     navigate(location.pathname, { replace: true, state: null });
@@ -205,6 +219,8 @@ export function CreatePurchasePage() {
             product_name: product.name,
             quantity: 1,
             unit_cost: product.cost_price || 0,
+            selling_price: product.selling_price || 0,
+            category_id: product.category_id || '',
             condition: 'new',
           },
         ];
@@ -233,6 +249,8 @@ export function CreatePurchasePage() {
           product_name: product.name,
           quantity: 1,
           unit_cost: product.cost_price || 0,
+          selling_price: product.selling_price || 0,
+          category_id: product.category_id || '',
           condition: 'new',
         },
       ];
@@ -411,33 +429,53 @@ export function CreatePurchasePage() {
     createPurchaseMutation.isPending || receivePurchaseMutation.isPending;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 pb-10">
       {/* Page Header */}
       <PageHeader
         eyebrow="Purchase Management"
         title="إنشاء شراء جديد"
-        description="إضافة طلب شراء جديد من المورد"
+        description="أدخل بيانات المورد، أضف المنتجات، ثم راجع الإجمالي قبل الحفظ"
         actions={
-          <Button variant="secondary" onClick={() => navigate('/app/purchases')}>
+          <Button variant="secondary" onClick={() => navigate('/app/purchases')} className="gap-2">
+            <ChevronRight className="w-4 h-4" />
             عودة للمشتريات
           </Button>
         }
       />
 
+      <div className="grid grid-cols-1 gap-3 rounded-[var(--card-border-radius)] border border-border bg-surface-elevated/60 p-3 sm:grid-cols-3">
+        {[
+          { number: '01', label: 'بيانات الشراء', detail: 'المورد والفاتورة' },
+          { number: '02', label: 'إضافة المنتجات', detail: 'بحث أو مسح باركود' },
+          { number: '03', label: 'المراجعة والحفظ', detail: 'الإجمالي والاستلام' },
+        ].map((step, index) => (
+          <div key={step.number} className="flex items-center gap-3 rounded-lg px-3 py-2">
+            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${index === 0 ? 'bg-primary text-white' : 'bg-surface text-text-muted'}`}>
+              {step.number}
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-text">{step.label}</div>
+              <div className="truncate text-xs text-text-muted">{step.detail}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Main Form */}
         <div className="lg:col-span-2 space-y-6">
           {/* Supplier and Invoice Info */}
-          <Card>
+          <Card className="border-primary/15">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-cyan" />
                 معلومات الفاتورة
               </CardTitle>
+              <span className="text-xs text-text-muted">الحقول التي عليها * إلزامية</span>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-text mb-2">المورد *</label>
                   <Select
                     value={selectedSupplier}
@@ -449,6 +487,7 @@ export function CreatePurchasePage() {
                     ]}
                     emptyMessage="لا يوجد موردين"
                   />
+                  <p className="mt-1.5 text-xs text-text-muted">اختر المورد المرتبط بهذه الفاتورة قبل إضافة المنتجات.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-text mb-2">رقم الفاتورة</label>
@@ -479,39 +518,40 @@ export function CreatePurchasePage() {
           </Card>
 
           {/* Items Section */}
-          <Card>
+          <Card className="overflow-visible">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <ShoppingCart className="w-5 h-5 text-cyan" />
                   إضافة القطع
                 </CardTitle>
-                <Badge variant="secondary">
-                  {items.length} عنصر • {totalQuantity} قطعة
-                </Badge>
+                <div className="text-left">
+                  <Badge variant="secondary">{items.length} منتج</Badge>
+                  <div className="mt-1 text-xs text-text-muted">{totalQuantity} قطعة إجمالاً</div>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Tab Selection */}
-              <div className="flex gap-2">
+              <div className="grid grid-cols-2 gap-2 rounded-lg bg-surface p-1">
                 <Button
                   variant={activeTab === 'scan' ? 'primary' : 'secondary'}
                   size="sm"
                   onClick={() => setActiveTab('scan')}
-                  className="flex-1"
+                  className="w-full"
                 >
                   <Scan className="w-4 h-4 ml-2" />
                   مسح الباركود
                 </Button>
 
                 <Button
-                  variant="secondary"
+                  variant={activeTab === 'manual' ? 'primary' : 'secondary'}
                   size="sm"
                   onClick={() => {
                     setManualProductData((current) => ({ ...current, sku: generateSku() }));
                     setIsManualProductModalOpen(true);
                   }}
-                  className="flex items-center gap-2"
+                  className="w-full flex items-center gap-2"
                 >
                   <Sparkles className="w-4 h-4" />
                   إضافة قطعة جديدة
@@ -520,19 +560,26 @@ export function CreatePurchasePage() {
 
               {/* Scan Tab */}
               {activeTab === 'scan' ? (
-                <form onSubmit={handleBarcodeScan} className="pf-barcode-row">
-                  <Input
-                    placeholder="امسح أو اكتب الباركود ثم اضغط Enter..."
-                    value={barcodeInput}
-                    onChange={(e) => setBarcodeInput(e.target.value)}
-                    className="min-w-0 flex-1"
-                    autoFocus
-                    aria-label="الباركود أو الإدخال اليدوي"
-                  />
-                  <Button type="submit" variant="primary" className="pf-barcode-submit">
-                    <Scan className="w-4 h-4" />
-                  </Button>
-                </form>
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-text">
+                    <Scan className="h-4 w-4 text-primary" />
+                    امسح باركود المنتج أو اكتبه يدويًا
+                  </div>
+                  <form onSubmit={handleBarcodeScan} className="pf-barcode-row">
+                    <Input
+                      placeholder="مثال: 6281234567890"
+                      value={barcodeInput}
+                      onChange={(e) => setBarcodeInput(e.target.value)}
+                      className="min-w-0 flex-1 bg-surface-elevated"
+                      autoFocus
+                      aria-label="الباركود أو الإدخال اليدوي"
+                    />
+                    <Button type="submit" variant="primary" className="pf-barcode-submit" aria-label="إضافة بالباركود">
+                      <Scan className="w-4 h-4" />
+                    </Button>
+                  </form>
+                  <p className="mt-2 text-xs text-text-muted">سيتم زيادة الكمية تلقائيًا عند مسح المنتج نفسه مرة أخرى.</p>
+                </div>
               ) : (
                 /* Manual Tab */
                 <div className="space-y-3">
@@ -540,7 +587,7 @@ export function CreatePurchasePage() {
                     <div className="relative flex-1">
                       <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
                       <Input
-                        placeholder="ابحث عن المنتج بالاسم أو الباركود..."
+                        placeholder="ابحث باسم المنتج أو الباركود أو SKU..."
                         value={productSearchQuery}
                         onChange={(e) => setProductSearchQuery(e.target.value)}
                         className="pr-10"
@@ -549,21 +596,22 @@ export function CreatePurchasePage() {
                     </div>
                   </div>
                   {searchedProducts.length > 0 ? (
-                    <div className="border border-border rounded-lg max-h-64 overflow-y-auto">
+                    <>
+                    <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-surface-elevated">
                       {searchedProducts.map((product) => (
                         <div
                           key={product.id}
-                          className="p-4 hover:bg-surface/30 cursor-pointer border-b border-border last:border-b-0 flex justify-between items-center"
+                          className="flex cursor-pointer items-center justify-between border-b border-border p-3 transition-colors last:border-b-0 hover:bg-primary/5"
                           onClick={() => handleManualAdd(product)}
                         >
                           <div className="flex-1">
-                            <div className="font-medium">{product.name}</div>
+                            <div className="font-medium text-text">{product.name}</div>
                             <div className="text-sm text-text-muted">
                               {product.barcode ? `الباركود: ${product.barcode}` : product.sku ? `SKU: ${product.sku}` : product.id}
                             </div>
                           </div>
                           <div className="flex items-center gap-4">
-                            <div className="text-sm font-medium text-cyan">
+                            <div className="text-sm font-semibold text-cyan">
                               ₪{product.cost_price?.toFixed(2) || '0.00'}
                             </div>
                             <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
@@ -598,9 +646,22 @@ export function CreatePurchasePage() {
                         </div>
                       ))}
                     </div>
+                    {productTotalPages > 1 && (
+                      <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs text-text-muted">
+                        <Button type="button" variant="ghost" size="sm" disabled={productPage <= 1} onClick={() => setProductPage((page) => page - 1)}>
+                          <ChevronRight className="h-4 w-4" /> السابق
+                        </Button>
+                        <span>صفحة {productPage} من {productTotalPages}</span>
+                        <Button type="button" variant="ghost" size="sm" disabled={productPage >= productTotalPages} onClick={() => setProductPage((page) => page + 1)}>
+                          التالي <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                    </>
                   ) : (
-                    <div className="text-center py-8 text-text-muted">
-                      {productSearchQuery ? 'لا توجد نتائج للبحث' : 'ابحث عن منتج للإضافة'}
+                    <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-text-muted">
+                      <Package className="mx-auto mb-2 h-7 w-7 opacity-60" />
+                      {productSearchQuery ? 'لا توجد نتائج مطابقة' : 'ابدأ بكتابة اسم المنتج أو الباركود'}
                     </div>
                   )}
                 </div>
@@ -621,8 +682,10 @@ export function CreatePurchasePage() {
                       <tr>
                         <th className="text-right p-3 text-sm font-medium">المنتج</th>
                         <th className="text-right p-3 text-sm font-medium">الحالة</th>
+                        <th className="text-right p-3 text-sm font-medium">التصنيف</th>
                         <th className="text-right p-3 text-sm font-medium">الكمية</th>
                         <th className="text-right p-3 text-sm font-medium">سعر الوحدة</th>
+                        <th className="text-right p-3 text-sm font-medium">سعر البيع</th>
                         <th className="text-right p-3 text-sm font-medium">الإجمالي</th>
                         <th className="text-right p-3 text-sm font-medium">إجراء</th>
                       </tr>
@@ -646,6 +709,19 @@ export function CreatePurchasePage() {
                                 { value: 'refurbished', label: 'مجدد' },
                               ]}
                               className="w-28"
+                              style={{ minWidth: '7rem' }}
+                            />
+                          </td>
+                          <td className="p-3">
+                            <Select
+                              value={item.category_id ?? ''}
+                              onChange={(e) => setItems((prev) => prev.map((current) => current.key === item.key ? { ...current, category_id: e.target.value } : current))}
+                              options={[
+                                { value: '', label: 'بدون تصنيف' },
+                                ...categories.map((category) => ({ value: category.id, label: category.name })),
+                              ]}
+                              className="w-36"
+                              style={{ minWidth: '9rem' }}
                             />
                           </td>
                           <td className="p-3">
@@ -662,6 +738,16 @@ export function CreatePurchasePage() {
                               type="number"
                               value={item.unit_cost}
                               onChange={(e) => handleUpdateUnitCost(item.key, parseFloat(e.target.value) || 0)}
+                              className="w-28"
+                              min="0"
+                              step="0.01"
+                            />
+                          </td>
+                          <td className="p-3">
+                            <Input
+                              type="number"
+                              value={item.selling_price ?? 0}
+                              onChange={(e) => setItems((prev) => prev.map((current) => current.key === item.key ? { ...current, selling_price: parseFloat(e.target.value) || 0 } : current))}
                               className="w-28"
                               min="0"
                               step="0.01"
@@ -723,14 +809,17 @@ export function CreatePurchasePage() {
         </div>
 
         {/* Right Column - Summary and Actions */}
-        <div className="space-y-6">
+        <div className="space-y-6 lg:sticky lg:top-4 lg:self-start">
           {/* Quick Stats */}
-          <Card className="border-cyan/30 bg-cyan/5">
+          <Card className="border-primary/20 bg-primary/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Package className="w-5 h-5 text-cyan" />
                 ملخص الطلب
               </CardTitle>
+              <Badge variant={selectedSupplier ? 'success' : 'warning'}>
+                {selectedSupplier ? 'المورد محدد' : 'اختر المورد'}
+              </Badge>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex justify-between items-center">
@@ -741,7 +830,7 @@ export function CreatePurchasePage() {
                 <span className="text-text-muted">إجمالي القطع</span>
                 <span className="font-semibold">{totalQuantity}</span>
               </div>
-              <div className="border-t border-border pt-4">
+                <div className="border-t border-border pt-4">
                 <div className="flex justify-between items-center">
                   <span className="text-text-muted">الإجمالي قبل الضريبة</span>
                   <span className="font-semibold">₪{totalCost.toFixed(2)}</span>
@@ -759,7 +848,7 @@ export function CreatePurchasePage() {
           </Card>
 
           {/* Receive Immediately */}
-          <Card className="border-green-30 bg-green-5">
+          <Card className="border-success/25 bg-success/5">
             <CardContent className="p-4">
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
@@ -801,13 +890,13 @@ export function CreatePurchasePage() {
           </Card>
 
           {/* Actions */}
-          <Card>
+          <Card className="border-primary/20">
             <CardContent className="p-4 space-y-3">
               <Button
                 variant="primary"
                 onClick={handleCreatePurchase}
                 disabled={isSubmitting}
-                className="w-full gap-2"
+                className="w-full gap-2 shadow-lg shadow-primary/15"
                 size="lg"
               >
                 {isSubmitting ? (
@@ -829,6 +918,13 @@ export function CreatePurchasePage() {
               >
                 إلغاء
               </Button>
+              <p className="text-center text-xs text-text-muted">
+                {items.length === 0
+                  ? 'أضف منتجًا واحدًا على الأقل للمتابعة'
+                  : !selectedSupplier
+                    ? 'اختر المورد لإكمال العملية'
+                    : 'يمكنك تعديل الكمية والأسعار قبل الحفظ'}
+              </p>
             </CardContent>
           </Card>
 

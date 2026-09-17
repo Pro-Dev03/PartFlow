@@ -145,6 +145,15 @@ func (s *Service) AddPayment(ctx context.Context, supplierID uuid.UUID, req *Pay
 	if req.Amount <= 0 {
 		return nil, ErrPaymentAmountInvalid
 	}
+	if req.Reference != nil {
+		exists, referenceErr := s.repo.HasPaymentReference(ctx, supplierID, *req.Reference)
+		if referenceErr != nil {
+			return nil, referenceErr
+		}
+		if exists {
+			return nil, ErrPaymentDuplicate
+		}
+	}
 	_, _, _, currentBalance, err := s.repo.GetSupplierLedger(ctx, supplierID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read supplier balance before payment: %w", err)

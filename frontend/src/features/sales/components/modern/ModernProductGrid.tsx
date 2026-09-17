@@ -1,32 +1,44 @@
-import { Package, Plus } from 'lucide-react';
+import { Info, Package, Plus } from 'lucide-react';
 import { cn } from '../../../../utils';
 import type { ProductCardProps } from '../../../../components/ui/product-card';
 import { getLocalProductImage } from '../../../../services/localProductImages';
 
 type SearchProduct = ProductCardProps['product'] & {
   category_id?: string;
+  category_name?: string;
   category_image_url?: string;
+  image_url?: string;
   sales_count?: number;
 };
 
 interface ModernProductGridProps {
   products: SearchProduct[];
   onProductClick: (product: SearchProduct) => void;
-  hasMore?: boolean;
-  onLoadMore?: () => void;
+  currentPage?: number;
+  totalPages?: number;
+  onPreviousPage?: () => void;
+  onNextPage?: () => void;
+  viewMode?: 'cards' | 'list';
   isLoading?: boolean;
   taxRate?: number;
   taxExempt?: boolean;
+  showDetails: boolean;
+  onToggleDetails: () => void;
 }
 
 export function ModernProductGrid({
   products,
   onProductClick,
-  hasMore = false,
-  onLoadMore,
+  currentPage = 1,
+  totalPages = 1,
+  onPreviousPage,
+  onNextPage,
+  viewMode = 'cards',
   isLoading = false,
   taxRate = 0,
   taxExempt = false,
+  showDetails,
+  onToggleDetails,
 }: ModernProductGridProps) {
   if (isLoading) {
     return (
@@ -54,21 +66,49 @@ export function ModernProductGrid({
 
   return (
     <>
-      <div className="pos-modern-products-grid">
+      <div className="pos-product-view-toolbar">
+        <button
+          type="button"
+          className={`pos-product-details-toggle ${showDetails ? 'active' : ''}`}
+          onClick={onToggleDetails}
+          aria-pressed={showDetails}
+          title={showDetails ? 'إخفاء تفاصيل المنتج' : 'عرض تفاصيل المنتج'}
+        >
+          <Info className="h-4 w-4" aria-hidden="true" />
+          <span>{showDetails ? 'إخفاء التفاصيل' : 'عرض التفاصيل'}</span>
+        </button>
+      </div>
+      <div className={viewMode === 'list' ? 'pos-modern-products-list' : 'pos-modern-products-grid'}>
         {products.map((product) => (
-          <ModernProductCard
-            key={product.id}
-            product={product}
-            taxRate={taxRate}
-            taxExempt={taxExempt}
-            onClick={() => onProductClick(product)}
-          />
+          viewMode === 'list' ? (
+            <ModernProductListItem key={product.id} product={product} taxRate={taxRate} taxExempt={taxExempt} showDetails={showDetails} onClick={() => onProductClick(product)} />
+          ) : (
+            <ModernProductCard key={product.id} product={product} taxRate={taxRate} taxExempt={taxExempt} showDetails={showDetails} onClick={() => onProductClick(product)} />
+          )
         ))}
       </div>
-      {hasMore && onLoadMore && (
-        <div className="pos-modern-load-more">
-          <button className="pos-modern-load-more-btn" onClick={onLoadMore}>
-            تحميل المزيد
+      {totalPages > 1 && (
+        <div className="pos-modern-pagination" dir="rtl" aria-label="التنقل بين صفحات المنتجات">
+          <button
+            type="button"
+            className="pos-modern-pagination-btn"
+            onClick={onNextPage}
+            disabled={currentPage >= totalPages || isLoading}
+            aria-label="الصفحة التالية"
+          >
+            التالي
+          </button>
+          <span className="pos-modern-pagination-status" aria-live="polite">
+            صفحة {currentPage} من {totalPages}
+          </span>
+          <button
+            type="button"
+            className="pos-modern-pagination-btn"
+            onClick={onPreviousPage}
+            disabled={currentPage <= 1 || isLoading}
+            aria-label="الصفحة السابقة"
+          >
+            السابق
           </button>
         </div>
       )}
@@ -76,14 +116,47 @@ export function ModernProductGrid({
   );
 }
 
+function ModernProductListItem({ product, taxRate, taxExempt, showDetails, onClick }: ModernProductCardProps) {
+  const basePrice = product.sellingPrice ?? product.selling_price ?? product.price ?? 0;
+  const price = taxExempt ? basePrice : Math.round(basePrice * (1 + taxRate / 100) * 100) / 100;
+  const stock = product.stock ?? 0;
+  const imageUrl = product.image_url || getLocalProductImage(String(product.id)) || product.category_image_url;
+
+  return (
+    <button type="button" className="pos-modern-product-list-item" onClick={onClick} disabled={stock <= 0}>
+      <span className="pos-modern-product-list-main min-w-0">
+        <span className="pos-modern-product-list-thumb">
+          {imageUrl ? <img src={imageUrl} alt="" /> : <Package className="h-4 w-4" aria-hidden="true" />}
+        </span>
+        <span className="pos-modern-product-list-copy min-w-0">
+          <span className="pos-modern-product-list-name block">{product.name}</span>
+          <span className="pos-modern-product-list-category block">
+            {product.category_name || 'نوع غير محدد'}
+          </span>
+          {showDetails && (product.sku || product.barcode) && (
+            <span className="pos-modern-product-list-identifiers">
+              {product.sku && <span>SKU: {product.sku}</span>}
+              {product.barcode && <span>باركود: {product.barcode}</span>}
+            </span>
+          )}
+        </span>
+      </span>
+      <span className="pos-modern-product-list-stock">{stock > 0 ? `${stock} متوفر` : 'نفد المخزون'}</span>
+      <span className="pos-modern-product-list-price">₪{price.toLocaleString()}</span>
+      <Plus className="h-4 w-4" aria-hidden="true" />
+    </button>
+  );
+}
+
 interface ModernProductCardProps {
   product: SearchProduct;
   taxRate: number;
   taxExempt: boolean;
+  showDetails?: boolean;
   onClick: () => void;
 }
 
-function ModernProductCard({ product, taxRate, taxExempt, onClick }: ModernProductCardProps) {
+function ModernProductCard({ product, taxRate, taxExempt, showDetails = false, onClick }: ModernProductCardProps) {
   const basePrice =
     product.sellingPrice ??
     product.selling_price ??
@@ -142,6 +215,13 @@ function ModernProductCard({ product, taxRate, taxExempt, onClick }: ModernProdu
             {stockStatus}
           </span>
         </div>
+        {showDetails && (product.sku || product.barcode) && (
+          <div className="product-card-identifiers" title="معرّفات المنتج">
+            {[product.sku && `SKU: ${product.sku}`, product.barcode && `باركود: ${product.barcode}`]
+              .filter(Boolean)
+              .join(' · ')}
+          </div>
+        )}
         <div className="product-card-price">
           <span className="price-value">₪{price.toLocaleString()}</span>
         </div>

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	_ "modernc.org/sqlite"
 )
 
@@ -19,14 +20,14 @@ func TestFetchTodayMetricsIsDateScoped(t *testing.T) {
 	db.SetMaxOpenConns(1)
 
 	_, err = db.Exec(`
-		CREATE TABLE sales (id TEXT PRIMARY KEY, total_amount REAL, tax_amount REAL, status TEXT, created_at TEXT);
+		CREATE TABLE sales (id TEXT PRIMARY KEY, total_amount REAL, tax_amount REAL, status TEXT, payment_method TEXT, paid_amount REAL, sale_date TEXT, created_at TEXT);
 		CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, inventory_item_id TEXT, product_id TEXT, quantity INTEGER, unit_cost REAL, total_amount REAL, tax_amount REAL);
 		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, purchase_cost REAL);
 		CREATE TABLE products (id TEXT PRIMARY KEY, purchase_price REAL, cost_price REAL);
 		CREATE TABLE expenses (id TEXT PRIMARY KEY, amount REAL, status TEXT, expense_date TEXT);
-		CREATE TABLE returns (id TEXT PRIMARY KEY, return_date TEXT, status TEXT, total_refund_amount REAL);
+		CREATE TABLE returns (id TEXT PRIMARY KEY, return_date TEXT, status TEXT, reference_number TEXT, total_refund_amount REAL);
 		CREATE TABLE return_items (id TEXT PRIMARY KEY, return_id TEXT, sale_item_id TEXT, quantity_returned INTEGER, original_cost REAL);
-		CREATE TABLE payments (id TEXT PRIMARY KEY, customer_id TEXT, amount REAL, created_at TEXT);
+		CREATE TABLE payments (id TEXT PRIMARY KEY, customer_id TEXT, amount REAL, payment_date TEXT, created_at TEXT);
 		CREATE TABLE customer_payments (id TEXT PRIMARY KEY, customer_id TEXT, amount REAL, payment_date TEXT);
 	`)
 	if err != nil {
@@ -34,17 +35,23 @@ func TestFetchTodayMetricsIsDateScoped(t *testing.T) {
 	}
 
 	now := time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC)
-	today := now.Format("2006-01-02")
-	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	today, err := accounting.StoreDate(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yesterday, err := accounting.StoreDate(now.AddDate(0, 0, -1))
+	if err != nil {
+		t.Fatal(err)
+	}
 	todayTimestamp := today + "T12:00:00Z"
 	yesterdayTimestamp := yesterday + "T12:00:00Z"
 
 	_, err = db.Exec(`
-		INSERT INTO sales (id, total_amount, tax_amount, status, created_at) VALUES
-			('today', 100, 0, 'completed', ?),
-			('yesterday', 1000, 0, 'completed', ?),
-			('cancelled-today', 500, 0, 'cancelled', ?);
-		INSERT INTO inventory_items (id, purchase_cost) VALUES ('item-today', 20), ('item-yesterday', 30);
+		INSERT INTO sales (id, total_amount, tax_amount, status, payment_method, paid_amount, sale_date, created_at) VALUES
+			('today', 100, 0, 'completed', 'cash', 100, ?, ?),
+			('yesterday', 1000, 0, 'completed', 'cash', 1000, ?, ?),
+			('cancelled-today', 500, 0, 'cancelled', 'cash', 500, ?, ?);
+		INSERT INTO inventory_items (id, purchase_cost) VALUES ('item-today', 200), ('item-yesterday', 30);
 		INSERT INTO products (id, purchase_price, cost_price) VALUES ('product-today', 25, 25), ('product-yesterday', 35, 35);
 		INSERT INTO sale_items (id, sale_id, inventory_item_id, product_id, quantity, unit_cost, total_amount, tax_amount) VALUES
 			('line-today', 'today', 'item-today', 'product-today', 2, 20, 40, 0),
@@ -59,7 +66,61 @@ func TestFetchTodayMetricsIsDateScoped(t *testing.T) {
 		INSERT INTO payments (id, customer_id, amount, created_at) VALUES
 			('debt-today', 'customer-1', 50, ?),
 			('debt-yesterday', 'customer-1', 500, ?);
-	`, todayTimestamp, yesterdayTimestamp, todayTimestamp, today, yesterday, today)
+	`, todayTimestamp, yesterdayTimestamp, yesterdayTimestamp, yesterdayTimestamp, todayTimestamp, todayTimestamp, today, yesterday, today, todayTimestamp, yesterdayTimestamp)
+	if err != nil {
+		t.Fatalf("insert fixtures: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO customer_payments (id, customer_id, amount, payment_date) VALUES ('legacy-copy', 'customer-1', 50, ?)`, today)
+	if err != nil {
+		t.Fatalf("insert legacy payment fixture: %v", err)
+	}
+
+	metrics, err := fetchTodayMetrics(context.Background(), sqlx.NewDb(db, "sqlite"), now)
+	if err != nil {
+		t.Fatalf("fetchTodayMetrics: %v", err)
+	}
+	if metrics.Sales != 70 {
+		t.Fatalf("today sales = %v, want 70 after the completed return", metrics.Sales)
+	}
+	// 100 revenue - (2 * 20 cost) - 10 approved expense - 30 return refund + (1 * 20 returned cost) = 40.
+	if metrics.Profit != 40 {
+		t.Fatalf("today profit = %v, want 40", metrics.Profit)
+	}
+	if metrics.DebtCollected != 50 {
+		t.Fatalf("today debt collected = %v, want 50", metrics.DebtCollected)
+	}
+	if metrics.Collected != 150 {
+		t.Fatalf("today collected = %v, want 150 including the cash sale and debt payment", metrics.Collected)
+	}
+}
+
+func TestFetchTodayMetricsExcludesSalePaymentFromDebtCollections(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	_, err = db.Exec(`
+		CREATE TABLE sales (id TEXT PRIMARY KEY, total_amount REAL, tax_amount REAL, status TEXT, created_at TEXT);
+		CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, inventory_item_id TEXT, product_id TEXT, quantity INTEGER, unit_cost REAL);
+		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, purchase_cost REAL);
+		CREATE TABLE products (id TEXT PRIMARY KEY, purchase_price REAL, cost_price REAL);
+		CREATE TABLE expenses (id TEXT PRIMARY KEY, amount REAL, status TEXT, expense_date TEXT);
+		CREATE TABLE payments (id TEXT PRIMARY KEY, sale_id TEXT, customer_id TEXT, amount REAL, payment_date TEXT, created_at TEXT);
+		CREATE TABLE debts (id TEXT PRIMARY KEY, sale_id TEXT, customer_id TEXT, amount REAL, remaining_amount REAL, due_date TEXT, status TEXT);
+	`)
+	if err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+
+	now := time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC)
+	_, err = db.Exec(`
+		INSERT INTO sales (id, total_amount, tax_amount, status, created_at) VALUES ('sale-1', 100, 0, 'completed', ?);
+		INSERT INTO debts (id, sale_id, customer_id, amount, remaining_amount, due_date, status) VALUES ('debt-1', 'sale-1', 'customer-1', 100, 0, ?, 'paid');
+		INSERT INTO payments (id, sale_id, customer_id, amount, payment_date, created_at) VALUES ('payment-1', 'sale-1', 'customer-1', 100, NULL, ?);
+	`, now.Format(time.RFC3339), now.AddDate(0, 0, 30).Format(time.RFC3339), now.Format(time.RFC3339))
 	if err != nil {
 		t.Fatalf("insert fixtures: %v", err)
 	}
@@ -68,15 +129,8 @@ func TestFetchTodayMetricsIsDateScoped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetchTodayMetrics: %v", err)
 	}
-	if metrics.Sales != 100 {
-		t.Fatalf("today sales = %v, want 100", metrics.Sales)
-	}
-	// 100 revenue - (2 * 20 cost) - 10 approved expense - 30 return refund + (1 * 20 returned cost) = 40.
-	if metrics.Profit != 40 {
-		t.Fatalf("today profit = %v, want 40", metrics.Profit)
-	}
-	if metrics.DebtCollected != 50 {
-		t.Fatalf("today debt collected = %v, want 50", metrics.DebtCollected)
+	if metrics.DebtCollected != 0 {
+		t.Fatalf("today debt collected = %v, want 0 for a sale-linked payment", metrics.DebtCollected)
 	}
 }
 
@@ -104,9 +158,15 @@ func TestCachedDashboardStatsUseDateScopedTodayProfit(t *testing.T) {
 		t.Fatalf("create schema: %v", err)
 	}
 
-	now := time.Now().UTC()
-	today := now.Format("2006-01-02")
-	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	now := time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC)
+	today, err := accounting.StoreDate(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yesterday, err := accounting.StoreDate(now.AddDate(0, 0, -1))
+	if err != nil {
+		t.Fatal(err)
+	}
 	todayTimestamp := today + "T12:00:00Z"
 	yesterdayTimestamp := yesterday + "T12:00:00Z"
 	_, err = db.Exec(`
@@ -122,7 +182,7 @@ func TestCachedDashboardStatsUseDateScopedTodayProfit(t *testing.T) {
 	}
 
 	service := NewCachedService(sqlx.NewDb(db, "sqlite"))
-	stats, err := service.fetchFromDatabase(context.Background())
+	stats, err := service.fetchFromDatabaseAt(context.Background(), now)
 	if err != nil {
 		t.Fatalf("fetch dashboard stats: %v", err)
 	}

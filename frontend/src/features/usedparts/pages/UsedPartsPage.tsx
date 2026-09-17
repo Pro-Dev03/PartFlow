@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { inventoryApi, partTypesApi, customersApi, productsApi, barcodeApi, acquisitionsApi } from '../../../services/api/endpoints';
+import { inventoryApi, partTypesApi, customersApi, productsApi, acquisitionsApi } from '../../../services/api/endpoints';
 import { Card, CardContent } from '../../../components/ui/card';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -9,22 +9,20 @@ import { SearchInput } from '../../../components/ui/search-input';
 import { Select } from '../../../components/ui/select';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
+import { StatCard } from '../../../components/ui/stat-card';
 import { Modal } from '../../../components/ui/modal';
+import { OpeningStockModal } from '../../inventory/components/OpeningStockModal';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 import { PaginationControls } from '../../../components/ui/pagination-controls';
 import { toast } from 'sonner';
-import { playScanSound } from '../../../hooks/useBarcodeContext';
 import { getPartTypeImage } from '../../../services/localPartTypeImages';
 import {
   Plus,
   Layers,
   Package,
   Cpu,
-  Keyboard,
-  Barcode,
-  Type,
-  Camera,
   ShoppingCart,
+  TrendingUp,
   Trash2,
   Pencil,
   CheckCircle,
@@ -43,6 +41,7 @@ export function UsedPartsPage() {
   
   // Acquisition modal state
   const [isAcquisitionModalOpen, setIsAcquisitionModalOpen] = useState(false);
+    const [isOpeningStockModalOpen, setIsOpeningStockModalOpen] = useState(false);
   const [isCustomerManual, setIsCustomerManual] = useState(false);
   const [acquisitionCustomer, setAcquisitionCustomer] = useState('');
   const [acquisitionCustomerManual, setAcquisitionCustomerManual] = useState('');
@@ -66,11 +65,6 @@ export function UsedPartsPage() {
   const [editGrade, setEditGrade] = useState('good');
   const [editSerialNumber, setEditSerialNumber] = useState('');
   const [editNotes, setEditNotes] = useState('');
-
-  // Barcode scanner state
-  const [barcodeInput, setBarcodeInput] = useState('');
-  const [inputMethod, setInputMethod] = useState<'barcode' | 'manual' | 'camera'>('barcode');
-  const [soundEnabled] = useState(true);
 
   const handleClearSearch = () => {
     setSearchQuery('');
@@ -232,33 +226,6 @@ export function UsedPartsPage() {
     });
   };
 
-  // Barcode scan handler
-  const handleBarcodeScan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (barcodeInput.trim()) {
-      try {
-        const response = await barcodeApi.lookupProduct(barcodeInput.trim());
-        const product = response as any;
-        
-        if (product && product.id) {
-          // Open acquisition modal with product pre-filled
-          setAcquisitionProductName(product.name || '');
-          setIsAcquisitionModalOpen(true);
-        } else {
-          if (soundEnabled) {
-            playScanSound(false);
-          }
-        }
-      } catch (error) {
-        console.error('Barcode lookup failed:', error);
-        if (soundEnabled) {
-          playScanSound(false);
-        }
-      }
-      setBarcodeInput('');
-    }
-  };
-
   // Acquisition handlers
   const handleSubmitAcquisition = async () => {
     const customerValue = isCustomerManual ? acquisitionCustomerManual : acquisitionCustomer;
@@ -266,6 +233,21 @@ export function UsedPartsPage() {
     if (!customerValue || !acquisitionProductName.trim() || !acquisitionPartType || !acquisitionPrice || !acquisitionSellingPrice) {
       toast.error('يرجى ملء جميع الحقول المطلوبة');
       return;
+    }
+
+    const serialNumber = acquisitionSerialNumber.trim();
+    if (serialNumber) {
+      const inventoryResponse = await inventoryApi.list({ page: 1, per_page: 1000 });
+      const inventoryItems = Array.isArray(inventoryResponse?.data)
+        ? inventoryResponse.data
+        : Array.isArray(inventoryResponse?.data?.items) ? inventoryResponse.data.items : [];
+      const serialExists = inventoryItems.some((item: any) =>
+        String(item.serial_number || '').trim().toLowerCase() === serialNumber.toLowerCase(),
+      );
+      if (serialExists) {
+        toast.error('الرقم التسلسلي موجود مسبقًا. استخدم رقمًا مختلفًا أو استخدم مسار المرتجع للقطعة نفسها.');
+        return;
+      }
     }
 
     const productResponse = await productsApi.create({
@@ -341,24 +323,23 @@ export function UsedPartsPage() {
   const usedParts = inventoryItems.filter((item: any) => {
     const condition = String(item.condition || '').trim().toUpperCase();
     const status = String(item.status || '').trim().toUpperCase();
-    return condition === 'USED' &&
-      status === 'AVAILABLE';
+    return condition === 'USED' && status === 'AVAILABLE';
   });
-  // Financial totals cover only sellable stock; rejected/damaged parts never contribute.
   const sellableUsedParts = usedParts.filter(
     (item: any) => String(item.status || '').trim().toUpperCase() !== 'DAMAGED'
   );
 
   // Filter by search and part type
   const filteredParts = usedParts.filter((item: any) => {
-    const matchesSearch = !searchQuery || 
+    const matchesSearch = !searchQuery ||
       (item.product_name && item.product_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (item.notes && item.notes.toLowerCase().includes(searchQuery.toLowerCase()));
-    
+
     const matchesType = !selectedPartType || item.part_type_id === selectedPartType;
-    
+
     return matchesSearch && matchesType;
   });
+
   const totalUsedParts = Number(inventoryData?.meta?.total || inventoryItems.length);
 
   const formatCurrency = (value: number) => `₪${new Intl.NumberFormat('en-US', {
@@ -390,196 +371,85 @@ export function UsedPartsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Used Parts Inventory"
+        eyebrow="مخزون خاص"
         title="القطع المستعملة"
-        description="إدارة القطع المستعملة والبيع"
+        description="سجّل القطع الموجودة، راقب قيمتها، وبعها من مكان واحد."
         actions={
-          <div className="flex flex-col gap-2">
-            <Button variant="primary" onClick={() => setIsAcquisitionModalOpen(true)}>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button
+              variant="primary"
+              data-testid="open-used-opening-stock"
+              onClick={() => setIsOpeningStockModalOpen(true)}
+              className="min-h-11 shadow-[0_10px_24px_rgba(8,145,178,0.18)]"
+            >
               <Plus className="w-4 h-4" />
+              إضافة مخزون مستعمل موجود
+            </Button>
+            <Button variant="secondary" onClick={() => setIsAcquisitionModalOpen(true)} className="min-h-11">
+              <ShoppingCart className="w-4 h-4" />
               شراء قطعة مستعملة
             </Button>
             <Button
               variant="secondary"
               onClick={() => navigate('/app/usedparts/stock')}
+              className="min-h-11"
             >
               <Layers className="w-4 h-4" />
-              مخزون القطع المستعملة
+              عرض المخزون
             </Button>
           </div>
         }
       />
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-cyan/10">
-                <Layers className="w-5 h-5 text-cyan" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">إجمالي القطع</p>
-                <p className="text-2xl font-bold">{usedParts.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-green/10">
-                <Package className="w-5 h-5 text-green" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">قيمة البيع</p>
-                <p className="text-2xl font-bold">{formatCurrency(totalSellingValue)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-orange/10">
-                <ShoppingCart className="w-5 h-5 text-orange" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">قيمة الشراء</p>
-                <p className="text-2xl font-bold">{formatCurrency(totalPurchaseValue)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-purple/10">
-                <Cpu className="w-5 h-5 text-purple" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">الربح المتوقع</p>
-                <p className="text-2xl font-bold text-green-500">{formatCurrency(estimatedProfit)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="premium-insight mb-3">
+        <div className="premium-insight-icon"><Package className="h-3.5 w-3.5" /></div>
+        <div className="premium-insight-copy">
+          <p className="premium-insight-title">إضافة مخزون موجود</p>
+          <p className="premium-insight-text">أضف القطع الموجودة لديك مباشرة إلى المخزون دون فاتورة شراء</p>
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          data-testid="used-opening-stock-shortcut"
+          onClick={() => setIsOpeningStockModalOpen(true)}
+          className="premium-insight-action"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          إضافة
+        </Button>
       </div>
 
-      {/* Barcode Scanner Section */}
-      <Card className="mb-4 border border-[var(--border-default)] bg-[var(--card-bg)] shadow-sm">
-        <CardContent className="p-4">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="text-base font-semibold text-[var(--text-primary)]">
-              ماسح الباركود
-            </h3>
-          </div>
-          
-          <div>
-            <div className="w-full">
-              <div className="flex items-center gap-2 mb-3">
-                <Keyboard className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                <span className="text-xs font-medium text-[var(--text-secondary)]">طريقة الإضافة</span>
-              </div>
-              
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => setInputMethod('barcode')}
-                  className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg border transition-all duration-200 ${
-                    inputMethod === 'barcode'
-                      ? 'border-[var(--color-primary)] bg-[var(--color-primary-08)] shadow-md'
-                      : 'border-[var(--border-default)] bg-[var(--bg-surface)] hover:border-[var(--color-primary-20)] hover:shadow-sm'
-                  }`}
-                >
-                  <div className={`p-1.5 rounded-md transition-all duration-200 ${
-                    inputMethod === 'barcode' ? 'bg-[var(--color-primary-15)]' : 'bg-[var(--bg-surface-elevated)]'
-                  }`}>
-                    <Barcode className={`w-4 h-4 transition-all duration-200 ${
-                      inputMethod === 'barcode' ? 'text-[var(--color-primary)]' : 'text-[var(--text-muted)]'
-                    }`} />
-                  </div>
-                  <div className="text-center">
-                    <span className={`text-xs font-medium block transition-all duration-200 ${
-                      inputMethod === 'barcode' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
-                    }`}>مسح باركود</span>
-                    <span className="text-[10px] block text-[var(--text-muted)]">استخدام ماسح الباركود</span>
-                  </div>
-                </button>
-                
-                <button
-                  onClick={() => setInputMethod('manual')}
-                  className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg border transition-all duration-200 ${
-                    inputMethod === 'manual'
-                      ? 'border-[var(--color-primary)] bg-[var(--color-primary-08)] shadow-md'
-                      : 'border-[var(--border-default)] bg-[var(--bg-surface)] hover:border-[var(--color-primary-20)] hover:shadow-sm'
-                  }`}
-                >
-                  <div className={`p-1.5 rounded-md transition-all duration-200 ${
-                    inputMethod === 'manual' ? 'bg-[var(--color-primary-15)]' : 'bg-[var(--bg-surface-elevated)]'
-                  }`}>
-                    <Type className={`w-4 h-4 transition-all duration-200 ${
-                      inputMethod === 'manual' ? 'text-[var(--color-primary)]' : 'text-[var(--text-muted)]'
-                    }`} />
-                  </div>
-                  <div className="text-center">
-                    <span className={`text-xs font-medium block transition-all duration-200 ${
-                      inputMethod === 'manual' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
-                    }`}>إضافة يدوية</span>
-                    <span className="text-[10px] block text-[var(--text-muted)]">إدخال البيانات يدوياً</span>
-                  </div>
-                </button>
-                
-                <button
-                  onClick={() => setInputMethod('camera')}
-                  className={`flex flex-col items-center gap-1.5 p-2.5 rounded-lg border transition-all duration-200 ${
-                    inputMethod === 'camera'
-                      ? 'border-[var(--color-primary)] bg-[var(--color-primary-08)] shadow-md'
-                      : 'border-[var(--border-default)] bg-[var(--bg-surface)] hover:border-[var(--color-primary-20)] hover:shadow-sm'
-                  }`}
-                >
-                  <div className={`p-1.5 rounded-md transition-all duration-200 ${
-                    inputMethod === 'camera' ? 'bg-[var(--color-primary-15)]' : 'bg-[var(--bg-surface-elevated)]'
-                  }`}>
-                    <Camera className={`w-4 h-4 transition-all duration-200 ${
-                      inputMethod === 'camera' ? 'text-[var(--color-primary)]' : 'text-[var(--text-muted)]'
-                    }`} />
-                  </div>
-                  <div className="text-center">
-                    <span className={`text-xs font-medium block transition-all duration-200 ${
-                      inputMethod === 'camera' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
-                    }`}>كاميرا</span>
-                    <span className="text-[10px] block text-[var(--text-muted)]">مسح عبر الكاميرا</span>
-                  </div>
-                </button>
-              </div>
-            </div>
-            
-            <form onSubmit={handleBarcodeScan} className="mt-3">
-              <div className="pf-barcode-row flex gap-2 items-stretch w-full">
-                <div className="pf-barcode-input min-w-0 flex-1 relative flex items-center">
-                  <div className="w-full">
-                    <Input
-                      id="barcode-input"
-                      value={barcodeInput}
-                      onChange={(e) => setBarcodeInput(e.target.value)}
-                      placeholder="مسح الباركود أو أدخل الرقم يدوياً"
-                      className="h-10"
-                    />
-                  </div>
-                </div>
-                <Button type="submit" size="sm" className="shrink-0 whitespace-nowrap px-4">
-                  إضافة
-                </Button>
-              </div>
-            </form>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="mb-4 grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+        <StatCard title="إجمالي القطع" value={usedParts.length} icon={Layers} variant="featured" compact />
+        <StatCard title="قيمة البيع" value={formatCurrency(totalSellingValue)} icon={ShoppingCart} variant="success" compact />
+        <StatCard title="قيمة الشراء" value={formatCurrency(totalPurchaseValue)} icon={Package} variant="default" compact />
+        <StatCard title="الربح المتوقع" value={formatCurrency(estimatedProfit)} icon={TrendingUp} variant="info" compact />
+      </div>
+
+      <OpeningStockModal
+        isOpen={isOpeningStockModalOpen}
+        onClose={() => setIsOpeningStockModalOpen(false)}
+        onCreated={() => {
+          queryClient.invalidateQueries({ queryKey: ['inventory'] });
+          queryClient.invalidateQueries({ queryKey: ['products'] });
+        }}
+        stockType="used"
+      />
 
       {/* Search and Filters */}
-      <Card className="mb-4 border border-[var(--border-default)] bg-[var(--card-bg)] shadow-sm">
-        <CardContent className="p-4">
-          <div className="pf-search-row flex flex-col md:flex-row gap-3 items-stretch">
+      <div className="mb-5 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface-elevated)] shadow-sm">
+        <div className="p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-[var(--text-primary)]">مخزونك الحالي</h2>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">ابحث بالاسم أو صفِّ حسب نوع القطعة.</p>
+            </div>
+            <span className="hidden rounded-full border border-[var(--border-default)] px-3 py-1 text-xs text-[var(--text-secondary)] sm:inline-flex">
+              {filteredParts.length} قطعة ظاهرة
+            </span>
+          </div>
+          <div className="pf-search-row flex flex-col items-stretch gap-3 md:flex-row">
             <div className="min-w-0 flex-1 w-full max-w-xl">
               <SearchInput
                 placeholder="بحث عن قطعة..."
@@ -621,8 +491,8 @@ export function UsedPartsPage() {
               </Button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Dedicated used-parts stock */}
       {isLoading ? (
@@ -630,107 +500,65 @@ export function UsedPartsPage() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
       ) : filteredParts.length === 0 ? (
-        <Card>
-          <CardContent className="p-12 text-center">
-            <Package className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-            <p className="text-gray-400">لا توجد قطع مستعملة متاحة</p>
+        <Card className="border-dashed border-[var(--color-primary-25)] bg-[var(--bg-surface-elevated)]">
+          <CardContent className="p-10 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--color-primary-08)] text-[var(--color-primary)]">
+              <Package className="h-7 w-7" />
+            </div>
+            <h3 className="font-semibold text-[var(--text-primary)]">لا توجد قطع مستعملة مطابقة</h3>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--text-secondary)]">أضف قطعة مستعملة موجودة لديك أو غيّر البحث والفلاتر لعرض مخزون آخر.</p>
+            <Button variant="primary" className="mt-5" onClick={() => setIsOpeningStockModalOpen(true)}>
+              <Plus className="h-4 w-4" />
+              إضافة مخزون مستعمل
+            </Button>
           </CardContent>
         </Card>
       ) : (
-        <div id="used-parts-stock" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div id="used-parts-stock" className="overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface-elevated)]">
           {filteredParts.map((item: any) => {
             const partType = getPartType(item.part_type_id);
             return (
-              <Card 
+              <div
                 key={item.id}
-                className="hover:border-cyan-500 transition-colors cursor-pointer"
+                className="group border-b border-[var(--border-default)] transition-colors last:border-b-0 hover:bg-[var(--bg-surface)]"
                 style={{
-                  background: partType ? `linear-gradient(135deg, ${partType.color}15 0%, transparent 100%)` : undefined
+                  borderRight: partType?.color ? `3px solid ${partType.color}55` : undefined,
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(120px, .8fr) repeat(3, minmax(90px, .55fr)) auto',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '12px 16px',
                 }}
               >
-                <CardContent className="p-3">
-                  <div className="flex items-start justify-between mb-2">
-                      {getPartTypeImage(String(item.part_type_id)) ? (
-                        <img
-                          src={getPartTypeImage(String(item.part_type_id))}
-                          alt={item.product_name || 'نوع القطعة'}
-                          style={{ width: '96px', height: '72px', objectFit: 'cover', display: 'block', borderRadius: '10px', flex: '0 0 96px' }}
-                        />
-                      ) : partType && (
-                      <div
-                        className="p-2 rounded-lg"
-                        style={{ background: `${partType.color}30`, color: partType.color }}
-                      >
-                        {getIconComponent(partType.icon)}
-                      </div>
-                    )}
-                  </div>
-                  
-                  <h3 className="font-semibold text-sm mb-1">
-                    {item.product_name || item.product?.name || 'قطعة بدون اسم'}
-                  </h3>
-                  
-                  {partType && (
-                    <p className="text-xs text-gray-400 mb-2">{partType.name_ar}</p>
+                <div className="flex min-w-0 items-center gap-3">
+                  {getPartTypeImage(String(item.part_type_id)) ? (
+                    <img
+                      src={getPartTypeImage(String(item.part_type_id))}
+                      alt=""
+                      className="h-10 w-10 max-h-10 max-w-10 shrink-0 rounded-lg object-cover"
+                      style={{ width: '40px', height: '40px', maxWidth: '40px', maxHeight: '40px' }}
+                    />
+                  ) : (
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--color-primary-08)] text-[var(--color-primary)]">
+                      {getIconComponent(item.part_type_id)}
+                    </div>
                   )}
-                  
-                  <div className="space-y-2 mb-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">اشتريت من:</span>
-                      <span className="text-[var(--text-primary)]">
-                        {sellerByInventoryItemId.get(item.id) || 'غير محدد'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">اشتريت بـ:</span>
-                      <span>₪{item.purchase_cost.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm font-semibold">
-                      <span className="text-gray-400">سعر البيع:</span>
-                       <span className="text-cyan">₪{item.selling_price.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">الربح:</span>
-                      <span className={item.selling_price > item.purchase_cost ? 'text-green' : 'text-red'}>
-                         ₪{(item.selling_price - item.purchase_cost).toFixed(2)}
-                      </span>
-                    </div>
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-semibold text-[var(--text-primary)]">{item.product_name || item.product?.name || 'قطعة بدون اسم'}</h3>
+                    <p className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">{partType?.name_ar || 'نوع غير محدد'}{item.notes ? ` · ${item.notes}` : ''}</p>
                   </div>
-                  
-                  {item.notes && (
-                    <p className="text-xs text-gray-500 mt-2 line-clamp-2">{item.notes}</p>
-                  )}
-                  
-                  <div className="flex gap-2 mt-4">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => handleSellItem(item)}
-                    >
-                      بيع
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleEditPart(item)}
-                      title="تعديل القطعة"
-                      aria-label="تعديل القطعة"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDeletePart(item.id)}
-                      title="حذف القطعة"
-                      aria-label="حذف القطعة"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+                </div>
+                <div className="text-xs text-[var(--text-secondary)]">{sellerByInventoryItemId.get(item.id) || 'بدون مصدر'}</div>
+                <div><span className="block text-[10px] text-[var(--text-secondary)]">شراء</span><span className="text-sm">₪{Number(item.purchase_cost || 0).toFixed(2)}</span></div>
+                <div><span className="block text-[10px] text-[var(--text-secondary)]">بيع</span><span className="text-sm font-semibold text-cyan-500">₪{Number(item.selling_price || 0).toFixed(2)}</span></div>
+                <div><span className="block text-[10px] text-[var(--text-secondary)]">هامش</span><span className={`text-sm font-semibold ${item.selling_price > item.purchase_cost ? 'text-emerald-500' : 'text-red-500'}`}>₪{(Number(item.selling_price || 0) - Number(item.purchase_cost || 0)).toFixed(2)}</span></div>
+                <div className="flex items-center justify-end gap-1">
+                  <Badge variant="success" className="hidden shrink-0 md:inline-flex">متاح</Badge>
+                  <Button variant="primary" size="sm" onClick={() => handleSellItem(item)}>بيع</Button>
+                  <Button variant="ghost" size="icon" onClick={() => handleEditPart(item)} title="تعديل القطعة" aria-label="تعديل القطعة"><Pencil className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon" onClick={() => handleDeletePart(item.id)} title="حذف القطعة" aria-label="حذف القطعة"><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              </div>
             );
           })}
         </div>

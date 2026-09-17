@@ -9,20 +9,21 @@ import { LoginBackground } from '../components/LoginBackground';
 import { BrandPanel } from '../components/BrandPanel';
 import { LoginForm } from '../components/LoginForm';
 import { SubscriptionVerificationScreen } from '../components/SubscriptionVerificationScreen';
+import { isNetworkError } from '../../../lib/error-messages';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { login, isLoading, loginError: authLoginError, setPostLoginVerifying } = useAuthStore();
   const [isVerifyingSubscription, setIsVerifyingSubscription] = useState(false);
-  const [loginError, setLoginError] = useState(() => (
-    typeof window !== 'undefined' ? sessionStorage.getItem('partflow-login-error') || '' : ''
-  ));
+  const [loginError, setLoginError] = useState('');
   const [isDark, setIsDark] = useState(true);
   const [language, setLanguage] = useState('ar');
 
   // Check theme on mount and listen for changes
   useEffect(() => {
+    sessionStorage.removeItem('partflow-login-error');
+
     const checkTheme = () => {
       setIsDark(!document.documentElement.classList.contains('light'));
     };
@@ -71,7 +72,9 @@ export function LoginPage() {
     } catch (err) {
       setPostLoginVerifying(false);
       setIsVerifyingSubscription(false);
-      const message = t('auth.invalidCredentials');
+      const message = isNetworkError(err)
+        ? t('auth.connectionError')
+        : t('auth.invalidCredentials');
       sessionStorage.setItem('partflow-login-error', message);
       setLoginError(message);
       throw err;
@@ -157,7 +160,11 @@ export function LoginPage() {
               <LoginForm
                 isDark={isDark}
                 isLoading={isLoading}
-                externalError={authLoginError === 'invalid credentials' ? t('auth.invalidCredentials') : loginError}
+                externalError={authLoginError === 'invalid credentials'
+                  ? t('auth.invalidCredentials')
+                  : authLoginError === 'connection error'
+                    ? t('auth.connectionError')
+                    : loginError}
                 onSubmit={handleSubmit}
               />
             </div>

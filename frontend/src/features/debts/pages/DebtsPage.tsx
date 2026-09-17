@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation as useTranslationHook } from '../../../hooks/useTranslation';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -35,9 +36,12 @@ import { AdvancedSearch, SearchFilters } from '../components/AdvancedSearch';
 
 // Types
 import { Debt } from '../types/debts.types';
+import { formatStoreDate, getStoreDateKey, parseBackendTimestamp } from '../../../utils/store-time';
 
 export function DebtsPage() {
   const { t } = useTranslationHook();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -78,6 +82,17 @@ export function DebtsPage() {
     setPaymentMethod('cash');
     setPaymentModalOpen(true);
   };
+
+  useEffect(() => {
+    const customerId = new URLSearchParams(location.search).get('customer_id');
+    if (!customerId || isLoading || paymentModalOpen) return;
+
+    const customerDebt = debts.find((debt: any) => debt.customer?.id === customerId);
+    if (customerDebt) {
+      handleRecordPayment(customerId, customerDebt.customer.name);
+      navigate('/app/debts', { replace: true });
+    }
+  }, [debts, isLoading, location.search, navigate, paymentModalOpen]);
 
   const handlePaymentSubmit = () => {
     console.log('handlePaymentSubmit called', { paymentAmount, selectedCustomer, paymentMethod });
@@ -149,18 +164,21 @@ export function DebtsPage() {
 
   // Debt Aging System - تصنيف ديون حسب العمر
   const getDebtAging = (dueDate: string, status: string) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const due = new Date(dueDate);
-    due.setHours(0, 0, 0, 0);
-    
-    // Handle invalid dates
-    if (isNaN(due.getTime())) {
+    const due = parseBackendTimestamp(dueDate);
+    if (!due) {
       return { category: 'FUTURE', label: 'موعد السداد غير محدد', variant: 'secondary' as const, days: 0 };
     }
-    
-    const diffTime = due.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    const dueKey = getStoreDateKey(due);
+    const todayKey = getStoreDateKey(new Date());
+    if (!dueKey || !todayKey) {
+      return { category: 'FUTURE', label: 'موعد السداد غير محدد', variant: 'secondary' as const, days: 0 };
+    }
+    const toOrdinal = (value: string) => {
+      const [year, month, day] = value.split('-').map(Number);
+      return Date.UTC(year, month - 1, day) / (1000 * 60 * 60 * 24);
+    };
+    const diffDays = toOrdinal(dueKey) - toOrdinal(todayKey);
 
     if (status === 'paid') {
       return { category: 'PAID', label: 'تم السداد بالكامل', variant: 'success' as const, days: 0 };
@@ -279,12 +297,12 @@ export function DebtsPage() {
                       <TableCell>
                         <div className="flex items-center gap-2 text-text-secondary">
                           <Calendar className="h-3.5 w-3.5" />
-                          {debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('en-GB') : 'غير محدد'}
+                            {formatStoreDate(debt.dueDate, 'en-GB')}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col items-start gap-1.5">
-                          <Badge variant={aging.variant} size="sm" title={`موعد السداد: ${debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('ar-SA') : 'غير محدد'}`}>
+                          <Badge variant={aging.variant} size="sm" title={`موعد السداد: ${formatStoreDate(debt.dueDate, 'ar-SA')}`}>
                             {aging.label}
                           </Badge>
                           <span className="text-[11px] text-text-secondary">
@@ -305,7 +323,7 @@ export function DebtsPage() {
                       </TableCell>
                       <TableCell className="text-end">
                         <div className="flex items-center justify-end gap-2">
-                          <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} className="h-8 px-2.5 text-[11px]" aria-label="عرض الدين" title="عرض الدين">
+                          <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="عرض الدين" title="عرض الدين">
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
                           <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} className="text-text-secondary hover:text-text-primary" aria-label="تسجيل دفعة" title="تسجيل دفعة">
@@ -341,7 +359,7 @@ export function DebtsPage() {
                       <div>
                         <div className="font-semibold text-text-primary">{debt.customer?.name}</div>
                         <div className="mt-1 text-[11px] text-text-tertiary">{debt.invoiceNumber || 'فاتورة غير مرتبطة'}</div>
-                        <div className="mt-1 text-[11px] text-text-tertiary">{debt.dueDate ? new Date(debt.dueDate).toLocaleDateString('en-GB') : 'غير محدد'}</div>
+                        <div className="mt-1 text-[11px] text-text-tertiary">{debt.dueDate ? formatStoreDate(debt.dueDate, 'en-GB') : 'غير محدد'}</div>
                       </div>
                       <Badge variant={aging.category === 'PAID' ? 'success' : aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm">
                         {aging.category === 'PAID' ? 'مدفوع' : aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
@@ -355,9 +373,8 @@ export function DebtsPage() {
                     </div>
 
                     <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
-                      <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} className="h-8 px-3 text-[11px]">
+                      <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="عرض الدين" title="عرض الدين">
                         <Eye className="h-3.5 w-3.5" />
-                        عرض
                       </Button>
                       <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} className="text-text-secondary hover:text-text-primary" aria-label="تسجيل دفعة" title="تسجيل دفعة">
                         <DollarSign className="h-4 w-4" />

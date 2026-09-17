@@ -153,7 +153,7 @@ export function useCustomers() {
   // Stats
   const stats = useMemo(() => ({
     totalCustomers: customers.length,
-    activeCustomers: customers.filter((c: Customer) => c.is_active !== false && (c.totalPurchases || 0) > 0).length,
+    activeCustomers: customers.filter((c: Customer) => (c.totalPurchases || 0) > 0).length,
     customersWithDebt: customers.filter((c: Customer) => (c.outstanding || 0) > 0).length,
     totalOutstanding: customers.reduce((sum: number, c: Customer) => sum + (c.outstanding || 0), 0),
   }), [customers]);

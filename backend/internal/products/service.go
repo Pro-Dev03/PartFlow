@@ -2,6 +2,7 @@ package products
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -317,8 +318,11 @@ func (s *Service) GenerateBarcode(ctx context.Context, productID uuid.UUID) (str
 
 // GetProductStock retrieves detailed stock information for a product
 func (s *Service) GetProductStock(ctx context.Context, productID uuid.UUID) (*ProductStockInfo, error) {
-	product, err := s.repo.GetProductByID(ctx, productID)
+	trackIndividual, minStockLevel, err := s.repo.GetProductStockSettings(ctx, productID)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrProductNotFound
+		}
 		return nil, err
 	}
 
@@ -344,9 +348,9 @@ func (s *Service) GetProductStock(ctx context.Context, productID uuid.UUID) (*Pr
 		TotalStock:      stockCount,
 		Available:       availableCount,
 		Reserved:        reservedCount,
-		TrackIndividual: product.TrackIndividual,
-		MinStockLevel:   product.MinStockLevel,
-		IsLowStock:      stockCount < product.MinStockLevel,
+		TrackIndividual: trackIndividual,
+		MinStockLevel:   minStockLevel,
+		IsLowStock:      stockCount < minStockLevel,
 	}, nil
 }
 

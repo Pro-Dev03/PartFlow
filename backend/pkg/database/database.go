@@ -200,12 +200,57 @@ func ensureRequiredSchema(db *sqlx.DB) error {
 			status TEXT NOT NULL DEFAULT 'AVAILABLE',
 			location_id TEXT,
 			supplier_id TEXT,
+			customer_id TEXT,
 			purchase_date TEXT,
 			sold_at TEXT,
 			notes TEXT,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);
+	`); err != nil {
+		return err
+	}
+
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS audit_logs (
+			id TEXT PRIMARY KEY,
+			user_id TEXT,
+			action TEXT NOT NULL,
+			entity_type TEXT NOT NULL,
+			entity_id TEXT NOT NULL,
+			ip_address TEXT,
+			user_agent TEXT,
+			request_id TEXT,
+			changes TEXT,
+			description TEXT,
+			status TEXT DEFAULT 'success',
+			error_message TEXT,
+			metadata TEXT DEFAULT '{}',
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+	`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS item_history (
+			id TEXT PRIMARY KEY,
+			inventory_item_id TEXT NOT NULL,
+			event_type TEXT NOT NULL,
+			event_date TEXT NOT NULL,
+			reference_type TEXT,
+			reference_id TEXT,
+			description TEXT,
+			metadata TEXT DEFAULT '{}',
+			created_by TEXT,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+	`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`
+		UPDATE audit_logs
+		SET created_at = substr(created_at, 1, instr(created_at, ' m=') - 1)
+		WHERE instr(created_at, ' m=') > 0
 	`); err != nil {
 		return err
 	}

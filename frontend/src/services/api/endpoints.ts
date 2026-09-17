@@ -13,6 +13,7 @@ import type {
   SupplierCreateRequest,
   SupplierUpdateRequest,
   InventoryCreateRequest,
+  OpeningStockCreateRequest,
   InventoryUpdateRequest,
   InventoryListParams,
   SaleCreateRequest,
@@ -218,6 +219,7 @@ export const productsApi = {
   list: (params?: ProductListParams) => 
     apiClient.get('/products', params),
   get: (id: string) => apiClient.get(`/products/${id}`),
+  getStock: (id: string) => apiClient.get(`/products/${id}/stock`),
   create: (data: ProductCreateRequest) => apiClient.post('/products', data),
   update: (id: string, data: ProductUpdateRequest) => apiClient.put(`/products/${id}`, data),
   updateName: (id: string, name: string) => apiClient.patch(`/products/${id}/name`, { name }),
@@ -252,6 +254,9 @@ export const inventoryApi = {
     apiClient.get('/inventory/items-with-supplier', params),
   get: (id: string) => apiClient.get(`/inventory/items/${id}`),
   create: (data: InventoryCreateRequest) => apiClient.post('/inventory/items', data),
+  createOpeningStock: (data: OpeningStockCreateRequest) => apiClient.post('/inventory/opening-stock', data),
+  adjustProductQuantity: (productId: string, newQuantity: number, reason?: string) =>
+    apiClient.post(`/inventory/products/${productId}/quantity`, { new_quantity: newQuantity, reason }),
   update: (id: string, data: InventoryUpdateRequest) => apiClient.put(`/inventory/items/${id}`, data),
   updateStatus: (id: string, status: string) => apiClient.patch(`/inventory/items/${id}/status`, { status }),
   delete: (id: string, params?: { permanent?: boolean }) => apiClient.delete(`/inventory/items/${id}`, params),
@@ -300,6 +305,14 @@ export const salesApi = {
   // SmartDelete - now returns SmartDeleteResult (ARCHITECTURE-PRINCIPLES.md)
   delete: (id: string) => apiClient.delete(`/sales/${id}`),
   refund: (id: string, data: { reason?: string; refund_amount?: number }) => apiClient.post(`/sales/${id}/refund`, data),
+};
+
+export const paymentTransactionsApi = {
+  create: (data: import('./types').PaymentTransactionCreateRequest) => apiClient.post('/payment-transactions', data),
+  get: (id: string) => apiClient.get(`/payment-transactions/${id}`),
+  verify: (id: string) => apiClient.post(`/payment-transactions/${id}/verify`, {}),
+  cancel: (id: string) => apiClient.post(`/payment-transactions/${id}/cancel`, {}),
+  refund: (id: string, data: { amount_minor: number; currency?: string; idempotency_key: string; reason?: string }) => apiClient.post(`/payment-transactions/${id}/refund`, data),
 };
 
 // Payments endpoints (ARCHITECTURE-PRINCIPLES.md)
@@ -422,6 +435,10 @@ export const reportsApi = {
 
 // Settings endpoints
 export const settingsApi = {
+  getRegionalSettings: () => apiClient.get('/settings/regional'),
+  initializeRegionalSettings: (timezone: string) => apiClient.post('/settings/regional/initialize', { timezone }),
+  updateRegionalSettings: (settings: string | { country_code?: string; timezone?: string }) =>
+    apiClient.put('/settings/regional', typeof settings === 'string' ? { country_code: settings } : settings),
   syncCloudData: () =>
     apiClient.post('/settings/sync', {}),
   syncLocalDataToCloud: () =>
@@ -463,6 +480,8 @@ export const settingsApi = {
   getPublicSettings: () => apiClient.get('/settings/public'),
   getSetting: (key: string) => apiClient.get(`/settings/${key}`),
   updateSetting: (key: string, value: string) => apiClient.put(`/settings/${key}`, { value }),
+  testPaymentConnection: () => apiClient.post('/payment-providers/test-connection', {}),
+  listPaymentProviders: () => apiClient.get('/payment-providers'),
   // The desktop application owns the operational SQLite database. Never expose
   // a client-side option that can target the cloud database for deletion.
   deleteAllData: (confirmation: string) =>
@@ -500,12 +519,51 @@ export const syncApi = {
 
 // Barcode endpoints
 export const barcodeApi = {
-  // Barcode lookup is read-only; use the backend's canonical product lookup
-  // route instead of the removed /barcode/scan endpoint.
-  scan: (barcode: string) => apiClient.get(`/barcodes/product/${encodeURIComponent(barcode)}`),
+  // All scanning contexts resolve through the shared product/item/lifecycle lookup.
+  // The flattened product fields preserve the existing POS consumer contract.
+  scan: async (barcode: string) => {
+    const response = await apiClient.get(`/barcodes/resolve/${encodeURIComponent(barcode)}`);
+    const resolution: any = response.data ?? response;
+    const product = resolution.product ?? {};
+    const item = resolution.inventory_item ?? null;
+    return {
+      ...response,
+      data: {
+        ...product,
+        barcode: item?.barcode ?? product.barcode ?? barcode,
+        status: item?.status,
+        inventory_item: item,
+        resolution,
+        sale_ids: resolution.sale_ids ?? [],
+        purchase_ids: resolution.purchase_ids ?? [],
+        return_ids: resolution.return_ids ?? [],
+      },
+    };
+  },
   lookup: (barcode: string) => apiClient.get(`/barcodes/${barcode}`),
-  lookupProduct: (barcode: string) => apiClient.get<BarcodeLookupResponse>(`/barcodes/product/${barcode}`),
+  lookupProduct: async (barcode: string) => {
+    const response = await apiClient.get(`/barcodes/resolve/${encodeURIComponent(barcode)}`);
+    const resolution: any = response.data ?? response;
+    const product = resolution.product ?? {};
+    const item = resolution.inventory_item ?? null;
+    return {
+      ...response,
+      data: {
+        ...product,
+        barcode: item?.barcode ?? product.barcode ?? barcode,
+        inventory_item: item,
+        inventory_item_id: item?.id,
+        serial_number: item?.serial_number,
+        supplier_id: item?.supplier_id,
+        purchase_ids: resolution.purchase_ids ?? [],
+        sale_ids: resolution.sale_ids ?? [],
+        return_ids: resolution.return_ids ?? [],
+        resolution,
+      },
+    };
+  },
   lookupBySKU: (sku: string) => apiClient.get(`/barcodes/sku/${sku}`),
+  resolve: (barcode: string) => apiClient.get(`/barcodes/resolve/${encodeURIComponent(barcode)}`),
 };
 
 // Returns endpoints (ENHANCED-RETURNS-SYSTEM.md)

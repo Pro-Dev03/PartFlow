@@ -45,11 +45,22 @@ export function useInventory() {
   const { data: inventoryData, isLoading: inventoryLoading, refetch: refetchInventory } = useQuery({
     queryKey: ['inventory', inventoryPage, pageSize, debouncedSearchQuery, filters],
     queryFn: () => {
-      const params: any = { page: inventoryPage, per_page: pageSize, exclude_condition: 'USED' };
+      const supplierOnlyFilter = filters.find(f => f.key === 'supplier_only');
+      const params: any = { page: inventoryPage, per_page: pageSize };
+      if (supplierOnlyFilter?.value === 'true') {
+        params.supplier_only = 'true';
+      } else {
+        params.exclude_condition = 'USED';
+      }
       
       // Apply search
       if (debouncedSearchQuery) {
         params.search = debouncedSearchQuery;
+      }
+
+      const categoryFilter = filters.find(f => f.key === 'category_id');
+      if (categoryFilter && categoryFilter.value) {
+        params.category_id = categoryFilter.value;
       }
       
       // Apply supplier filter
@@ -84,6 +95,12 @@ export function useInventory() {
     },
   });
 
+  const { data: completeInventoryData } = useQuery({
+    queryKey: ['inventory', 'complete-general-stock'],
+    queryFn: () => inventoryApi.listWithSupplier({ page: 1, per_page: 1000, exclude_condition: 'USED' }),
+    staleTime: 60000,
+  });
+
   useEffect(() => {
     setProductPage(1);
     setInventoryPage(1);
@@ -105,6 +122,37 @@ export function useInventory() {
   // Safe arrays
   const safeProducts = Array.isArray(products) ? products : [];
   const safeInventoryItems = Array.isArray(inventoryItems) ? inventoryItems : [];
+  const completeInventoryItems = Array.isArray(completeInventoryData?.data?.items)
+    ? completeInventoryData.data.items as InventoryItem[]
+    : safeInventoryItems;
+
+  const productsWithInventoryFallback = useMemo(() => {
+    const productsById = new Map(safeProducts.map((product) => [String(product.id), product]));
+
+    completeInventoryItems.forEach((item: any) => {
+      const productId = String(item.product_id || item.product?.id || item.productId || '').trim();
+      if (!productId || productsById.has(productId)) return;
+
+      const productName = String(item.product_name || item.product?.name || '').trim();
+      if (!productName) return;
+
+      const stock = Number(item.available_quantity ?? item.current_quantity ?? item.stock ?? item.quantity ?? 0);
+      productsById.set(productId, {
+        id: productId,
+        name: productName,
+        sku: String(item.item_code || item.barcode || productId),
+        sellingPrice: Number(item.product_selling_price ?? item.selling_price ?? item.price ?? 0),
+        costPrice: Number(item.purchase_cost ?? 0),
+        stock: Number.isFinite(stock) ? stock : 0,
+        condition: String(item.condition || ''),
+        category: item.category_name,
+        category_id: item.category_id,
+        barcode: item.barcode,
+      });
+    });
+
+    return Array.from(productsById.values());
+  }, [completeInventoryItems, safeProducts]);
 
   const isUsedItemCondition = (value: unknown) => {
     const condition = String(value ?? '').trim().toUpperCase();
@@ -135,19 +183,19 @@ export function useInventory() {
   ), [safeInventoryItems]);
 
   const regularProducts = useMemo(
-    () => safeProducts.filter((product: Product) => {
+    () => productsWithInventoryFallback.filter((product: Product) => {
       const sku = String((product as any).sku || '').trim().toUpperCase();
       const isUsedProduct = usedProductIds.has(product.id) || sku.startsWith('USED-');
       return !isUsedProduct || regularProductIds.has(product.id);
     }),
-    [regularProductIds, safeProducts, usedProductIds]
+    [productsWithInventoryFallback, regularProductIds, usedProductIds]
   );
 
   const inventoryStockMap = useMemo(() => {
     const map = new Map<string, number>();
     const inactiveStatuses = new Set(['SOLD', 'RETURNED', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
 
-    safeInventoryItems.forEach((item: any) => {
+    completeInventoryItems.forEach((item: any) => {
       const productId = String(item.product_id || item.product?.id || item.productId || '').trim();
       if (!productId) return;
       if (isUsedItemCondition(item.condition)) return;
@@ -176,7 +224,7 @@ export function useInventory() {
     });
 
     return map;
-  }, [safeInventoryItems]);
+  }, [completeInventoryItems]);
 
   const inventoryConditionMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -237,9 +285,9 @@ export function useInventory() {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       toast.success('تم إضافة المنتج بنجاح');
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Create product failed:', error);
-      toast.error('فشل إضافة المنتج');
+      toast.error(error?.arabicMessage || error?.message || 'فشل إضافة المنتج');
     },
   });
 
@@ -346,7 +394,14 @@ export function useInventory() {
   }, [processedProducts, filters]);
 
   const filteredInventoryItems = useMemo(() => {
-    return safeInventoryItems.filter((item: InventoryItem) => {
+    return safeInventoryItems.map((item: InventoryItem) => {
+      const product = safeProducts.find((candidate) => candidate.id === item.product_id);
+      return {
+        ...item,
+        category_id: item.category_id || product?.category_id,
+        category_name: item.category_name || (product?.category_id ? categoryMap.get(product.category_id) : undefined),
+      };
+    }).filter((item: InventoryItem) => {
       if (filters.length === 0) return true;
       
       return filters.every((filter) => {
@@ -362,7 +417,7 @@ export function useInventory() {
   const lookupProduct = async (barcode: string): Promise<Product | null> => {
     try {
       const response = await barcodeApi.lookupProduct(barcode);
-      const product = response as Product;
+      const product = response.data as Product;
       
       if (product && product.id) {
         return product;
@@ -387,6 +442,7 @@ export function useInventory() {
     filteredInventoryItems,
     productsLoading,
     inventoryLoading,
+    inventoryStockMap,
     
     // State
     searchQuery,
@@ -412,7 +468,7 @@ export function useInventory() {
     productPage,
     inventoryPage,
     pageSize,
-    productTotal: Number(productsData?.meta?.total || safeProducts.length),
+    productTotal: Math.max(Number(productsData?.meta?.total || 0), productsWithInventoryFallback.length),
     inventoryTotal: Number(inventoryData?.meta?.total || safeInventoryItems.length),
     setProductPage,
     setInventoryPage,

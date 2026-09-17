@@ -7,6 +7,7 @@ const ActivityPage = lazy(() => import('../../features/dashboard/pages/ActivityP
 const InventoryPage = lazy(() => import('../../features/inventory/pages/InventoryPage').then(m => ({ default: m.InventoryPage })));
 const POSPage = lazy(() => import('../../features/sales/pages/POSPage').then(m => ({ default: m.POSPage })));
 const CustomersPage = lazy(() => import('../../features/customers/pages/CustomersPage').then(m => ({ default: m.CustomersPage })));
+const CustomerPurchasesPage = lazy(() => import('../../features/customers/pages/CustomerPurchasesPage').then(m => ({ default: m.CustomerPurchasesPage })));
 const DebtsPage = lazy(() => import('../../features/debts/pages/DebtsPage').then(m => ({ default: m.DebtsPage })));
 const SuppliersPage = lazy(() => import('../../features/suppliers/pages/SuppliersPage').then(m => ({ default: m.SuppliersPage })));
 const PurchasesPage = lazy(() => import('../../features/purchases/pages/PurchasesPage').then(m => ({ default: m.PurchasesPage })));
@@ -48,6 +49,7 @@ export const appRoutes = (
     <Route path="usedparts" element={<UsedPartsPage />} />
     <Route path="usedparts/stock" element={<UsedPartsStockPage />} />
     <Route path="customers" element={<CustomersPage />} />
+    <Route path="customers/:customerId/purchases" element={<CustomerPurchasesPage />} />
     <Route path="debts" element={<DebtsPage />} />
     <Route path="suppliers" element={<SuppliersPage />} />
     <Route path="purchases" element={<PurchasesPage />} />

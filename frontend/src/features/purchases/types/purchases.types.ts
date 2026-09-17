@@ -22,10 +22,14 @@ export interface Purchase {
 }
 
 export interface PurchaseItem {
+  id?: string;
+  purchase_id?: string;
   product_id: string;
   product_name: string;
   quantity: number;
   unit_cost: number;
+  selling_price?: number;
+  category_id?: string;
   condition: 'new' | 'used' | 'refurbished';
 }
 

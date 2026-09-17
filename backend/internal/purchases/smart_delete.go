@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // SmartDeleteResult represents the result of a smart delete operation (PRODUCT-PHILOSOPHY.md)
@@ -168,7 +169,27 @@ func (s *SmartDeleteService) checkDependencies(ctx context.Context, purchaseID u
 	check := &DependencyCheck{}
 
 	// Check for sales using items from this purchase
-	query := `
+	purchasePrefixExpr := "LEFT(pi.purchase_id::text, 8)"
+	if dbutil.IsSQLite(s.db) {
+		purchasePrefixExpr = "substr(replace(pi.purchase_id, '-', ''), 1, 8)"
+	}
+	var query string
+	if dbutil.IsSQLite(s.db) {
+		query = fmt.Sprintf(`
+			SELECT pi.id AS item_id, pi.product_id, p.name AS product_name,
+				pi.quantity AS original_quantity,
+				COALESCE(SUM(CASE WHEN ii.status = 'SOLD' THEN 1 ELSE 0 END), 0) AS sold_quantity,
+				0 AS transferred_quantity, 0 AS damaged_quantity, 0 AS repair_quantity
+			FROM purchase_items pi
+			LEFT JOIN products p ON pi.product_id = p.id
+			LEFT JOIN inventory_items ii ON ii.product_id = pi.product_id
+				AND ii.item_code LIKE 'ITM-' || %s || '-%%'
+			WHERE pi.purchase_id = $1
+			GROUP BY pi.id, pi.product_id, p.name, pi.quantity
+			HAVING COALESCE(SUM(CASE WHEN ii.status = 'SOLD' THEN 1 ELSE 0 END), 0) > 0
+		`, purchasePrefixExpr)
+	} else {
+		query = fmt.Sprintf(`
 		SELECT 
 			pi.id as item_id,
 			pi.product_id,
@@ -181,13 +202,14 @@ func (s *SmartDeleteService) checkDependencies(ctx context.Context, purchaseID u
 		FROM purchase_items pi
 		LEFT JOIN products p ON pi.product_id = p.id
 		LEFT JOIN inventory_items ii ON ii.product_id = pi.product_id
-			AND ii.item_code LIKE 'ITM-' || LEFT(pi.purchase_id::text, 8) || '-%'
+			AND ii.item_code LIKE 'ITM-' || %s || '-%%'
 		LEFT JOIN inventory_movements im ON im.item_id = ii.id
 			AND im.movement_type IN ('SALE', 'TRANSFER', 'DAMAGE', 'REPAIR')
 		WHERE pi.purchase_id = $1
 		GROUP BY pi.id, pi.product_id, p.name, pi.quantity
 		HAVING COALESCE(SUM(CASE WHEN im.movement_type = 'SALE' THEN im.quantity ELSE 0 END), 0) > 0
-	`
+		`, purchasePrefixExpr)
+	}
 
 	rows, err := s.db.QueryContext(ctx, query, purchaseID)
 	if err != nil {

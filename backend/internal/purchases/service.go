@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -126,6 +127,7 @@ func (s *Service) CreatePurchase(ctx context.Context, userID uuid.UUID, req *Pur
 	var items []PurchaseItem
 	for _, itemReq := range req.Items {
 		item := CreatePurchaseItem(purchase.ID, itemReq)
+		item.Barcode = strings.TrimSpace(itemReq.Barcode)
 		if err := s.repo.CreatePurchaseItemTx(ctx, tx, item); err != nil {
 			return nil, fmt.Errorf("failed to create purchase item: %w", err)
 		}
@@ -317,9 +319,23 @@ func (s *Service) ListPurchases(ctx context.Context, req PurchaseListRequest) ([
 
 // UpdatePurchase updates a purchase with status transition validation
 func (s *Service) UpdatePurchase(ctx context.Context, id uuid.UUID, req *PurchaseUpdateRequest) (*PurchaseResponse, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin purchase update: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
 	purchase, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if purchase.Status == StatusReversed || purchase.Status == StatusCancelled {
+		return nil, ErrInvalidPurchaseStatus
 	}
 
 	// Update fields
@@ -342,11 +358,78 @@ func (s *Service) UpdatePurchase(ctx context.Context, id uuid.UUID, req *Purchas
 
 	purchase.UpdatedAt = time.Now()
 
-	if err := s.repo.Update(ctx, purchase); err != nil {
-		return nil, err
+	if len(req.Items) > 0 {
+		if err := s.updatePurchaseItemsAndInventory(ctx, tx, purchase, req.Items); err != nil {
+			return nil, err
+		}
+		purchase.TotalAmount = 0
+		for _, item := range req.Items {
+			purchase.TotalAmount += float64(item.Quantity) * item.UnitCost
+		}
 	}
+	updateQuery := `UPDATE purchases SET invoice_number = $1, purchase_date = $2, status = $3, notes = $4, total_amount = $5, remaining_amount = CASE WHEN $5 - paid_amount > 0 THEN $5 - paid_amount ELSE 0 END, updated_at = $6 WHERE id = $7`
+	if _, err := tx.ExecContext(ctx, updateQuery, purchase.InvoiceNumber, purchase.PurchaseDate, purchase.Status, purchase.Notes, purchase.TotalAmount, purchase.UpdatedAt, purchase.ID); err != nil {
+		return nil, fmt.Errorf("failed to update purchase: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit purchase update: %w", err)
+	}
+	committed = true
 
 	return s.GetPurchase(ctx, id)
+}
+
+// updatePurchaseItemsAndInventory keeps a received purchase and its unsold
+// inventory items aligned when purchase costs or quantities are edited.
+func (s *Service) updatePurchaseItemsAndInventory(ctx context.Context, tx *sqlx.Tx, purchase *Purchase, requested []PurchaseItemRequest) error {
+	items, err := s.repo.GetPurchaseItems(ctx, purchase.ID)
+	if err != nil {
+		return fmt.Errorf("failed to load purchase items: %w", err)
+	}
+	prefix := purchase.ID.String()[:8]
+	for _, item := range requested {
+		if item.Quantity <= 0 || item.UnitCost < 0 {
+			return fmt.Errorf("invalid purchase item quantity or cost")
+		}
+		var currentID uuid.UUID
+		var currentQuantity int
+		found := false
+		for _, existing := range items {
+			if existing.ProductID == item.ProductID {
+				currentID = existing.ID
+				currentQuantity = existing.Quantity
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("purchase item not found")
+		}
+		var usedCount int
+		pattern := fmt.Sprintf("ITM-%s-%%", prefix)
+		if err := tx.GetContext(ctx, &usedCount, `SELECT COUNT(*) FROM inventory_items WHERE item_code LIKE $1 AND product_id = $2 AND status <> 'AVAILABLE'`, pattern, item.ProductID); err != nil {
+			return fmt.Errorf("failed to check purchase inventory usage: %w", err)
+		}
+		if item.Quantity < usedCount {
+			return fmt.Errorf("cannot reduce quantity below used inventory count")
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE purchase_items SET quantity = $1, unit_price = $2, item_total = $1 * $2 WHERE id = $3`, item.Quantity, item.UnitCost, currentID); err != nil {
+			return fmt.Errorf("failed to update purchase item: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE inventory_items SET purchase_cost = $1, selling_price = $2, condition = $3, updated_at = CURRENT_TIMESTAMP WHERE item_code LIKE $4 AND product_id = $5 AND status = 'AVAILABLE'`, item.UnitCost, item.SellingPrice, strings.ToUpper(item.Condition), pattern, item.ProductID); err != nil {
+			return fmt.Errorf("failed to update linked inventory: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE inventory_items SET category_id = $1, updated_at = CURRENT_TIMESTAMP WHERE product_id = $2`, item.CategoryID, item.ProductID.String()); err != nil {
+			return fmt.Errorf("failed to update linked inventory category: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE products SET category_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, item.CategoryID, item.ProductID); err != nil {
+			return fmt.Errorf("failed to update product category: %w", err)
+		}
+		if item.Quantity > currentQuantity {
+			return fmt.Errorf("increasing received quantity requires receiving new inventory items")
+		}
+	}
+	return nil
 }
 
 // isValidStatusTransition validates purchase status transitions
@@ -509,7 +592,12 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 
 		for i := 0; i < item.Quantity; i++ {
 			itemCode := fmt.Sprintf("ITM-%s-%03d", purchasePrefix, i+1)
-			barcode := fmt.Sprintf("BC-%s-%03d", purchasePrefix, i+1)
+			barcode := ""
+			if item.Quantity == 1 && strings.TrimSpace(item.Barcode) != "" {
+				barcode = strings.TrimSpace(item.Barcode)
+			} else {
+				barcode = fmt.Sprintf("BC-%s-%03d", purchasePrefix, i+1)
+			}
 
 			if _, exists := existingItemCodes[itemCode]; exists {
 				continue
@@ -526,13 +614,13 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 
 			createItemQuery := `
 				INSERT INTO inventory_items (
-					id, product_id, item_code, barcode, condition, grade, purchase_cost, selling_price, status,
+					id, product_id, category_id, item_code, barcode, serial_number, condition, grade, purchase_cost, selling_price, status,
 					supplier_id, purchase_date, notes, created_at, updated_at
-				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 			`
 
 			_, err = tx.ExecContext(ctx, createItemQuery,
-				uuid.New(), item.ProductID, itemCode, barcode,
+				uuid.New(), item.ProductID, item.CategoryID, itemCode, barcode, item.SerialNumber,
 				condition, item.Grade, item.UnitCost, sellingPrice, "AVAILABLE",
 				&purchase.SupplierID, &purchase.UpdatedAt, item.Notes, time.Now(), time.Now())
 			if err != nil {
@@ -771,15 +859,55 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 
 	// Get purchase with row lock
 	var purchase Purchase
-	purchaseQuery := `
-		SELECT id, supplier_id, invoice_number, purchase_date, total_amount, paid_amount, status, notes, user_id, created_at, updated_at
-		FROM purchases
-		WHERE id = $1
-	`
-	if !dbutil.IsSQLite(s.db) {
-		purchaseQuery += " FOR UPDATE"
+	if dbutil.IsSQLite(s.db) {
+		purchaseDateColumn := "created_at"
+		var hasPurchaseDate bool
+		if schemaErr := tx.GetContext(ctx, &hasPurchaseDate, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('purchases') WHERE name = 'purchase_date')`); schemaErr == nil && hasPurchaseDate {
+			purchaseDateColumn = "purchase_date"
+		}
+		var row struct {
+			SupplierID    string         `db:"supplier_id"`
+			InvoiceNumber string         `db:"invoice_number"`
+			PurchaseDate  string         `db:"purchase_date"`
+			TotalAmount   float64        `db:"total_amount"`
+			PaidAmount    float64        `db:"paid_amount"`
+			Status        string         `db:"status"`
+			Notes         sql.NullString `db:"notes"`
+			CreatedAt     string         `db:"created_at"`
+			UpdatedAt     string         `db:"updated_at"`
+		}
+		err = tx.GetContext(ctx, &row, fmt.Sprintf(`
+			SELECT supplier_id, purchase_number AS invoice_number, COALESCE(%s, created_at, datetime('now')) AS purchase_date,
+				total_amount, paid_amount, status, notes, created_at, updated_at
+			FROM purchases WHERE id = $1
+		`, purchaseDateColumn), id)
+		if err == nil {
+			purchase.ID = id
+			purchase.SupplierID, err = uuid.Parse(row.SupplierID)
+			if err == nil {
+				purchase.PurchaseDate, err = dbutil.ParseTimestamp(row.PurchaseDate)
+			}
+			if err == nil {
+				purchase.CreatedAt, err = dbutil.ParseTimestamp(row.CreatedAt)
+			}
+			if err == nil {
+				purchase.UpdatedAt, err = dbutil.ParseTimestamp(row.UpdatedAt)
+			}
+			purchase.InvoiceNumber = row.InvoiceNumber
+			purchase.TotalAmount = row.TotalAmount
+			purchase.PaidAmount = row.PaidAmount
+			purchase.Status = row.Status
+			if row.Notes.Valid {
+				purchase.Notes = &row.Notes.String
+			}
+		}
+	} else {
+		purchaseQuery := `
+			SELECT id, supplier_id, invoice_number, purchase_date, total_amount, paid_amount, status, notes, user_id, created_at, updated_at
+			FROM purchases WHERE id = $1 FOR UPDATE
+		`
+		err = tx.GetContext(ctx, &purchase, purchaseQuery, id)
 	}
-	err = tx.GetContext(ctx, &purchase, purchaseQuery, id)
 	if err != nil {
 		return nil, err
 	}
@@ -795,19 +923,20 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 
 	// Update paid amount
 	newPaidAmount := purchase.PaidAmount + amount
-	updatePaidQuery := fmt.Sprintf(`UPDATE purchases SET paid_amount = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db))
+	updatePaidQuery := fmt.Sprintf(`UPDATE purchases SET paid_amount = $1, remaining_amount = CASE WHEN total_amount - $1 > 0 THEN total_amount - $1 ELSE 0 END, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db))
 	_, err = tx.ExecContext(ctx, updatePaidQuery, newPaidAmount, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update paid amount: %w", err)
 	}
 
 	// Create payment record
+	paymentID := uuid.New()
 	paymentQuery := `
-		INSERT INTO payments (id, purchase_id, supplier_id, amount, payment_method, payment_status, created_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO payments (id, transaction_number, purchase_id, supplier_id, amount, payment_method, payment_status, created_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 	_, err = tx.ExecContext(ctx, paymentQuery,
-		uuid.New(), purchase.ID, purchase.SupplierID, amount,
+		paymentID, "PAY-"+paymentID.String()[:8], purchase.ID, purchase.SupplierID, amount,
 		paymentMethod, "completed", userID, time.Now(), time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create payment: %w", err)

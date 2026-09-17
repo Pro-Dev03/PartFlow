@@ -4,10 +4,11 @@ import { Button } from '../../../components/ui/button';
 import { CustomerForm, type CustomerFormData } from '../../../components/forms/CustomerForm';
 import { getButtonSize } from '../../../config/button-sizes';
 import { Customer } from '../types/customers.types';
-import { User, DollarSign, ShoppingCart, Calendar, CreditCard, FileText, History, AlertTriangle } from 'lucide-react';
+import { User, DollarSign, ShoppingCart, Calendar, CreditCard, FileText, History, AlertTriangle, RotateCcw } from 'lucide-react';
 import { LedgerEntry } from '../../../components/ui/financial-timeline';
 import { customersApi, salesApi } from '../../../services/api/endpoints';
 import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
+import { useNavigate } from 'react-router-dom';
 
 // Lazy load heavy FinancialTimeline component
 const FinancialTimeline = lazy(() => import('../../../components/ui/financial-timeline').then(m => ({ default: m.FinancialTimeline })));
@@ -34,6 +35,7 @@ export function CustomerModals({
   selectedCustomer,
   onSubmit,
 }: CustomerModalsProps) {
+  const navigate = useNavigate();
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
   const [loadingLedger, setLoadingLedger] = useState(false);
   const [customerSales, setCustomerSales] = useState<any[]>([]);
@@ -56,8 +58,13 @@ export function CustomerModals({
     try {
       const response = await customersApi.ledger(customerId, { page: 1, per_page: 50 });
       if (response && response.data) {
-        const formattedEntries = response.data.map((entry: any) => ({
+        const customerEntries = response.data.filter((entry: any) =>
+          !entry.customer_id || String(entry.customer_id) === String(customerId),
+        );
+        const formattedEntries = customerEntries.map((entry: any) => ({
           id: entry.id,
+          customer_id: entry.customer_id,
+          type: entry.type || entry.transaction_type,
           transaction_type: entry.transaction_type,
           amount: entry.amount,
           balance: entry.balance,
@@ -149,6 +156,24 @@ export function CustomerModals({
       setLoadingInvoice(false);
     }
   };
+
+  const totalPurchases = Number(selectedCustomer?.totalPurchases ?? 0);
+  const outstanding = Number(selectedCustomer?.outstanding ?? 0);
+  const totalPaid = Math.max(totalPurchases - outstanding, 0);
+  const purchaseEntries = ledgerEntries.filter((entry) => {
+    const type = String(entry.transaction_type || entry.type || '').toLowerCase();
+    return type === 'sale' || type === 'debit';
+  });
+  const paymentEntries = ledgerEntries.filter((entry) => {
+    const type = String(entry.transaction_type || entry.type || '').toLowerCase();
+    return type === 'payment' || type === 'credit';
+  });
+  const totalTransactions = ledgerEntries.length;
+  const paymentRate = totalPurchases > 0
+    ? Math.min(Math.max((totalPaid / totalPurchases) * 100, 0), 100)
+    : 0;
+  const lastLedgerEntry = ledgerEntries[ledgerEntries.length - 1];
+  const accountReconciles = Math.abs(totalPurchases - totalPaid - outstanding) < 0.01;
   return (
     <>
       {/* Add/Edit Modal */}
@@ -276,12 +301,87 @@ export function CustomerModals({
                 </div>
               </div>
 
+              <div style={{
+                marginTop: '16px',
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-default)',
+                borderRadius: '8px',
+                overflow: 'hidden'
+              }}>
+                <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-default)' }}>
+                  <h4 style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                    تفاصيل الحساب المالي
+                  </h4>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+                  <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-default)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>المشتريات</span>
+                      <strong style={{ color: 'var(--color-info)', fontSize: '14px' }}>₪{totalPurchases.toLocaleString()}</strong>
+                    </div>
+                    <div style={{ marginTop: '5px', color: 'var(--text-secondary)', fontSize: '11px' }}>
+                      {purchaseEntries.length} حركة بيع مسجلة
+                    </div>
+                  </div>
+                  <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-default)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>المدفوع</span>
+                      <strong style={{ color: 'var(--color-success)', fontSize: '14px' }}>₪{totalPaid.toLocaleString()}</strong>
+                    </div>
+                    <div style={{ marginTop: '5px', color: 'var(--text-secondary)', fontSize: '11px' }}>
+                      {paymentEntries.length} دفعة مسجلة
+                    </div>
+                  </div>
+                  <div style={{ padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>المتبقي المستحق</span>
+                      <strong style={{ color: 'var(--color-danger)', fontSize: '14px' }}>₪{outstanding.toLocaleString()}</strong>
+                    </div>
+                    <div style={{ marginTop: '5px', color: 'var(--text-secondary)', fontSize: '11px' }}>
+                      المشتريات - المدفوع = الرصيد المستحق
+                    </div>
+                  </div>
+                  <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border-default)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>نسبة السداد</span>
+                      <strong style={{ color: 'var(--color-success)', fontSize: '14px' }}>{paymentRate.toFixed(0)}%</strong>
+                    </div>
+                    <div style={{ height: '6px', marginTop: '8px', background: 'var(--border-default)', borderRadius: '999px', overflow: 'hidden' }}>
+                      <div style={{ width: `${paymentRate}%`, height: '100%', background: 'var(--color-success)', borderRadius: '999px' }} />
+                    </div>
+                  </div>
+                  <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border-default)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>إجمالي الحركات</span>
+                      <strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>{totalTransactions}</strong>
+                    </div>
+                    <div style={{ marginTop: '5px', color: 'var(--text-secondary)', fontSize: '11px' }}>
+                      {lastLedgerEntry?.created_at
+                        ? `آخر حركة: ${new Date(lastLedgerEntry.created_at).toLocaleDateString('ar-SA')}`
+                        : 'لا توجد حركات محمّلة'}
+                    </div>
+                  </div>
+                  <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border-default)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>حالة الحساب</span>
+                      <strong style={{ color: accountReconciles ? 'var(--color-success)' : 'var(--color-warning)', fontSize: '14px' }}>
+                        {accountReconciles ? 'متطابق' : 'يحتاج مراجعة'}
+                      </strong>
+                    </div>
+                    <div style={{ marginTop: '5px', color: 'var(--text-secondary)', fontSize: '11px' }}>
+                      يتم التحقق من إجمالي المشتريات والمدفوع والرصيد
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Quick Actions (SALES-PHILOSOPHY.md) */}
               <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
                 <Button
                   variant="primary"
                   size={getButtonSize('customers', 'modalAction')}
                   style={{ flex: 1 }}
+                  onClick={() => navigate(`/app/debts?customer_id=${encodeURIComponent(selectedCustomer.id)}`)}
                 >
                   <DollarSign className="w-4 h-4 mr-2" />
                   تسجيل دفعة
@@ -290,18 +390,19 @@ export function CustomerModals({
                   variant="secondary"
                   size={getButtonSize('customers', 'modalAction')}
                   style={{ flex: 1 }}
-                  onClick={loadCustomerSales}
+                  onClick={() => navigate(`/app/customers/${selectedCustomer.id}/purchases`)}
                 >
-                  <ShoppingCart className="w-4 h-4 mr-2" />
-                  بيع جديد
+                  <FileText className="w-4 h-4 mr-2" />
+                  عرض المشتريات
                 </Button>
                 <Button
                   variant="secondary"
                   size={getButtonSize('customers', 'modalAction')}
                   style={{ flex: 1 }}
+                  onClick={() => navigate(`/app/returns/create?customer_id=${encodeURIComponent(selectedCustomer.id)}`)}
                 >
-                  <FileText className="w-4 h-4 mr-2" />
-                  عرض المشتريات
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  إنشاء مرتجع
                 </Button>
               </div>
 
@@ -356,6 +457,7 @@ export function CustomerModals({
                 }))}
                 loading={loadingLedger}
                 showBalance={true}
+                showTitle={false}
               />
             </Suspense>
 
@@ -385,9 +487,13 @@ export function CustomerModals({
           <div className="rounded-lg border border-border p-6 text-center text-text-secondary">لا توجد فواتير مسجلة لهذا العميل.</div>
         ) : (
           <div className="space-y-3">
+            <div className="rounded-lg border border-border bg-surface-elevated px-4 py-3 text-sm text-text-secondary">
+              إجمالي الفواتير المعروضة: <strong className="text-text-primary">{customerSales.length}</strong>
+            </div>
             {customerSales.map((sale) => {
               const total = Number(sale.total_amount ?? 0);
               const paid = Number(sale.paid_amount ?? 0);
+              const remaining = Math.max(total - paid, 0);
               return (
                 <button
                   key={sale.id}
@@ -396,15 +502,21 @@ export function CustomerModals({
                   disabled={loadingInvoice}
                   className="flex w-full items-center justify-between rounded-lg border border-border bg-surface p-4 text-right transition hover:border-primary hover:bg-surface-elevated disabled:opacity-60"
                 >
-                  <span>
+                  <span className="min-w-0">
                     <span className="block font-semibold text-text-primary">{sale.invoice_number || sale.id}</span>
                     <span className="mt-1 block text-sm text-text-secondary">
                       {sale.sale_date ? new Date(sale.sale_date).toLocaleDateString('ar-SA') : 'بدون تاريخ'}
                     </span>
                   </span>
-                  <span>
-                    <span className="block font-semibold text-text-primary">₪{total.toLocaleString()}</span>
-                    <span className="mt-1 block text-sm text-text-secondary">المتبقي: ₪{Math.max(total - paid, 0).toLocaleString()}</span>
+                  <span className="text-left">
+                    <span className="block font-semibold text-text-primary">الإجمالي: ₪{total.toLocaleString()}</span>
+                    <span className="mt-1 block text-sm text-green-600">المدفوع: ₪{paid.toLocaleString()}</span>
+                    <span className={`mt-1 block text-sm ${remaining > 0 ? 'text-red-600' : 'text-text-secondary'}`}>
+                      المتبقي: ₪{remaining.toLocaleString()}
+                    </span>
+                    <span className="mt-1 block text-xs text-text-secondary">
+                      {remaining > 0 ? 'متبقي عليها مبلغ' : 'مدفوعة بالكامل'}
+                    </span>
                   </span>
                 </button>
               );

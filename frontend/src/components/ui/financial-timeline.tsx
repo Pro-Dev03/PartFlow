@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { ShoppingCart, DollarSign, RotateCcw, RefreshCw, AlertCircle } from 'lucide-react';
+import { formatStoreDateTime } from '../../utils/store-time';
 
 export interface LedgerEntry {
   id: string;
@@ -30,6 +31,7 @@ interface FinancialTimelineProps {
   entries?: LedgerEntry[];
   loading?: boolean;
   showBalance?: boolean;
+  showTitle?: boolean;
   currency?: string;
 }
 
@@ -38,10 +40,11 @@ export function FinancialTimeline({
   entries,
   loading,
   showBalance = true,
+  showTitle = true,
   currency = '₪',
 }: FinancialTimelineProps) {
   const normalizedTransactions = ((transactions && transactions.length > 0 ? transactions : (entries || []).map((entry) => {
-    const type = entry.transaction_type || entry.type || 'other';
+    const type = String(entry.transaction_type || entry.type || 'other').toLowerCase();
     const amount = Number(entry.amount ?? 0);
     const balanceAfter = Number(entry.balance_after ?? entry.balance ?? entry.previous_balance ?? 0);
     const dateValue = entry.date || entry.created_at || new Date().toISOString();
@@ -55,8 +58,18 @@ export function FinancialTimeline({
       status: entry.status || 'completed',
     } satisfies FinancialTransaction;
   })) || []) as FinancialTransaction[];
+  const normalizeTransactionType = (type: string) => {
+    const normalizedType = String(type || '').trim().toLowerCase();
+    if (normalizedType === 'sale') return 'sale';
+    if (normalizedType === 'payment') return 'payment';
+    if (normalizedType === 'debit') return 'debit';
+    if (normalizedType === 'credit') return 'credit';
+    if (normalizedType === 'refund') return 'refund';
+    if (normalizedType === 'return') return 'return';
+    return normalizedType;
+  };
   const getTransactionIcon = (type: string) => {
-    switch (type) {
+    switch (normalizeTransactionType(type)) {
       case 'sale':
       case 'debit':
         return ShoppingCart;
@@ -73,7 +86,7 @@ export function FinancialTimeline({
   };
 
   const getTransactionColor = (type: string) => {
-    switch (type) {
+    switch (normalizeTransactionType(type)) {
       case 'sale':
       case 'debit':
         return 'var(--color-info)';
@@ -89,7 +102,7 @@ export function FinancialTimeline({
   };
 
   const getTransactionBackground = (type: string) => {
-    switch (type) {
+    switch (normalizeTransactionType(type)) {
       case 'sale':
       case 'debit':
         return 'var(--color-info-10)';
@@ -105,27 +118,39 @@ export function FinancialTimeline({
   };
 
   const formatAmount = (amount: number, type: string) => {
-    const isCredit = type === 'payment' || type === 'credit' || type === 'refund';
-    return `${isCredit ? '+' : '-'}${currency}${amount.toLocaleString()}`;
+    const normalizedType = normalizeTransactionType(type);
+    const formattedAmount = `${currency}${Math.abs(amount).toLocaleString()}`;
+    if (normalizedType === 'payment' || normalizedType === 'credit') {
+      return `المبلغ المدفوع: ${formattedAmount}`;
+    }
+    if (normalizedType === 'refund' || normalizedType === 'return') {
+      return `قيمة المرتجع: ${formattedAmount}`;
+    }
+    if (normalizedType === 'sale' || normalizedType === 'debit') {
+      return `قيمة البيع: ${formattedAmount}`;
+    }
+    return `المبلغ: ${formattedAmount}`;
+  };
+
+  const formatDescription = (description: string, type: string) => {
+    const normalizedType = normalizeTransactionType(type);
+    if (normalizedType === 'debit' || normalizedType === 'sale') {
+      return description.replace(/^Sale:\s*/i, 'فاتورة بيع: ');
+    }
+    if (normalizedType === 'credit' || normalizedType === 'payment') {
+      return description.replace(/^Payment:\s*cash$/i, 'دفعة نقدية').replace(/^Payment:\s*/i, 'دفعة: ');
+    }
+    return description;
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('ar-EG', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return formatStoreDateTime(dateString, 'ar-EG');
   };
 
   if (loading) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>السجل المالي</CardTitle>
-        </CardHeader>
+        {showTitle && <CardHeader><CardTitle>السجل المالي</CardTitle></CardHeader>}
         <CardContent>
           <div style={{
             padding: 'var(--spacing-6)',
@@ -146,9 +171,7 @@ export function FinancialTimeline({
   if (normalizedTransactions.length === 0) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>السجل المالي</CardTitle>
-        </CardHeader>
+        {showTitle && <CardHeader><CardTitle>السجل المالي</CardTitle></CardHeader>}
         <CardContent>
           <div style={{ 
             padding: 'var(--spacing-6)', 
@@ -164,9 +187,7 @@ export function FinancialTimeline({
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>السجل المالي</CardTitle>
-      </CardHeader>
+      {showTitle && <CardHeader><CardTitle>السجل المالي</CardTitle></CardHeader>}
       <CardContent>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)' }}>
           {normalizedTransactions.map((transaction, index) => {
@@ -201,7 +222,7 @@ export function FinancialTimeline({
                     fontWeight: 'var(--font-weight-medium)', 
                     color: 'var(--text-primary)' 
                   }}>
-                    {transaction.description}
+                    {formatDescription(transaction.description, transaction.type)}
                   </p>
                   <p style={{ 
                     fontSize: 'var(--font-size-caption)', 
@@ -226,7 +247,7 @@ export function FinancialTimeline({
                       color: 'var(--text-secondary)',
                       marginTop: '2px'
                     }}>
-                      الرصيد: {currency}{Number(transaction.balance_after ?? 0).toLocaleString()}
+                      الرصيد المستحق بعد الحركة: {currency}{Number(transaction.balance_after ?? 0).toLocaleString()}
                     </p>
                   )}
                 </div>

@@ -495,10 +495,14 @@ func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 		return
 	}
 
-	err = h.service.ProcessDebtPayment(c.Request.Context(), id, req.Amount, req.Method)
+	err = h.service.ProcessDebtPaymentWithReference(c.Request.Context(), id, req.Amount, req.Method, req.Reference)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
+			return
+		}
+		if err == ErrPaymentDuplicate {
+			response.Error(c, http.StatusConflict, http.StatusConflict, "Duplicate payment reference", err.Error())
 			return
 		}
 		errors.HandleError(c, errors.WrapError(err, "Failed to process debt payment"))

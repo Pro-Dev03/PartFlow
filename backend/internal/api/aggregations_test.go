@@ -130,7 +130,7 @@ func TestRefreshSQLiteSummariesUsesOperationalData(t *testing.T) {
 	statements := []string{
 		`CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT, purchase_price REAL DEFAULT 0, min_stock_level INTEGER DEFAULT 0, is_active INTEGER DEFAULT 1)`,
 		`CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT, purchase_cost REAL DEFAULT 0, status TEXT, created_at TEXT)`,
-		`CREATE TABLE sales (id TEXT PRIMARY KEY, customer_id TEXT, total_amount REAL, payment_method TEXT, status TEXT, created_at TEXT)`,
+		`CREATE TABLE sales (id TEXT PRIMARY KEY, customer_id TEXT, total_amount REAL, cost_amount REAL, payment_method TEXT, status TEXT, created_at TEXT)`,
 		`CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, inventory_item_id TEXT, quantity INTEGER)`,
 		`CREATE TABLE returns (id TEXT PRIMARY KEY, return_date TEXT, created_at TEXT, status TEXT)`,
 		`CREATE TABLE return_items (id TEXT PRIMARY KEY, return_id TEXT, quantity INTEGER)`,
@@ -158,7 +158,7 @@ func TestRefreshSQLiteSummariesUsesOperationalData(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, purchase_cost, status, created_at) VALUES ('i1', 'p1', 20, 'AVAILABLE', '2026-08-30 09:00:00')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO sales (id, customer_id, total_amount, payment_method, status, created_at) VALUES ('s1', 'c1', 100, 'cash', 'completed', '2026-08-30 10:00:00')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO sales (id, customer_id, total_amount, cost_amount, payment_method, status, created_at) VALUES ('s1', 'c1', 100, 60, 'cash', 'completed', '2026-08-30 10:00:00')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO sale_items (id, sale_id, product_id, inventory_item_id, quantity) VALUES ('si1', 's1', 'p1', 'i1', 2)`); err != nil {
@@ -181,8 +181,22 @@ func TestRefreshSQLiteSummariesUsesOperationalData(t *testing.T) {
 	if err := xdb.Get(&salesRow, `SELECT total_sales, total_revenue, total_profit, total_items_sold FROM daily_sales_summary WHERE date = ?`, "2026-08-30"); err != nil {
 		t.Fatalf("read daily sales summary: %v", err)
 	}
-	if salesRow.TotalSales != 1 || salesRow.TotalRevenue != 100 || salesRow.TotalProfit != 60 || salesRow.TotalItemsSold != 2 {
+	if salesRow.TotalSales != 1 || salesRow.TotalRevenue != 100 || salesRow.TotalProfit != 40 || salesRow.TotalItemsSold != 2 {
 		t.Fatalf("unexpected sales summary: %+v", salesRow)
+	}
+	if err := h.refreshSQLiteMonth(context.Background(), time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("refresh monthly summaries: %v", err)
+	}
+	var monthlySalesProfit float64
+	if err := xdb.Get(&monthlySalesProfit, `SELECT total_profit FROM monthly_sales_summary WHERE year = 2026 AND month = 8`); err != nil {
+		t.Fatalf("read monthly sales summary: %v", err)
+	}
+	var monthlyCost float64
+	if err := xdb.Get(&monthlyCost, `SELECT total_cost FROM monthly_profit_summary WHERE year = 2026 AND month = 8`); err != nil {
+		t.Fatalf("read monthly profit summary: %v", err)
+	}
+	if monthlySalesProfit != 40 || monthlyCost != 60 {
+		t.Fatalf("unexpected monthly COGS summary: profit=%v cost=%v", monthlySalesProfit, monthlyCost)
 	}
 	row, err := h.getDailyInventorySummary(context.Background(), "2026-08-30")
 	if err != nil {

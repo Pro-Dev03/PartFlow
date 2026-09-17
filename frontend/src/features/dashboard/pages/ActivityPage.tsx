@@ -33,7 +33,8 @@ function getActivityIcon(type: string) {
   }
 }
 
-function formatActivityTime(value: string) {
+function formatActivityTime(value: string, saleDate?: string) {
+  if (saleDate) return saleDate;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ar');
 }
@@ -113,6 +114,9 @@ export function ActivityPage() {
               {items.map((item: any) => {
                 const Icon = getActivityIcon(item.type);
                 const normalizedStatus = String(item.status || '').toLowerCase();
+                const activityDescription = item.type === 'sale' && item.seller_name
+                  ? `بواسطة: ${item.seller_name}`
+                  : item.description;
                 return (
                   <div
                     key={`${item.type}-${item.id}`}
@@ -130,11 +134,11 @@ export function ActivityPage() {
                     </div>
                     <div style={{ flex: 1 }}>
                       <p style={{ fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>{item.title}</p>
-                      <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>{item.description}</p>
+                      <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>{activityDescription}</p>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <p style={{ fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>₪{Number(item.amount || 0).toLocaleString('en-US')}</p>
-                      <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>{formatActivityTime(item.time)}</p>
+                      <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>{formatActivityTime(item.time, item.type === 'sale' ? item.sale_date : undefined)}</p>
                     </div>
                     <Badge variant={normalizedStatus === 'completed' ? 'success' : 'warning'} size="sm">
                       {getStatusLabel(item.status)}

@@ -28,6 +28,7 @@ import { ReportCharts } from '../components/ReportCharts';
 
 // Types
 import { ReportType, DateRange } from '../types/reports.types';
+import { formatStoreDate } from '../../../utils/store-time';
 
 function getDisplayValue(item: Record<string, unknown>): unknown {
   return item.value ?? item.amount ?? item.total_amount ?? item.revenue ?? item.net_revenue ?? item.cost ??
@@ -102,15 +103,7 @@ function getReportRows(payload: unknown, reportType?: string): Record<string, un
 }
 
 function formatReportDate(value: unknown): string {
-  if (!value) return new Date().toLocaleDateString('ar-SA');
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString('ar-SA', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
+  return value ? formatStoreDate(String(value), 'ar-SA') : 'غير محدد';
 }
 
 export function ReportsPage() {
@@ -194,8 +187,8 @@ export function ReportsPage() {
   const untaxedPurchaseCost = purchasesReport && Number(purchasesReport.untaxed_purchase_cost ?? 0) > 0 || purchasesReport && Number(purchasesReport.tax_amount ?? 0) > 0
     ? Number(purchasesReport?.untaxed_purchase_cost ?? 0)
     : Number(purchasesReport?.total_cost ?? 0);
-  const taxedPurchaseCount = Math.max(0, Number(purchasesReport?.total_purchases ?? 0) - untaxedPurchaseCount);
-  const taxedPurchaseCost = Math.max(0, Number(purchasesReport?.total_cost ?? 0) - untaxedPurchaseCost);
+  const taxedPurchaseCount = Number(purchasesReport?.total_purchases ?? 0) - untaxedPurchaseCount;
+  const taxedPurchaseCost = Number(purchasesReport?.total_cost ?? 0) - untaxedPurchaseCost;
   const supplierReturnCredits = Number(purchasesReport?.supplier_return_credits ?? 0);
   const netPurchases = Number(purchasesReport?.net_purchases ?? Number(purchasesReport?.total_cost ?? 0) - supplierReturnCredits);
   const salesReport = selectedReport === 'sales' && reportPayload && typeof reportPayload === 'object'

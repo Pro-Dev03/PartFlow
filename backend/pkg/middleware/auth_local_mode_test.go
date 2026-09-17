@@ -52,6 +52,32 @@ func TestAuthAllowsValidJWTWhenLocalSQLiteHasNoUserRecords(t *testing.T) {
 	}
 }
 
+func TestAuthAllowsLocalJWTWhenCloudRequirementIsUnset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Setenv("DB_CONNECTION_MODE", "local")
+	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "")
+	SetDisableAuth(false)
+
+	localToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": uuid.NewString()})
+	localTokenString, err := localToken.SignedString([]byte("test-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+localTokenString)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+
+	Auth()(c)
+
+	if w.Code == http.StatusUnauthorized {
+		t.Fatalf("expected local JWT to be accepted when cloud auth is unset in local mode, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestAuthUsesCloudTokenHeaderWhenLocalJWTIsPresent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -34,6 +34,8 @@ export interface DashboardStats {
   todaySupplierReturns?: number;
   inventoryValue: number;
   outstandingDebts: number;
+  outstandingDebtorCount?: number;
+  activeCustomers?: number;
   overdueDebts: number;
   lowStock: number;
   alerts: DashboardAlert[];

@@ -25,8 +25,17 @@ interface UsedPartsInvoiceProps {
     subtotal: number;
     total: number;
     paidAmount: number;
+    cashReceived?: number;
+    changeAmount?: number;
     remaining: number;
     paymentMethod: string;
+    paymentAllocations?: Array<{
+      amount: number;
+      method: string;
+      check_number?: string;
+      bank_name?: string;
+      check_date?: string;
+    }>;
     notes?: string;
   };
   storeInfo?: {
@@ -309,6 +318,18 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
               <span className="text-gray-600">المدفوع:</span>
               <span className="font-semibold">{saleData.paidAmount.toFixed(2)} ₪</span>
             </div>
+            {(saleData.cashReceived ?? 0) > saleData.paidAmount && (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">المبلغ المستلم:</span>
+                  <span className="font-semibold">{saleData.cashReceived?.toFixed(2)} ₪</span>
+                </div>
+                <div className="flex justify-between text-green-700">
+                  <span className="font-semibold">المردود:</span>
+                  <span className="font-semibold">{(saleData.changeAmount ?? saleData.cashReceived! - saleData.paidAmount).toFixed(2)} ₪</span>
+                </div>
+              </>
+            )}
             {saleData.remaining > 0 && (
               <div className="flex justify-between text-red">
                 <span className="font-semibold">المتبقي:</span>
@@ -322,6 +343,16 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
         <div className="bg-gray-50 p-4 rounded-lg mb-6">
           <h3 className="font-bold text-lg mb-2">طريقة الدفع</h3>
           <p className="text-gray-600">{getPaymentMethodText(saleData.paymentMethod)}</p>
+          {saleData.paymentAllocations && saleData.paymentAllocations.length > 0 && (
+            <div className="mt-2 space-y-1 border-t border-gray-200 pt-2 text-sm">
+              {saleData.paymentAllocations.map((allocation, index) => (
+                <div key={`${allocation.method}-${index}`} className="flex justify-between gap-3">
+                  <span>{getPaymentMethodText(allocation.method)}</span>
+                  <span className="font-semibold">{allocation.amount.toFixed(2)} ₪</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Notes */}

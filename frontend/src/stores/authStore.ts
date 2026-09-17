@@ -5,6 +5,7 @@ import { apiClient } from '../services/api/client';
 import { TokenManager } from '../lib/token-manager';
 import { User } from '../types/models';
 import { getCloudApiUrl } from '../lib/config/app';
+import { isNetworkError } from '../lib/error-messages';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -197,6 +198,7 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
       const nextRefreshToken = data?.refresh_token || localStorage.getItem('cloud_refresh_token');
       if (nextToken) {
         localStorage.setItem('cloud_token', nextToken);
+        apiClient.setCloudToken(nextToken);
         useAuthStore.setState({ cloudToken: nextToken });
       }
       if (nextRefreshToken) {
@@ -374,6 +376,7 @@ export const useAuthStore = create<AuthState>()(
             TokenManager.setRefreshToken(localRefreshToken);
           }
           localStorage.setItem('cloud_token', accessToken);
+          apiClient.setCloudToken(accessToken);
           if (cloudRefreshToken) {
             localStorage.setItem('cloud_refresh_token', cloudRefreshToken);
           }
@@ -413,7 +416,13 @@ export const useAuthStore = create<AuthState>()(
             localStorage.removeItem('cloud_refresh_token');
           }
           set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
-          set({ loginError: shouldRedirectToSubscriptionExpired(error) ? null : 'invalid credentials' });
+          set({
+            loginError: shouldRedirectToSubscriptionExpired(error)
+              ? null
+              : isNetworkError(error)
+                ? 'connection error'
+                : 'invalid credentials',
+          });
           throw error;
         }
       },
@@ -430,6 +439,8 @@ export const useAuthStore = create<AuthState>()(
         localStorage.removeItem('cloud_token');
         localStorage.removeItem('cloud_refresh_token');
         apiClient.logout();
+        apiClient.clearCloudToken();
+        apiClient.clearCloudToken();
         set({
           isAuthenticated: false,
           sessionVerified: false,
@@ -459,6 +470,9 @@ export const useAuthStore = create<AuthState>()(
         if (cloudToken && !localStorage.getItem('cloud_token')) {
           localStorage.setItem('cloud_token', cloudToken);
         }
+        if (cloudToken) {
+          apiClient.setCloudToken(cloudToken);
+        }
 
         if (!token || !cloudToken) {
           forceLogoutToLogin('No active cloud session');
@@ -469,17 +483,17 @@ export const useAuthStore = create<AuthState>()(
         apiClient.setToken(token);
 
         if (!navigator.onLine) {
-          forceLogoutToLogin('Cloud verification requires an internet connection');
-          set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
+          // Preserve the local session during a temporary outage. Cloud
+          // validation will run again when connectivity returns.
+          set({ isAuthenticated: true, sessionVerified: true, isLoading: false });
           return;
         }
 
         const valid = await validateSubscriptionWithCloud();
         if (!valid) {
-          if (TokenManager.getToken() && !window.location.hash.includes('/subscription-expired')) {
-            forceLogoutToLogin('Cloud verification failed');
-          }
-          set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
+          // A transient cloud failure must not sign the owner out. Explicit
+          // invalid-token and subscription-expired responses handle logout.
+          set({ isAuthenticated: true, sessionVerified: true, isLoading: false });
           return;
         }
 

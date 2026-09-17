@@ -17,6 +17,7 @@ import {
   partTypesApi,
   categoriesApi,
   settingsApi,
+  paymentTransactionsApi,
 } from '../../../services/api/endpoints';
 import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
@@ -36,6 +37,7 @@ import {
   Trash2,
   UserRound,
   ChevronDown,
+  Info,
 } from 'lucide-react';
 
 // Modern Components
@@ -51,7 +53,7 @@ import { getPartTypeImage } from '../../../services/localPartTypeImages';
 import { getCategoryImage } from '../../../services/localCategoryImages';
 
 // Types
-import { InvoiceData } from '../types/pos.types';
+import { InvoiceData, PaymentAllocation } from '../types/pos.types';
 import { Product, InventoryItem, PartType } from '../../../types/models';
 import type { CustomerCreateRequest, Customer, Category } from '../../../services/api/types';
 import type { PosCartProduct } from '../hooks/useCart';
@@ -83,6 +85,31 @@ export function POSPage() {
     queryFn: () => settingsApi.getSetting('discounts_enabled'),
     retry: false,
   });
+  const { data: posProductsPerPageSetting } = useQuery({
+    queryKey: ['settings', 'pos_products_per_page'],
+    queryFn: () => settingsApi.getSetting('pos_products_per_page'),
+    retry: false,
+  });
+  const { data: posProductViewModeSetting } = useQuery({
+    queryKey: ['settings', 'pos_product_view_mode'],
+    queryFn: () => settingsApi.getSetting('pos_product_view_mode'),
+    retry: false,
+  });
+  const { data: electronicPaymentsEnabledSetting } = useQuery({
+    queryKey: ['settings', 'electronic_payments_enabled'],
+    queryFn: () => settingsApi.getSetting('electronic_payments_enabled'),
+    retry: false,
+  });
+  const { data: electronicPaymentMethodsSetting } = useQuery({
+    queryKey: ['settings', 'payment_methods'],
+    queryFn: () => settingsApi.getSetting('payment_methods'),
+    retry: false,
+  });
+  const { data: electronicPaymentProviderSetting } = useQuery({
+    queryKey: ['settings', 'payment_provider'],
+    queryFn: () => settingsApi.getSetting('payment_provider'),
+    retry: false,
+  });
   const systemTaxRate = Number(taxSetting?.data?.value);
   const configuredMaxDiscount = Number(discountSetting?.data?.value);
   const maxDiscountRate = Number.isFinite(configuredMaxDiscount) && configuredMaxDiscount >= 0 && configuredMaxDiscount <= 100
@@ -90,6 +117,15 @@ export function POSPage() {
     : 15;
   const discountsEnabledValue = String(discountsEnabledSetting?.data?.value ?? '').trim().toLowerCase();
   const discountsEnabled = !['false', '0', 'off', 'disabled'].includes(discountsEnabledValue);
+  const electronicPaymentsEnabled = electronicPaymentsEnabledSetting?.data?.value === 'true';
+  const electronicPaymentProvider = String(electronicPaymentProviderSetting?.data?.value ?? 'manual');
+  let enabledElectronicMethods: string[] = [];
+  try {
+    const configuredMethods = JSON.parse(String(electronicPaymentMethodsSetting?.data?.value ?? '[]'));
+    if (Array.isArray(configuredMethods)) enabledElectronicMethods = configuredMethods.filter((method): method is string => typeof method === 'string');
+  } catch {
+    enabledElectronicMethods = [];
+  }
 
   const [taxExempt, setTaxExempt] = useState(false);
   const [discountRate, setDiscountRate] = useState(0);
@@ -124,7 +160,6 @@ export function POSPage() {
     setPaidAmount,
     isProcessing,
     setProcessing,
-    calculateRemaining,
     resetPayment,
   } = usePayment();
 
@@ -160,16 +195,24 @@ export function POSPage() {
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [lastSaleData, setLastSaleData] = useState<InvoiceData | null>(null);
   const lastSaleDataRef = useRef<InvoiceData | null>(null);
+  const pendingExternalPaymentRef = useRef<string | null>(null);
   const [isQuickCustomerModalOpen, setIsQuickCustomerModalOpen] =
     useState(false);
   const [customerBalance, setCustomerBalance] = useState(0);
   const [customerCreditLimit, setCustomerCreditLimit] = useState<
     number | undefined
   >();
+  const [paymentAllocations, setPaymentAllocations] = useState<PaymentAllocation[]>([]);
   const [quickCustomerName, setQuickCustomerName] = useState('');
   const [quickCustomerPhone, setQuickCustomerPhone] = useState('');
-  const [quickCustomerCreditLimit, setQuickCustomerCreditLimit] = useState('');
   const [productPage, setProductPage] = useState(1);
+  const [usedPartPage, setUsedPartPage] = useState(1);
+  const configuredProductsPerPage = Number(posProductsPerPageSetting?.data?.value);
+  const productsPerPage = Number.isInteger(configuredProductsPerPage) && configuredProductsPerPage >= 4 && configuredProductsPerPage <= 48
+    ? configuredProductsPerPage
+    : 12;
+  const productViewMode = posProductViewModeSetting?.data?.value === 'list' ? 'list' : 'cards';
+  const [showProductDetails, setShowProductDetails] = useState(false);
   const [isManualProductOpen, setIsManualProductOpen] = useState(false);
   const [manualProduct, setManualProduct] = useState({
     name: '',
@@ -210,7 +253,8 @@ export function POSPage() {
 
   useEffect(() => {
     setProductPage(1);
-  }, [debouncedSearchQuery, selectedCategory]);
+    setUsedPartPage(1);
+  }, [debouncedSearchQuery, selectedCategory, productsPerPage]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -239,8 +283,6 @@ export function POSPage() {
         }
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
   }, [cart, removeFromCart]);
 
   // Products query
@@ -254,12 +296,15 @@ export function POSPage() {
     queryFn: () => {
       return productsApi.list({
         page: productPage,
-        per_page: 20,
+        per_page: productsPerPage,
         search: debouncedSearchQuery,
         category_id: selectedCategory || undefined,
       });
     },
     enabled: posSection === 'products',
+    staleTime: 0,
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   // Customers query
@@ -282,7 +327,10 @@ export function POSPage() {
   // Other queries
   const { data: inventoryData } = useQuery({
     queryKey: ['inventory'],
-    queryFn: () => inventoryApi.list({ page: 1, per_page: 50 }),
+    queryFn: () => inventoryApi.listWithSupplier({ page: 1, per_page: 1000 }),
+    staleTime: 0,
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   useEffect(() => {
@@ -309,6 +357,42 @@ export function POSPage() {
   const partTypes = ((partTypesData?.data as unknown) as PartType[]) || [];
   const categories = ((categoriesData?.data as unknown) as Category[]) || [];
 
+  const productsWithInventoryFallback = useMemo(() => {
+    const query = debouncedSearchQuery.trim().toLowerCase();
+    const productsById = new Map(products.map((product) => [String(product.id), product]));
+
+    inventoryItems.forEach((item: any) => {
+      const productId = String(item.product_id || item.product?.id || item.productId || '').trim();
+      if (!productId || productsById.has(productId)) return;
+
+      const name = String(item.product_name || item.product?.name || '').trim();
+      const itemCode = String(item.item_code || '').trim();
+      const barcode = String(item.barcode || '').trim();
+      const categoryId = String(item.category_id || '').trim();
+      const searchableText = `${name} ${itemCode} ${barcode}`.toLowerCase();
+      if (!name || (query && !searchableText.includes(query))) return;
+      if (selectedCategory && categoryId !== selectedCategory) return;
+
+      productsById.set(productId, {
+        id: productId,
+        name,
+        sku: itemCode || barcode || productId,
+        barcode: barcode || itemCode,
+        category_id: categoryId || undefined,
+        track_serial: false,
+        track_individual: false,
+        min_stock_level: 0,
+        warranty_days: 0,
+        created_at: String(item.created_at || ''),
+        updated_at: String(item.updated_at || ''),
+        selling_price: Number(item.product_selling_price ?? item.selling_price ?? item.price ?? 0),
+        cost_price: Number(item.purchase_cost ?? 0),
+      } as Product);
+    });
+
+    return Array.from(productsById.values());
+  }, [debouncedSearchQuery, inventoryItems, products, selectedCategory]);
+
   const availableUsedParts = useMemo(() => {
     const query = debouncedSearchQuery.trim().toLowerCase();
     return inventoryItems.filter((item: any) => {
@@ -322,6 +406,16 @@ export function POSPage() {
       return name.includes(query) || serialNumber.includes(query) || barcode.includes(query);
     });
   }, [debouncedSearchQuery, inventoryItems, soldUsedPartIds]);
+
+  const usedPartTotalPages = Math.max(1, Math.ceil(availableUsedParts.length / productsPerPage));
+  const visibleUsedParts = availableUsedParts.slice(
+    (usedPartPage - 1) * productsPerPage,
+    usedPartPage * productsPerPage,
+  );
+
+  useEffect(() => {
+    if (usedPartPage > usedPartTotalPages) setUsedPartPage(usedPartTotalPages);
+  }, [usedPartPage, usedPartTotalPages]);
 
   const handleUsedPartSelect = useCallback((item: any) => {
     const productId = String(item.product_id || item.product?.id || '');
@@ -376,7 +470,7 @@ export function POSPage() {
       stockMap.set(productId, Math.max(current, calculatedStock));
     });
 
-    return products.filter((product) => {
+    return productsWithInventoryFallback.filter((product) => {
       const productId = String(product.id);
       const declaredStock = Number((product as any).stock ?? 0);
       return newStockProducts.has(productId) || (!inventoryItems.some((item: any) => String(item.product_id || item.product?.id || '') === productId) && declaredStock > 0);
@@ -391,10 +485,16 @@ export function POSPage() {
       return {
         ...product,
         stock,
+        category_name: categories.find((category) => String(category.id) === String(categoryId))?.name,
         category_image_url: categoryId ? getCategoryImage(String(categoryId)) : undefined,
       };
     }).filter((product) => Number(product.stock ?? 0) > 0);
-  }, [products, inventoryItems, categories, optimisticSoldQuantities]);
+  }, [productsWithInventoryFallback, products, inventoryItems, categories, optimisticSoldQuantities]);
+
+  const visibleProducts = useMemo(
+    () => productsWithStock.slice(0, productsPerPage),
+    [productsPerPage, productsWithStock]
+  );
 
   const getAvailableStockCount = useCallback(
     (productId: string) => {
@@ -456,7 +556,6 @@ export function POSPage() {
       setIsQuickCustomerModalOpen(false);
       setQuickCustomerName('');
       setQuickCustomerPhone('');
-      setQuickCustomerCreditLimit('');
     },
     onError: (error) => {
       console.error('Customer creation failed:', error);
@@ -493,13 +592,29 @@ export function POSPage() {
       });
       return productsApi.create(payload);
     },
-    onSuccess: (response) => {
+    onSuccess: async (response) => {
       const product = (
         response?.data as { product?: PosCartProduct } | PosCartProduct
       )?.product ?? response?.data;
       if (product?.id) {
         const barcode = product.barcode || product.id;
-        addToCart({ ...product, barcode }, Number(manualProduct.quantity) || 1);
+        const quantity = Math.max(1, Number(manualProduct.quantity) || 1);
+        try {
+          await inventoryApi.create({
+            product_id: product.id,
+            quantity,
+            condition: 'NEW',
+            purchase_cost: Number(product.cost_price) || 0,
+            selling_price: Number(product.selling_price ?? product.price) || 0,
+            status: 'AVAILABLE',
+            notes: 'إضافة منتج يدوي من نقطة البيع',
+          });
+          addToCart({ ...product, barcode }, quantity);
+        } catch (error) {
+          console.error('Failed to create manual product inventory:', error);
+          toast.error('تم إنشاء المنتج لكن تعذرت إضافة كميته للمخزون');
+          return;
+        }
       }
       queryClient.invalidateQueries({ queryKey: ['products'] });
       setManualProduct({ name: '', price: '', quantity: '1', barcode: '' });
@@ -551,12 +666,18 @@ export function POSPage() {
 
       if (lastSaleDataRef.current) {
         const sale = response?.data?.sale ?? response?.data ?? response?.sale;
+        const persistedAllocations = response?.data?.payment_allocations ?? sale?.payment_allocations;
         setLastSaleData({
           ...lastSaleDataRef.current,
           id: sale?.id || response?.id || lastSaleDataRef.current.id,
+          cashReceived: Number(sale?.cash_received ?? lastSaleDataRef.current.cashReceived ?? 0),
+          changeAmount: Number(sale?.change_amount ?? lastSaleDataRef.current.changeAmount ?? 0),
+          ...(Array.isArray(persistedAllocations) ? { paymentAllocations: persistedAllocations } : {}),
         });
         setIsInvoiceModalOpen(true);
       }
+
+      pendingExternalPaymentRef.current = null;
 
       clearCart();
       setPaidAmount('');
@@ -566,6 +687,16 @@ export function POSPage() {
       setProcessing(false);
     },
     onError: (error: unknown) => {
+      const externalPaymentID = pendingExternalPaymentRef.current;
+      if (externalPaymentID) {
+        pendingExternalPaymentRef.current = null;
+        void paymentTransactionsApi.refund(externalPaymentID, {
+          amount_minor: Math.round(displayTotal * 100),
+          currency: 'ILS',
+          idempotency_key: `sale-failure-refund-${externalPaymentID}`,
+          reason: 'sale_creation_failed',
+        }).catch((refundError) => console.error('Failed to compensate external payment:', refundError));
+      }
       const apiError = error as {
         response?: { error?: { message?: string } };
         arabicMessage?: string;
@@ -582,7 +713,21 @@ export function POSPage() {
         normalizedMessage.includes('نفذ') ||
         normalizedMessage.includes('مخزون')
       ) {
-        toast.error('هذا النوع قد نفذ من المخزون', 'مخزون غير كافٍ', 4000);
+        const exhaustedProductName = message.split(':').slice(1).join(':').trim();
+        if (exhaustedProductName) {
+          cart
+            .filter((item) => item.name.trim() === exhaustedProductName)
+            .forEach((item) => removeFromCart(item.barcode));
+        }
+        queryClient.invalidateQueries({ queryKey: ['inventory'] });
+        queryClient.invalidateQueries({ queryKey: ['inventory', 'used-stock'] });
+        toast.error(
+          exhaustedProductName
+            ? `تمت إزالة القطعة النافدة من السلة: ${exhaustedProductName}`
+            : 'هذا النوع قد نفد من المخزون',
+          'مخزون غير كافٍ',
+          4000,
+        );
       } else {
         toast.error(message, 'فشل إتمام البيع', 4000);
       }
@@ -634,14 +779,16 @@ export function POSPage() {
 
     try {
       const response = await barcodeApi.lookupProduct(searchQuery.trim());
-      const product = response as Product;
+      const product = response.data as Product & { inventory_item_id?: string; serial_number?: string; inventory_item?: any };
 
       if (product && product.id) {
         if (!canAddProductToCart(product.id, product.name, 1)) return;
         addToCart({
           id: product.id,
+          inventoryItemId: product.inventory_item_id || product.inventory_item?.id,
+          serialNumber: product.serial_number || product.inventory_item?.serial_number,
           name: product.name,
-          barcode: searchQuery.trim(),
+          barcode: product.barcode || searchQuery.trim(),
           price: normalizePosPrice(
             product.sellingPrice,
             (product as Product & { selling_price?: number }).selling_price
@@ -692,14 +839,34 @@ export function POSPage() {
     [addToCart, canAddProductToCart]
   );
 
-  const handleCheckout = useCallback(() => {
+  const handleCheckout = useCallback(async () => {
     if (cart.length === 0) return;
     if (paymentMethod === 'credit' && paidAmount.trim() === '') return;
 
+    let latestInventoryItems = inventoryItems;
+    try {
+      const latestInventory = await queryClient.fetchQuery({
+        queryKey: ['inventory'],
+        queryFn: () => inventoryApi.listWithSupplier({ page: 1, per_page: 1000 }),
+        staleTime: 0,
+      });
+      latestInventoryItems = ((latestInventory?.data?.items as unknown) as InventoryItem[]) || [];
+    } catch {
+    }
+
+    const availableStockCount = (productId: string) => latestInventoryItems.filter((item: any) => {
+      if (String(item.product_id) !== String(productId)) return false;
+      const status = String(item.status || '').toUpperCase();
+      return !['SOLD', 'RESERVED', 'DAMAGED', 'IN_REPAIR', 'RETURNED', 'FOR_PARTS', 'ARCHIVED'].includes(status);
+    }).length;
+
     const exhaustedItems = cart.reduce((items, item) => {
-      const availableStock = item.isTradeIn
-        ? Number(item.stock ?? 1)
-        : getAvailableStockCount(String(item.id));
+      const availableStock = item.inventoryItemId
+        ? latestInventoryItems.some((inventoryItem: any) =>
+          String(inventoryItem.id) === String(item.inventoryItemId) &&
+          String(inventoryItem.status || '').toUpperCase() === 'AVAILABLE'
+        ) ? 1 : 0
+        : availableStockCount(String(item.id));
       if (availableStock <= 0 || item.quantity > availableStock) {
         items.push(item.name);
       }
@@ -718,6 +885,45 @@ export function POSPage() {
 
     setProcessing(true);
 
+    let paymentTransactionID: string | undefined;
+    if (paymentMethod === 'card' && electronicPaymentsEnabled && electronicPaymentProvider !== 'manual') {
+      const orderID = crypto.randomUUID();
+      try {
+        const createdResponse = await paymentTransactionsApi.create({
+          order_id: orderID,
+          amount_minor: Math.round(displayTotal * 100),
+          currency: 'ILS',
+          description: `PartFlow sale ${orderID}`,
+          idempotency_key: `pos-${orderID}`,
+        });
+        const created = createdResponse?.data?.data ?? createdResponse?.data;
+        if (!created?.id) throw new Error('لم يتم إنشاء معاملة الدفع');
+        pendingExternalPaymentRef.current = String(created.id);
+        if (created.checkout_url) window.open(created.checkout_url, '_blank', 'noopener,noreferrer');
+
+        let verified: any = null;
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 2000));
+          const verifiedResponse = await paymentTransactionsApi.verify(String(created.id));
+          verified = verifiedResponse?.data?.data ?? verifiedResponse?.data;
+          if (verified?.status === 'paid' || verified?.status === 'failed' || verified?.status === 'cancelled') break;
+        }
+        if (verified?.status !== 'paid') throw new Error('لم يتم تأكيد الدفع الإلكتروني من المزود');
+        paymentTransactionID = String(created.id);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'فشل الدفع الإلكتروني', 'فشل الدفع', 5000);
+        setProcessing(false);
+        return;
+      }
+    }
+
+    const receivedAmount = parseFloat(paidAmount) || 0;
+    const appliedPaymentAmount = paymentMethod === 'cash'
+      ? Math.min(receivedAmount, displayTotal)
+      : receivedAmount;
+    const changeAmount = paymentMethod === 'cash'
+      ? Math.max(0, receivedAmount - displayTotal)
+      : 0;
     const saleData: SaleCreateRequest = {
       customer_id: selectedCustomer || undefined,
       items: cart.map((item) => ({
@@ -729,7 +935,10 @@ export function POSPage() {
         ...(item.purchaseCost ? { purchase_cost: item.purchaseCost } : {}),
       })),
       payment_method: paymentMethod === 'credit' ? 'debt' : paymentMethod === 'checks' ? 'transfer' : paymentMethod,
-      payment_amount: parseFloat(paidAmount) || 0,
+      payment_amount: appliedPaymentAmount,
+      ...(paymentAllocations.length > 0 ? { payment_allocations: paymentAllocations } : {}),
+      ...(paymentTransactionID ? { payment_transaction_id: paymentTransactionID } : {}),
+      ...(paymentMethod === 'cash' ? { cash_received: receivedAmount } : {}),
       total_amount: displayTotal,
       tax_exempt: taxExempt,
       ...(appliedDiscountRate > 0 ? { discount_type: 'percentage', discount_value: appliedDiscountRate } : {}),
@@ -759,9 +968,12 @@ export function POSPage() {
       })),
       subtotal: displaySubtotal,
       total: displayTotal,
-      paidAmount: parseFloat(paidAmount) || 0,
-      remaining: calculateRemaining(displayTotal),
+      paidAmount: appliedPaymentAmount,
+      cashReceived: paymentMethod === 'cash' ? receivedAmount : undefined,
+      changeAmount,
+      remaining: Math.max(0, displayTotal - appliedPaymentAmount),
       paymentMethod,
+      paymentAllocations,
     };
 
     setLastSaleData(invoiceData);
@@ -779,11 +991,15 @@ export function POSPage() {
     displayTotal,
     appliedDiscountRate,
     taxExempt,
+    paymentAllocations,
+    electronicPaymentsEnabled,
+    electronicPaymentProvider,
     customers,
-    calculateRemaining,
     setProcessing,
     createSaleMutation,
-    getAvailableStockCount,
+    inventoryItems,
+    queryClient,
+    removeFromCart,
     toast,
   ]);
 
@@ -1001,6 +1217,7 @@ export function POSPage() {
                 onClick={() => {
                   clearCart();
                   resetPayment();
+                  setPaymentAllocations([]);
                 }}
                 className="gap-2"
                 style={{ padding: '0.375rem 0.5rem' }}
@@ -1099,16 +1316,34 @@ export function POSPage() {
           {/* Products Grid */}
           {posSection === 'products' ? (
             <ModernProductGrid
-              products={productsWithStock}
+              products={visibleProducts}
               onProductClick={handleProductSelect}
               taxRate={effectiveTaxRate}
               taxExempt={taxExempt}
-              hasMore={productPage * 20 < productTotal}
-              onLoadMore={() => setProductPage((p) => p + 1)}
+              showDetails={showProductDetails}
+              onToggleDetails={() => setShowProductDetails((visible) => !visible)}
+              currentPage={productPage}
+              totalPages={Math.max(1, Math.ceil(productTotal / productsPerPage))}
+              viewMode={productViewMode}
+              onPreviousPage={() => setProductPage((page) => Math.max(1, page - 1))}
+              onNextPage={() => setProductPage((page) => page + 1)}
               isLoading={productsLoading}
             />
           ) : (
-            <div className="pos-modern-products-grid">
+            <>
+              <div className="pos-product-view-toolbar">
+                <button
+                  type="button"
+                  className={`pos-product-details-toggle ${showProductDetails ? 'active' : ''}`}
+                  onClick={() => setShowProductDetails((visible) => !visible)}
+                  aria-pressed={showProductDetails}
+                  title={showProductDetails ? 'إخفاء تفاصيل القطعة' : 'عرض تفاصيل القطعة'}
+                >
+                  <Info className="h-4 w-4" aria-hidden="true" />
+                  <span>{showProductDetails ? 'إخفاء التفاصيل' : 'عرض التفاصيل'}</span>
+                </button>
+              </div>
+              <div className={productViewMode === 'list' ? 'pos-modern-products-list' : 'pos-modern-products-grid'}>
               {availableUsedParts.length === 0 ? (
                 <div className="pos-modern-products-empty">
                   <ShoppingCart className="empty-icon" />
@@ -1119,6 +1354,41 @@ export function POSPage() {
                 const partType = partTypes.find((type) => type.id === item.part_type_id);
                 const partName = item.product_name || item.product?.name || 'قطعة مستعملة';
                 const price = Number(item.selling_price || 0);
+                const partImage = getPartTypeImage(String(item.part_type_id));
+                const partTypeLabel = partType
+                  ? [partType.name_ar || partType.name, partType.name_en].filter(Boolean).join(' · ')
+                  : 'نوع غير محدد';
+                if (productViewMode === 'list') {
+                  return (
+                    <button
+                      type="button"
+                      key={item.id}
+                      className="pos-modern-product-list-item"
+                      onClick={() => handleUsedPartSelect(item)}
+                    >
+                      <span className="pos-modern-product-list-main min-w-0">
+                        <span className="pos-modern-product-list-thumb">
+                          {partImage ? <img src={partImage} alt="" /> : <ShoppingCart className="h-4 w-4" aria-hidden="true" />}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="pos-modern-product-list-name block">{partName}</span>
+                          <span className="pos-modern-product-list-category block">
+                            {partTypeLabel}
+                          </span>
+                          {showProductDetails && (item.serial_number || item.grade) && (
+                            <span className="pos-modern-product-list-identifiers">
+                              {item.serial_number && <span>تسلسلي: {item.serial_number}</span>}
+                              {item.grade && <span>التقييم: {item.grade}</span>}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                      <span className="pos-modern-product-list-stock">مستعمل · متوفر</span>
+                      <span className="pos-modern-product-list-price">₪{price.toLocaleString()}</span>
+                      <Plus className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  );
+                }
                 return (
                   <button
                     type="button"
@@ -1141,13 +1411,12 @@ export function POSPage() {
                       <div className="product-card-meta">
                         <span className="product-card-condition used">مستعمل</span>
                         <span className="product-card-stock">متوفر</span>
-                        {partType && <span className="product-card-status success">{partType.name_ar}</span>}
+                        {partType && <span className="product-card-status success">{partTypeLabel}</span>}
                       </div>
-                      {(item.serial_number || item.grade) && (
-                        <div className="text-xs text-[var(--text-muted)] truncate">
-                          {[item.serial_number && `تسلسلي: ${item.serial_number}`, item.grade && `التقييم: ${item.grade}`]
-                            .filter(Boolean)
-                            .join(' · ')}
+                      {showProductDetails && (item.serial_number || item.grade) && (
+                        <div className="product-card-identifiers">
+                          {item.serial_number && <span>تسلسلي: {item.serial_number}</span>}
+                          {item.grade && <span>التقييم: {item.grade}</span>}
                         </div>
                       )}
                       <div className="product-card-price">
@@ -1156,8 +1425,34 @@ export function POSPage() {
                     </div>
                   </button>
                 );
-              })}
-            </div>
+                })}
+              </div>
+              {availableUsedParts.length > 0 && (
+                <div className="pos-modern-pagination" dir="rtl" aria-label="التنقل بين صفحات القطع المستعملة">
+                  <button
+                    type="button"
+                    className="pos-modern-pagination-btn"
+                    onClick={() => setUsedPartPage((page) => Math.max(1, page - 1))}
+                    disabled={usedPartPage <= 1}
+                    aria-label="الصفحة السابقة للقطع المستعملة"
+                  >
+                    السابق
+                  </button>
+                  <span className="pos-modern-pagination-status" aria-live="polite">
+                    صفحة {usedPartPage} من {usedPartTotalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="pos-modern-pagination-btn"
+                    onClick={() => setUsedPartPage((page) => Math.min(usedPartTotalPages, page + 1))}
+                    disabled={usedPartPage >= usedPartTotalPages}
+                    aria-label="الصفحة التالية للقطع المستعملة"
+                  >
+                    التالي
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </main>
 
@@ -1266,6 +1561,10 @@ export function POSPage() {
             total={displayTotal}
             isProcessing={isProcessing}
             onCheckout={handleCheckout}
+            onPaymentAllocationsChange={setPaymentAllocations}
+            onPaymentAllocationsChange={setPaymentAllocations}
+            electronicPaymentsEnabled={electronicPaymentsEnabled}
+            enabledElectronicMethods={enabledElectronicMethods}
             selectedCustomer={selectedCustomer}
             customerBalance={customerBalance}
             customerCreditLimit={customerCreditLimit}
@@ -1495,17 +1794,6 @@ export function POSPage() {
               onChange={(e) => setQuickCustomerPhone(e.target.value)}
             />
           </div>
-          <div>
-            <label className="text-sm font-medium text-text-secondary block mb-2">
-              حد الدين
-            </label>
-            <Input
-              type="number"
-              placeholder="₪0"
-              value={quickCustomerCreditLimit}
-              onChange={(e) => setQuickCustomerCreditLimit(e.target.value)}
-            />
-          </div>
           {createCustomerMutation.isError && (
             <p className="text-sm text-red-500">
               تعذر إنشاء العميل. تحقق من البيانات وحاول مرة أخرى.
@@ -1527,7 +1815,7 @@ export function POSPage() {
                 createCustomerMutation.mutate({
                   name: quickCustomerName.trim(),
                   phone: quickCustomerPhone.trim() || undefined,
-                  credit_limit: Number(quickCustomerCreditLimit) || 0,
+                  credit_limit: 0,
                 })
               }
             >

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 // Repository handles products data operations
@@ -51,6 +52,9 @@ func parseSQLiteTimestamp(raw string) (time.Time, error) {
 	if trimmed == "" {
 		return time.Time{}, nil
 	}
+	if index := strings.Index(trimmed, " m="); index >= 0 {
+		trimmed = trimmed[:index]
+	}
 
 	layouts := []string{
 		time.RFC3339,
@@ -69,6 +73,33 @@ func parseSQLiteTimestamp(raw string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("unsupported SQLite timestamp format: %q", raw)
+}
+
+func scanReturnedTimestamps(scanner interface{ Scan(...any) error }, valueID *uuid.UUID, createdAt *time.Time, updatedAt *time.Time) error {
+	var idRaw string
+	var createdRaw, updatedRaw any
+	if err := scanner.Scan(&idRaw, &createdRaw, &updatedRaw); err != nil {
+		return err
+	}
+
+	parsedID, err := uuid.Parse(idRaw)
+	if err != nil {
+		return fmt.Errorf("parse returned id: %w", err)
+	}
+	*valueID = parsedID
+
+	parsedCreatedAt, err := dbutil.ParseTimestamp(createdRaw)
+	if err != nil {
+		return fmt.Errorf("parse returned created_at: %w", err)
+	}
+	*createdAt = parsedCreatedAt
+
+	parsedUpdatedAt, err := dbutil.ParseTimestamp(updatedRaw)
+	if err != nil {
+		return fmt.Errorf("parse returned updated_at: %w", err)
+	}
+	*updatedAt = parsedUpdatedAt
+	return nil
 }
 
 func scanProductRow(rows *sql.Rows) (Product, error) {
@@ -170,7 +201,22 @@ func (r *Repository) CreateCategory(ctx context.Context, category *Category) err
 	category.CreatedAt = now
 	category.UpdatedAt = now
 
-	err := r.db.QueryRowContext(ctx, query,
+	if dbutil.IsSQLite(r.db) {
+		_, err := r.db.ExecContext(ctx, strings.Replace(query, "\n\t\tRETURNING id, created_at, updated_at", "", 1),
+			category.ID,
+			category.Name,
+			category.Description,
+			category.ParentID,
+			category.Icon,
+			category.Color,
+			category.IsActive,
+			category.CreatedAt,
+			category.UpdatedAt,
+		)
+		return err
+	}
+
+	return scanReturnedTimestamps(r.db.QueryRowContext(ctx, query,
 		category.ID,
 		category.Name,
 		category.Description,
@@ -180,9 +226,7 @@ func (r *Repository) CreateCategory(ctx context.Context, category *Category) err
 		category.IsActive,
 		category.CreatedAt,
 		category.UpdatedAt,
-	).Scan(&category.ID, &category.CreatedAt, &category.UpdatedAt)
-
-	return err
+	), &category.ID, &category.CreatedAt, &category.UpdatedAt)
 }
 
 // GetCategoryByID retrieves a category by ID
@@ -362,16 +406,26 @@ func (r *Repository) CreateBrand(ctx context.Context, brand *Brand) error {
 	brand.CreatedAt = now
 	brand.UpdatedAt = now
 
-	err := r.db.QueryRowContext(ctx, query,
+	if dbutil.IsSQLite(r.db) {
+		_, err := r.db.ExecContext(ctx, strings.Replace(query, "\n\t\tRETURNING id, created_at, updated_at", "", 1),
+			brand.ID,
+			brand.Name,
+			brand.Description,
+			brand.LogoURL,
+			brand.CreatedAt,
+			brand.UpdatedAt,
+		)
+		return err
+	}
+
+	return scanReturnedTimestamps(r.db.QueryRowContext(ctx, query,
 		brand.ID,
 		brand.Name,
 		brand.Description,
 		brand.LogoURL,
 		brand.CreatedAt,
 		brand.UpdatedAt,
-	).Scan(&brand.ID, &brand.CreatedAt, &brand.UpdatedAt)
-
-	return err
+	), &brand.ID, &brand.CreatedAt, &brand.UpdatedAt)
 }
 
 // GetBrandByID retrieves a brand by ID
@@ -494,8 +548,16 @@ func (r *Repository) CreateProduct(ctx context.Context, product *Product) error 
 	product.CreatedAt = now
 	product.UpdatedAt = now
 	product.IsActive = true
+	if dbutil.IsSQLite(r.db) {
+		_, err := r.db.ExecContext(ctx, strings.Replace(query, "\n\t\tRETURNING id, created_at, updated_at", "", 1),
+			product.ID, product.CategoryID, product.BrandID, product.PreferredSupplierID,
+			product.Name, product.Description, product.Model, product.SKU, product.Barcode,
+			product.CostPrice, product.SellingPrice, product.TrackSerial, product.TrackIndividual,
+			product.MinStockLevel, product.WarrantyDays, product.IsActive, product.CreatedAt, product.UpdatedAt)
+		return err
+	}
 
-	err := r.db.QueryRowContext(ctx, query,
+	return scanReturnedTimestamps(r.db.QueryRowContext(ctx, query,
 		product.ID,
 		product.CategoryID,
 		product.BrandID,
@@ -514,18 +576,34 @@ func (r *Repository) CreateProduct(ctx context.Context, product *Product) error 
 		product.IsActive,
 		product.CreatedAt,
 		product.UpdatedAt,
-	).Scan(&product.ID, &product.CreatedAt, &product.UpdatedAt)
-
-	return err
+	), &product.ID, &product.CreatedAt, &product.UpdatedAt)
 }
 
 // GetProductByID retrieves a product by ID
 func (r *Repository) GetProductByID(ctx context.Context, id uuid.UUID) (*Product, error) {
 	query := `
-		SELECT id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
+		SELECT id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, COALESCE(barcode, '') AS barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
 		FROM products
 		WHERE id = $1 AND deleted_at IS NULL
 	`
+	if dbutil.IsSQLite(r.db) {
+		rows, err := r.db.QueryContext(ctx, query, id)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			if err := rows.Err(); err != nil {
+				return nil, err
+			}
+			return nil, ErrProductNotFound
+		}
+		product, err := scanProductRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		return &product, nil
+	}
 	var product Product
 	err := r.db.GetContext(ctx, &product, query, id)
 	if err == sql.ErrNoRows {
@@ -549,8 +627,29 @@ func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string) (*
 	return &product, err
 }
 
+func (r *Repository) restoreProductsWithAvailableInventory(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE products
+		SET deleted_at = NULL,
+		    is_active = 1,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE deleted_at IS NOT NULL
+		  AND EXISTS (
+			SELECT 1
+			FROM inventory_items ii
+			WHERE ii.product_id = products.id
+			  AND UPPER(TRIM(COALESCE(ii.status, ''))) = 'AVAILABLE'
+		  )
+	`)
+	return err
+}
+
 // ListProducts retrieves products with pagination and filters
 func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) ([]Product, int, error) {
+	if err := r.restoreProductsWithAvailableInventory(ctx); err != nil {
+		return nil, 0, err
+	}
+
 	// Build base query with current quantity from inventory
 	baseQuery := `
 		SELECT p.id, p.category_id, p.brand_id, p.preferred_supplier_id, p.name, p.description, p.model, p.sku, p.barcode, p.cost_price, p.selling_price, p.track_serial, p.track_individual, p.min_stock_level, p.warranty_days, p.is_active, p.deleted_at, p.created_at, p.updated_at
@@ -612,13 +711,13 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 		baseQuery += ` AND (
 			SELECT COALESCE(COUNT(*), 0)
 			FROM inventory_items ii
-			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND ii.condition <> 'USED'
+			WHERE ii.product_id = p.id AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND ii.condition <> 'USED'
 		) < p.min_stock_level
 		AND p.min_stock_level > 0`
 		countQuery += ` AND (
 			SELECT COALESCE(COUNT(*), 0)
 			FROM inventory_items ii
-			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND ii.condition <> 'USED'
+			WHERE ii.product_id = p.id AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND ii.condition <> 'USED'
 		) < p.min_stock_level
 		AND p.min_stock_level > 0`
 	}
@@ -628,12 +727,12 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 		baseQuery += ` AND (
 			SELECT COALESCE(COUNT(*), 0)
 			FROM inventory_items ii
-			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'
+			WHERE ii.product_id = p.id AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE'
 		) > 0`
 		countQuery += ` AND (
 			SELECT COALESCE(COUNT(*), 0)
 			FROM inventory_items ii
-			WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE'
+			WHERE ii.product_id = p.id AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE'
 		) > 0`
 	}
 
@@ -799,13 +898,20 @@ func (r *Repository) RestoreProduct(ctx context.Context, id uuid.UUID) error {
 // GetProductStockCount returns the stock count for a product
 func (r *Repository) GetProductStockCount(ctx context.Context, productID uuid.UUID) (int, error) {
 	query := `
-		SELECT COUNT(*)
-		FROM inventory_items
-		WHERE product_id = $1 AND status = 'AVAILABLE'
+		SELECT COALESCE((SELECT quantity FROM inventory WHERE product_id = $1), (
+			SELECT COUNT(*) FROM inventory_items WHERE product_id = $1 AND UPPER(COALESCE(status, '')) = 'AVAILABLE'
+		))
 	`
 	var count int
 	err := r.db.GetContext(ctx, &count, query, productID)
 	return count, err
+}
+
+func (r *Repository) GetProductStockSettings(ctx context.Context, productID uuid.UUID) (bool, int, error) {
+	var trackIndividual bool
+	var minStockLevel int
+	err := r.db.QueryRowContext(ctx, `SELECT track_individual, min_stock_level FROM products WHERE id = $1 AND deleted_at IS NULL`, productID).Scan(&trackIndividual, &minStockLevel)
+	return trackIndividual, minStockLevel, err
 }
 
 // ArchiveProduct archives a product (sets is_active to false)
@@ -833,7 +939,7 @@ func (r *Repository) GetAvailableItemCount(ctx context.Context, productID uuid.U
 	query := `
 		SELECT COUNT(*)
 		FROM inventory_items
-		WHERE product_id = $1 AND status = 'AVAILABLE'
+		WHERE product_id = $1 AND UPPER(COALESCE(status, '')) = 'AVAILABLE'
 	`
 	var count int
 	err := r.db.GetContext(ctx, &count, query, productID)

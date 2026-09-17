@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { debtsApi } from '../../../services/api/endpoints';
-import { Debt, DebtStats } from '../types/debts.types';
+import { Debt, DebtStats, DebtSummaryResponse } from '../types/debts.types';
 import { SearchFilters } from '../components/AdvancedSearch';
 
 export function useDebts() {
@@ -74,21 +74,21 @@ export function useDebts() {
     }));
   });
 
-  // Calculate stats
+  const summary = overdueCustomersData?.meta?.summary as DebtSummaryResponse | undefined;
   const stats: DebtStats = {
-    totalDebt: debts.reduce((sum, debt) => sum + (debt.amount || 0), 0),
-    paidAmount: debts.reduce(
+    totalDebt: Number(summary?.total_debt ?? debts.reduce((sum, debt) => sum + (debt.amount || 0), 0)),
+    paidAmount: Number(summary?.paid_amount ?? debts.reduce(
       (sum, debt) => sum + Math.max(0, (debt.amount || 0) - (debt.remaining_amount || 0)),
       0
-    ),
-    remainingAmount: debts.reduce((sum, debt) => sum + (debt.remaining_amount || 0), 0),
+    )),
+    remainingAmount: Number(summary?.remaining_amount ?? debts.reduce((sum, debt) => sum + (debt.remaining_amount || 0), 0)),
     overdueCount: debts.filter((debt) => debt.status === 'overdue').length,
-    customerCount: new Set(
+    customerCount: Number(summary?.customer_count ?? new Set(
       debts
         .filter((debt) => Number(debt.remaining_amount || 0) > 0)
         .map((debt) => debt.customer?.id || debt.customer_id)
         .filter(Boolean)
-    ).size,
+    ).size),
   };
 
   // Helper function to check date range

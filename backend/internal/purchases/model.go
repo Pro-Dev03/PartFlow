@@ -51,8 +51,12 @@ type PurchaseItem struct {
 	ID                 uuid.UUID  `json:"id" db:"id"`
 	PurchaseID         uuid.UUID  `json:"purchase_id" db:"purchase_id"`
 	ProductID          uuid.UUID  `json:"product_id" db:"product_id"`
+	CategoryID         *uuid.UUID `json:"category_id,omitempty" db:"category_id"`
+	ProductName        string     `json:"product_name" db:"product_name"`
+	Barcode            string     `json:"barcode" db:"barcode"`
 	Quantity           int        `json:"quantity" db:"quantity"`
 	UnitCost           float64    `json:"unit_cost" db:"unit_cost"`
+	SellingPrice       float64    `json:"selling_price" db:"selling_price"`
 	TotalCost          float64    `json:"total_cost" db:"total_cost"`
 	SerialNumber       string     `json:"serial_number" db:"serial_number"`
 	Condition          string     `json:"condition" db:"condition"` // new, used, refurbished
@@ -80,8 +84,11 @@ type PurchaseRequest struct {
 // PurchaseItemRequest represents purchase item creation request
 type PurchaseItemRequest struct {
 	ProductID    uuid.UUID  `json:"product_id" binding:"required"`
+	Barcode      string     `json:"barcode"`
 	Quantity     int        `json:"quantity" binding:"required,min=1"`
 	UnitCost     float64    `json:"unit_cost" binding:"required,min=0"`
+	SellingPrice float64    `json:"selling_price" binding:"omitempty,min=0"`
+	CategoryID   *uuid.UUID `json:"category_id"`
 	SerialNumber string     `json:"serial_number"`
 	Condition    string     `json:"condition" binding:"required,oneof=new used refurbished"`
 	Grade        string     `json:"grade" binding:"omitempty,oneof=excellent very_good good fair poor"`
@@ -91,10 +98,11 @@ type PurchaseItemRequest struct {
 
 // PurchaseUpdateRequest represents purchase update request
 type PurchaseUpdateRequest struct {
-	InvoiceNumber string    `json:"invoice_number"`
-	PurchaseDate  time.Time `json:"purchase_date"`
-	Status        string    `json:"status" binding:"omitempty,oneof=draft pending received cancelled reversed partially_received"`
-	Notes         string    `json:"notes"`
+	InvoiceNumber string                `json:"invoice_number"`
+	PurchaseDate  time.Time             `json:"purchase_date"`
+	Status        string                `json:"status" binding:"omitempty,oneof=draft pending received cancelled reversed partially_received"`
+	Notes         string                `json:"notes"`
+	Items         []PurchaseItemRequest `json:"items"`
 }
 
 // PurchaseResponse represents purchase response with related data

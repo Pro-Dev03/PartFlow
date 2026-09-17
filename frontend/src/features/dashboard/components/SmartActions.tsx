@@ -80,17 +80,15 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
     });
   }
   
-  if (overdueDebtsCount > 0) {
-    urgentActions.push({
-      title: `متابعة ديون (${overdueDebtsCount})`,
+  urgentActions.push({
+      title: overdueDebtsCount > 0 ? `متابعة ديون (${overdueDebtsCount})` : 'متابعة الديون',
       icon: Phone,
       path: '/app/debts',
-      variant: 'danger',
-      color: 'var(--color-danger)',
-      bgColor: 'var(--color-danger-10)',
-      urgent: true
+      variant: overdueDebtsCount > 0 ? 'danger' : 'secondary',
+      color: overdueDebtsCount > 0 ? 'var(--color-danger)' : 'var(--text-primary)',
+      bgColor: overdueDebtsCount > 0 ? 'var(--color-danger-10)' : 'var(--bg-surface-elevated)',
+      urgent: overdueDebtsCount > 0
     });
-  }
 
   const allActions = [...urgentActions, ...actions];
 

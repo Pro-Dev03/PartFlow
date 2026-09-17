@@ -1,8 +1,12 @@
+import { getRegionalProfile, formatStoreDate, formatStoreDateTime, parseBackendTimestamp } from './store-time';
+
 // Number formatting
 export function formatCurrency(amount: number, currency: string = 'ILS'): string {
-  return new Intl.NumberFormat('he-IL', {
+  const profile = getRegionalProfile();
+  return new Intl.NumberFormat(profile.locale, {
     style: 'currency',
     currency: currency,
+    maximumFractionDigits: 0,
   }).format(amount);
 }
 
@@ -23,35 +27,28 @@ export function formatPercent(value: number): string {
 
 // Date formatting
 export function formatDate(date: string | Date, locale: string = 'he-IL'): string {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
-  return new Intl.DateTimeFormat(locale, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(dateObj);
+  return formatStoreDate(date, locale);
 }
 
 export function formatDateTime(date: string | Date, locale: string = 'he-IL'): string {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
-  return new Intl.DateTimeFormat(locale, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(dateObj);
+  return formatStoreDateTime(date, locale);
 }
 
 export function formatTime(date: string | Date, locale: string = 'he-IL'): string {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const dateObj = parseBackendTimestamp(date);
+  if (!dateObj) return 'غير محدد';
+  const profile = getRegionalProfile();
   return new Intl.DateTimeFormat(locale, {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: profile.time_format === '12h',
+    timeZone: profile.timezone,
   }).format(dateObj);
 }
 
 export function formatRelativeTime(date: string | Date, locale: string = 'he-IL'): string {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const dateObj = parseBackendTimestamp(date);
+  if (!dateObj) return 'غير محدد';
   const now = new Date();
   const diffMs = now.getTime() - dateObj.getTime();
   const diffMins = Math.floor(diffMs / 60000);

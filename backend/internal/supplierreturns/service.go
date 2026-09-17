@@ -15,15 +15,28 @@ type Service struct{ db *sqlx.DB }
 type Handler struct{ service *Service }
 
 type SupplierReturn struct {
-	ID           uuid.UUID `json:"id" db:"id"`
-	PurchaseID   uuid.UUID `json:"purchase_id" db:"purchase_id"`
-	SupplierID   uuid.UUID `json:"supplier_id" db:"supplier_id"`
-	ReturnNumber string    `json:"return_number" db:"return_number"`
-	Status       string    `json:"status" db:"status"`
-	Reason       string    `json:"reason" db:"reason"`
-	RefundAmount float64   `json:"refund_amount" db:"refund_amount"`
-	Notes        string    `json:"notes" db:"notes"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	ID                    uuid.UUID `json:"id" db:"id"`
+	CustomerReturnID      uuid.UUID `json:"customer_return_id" db:"customer_return_id"`
+	SaleID                uuid.UUID `json:"sale_id" db:"sale_id"`
+	PurchaseID            uuid.UUID `json:"purchase_id" db:"purchase_id"`
+	SupplierID            uuid.UUID `json:"supplier_id" db:"supplier_id"`
+	SupplierName          string    `json:"supplier_name" db:"supplier_name"`
+	InventoryItemID       uuid.UUID `json:"inventory_item_id" db:"inventory_item_id"`
+	Barcode               string    `json:"barcode" db:"barcode"`
+	SerialNumber          string    `json:"serial_number" db:"serial_number"`
+	Quantity              int       `json:"quantity" db:"quantity"`
+	PurchaseCost          float64   `json:"purchase_cost" db:"purchase_cost"`
+	ReturnReason          string    `json:"return_reason" db:"return_reason"`
+	ReturnDate            time.Time `json:"return_date" db:"return_date"`
+	NeedsSourceResolution bool      `json:"needs_source_resolution" db:"needs_source_resolution"`
+	Source                string    `json:"source" db:"source"`
+	ReturnNumber          string    `json:"return_number" db:"return_number"`
+	Status                string    `json:"status" db:"status"`
+	SourceStatus          string    `json:"source_status" db:"source_status"`
+	Reason                string    `json:"reason" db:"reason"`
+	RefundAmount          float64   `json:"refund_amount" db:"refund_amount"`
+	Notes                 string    `json:"notes" db:"notes"`
+	CreatedAt             time.Time `json:"created_at" db:"created_at"`
 }
 
 type CreateRequest struct {
@@ -67,18 +80,55 @@ func NewHandler(service *Service) *Handler { return &Handler{service: service} }
 
 func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, error) {
 	var rows []struct {
-		ID           string  `db:"id"`
-		PurchaseID   string  `db:"purchase_id"`
-		SupplierID   string  `db:"supplier_id"`
-		ReturnNumber string  `db:"return_number"`
-		Status       string  `db:"status"`
-		Reason       string  `db:"reason"`
-		RefundAmount float64 `db:"refund_amount"`
-		Notes        string  `db:"notes"`
-		CreatedAt    string  `db:"created_at"`
+		ID               string  `db:"id"`
+		CustomerReturnID string  `db:"customer_return_id"`
+		SaleID           string  `db:"sale_id"`
+		PurchaseID       string  `db:"purchase_id"`
+		SupplierID       string  `db:"supplier_id"`
+		SupplierName     string  `db:"supplier_name"`
+		InventoryItemID  string  `db:"inventory_item_id"`
+		Barcode          string  `db:"barcode"`
+		SerialNumber     string  `db:"serial_number"`
+		ReturnNumber     string  `db:"return_number"`
+		Status           string  `db:"status"`
+		Reason           string  `db:"reason"`
+		RefundAmount     float64 `db:"refund_amount"`
+		Notes            string  `db:"notes"`
+		CreatedAt        string  `db:"created_at"`
+		SourceStatus     string  `db:"source_status"`
+		ReturnDate       string  `db:"return_date"`
+		ReturnReason     string  `db:"return_reason"`
+		Quantity         int     `db:"quantity"`
+		PurchaseCost     float64 `db:"purchase_cost"`
 	}
-	query := `SELECT id, purchase_id, supplier_id, return_number, status, reason,
-		refund_amount, COALESCE(notes, '') AS notes, created_at FROM supplier_returns`
+	query := `SELECT sr.id, COALESCE(sr.customer_return_id, '') AS customer_return_id,
+		COALESCE(sr.sale_id, '') AS sale_id, COALESCE(sr.purchase_id, '') AS purchase_id, COALESCE(sr.supplier_id, '') AS supplier_id,
+		COALESCE(s.name, '') AS supplier_name,
+		COALESCE((SELECT sri.inventory_item_id FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.inventory_item_id FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), '') AS inventory_item_id,
+		COALESCE((SELECT sri.barcode FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.barcode FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), '') AS barcode,
+		COALESCE((SELECT sri.serial_number FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.serial_number FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), '') AS serial_number,
+		sr.return_number, sr.status, COALESCE(sr.source_status, 'RESOLVED') AS source_status, sr.reason, sr.refund_amount, COALESCE(sr.notes, '') AS notes,
+		COALESCE(sr.return_reason, sr.reason, '') AS return_reason, COALESCE(sr.return_date, sr.created_at) AS return_date,
+		COALESCE((SELECT sri.quantity FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.quantity_returned FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), 0) AS quantity,
+		COALESCE((SELECT sri.purchase_cost FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.original_cost FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), 0) AS purchase_cost,
+		sr.created_at FROM supplier_returns sr LEFT JOIN suppliers s ON s.id = sr.supplier_id`
+	if strings.EqualFold(s.db.DriverName(), "sqlite") && (!sqliteTableExists(ctx, s.db, "suppliers") || !sqliteTableExists(ctx, s.db, "returns") || !sqliteColumnExists(ctx, s.db, "supplier_returns", "source_status")) {
+		query = `SELECT sr.id, COALESCE(sr.customer_return_id, '') AS customer_return_id,
+			COALESCE(sr.sale_id, '') AS sale_id, COALESCE(sr.purchase_id, '') AS purchase_id, COALESCE(sr.supplier_id, '') AS supplier_id,
+			'' AS supplier_name, COALESCE((SELECT sri.inventory_item_id FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS inventory_item_id,
+			COALESCE((SELECT sri.barcode FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS barcode,
+			COALESCE((SELECT sri.serial_number FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS serial_number,
+			sr.return_number, sr.status, '' AS source_status, sr.reason, sr.refund_amount, COALESCE(sr.notes, '') AS notes,
+			'' AS return_reason, sr.created_at AS return_date, 0 AS quantity, 0 AS purchase_cost, sr.created_at
+			FROM supplier_returns sr`
+	}
+	if !strings.EqualFold(s.db.DriverName(), "sqlite") {
+		query = strings.ReplaceAll(query, "COALESCE(sr.customer_return_id, '')", "COALESCE(sr.customer_return_id::text, '')")
+		query = strings.ReplaceAll(query, "COALESCE(sr.sale_id, '')", "COALESCE(sr.sale_id::text, '')")
+		query = strings.ReplaceAll(query, "COALESCE(sr.purchase_id, '')", "COALESCE(sr.purchase_id::text, '')")
+		query = strings.ReplaceAll(query, "COALESCE(sr.supplier_id, '')", "COALESCE(sr.supplier_id::text, '')")
+		query = strings.ReplaceAll(query, "COALESCE((SELECT sri.inventory_item_id", "COALESCE((SELECT sri.inventory_item_id::text")
+	}
 	args := []interface{}{}
 	if status != "" {
 		if strings.EqualFold(s.db.DriverName(), "sqlite") {
@@ -88,7 +138,7 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 		}
 		args = append(args, status)
 	}
-	query += " ORDER BY created_at DESC LIMIT 100"
+	query += " ORDER BY sr.created_at DESC LIMIT 100"
 	if err := s.db.SelectContext(ctx, &rows, query, args...); err != nil {
 		return nil, fmt.Errorf("list supplier returns: %w", err)
 	}
@@ -98,11 +148,11 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 		if err != nil {
 			return nil, fmt.Errorf("parse supplier return created_at: %w", err)
 		}
-		purchaseID, err := uuid.Parse(row.PurchaseID)
+		purchaseID, err := parseOptionalUUID(row.PurchaseID)
 		if err != nil {
 			return nil, fmt.Errorf("parse supplier return purchase_id: %w", err)
 		}
-		supplierID, err := uuid.Parse(row.SupplierID)
+		supplierID, err := parseOptionalUUID(row.SupplierID)
 		if err != nil {
 			return nil, fmt.Errorf("parse supplier return supplier_id: %w", err)
 		}
@@ -110,19 +160,60 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 		if err != nil {
 			return nil, fmt.Errorf("parse supplier return id: %w", err)
 		}
+		customerReturnID, err := parseOptionalUUID(row.CustomerReturnID)
+		if err != nil {
+			return nil, fmt.Errorf("parse customer_return_id: %w", err)
+		}
+		saleID, err := parseOptionalUUID(row.SaleID)
+		if err != nil {
+			return nil, fmt.Errorf("parse sale_id: %w", err)
+		}
+		inventoryItemID, err := parseOptionalUUID(row.InventoryItemID)
+		if err != nil {
+			return nil, fmt.Errorf("parse inventory_item_id: %w", err)
+		}
+		returnDate, err := parseSQLiteTime(row.ReturnDate)
+		if err != nil {
+			return nil, fmt.Errorf("parse supplier return date: %w", err)
+		}
 		out = append(out, SupplierReturn{
-			ID:           id,
-			PurchaseID:   purchaseID,
-			SupplierID:   supplierID,
-			ReturnNumber: row.ReturnNumber,
-			Status:       row.Status,
-			Reason:       row.Reason,
-			RefundAmount: row.RefundAmount,
-			Notes:        row.Notes,
-			CreatedAt:    createdAt,
+			ID: id, CustomerReturnID: customerReturnID, SaleID: saleID, PurchaseID: purchaseID,
+			SupplierID: supplierID, SupplierName: row.SupplierName, InventoryItemID: inventoryItemID, Barcode: row.Barcode,
+			SerialNumber: row.SerialNumber, Quantity: row.Quantity, PurchaseCost: row.PurchaseCost, ReturnReason: row.ReturnReason, ReturnDate: returnDate,
+			ReturnNumber: row.ReturnNumber, Status: row.Status, SourceStatus: row.SourceStatus, NeedsSourceResolution: row.SourceStatus == "NEEDS_SOURCE_DATA" || row.Status == "NEEDS_SOURCE_DATA",
+			Source: "Customer Return", Reason: row.Reason, RefundAmount: row.RefundAmount, Notes: row.Notes, CreatedAt: createdAt,
 		})
 	}
 	return out, nil
+}
+
+func sqliteTableExists(ctx context.Context, db *sqlx.DB, table string) bool {
+	var count int
+	return db.GetContext(ctx, &count, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table) == nil && count > 0
+}
+
+func sqliteColumnExists(ctx context.Context, db *sqlx.DB, table, column string) bool {
+	rows, err := db.QueryxContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, dataType string
+		var defaultValue interface{}
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err == nil && strings.EqualFold(name, column) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseOptionalUUID(value string) (uuid.UUID, error) {
+	if strings.TrimSpace(value) == "" {
+		return uuid.Nil, nil
+	}
+	return uuid.Parse(value)
 }
 
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, req CreateRequest) (*SupplierReturn, error) {
@@ -206,7 +297,7 @@ func parseSQLiteTime(value string) (time.Time, error) {
 	if value == "" {
 		return time.Time{}, nil
 	}
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02"} {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05 -0700 MST", "2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02"} {
 		if parsed, err := time.Parse(layout, value); err == nil {
 			return parsed, nil
 		}
@@ -265,11 +356,12 @@ func (s *Service) Complete(ctx context.Context, id, userID uuid.UUID) error {
 		return fmt.Errorf("supplier return is not ready to complete")
 	}
 	var items []struct {
-		ProductID uuid.UUID `db:"product_id"`
-		Quantity  int       `db:"quantity"`
-		UnitCost  float64   `db:"unit_cost"`
+		ProductID       uuid.UUID `db:"product_id"`
+		InventoryItemID string    `db:"inventory_item_id"`
+		Quantity        int       `db:"quantity"`
+		UnitCost        float64   `db:"unit_cost"`
 	}
-	if err = tx.Select(&items, `SELECT product_id, quantity, unit_cost FROM supplier_return_items WHERE supplier_return_id = $1`, id); err != nil {
+	if err = tx.Select(&items, `SELECT product_id, COALESCE(inventory_item_id::text, '') AS inventory_item_id, quantity, unit_cost FROM supplier_return_items WHERE supplier_return_id = $1`, id); err != nil {
 		return fmt.Errorf("get supplier return items: %w", err)
 	}
 	if len(items) == 0 {
@@ -278,15 +370,11 @@ func (s *Service) Complete(ctx context.Context, id, userID uuid.UUID) error {
 	var total float64
 	for _, item := range items {
 		var availableIDs []uuid.UUID
-		availableQuery := `SELECT id FROM inventory_items
-			WHERE product_id = $1 AND status = 'AVAILABLE'
-			`
-		if !dbutil.IsSQLite(s.db) {
-			availableQuery += ` AND item_code LIKE 'ITM-' || substr(replace((SELECT sr.purchase_id FROM supplier_returns sr WHERE sr.id = $2)::text, '-', ''), 1, 8) || '-%' ORDER BY created_at FOR UPDATE`
-		} else {
-			availableQuery += ` AND item_code LIKE 'ITM-' || substr(replace((SELECT sr.purchase_id FROM supplier_returns sr WHERE sr.id = $2), '-', ''), 1, 8) || '-%' ORDER BY created_at`
-		}
-		if err = tx.Select(&availableIDs, availableQuery, item.ProductID, id); err != nil {
+		if item.InventoryItemID != "" {
+			if err = tx.Select(&availableIDs, `SELECT id FROM inventory_items WHERE id = $1 AND product_id = $2 AND status IN ('AVAILABLE', 'RETURNED') FOR UPDATE`, item.InventoryItemID, item.ProductID); err != nil {
+				return fmt.Errorf("get linked inventory item: %w", err)
+			}
+		} else if err = tx.Select(&availableIDs, `SELECT id FROM inventory_items WHERE product_id = $1 AND status = 'AVAILABLE' AND item_code LIKE 'ITM-' || substr(replace((SELECT sr.purchase_id FROM supplier_returns sr WHERE sr.id = $2)::text, '-', ''), 1, 8) || '-%' ORDER BY created_at FOR UPDATE`, item.ProductID, id); err != nil {
 			return fmt.Errorf("get available inventory items: %w", err)
 		}
 		if len(availableIDs) < item.Quantity {
@@ -294,9 +382,7 @@ func (s *Service) Complete(ctx context.Context, id, userID uuid.UUID) error {
 		}
 		for index := 0; index < item.Quantity; index++ {
 			var before int
-			if err = tx.Get(&before, `SELECT COUNT(*) FROM inventory_items ii
-				WHERE ii.product_id = $1 AND ii.status = 'AVAILABLE'
-				AND ii.item_code LIKE 'ITM-' || substr(replace((SELECT sr.purchase_id FROM supplier_returns sr WHERE sr.id = $2)::text, '-', ''), 1, 8) || '-%'`, item.ProductID, id); err != nil {
+			if err = tx.Get(&before, `SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = $1 AND ii.status IN ('AVAILABLE', 'RETURNED')`, item.ProductID); err != nil {
 				return fmt.Errorf("count available inventory items: %w", err)
 			}
 			if _, err = tx.Exec(fmt.Sprintf(`UPDATE inventory_items SET status = 'RETURNED', updated_at = %s WHERE id = $1`, dbutil.NowSQL(s.db)), availableIDs[index]); err != nil {
@@ -320,9 +406,12 @@ func (s *Service) Complete(ctx context.Context, id, userID uuid.UUID) error {
 	}
 	if _, err = tx.Exec(`INSERT INTO supplier_ledger (supplier_id, type, amount, balance, description, reference_id)
 		SELECT $1, 'credit', $2,
-			COALESCE((SELECT balance FROM supplier_ledger WHERE supplier_id = $1 ORDER BY created_at DESC LIMIT 1), 0) - $2,
+			COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id = $1), 0) - $2,
 			'مرتجع مورد ' || $3, $4`, supplierID, total, id.String(), id); err != nil {
 		return fmt.Errorf("record supplier ledger entry: %w", err)
+	}
+	if _, err = tx.Exec(`UPDATE suppliers SET current_balance = COALESCE(current_balance, 0) - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, total, supplierID); err != nil {
+		return fmt.Errorf("update supplier balance after supplier return: %w", err)
 	}
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("commit supplier return: %w", err)
@@ -352,11 +441,12 @@ func (s *Service) completeSQLite(ctx context.Context, id, userID uuid.UUID) erro
 		return fmt.Errorf("supplier return is not ready to complete")
 	}
 	var items []struct {
-		ProductID uuid.UUID `db:"product_id"`
-		Quantity  int       `db:"quantity"`
-		UnitCost  float64   `db:"unit_cost"`
+		ProductID       uuid.UUID `db:"product_id"`
+		InventoryItemID string    `db:"inventory_item_id"`
+		Quantity        int       `db:"quantity"`
+		UnitCost        float64   `db:"unit_cost"`
 	}
-	if err = tx.SelectContext(ctx, &items, `SELECT product_id, quantity, unit_cost FROM supplier_return_items WHERE supplier_return_id = $1`, id); err != nil {
+	if err = tx.SelectContext(ctx, &items, `SELECT product_id, COALESCE(inventory_item_id, '') AS inventory_item_id, quantity, unit_cost FROM supplier_return_items WHERE supplier_return_id = $1`, id); err != nil {
 		return fmt.Errorf("get supplier return items: %w", err)
 	}
 	if len(items) == 0 {
@@ -365,10 +455,11 @@ func (s *Service) completeSQLite(ctx context.Context, id, userID uuid.UUID) erro
 	var total float64
 	for _, item := range items {
 		var available []uuid.UUID
-		if err = tx.SelectContext(ctx, &available, `SELECT id FROM inventory_items
-			WHERE product_id = $1 AND status = 'AVAILABLE'
-			AND item_code LIKE 'ITM-' || substr(replace((SELECT p.id FROM purchases p JOIN supplier_returns sr ON sr.purchase_id = p.id WHERE sr.id = $2), '-', ''), 1, 8) || '-%'
-			ORDER BY created_at`, item.ProductID, id); err != nil {
+		if item.InventoryItemID != "" {
+			if err = tx.SelectContext(ctx, &available, `SELECT id FROM inventory_items WHERE id = $1 AND product_id = $2 AND status IN ('AVAILABLE', 'RETURNED')`, item.InventoryItemID, item.ProductID); err != nil {
+				return fmt.Errorf("get linked inventory item: %w", err)
+			}
+		} else if err = tx.SelectContext(ctx, &available, `SELECT id FROM inventory_items WHERE product_id = $1 AND status = 'AVAILABLE' AND item_code LIKE 'ITM-' || substr(replace((SELECT p.id FROM purchases p JOIN supplier_returns sr ON sr.purchase_id = p.id WHERE sr.id = $2), '-', ''), 1, 8) || '-%' ORDER BY created_at`, item.ProductID, id); err != nil {
 			return fmt.Errorf("get available inventory items: %w", err)
 		}
 		if len(available) < item.Quantity {
@@ -376,7 +467,7 @@ func (s *Service) completeSQLite(ctx context.Context, id, userID uuid.UUID) erro
 		}
 		for _, itemID := range available[:item.Quantity] {
 			var before int
-			if err = tx.GetContext(ctx, &before, `SELECT COUNT(*) FROM inventory_items WHERE product_id = $1 AND status = 'AVAILABLE'`, item.ProductID); err != nil {
+			if err = tx.GetContext(ctx, &before, `SELECT COUNT(*) FROM inventory_items WHERE product_id = $1 AND status IN ('AVAILABLE', 'RETURNED')`, item.ProductID); err != nil {
 				return fmt.Errorf("count available inventory items: %w", err)
 			}
 			if _, err = tx.ExecContext(ctx, `UPDATE inventory_items SET status = 'RETURNED', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, itemID); err != nil {
@@ -386,12 +477,14 @@ func (s *Service) completeSQLite(ctx context.Context, id, userID uuid.UUID) erro
 				return fmt.Errorf("record inventory movement: %w", err)
 			}
 		}
-		result, updateErr := tx.ExecContext(ctx, `UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE product_id = $2 AND quantity >= $1`, item.Quantity, item.ProductID)
-		if updateErr != nil {
-			return fmt.Errorf("update inventory quantity: %w", updateErr)
-		}
-		if affected, rowsErr := result.RowsAffected(); rowsErr != nil || affected != 1 {
-			return fmt.Errorf("insufficient aggregate inventory for supplier return")
+		if item.InventoryItemID == "" {
+			result, updateErr := tx.ExecContext(ctx, `UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE product_id = $2 AND quantity >= $1`, item.Quantity, item.ProductID)
+			if updateErr != nil {
+				return fmt.Errorf("update inventory quantity: %w", updateErr)
+			}
+			if affected, rowsErr := result.RowsAffected(); rowsErr != nil || affected != 1 {
+				return fmt.Errorf("insufficient aggregate inventory for supplier return")
+			}
 		}
 		total += float64(item.Quantity) * item.UnitCost
 	}
@@ -402,8 +495,11 @@ func (s *Service) completeSQLite(ctx context.Context, id, userID uuid.UUID) erro
 	if err = tx.GetContext(ctx, &supplierID, `SELECT supplier_id FROM supplier_returns WHERE id = $1`, id); err != nil {
 		return fmt.Errorf("get supplier: %w", err)
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT $1, $2, 'credit', 'SUPPLIER_RETURN', $3, COALESCE((SELECT balance FROM supplier_ledger WHERE supplier_id = $2 ORDER BY created_at DESC LIMIT 1), 0) - $3, 'Supplier return ' || $4, $5, CURRENT_TIMESTAMP`, uuid.New(), supplierID, total, id.String(), id); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT $1, $2, 'credit', 'SUPPLIER_RETURN', $3, COALESCE((SELECT SUM(CASE WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id = $2), 0) - $3, 'Supplier return ' || $4, $5, CURRENT_TIMESTAMP`, uuid.New(), supplierID, total, id.String(), id); err != nil {
 		return fmt.Errorf("record supplier ledger entry: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE suppliers SET current_balance = COALESCE(current_balance, 0) - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, total, supplierID); err != nil {
+		return fmt.Errorf("update supplier balance after supplier return: %w", err)
 	}
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("commit supplier return: %w", err)

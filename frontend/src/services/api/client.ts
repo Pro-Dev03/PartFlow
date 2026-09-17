@@ -21,37 +21,56 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 class ApiClient {
   private baseURL: string;
   private token: string | null = null;
+  private cloudToken: string | null = null;
   private cache: Map<string, { data: unknown; timestamp: number }> = new Map();
   private refreshInFlight: Promise<string | null> | null = null;
   private refreshFailedForSession = false;
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
-    // Use TokenManager for consistent token retrieval
+    this.syncSessionFromStorage();
+  }
+
+  private syncSessionFromStorage() {
     this.token = TokenManager.getToken();
+    this.cloudToken = this.getCloudAccessToken();
   }
 
   setToken(token: string) {
     this.token = token;
     this.refreshFailedForSession = false;
-    // Use TokenManager for consistent token storage
     TokenManager.setToken(token);
+  }
+
+  setCloudToken(cloudToken: string | null) {
+    this.cloudToken = cloudToken ?? null;
+    if (typeof window !== 'undefined') {
+      if (cloudToken) {
+        localStorage.setItem('cloud_token', cloudToken);
+      } else {
+        localStorage.removeItem('cloud_token');
+      }
+    }
   }
 
   clearToken() {
     this.token = null;
     this.refreshFailedForSession = false;
-    // Use TokenManager for consistent token clearing
     TokenManager.clearToken();
   }
 
-  logout() {
-    this.clearToken();
-    this.clearCache();
+  clearCloudToken() {
+    this.cloudToken = null;
     if (typeof window !== 'undefined') {
       localStorage.removeItem('cloud_token');
       localStorage.removeItem('cloud_refresh_token');
     }
+  }
+
+  logout() {
+    this.clearToken();
+    this.clearCloudToken();
+    this.clearCache();
   }
 
   private getBaseURL(): string {
@@ -271,6 +290,8 @@ class ApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
+    this.syncSessionFromStorage();
+
     const baseURL = this.getBaseURL();
     const url = `${baseURL}${endpoint}`;
     const authHeader = TokenManager.getToken();
@@ -279,10 +300,14 @@ class ApiClient {
       this.token = authHeader;
     }
 
+    const normalizedHeaders = new Headers(options.headers ?? {});
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string>),
     };
+
+    normalizedHeaders.forEach((value, key) => {
+      headers[key] = value;
+    });
 
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
@@ -475,8 +500,17 @@ class ApiClient {
   }
 
   private getCloudAccessToken(): string | null {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem('cloud_token');
+    if (typeof window === 'undefined') {
+      return this.cloudToken;
+    }
+
+    const storedCloudToken = localStorage.getItem('cloud_token');
+    if (storedCloudToken) {
+      this.cloudToken = storedCloudToken;
+      return storedCloudToken;
+    }
+
+    return this.cloudToken;
   }
 
   private async refreshCloudAccessToken(): Promise<string | null> {

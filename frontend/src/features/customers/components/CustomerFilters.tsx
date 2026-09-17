@@ -1,7 +1,7 @@
 import { Button } from '../../../components/ui/button';
 import { SearchInput } from '../../../components/ui/search-input';
-import { ArrowUpDown, ChevronUp, ChevronDown, X } from 'lucide-react';
-import { cn } from '../../../utils';
+import { ArrowDownAZ, ArrowDownWideNarrow, X } from 'lucide-react';
+import { SortButton } from '../../../components/ui/sort-button';
 
 interface CustomerFiltersProps {
   searchQuery: string;
@@ -23,6 +23,10 @@ export function CustomerFilters({
   onClearSort,
 }: CustomerFiltersProps) {
   const hasActiveSort = Boolean(sortConfig.key);
+  const sortOptions = [
+    { key: 'name', label: 'الاسم', icon: ArrowDownAZ, onClick: onSortName },
+    { key: 'totalPurchases', label: 'إجمالي المشتريات', icon: ArrowDownWideNarrow, onClick: onSortPurchases },
+  ];
 
   return (
     <div className="rounded-[16px] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[0_10px_30px_rgba(15,23,42,0.06)]">
@@ -39,24 +43,24 @@ export function CustomerFilters({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 md:justify-end">
-          <Button variant="secondary" onClick={onSortName} className="gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-[12px] font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]">
-            <ArrowUpDown className="h-4 w-4" />
-            <span>ترتيب بالاسم</span>
-            {sortConfig.key === 'name' && (
-              sortConfig.direction === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : sortConfig.direction === 'desc' ? <ChevronDown className="h-3.5 w-3.5" /> : null
-            )}
-          </Button>
-
-          <Button variant="secondary" onClick={onSortPurchases} className="gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-[12px] font-semibold transition hover:border-[var(--primary)] hover:text-[var(--primary)]">
-            <ArrowUpDown className="h-4 w-4" />
-            <span>إجمالي مشتريات العميل</span>
-            {sortConfig.key === 'totalPurchases' && (
-              sortConfig.direction === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : sortConfig.direction === 'desc' ? <ChevronDown className="h-3.5 w-3.5" /> : null
-            )}
-          </Button>
+          {sortOptions.map((option) => {
+            const isActive = sortConfig.key === option.key;
+            const OptionIcon = option.icon;
+            return (
+              <SortButton
+                key={option.key}
+                onClick={option.onClick}
+                label={option.label}
+                active={isActive}
+                direction={isActive ? sortConfig.direction : null}
+                leadingIcon={OptionIcon}
+                aria-label={`ترتيب حسب ${option.label}`}
+              />
+            );
+          })}
 
           {hasActiveSort && (
-            <Button variant="ghost" onClick={onClearSort} className="gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold text-[var(--text-secondary)] transition hover:bg-[var(--danger)]/10 hover:text-[var(--danger)]">
+            <Button variant="ghost" onClick={onClearSort} className="h-9 gap-2 rounded-lg px-3 text-[12px] font-bold text-[var(--text-secondary)] hover:bg-[var(--danger)]/10 hover:text-[var(--danger)]">
               <X className="h-4 w-4" />
               <span>مسح الترتيب</span>
             </Button>

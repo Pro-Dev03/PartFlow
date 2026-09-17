@@ -40,18 +40,19 @@ type DashboardStats struct {
 	NetRevenue    float64 `json:"net_revenue"`
 	ReturnRate    float64 `json:"return_rate"`
 	// Fields for frontend compatibility
-	TodaySales           float64 `json:"todaySales"`
-	TodayProfit          float64 `json:"todayProfit"`
-	TodaySupplierReturns float64 `json:"todaySupplierReturns"`
-	TodayCollected       float64 `json:"todayCollected"`
-	TodayDebtCollected   float64 `json:"todayDebtCollected"`
-	TodaySupplierPaid    float64 `json:"todaySupplierPaid"`
-	TodayExpenses        float64 `json:"todayExpenses"`
-	TodayCashDifference  float64 `json:"todayCashDifference"`
-	OutstandingDebts     float64 `json:"outstandingDebts"`
-	ActiveCustomers      int     `json:"activeCustomers"`
-	LowStockCount        int     `json:"lowStockCount"`
-	OverdueDebtsCount    int     `json:"overdueDebts"`
+	TodaySales             float64 `json:"todaySales"`
+	TodayProfit            float64 `json:"todayProfit"`
+	TodaySupplierReturns   float64 `json:"todaySupplierReturns"`
+	TodayCollected         float64 `json:"todayCollected"`
+	TodayDebtCollected     float64 `json:"todayDebtCollected"`
+	TodaySupplierPaid      float64 `json:"todaySupplierPaid"`
+	TodayExpenses          float64 `json:"todayExpenses"`
+	TodayCashDifference    float64 `json:"todayCashDifference"`
+	OutstandingDebts       float64 `json:"outstandingDebts"`
+	OutstandingDebtorCount int     `json:"outstandingDebtorCount"`
+	ActiveCustomers        int     `json:"activeCustomers"`
+	LowStockCount          int     `json:"lowStockCount"`
+	OverdueDebtsCount      int     `json:"overdueDebts"`
 	// Trend fields
 	SalesTrend    *string `json:"salesTrend,omitempty"`
 	SalesTrendUp  *bool   `json:"salesTrendUp,omitempty"`
@@ -81,6 +82,8 @@ type RecentActivityItem struct {
 	Description string  `json:"description"`
 	Amount      float64 `json:"amount"`
 	Time        string  `json:"time"`
+	SaleDate    string  `json:"sale_date,omitempty" db:"sale_date"`
+	SellerName  string  `json:"seller_name,omitempty" db:"seller_name"`
 	Status      string  `json:"status"`
 }
 
@@ -130,8 +133,8 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 		SELECT
 			(SELECT COUNT(*) FROM products p
 			 WHERE p.is_active = true
-			 AND p.min_stock_level > 0
-			 AND COALESCE((SELECT COUNT(i.id) FROM inventory_items i WHERE i.product_id = p.id AND i.status = 'AVAILABLE'), 0) <= p.min_stock_level) as low_stock_items,
+			 AND p.deleted_at IS NULL
+			 AND COALESCE((SELECT COUNT(i.id) FROM inventory_items i WHERE i.product_id = p.id AND i.status = 'AVAILABLE'), 0) <= CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END) as low_stock_items,
 			(SELECT COALESCE(SUM(current_balance), 0) FROM customers
 			 WHERE current_balance > 0) as overdue_debts,
 			(SELECT COUNT(*) FROM sales WHERE status = 'pending') as pending_orders,
@@ -231,7 +234,25 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 		stats.TodaySupplierReturns = today.SupplierReturns
 	}
 	stats.OutstandingDebts = result.OverdueDebts
-	stats.ActiveCustomers = result.TotalCustomers
+	var outstandingDebtorCount int
+	if err := s.db.GetContext(ctx, &outstandingDebtorCount, `
+		SELECT COUNT(DISTINCT customer_id)
+		FROM debts
+		WHERE COALESCE(remaining_amount, 0) > 0
+		  AND `+business.OpenDebtStatusSQL("status")); err == nil {
+		stats.OutstandingDebtorCount = outstandingDebtorCount
+	}
+	var activeCustomers int
+	activeCustomersQuery := `
+		SELECT COUNT(DISTINCT customer_id)
+		FROM sales
+		WHERE customer_id IS NOT NULL
+		  AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`
+	if err := s.db.GetContext(ctx, &activeCustomers, activeCustomersQuery); err == nil {
+		stats.ActiveCustomers = activeCustomers
+	} else {
+		stats.ActiveCustomers = 0
+	}
 	stats.LowStockCount = result.LowStockItems
 
 	// Calculate overdue debts count properly based on actual debt rows rather than raw customer balance.
@@ -308,6 +329,7 @@ func (s *Service) GetLowStockItems(ctx context.Context) ([]LowStockItem, error) 
 		FROM products p
 		LEFT JOIN inventory_items i ON p.id = i.product_id
 		WHERE p.is_active = true
+			AND p.deleted_at IS NULL
 		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
 		HAVING (COALESCE(p.min_stock_level, 0) > 0 AND COALESCE(SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) <= p.min_stock_level)
 			OR (COALESCE(p.min_stock_level, 0) <= 0 AND COALESCE(SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) < 5)

@@ -20,14 +20,16 @@ import { InventoryStats } from '../components/InventoryStats';
 import { InventoryFilters } from '../components/InventoryFilters';
 import { InventoryScanner } from '../components/InventoryScanner';
 import { InventoryList } from '../components/InventoryList';
+import { StockAlertCards } from '../components/StockAlertCards';
 import { InventoryModals } from '../components/InventoryModals';
+import { OpeningStockModal } from '../components/OpeningStockModal';
 import { InventoryLedger } from '../../../components/ui/inventory-ledger';
 import type { InventoryMovement } from '../../../components/ui/inventory-ledger';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
 
 // Types
 import { ViewMode, Product } from '../types/inventory.types';
-import { inventoryApi } from '../../../services/api/endpoints';
+import { inventoryApi, productsApi } from '../../../services/api/endpoints';
 import { toast } from 'sonner';
 import { getLocalProductImage } from '../../../services/localProductImages';
 import { getCategoryImage } from '../../../services/localCategoryImages';
@@ -60,6 +62,7 @@ export function InventoryPage() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
+  const [isOpeningStockModalOpen, setIsOpeningStockModalOpen] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [showInventoryLedger, setShowInventoryLedger] = useState(false);
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
@@ -79,6 +82,7 @@ export function InventoryPage() {
     filteredInventoryItems,
     productsLoading,
     inventoryLoading,
+    inventoryStockMap,
     searchQuery,
     setSearchQuery,
     sortConfig,
@@ -100,6 +104,7 @@ export function InventoryPage() {
     setProductPage,
     setInventoryPage,
   } = useInventory();
+  const supplierOnly = filters.some((filter) => filter.key === 'supplier_only' && filter.value === 'true');
 
   // Handle edit product from navigation state
   useEffect(() => {
@@ -137,6 +142,16 @@ export function InventoryPage() {
 
   const handleClearSearch = () => {
     setSearchQuery('');
+  };
+
+  const handleSupplierInventoryToggle = () => {
+    if (supplierOnly) {
+      setFilters(filters.filter((filter) => filter.key !== 'supplier_only'));
+      setViewMode('products');
+      return;
+    }
+    setFilters([...filters.filter((filter) => filter.key !== 'supplier_only'), { key: 'supplier_only', value: 'true' }]);
+    setViewMode('items');
   };
 
   const handleExport = () => {
@@ -257,6 +272,26 @@ export function InventoryPage() {
   };
 
   const handleSaveProduct = async (productData: Product) => {
+    if (!productData.name?.trim()) {
+      toast.error('أدخل اسم المنتج');
+      return;
+    }
+
+    if (!productData.sku?.trim()) {
+      toast.error('أدخل رمز المنتج SKU');
+      return;
+    }
+
+    if (!Number.isFinite(productData.costPrice) || productData.costPrice <= 0) {
+      toast.error('أدخل سعر تكلفة أكبر من صفر');
+      return;
+    }
+
+    if (!Number.isFinite(productData.sellingPrice) || productData.sellingPrice <= 0) {
+      toast.error('أدخل سعر بيع أكبر من صفر');
+      return;
+    }
+
     const barcode = productData.barcode?.trim() || '';
     if (!selectedProduct?.id && barcode) {
       const existingProduct = await lookupProduct(barcode);
@@ -274,15 +309,32 @@ export function InventoryPage() {
         selling_price: productData.sellingPrice,
         cost_price: productData.costPrice,
         min_stock_level: Number(productData.min_stock_level) || 0,
-        stock: productData.stock,
         condition: productData.condition,
-        category_id: productData.category_id,
+        category_id: productData.category_id || null,
         barcode: productData.barcode,
       };
-      updateProductMutation.mutate({ id: selectedProduct.id, data: apiData });
-      setIsEditModalOpen(false);
-      setSelectedProduct(null);
-      setIsCreatingProduct(false);
+      try {
+        const currentStockResponse = await productsApi.getStock(selectedProduct.id);
+        const currentStock = Number(currentStockResponse?.data?.total_stock ?? 0);
+        const requestedStock = Math.max(0, Math.floor(Number(productData.stock) || 0));
+        await updateProductMutation.mutateAsync({ id: selectedProduct.id, data: apiData });
+        if (requestedStock !== currentStock) {
+          await inventoryApi.adjustProductQuantity(
+            selectedProduct.id,
+            requestedStock,
+            'تعديل الكمية الحالية من شاشة المخزون',
+          );
+        }
+        await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+        await queryClient.invalidateQueries({ queryKey: ['products'] });
+        toast.success('تم تحديث المنتج والكمية بنجاح');
+        setIsEditModalOpen(false);
+        setSelectedProduct(null);
+        setIsCreatingProduct(false);
+      } catch (error: any) {
+        console.error('Update product or quantity failed:', error);
+        toast.error(error?.arabicMessage || error?.message || 'تعذر تحديث المنتج أو الكمية');
+      }
     } else {
       // Add new product - map to API field names
       const apiData = {
@@ -293,39 +345,43 @@ export function InventoryPage() {
         min_stock_level: Number(productData.min_stock_level) || 0,
         stock: productData.stock,
         condition: productData.condition,
-        category_id: productData.category_id,
+        category_id: productData.category_id || null,
         barcode: productData.barcode,
       };
       createProductMutation.mutate(apiData, {
         onSuccess: async (response: any) => {
           const product = response?.data?.product ?? response?.data;
+          setIsEditModalOpen(false);
+          setSelectedProduct(null);
+          setIsCreatingProduct(false);
           const quantity = Math.max(0, Math.floor(Number(productData.stock) || 0));
           if (!product?.id || quantity === 0) {
             return;
           }
 
-          const inventoryItem = {
+          const openingStock = {
             product_id: product.id,
+            mode: 'quantity' as const,
+            quantity,
+            business_date: new Date().toISOString().slice(0, 10),
             condition: productData.condition === 'used' ? 'USED' : 'NEW',
             purchase_cost: Number(productData.costPrice) || 0,
             selling_price: Number(productData.sellingPrice) || 0,
-            status: 'AVAILABLE' as const,
             notes: 'إضافة منتج بدون فاتورة',
           };
           try {
-            await Promise.all(Array.from({ length: quantity }, () => inventoryApi.create(inventoryItem)));
+            await inventoryApi.createOpeningStock(openingStock);
             await queryClient.invalidateQueries({ queryKey: ['inventory'] });
             await queryClient.invalidateQueries({ queryKey: ['products'] });
             toast.success('تمت إضافة المنتج والكمية بدون فاتورة');
           } catch (error) {
             console.error('Failed to create no-invoice inventory quantity:', error);
+            await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+            await queryClient.invalidateQueries({ queryKey: ['products'] });
             toast.error('تم إنشاء المنتج لكن تعذرت إضافة الكمية للمخزون');
           }
         },
       });
-      setIsEditModalOpen(false);
-      setSelectedProduct(null);
-      setIsCreatingProduct(false);
     }
   };
 
@@ -369,6 +425,12 @@ export function InventoryPage() {
     });
     setIsCreatingProduct(true);
     setIsEditModalOpen(true);
+  };
+
+  const handleOpeningStockCreated = () => {
+    void queryClient.invalidateQueries({ queryKey: ['products'] });
+    void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    void refetch();
   };
 
   const handleRecommendationClick = (action: string) => {
@@ -457,6 +519,24 @@ export function InventoryPage() {
               <Plus className="w-3.5 h-3.5 me-1.5" />
               {t('inventory.addItem')}
             </Button>
+            <Button
+              variant="secondary"
+              size={getButtonSize('inventory', 'headerActions')}
+              className={cn(isMobile ? "w-full" : "")}
+              onClick={() => setIsOpeningStockModalOpen(true)}
+            >
+              <PackageOpen className="w-3.5 h-3.5 me-1.5" />
+              إضافة المخزون الحالي
+            </Button>
+            <Button
+              variant={supplierOnly ? 'primary' : 'outline'}
+              size={getButtonSize('inventory', 'headerActions')}
+              className={cn(isMobile ? "w-full" : "")}
+              onClick={handleSupplierInventoryToggle}
+            >
+              <Package className="w-3.5 h-3.5 me-1.5" />
+              {supplierOnly ? 'عرض المخزون العام' : 'مشتريات الموردين'}
+            </Button>
             <Button 
               variant="outline"
               size={getButtonSize('inventory', 'headerActions')} 
@@ -483,6 +563,7 @@ export function InventoryPage() {
       <InventoryStats 
         products={filteredProducts}
         inventoryItems={inventoryItems}
+        supplierOnly={supplierOnly}
         onRecommendationClick={handleRecommendationClick}
         isMobile={isMobile}
       />
@@ -493,6 +574,13 @@ export function InventoryPage() {
         setBarcodeInput={setBarcodeInput}
         onBarcodeScan={handleBarcodeScan}
         onManualAdd={handleManualAdd}
+        onOpeningStock={() => setIsOpeningStockModalOpen(true)}
+      />
+
+      <OpeningStockModal
+        isOpen={isOpeningStockModalOpen}
+        onClose={() => setIsOpeningStockModalOpen(false)}
+        onCreated={handleOpeningStockCreated}
       />
 
       {/* Inventory Filters */}
@@ -567,6 +655,7 @@ export function InventoryPage() {
         filteredInventoryItems={filteredInventoryItems}
         productsLoading={productsLoading}
         inventoryLoading={inventoryLoading}
+        inventoryStockMap={inventoryStockMap}
         searchQuery={searchQuery}
         onViewProduct={handleViewProduct}
               onAddPurchase={handleAddPurchase}
@@ -588,11 +677,15 @@ export function InventoryPage() {
           ? { page: productPage, pageSize, total: productTotal, onPageChange: setProductPage }
           : { page: inventoryPage, pageSize, total: inventoryTotal, onPageChange: setInventoryPage }}
         layoutMode={layoutMode}
+        supplierOnly={supplierOnly}
       />
 
       {/* Inventory Ledger - Conditionally rendered */}
-      {showInventoryLedger && (
-        <div style={{ marginTop: '24px' }}>
+      <div className={cn(
+        'mt-6 grid gap-4',
+        showInventoryLedger && 'xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]'
+      )}>
+        {showInventoryLedger ? (
           <InventoryLedger
             movements={inventoryMovements}
             title={`سجل حركات المخزون: ${inventoryLedgerProduct?.name || 'المنتج المحدد'}`}
@@ -600,8 +693,14 @@ export function InventoryPage() {
             isLoading={inventoryLedgerLoading}
             error={inventoryLedgerError}
           />
-        </div>
-      )}
+        ) : null}
+        <StockAlertCards
+          products={filteredProducts}
+          inventoryStockMap={inventoryStockMap}
+          onViewProduct={handleViewProduct}
+          layoutMode={layoutMode}
+        />
+      </div>
 
       {/* Inventory Modals */}
       <InventoryModals

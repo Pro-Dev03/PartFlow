@@ -6,11 +6,13 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/dashboard"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
@@ -88,7 +90,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		stockQuery := `
 			SELECT id, purchase_cost
 			FROM inventory_items
-			WHERE product_id = $1 AND status = 'AVAILABLE'
+			WHERE product_id = $1 AND UPPER(TRIM(COALESCE(status, ''))) = 'AVAILABLE'
 			ORDER BY created_at ASC
 		`
 		var stockArgs []interface{}
@@ -96,7 +98,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			stockQuery = `
 				SELECT id, purchase_cost
 				FROM inventory_items
-				WHERE id = $1 AND product_id = $2 AND status = 'AVAILABLE'
+				WHERE id = $1 AND product_id = $2 AND UPPER(TRIM(COALESCE(status, ''))) = 'AVAILABLE'
 			`
 			stockArgs = []interface{}{*itemReq.InventoryItemID, itemReq.ProductID}
 		} else {
@@ -136,6 +138,10 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		for i := 0; i < itemReq.Quantity && i < len(availableItems); i++ {
 			itemCost += availableItems[i].Cost
 		}
+		inventoryItemID := itemReq.InventoryItemID
+		if inventoryItemID == nil && len(availableItems) > 0 {
+			inventoryItemID = &availableItems[0].ID
+		}
 
 		subtotal += itemTotal
 		totalCost += itemCost
@@ -143,7 +149,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		item := SaleItem{
 			ID:              uuid.New(),
 			ProductID:       itemReq.ProductID,
-			InventoryItemID: itemReq.InventoryItemID,
+			InventoryItemID: inventoryItemID,
 			Quantity:        itemReq.Quantity,
 			UnitPrice:       itemReq.UnitPrice,
 			UnitCost:        itemCost / float64(itemReq.Quantity),
@@ -169,13 +175,44 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		}
 	}
 
-	paymentAmount := req.PaymentAmount
-	if paymentAmount < 0 || paymentAmount > totalAmount {
-		return nil, fmt.Errorf("payment amount must be between 0 and the sale total")
-	}
 	paymentMethod := ""
 	if req.PaymentMethod != nil {
 		paymentMethod = *req.PaymentMethod
+	}
+	paymentAmount := req.PaymentAmount
+	if req.PaymentTransactionID != nil {
+		var externalStatus string
+		var externalAmountMinor int64
+		if err := tx.QueryRowContext(ctx, `SELECT status, amount_minor FROM payment_transactions WHERE id = $1`, *req.PaymentTransactionID).Scan(&externalStatus, &externalAmountMinor); err != nil {
+			return nil, fmt.Errorf("payment transaction not found: %w", err)
+		}
+		if externalStatus != "paid" {
+			return nil, fmt.Errorf("payment transaction is not verified: %s", externalStatus)
+		}
+		if math.Abs(float64(externalAmountMinor)/100-totalAmount) > 0.01 {
+			return nil, fmt.Errorf("verified payment amount does not match sale total")
+		}
+		paymentMethod = "card"
+		paymentAmount = totalAmount
+	}
+	cashReceived := req.CashReceived
+	if strings.EqualFold(paymentMethod, "cash") {
+		if cashReceived <= 0 {
+			cashReceived = paymentAmount
+		}
+		if cashReceived < paymentAmount {
+			return nil, fmt.Errorf("cash received cannot be less than applied payment")
+		}
+		if cashReceived > paymentAmount {
+			paymentAmount = math.Min(cashReceived, totalAmount)
+		}
+	}
+	if paymentAmount < 0 || paymentAmount > totalAmount {
+		return nil, fmt.Errorf("payment amount must be between 0 and the sale total")
+	}
+	changeAmount := 0.0
+	if strings.EqualFold(paymentMethod, "cash") && cashReceived > totalAmount {
+		changeAmount = cashReceived - totalAmount
 	}
 	isDebtSale := paymentMethod == "debt"
 	if isDebtSale && req.CustomerID == nil {
@@ -189,6 +226,27 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	} else if paymentAmount > 0 {
 		paymentStatus = "partial"
 	}
+	allocations := req.PaymentAllocations
+	if len(allocations) == 0 && paymentAmount > 0 {
+		method := paymentMethod
+		if strings.EqualFold(method, "transfer") {
+			method = "checks"
+		}
+		allocations = []PaymentAllocationRequest{{Amount: paymentAmount, Method: method}}
+	}
+	allocationTotal := 0.0
+	for _, allocation := range allocations {
+		if allocation.Amount <= 0 {
+			return nil, fmt.Errorf("payment allocation amount must be greater than zero")
+		}
+		if strings.EqualFold(allocation.Method, "checks") && strings.TrimSpace(allocation.CheckNumber) == "" {
+			return nil, fmt.Errorf("check number is required for cheque payments")
+		}
+		allocationTotal += allocation.Amount
+	}
+	if len(allocations) > 0 && math.Abs(allocationTotal-paymentAmount) > 0.01 {
+		return nil, fmt.Errorf("payment allocations must equal the applied payment amount")
+	}
 
 	// Create sale - allow nil user_id for testing
 	var userIDPtr *uuid.UUID
@@ -196,12 +254,22 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		userIDPtr = &userID
 	}
 
+	eventTime := time.Now()
+	storeDate, err := accounting.StoreDate(eventTime)
+	if err != nil {
+		return nil, fmt.Errorf("calculate sale store date: %w", err)
+	}
+	saleDate, err := time.Parse("2006-01-02", storeDate)
+	if err != nil {
+		return nil, fmt.Errorf("parse sale store date: %w", err)
+	}
+
 	sale := &Sale{
 		ID:             uuid.New(),
 		InvoiceNumber:  invoiceNumber,
 		CustomerID:     req.CustomerID,
 		UserID:         userIDPtr,
-		SaleDate:       time.Now(),
+		SaleDate:       saleDate,
 		Subtotal:       subtotal,
 		TaxAmount:      totalTax,
 		DiscountAmount: discountAmount,
@@ -210,12 +278,14 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		GrossProfit:    grossProfit,
 		NetProfit:      netProfit,
 		PaidAmount:     paymentAmount,
+		CashReceived:   cashReceived,
+		ChangeAmount:   changeAmount,
 		PaymentMethod:  req.PaymentMethod,
 		PaymentStatus:  paymentStatus,
 		Status:         "completed",
 		Notes:          req.Notes,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		CreatedAt:      eventTime,
+		UpdatedAt:      eventTime,
 	}
 
 	// Create sale in database
@@ -225,18 +295,49 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 	`
+	hasCashColumns := true
 	if dbutil.IsSQLite(s.db) {
+		var cashColumnCount int
+		if err := tx.GetContext(ctx, &cashColumnCount, `SELECT COUNT(*) FROM pragma_table_info('sales') WHERE name IN ('cash_received', 'change_amount')`); err != nil {
+			return nil, fmt.Errorf("failed to inspect cash change schema: %w", err)
+		}
+		hasCashColumns = cashColumnCount == 2
+	}
+	if dbutil.IsSQLite(s.db) && hasCashColumns {
+		_, err = tx.ExecContext(ctx, `INSERT INTO sales (id, sale_number, invoice_number, sale_date, customer_id, user_id, subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit, paid_amount, cash_received, change_amount, remaining_amount, payment_method, payment_status, status, notes, created_at, updated_at) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
+			sale.ID, sale.InvoiceNumber, sale.SaleDate.UTC().Format(time.RFC3339Nano), sale.CustomerID, sale.UserID,
+			sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount, sale.CostAmount,
+			sale.GrossProfit, sale.NetProfit, sale.PaidAmount, sale.CashReceived, sale.ChangeAmount,
+			sale.TotalAmount-sale.PaidAmount, sale.PaymentMethod, sale.PaymentStatus, sale.Status, sale.Notes,
+			sale.CreatedAt.UTC().Format(time.RFC3339Nano), sale.UpdatedAt.UTC().Format(time.RFC3339Nano))
+	} else if dbutil.IsSQLite(s.db) {
+		// SQLite stores timestamps as text. Format them explicitly so the driver
+		// does not persist Go's internal monotonic-clock suffix (m=...).
 		_, err = tx.ExecContext(ctx, `INSERT INTO sales (id, sale_number, invoice_number, sale_date, customer_id, user_id, subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit, paid_amount, remaining_amount, payment_method, payment_status, status, notes, created_at, updated_at) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)`,
-			sale.ID, sale.InvoiceNumber, sale.SaleDate, sale.CustomerID, sale.UserID,
+			sale.ID, sale.InvoiceNumber, sale.SaleDate.UTC().Format(time.RFC3339Nano), sale.CustomerID, sale.UserID,
 			sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount, sale.CostAmount,
 			sale.GrossProfit, sale.NetProfit, sale.PaidAmount, sale.TotalAmount-sale.PaidAmount,
-			sale.PaymentMethod, sale.PaymentStatus, sale.Status, sale.Notes, sale.CreatedAt, sale.UpdatedAt)
+			sale.PaymentMethod, sale.PaymentStatus, sale.Status, sale.Notes,
+			sale.CreatedAt.UTC().Format(time.RFC3339Nano), sale.UpdatedAt.UTC().Format(time.RFC3339Nano))
 	} else {
-		_, err = tx.ExecContext(ctx, saleQuery,
-			sale.ID, sale.SaleDate, sale.CustomerID, sale.InvoiceNumber, sale.UserID,
-			sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount, sale.CostAmount,
-			sale.GrossProfit, sale.NetProfit, sale.PaidAmount, sale.PaymentMethod, sale.PaymentStatus,
-			sale.Status, sale.Notes, sale.CreatedAt, sale.UpdatedAt)
+		if hasCashColumns {
+			saleQuery = `
+				INSERT INTO sales (id, sale_date, customer_id, invoice_number, user_id,
+					subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit,
+					paid_amount, cash_received, change_amount, payment_method, payment_status, status, notes, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`
+			_, err = tx.ExecContext(ctx, saleQuery,
+				sale.ID, sale.SaleDate, sale.CustomerID, sale.InvoiceNumber, sale.UserID,
+				sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount, sale.CostAmount,
+				sale.GrossProfit, sale.NetProfit, sale.PaidAmount, sale.CashReceived, sale.ChangeAmount,
+				sale.PaymentMethod, sale.PaymentStatus, sale.Status, sale.Notes, sale.CreatedAt, sale.UpdatedAt)
+		} else {
+			_, err = tx.ExecContext(ctx, saleQuery,
+				sale.ID, sale.SaleDate, sale.CustomerID, sale.InvoiceNumber, sale.UserID,
+				sale.Subtotal, sale.TaxAmount, sale.DiscountAmount, sale.TotalAmount, sale.CostAmount,
+				sale.GrossProfit, sale.NetProfit, sale.PaidAmount, sale.PaymentMethod, sale.PaymentStatus,
+				sale.Status, sale.Notes, sale.CreatedAt, sale.UpdatedAt)
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sale: %w", err)
@@ -249,6 +350,12 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		// Get supplier_id from the first inventory item being sold
 		var supplierID *uuid.UUID
 		availableItems := itemStockMap[items[i].ProductID]
+		if items[i].InventoryItemID != nil {
+			availableItems = []struct {
+				ID   uuid.UUID `db:"id"`
+				Cost float64   `db:"purchase_cost"`
+			}{{ID: *items[i].InventoryItemID, Cost: items[i].UnitCost}}
+		}
 		if len(availableItems) > 0 {
 			// Query supplier_id from inventory_items
 			var supplierIDFromDB *uuid.UUID
@@ -259,16 +366,38 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			}
 		}
 
-		// Create sale item with supplier_id
+		// Local snapshots use item_total, while the cloud schema uses total_amount.
 		itemQuery := `
 			INSERT INTO sale_items (id, sale_id, product_id, inventory_item_id, quantity, unit_price, unit_cost,
 				tax_amount, total_amount, supplier_id, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		`
-		_, err = tx.ExecContext(ctx, itemQuery,
+		itemArgs := []interface{}{
 			items[i].ID, items[i].SaleID, items[i].ProductID, items[i].InventoryItemID, items[i].Quantity,
 			items[i].UnitPrice, items[i].UnitCost, items[i].TaxAmount, items[i].TotalAmount,
-			supplierID, items[i].CreatedAt)
+			supplierID, items[i].CreatedAt,
+		}
+		if dbutil.IsSQLite(s.db) {
+			var itemTotalColumns int
+			if err := tx.GetContext(ctx, &itemTotalColumns, `SELECT COUNT(*) FROM pragma_table_info('sale_items') WHERE name = 'item_total'`); err != nil {
+				return nil, fmt.Errorf("failed to inspect sale item schema: %w", err)
+			}
+			if itemTotalColumns > 0 {
+				itemQuery = `
+					INSERT INTO sale_items (id, sale_id, product_id, inventory_item_id, quantity, unit_price, item_total, unit_cost, discount_amount, tax_amount, total_amount, supplier_id, created_at)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+				`
+				itemArgs = []interface{}{
+					items[i].ID, items[i].SaleID, items[i].ProductID, items[i].InventoryItemID, items[i].Quantity,
+					items[i].UnitPrice, items[i].TotalAmount, items[i].UnitCost, items[i].DiscountAmount,
+					items[i].TaxAmount, items[i].TotalAmount, supplierID, items[i].CreatedAt,
+				}
+			}
+			if dbutil.IsSQLite(s.db) {
+				itemArgs[len(itemArgs)-1] = items[i].CreatedAt.UTC().Format(time.RFC3339Nano)
+			}
+		}
+		_, err = tx.ExecContext(ctx, itemQuery, itemArgs...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create sale item: %w", err)
 		}
@@ -288,7 +417,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			updateItemQuery := fmt.Sprintf(`
 				UPDATE inventory_items
 					SET status = 'SOLD', sold_at = %s, updated_at = %s
-					WHERE id = $1 AND status = 'AVAILABLE'
+					WHERE id = $1 AND UPPER(TRIM(COALESCE(status, ''))) = 'AVAILABLE'
 			`, sqlNow, sqlNow)
 			result, err := tx.ExecContext(ctx, updateItemQuery, itemID)
 			if err != nil {
@@ -316,7 +445,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			var afterQuantity int
 			if err = tx.GetContext(ctx, &afterQuantity, `
 				SELECT COUNT(*) FROM inventory_items
-				WHERE product_id = $1 AND status = 'AVAILABLE'
+				WHERE product_id = $1 AND UPPER(TRIM(COALESCE(status, ''))) = 'AVAILABLE'
 			`, items[i].ProductID); err != nil {
 				return nil, fmt.Errorf("failed to read inventory quantity: %w", err)
 			}
@@ -336,7 +465,10 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			`, sqlNow, metadataValue, sqlNow), itemID, sale.ID, reason,
 				fmt.Sprintf(`{"sale_id":"%s","unit_price":%.2f}`, sale.ID, items[i].UnitPrice), userID)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create item history: %w", err)
+				if !(dbutil.IsSQLite(s.db) && strings.Contains(strings.ToLower(err.Error()), "no such table: item_history")) {
+					return nil, fmt.Errorf("failed to create item history: %w", err)
+				}
+				fmt.Printf("Warning: item_history table is unavailable; continuing sale: %v\n", err)
 			}
 
 			_, err = tx.ExecContext(ctx, fmt.Sprintf(`
@@ -429,7 +561,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	}
 
 	// Create payment record if payment is provided
-	if paymentAmount > 0 {
+	if paymentAmount > 0 && req.PaymentTransactionID == nil {
 		paymentQuery := `
 			INSERT INTO payments (id, sale_id, customer_id, amount,
 				payment_method, payment_status, created_by, created_at)
@@ -460,6 +592,31 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		_, updateSaleErr := tx.ExecContext(ctx, updateSaleQuery, sale.PaidAmount, sale.PaymentStatus, sale.ID)
 		if updateSaleErr != nil {
 			return nil, fmt.Errorf("failed to update sale payment: %w", updateSaleErr)
+		}
+		for _, allocation := range allocations {
+			allocationMethod := strings.ToLower(strings.TrimSpace(allocation.Method))
+			if allocationMethod == "transfer" {
+				allocationMethod = "checks"
+			}
+			var checkDate interface{}
+			if strings.TrimSpace(allocation.CheckDate) != "" {
+				checkDate = allocation.CheckDate
+			}
+			if dbutil.IsSQLite(s.db) {
+				if _, err := tx.ExecContext(ctx, `INSERT INTO sale_payment_allocations (id, sale_id, amount, payment_method, status, check_number, bank_name, check_date, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, uuid.New(), sale.ID, allocation.Amount, allocationMethod, "pending", allocation.CheckNumber, allocation.BankName, checkDate, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+					return nil, fmt.Errorf("failed to save payment allocation: %w", err)
+				}
+			} else if _, err := tx.ExecContext(ctx, `INSERT INTO sale_payment_allocations (id, sale_id, amount, payment_method, status, check_number, bank_name, check_date) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, uuid.New(), sale.ID, allocation.Amount, allocationMethod, "pending", allocation.CheckNumber, allocation.BankName, checkDate); err != nil {
+				return nil, fmt.Errorf("failed to save payment allocation: %w", err)
+			}
+		}
+	}
+	if req.PaymentTransactionID != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE payment_transactions SET sale_id = $1, updated_at = $2 WHERE id = $3 AND status = 'paid'`, sale.ID, time.Now(), *req.PaymentTransactionID); err != nil {
+			return nil, fmt.Errorf("link payment transaction to sale: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE payments SET sale_id = $1, updated_at = $2 WHERE id = $3`, sale.ID, time.Now(), *req.PaymentTransactionID); err != nil {
+			return nil, fmt.Errorf("link legacy payment to sale: %w", err)
 		}
 	}
 
@@ -581,10 +738,14 @@ func (s *Service) calculateProfit(ctx context.Context, items []SaleItem) (float6
 func (s *Service) GetSale(ctx context.Context, id uuid.UUID) (*SaleWithItems, error) {
 	sale, err := s.repo.GetSaleByID(ctx, id)
 	if err != nil {
-		return nil, ErrSaleNotFound
+		return nil, fmt.Errorf("failed to read sale %s: %w", id, err)
 	}
 
 	items, err := s.repo.GetSaleItems(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	allocations, err := s.repo.GetPaymentAllocations(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -596,9 +757,10 @@ func (s *Service) GetSale(ctx context.Context, id uuid.UUID) (*SaleWithItems, er
 	}
 
 	return &SaleWithItems{
-		Sale:   sale,
-		Items:  items,
-		Profit: profit,
+		Sale:               sale,
+		Items:              items,
+		PaymentAllocations: allocations,
+		Profit:             profit,
 	}, nil
 }
 
@@ -795,9 +957,10 @@ func (s *Service) generateInvoiceNumber() string {
 
 // SaleWithItems represents a sale with its items and profit
 type SaleWithItems struct {
-	Sale   *Sale      `json:"sale"`
-	Items  []SaleItem `json:"items"`
-	Profit float64    `json:"profit"`
+	Sale               *Sale               `json:"sale"`
+	Items              []SaleItem          `json:"items"`
+	PaymentAllocations []PaymentAllocation `json:"payment_allocations"`
+	Profit             float64             `json:"profit"`
 }
 
 // CreateTransaction creates a new financial transaction

@@ -44,7 +44,7 @@ const getAvatarStyle = (name: string) => {
   return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
 };
 
-const formatCurrency = (value?: number) => `₪${(value || 0).toLocaleString()}`;
+const formatCurrency = (value?: number) => `₪${Math.round(value || 0).toLocaleString('en-US')}`;
 
 function SupplierCard({
   supplier,
@@ -71,8 +71,8 @@ function SupplierCard({
     { key: 'sold', title: 'المباعة', sortable: true, render: (item) => <span className="text-red-600">{item.sold}</span> },
     { key: 'reserved', title: 'المحجوزة', sortable: true, render: (item) => <span className="text-yellow-600">{item.reserved}</span> },
     { key: 'damaged', title: 'التالفة', sortable: true, render: (item) => <span className="text-orange-600">{item.damaged}</span> },
-    { key: 'avg_cost', title: 'متوسط التكلفة', sortable: true, render: (item) => `₪${(item.avg_cost || 0).toFixed(2)}` },
-    { key: 'avg_price', title: 'متوسط السعر', sortable: true, render: (item) => `₪${(item.avg_price || 0).toFixed(2)}` },
+    { key: 'avg_cost', title: 'متوسط التكلفة', sortable: true, render: (item) => formatCurrency(item.avg_cost) },
+    { key: 'avg_price', title: 'متوسط السعر', sortable: true, render: (item) => formatCurrency(item.avg_price) },
   ];
 
   return (

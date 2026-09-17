@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,38 +17,61 @@ type Repository struct {
 }
 
 type localSaleRow struct {
-	ID             uuid.UUID  `db:"id"`
-	SaleDate       string     `db:"sale_date"`
-	CustomerID     *uuid.UUID `db:"customer_id"`
-	InvoiceNumber  string     `db:"invoice_number"`
-	Subtotal       float64    `db:"subtotal"`
-	TaxAmount      float64    `db:"tax_amount"`
-	DiscountAmount float64    `db:"discount_amount"`
-	TotalAmount    float64    `db:"total_amount"`
-	CostAmount     float64    `db:"cost_amount"`
-	GrossProfit    float64    `db:"gross_profit"`
-	NetProfit      float64    `db:"net_profit"`
-	PaidAmount     float64    `db:"paid_amount"`
-	PaymentMethod  *string    `db:"payment_method"`
-	PaymentStatus  string     `db:"payment_status"`
-	Status         string     `db:"status"`
-	Notes          *string    `db:"notes"`
-	CreatedAt      string     `db:"created_at"`
-	UpdatedAt      string     `db:"updated_at"`
+	ID             string         `db:"id"`
+	SaleDate       string         `db:"sale_date"`
+	CustomerID     sql.NullString `db:"customer_id"`
+	InvoiceNumber  string         `db:"invoice_number"`
+	Subtotal       float64        `db:"subtotal"`
+	TaxAmount      float64        `db:"tax_amount"`
+	DiscountAmount float64        `db:"discount_amount"`
+	TotalAmount    float64        `db:"total_amount"`
+	CostAmount     float64        `db:"cost_amount"`
+	GrossProfit    float64        `db:"gross_profit"`
+	NetProfit      float64        `db:"net_profit"`
+	PaidAmount     float64        `db:"paid_amount"`
+	PaymentMethod  *string        `db:"payment_method"`
+	PaymentStatus  string         `db:"payment_status"`
+	Status         string         `db:"status"`
+	Notes          *string        `db:"notes"`
+	CreatedAt      string         `db:"created_at"`
+	UpdatedAt      string         `db:"updated_at"`
+}
+
+type paymentAllocationRow struct {
+	ID          string  `db:"id"`
+	SaleID      string  `db:"sale_id"`
+	Amount      float64 `db:"amount"`
+	Method      string  `db:"payment_method"`
+	Status      string  `db:"status"`
+	CheckNumber *string `db:"check_number"`
+	BankName    *string `db:"bank_name"`
+	CheckDate   *string `db:"check_date"`
+	CreatedAt   string  `db:"created_at"`
 }
 
 func parseSaleTime(value string) (time.Time, error) {
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02", "2006-01-02 15:04:05.999999999 -0700 MST", "2006-01-02 15:04:05.9999999 -0700 MST", "2006-01-02 15:04:05.999999 -0700 MST", "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05.9999999", "2006-01-02 15:04:05.999999", "2006-01-02 15:04:05"} {
 		if parsed, err := time.Parse(layout, value); err == nil {
 			return parsed, nil
 		}
+	}
+	if monotonicIndex := strings.Index(value, " m="); monotonicIndex >= 0 {
+		return parseSaleTime(strings.TrimSpace(value[:monotonicIndex]))
 	}
 	return time.Time{}, fmt.Errorf("unsupported local timestamp %q", value)
 }
 
 func (r localSaleRow) sale() (Sale, error) {
-	sale := Sale{ID: r.ID, InvoiceNumber: r.InvoiceNumber, CustomerID: r.CustomerID, SaleDate: time.Time{}, Subtotal: r.Subtotal, TaxAmount: r.TaxAmount, DiscountAmount: r.DiscountAmount, TotalAmount: r.TotalAmount, CostAmount: r.CostAmount, GrossProfit: r.GrossProfit, NetProfit: r.NetProfit, PaidAmount: r.PaidAmount, PaymentMethod: r.PaymentMethod, PaymentStatus: r.PaymentStatus, Status: r.Status, Notes: r.Notes}
-	var err error
+	id, err := uuid.Parse(strings.TrimSpace(r.ID))
+	if err != nil {
+		return Sale{}, fmt.Errorf("parse sale id %q: %w", r.ID, err)
+	}
+	sale := Sale{ID: id, InvoiceNumber: r.InvoiceNumber, SaleDate: time.Time{}, Subtotal: r.Subtotal, TaxAmount: r.TaxAmount, DiscountAmount: r.DiscountAmount, TotalAmount: r.TotalAmount, CostAmount: r.CostAmount, GrossProfit: r.GrossProfit, NetProfit: r.NetProfit, PaidAmount: r.PaidAmount, PaymentMethod: r.PaymentMethod, PaymentStatus: r.PaymentStatus, Status: r.Status, Notes: r.Notes}
+	if r.CustomerID.Valid {
+		if customerID, parseErr := uuid.Parse(strings.TrimSpace(r.CustomerID.String)); parseErr == nil {
+			sale.CustomerID = &customerID
+		}
+	}
 	sale.SaleDate, err = parseSaleTime(r.SaleDate)
 	if err != nil {
 		return Sale{}, err
@@ -62,6 +86,45 @@ func (r localSaleRow) sale() (Sale, error) {
 
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
+}
+
+func (r *Repository) loadCashChange(ctx context.Context, sale *Sale) {
+	_ = r.db.QueryRowxContext(ctx, `SELECT cash_received, change_amount FROM sales WHERE id = $1`, sale.ID).Scan(&sale.CashReceived, &sale.ChangeAmount)
+}
+
+func (r *Repository) GetPaymentAllocations(ctx context.Context, saleID uuid.UUID) ([]PaymentAllocation, error) {
+	query := `
+		SELECT id, sale_id, amount, payment_method, status, check_number, bank_name,
+		       NULLIF(CAST(check_date AS TEXT), '') AS check_date,
+		       CAST(created_at AS TEXT) AS created_at
+		FROM sale_payment_allocations
+		WHERE sale_id = $1
+		ORDER BY created_at ASC, id ASC
+	`
+	var rows []paymentAllocationRow
+	if err := r.db.SelectContext(ctx, &rows, query, saleID); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") || strings.Contains(strings.ToLower(err.Error()), "does not exist") {
+			return []PaymentAllocation{}, nil
+		}
+		return nil, err
+	}
+	allocations := make([]PaymentAllocation, 0, len(rows))
+	for _, row := range rows {
+		id, err := uuid.Parse(row.ID)
+		if err != nil {
+			return nil, fmt.Errorf("parse payment allocation id %q: %w", row.ID, err)
+		}
+		parsedSaleID, err := uuid.Parse(row.SaleID)
+		if err != nil {
+			return nil, fmt.Errorf("parse payment allocation sale id %q: %w", row.SaleID, err)
+		}
+		createdAt, err := parseSaleTime(row.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse payment allocation timestamp: %w", err)
+		}
+		allocations = append(allocations, PaymentAllocation{ID: id, SaleID: parsedSaleID, Amount: row.Amount, Method: row.Method, Status: row.Status, CheckNumber: row.CheckNumber, BankName: row.BankName, CheckDate: row.CheckDate, CreatedAt: createdAt})
+	}
+	return allocations, nil
 }
 
 // CreateSale creates a new sale
@@ -97,6 +160,7 @@ func (r *Repository) GetSaleByID(ctx context.Context, id uuid.UUID) (*Sale, erro
 		if err != nil {
 			return nil, err
 		}
+		r.loadCashChange(ctx, &sale)
 		return &sale, nil
 	}
 	var sale Sale
@@ -104,6 +168,7 @@ func (r *Repository) GetSaleByID(ctx context.Context, id uuid.UUID) (*Sale, erro
 	if err != nil {
 		return nil, err
 	}
+	r.loadCashChange(ctx, &sale)
 	return &sale, nil
 }
 
@@ -124,6 +189,7 @@ func (r *Repository) GetSaleByInvoiceNumber(ctx context.Context, invoiceNumber s
 		if err != nil {
 			return nil, err
 		}
+		r.loadCashChange(ctx, &sale)
 		return &sale, nil
 	}
 	var sale Sale
@@ -131,6 +197,7 @@ func (r *Repository) GetSaleByInvoiceNumber(ctx context.Context, invoiceNumber s
 	if err != nil {
 		return nil, err
 	}
+	r.loadCashChange(ctx, &sale)
 	return &sale, nil
 }
 
@@ -241,30 +308,58 @@ func (r *Repository) CreateSaleItem(ctx context.Context, item *SaleItem) error {
 
 // GetSaleItems retrieves items for a sale
 func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]SaleItem, error) {
-	query := `
+	baseQuery := `
 		SELECT si.id, si.sale_id, si.product_id, p.name AS product_name, si.inventory_item_id, ii.serial_number,
-			si.quantity, si.unit_price, si.unit_cost,
+			si.quantity, 0 AS returned_quantity, si.quantity AS remaining_quantity,
+			si.unit_price, si.unit_cost,
 			si.discount_amount, si.tax_amount, si.total_amount, si.created_at
 		FROM sale_items si
 		LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
 		LEFT JOIN products p ON p.id = si.product_id
 		WHERE si.sale_id = $1
 	`
+	query := `
+		SELECT si.id, si.sale_id, si.product_id, p.name AS product_name, si.inventory_item_id, ii.serial_number,
+			si.quantity,
+			COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri JOIN returns r ON r.id = ri.return_id WHERE ri.sale_item_id = si.id AND LOWER(COALESCE(r.status, 'completed')) NOT IN ('rejected', 'cancelled', 'canceled')), 0) AS returned_quantity,
+			si.quantity - COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri JOIN returns r ON r.id = ri.return_id WHERE ri.sale_item_id = si.id AND LOWER(COALESCE(r.status, 'completed')) NOT IN ('rejected', 'cancelled', 'canceled')), 0) AS remaining_quantity,
+			si.unit_price, si.unit_cost,
+			si.discount_amount, si.tax_amount, si.total_amount, si.supplier_id,
+			sup.name AS supplier_name,
+			CASE WHEN COALESCE(si.supplier_id, ii.supplier_id) IS NULL THEN 'manual_inventory' ELSE 'supplier_purchase' END AS inventory_source,
+			si.created_at
+		FROM sale_items si
+		LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
+		LEFT JOIN products p ON p.id = si.product_id
+		LEFT JOIN suppliers sup ON sup.id = COALESCE(si.supplier_id, ii.supplier_id)
+		WHERE si.sale_id = $1
+	`
+	if dbutil.IsSQLite(r.db) {
+		var hasReturnItems bool
+		if err := r.db.GetContext(ctx, &hasReturnItems, `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'return_items')`); err != nil || !hasReturnItems {
+			query = baseQuery
+		}
+	}
 	if dbutil.IsSQLite(r.db) {
 		var rows []struct {
-			ID              string          `db:"id"`
-			SaleID          string          `db:"sale_id"`
-			ProductID       string          `db:"product_id"`
-			ProductName     sql.NullString  `db:"product_name"`
-			InventoryItemID sql.NullString  `db:"inventory_item_id"`
-			SerialNumber    sql.NullString  `db:"serial_number"`
-			Quantity        int             `db:"quantity"`
-			UnitPrice       sql.NullFloat64 `db:"unit_price"`
-			UnitCost        sql.NullFloat64 `db:"unit_cost"`
-			DiscountAmount  sql.NullFloat64 `db:"discount_amount"`
-			TaxAmount       sql.NullFloat64 `db:"tax_amount"`
-			TotalAmount     sql.NullFloat64 `db:"total_amount"`
-			CreatedAt       string          `db:"created_at"`
+			ID                string          `db:"id"`
+			SaleID            string          `db:"sale_id"`
+			ProductID         string          `db:"product_id"`
+			ProductName       sql.NullString  `db:"product_name"`
+			InventoryItemID   sql.NullString  `db:"inventory_item_id"`
+			SerialNumber      sql.NullString  `db:"serial_number"`
+			Quantity          int             `db:"quantity"`
+			ReturnedQuantity  int             `db:"returned_quantity"`
+			RemainingQuantity int             `db:"remaining_quantity"`
+			UnitPrice         sql.NullFloat64 `db:"unit_price"`
+			UnitCost          sql.NullFloat64 `db:"unit_cost"`
+			DiscountAmount    sql.NullFloat64 `db:"discount_amount"`
+			TaxAmount         sql.NullFloat64 `db:"tax_amount"`
+			TotalAmount       sql.NullFloat64 `db:"total_amount"`
+			SupplierID        sql.NullString  `db:"supplier_id"`
+			SupplierName      sql.NullString  `db:"supplier_name"`
+			InventorySource   sql.NullString  `db:"inventory_source"`
+			CreatedAt         string          `db:"created_at"`
 		}
 		if err := r.db.SelectContext(ctx, &rows, query, saleID); err != nil {
 			return nil, err
@@ -275,7 +370,7 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 			if err != nil {
 				return nil, err
 			}
-			item := SaleItem{Quantity: row.Quantity, CreatedAt: created}
+			item := SaleItem{Quantity: row.Quantity, ReturnedQuantity: row.ReturnedQuantity, RemainingQuantity: row.RemainingQuantity, CreatedAt: created}
 			if row.UnitPrice.Valid {
 				item.UnitPrice = row.UnitPrice.Float64
 			}
@@ -314,6 +409,19 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 				serial := row.SerialNumber.String
 				item.SerialNumber = &serial
 			}
+			if row.SupplierID.Valid && row.SupplierID.String != "" {
+				v, parseErr := uuid.Parse(row.SupplierID.String)
+				if parseErr == nil {
+					item.SupplierID = &v
+				}
+			}
+			if row.SupplierName.Valid && row.SupplierName.String != "" {
+				name := row.SupplierName.String
+				item.SupplierName = &name
+			}
+			if row.InventorySource.Valid && row.InventorySource.String != "" {
+				item.InventorySource = row.InventorySource.String
+			}
 			items = append(items, item)
 		}
 		return items, nil
@@ -342,7 +450,7 @@ func (r *Repository) GetProductCost(ctx context.Context, productID uuid.UUID) (f
 func (r *Repository) GetProductStock(ctx context.Context, productID uuid.UUID) (int, error) {
 	query := `
 		SELECT COUNT(*) FROM inventory_items 
-		WHERE product_id = $1 AND status = 'AVAILABLE'
+		WHERE product_id = $1 AND UPPER(TRIM(COALESCE(status, ''))) = 'AVAILABLE'
 	`
 	var count int
 	err := r.db.GetContext(ctx, &count, query, productID)

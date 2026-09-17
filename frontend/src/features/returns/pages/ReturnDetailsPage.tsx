@@ -8,6 +8,7 @@ import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { Modal } from '../../../components/ui/modal';
 import { toast } from 'sonner';
+import { formatStoreDate } from '../../../utils/store-time';
 import { 
   CheckCircle,
   XCircle,
@@ -20,6 +21,7 @@ interface ReturnItem {
   id: string;
   product_name: string;
   quantity_returned: number;
+  original_quantity?: number;
   unit_price: number;
   total_refund_amount: number;
   returned_condition: string;
@@ -296,7 +298,7 @@ export function ReturnDetailsPage() {
                 disabled={reverseReturnMutation.isPending}
               >
                 <RefreshCw className="w-4 h-4 mr-1" />
-                عكس المرتجع
+                إلغاء الاسترجاع
               </Button>
             )}
           </div>
@@ -326,7 +328,7 @@ export function ReturnDetailsPage() {
             </div>
             <div className="space-y-2">
               <p className="text-sm text-gray-400">التاريخ</p>
-              <p className="font-semibold">{new Date(returnRecord.return_date).toLocaleDateString('ar-SA')}</p>
+              <p className="font-semibold">{formatStoreDate(returnRecord.return_date, 'ar-SA')}</p>
             </div>
             <div className="space-y-2">
               <p className="text-sm text-gray-400">العميل</p>
@@ -356,7 +358,7 @@ export function ReturnDetailsPage() {
               <p className="text-sm text-gray-400">قيمة الاسترجاع</p>
               <p className="font-semibold text-green">₪{returnRecord.total_refund_amount.toLocaleString()}</p>
             </div>
-            {returnRecord.debt_adjustment && returnRecord.debt_adjustment !== 0 && (
+            {Number(returnRecord.debt_adjustment || 0) !== 0 && (
               <div className="space-y-2">
                 <p className="text-sm text-gray-400">تعديل الدين</p>
                 <p className="font-semibold">₪{returnRecord.debt_adjustment.toLocaleString()}</p>
@@ -415,18 +417,22 @@ export function ReturnDetailsPage() {
                     </Badge>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-3">
+                    <div>
+                      <p className="text-xs text-gray-400">الكمية في الفاتورة</p>
+                      <p className="font-semibold">{item.original_quantity ?? '-'}</p>
+                    </div>
                     <div>
                       <p className="text-xs text-gray-400">الكمية المرتجعة</p>
                       <p className="font-semibold">{item.quantity_returned}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">السعر</p>
-                      <p className="font-semibold">₪{item.unit_price.toLocaleString()}</p>
+                      <p className="text-xs text-gray-400">سعر الوحدة</p>
+                      <p className="font-semibold">₪{Number(item.unit_price || 0).toLocaleString()}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">الإجمالي</p>
-                      <p className="font-semibold text-green">₪{item.total_refund_amount.toLocaleString()}</p>
+                      <p className="text-xs text-gray-400">إجمالي العنصر</p>
+                      <p className="font-semibold text-green">₪{Number(item.total_refund_amount || 0).toLocaleString()}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-400">الحالة عند الإرجاع</p>

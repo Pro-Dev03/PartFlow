@@ -18,6 +18,9 @@ var (
 	// ErrPaymentExceedsBalance is returned when payment exceeds balance
 	ErrPaymentExceedsBalance = errors.New("payment amount exceeds customer balance")
 
+	// ErrPaymentDuplicate is returned when a payment reference was already used
+	ErrPaymentDuplicate = errors.New("duplicate customer payment reference")
+
 	// ErrInvalidPaymentMethod is returned when payment method is invalid
 	ErrInvalidPaymentMethod = errors.New("invalid payment method")
 

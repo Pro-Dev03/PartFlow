@@ -101,7 +101,7 @@ export function CustomerList({
                   </TableCell>
                   <TableCell className="text-end">
                     <div className="flex items-center justify-end gap-1">
-                      <Button type="button" variant="primary" size="sm" onClick={(event) => { event.stopPropagation(); onViewCustomer(customer); }} className="h-8 px-2.5 text-[11px]" aria-label="عرض العميل" title="عرض العميل">
+                      <Button type="button" variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); onViewCustomer(customer); }} aria-label={`عرض العميل ${customer.name || ''}`} title="عرض العميل">
                         <Eye className="h-3.5 w-3.5" />
                       </Button>
                       <ActionMenu

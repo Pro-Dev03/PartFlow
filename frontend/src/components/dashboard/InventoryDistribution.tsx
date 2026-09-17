@@ -6,7 +6,7 @@ interface CategoryItem {
   value: number;
   taxInclusiveValue?: number;
   color: string;
-  status?: 'good' | 'low' | 'critical';
+  status?: 'good' | 'low' | 'attention' | 'critical' | 'neutral';
 }
 
 interface InventoryDistributionProps {
@@ -28,15 +28,20 @@ export function InventoryDistribution({
       case 'good': return 'var(--color-success)';
       case 'low': return 'var(--color-warning)';
       case 'critical': return 'var(--color-danger)';
+      case 'attention': return 'var(--color-warning)';
+      case 'neutral': return 'var(--text-secondary)';
       default: return 'var(--text-muted)';
     }
   };
 
-  const getStatusText = (status?: string) => {
+  const getStatusText = (status?: string, itemName?: string) => {
     switch (status) {
-      case 'good': return 'جيد';
+      case 'good': return 'متوفر';
       case 'low': return 'منخفض';
-      case 'critical': return 'حرج';
+      case 'critical': return 'يحتاج إجراء';
+      case 'attention': return 'يحتاج مراجعة';
+      case 'neutral':
+        return itemName?.includes('ملغى') ? 'ملغى' : 'تم البيع';
       default: return '—';
     }
   };
@@ -46,6 +51,8 @@ export function InventoryDistribution({
       case 'good': return TrendingUp;
       case 'low': return AlertTriangle;
       case 'critical': return AlertTriangle;
+      case 'attention': return AlertTriangle;
+      case 'neutral': return Package;
       default: return Package;
     }
   };
@@ -135,7 +142,7 @@ export function InventoryDistribution({
                           fontWeight: '500',
                           color: statusColor 
                         }}>
-                          {getStatusText(item.status)}
+                          {getStatusText(item.status, item.name)}
                         </span>
                       </div>
                     </div>

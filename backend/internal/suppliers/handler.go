@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/dashboard"
 	"github.com/partflow/smart-store/pkg/response"
 )
 
@@ -181,6 +182,7 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to add payment", err.Error())
 		return
 	}
+	dashboard.InvalidateDashboardCache()
 
 	response.Success(c, http.StatusCreated, payment, "Payment added successfully")
 }

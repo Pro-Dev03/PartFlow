@@ -29,6 +29,13 @@ export interface DebtStats {
   customerCount: number;
 }
 
+export interface DebtSummaryResponse {
+  total_debt: number;
+  paid_amount: number;
+  remaining_amount: number;
+  customer_count: number;
+}
+
 export interface DebtAging {
   status: 'PAID' | 'DUE_SOON' | 'CURRENT' | 'OVERDUE_1_7' | 'OVERDUE_8_14' | 'OVERDUE_15_30' | 'OVERDUE_30_PLUS';
   daysOverdue?: number;

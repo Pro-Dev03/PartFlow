@@ -70,13 +70,13 @@ func TestListProducts_LowStockFilterUsesInventoryItems(t *testing.T) {
 			id, sku, name, description, category_id, brand_id, preferred_supplier_id,
 			model, barcode, cost_price, selling_price, track_serial, track_individual,
 			min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?)
-	`, productID, "SKU-LOW-1", "Low Stock Product", "Test", nil, nil, nil, "Model A", "BAR-LOW-1", 10.0, 25.0, 0, 0, 3, 0, now, now)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+	`, productID, "SKU-LOW-1", "Low Stock Product", "Test", nil, nil, nil, "Model A", "BAR-LOW-1", 10.0, 25.0, 0, 0, 3, 0, now, now, now)
 	if err != nil {
 		t.Fatalf("insert product: %v", err)
 	}
 
-	_, err = db.Exec(`INSERT INTO inventory_items (id, product_id, item_code, barcode, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, uuid.NewString(), productID, "ITEM-LOW-1", "BAR-LOW-1", "AVAILABLE", now, now)
+	_, err = db.Exec(`INSERT INTO inventory_items (id, product_id, item_code, barcode, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, uuid.NewString(), productID, "ITEM-LOW-1", "BAR-LOW-1", "available", now, now)
 	if err != nil {
 		t.Fatalf("insert inventory item: %v", err)
 	}
@@ -94,5 +94,50 @@ func TestListProducts_LowStockFilterUsesInventoryItems(t *testing.T) {
 	}
 	if products[0].Name != "Low Stock Product" {
 		t.Fatalf("unexpected product name: %s", products[0].Name)
+	}
+}
+
+func TestCreateCategory_SqliteReturningTimestamps(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE categories (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT,
+			parent_id TEXT,
+			icon TEXT,
+			color TEXT,
+			is_active INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+	`)
+	if err != nil {
+		t.Fatalf("create categories table: %v", err)
+	}
+
+	repo := NewRepository(db)
+	category := &Category{
+		Name:        "Electronics",
+		Description: "Test category",
+		IsActive:    true,
+	}
+
+	if err := repo.CreateCategory(context.Background(), category); err != nil {
+		t.Fatalf("CreateCategory returned error for SQLite: %v", err)
+	}
+	if category.ID == uuid.Nil {
+		t.Fatal("expected category id to be populated")
+	}
+	if category.CreatedAt.IsZero() {
+		t.Fatal("expected created_at to be populated")
+	}
+	if category.UpdatedAt.IsZero() {
+		t.Fatal("expected updated_at to be populated")
 	}
 }
