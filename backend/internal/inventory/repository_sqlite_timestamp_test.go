@@ -20,7 +20,8 @@ func TestRepositoryListInventoryItemsHandlesSQLiteTextTimestamps(t *testing.T) {
 	_, err = db.Exec(`
 		CREATE TABLE products (
 			id TEXT PRIMARY KEY,
-			name TEXT NOT NULL
+			name TEXT NOT NULL,
+			deleted_at TEXT
 		);
 
 		CREATE TABLE inventory_items (

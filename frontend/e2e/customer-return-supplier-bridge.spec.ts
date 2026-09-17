@@ -14,7 +14,34 @@ test.describe('Customer Return -> Supplier Return bridge', () => {
     await page.fill('input[type="email"]', process.env.E2E_EMAIL ?? '');
     await page.fill('input[type="password"]', process.env.E2E_PASSWORD ?? '');
     await page.click('button[type="submit"]');
-    await page.waitForURL('**/app', { timeout: 15_000 });
+    try {
+      await page.waitForURL('**/app', { timeout: 8_000 });
+      return;
+    } catch {
+      await page.evaluate(async ({ email, password }) => {
+        const cloudResponse = await fetch('https://partflow-api.onrender.com/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const cloudPayload = await cloudResponse.json();
+        if (!cloudResponse.ok) throw new Error(`cloud login failed: ${cloudResponse.status}`);
+        const cloudToken = cloudPayload.data?.access_token || cloudPayload.access_token;
+        const localResponse = await fetch(`${window.location.protocol}//${window.location.hostname}:8080/api/v1/auth/cloud-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cloud_token: cloudToken }),
+        });
+        const localPayload = await localResponse.json();
+        if (!localResponse.ok) throw new Error(`local cloud session failed: ${localResponse.status}`);
+        const localToken = localPayload.data?.access_token || localPayload.data?.token || localPayload.access_token || localPayload.token;
+        localStorage.setItem('cloud_token', cloudToken);
+        localStorage.setItem('auth_token', localToken);
+        if (cloudPayload.data?.refresh_token || cloudPayload.refresh_token) localStorage.setItem('cloud_refresh_token', cloudPayload.data?.refresh_token || cloudPayload.refresh_token);
+      }, { email: process.env.E2E_EMAIL ?? '', password: process.env.E2E_PASSWORD ?? '' });
+      await page.goto('/app');
+      await page.waitForURL('**/app', { timeout: 15_000 });
+    }
   }
 
   async function api<T = any>(page: Page, method: string, path: string, body?: unknown): Promise<T> {

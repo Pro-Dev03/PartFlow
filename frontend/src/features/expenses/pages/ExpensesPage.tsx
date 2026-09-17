@@ -15,6 +15,7 @@ import { Badge } from '../../../components/ui/badge';
 import { EmptyState } from '../../../components/ui/empty-state';
 import { Modal } from '../../../components/ui/modal';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
+import { ReportActions } from '../../../components/ui/report-actions';
 import { 
   DollarSign, 
   Search, 
@@ -24,8 +25,6 @@ import {
   Trash2,
   CheckCircle2,
   Calendar,
-  Download,
-  Printer,
   ReceiptText,
   Inbox
 } from 'lucide-react';
@@ -229,24 +228,33 @@ export function ExpensesPage() {
     return cat?.name || category;
   };
 
-  const handleExport = () => {
-    const dataToExport = filteredExpenses.map((expense: any) => ({
+  const getExpenseReportRows = (expenseRows: any[]) => expenseRows.map((expense: any) => ({
       'التاريخ': expense.date,
       'الوصف': expense.description,
       'الفئة': getCategoryLabel(expense.category),
       'المبلغ': expense.amount
     }));
-    exportToCSV(dataToExport, `expenses-${new Date().toISOString().split('T')[0]}`);
+
+  const handleExport = () => {
+    exportToCSV(getExpenseReportRows(filteredExpenses), `expenses-${new Date().toISOString().split('T')[0]}`);
   };
 
   const handlePrint = () => {
-    const dataToPrint = filteredExpenses.map((expense: any) => ({
-      'التاريخ': expense.date,
-      'الوصف': expense.description,
-      'الفئة': getCategoryLabel(expense.category),
-      'المبلغ': expense.amount
-    }));
-    printTable(dataToPrint, ['التاريخ', 'الوصف', 'الفئة', 'المبلغ'], 'تقرير المصروفات');
+    printTable(getExpenseReportRows(filteredExpenses), ['التاريخ', 'الوصف', 'الفئة', 'المبلغ'], 'تقرير المصروفات');
+  };
+
+  const loadAllExpenses = async () => {
+    const response = await expensesApi.list({ page: 1, per_page: 1000, ...(searchQuery ? { search: searchQuery } : {}) });
+    const allExpenses = (((response as any)?.data ?? []) as any[]).map(normalizeExpenseForDisplay);
+    return allExpenses.filter((expense) => !categoryFilter || expense.category_id === categoryFilter || expense.category === categoryFilter);
+  };
+
+  const handleExportAll = async () => {
+    exportToCSV(getExpenseReportRows(await loadAllExpenses()), `expenses-all-${new Date().toISOString().split('T')[0]}`);
+  };
+
+  const handlePrintAll = async () => {
+    printTable(getExpenseReportRows(await loadAllExpenses()), ['التاريخ', 'الوصف', 'الفئة', 'المبلغ'], 'تقرير كل المصروفات');
   };
 
   const handleEdit = (expense: any) => {
@@ -283,14 +291,7 @@ export function ExpensesPage() {
               <Plus className="w-4 h-4" />
               {t('expenses.addExpense')}
             </Button>
-            <Button variant="secondary" onClick={handleExport} className="gap-2">
-              <Download className="w-4 h-4" />
-              تصدير
-            </Button>
-            <Button variant="secondary" onClick={handlePrint} className="gap-2">
-              <Printer className="w-4 h-4" />
-              طباعة
-            </Button>
+            <ReportActions onExportCurrent={handleExport} onPrintCurrent={handlePrint} onExportAll={() => { void handleExportAll(); }} onPrintAll={() => { void handlePrintAll(); }} />
           </div>
         }
       />

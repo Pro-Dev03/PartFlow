@@ -13,6 +13,82 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestReceivePurchaseUsesUniqueSerialNumbersForDuplicateInputOnSQLite(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "purchase-serial-duplicate.sqlite")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	statements := []string{
+		`CREATE TABLE suppliers (id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT)`,
+		`CREATE TABLE users (id TEXT PRIMARY KEY)`,
+		`CREATE TABLE products (id TEXT PRIMARY KEY, selling_price REAL DEFAULT 0)`,
+		`CREATE TABLE purchases (id TEXT PRIMARY KEY, purchase_number TEXT NOT NULL UNIQUE, supplier_id TEXT, tax_amount REAL DEFAULT 0, total_amount REAL NOT NULL, paid_amount REAL DEFAULT 0, remaining_amount REAL DEFAULT 0, status TEXT NOT NULL, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE purchase_items (id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL, product_id TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price REAL NOT NULL, item_total REAL NOT NULL, serial_number TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT, category_id TEXT, item_code TEXT UNIQUE, barcode TEXT UNIQUE, serial_number TEXT UNIQUE, condition TEXT, grade TEXT, purchase_cost REAL, selling_price REAL, status TEXT, supplier_id TEXT, purchase_date TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE supplier_returns (id TEXT PRIMARY KEY, purchase_id TEXT, purchase_item_id TEXT, return_number TEXT UNIQUE, supplier_id TEXT, status TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE supplier_return_items (id TEXT PRIMARY KEY, supplier_return_id TEXT NOT NULL, purchase_item_id TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price REAL NOT NULL, total_amount REAL NOT NULL, created_at TEXT NOT NULL)`,
+	}
+	xdb := sqlx.NewDb(db, "sqlite")
+	for _, statement := range statements {
+		if _, err := xdb.Exec(statement); err != nil {
+			t.Fatalf("create test table: %v", err)
+		}
+	}
+
+	supplierID := uuid.New()
+	productID := uuid.New()
+	userID := uuid.New()
+	purchaseID := uuid.New()
+	now := time.Now()
+
+	if _, err := xdb.Exec(`INSERT INTO suppliers (id, name, phone) VALUES (?, ?, ?)`, supplierID, "Supplier", "000"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO users (id) VALUES (?)`, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO products (id, selling_price) VALUES (?, ?)`, productID, 50.0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO purchases (id, purchase_number, supplier_id, tax_amount, total_amount, paid_amount, remaining_amount, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, purchaseID, "INV-serial-duplicate", supplierID, 0.0, 100.0, 100.0, 0.0, "pending", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO purchase_items (id, purchase_id, product_id, quantity, unit_price, item_total, serial_number, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, uuid.New(), purchaseID, productID, 2, 50.0, 100.0, "SN-DUPLICATE", now); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(NewRepository(xdb), xdb)
+	purchase, err := service.ReceivePurchase(context.Background(), purchaseID, userID)
+	if err != nil {
+		t.Fatalf("ReceivePurchase should create unique serials when the input serial is reused across a multi-quantity item: %v", err)
+	}
+	if purchase.Purchase.Status != "received" {
+		t.Fatalf("expected purchase status to become received, got %s", purchase.Purchase.Status)
+	}
+
+	var count int
+	if err := xdb.Get(&count, `SELECT COUNT(*) FROM inventory_items WHERE product_id = ?`, productID); err != nil {
+		t.Fatalf("count inventory items: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 inventory rows created, got %d", count)
+	}
+
+	var serials []string
+	if err := xdb.Select(&serials, `SELECT serial_number FROM inventory_items WHERE product_id = ? ORDER BY created_at`, productID); err != nil {
+		t.Fatalf("read serial numbers: %v", err)
+	}
+	if len(serials) != 2 {
+		t.Fatalf("expected 2 serial numbers, got %d", len(serials))
+	}
+	if serials[0] == serials[1] {
+		t.Fatalf("expected unique serial numbers after receive, got duplicate values: %v", serials)
+	}
+}
+
 func TestReceivePurchaseSkipsDuplicateInventoryItemsOnSQLite(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "purchase-receive.sqlite")
 	db, err := sql.Open("sqlite", dbPath)
@@ -114,6 +190,9 @@ func TestListSummariesHandlesNullPurchaseDateOnSQLite(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO purchases (id, purchase_number, supplier_id, purchase_date, total_amount, paid_amount, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, purchaseID, "INV-NULL-DATE", supplierID, nil, 100.0, 0.0, "received", nil, nil); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO purchase_items (id, purchase_id, product_id, quantity, unit_price, item_total, serial_number, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, uuid.New(), purchaseID, uuid.New(), 10, 10.0, 100.0, nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 
 	xdb := sqlx.NewDb(db, "sqlite")
 	repo := NewRepository(xdb)
@@ -126,6 +205,9 @@ func TestListSummariesHandlesNullPurchaseDateOnSQLite(t *testing.T) {
 	}
 	if items[0].PurchaseDate.IsZero() {
 		t.Fatalf("expected a non-zero purchase date fallback when the DB value is NULL")
+	}
+	if items[0].TotalItems != 10 {
+		t.Fatalf("expected total item quantity 10, got %d", items[0].TotalItems)
 	}
 }
 
@@ -383,10 +465,6 @@ func TestPurchaseLifecycleSupplierBalanceAndReturnLedgerSQLite(t *testing.T) {
 	}
 	if balance != 150 {
 		t.Fatalf("supplier balance after payment = %v, want 150", balance)
-	}
-
-	if _, err := xdb.Exec(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, uuid.New(), productID, 3, now.Format(time.RFC3339), now.Format(time.RFC3339)); err != nil {
-		t.Fatal(err)
 	}
 
 	var purchaseItemID string

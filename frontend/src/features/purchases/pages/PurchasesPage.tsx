@@ -10,13 +10,12 @@ import { Badge } from '../../../components/ui/badge';
 import { EmptyState } from '../../../components/ui/empty-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
+import { ReportActions } from '../../../components/ui/report-actions';
 import { getButtonSize } from '../../../config/button-sizes';
 import {
   Plus,
   ShoppingCart,
   Eye,
-  Download,
-  Printer,
   Check,
   Edit,
   Trash2,
@@ -72,9 +71,11 @@ export function PurchasesPage() {
   const [purchaseToReceive, setPurchaseToReceive] = useState<string | null>(null);
   const [purchaseToPay, setPurchaseToPay] = useState<any | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [purchaseToDelete, setPurchaseToDelete] = useState<string | null>(null);
   const [purchaseToReverse, setPurchaseToReverse] = useState<string | null>(null);
   const [reversalReason, setReversalReason] = useState('');
   const [purchaseToView, setPurchaseToView] = useState<string | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<any | null>(null);
   const { data: purchaseDetailsData, isLoading: purchaseDetailsLoading } = useQuery({
     queryKey: ['purchase', purchaseToView],
     queryFn: () => purchasesApi.get(purchaseToView || ''),
@@ -101,11 +102,24 @@ export function PurchasesPage() {
       purchasesApi.addPayment(id, { amount, paymentMethod: 'cash' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setPurchaseToPay(null);
       setPaymentAmount('');
       toast.success('تم تسجيل دفعة الشراء وتحديث الرصيد');
     },
     onError: () => toast.error('تعذر تسجيل دفعة الشراء'),
+  });
+  const deleteItemMutation = useMutation({
+    mutationFn: (itemId: string) => purchasesApi.deleteItem(itemId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      if (purchaseToView) {
+        queryClient.invalidateQueries({ queryKey: ['purchase', purchaseToView] });
+      }
+      setItemToDelete(null);
+      toast.success('تم حذف قطعة الشراء');
+    },
+    onError: () => toast.error('تعذر حذف قطعة الشراء'),
   });
 
   // Handle receive purchase
@@ -114,25 +128,31 @@ export function PurchasesPage() {
   };
 
   // Handle delete purchase with SmartDelete (ARCHITECTURE-PRINCIPLES.md)
-  const handleDeletePurchase = async (purchaseId: string) => {
+  const handleDeletePurchase = (purchaseId: string) => {
+    setPurchaseToDelete(purchaseId);
+  };
+
+  const confirmDeletePurchase = async () => {
+    if (!purchaseToDelete) return;
+
     await handleSmartDelete(
       async () => {
-        const result = await deletePurchaseMutation.mutateAsync(purchaseId);
+        const result = await deletePurchaseMutation.mutateAsync(purchaseToDelete);
         return result;
       },
       {
-        confirmationMessage: 'هل أنت متأكد من حذف هذا الشراء؟',
-        showConfirmationDialog: async (message) => window.confirm(message),
+        showConfirmation: false,
         onSuccess: (result) => {
-          // Refresh the list or navigate
           console.log('Delete successful:', result);
+          setPurchaseToDelete(null);
         },
         onBlocked: (result) => {
           console.log('Delete blocked:', result);
-          // Could show a modal with details here
+          setPurchaseToDelete(null);
         },
         onError: (error) => {
           console.error('Delete error:', error);
+          setPurchaseToDelete(null);
         }
       }
     );
@@ -158,26 +178,40 @@ export function PurchasesPage() {
     return variants[status] || { label: status, variant: 'default' };
   };
 
-  const handleExport = () => {
-    const dataToExport = purchases.map((purchase: Purchase) => ({
+  const getPurchaseReportRows = (purchaseRows: Purchase[]) => purchaseRows.map((purchase: Purchase) => ({
       'التاريخ': purchase.purchase_date,
       'المورد': purchase.supplier?.name || purchase.supplier_name,
       'الحالة': getStatusBadge(purchase.status).label,
       'الضريبة': Number(purchase.tax_amount || 0),
       'التكلفة': purchase.total_amount
     }));
-    exportToCSV(dataToExport, `purchases-${new Date().toISOString().split('T')[0]}`);
+
+  const handleExport = () => {
+    exportToCSV(getPurchaseReportRows(filteredPurchases), `purchases-${new Date().toISOString().split('T')[0]}`);
   };
 
   const handlePrint = () => {
-    const dataToPrint = purchases.map((purchase: Purchase) => ({
-      'التاريخ': purchase.purchase_date,
-      'المورد': purchase.supplier?.name || purchase.supplier_name,
-      'الحالة': getStatusBadge(purchase.status).label,
-      'الضريبة': Number(purchase.tax_amount || 0),
-      'التكلفة': purchase.total_amount
-    }));
-    printTable(dataToPrint, ['التاريخ', 'المورد', 'الحالة', 'التكلفة'], 'تقرير المشتريات');
+    printTable(getPurchaseReportRows(filteredPurchases), ['التاريخ', 'المورد', 'الحالة', 'التكلفة'], 'تقرير المشتريات');
+  };
+
+  const loadAllPurchases = async () => {
+    const response = await purchasesApi.list({ page: 1, per_page: 1000, ...(searchQuery ? { search: searchQuery } : {}) });
+    const allPurchases = (((response as any)?.data ?? []) as Purchase[]);
+    return allPurchases.filter((purchase: any) => {
+      const isArchived = purchase.status === 'reversed' || purchase.status === 'cancelled';
+      const isReceived = purchase.status === 'received' || purchase.status === 'completed';
+      const matchesView = Boolean(statusFilter) || viewFilter === 'all' || (viewFilter === 'archived' && isArchived) || (viewFilter === 'received' && isReceived) || (viewFilter === 'active' && !isArchived && !isReceived);
+      const normalizedStatus = purchase.status === 'completed' ? 'received' : purchase.status;
+      return matchesView && (!statusFilter || normalizedStatus === statusFilter);
+    });
+  };
+
+  const handleExportAll = async () => {
+    exportToCSV(getPurchaseReportRows(await loadAllPurchases()), `purchases-all-${new Date().toISOString().split('T')[0]}`);
+  };
+
+  const handlePrintAll = async () => {
+    printTable(getPurchaseReportRows(await loadAllPurchases()), ['التاريخ', 'المورد', 'الحالة', 'التكلفة'], 'تقرير كل المشتريات');
   };
 
   return (
@@ -193,14 +227,7 @@ export function PurchasesPage() {
               <Plus className="w-4 h-4" />
               {t('purchases.newPurchase')}
             </Button>
-            <Button variant="secondary" size={getButtonSize('customers', 'headerActions')} onClick={handleExport} className="gap-2">
-              <Download className="w-4 h-4" />
-              تصدير
-            </Button>
-            <Button variant="secondary" size={getButtonSize('customers', 'headerActions')} onClick={handlePrint} className="gap-2">
-              <Printer className="w-4 h-4" />
-              طباعة
-            </Button>
+            <ReportActions onExportCurrent={handleExport} onPrintCurrent={handlePrint} onExportAll={() => { void handleExportAll(); }} onPrintAll={() => { void handlePrintAll(); }} />
           </div>
         }
       />
@@ -300,7 +327,7 @@ export function PurchasesPage() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="font-semibold text-[var(--text-secondary)]">{purchase.total_items || purchase.items?.length || 0} قطع</TableCell>
+                      <TableCell className="font-semibold text-[var(--text-secondary)]">{purchase.total_items || purchase.items?.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0) || 0} قطع</TableCell>
                       <TableCell className="text-center">
                         {Number(purchase.tax_amount || 0) > 0 ? `₪${Number(purchase.tax_amount).toLocaleString()}` : <Badge variant="outline" size="sm">بدون ضريبة</Badge>}
                       </TableCell>
@@ -326,11 +353,9 @@ export function PurchasesPage() {
                               <Button variant="ghost" size="icon" onClick={() => navigate(`/app/purchases/edit/${purchase.id}`)} className="text-text-secondary hover:text-text-primary" title="تعديل" aria-label="تعديل">
                                 <Edit className="h-4 w-4" />
                               </Button>
-                              {Number(purchase.paid_amount || 0) <= 0 && (
-                                <Button variant="ghost" size="icon" onClick={() => handleDeletePurchase(purchase.id)} className="text-danger hover:text-danger" title="حذف الطلب غير المدفوع" aria-label="حذف الطلب غير المدفوع">
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              )}
+                              <Button variant="ghost" size="icon" onClick={() => handleDeletePurchase(purchase.id)} className="text-danger hover:text-danger" title="حذف الطلب" aria-label="حذف الطلب">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
                             </>
                           )}
                           {normalizedStatus === 'received' && (
@@ -377,7 +402,7 @@ export function PurchasesPage() {
                     </div>
 
                     <div className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">القطع</span><span className="font-medium text-text-secondary">{purchase.total_items || purchase.items?.length || 0}</span></div>
+                      <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">القطع</span><span className="font-medium text-text-secondary">{purchase.total_items || purchase.items?.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0) || 0}</span></div>
                       <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">التكلفة</span><span className="font-semibold text-text-primary">₪{purchase.total_amount?.toLocaleString()}</span></div>
                       <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">المتبقي</span><span className="font-semibold text-text-secondary">₪{purchase.remaining?.toLocaleString()}</span></div>
                     </div>
@@ -393,7 +418,7 @@ export function PurchasesPage() {
                           <Check className="h-4 w-4" />
                         </Button>
                       )}
-                      {(normalizedStatus === 'pending' || normalizedStatus === 'draft') && Number(purchase.paid_amount || 0) <= 0 && (
+                      {(normalizedStatus === 'pending' || normalizedStatus === 'draft') && (
                         <Button variant="ghost" size="icon" onClick={() => handleDeletePurchase(purchase.id)} className="text-danger hover:text-danger" title="حذف الطلب غير المدفوع" aria-label="حذف الطلب غير المدفوع">
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -414,6 +439,16 @@ export function PurchasesPage() {
           )}
         </div>
       </div>
+      <ConfirmDialog
+        isOpen={purchaseToDelete !== null}
+        onClose={() => setPurchaseToDelete(null)}
+        onConfirm={() => { void confirmDeletePurchase(); }}
+        title="حذف طلب الشراء"
+        message="سيتم حذف الطلب وجميع الدفعات والعناصر المرتبطة به. لا يمكن التراجع عن هذا الإجراء."
+        confirmText="حذف الطلب"
+        isLoading={deletePurchaseMutation.isPending}
+        variant="danger"
+      />
       <ConfirmDialog
         isOpen={purchaseToReceive !== null}
         onClose={() => setPurchaseToReceive(null)}
@@ -460,7 +495,21 @@ export function PurchasesPage() {
                         التصنيف: {categories.find((category) => category.id === item.category_id)?.name || 'بدون تصنيف'}
                       </div>
                     </div>
-                    <span>{item.quantity} × ₪{Number(item.unit_cost || 0).toLocaleString('en-US')}</span>
+                    <div className="flex items-center gap-3">
+                      <span>{item.quantity} × ₪{Number(item.unit_cost || 0).toLocaleString('en-US')}</span>
+                      {['draft', 'pending'].includes(purchaseDetails.status) && item.id && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setItemToDelete(item)}
+                          className="text-danger hover:text-danger"
+                          title="حذف القطعة"
+                          aria-label={`حذف ${item.product_name || item.product?.name || 'القطعة'}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -470,6 +519,20 @@ export function PurchasesPage() {
           <div className="p-10 text-center text-red-500">تعذر تحميل تفاصيل الشراء</div>
         )}
       </Modal>
+      <ConfirmDialog
+        isOpen={itemToDelete !== null}
+        onClose={() => setItemToDelete(null)}
+        onConfirm={() => {
+          if (itemToDelete?.id) {
+            deleteItemMutation.mutate(itemToDelete.id);
+          }
+        }}
+        title="حذف قطعة الشراء"
+        message={`هل أنت متأكد من حذف ${itemToDelete?.product_name || itemToDelete?.product?.name || 'هذه القطعة'} من محتويات الشراء؟`}
+        confirmText="حذف القطعة"
+        isLoading={deleteItemMutation.isPending}
+        variant="danger"
+      />
       <ConfirmDialog
         isOpen={purchaseToReverse !== null}
         onClose={() => setPurchaseToReverse(null)}

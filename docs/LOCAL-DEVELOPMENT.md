@@ -13,8 +13,33 @@
 
 ```powershell
 Set-Location .\backend
-go run .\cmd\api
+$env:Path += ";$env:USERPROFILE\go\bin"
+air -c .air.toml
 ```
+
+يستخدم الخادم أداة `Air` لإعادة البناء والتشغيل تلقائيًا عند حفظ أي ملف Go. لا حاجة لإيقاف الخادم وتشغيله يدويًا بعد كل تعديل.
+
+### تثبيت Air على Windows
+
+نفّذ الأمر التالي مرة واحدة:
+
+```powershell
+go install github.com/air-verse/air@latest
+```
+
+إذا كانت أداة `air` مثبتة لكن غير معروفة في الطرفية، أضف مجلد أدوات Go إلى المسار:
+
+```powershell
+$env:Path += ";$env:USERPROFILE\go\bin"
+```
+
+يمكن أيضًا تشغيل Air من داخل `backend` عبر هدف Makefile:
+
+```powershell
+make dev
+```
+
+يتطلب ذلك توفر GNU Make. إعدادات المراقبة محفوظة في `backend/.air.toml`.
 
 يعمل الـ API على:
 

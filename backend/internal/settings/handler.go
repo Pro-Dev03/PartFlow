@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/secrets"
 )
@@ -31,7 +32,7 @@ type UpdateSettingRequest struct {
 	Value string `json:"value" binding:"required"`
 }
 
-var financialSettingMetadata = map[string]struct {
+var settingMetadata = map[string]struct {
 	defaultValue string
 	valueType    string
 	category     string
@@ -52,11 +53,11 @@ var financialSettingMetadata = map[string]struct {
 	"payment_provider":            {"manual", "string", "payments", "مزود الدفع الإلكتروني", false},
 	"payment_environment":         {"test", "string", "payments", "بيئة الدفع الإلكتروني", false},
 	"payment_public_key":          {"", "string", "payments", "المفتاح العام لمزود الدفع", false},
-	"payment_secret_key":          {"", "secret", "payments", "المفتاح السري لمزود الدفع", false},
+	"payment_secret_key":          {"", "string", "payments", "المفتاح السري لمزود الدفع", false},
 	"payment_merchant_id":         {"", "string", "payments", "معرف التاجر لدى مزود الدفع", false},
 	"payment_terminal_id":         {"", "string", "payments", "معرف جهاز الدفع", false},
 	"payment_webhook_url":         {"", "string", "payments", "عنوان Webhook للدفع", false},
-	"payment_webhook_secret":      {"", "secret", "payments", "سر توقيع Webhook", false},
+	"payment_webhook_secret":      {"", "string", "payments", "سر توقيع Webhook", false},
 	"payment_methods":             {"[\"card\"]", "json", "payments", "طرق الدفع الإلكتروني المفعلة", false},
 }
 
@@ -71,6 +72,7 @@ func redactSetting(setting *Setting) {
 }
 
 func NewHandler(db *sql.DB) *Handler {
+	ensureDefaultSettings(db)
 	var storeTimezone string
 	if err := db.QueryRow(`SELECT value FROM settings WHERE key = 'store_timezone'`).Scan(&storeTimezone); err == nil {
 		_ = accounting.ConfigureStoreTimezone(storeTimezone)
@@ -83,6 +85,24 @@ func NewHandler(db *sql.DB) *Handler {
 		}
 	}
 	return &Handler{db: db}
+}
+
+func ensureDefaultSettings(db *sql.DB) {
+	for key, metadata := range settingMetadata {
+		_, _ = insertSetting(db, key, metadata.defaultValue, metadata.valueType, metadata.category, metadata.description, metadata.isPublic, false)
+	}
+}
+
+func insertSetting(db *sql.DB, key, value, valueType, category, description string, isPublic, updateExisting bool) (sql.Result, error) {
+	conflictAction := "DO NOTHING"
+	if updateExisting {
+		conflictAction = "DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP"
+	}
+	return db.Exec(`
+		INSERT INTO settings (id, key, value, value_type, category, description, is_public, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (key) `+conflictAction,
+		uuid.NewString(), key, value, valueType, category, description, isPublic)
 }
 
 // GetPublicSettings returns all public settings
@@ -240,8 +260,8 @@ func (h *Handler) GetSetting(c *gin.Context) {
 	)
 
 	if err == sql.ErrNoRows {
-		if metadata, exists := financialSettingMetadata[key]; exists {
-			if _, insertErr := h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (key) DO NOTHING`, key, metadata.defaultValue, metadata.valueType, metadata.category, metadata.description, metadata.isPublic); insertErr == nil {
+		if metadata, exists := settingMetadata[key]; exists {
+			if _, insertErr := insertSetting(h.db, key, metadata.defaultValue, metadata.valueType, metadata.category, metadata.description, metadata.isPublic, false); insertErr == nil {
 				err = h.db.QueryRow(query, key).Scan(
 					&setting.Key, &setting.Value, &setting.ValueType, &setting.Category, &setting.Description, &setting.IsPublic,
 				)
@@ -314,12 +334,12 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
-		metadata, exists := financialSettingMetadata[key]
+		metadata, exists := settingMetadata[key]
 		if !exists {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Setting not found"})
 			return
 		}
-		_, err = h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`, key, storedValue, metadata.valueType, metadata.category, metadata.description, metadata.isPublic)
+		_, err = insertSetting(h.db, key, storedValue, metadata.valueType, metadata.category, metadata.description, metadata.isPublic, true)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create setting"})
 			return

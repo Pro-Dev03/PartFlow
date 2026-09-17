@@ -118,6 +118,7 @@ func createPurchase(ctx context.Context, executor sqlx.ExtContext, purchase *Pur
 
 func createPurchaseSQLite(ctx context.Context, executor sqlx.ExtContext, purchase *Purchase) error {
 	var hasTaxAmount bool
+	var hasPurchaseDate bool
 	if err := executor.QueryRowxContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('purchases') WHERE name = 'tax_amount')`).Scan(&hasTaxAmount); err == nil && !hasTaxAmount {
 		_, err := executor.ExecContext(ctx, `
 				INSERT INTO purchases (id, purchase_number, supplier_id, total_amount, paid_amount,
@@ -126,6 +127,18 @@ func createPurchaseSQLite(ctx context.Context, executor sqlx.ExtContext, purchas
 			`, purchase.ID, purchase.InvoiceNumber, purchase.SupplierID, purchase.TotalAmount,
 			purchase.PaidAmount, purchase.TotalAmount-purchase.PaidAmount, purchase.Status,
 			purchase.Notes, purchase.CreatedAt, purchase.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to create local purchase: %w", err)
+		}
+		return nil
+	}
+	if err := executor.QueryRowxContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('purchases') WHERE name = 'purchase_date')`).Scan(&hasPurchaseDate); err == nil && hasPurchaseDate {
+		_, err := executor.ExecContext(ctx, `
+			INSERT INTO purchases (id, purchase_number, supplier_id, purchase_date, tax_amount, total_amount, paid_amount,
+				remaining_amount, status, notes, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, purchase.ID, purchase.InvoiceNumber, purchase.SupplierID, purchase.PurchaseDate.Format(time.RFC3339), purchase.TaxAmount, purchase.TotalAmount,
+			purchase.PaidAmount, purchase.TotalAmount-purchase.PaidAmount, purchase.Status, purchase.Notes, purchase.CreatedAt.Format(time.RFC3339), purchase.UpdatedAt.Format(time.RFC3339))
 		if err != nil {
 			return fmt.Errorf("failed to create local purchase: %w", err)
 		}
@@ -334,7 +347,7 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 				              THEN p.total_amount - COALESCE((SELECT SUM(%s) FROM purchase_items WHERE purchase_id = p.id), p.total_amount)
 			            ELSE 0 END AS tax_amount,
 			       p.total_amount, p.paid_amount, p.total_amount - p.paid_amount AS remaining,
-			       p.status, COALESCE(s.name, '') AS supplier_name, COUNT(pi.id) AS total_items,
+			       p.status, COALESCE(s.name, '') AS supplier_name, COALESCE(SUM(pi.quantity), 0) AS total_items,
 				   COALESCE((SELECT SUM(CASE WHEN available_count - returned_count > 0 THEN available_count - returned_count ELSE 0 END) FROM (SELECT pi2.id,
 						(SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = pi2.product_id AND ii.item_code LIKE 'ITM-' || substr(replace(pi2.purchase_id, '-', ''), 1, 8) || '-%%' AND ii.status = 'AVAILABLE') AS available_count,
 						COALESCE((SELECT SUM(sri.quantity) FROM supplier_return_items sri JOIN supplier_returns sr ON sr.id = sri.supplier_return_id WHERE sri.purchase_item_id = pi2.id AND sr.status IN ('PENDING', 'SHIPPED', 'RECEIVED')), 0) AS returned_count
@@ -430,7 +443,7 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 			p.total_amount - p.paid_amount AS remaining,
 			p.status,
 			COALESCE(s.name, '') AS supplier_name,
-			COUNT(pi.id) AS total_items,
+			COALESCE(SUM(pi.quantity), 0) AS total_items,
 			COALESCE((SELECT SUM(GREATEST(0, available_count - returned_count)) FROM (SELECT pi2.id,
 					(SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = pi2.product_id AND ii.item_code LIKE 'ITM-' || substr(replace(pi2.purchase_id::text, '-', ''), 1, 8) || '-%%' AND ii.status = 'AVAILABLE') AS available_count,
 					COALESCE((SELECT SUM(sri.quantity) FROM supplier_return_items sri JOIN supplier_returns sr ON sr.id = sri.supplier_return_id WHERE sri.purchase_item_id = pi2.id AND sr.status IN ('PENDING', 'SHIPPED', 'RECEIVED')), 0) AS returned_count

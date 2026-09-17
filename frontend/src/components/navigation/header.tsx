@@ -108,7 +108,7 @@ export function Header({ onToggleSidebar }: HeaderProps) {
             <IconButton
               onClick={() => navigate('/app/inventory')}
               icon={<Plus style={{ width: '16px', height: '16px' }} />}
-              title={t('dashboard.addProduct')}
+              title="إضافة مخزون"
               variant="success"
             />
             <IconButton

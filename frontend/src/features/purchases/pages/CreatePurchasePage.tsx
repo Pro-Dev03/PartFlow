@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../../../components/ui/button';
@@ -26,6 +26,9 @@ import {
   Edit,
   ChevronLeft,
   ChevronRight,
+  ImagePlus,
+  Upload,
+  X,
 } from 'lucide-react';
 import { suppliersApi, productsApi, categoriesApi, purchasesApi } from '../../../services/api/endpoints';
 import { usePurchases } from '../hooks/usePurchases';
@@ -34,6 +37,7 @@ import { toast } from 'sonner';
 import { settingsApi } from '../../../services/api/endpoints';
 import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
 import { generateSku } from '../../../utils/sku';
+import { compressProductImage, getLocalProductImage, setLocalProductImage } from '../../../services/localProductImages';
 
 interface LineItem extends PurchaseItem {
   key: string;
@@ -49,6 +53,7 @@ export function CreatePurchasePage() {
   const [productPage, setProductPage] = useState(1);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [activeTab, setActiveTab] = useState<'scan' | 'manual'>('manual');
+  const [lastScannedProduct, setLastScannedProduct] = useState<string | null>(null);
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
   const [expectedDate, setExpectedDate] = useState('');
@@ -56,6 +61,9 @@ export function CreatePurchasePage() {
   const [receiveImmediately, setReceiveImmediately] = useState(false);
   const [initialPayment, setInitialPayment] = useState('');
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const quantityInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   
   // Manual product addition states
   const [isManualProductModalOpen, setIsManualProductModalOpen] = useState(false);
@@ -69,6 +77,7 @@ export function CreatePurchasePage() {
     min_stock: '',
     description: '',
   });
+  const [manualProductImage, setManualProductImage] = useState<string | null>(null);
   const { data: marginSetting } = useQuery({
     queryKey: ['settings', 'default_profit_margin'],
     queryFn: () => settingsApi.getSetting('default_profit_margin'),
@@ -111,6 +120,9 @@ export function CreatePurchasePage() {
     mutationFn: (data: any) => productsApi.create(data),
     onSuccess: (response) => {
       const newProduct = response.data;
+      if (manualProductImage && newProduct?.id) {
+        setLocalProductImage(newProduct.id, manualProductImage);
+      }
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       
@@ -140,7 +152,34 @@ export function CreatePurchasePage() {
         min_stock: '',
         description: '',
       });
+      setManualProductImage(null);
     },
+  });
+
+  const updateProductMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => productsApi.update(id, data),
+    onSuccess: (response) => {
+      const updatedProduct = response.data?.product || response.data;
+      if (updatedProduct?.id) {
+        setLocalProductImage(updatedProduct.id, manualProductImage);
+      }
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      setItems((prev) => prev.map((item) => item.product_id === updatedProduct.id
+        ? {
+            ...item,
+            product_name: updatedProduct.name,
+            unit_cost: Number(updatedProduct.cost_price) || 0,
+            selling_price: Number(updatedProduct.selling_price) || 0,
+            category_id: updatedProduct.category_id || '',
+          }
+        : item
+      ));
+      setEditingProductId(null);
+      setIsManualProductModalOpen(false);
+      toast.success('تم تحديث بيانات القطعة');
+    },
+    onError: () => toast.error('تعذر تحديث بيانات القطعة'),
   });
 
   const deleteProductMutation = useMutation({
@@ -201,8 +240,8 @@ export function CreatePurchasePage() {
     if (!barcodeInput.trim()) return;
 
     try {
-      const response = await productsApi.get(`/barcode/${barcodeInput.trim()}`);
-      const product = response.data;
+      const response = await productsApi.getByBarcode(barcodeInput);
+      const product = response.data?.product || response.data;
 
       setItems((prev) => {
         const existingIndex = prev.findIndex((item) => item.product_id === product.id);
@@ -227,11 +266,15 @@ export function CreatePurchasePage() {
       });
 
       setBarcodeInput('');
+      const existingItem = items.find((item) => item.product_id === product.id);
+      setLastScannedProduct(`${product.name} - الكمية ${existingItem ? existingItem.quantity + 1 : 1}`);
+      requestAnimationFrame(() => barcodeInputRef.current?.focus());
     } catch (error) {
       console.error('Error scanning barcode:', error);
       toast.error('لم يتم العثور على منتج بهذا الباركود. يمكنك إنشاء قطعة جديدة.');
+      requestAnimationFrame(() => barcodeInputRef.current?.focus());
     }
-  }, [barcodeInput]);
+  }, [barcodeInput, items]);
 
   const handleManualAdd = useCallback((product: any) => {
     setItems((prev) => {
@@ -311,8 +354,12 @@ export function CreatePurchasePage() {
       description: manualProductData.description || undefined,
     };
 
-    createProductMutation.mutate(productData);
-  }, [manualProductData, createProductMutation]);
+    if (editingProductId) {
+      updateProductMutation.mutate({ id: editingProductId, data: productData });
+    } else {
+      createProductMutation.mutate(productData);
+    }
+  }, [manualProductData, editingProductId, createProductMutation, updateProductMutation]);
 
   const handleCostPriceChange = (costPrice: string) => {
     setManualProductData((current) => ({
@@ -396,6 +443,7 @@ export function CreatePurchasePage() {
               await receivePurchaseMutation.mutateAsync(purchaseId);
             }
             queryClient.invalidateQueries({ queryKey: ['purchases'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['inventory'] });
             queryClient.invalidateQueries({ queryKey: ['products'] });
             navigate('/app/purchases');
@@ -549,6 +597,8 @@ export function CreatePurchasePage() {
                   size="sm"
                   onClick={() => {
                     setManualProductData((current) => ({ ...current, sku: generateSku() }));
+                    setEditingProductId(null);
+                    setManualProductImage(null);
                     setIsManualProductModalOpen(true);
                   }}
                   className="w-full flex items-center gap-2"
@@ -572,6 +622,7 @@ export function CreatePurchasePage() {
                       onChange={(e) => setBarcodeInput(e.target.value)}
                       className="min-w-0 flex-1 bg-surface-elevated"
                       autoFocus
+                      ref={barcodeInputRef}
                       aria-label="الباركود أو الإدخال اليدوي"
                     />
                     <Button type="submit" variant="primary" className="pf-barcode-submit" aria-label="إضافة بالباركود">
@@ -579,6 +630,12 @@ export function CreatePurchasePage() {
                     </Button>
                   </form>
                   <p className="mt-2 text-xs text-text-muted">سيتم زيادة الكمية تلقائيًا عند مسح المنتج نفسه مرة أخرى.</p>
+                  {lastScannedProduct && (
+                    <div className="mt-3 flex items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-xs font-medium text-success" role="status">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      تمت الإضافة: {lastScannedProduct}
+                    </div>
+                  )}
                 </div>
               ) : (
                 /* Manual Tab */
@@ -619,7 +676,19 @@ export function CreatePurchasePage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
-                                  navigate(`/app/inventory`, { state: { editProduct: product } });
+                                  setEditingProductId(product.id);
+                                  setManualProductData({
+                                    name: product.name || '',
+                                    sku: product.sku || '',
+                                    barcode: product.barcode || '',
+                                    category_id: product.category_id || '',
+                                    cost_price: String(product.cost_price ?? ''),
+                                    selling_price: String(product.selling_price ?? ''),
+                                    min_stock: String(product.min_stock_level ?? 0),
+                                    description: product.description || '',
+                                  });
+                                  setManualProductImage(getLocalProductImage(product.id) || null);
+                                  setIsManualProductModalOpen(true);
                                 }}
                                 className="text-blue-600 hover:text-blue-700"
                               >
@@ -726,6 +795,7 @@ export function CreatePurchasePage() {
                           </td>
                           <td className="p-3">
                             <Input
+                              ref={(element) => { quantityInputRefs.current[item.key] = element; }}
                               type="number"
                               value={item.quantity}
                               onChange={(e) => handleUpdateQuantity(item.key, parseInt(e.target.value) || 0)}
@@ -762,10 +832,13 @@ export function CreatePurchasePage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
-                                  toast.info('تعديل العنصر - يمكنك تعديل الكمية والسعر مباشرة في الجدول');
+                                  const input = quantityInputRefs.current[item.key];
+                                  input?.focus();
+                                  input?.select();
                                 }}
                                 className="text-blue-600 hover:text-blue-700"
                                 title="تعديل العنصر"
+                                aria-label={`تعديل ${item.product_name}`}
                               >
                                 <Edit className="w-4 h-4" />
                               </Button>
@@ -959,8 +1032,8 @@ export function CreatePurchasePage() {
       {/* Manual Product Creation Modal */}
       <Modal
         isOpen={isManualProductModalOpen}
-        onClose={() => setIsManualProductModalOpen(false)}
-        title="إضافة قطعة جديدة"
+        onClose={() => { setIsManualProductModalOpen(false); setEditingProductId(null); }}
+        title={editingProductId ? 'تعديل بيانات القطعة' : 'إضافة قطعة جديدة'}
         variant="modern"
         size="lg"
       >
@@ -1086,6 +1159,79 @@ export function CreatePurchasePage() {
             </div>
           </div>
 
+          <div style={{ marginBottom: '20px', paddingBottom: '20px', borderBottom: '1px solid var(--border-subtle)' }}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <label className="block text-sm font-semibold text-text-primary">صورة المنتج</label>
+                <p className="mt-1 text-xs text-text-muted">أضف صورة تساعدك على تمييز الماركة بسرعة</p>
+              </div>
+              <span className="rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] font-semibold text-primary">
+                اختياري
+              </span>
+            </div>
+
+            <div className="relative overflow-hidden rounded-2xl border border-border bg-surface-elevated p-2 shadow-sm">
+              {manualProductImage ? (
+                <div className="relative flex min-h-44 items-center justify-center overflow-hidden rounded-xl bg-surface">
+                  <img
+                    src={manualProductImage}
+                    alt="معاينة صورة المنتج"
+                    className="h-44 w-full object-contain"
+                  />
+                  <div className="absolute inset-x-3 bottom-3 flex items-center justify-between rounded-xl border border-white/20 bg-black/60 px-3 py-2 text-white backdrop-blur-sm">
+                    <span className="flex items-center gap-2 text-xs font-medium">
+                      <ImagePlus className="h-4 w-4" />
+                      صورة جاهزة للحفظ
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setManualProductImage(null)}
+                      className="h-8 w-8 text-white hover:bg-white/15 hover:text-white"
+                      aria-label="حذف صورة المنتج"
+                      title="حذف الصورة"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <label
+                  htmlFor="product-image-upload"
+                  className="group flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-primary/25 bg-primary/[0.03] px-6 text-center transition-colors hover:border-primary/50 hover:bg-primary/[0.07]"
+                >
+                  <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary transition-transform group-hover:scale-105">
+                    <Upload className="h-6 w-6" />
+                  </span>
+                  <span className="text-sm font-semibold text-text-primary">ارفع صورة المنتج</span>
+                  <span className="mt-1 text-xs text-text-muted">JPG أو PNG أو WebP</span>
+                  <span className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-text-secondary shadow-sm">
+                    <ImagePlus className="h-3.5 w-3.5" />
+                    اختيار صورة
+                  </span>
+                </label>
+              )}
+              <Input
+                id="product-image-upload"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    setManualProductImage(await compressProductImage(file));
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : 'تعذر تجهيز الصورة');
+                  }
+                  event.target.value = '';
+                }}
+                aria-label="رفع صورة المنتج"
+              />
+            </div>
+          </div>
+
           {/* Pricing Information */}
           <div style={{ 
             marginBottom: '20px',
@@ -1181,9 +1327,12 @@ export function CreatePurchasePage() {
                 </label>
                 <Input
                   type="number"
+                  min="0"
+                  step="1"
                   value={manualProductData.min_stock}
                   onChange={(e) => setManualProductData({ ...manualProductData, min_stock: e.target.value })}
                   placeholder="0"
+                  aria-label="الحد الأدنى للمخزون"
                 />
               </div>
             </div>
@@ -1247,26 +1396,26 @@ export function CreatePurchasePage() {
           <div className="flex gap-3 justify-end pt-4">
             <Button
               variant="secondary"
-              onClick={() => setIsManualProductModalOpen(false)}
-              disabled={createProductMutation.isPending}
+              onClick={() => { setIsManualProductModalOpen(false); setEditingProductId(null); }}
+              disabled={createProductMutation.isPending || updateProductMutation.isPending}
             >
               إلغاء
             </Button>
             <Button
               variant="primary"
               onClick={handleManualProductCreate}
-              disabled={createProductMutation.isPending}
+              disabled={createProductMutation.isPending || updateProductMutation.isPending}
               className="gap-2"
             >
-              {createProductMutation.isPending ? (
+              {createProductMutation.isPending || updateProductMutation.isPending ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                  جاري الإضافة...
+                  {editingProductId ? 'جاري الحفظ...' : 'جاري الإضافة...'}
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  إضافة للشراء والمخزون
+                  {editingProductId ? 'حفظ التعديلات' : 'إضافة للشراء والمخزون'}
                 </>
               )}
             </Button>

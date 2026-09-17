@@ -6,11 +6,10 @@ import { Button } from '../../../components/ui/button';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Badge } from '../../../components/ui/badge';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
+import { ReportActions } from '../../../components/ui/report-actions';
 import { getButtonSize } from '../../../config/button-sizes';
 import {
   BarChart3,
-  Download,
-  Printer,
   Sparkles,
   Target,
   Zap,
@@ -32,7 +31,7 @@ import { formatStoreDate } from '../../../utils/store-time';
 
 function getDisplayValue(item: Record<string, unknown>): unknown {
   return item.value ?? item.amount ?? item.total_amount ?? item.revenue ?? item.net_revenue ?? item.cost ??
-    item.total_cost ?? item.refund_amount ?? item.profit ?? item.net_profit ?? item.gross_revenue ??
+    item.total_cost ?? item.total_purchases ?? item.refund_amount ?? item.profit ?? item.net_profit ?? item.gross_revenue ??
     item.total_debt ?? item.outstanding ?? item.overdue_amount ?? item.paid_amount ?? item.balance ?? 0;
 }
 
@@ -42,8 +41,8 @@ function getReportDisplayValue(item: Record<string, unknown>, reportType: string
 }
 
 function getReportRowDescription(item: Record<string, unknown>): string {
-  if (item.description || item.name || item.product_name || item.customer_name || item.category_name || item.key) {
-    return String(item.description || item.name || item.product_name || item.customer_name || item.category_name || item.key);
+  if (item.description || item.name || item.product_name || item.customer_name || item.supplier_name || item.category_name || item.key) {
+    return String(item.description || item.name || item.product_name || item.customer_name || item.supplier_name || item.category_name || item.key);
   }
   if (item.sales !== undefined) return `${Number(item.sales)} عملية بيع`;
   if (item.net_profit !== undefined) return 'صافي ربح الفترة';
@@ -79,6 +78,13 @@ function getReportRows(payload: unknown, reportType?: string): Record<string, un
     const expenseRows = (payload as { top_expenses?: unknown }).top_expenses;
     if (Array.isArray(expenseRows)) {
       return expenseRows.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object');
+    }
+  }
+
+  if (reportType === 'suppliers') {
+    const supplierRows = (payload as { by_supplier?: unknown }).by_supplier;
+    if (Array.isArray(supplierRows)) {
+      return supplierRows.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object');
     }
   }
 
@@ -210,14 +216,13 @@ export function ReportsPage() {
         description="تحليلات وتقارير شاملة عن أداء المحل مع رؤى ذكية"
         actions={
           <div className="report-page-actions">
-            <Button variant="secondary" size={getButtonSize('reports', 'headerActions')} onClick={handleExport} disabled={!reportData?.data && !reportData}>
-              <Download className="w-4 h-4 mr-2" />
-              {t('reports.export')}
-            </Button>
-            <Button variant="secondary" size={getButtonSize('reports', 'headerActions')} onClick={handlePrint} disabled={!reportData?.data && !reportData}>
-              <Printer className="w-4 h-4 mr-2" />
-              {t('reports.print')}
-            </Button>
+            <ReportActions
+              onExportCurrent={handleExport}
+              onPrintCurrent={handlePrint}
+              onExportAll={handleExport}
+              onPrintAll={handlePrint}
+              disabled={!reportData?.data && !reportData}
+            />
             <Button variant="secondary" size={getButtonSize('reports', 'headerActions')} onClick={() => refetch()}>
               <Zap className="w-4 h-4 mr-2" />
               تحديث
@@ -541,6 +546,33 @@ export function ReportsPage() {
                     </tr>
                   )) : (
                     <tr><td colSpan={3} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد مرتجعات مكتملة في الفترة المحددة</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : selectedReport === 'suppliers' && reportPayload && typeof reportPayload === 'object' ? (
+            <div className="horizontal-scroll">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المورد</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>إجمالي المشتريات</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المدفوع</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المستحق</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.isArray((reportPayload as Record<string, unknown>).by_supplier) && ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).length > 0 ? (
+                    ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).map((supplier, index) => (
+                      <tr key={String(supplier.supplier_id ?? index)} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(supplier.supplier_name ?? 'مورد غير معروف')}</td>
+                        <td style={{ padding: '12px', color: 'var(--color-primary)', fontSize: '13px', fontWeight: '600' }}>₪{Number(supplier.total_purchases ?? 0).toLocaleString()}</td>
+                        <td style={{ padding: '12px', color: 'var(--color-success)', fontSize: '13px' }}>₪{Number(supplier.total_paid ?? 0).toLocaleString()}</td>
+                        <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>₪{Number(supplier.outstanding ?? 0).toLocaleString()}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد مشتريات أو أرصدة موردين</td></tr>
                   )}
                 </tbody>
               </table>

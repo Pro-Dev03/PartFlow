@@ -12,9 +12,6 @@ const isDev = !app.isPackaged;
 // acceleration. Disabling it before the app is ready avoids a hard Electron
 // shutdown on Windows machines where the GPU process cannot load its driver
 // (for example, on a VM or a machine with a broken graphics stack).
-app.commandLine.appendSwitch('disable-gpu');
-app.commandLine.appendSwitch('disable-gpu-compositing');
-app.commandLine.appendSwitch('in-process-gpu');
 app.disableHardwareAcceleration();
 
 app.name = 'PartFlow';
@@ -85,20 +82,6 @@ function getPartTypeImagesPath() {
 
 function getCategoryImagesPath() {
   return path.join(app.getPath('userData'), 'data', 'category-images');
-}
-
-function getBackendLogPath() {
-  return path.join(app.getPath('userData'), 'logs', 'backend.log');
-}
-
-function appendBackendLog(message) {
-  try {
-    const logPath = getBackendLogPath();
-    fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`, 'utf8');
-  } catch {
-    // Logging must never prevent the desktop app from starting.
-  }
 }
 
 function safeProductId(productId) {
@@ -268,8 +251,6 @@ async function startBackend() {
       throw new Error(`Backend executable not found: ${backendPath}`);
     }
 
-    appendBackendLog(`starting backend: ${backendPath}`);
-
     const backendEnv = {
       ...process.env,
       SERVER_PORT: String(backendPort),
@@ -289,24 +270,17 @@ async function startBackend() {
     }
     appState.backendProcess = spawn(backendPath, [], {
       env: backendEnv,
-      cwd: path.dirname(backendPath),
       windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: 'ignore',
     });
-    appState.backendProcess.stdout?.on('data', (chunk) => appendBackendLog(String(chunk).trimEnd()));
-    appState.backendProcess.stderr?.on('data', (chunk) => appendBackendLog(String(chunk).trimEnd()));
-    appState.backendProcess.once('error', (error) => appendBackendLog(`process error: ${error.message}`));
-    appState.backendProcess.once('exit', (code, signal) => {
-      appendBackendLog(`process exited: code=${code ?? 'null'} signal=${signal ?? 'null'}`);
+    appState.backendProcess.once('exit', () => {
       appState.backendProcess = null;
     });
 
     if (!(await waitForBackend())) {
-      appendBackendLog('health check timed out after backend start');
       stopBackend();
       throw new Error('تعذر تشغيل خدمة PartFlow المحلية.');
     }
-    appendBackendLog(`backend healthy on port ${backendPort}`);
     return true;
   })();
 
@@ -544,7 +518,6 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  await fs.promises.mkdir(getProductImagesPath(), { recursive: true });
   killExistingBackendProcesses();
   try {
     await startBackend();

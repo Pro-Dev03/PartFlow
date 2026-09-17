@@ -539,8 +539,9 @@ func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, 
 		FROM inventory_items
 		LEFT JOIN products p ON inventory_items.product_id = p.id
 		WHERE UPPER(COALESCE(inventory_items.status, '')) <> 'ARCHIVED'
+		AND p.deleted_at IS NULL
 	`, currentQuantityExpr, availableQuantityExpr)
-	countQuery := `SELECT COUNT(*) FROM inventory_items WHERE UPPER(COALESCE(status, '')) <> 'ARCHIVED'`
+	countQuery := `SELECT COUNT(*) FROM inventory_items WHERE UPPER(COALESCE(status, '')) <> 'ARCHIVED' AND EXISTS (SELECT 1 FROM products p WHERE p.id = inventory_items.product_id AND p.deleted_at IS NULL)`
 
 	args := []interface{}{}
 	argCount := 0
@@ -649,7 +650,9 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 		`)
 	}
 
-	// Build base query with JOIN to suppliers
+	manualOnly, _ := filters["manual_only"].(bool)
+	supplierOnly, _ := filters["supplier_only"].(bool)
+	filterPrefix := "ii"
 	baseQuery := fmt.Sprintf(`
 		SELECT 
 			ii.id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
@@ -672,11 +675,154 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 		SELECT COUNT(*) FROM inventory_items ii
 	`
 	if includeArchived, ok := filters["include_archived"].(bool); !ok || !includeArchived {
-		baseQuery += ` WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'`
-		countQuery += ` WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'`
+		baseQuery += ` WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED' AND p.deleted_at IS NULL`
+		countQuery += ` WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED' AND EXISTS (SELECT 1 FROM products p WHERE p.id = ii.product_id AND p.deleted_at IS NULL)`
 	} else {
-		baseQuery += ` WHERE 1=1`
-		countQuery += ` WHERE 1=1`
+		baseQuery += ` WHERE 1=1 AND p.deleted_at IS NULL`
+		countQuery += ` WHERE 1=1 AND EXISTS (SELECT 1 FROM products p WHERE p.id = ii.product_id AND p.deleted_at IS NULL)`
+	}
+
+	if manualOnly {
+		filterPrefix = "manual_inventory"
+		unionQuery := fmt.Sprintf(`
+			SELECT
+				ii.id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
+				ii.condition, ii.grade, ii.purchase_cost, ii.selling_price, ii.status, ii.location_id,
+				ii.supplier_id, ii.purchase_date, ii.sold_at, ii.notes, ii.created_at, ii.updated_at,
+				%s AS current_quantity,
+				%s AS available_quantity,
+				p.name as product_name,
+				p.selling_price as product_selling_price,
+				CAST(COALESCE(ii.category_id, %s) AS TEXT) as category_id,
+				(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(COALESCE(ii.category_id, %s) AS TEXT) LIMIT 1) as category_name,
+				s.name as supplier_name,
+				s.phone as supplier_phone
+			FROM inventory_items ii
+			LEFT JOIN products p ON ii.product_id = p.id
+			LEFT JOIN categories c ON c.id = COALESCE(ii.category_id, %s)
+			LEFT JOIN suppliers s ON ii.supplier_id = s.id
+			WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'
+			AND p.deleted_at IS NULL
+			AND ii.supplier_id IS NULL
+			UNION ALL
+			SELECT
+				CAST(inv.product_id AS TEXT) AS id,
+				inv.product_id,
+				NULL AS part_type_id,
+				NULL AS item_code,
+				NULL AS barcode,
+				NULL AS serial_number,
+				'NEW' AS condition,
+				NULL AS grade,
+				COALESCE(p.cost_price, 0) AS purchase_cost,
+				p.selling_price AS selling_price,
+				'AVAILABLE' AS status,
+				NULL AS location_id,
+				NULL AS supplier_id,
+				(
+					SELECT MAX(im.business_date)
+					FROM inventory_movements im
+					WHERE im.product_id = inv.product_id
+					  AND im.item_id IS NULL
+					  AND UPPER(COALESCE(im.source_type, '')) = 'OPENING_STOCK'
+				) AS purchase_date,
+				NULL AS sold_at,
+				NULL AS notes,
+				inv.updated_at AS created_at,
+				inv.updated_at AS updated_at,
+				inv.quantity AS current_quantity,
+				inv.quantity AS available_quantity,
+				p.name AS product_name,
+				p.selling_price AS product_selling_price,
+				CAST(p.category_id AS TEXT) AS category_id,
+				(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(p.category_id AS TEXT) LIMIT 1) AS category_name,
+				NULL AS supplier_name,
+				NULL AS supplier_phone
+			FROM inventory inv
+			LEFT JOIN products p ON p.id = inv.product_id
+			WHERE inv.quantity > 0
+			AND p.deleted_at IS NULL
+			AND EXISTS (
+				SELECT 1 FROM inventory_movements im
+				WHERE im.product_id = inv.product_id
+				AND im.item_id IS NULL
+				AND UPPER(COALESCE(im.source_type, '')) = 'OPENING_STOCK'
+			)
+		`, currentQuantityExpr, availableQuantityExpr, categoryExpr, categoryExpr, categoryExpr)
+		baseQuery = `SELECT * FROM (` + unionQuery + `) AS manual_inventory WHERE 1=1`
+		countQuery = `SELECT COUNT(*) FROM (` + unionQuery + `) AS manual_inventory WHERE 1=1`
+	} else if !supplierOnly {
+		filterPrefix = "combined_inventory"
+		unionQuery := fmt.Sprintf(`
+			SELECT
+				ii.id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
+				ii.condition, ii.grade, ii.purchase_cost, ii.selling_price, ii.status, ii.location_id,
+				ii.supplier_id, ii.purchase_date, ii.sold_at, ii.notes, ii.created_at, ii.updated_at,
+				%s AS current_quantity,
+				%s AS available_quantity,
+				p.name as product_name,
+				p.selling_price as product_selling_price,
+				CAST(COALESCE(ii.category_id, %s) AS TEXT) as category_id,
+				(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(COALESCE(ii.category_id, %s) AS TEXT) LIMIT 1) as category_name,
+				s.name as supplier_name,
+				s.phone as supplier_phone
+			FROM inventory_items ii
+			LEFT JOIN products p ON ii.product_id = p.id
+			LEFT JOIN categories c ON c.id = COALESCE(ii.category_id, %s)
+			LEFT JOIN suppliers s ON ii.supplier_id = s.id
+			WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'
+			AND p.deleted_at IS NULL
+			UNION ALL
+			SELECT
+				CAST(inv.product_id AS TEXT) AS id,
+				inv.product_id,
+				NULL AS part_type_id,
+				NULL AS item_code,
+				NULL AS barcode,
+				NULL AS serial_number,
+				'NEW' AS condition,
+				NULL AS grade,
+				COALESCE(p.cost_price, 0) AS purchase_cost,
+				p.selling_price AS selling_price,
+				'AVAILABLE' AS status,
+				NULL AS location_id,
+				NULL AS supplier_id,
+				(
+					SELECT MAX(im.business_date)
+					FROM inventory_movements im
+					WHERE im.product_id = inv.product_id
+					  AND im.item_id IS NULL
+					  AND UPPER(COALESCE(im.source_type, '')) = 'OPENING_STOCK'
+				) AS purchase_date,
+				NULL AS sold_at,
+				NULL AS notes,
+				inv.updated_at AS created_at,
+				inv.updated_at AS updated_at,
+				inv.quantity AS current_quantity,
+				inv.quantity AS available_quantity,
+				p.name AS product_name,
+				p.selling_price AS product_selling_price,
+				CAST(p.category_id AS TEXT) AS category_id,
+				(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(p.category_id AS TEXT) LIMIT 1) AS category_name,
+				NULL AS supplier_name,
+				NULL AS supplier_phone
+			FROM inventory inv
+			LEFT JOIN products p ON p.id = inv.product_id
+			WHERE inv.quantity > 0
+			AND p.deleted_at IS NULL
+			AND EXISTS (
+				SELECT 1 FROM inventory_movements im
+				WHERE im.product_id = inv.product_id
+				AND im.item_id IS NULL
+				AND UPPER(COALESCE(im.source_type, '')) = 'OPENING_STOCK'
+			)
+		`, currentQuantityExpr, availableQuantityExpr, categoryExpr, categoryExpr, categoryExpr)
+		baseQuery = `SELECT * FROM (` + unionQuery + `) AS combined_inventory WHERE 1=1`
+		countQuery = `SELECT COUNT(*) FROM (` + unionQuery + `) AS combined_inventory WHERE 1=1`
+	}
+
+	if supplierOnly {
+		filterPrefix = "ii"
 	}
 
 	args := []interface{}{}
@@ -686,54 +832,58 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 	if condition, ok := filters["condition"].(string); ok && condition != "" {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ii.condition = ` + param
-		countQuery += ` AND ii.condition = ` + param
+		baseQuery += ` AND ` + filterPrefix + `.condition = ` + param
+		countQuery += ` AND ` + filterPrefix + `.condition = ` + param
 		args = append(args, condition)
 	}
 	if excludeCondition, ok := filters["exclude_condition"].(string); ok && excludeCondition != "" {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ii.condition <> ` + param
-		countQuery += ` AND ii.condition <> ` + param
+		baseQuery += ` AND ` + filterPrefix + `.condition <> ` + param
+		countQuery += ` AND ` + filterPrefix + `.condition <> ` + param
 		args = append(args, excludeCondition)
 	}
 
 	if status, ok := filters["status"].(string); ok && status != "" {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ii.status = ` + param
-		countQuery += ` AND ii.status = ` + param
+		baseQuery += ` AND ` + filterPrefix + `.status = ` + param
+		countQuery += ` AND ` + filterPrefix + `.status = ` + param
 		args = append(args, status)
 	}
 
 	if productID, ok := filters["product_id"].(uuid.UUID); ok && productID != uuid.Nil {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ii.product_id = ` + param
-		countQuery += ` AND ii.product_id = ` + param
+		baseQuery += ` AND ` + filterPrefix + `.product_id = ` + param
+		countQuery += ` AND ` + filterPrefix + `.product_id = ` + param
 		args = append(args, productID)
 	}
 	if categoryID, ok := filters["category_id"].(uuid.UUID); ok && categoryID != uuid.Nil {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ` + categoryExpr + ` = ` + param
-		countQuery += ` AND ` + categoryExpr + ` = ` + param
+		targetColumn := filterPrefix + ".category_id"
+		if filterPrefix == "ii" && !manualOnly && !supplierOnly {
+			targetColumn = categoryExpr
+		}
+		baseQuery += ` AND ` + targetColumn + ` = ` + param
+		countQuery += ` AND ` + targetColumn + ` = ` + param
 		args = append(args, categoryID)
 	}
 
 	if partTypeID, ok := filters["part_type_id"].(uuid.UUID); ok && partTypeID != uuid.Nil {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ii.part_type_id = ` + param
-		countQuery += ` AND ii.part_type_id = ` + param
+		baseQuery += ` AND ` + filterPrefix + `.part_type_id = ` + param
+		countQuery += ` AND ` + filterPrefix + `.part_type_id = ` + param
 		args = append(args, partTypeID)
 	}
 
 	if locationID, ok := filters["location_id"].(uuid.UUID); ok && locationID != uuid.Nil {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ii.location_id = ` + param
-		countQuery += ` AND ii.location_id = ` + param
+		baseQuery += ` AND ` + filterPrefix + `.location_id = ` + param
+		countQuery += ` AND ` + filterPrefix + `.location_id = ` + param
 		args = append(args, locationID)
 	}
 
@@ -741,44 +891,64 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 	if supplierID, ok := filters["supplier_id"].(uuid.UUID); ok && supplierID != uuid.Nil {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ii.supplier_id = ` + param
-		countQuery += ` AND ii.supplier_id = ` + param
+		baseQuery += ` AND ` + filterPrefix + `.supplier_id = ` + param
+		countQuery += ` AND ` + filterPrefix + `.supplier_id = ` + param
 		args = append(args, supplierID)
 	}
 	if supplierOnly, ok := filters["supplier_only"].(bool); ok && supplierOnly {
-		baseQuery += ` AND ii.supplier_id IS NOT NULL`
-		countQuery += ` AND ii.supplier_id IS NOT NULL`
+		baseQuery += ` AND ` + filterPrefix + `.supplier_id IS NOT NULL`
+		countQuery += ` AND ` + filterPrefix + `.supplier_id IS NOT NULL`
+	}
+	if manualOnly, ok := filters["manual_only"].(bool); ok && manualOnly {
+		baseQuery += ` AND ` + filterPrefix + `.supplier_id IS NULL`
+		countQuery += ` AND ` + filterPrefix + `.supplier_id IS NULL`
 	}
 
 	if purchaseDateFrom, ok := filters["purchase_date_from"].(string); ok && purchaseDateFrom != "" {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ii.purchase_date >= ` + param
-		countQuery += ` AND ii.purchase_date >= ` + param
+		purchaseColumn := filterPrefix + ".purchase_date"
+		if filterPrefix == "ii" {
+			purchaseColumn = "ii.purchase_date"
+		}
+		baseQuery += ` AND ` + purchaseColumn + ` >= ` + param
+		countQuery += ` AND ` + purchaseColumn + ` >= ` + param
 		args = append(args, purchaseDateFrom)
 	}
 
 	if purchaseDateTo, ok := filters["purchase_date_to"].(string); ok && purchaseDateTo != "" {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ii.purchase_date <= ` + param
-		countQuery += ` AND ii.purchase_date <= ` + param
+		purchaseColumn := filterPrefix + ".purchase_date"
+		if filterPrefix == "ii" {
+			purchaseColumn = "ii.purchase_date"
+		}
+		baseQuery += ` AND ` + purchaseColumn + ` <= ` + param
+		countQuery += ` AND ` + purchaseColumn + ` <= ` + param
 		args = append(args, purchaseDateTo)
 	}
 
 	if minPurchaseCost, ok := filters["min_purchase_cost"].(float64); ok && minPurchaseCost > 0 {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ii.purchase_cost >= ` + param
-		countQuery += ` AND ii.purchase_cost >= ` + param
+		purchaseColumn := filterPrefix + ".purchase_cost"
+		if filterPrefix == "ii" {
+			purchaseColumn = "ii.purchase_cost"
+		}
+		baseQuery += ` AND ` + purchaseColumn + ` >= ` + param
+		countQuery += ` AND ` + purchaseColumn + ` >= ` + param
 		args = append(args, minPurchaseCost)
 	}
 
 	if maxPurchaseCost, ok := filters["max_purchase_cost"].(float64); ok && maxPurchaseCost > 0 {
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
-		baseQuery += ` AND ii.purchase_cost <= ` + param
-		countQuery += ` AND ii.purchase_cost <= ` + param
+		purchaseColumn := filterPrefix + ".purchase_cost"
+		if filterPrefix == "ii" {
+			purchaseColumn = "ii.purchase_cost"
+		}
+		baseQuery += ` AND ` + purchaseColumn + ` <= ` + param
+		countQuery += ` AND ` + purchaseColumn + ` <= ` + param
 		args = append(args, maxPurchaseCost)
 	}
 
@@ -792,7 +962,11 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 	// Add pagination
 	argCount++
 	param := fmt.Sprintf("$%d", argCount)
-	baseQuery += ` ORDER BY ii.created_at DESC LIMIT ` + param
+	orderColumn := filterPrefix + ".created_at"
+	if filterPrefix == "ii" {
+		orderColumn = "ii.created_at"
+	}
+	baseQuery += ` ORDER BY ` + orderColumn + ` DESC LIMIT ` + param
 	args = append(args, limit)
 
 	argCount++

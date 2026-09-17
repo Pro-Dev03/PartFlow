@@ -99,8 +99,8 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
     if (!barcodeInput.trim()) return;
 
     try {
-      const response = await productsApi.get(`/barcode/${barcodeInput.trim()}`);
-      const product = response.data;
+      const response = await productsApi.getByBarcode(barcodeInput);
+      const product = response.data?.product || response.data;
 
       setItems((prev) => {
         const existingIndex = prev.findIndex((item) => item.product_id === product.id);
@@ -227,6 +227,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
               await receivePurchaseMutation.mutateAsync(purchaseId);
             }
             queryClient.invalidateQueries({ queryKey: ['purchases'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['inventory'] });
             queryClient.invalidateQueries({ queryKey: ['products'] });
             onClose();

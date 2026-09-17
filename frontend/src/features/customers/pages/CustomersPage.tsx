@@ -4,7 +4,8 @@ import { PageHeader } from '../../../components/ui/page-header';
 import { Button } from '../../../components/ui/button';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { Plus, Download, Printer } from 'lucide-react';
+import { ReportActions } from '../../../components/ui/report-actions';
+import { Plus } from 'lucide-react';
 
 // Custom hooks
 import { useCustomers } from '../hooks/useCustomers';
@@ -20,6 +21,7 @@ const CustomerStats = lazy(() => import('../components/CustomerStats').then(m =>
 
 // Types
 import { Customer, CustomerFormData } from '../types/customers.types';
+import { customersApi } from '../../../services/api/endpoints';
 
 export function CustomersPage() {
   const { t } = useTranslation();
@@ -93,26 +95,37 @@ export function CustomersPage() {
     }
   };
 
-  const handleExport = () => {
-    const dataToExport = filteredCustomers.map((customer: Customer) => ({
+  const getCustomerReportRows = (customers: Customer[]) => customers.map((customer: Customer) => ({
       'الاسم': customer.name,
       'الهاتف': customer.phone,
       'البريد': customer.email,
       'المشتريات': customer.totalPurchases,
       'الديون': customer.outstanding
     }));
-    exportToCSV(dataToExport, `customers-${new Date().toISOString().split('T')[0]}`);
+
+  const handleExport = () => {
+    exportToCSV(getCustomerReportRows(filteredCustomers), `customers-${new Date().toISOString().split('T')[0]}`);
   };
 
   const handlePrint = () => {
-    const dataToPrint = filteredCustomers.map((customer: Customer) => ({
-      'الاسم': customer.name,
-      'الهاتف': customer.phone,
-      'البريد': customer.email,
-      'المشتريات': customer.totalPurchases,
-      'الديون': customer.outstanding
-    }));
-    printTable(dataToPrint, ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'الديون'], 'تقرير العملاء');
+    printTable(getCustomerReportRows(filteredCustomers), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'الديون'], 'تقرير العملاء');
+  };
+
+  const loadAllCustomers = async () => {
+    const response = await customersApi.list({ page: 1, per_page: 1000, ...(searchQuery ? { search: searchQuery } : {}) });
+    return (((response as any)?.data ?? []) as any[]).map((row) => ({
+      ...row,
+      totalPurchases: Number(row.totalPurchases ?? row.total_purchases ?? 0),
+      outstanding: Number(row.outstanding ?? row.current_balance ?? 0),
+    })) as Customer[];
+  };
+
+  const handleExportAll = async () => {
+    exportToCSV(getCustomerReportRows(await loadAllCustomers()), `customers-all-${new Date().toISOString().split('T')[0]}`);
+  };
+
+  const handlePrintAll = async () => {
+    printTable(getCustomerReportRows(await loadAllCustomers()), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'الديون'], 'تقرير كل العملاء');
   };
 
   const handleSortName = () => {
@@ -140,14 +153,7 @@ export function CustomersPage() {
               <Plus style={{ width: '16px', height: '16px', marginRight: '8px' }} />
               إضافة عميل
             </Button>
-            <Button variant="secondary" size={getButtonSize('customers', 'headerActions')} onClick={handleExport}>
-              <Download style={{ width: '16px', height: '16px', marginRight: '8px' }} />
-              تصدير
-            </Button>
-            <Button variant="secondary" size={getButtonSize('customers', 'headerActions')} onClick={handlePrint}>
-              <Printer style={{ width: '16px', height: '16px', marginRight: '8px' }} />
-              طباعة
-            </Button>
+            <ReportActions onExportCurrent={handleExport} onPrintCurrent={handlePrint} onExportAll={() => { void handleExportAll(); }} onPrintAll={() => { void handlePrintAll(); }} />
           </div>
         }
       />

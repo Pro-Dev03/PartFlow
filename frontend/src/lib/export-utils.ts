@@ -137,7 +137,10 @@ export const printContent = (elementId: string) => {
   `);
 
   printWindow.document.close();
-  printWindow.print();
+  setTimeout(() => {
+    printWindow.focus();
+    printWindow.print();
+  }, 100);
 };
 
 // طباعة الجدول مباشرة

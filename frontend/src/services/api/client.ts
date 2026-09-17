@@ -579,15 +579,15 @@ class ApiClient {
     }
 
     if (!response.ok) {
-      this.logout();
       if (typeof window !== 'undefined') {
-        window.location.hash = response.status === 403
-          ? '#/subscription-expired'
-          : '#/login';
+        if (response.status === 403) {
+          this.logout();
+          window.location.hash = '#/subscription-expired';
+        }
       }
       throw new Error(response.status === 403
         ? 'الحساب غير نشط أو أن الاشتراك منتهٍ. لم تُنفذ العملية.'
-        : 'يلزم تسجيل الدخول قبل تنفيذ العملية.');
+        : 'تعذر التحقق من الجلسة حاليًا. لم تُنفذ العملية.');
     }
   }
 

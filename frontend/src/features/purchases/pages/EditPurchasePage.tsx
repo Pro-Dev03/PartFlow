@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../../../components/ui/button';
@@ -54,6 +54,7 @@ export function EditPurchasePage() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [receiveImmediately, setReceiveImmediately] = useState(false);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const quantityInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   
   // Manual product addition states
   const [isManualProductModalOpen, setIsManualProductModalOpen] = useState(false);
@@ -157,6 +158,7 @@ export function EditPurchasePage() {
       setPaymentAmount('');
       void queryClient.invalidateQueries({ queryKey: ['purchase', id] });
       void queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('تم تسجيل الدفعة وتحديث المتبقي');
     },
     onError: (error: any) => toast.error(error?.message || 'تعذر تسجيل الدفعة'),
@@ -208,8 +210,8 @@ export function EditPurchasePage() {
     if (!barcodeInput.trim()) return;
 
     try {
-      const response = await productsApi.get(`/barcode/${barcodeInput.trim()}`);
-      const product = response.data;
+      const response = await productsApi.getByBarcode(barcodeInput);
+      const product = response.data?.product || response.data;
 
       setItems((prev) => {
         const existingIndex = prev.findIndex((item) => item.product_id === product.id);
@@ -656,6 +658,7 @@ export function EditPurchasePage() {
                           </td>
                           <td className="p-3">
                             <Input
+                              ref={(element) => { quantityInputRefs.current[item.key] = element; }}
                               type="number"
                               value={item.quantity}
                               onChange={(e) => handleUpdateQuantity(item.key, parseInt(e.target.value) || 0)}
@@ -692,10 +695,13 @@ export function EditPurchasePage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
-                                  // Edit functionality - could open a modal to edit item details
-                                  toast.info('تعديل العنصر - يمكن إضافة modal لتعديل التفاصيل');
+                                  const input = quantityInputRefs.current[item.key];
+                                  input?.focus();
+                                  input?.select();
                                 }}
                                 className="text-blue-600 hover:text-blue-700"
+                                title="تعديل العنصر"
+                                aria-label={`تعديل ${item.product_name}`}
                               >
                                 <Edit className="w-4 h-4" />
                               </Button>
@@ -1109,9 +1115,12 @@ export function EditPurchasePage() {
                 </label>
                 <Input
                   type="number"
+                  min="0"
+                  step="1"
                   value={manualProductData.min_stock}
                   onChange={(e) => setManualProductData({ ...manualProductData, min_stock: e.target.value })}
                   placeholder="0"
+                  aria-label="الحد الأدنى للمخزون"
                 />
               </div>
             </div>

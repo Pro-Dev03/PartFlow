@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/dashboard"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
@@ -47,8 +48,11 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, purchaseID uuid.UU
 		PaidAmount  float64    `db:"paid_amount"`
 	}
 
-	err := s.db.GetContext(ctx, &purchase,
-		"SELECT id, status, reversed_at, total_amount, COALESCE(paid_amount, 0) AS paid_amount FROM purchases WHERE id = $1", purchaseID)
+	purchaseQuery := "SELECT id, status, reversed_at, total_amount, COALESCE(paid_amount, 0) AS paid_amount FROM purchases WHERE id = $1"
+	if dbutil.IsSQLite(s.db) {
+		purchaseQuery = "SELECT id, status, total_amount, COALESCE(paid_amount, 0) AS paid_amount FROM purchases WHERE id = $1"
+	}
+	err := s.db.GetContext(ctx, &purchase, purchaseQuery, purchaseID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("purchase not found")
@@ -72,18 +76,7 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, purchaseID uuid.UU
 	// Check purchase status and dependencies
 	switch purchase.Status {
 	case "draft", "pending":
-		if purchase.PaidAmount > 0 {
-			return &SmartDeleteResult{
-				Action:     "blocked",
-				Message:    "لا يمكن حذف شراء تم تسجيل دفعة له",
-				CanProceed: false,
-				Details: &SmartDeleteDetails{
-					Reason:          "تم تسجيل دفعة لهذا الشراء",
-					SuggestedAction: "استخدم عكس العملية أو راجع الدفعات المسجلة",
-				},
-			}, nil
-		}
-		// Safe to delete only before any payment or receipt
+		// Pending purchases can be deleted, including their recorded payments.
 		return s.deleteDraftPurchase(ctx, purchaseID, userID)
 
 	case "received":
@@ -116,16 +109,51 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, purchaseID uuid.UU
 
 // deleteDraftPurchase handles deletion of draft/pending purchases
 func (s *SmartDeleteService) deleteDraftPurchase(ctx context.Context, purchaseID uuid.UUID, userID uuid.UUID) (*SmartDeleteResult, error) {
-	// Direct delete - no inventory impact
-	_, err := s.db.ExecContext(ctx,
-		"DELETE FROM purchases WHERE id = $1", purchaseID)
+	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
+		return nil, fmt.Errorf("failed to begin purchase deletion: %w", err)
+	}
+	defer tx.Rollback()
+
+	var supplierID uuid.UUID
+	if err = tx.GetContext(ctx, &supplierID, "SELECT supplier_id FROM purchases WHERE id = $1", purchaseID); err != nil {
+		return nil, fmt.Errorf("failed to find purchase supplier: %w", err)
+	}
+
+	// Payments do not cascade on purchase deletion, so remove dependent records explicitly.
+	if _, err = tx.ExecContext(ctx, "DELETE FROM payments WHERE purchase_id = $1", purchaseID); err != nil {
+		return nil, fmt.Errorf("failed to delete purchase payments: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM supplier_ledger WHERE reference_id = $1", purchaseID); err != nil {
+		return nil, fmt.Errorf("failed to delete supplier ledger entries: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM purchase_items WHERE purchase_id = $1", purchaseID); err != nil {
+		return nil, fmt.Errorf("failed to delete purchase items: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM purchases WHERE id = $1", purchaseID); err != nil {
 		return nil, fmt.Errorf("failed to delete purchase: %w", err)
 	}
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE suppliers
+		SET current_balance = COALESCE((
+			SELECT SUM(CASE
+				WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount
+				ELSE -amount
+			END)
+			FROM supplier_ledger
+			WHERE supplier_id = $1
+		), 0), updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1`, supplierID); err != nil {
+		return nil, fmt.Errorf("failed to refresh supplier balance: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit purchase deletion: %w", err)
+	}
+	dashboard.InvalidateDashboardCacheWithReason("purchase_deleted")
 
 	return &SmartDeleteResult{
 		Action:     "deleted",
-		Message:    "تم حذف العملية المسودة",
+		Message:    "تم حذف طلب الشراء",
 		CanProceed: true,
 	}, nil
 }
@@ -257,40 +285,8 @@ func (s *SmartDeleteService) checkDependencies(ctx context.Context, purchaseID u
 
 // reversePurchase reverses a received purchase without blocking dependencies
 func (s *SmartDeleteService) reversePurchase(ctx context.Context, purchaseID uuid.UUID, userID uuid.UUID, dependencies *DependencyCheck) (*SmartDeleteResult, error) {
-	// Start transaction
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Mark purchase as reversed
-	now := time.Now()
-	_, err = tx.ExecContext(ctx,
-		`UPDATE purchases 
-		 SET reversed_at = $1, reversed_by = $2, reversal_reason = 'User requested deletion'
-		 WHERE id = $3`,
-		now, userID, purchaseID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to mark purchase as reversed: %w", err)
-	}
-
-	// Create reversal record
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO purchase_reversals (purchase_id, reason, reversed_by, reversed_at, original_total)
-		 VALUES ($1, 'User requested deletion', $2, $3, 
-		 (SELECT total_amount FROM purchases WHERE id = $1))`,
-		purchaseID, userID, now)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create reversal record: %w", err)
-	}
-
-	// Reverse inventory impact by creating reversal ledger entries
-	// This is handled by the inventory service in a real implementation
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	if _, err := NewService(NewRepository(s.db), s.db).ReversePurchase(ctx, purchaseID, userID, "User requested deletion"); err != nil {
+		return nil, fmt.Errorf("failed to reverse purchase: %w", err)
 	}
 
 	message := "تم إلغاء العملية وإزالة تأثيرها من المخزون"

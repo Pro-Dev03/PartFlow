@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryProvider } from './app/providers/QueryProvider';
 import { AppLayout, AuthLayout } from './layouts';
-import { useAuthStore, validateSubscriptionWithCloud } from './stores/authStore';
+import { forceLogoutToLogin, useAuthStore, validateSubscriptionWithCloud } from './stores/authStore';
 import { ErrorBoundary } from './components/ui/error-boundary';
 import { ToastContainer } from './components/ui/ToastContainer';
 import { appRoutes, PageLoader } from './app/router';
@@ -121,8 +121,10 @@ function App() {
       });
     };
     const handleOffline = () => {
-      // Keep the workspace open during a temporary network outage. Cloud
-      // validation resumes on the next online event.
+      const state = useAuthStore.getState();
+      if (state.isAuthenticated || state.token || state.cloudToken) {
+        forceLogoutToLogin('Internet connection is required');
+      }
     };
     window.addEventListener('online', validate);
     window.addEventListener('offline', handleOffline);

@@ -18,6 +18,7 @@ import { SortButton } from '../../../components/ui/sort-button';
 import type { SupplierFormData } from '../../../components/forms/SupplierForm';
 import { Supplier } from '../../../types/models';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
+import { ReportActions } from '../../../components/ui/report-actions';
 import { getButtonSize } from '../../../config/button-sizes';
 import { normalizeSupplier } from '../utils/supplier-normalization';
 import {
@@ -26,8 +27,6 @@ import {
   Plus,
   Filter,
   DollarSign,
-  Download,
-  Printer,
   RefreshCw
   , RotateCcw
 } from 'lucide-react';
@@ -91,8 +90,7 @@ export function SuppliersPage() {
   const totalPaid = suppliers.reduce((sum: number, s: any) => sum + Number(s.paidAmount || 0), 0);
   const totalOutstanding = suppliers.reduce((sum: number, s: any) => sum + Number(s.outstanding || 0), 0);
 
-  const handleExport = () => {
-    const dataToExport = filteredSuppliers.map((supplier: any) => ({
+  const getSupplierReportRows = (supplierRows: any[]) => supplierRows.map((supplier: any) => ({
       'الاسم': supplier.name,
       'الهاتف': supplier.phone,
       'البريد': supplier.email || '-',
@@ -100,19 +98,33 @@ export function SuppliersPage() {
       'المدفوع': supplier.paidAmount,
       'صافي المستحق': supplier.outstanding
     }));
-    exportToCSV(dataToExport, `suppliers-${new Date().toISOString().split('T')[0]}`);
+
+  const handleExport = () => {
+    exportToCSV(getSupplierReportRows(filteredSuppliers), `suppliers-${new Date().toISOString().split('T')[0]}`);
   };
 
   const handlePrint = () => {
-    const dataToPrint = filteredSuppliers.map((supplier: any) => ({
-      'الاسم': supplier.name,
-      'الهاتف': supplier.phone,
-      'البريد': supplier.email || '-',
-      'المشتريات': supplier.totalPurchases,
-      'المدفوع': supplier.paidAmount,
-      'صافي المستحق': supplier.outstanding
-    }));
-    printTable(dataToPrint, ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق'], 'تقرير الموردين');
+    printTable(getSupplierReportRows(filteredSuppliers), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق'], 'تقرير الموردين');
+  };
+
+  const loadAllSuppliers = async () => {
+    const response = await suppliersApi.list({ page: 1, per_page: 1000, ...(debouncedSearchQuery ? { search: debouncedSearchQuery } : {}), is_active: !showInactive });
+    const allSuppliers = (((response as any)?.data ?? []) as any[]).map((supplier) => normalizeSupplier(supplier));
+    return allSuppliers
+      .filter((supplier) => !showOutstandingOnly || Number(supplier.outstanding || 0) > 0)
+      .sort((a, b) => {
+        if (sortBy === 'outstanding') return Number(b.outstanding || 0) - Number(a.outstanding || 0);
+        if (sortBy === 'purchases') return Number(b.totalPurchases || 0) - Number(a.totalPurchases || 0);
+        return 0;
+      });
+  };
+
+  const handleExportAll = async () => {
+    exportToCSV(getSupplierReportRows(await loadAllSuppliers()), `suppliers-all-${new Date().toISOString().split('T')[0]}`);
+  };
+
+  const handlePrintAll = async () => {
+    printTable(getSupplierReportRows(await loadAllSuppliers()), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق'], 'تقرير كل الموردين');
   };
 
   const handleSubmitSupplier = async (data: SupplierFormData) => {
@@ -174,14 +186,7 @@ export function SuppliersPage() {
               <Plus className="w-4 h-4" />
               {t('suppliers.addSupplier')}
             </Button>
-            <Button variant="outline" size={getButtonSize('suppliers', 'headerActions')} onClick={handleExport} className="gap-2">
-              <Download className="w-4 h-4" />
-              تصدير
-            </Button>
-            <Button variant="outline" size={getButtonSize('suppliers', 'headerActions')} onClick={handlePrint} className="gap-2">
-              <Printer className="w-4 h-4" />
-              طباعة
-            </Button>
+            <ReportActions onExportCurrent={handleExport} onPrintCurrent={handlePrint} onExportAll={() => { void handleExportAll(); }} onPrintAll={() => { void handlePrintAll(); }} />
           </div>
         }
       />

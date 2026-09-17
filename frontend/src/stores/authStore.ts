@@ -187,7 +187,11 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
           clearPersistedAuthStorage();
           goToSubscriptionExpiredPage();
         } else if (response.status === 401) {
-          forceLogoutToLogin('Cloud session is no longer valid');
+          // A single unauthorized response may be caused by token rotation or
+          // a transient cloud session problem. Keep the session until the
+          // server explicitly confirms subscription expiry or the connection
+          // is lost.
+          return false;
         }
         return false;
       }
@@ -266,31 +270,7 @@ function goToAppDashboard(): void {
   window.dispatchEvent(new HashChangeEvent('hashchange'));
 }
 
-function isInvalidTokenError(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-
-  const anyError = error as {
-    message?: string;
-    code?: string;
-    status?: number;
-    response?: { status?: number; error?: { code?: string; message?: string } };
-  };
-
-  const combined = [
-    anyError.message,
-    anyError.code,
-    anyError.response?.error?.code,
-    anyError.response?.error?.message,
-  ].filter(Boolean).join(' ').toLowerCase();
-
-  return (
-    anyError.status === 401 ||
-    anyError.response?.status === 401 ||
-    /no refresh token available|invalid refresh token|refresh token expired|invalid token|signature is invalid|token expired|jwt|unauthorized/.test(combined)
-  );
-}
-
-function forceLogoutToLogin(reason = 'Session expired') {
+export function forceLogoutToLogin(reason = 'Session expired') {
   if (typeof window === 'undefined') return;
 
   stopTokenRefresh();
@@ -483,9 +463,8 @@ export const useAuthStore = create<AuthState>()(
         apiClient.setToken(token);
 
         if (!navigator.onLine) {
-          // Preserve the local session during a temporary outage. Cloud
-          // validation will run again when connectivity returns.
-          set({ isAuthenticated: true, sessionVerified: true, isLoading: false });
+          forceLogoutToLogin('Internet connection is required');
+          set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
           return;
         }
 
@@ -522,9 +501,6 @@ export const useAuthStore = create<AuthState>()(
           apiClient.setToken(token);
           const cloudValid = await validateSubscriptionWithCloud();
           if (!cloudValid) {
-            if (typeof window !== 'undefined' && !window.location.hash.includes('/subscription-expired')) {
-              forceLogoutToLogin('Cloud verification failed during token refresh');
-            }
             throw new Error('Cloud subscription verification failed');
           }
           const currentUser = useAuthStore.getState().user;
@@ -550,15 +526,9 @@ export const useAuthStore = create<AuthState>()(
             return;
           }
 
-          if (isInvalidTokenError(error)) {
-            forceLogoutToLogin('Refresh failed due to invalid token');
-            return;
-          }
-
-          // For transient refresh failures, preserve the current session instead
-          // of forcing logout, but still reject the operation so an explicit
-          // "verify subscription" action can show the real failure. The
-          // background timer catches this rejection and keeps the session.
+          // Invalid or expired credentials can fail a refresh without proving
+          // subscription expiry. Preserve the session and let the next online
+          // validation or explicit login resolve it.
           throw error;
         }
       },

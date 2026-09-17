@@ -39,9 +39,13 @@ if (Test-Path $resolvedElectronOutputDir) {
 }
 
 $backendInput = Join-Path $resolvedOutputDir 'partflow-api.exe'
+$databaseInput = Join-Path $resolvedBackendDir 'partflow-local.db'
 $certificateInput = Join-Path $resolvedFrontendDir 'build\PartFlow-Internal-Code-Signing.cer'
 if (-not (Test-Path $certificateInput)) {
     throw "Release certificate was not found: $certificateInput"
+}
+if (-not (Test-Path $databaseInput)) {
+    throw "Local SQLite seed database was not found: $databaseInput"
 }
 $signingCertificate = Get-ChildItem 'Cert:\CurrentUser\My' |
     Where-Object { $_.Subject -eq 'CN=PartFlow Internal Code Signing' -and $_.HasPrivateKey } |
@@ -103,6 +107,13 @@ if ($null -eq $electronConfig.extraMetadata) {
 }
 $electronConfig.extraMetadata | Add-Member -MemberType NoteProperty -Name version -Value $Version -Force
 $electronConfig.extraResources[0].from = $backendInput
+$databaseResource = $electronConfig.extraResources |
+    Where-Object { $_.to -eq 'partflow.db' } |
+    Select-Object -First 1
+if ($null -eq $databaseResource) {
+    throw "Electron configuration does not define the local database resource."
+}
+$databaseResource.from = $databaseInput
 $electronConfig | ConvertTo-Json -Depth 10 | Set-Content -Path $electronConfigPath -Encoding UTF8
 Push-Location $resolvedFrontendDir
 try {
@@ -128,10 +139,15 @@ Copy-Item (Join-Path $resolvedOutputDir 'partflow-api.exe') $backendBundlePath -
 $expectedInstaller = Join-Path $resolvedElectronOutputDir "PartFlow-$Version-setup.exe"
 $expectedPortable = Join-Path $resolvedElectronOutputDir "PartFlow-$Version-portable.exe"
 $unpackedDir = Join-Path $resolvedElectronOutputDir 'win-unpacked'
-foreach ($requiredPath in @($expectedInstaller, $expectedPortable, (Join-Path $unpackedDir 'PartFlow.exe'), (Join-Path $unpackedDir 'resources\backend\partflow-api.exe'))) {
+foreach ($requiredPath in @($expectedInstaller, $expectedPortable, (Join-Path $unpackedDir 'PartFlow.exe'), (Join-Path $unpackedDir 'resources\backend\partflow-api.exe'), (Join-Path $unpackedDir 'resources\partflow.db'))) {
     if (-not (Test-Path $requiredPath)) {
         throw "Required release artifact was not found: $requiredPath"
     }
+}
+
+$packagedBackendSignature = Get-AuthenticodeSignature (Join-Path $unpackedDir 'resources\backend\partflow-api.exe')
+if ($null -eq $packagedBackendSignature.SignerCertificate -or $packagedBackendSignature.SignerCertificate.Subject -ne $signingCertificate.Subject) {
+    throw "Packaged backend executable signing verification failed."
 }
 
 Copy-Item $expectedInstaller $bundleDir -Force

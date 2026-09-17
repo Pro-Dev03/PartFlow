@@ -529,6 +529,7 @@ func (s *Service) deleteDraftPurchase(ctx context.Context, id uuid.UUID) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	dashboard.InvalidateDashboardCacheWithReason("purchase_deleted")
 
 	return nil
 }
@@ -569,16 +570,24 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 	itemPattern := fmt.Sprintf("ITM-%s-%%", purchasePrefix)
 
 	var existingRows []struct {
-		ItemCode string `db:"item_code"`
-		Barcode  string `db:"barcode"`
+		ItemCode     string         `db:"item_code"`
+		Barcode      string         `db:"barcode"`
+		SerialNumber sql.NullString `db:"serial_number"`
 	}
-	if err = tx.SelectContext(ctx, &existingRows, `SELECT item_code, barcode FROM inventory_items WHERE item_code LIKE $1`, itemPattern); err != nil {
+	if err = tx.SelectContext(ctx, &existingRows, `SELECT item_code, barcode, serial_number FROM inventory_items WHERE item_code LIKE $1`, itemPattern); err != nil {
 		return nil, fmt.Errorf("failed to inspect existing inventory items: %w", err)
 	}
 
 	existingItemCodes := make(map[string]struct{}, len(existingRows))
+	existingSerialNumbers := make(map[string]struct{}, len(existingRows))
 	for _, row := range existingRows {
 		existingItemCodes[row.ItemCode] = struct{}{}
+		if row.SerialNumber.Valid {
+			trimmed := strings.TrimSpace(row.SerialNumber.String)
+			if trimmed != "" {
+				existingSerialNumbers[trimmed] = struct{}{}
+			}
+		}
 	}
 
 	// Create only missing inventory items so repeated receive requests are safe.
@@ -590,6 +599,7 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 			productSellingPrice = item.UnitCost * 1.2
 		}
 
+		createdCount := 0
 		for i := 0; i < item.Quantity; i++ {
 			itemCode := fmt.Sprintf("ITM-%s-%03d", purchasePrefix, i+1)
 			barcode := ""
@@ -611,6 +621,22 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 			}
 
 			sellingPrice := productSellingPrice
+			serialNumber := strings.TrimSpace(item.SerialNumber)
+			var serialNumberValue interface{}
+			if serialNumber != "" {
+				candidate := serialNumber
+				candidateSuffix := 2
+				for {
+					if _, exists := existingSerialNumbers[candidate]; !exists {
+						break
+					}
+					candidate = fmt.Sprintf("%s-%d", serialNumber, candidateSuffix)
+					candidateSuffix++
+				}
+				serialNumber = candidate
+				existingSerialNumbers[serialNumber] = struct{}{}
+				serialNumberValue = serialNumber
+			}
 
 			createItemQuery := `
 				INSERT INTO inventory_items (
@@ -620,7 +646,7 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 			`
 
 			_, err = tx.ExecContext(ctx, createItemQuery,
-				uuid.New(), item.ProductID, item.CategoryID, itemCode, barcode, item.SerialNumber,
+				uuid.New(), item.ProductID, item.CategoryID, itemCode, barcode, serialNumberValue,
 				condition, item.Grade, item.UnitCost, sellingPrice, "AVAILABLE",
 				&purchase.SupplierID, &purchase.UpdatedAt, item.Notes, time.Now(), time.Now())
 			if err != nil {
@@ -628,6 +654,11 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 			}
 
 			existingItemCodes[itemCode] = struct{}{}
+			createdCount++
+		}
+
+		if err = s.incrementInventoryAggregate(ctx, tx, item.ProductID, createdCount); err != nil {
+			return nil, err
 		}
 	}
 
@@ -647,8 +678,52 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	dashboard.InvalidateDashboardCacheWithReason("purchase_reversed")
 
 	return s.GetPurchase(ctx, id)
+}
+
+func (s *Service) incrementInventoryAggregate(ctx context.Context, tx *sqlx.Tx, productID uuid.UUID, amount int) error {
+	if amount <= 0 {
+		return nil
+	}
+
+	var tableExists bool
+	if dbutil.IsSQLite(s.db) {
+		if err := tx.GetContext(ctx, &tableExists, `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'inventory')`); err != nil {
+			return fmt.Errorf("failed to inspect inventory table: %w", err)
+		}
+	} else if err := tx.GetContext(ctx, &tableExists, `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'inventory')`); err != nil {
+		return fmt.Errorf("failed to inspect inventory table: %w", err)
+	}
+	if !tableExists {
+		return nil
+	}
+
+	updatedAt := dbutil.NowSQL(s.db)
+	result, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE inventory
+		SET quantity = COALESCE(quantity, 0) + $1, updated_at = %s
+		WHERE product_id = $2
+	`, updatedAt), amount, productID)
+	if err != nil {
+		return fmt.Errorf("failed to update inventory quantity: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to inspect inventory update: %w", err)
+	}
+	if rowsAffected > 0 {
+		return nil
+	}
+
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+		INSERT INTO inventory (id, product_id, quantity, created_at, updated_at)
+		VALUES ($1, $2, $3, %s, %s)
+	`, updatedAt, updatedAt), uuid.New(), productID, amount); err != nil {
+		return fmt.Errorf("failed to create inventory aggregate: %w", err)
+	}
+	return nil
 }
 
 // CancelPurchase cancels a purchase
@@ -1025,6 +1100,7 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	dashboard.InvalidateDashboardCacheWithReason("supplier_payment_recorded")
 
 	return s.GetPurchase(ctx, id)
 }

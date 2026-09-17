@@ -25,7 +25,12 @@ const cloudApiUrl = getEnvValue(
  * only by authentication/subscription validation helpers.
  */
 export function shouldUseLocalApi(hostname = typeof window !== 'undefined' ? window.location.hostname : ''): boolean {
-  return /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(hostname);
+  const isElectron = typeof window !== 'undefined' && (
+    window.location.protocol === 'file:' ||
+    /Electron/i.test(window.navigator.userAgent)
+  );
+
+  return isElectron || /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(hostname);
 }
 
 export function getActiveApiUrl(): string {

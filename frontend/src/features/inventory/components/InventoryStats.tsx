@@ -1,7 +1,7 @@
 import { StatCard } from '../../../components/ui/stat-card';
 import { Button } from '../../../components/ui/button';
 import { useQuery } from '@tanstack/react-query';
-import { inventoryApi, settingsApi } from '../../../services/api/endpoints';
+import { inventoryApi, productsApi, settingsApi } from '../../../services/api/endpoints';
 import { getButtonSize } from '../../../config/button-sizes';
 import { normalizeCurrencyValue } from '../../../utils';
 import { 
@@ -16,19 +16,20 @@ interface InventoryStatsProps {
   products: Product[];
   inventoryItems: InventoryItem[];
   supplierOnly: boolean;
+  manualOnly?: boolean;
   onRecommendationClick: (action: string) => void;
   isMobile: boolean;
 }
 
-export function InventoryStats({ products, inventoryItems, supplierOnly, onRecommendationClick, isMobile }: InventoryStatsProps) {
+export function InventoryStats({ products, inventoryItems, supplierOnly, manualOnly = false, onRecommendationClick, isMobile }: InventoryStatsProps) {
   const activeStatuses = new Set(['AVAILABLE']);
   const inactiveStatuses = new Set(['SOLD', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
   const { data: completeInventoryData } = useQuery({
-    queryKey: ['inventory', 'stats', supplierOnly ? 'supplier' : 'general'],
+    queryKey: ['inventory', 'stats', supplierOnly ? 'supplier' : manualOnly ? 'manual' : 'general'],
     queryFn: () => inventoryApi.listWithSupplier({
       page: 1,
       per_page: 1000,
-      ...(supplierOnly ? { supplier_only: 'true' } : { exclude_condition: 'USED' }),
+      ...(supplierOnly ? { supplier_only: 'true' } : { exclude_condition: 'USED', ...(manualOnly ? { manual_only: 'true' } : {}) }),
     }),
     staleTime: 60000,
   });
@@ -37,8 +38,19 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, onRecom
     queryFn: () => settingsApi.getSetting('tax_rate'),
     retry: false,
   });
+  const { data: allProductsData } = useQuery({
+    queryKey: ['products', 'inventory-stats'],
+    queryFn: () => productsApi.list({ page: 1, per_page: 1000 }),
+    staleTime: 60000,
+  });
 
   const statsInventoryItems = (completeInventoryData?.data?.items as InventoryItem[]) || inventoryItems;
+  const statsProducts = [
+    ...products,
+    ...((((allProductsData?.data?.products ?? []) as Product[]).filter(
+      (product) => !products.some((currentProduct) => currentProduct.id === product.id),
+    ))),
+  ];
   const normalizedItems = statsInventoryItems.reduce((acc: Map<string, { stock: number; unitPrice: number; condition: string }>, item: InventoryItem) => {
     const status = String((item as any).status || '').trim().toUpperCase();
     const productId = String((item as any).product_id || (item as any).product?.id || '').trim();
@@ -71,12 +83,21 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, onRecom
     return acc;
   }, new Map());
 
-  const summaryItems = Array.from(normalizedItems.entries())
-    .filter(([, item]) => supplierOnly || item.condition !== 'USED')
-    .map(([productId, item]) => ({
-      ...item,
-      minimumStockLevel: Math.max(1, Number(products.find((product) => product.id === productId)?.min_stock_level) || 3),
-    }));
+  const summaryItems = supplierOnly
+    ? Array.from(normalizedItems.entries())
+      .filter(([, item]) => item.condition !== 'USED')
+      .map(([productId, item]) => ({
+        ...item,
+        minimumStockLevel: Math.max(1, Number(statsProducts.find((product) => product.id === productId)?.min_stock_level) || 3),
+      }))
+    : statsProducts
+      .map((product) => ({
+        stock: Number(product.current_quantity ?? product.stock ?? 0),
+        unitPrice: normalizeCurrencyValue(product.sellingPrice ?? (product as any).selling_price ?? 0),
+        condition: String(product.condition || '').toUpperCase(),
+        minimumStockLevel: Math.max(1, Number(product.min_stock_level) || 3),
+      }))
+      .filter((item) => item.condition !== 'USED' && item.stock > 0);
 
   const lowStockItems = summaryItems.filter((item) => item.stock > 0 && item.stock <= item.minimumStockLevel).length;
   const availablePieceCount = summaryItems.reduce((total, item) => total + item.stock, 0);

@@ -224,6 +224,7 @@ export const productsApi = {
   list: (params?: ProductListParams) => 
     apiClient.get('/products', params),
   get: (id: string) => apiClient.get(`/products/${id}`),
+  getByBarcode: (barcode: string) => apiClient.get(`/products/barcode/${encodeURIComponent(barcode.trim())}`),
   getStock: (id: string) => apiClient.get(`/products/${id}/stock`),
   create: (data: ProductCreateRequest) => apiClient.post('/products', data),
   update: (id: string, data: ProductUpdateRequest) => apiClient.put(`/products/${id}`, data),
@@ -386,6 +387,7 @@ export const purchasesApi = {
   receive: (id: string) => apiClient.post(`/purchases/${id}/receive`, {}),
   addPayment: (id: string, data: { amount: number; paymentMethod: string }) =>
     apiClient.post(`/purchases/${id}/payment`, data),
+  deleteItem: (itemId: string) => apiClient.delete(`/purchases/items/${itemId}`),
   cancel: (id: string) => apiClient.post(`/purchases/${id}/cancel`, {}),
   reverse: (id: string, reason: string) => apiClient.post(`/purchases/${id}/reverse`, { reason }),
   // Get used items info for blocked deletion

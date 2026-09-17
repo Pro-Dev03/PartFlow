@@ -9,6 +9,7 @@ export interface Product {
   sellingPrice: number;
   costPrice?: number;
   stock: number;
+  current_quantity?: number;
   condition: string;
   category?: string;
   category_id?: string;

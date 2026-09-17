@@ -32,7 +32,7 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
       bgColor: 'var(--color-primary-10)'
     },
     {
-      title: t('dashboard.addProduct') || 'إضافة قطعة',
+      title: 'إضافة مخزون',
       icon: Plus,
       path: '/app/inventory',
       variant: 'secondary',

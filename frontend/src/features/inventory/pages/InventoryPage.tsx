@@ -9,7 +9,7 @@ import { Modal } from '../../../components/ui/modal';
 import { Input } from '../../../components/ui/input';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { Plus, Download, Printer, Package, PackageOpen, LayoutGrid, List } from 'lucide-react';
+import { Plus, Package, PackageOpen, LayoutGrid, List } from 'lucide-react';
 
 // Custom hooks
 import { useInventory } from '../hooks/useInventory';
@@ -23,9 +23,11 @@ import { InventoryList } from '../components/InventoryList';
 import { StockAlertCards } from '../components/StockAlertCards';
 import { InventoryModals } from '../components/InventoryModals';
 import { OpeningStockModal } from '../components/OpeningStockModal';
+import { InventoryEntryModal } from '../components/InventoryEntryModal';
 import { InventoryLedger } from '../../../components/ui/inventory-ledger';
 import type { InventoryMovement } from '../../../components/ui/inventory-ledger';
 import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { ReportActions } from '../../../components/ui/report-actions';
 
 // Types
 import { ViewMode, Product } from '../types/inventory.types';
@@ -63,6 +65,7 @@ export function InventoryPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
   const [isOpeningStockModalOpen, setIsOpeningStockModalOpen] = useState(false);
+  const [isInventoryEntryModalOpen, setIsInventoryEntryModalOpen] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [showInventoryLedger, setShowInventoryLedger] = useState(false);
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
@@ -74,6 +77,7 @@ export function InventoryPage() {
   const [inventoryItemToDelete, setInventoryItemToDelete] = useState<string | null>(null);
   const [minimumStockProduct, setMinimumStockProduct] = useState<Product | null>(null);
   const [minimumStockValue, setMinimumStockValue] = useState('0');
+  const [reportLoading, setReportLoading] = useState(false);
 
   // Custom hook
   const {
@@ -104,7 +108,9 @@ export function InventoryPage() {
     setProductPage,
     setInventoryPage,
   } = useInventory();
-  const supplierOnly = filters.some((filter) => filter.key === 'supplier_only' && filter.value === 'true');
+  const supplierOnly = filters.some((filter) => filter.key === 'supplier_only' && String(filter.value).toLowerCase() === 'true');
+  const manualOnly = filters.some((filter) => filter.key === 'manual_only' && String(filter.value).toLowerCase() === 'true');
+  const inventorySource = manualOnly ? 'manual' : supplierOnly ? 'supplier' : 'all';
 
   // Handle edit product from navigation state
   useEffect(() => {
@@ -144,38 +150,146 @@ export function InventoryPage() {
     setSearchQuery('');
   };
 
+  const handleGeneralInventoryToggle = () => {
+    setFilters(filters.filter((filter) => filter.key !== 'supplier_only' && filter.key !== 'manual_only'));
+    setViewMode('products');
+    setProductPage(1);
+    setInventoryPage(1);
+    void queryClient.invalidateQueries({ queryKey: ['products'] });
+    void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+  };
+
   const handleSupplierInventoryToggle = () => {
     if (supplierOnly) {
-      setFilters(filters.filter((filter) => filter.key !== 'supplier_only'));
       setViewMode('products');
+      void refetch();
       return;
     }
-    setFilters([...filters.filter((filter) => filter.key !== 'supplier_only'), { key: 'supplier_only', value: 'true' }]);
+    setFilters([...filters.filter((filter) => filter.key !== 'supplier_only' && filter.key !== 'manual_only'), { key: 'supplier_only', value: 'true' }]);
+    setViewMode('products');
+  };
+
+  const handleManualInventoryToggle = () => {
+    if (manualOnly) {
+      setViewMode('products');
+      void refetch();
+      return;
+    }
+    setFilters([...filters.filter((filter) => filter.key !== 'supplier_only' && filter.key !== 'manual_only'), { key: 'manual_only', value: 'true' }]);
+    setViewMode('products');
+  };
+
+  const getReportRows = (products: Product[]) => products.map((product: Product) => ({
+      'الاسم': product.name,
+      'SKU': product.sku,
+      'التصنيف': product.category_name || product.category || '-',
+      'السعر قبل الضريبة': product.sellingPrice,
+      'المخزون': product.stock,
+      'الحالة': product.condition
+    }));
+
+  const loadAllReportProducts = async (): Promise<Product[]> => {
+    const categoryFilter = filters.find((filter) => filter.key === 'category_id');
+    const supplierFilter = filters.find((filter) => filter.key === 'supplier_id');
+    const purchaseDateFrom = filters.find((filter) => filter.key === 'purchase_date_from');
+    const purchaseDateTo = filters.find((filter) => filter.key === 'purchase_date_to');
+    const minPurchaseCost = filters.find((filter) => filter.key === 'min_purchase_cost');
+    const maxPurchaseCost = filters.find((filter) => filter.key === 'max_purchase_cost');
+    const inventoryFilters = {
+      page: 1,
+      per_page: 1000,
+      ...(supplierOnly ? { supplier_only: 'true' } : {}),
+      ...(manualOnly ? { manual_only: 'true' } : {}),
+      ...(!supplierOnly && !manualOnly ? { exclude_condition: 'USED' } : {}),
+      ...(searchQuery ? { search: searchQuery } : {}),
+      ...(categoryFilter?.value ? { category_id: categoryFilter.value } : {}),
+      ...(supplierFilter?.value ? { supplier_id: supplierFilter.value } : {}),
+      ...(purchaseDateFrom?.value ? { purchase_date_from: purchaseDateFrom.value } : {}),
+      ...(purchaseDateTo?.value ? { purchase_date_to: purchaseDateTo.value } : {}),
+      ...(minPurchaseCost?.value ? { min_purchase_cost: Number(minPurchaseCost.value) } : {}),
+      ...(maxPurchaseCost?.value ? { max_purchase_cost: Number(maxPurchaseCost.value) } : {}),
+    };
+
+    if (supplierOnly || manualOnly || supplierFilter || purchaseDateFrom || purchaseDateTo || minPurchaseCost || maxPurchaseCost) {
+      const [productsResponse, inventoryResponse] = await Promise.all([
+        productsApi.list({ page: 1, per_page: 1000, ...(searchQuery ? { search: searchQuery } : {}), ...(categoryFilter?.value ? { category_id: categoryFilter.value } : {}) }),
+        inventoryApi.listWithSupplier(inventoryFilters),
+      ]);
+      const productsById = new Map(
+        (((productsResponse as any)?.data?.products ?? []) as Product[]).map((product) => [String(product.id), product]),
+      );
+      const grouped = new Map<string, Product>();
+      for (const item of (((inventoryResponse as any)?.data?.items ?? []) as any[])) {
+        const productId = String(item.product_id ?? item.product?.id ?? '').trim();
+        if (!productId) continue;
+        const baseProduct = productsById.get(productId) ?? item.product ?? {};
+        const quantity = Number(item.available_quantity ?? item.current_quantity ?? item.stock ?? item.quantity ?? 1);
+        const existing = grouped.get(productId);
+        if (existing) {
+          existing.stock += Number.isFinite(quantity) ? Math.max(0, quantity) : 0;
+          continue;
+        }
+        grouped.set(productId, {
+          ...baseProduct,
+          id: productId,
+          name: String(baseProduct.name ?? item.product_name ?? '-'),
+          sku: String(baseProduct.sku ?? item.item_code ?? item.barcode ?? productId),
+          sellingPrice: Number(baseProduct.sellingPrice ?? baseProduct.selling_price ?? item.selling_price ?? item.price ?? 0),
+          stock: Number.isFinite(quantity) ? Math.max(0, quantity) : 0,
+          condition: String(baseProduct.condition ?? item.condition ?? ''),
+          category: baseProduct.category ?? item.category_name,
+          category_name: baseProduct.category_name ?? item.category_name,
+        });
+      }
+      return Array.from(grouped.values());
+    }
+
+    const response = await productsApi.list({
+      page: 1,
+      per_page: 1000,
+      ...(searchQuery ? { search: searchQuery } : {}),
+      ...(categoryFilter?.value ? { category_id: categoryFilter.value } : {}),
+    });
+    return (((response as any)?.data?.products ?? []) as Product[]);
+  };
+
+  const runReportAction = async (action: 'export' | 'print', allResults: boolean) => {
+    if (reportLoading) return;
+    setReportLoading(true);
+    try {
+      const products = allResults ? await loadAllReportProducts() : filteredProducts;
+      if (products.length === 0) {
+        toast.error(action === 'export' ? 'لا توجد منتجات لتصديرها' : 'لا توجد منتجات لطباعتها');
+        return;
+      }
+      const rows = getReportRows(products);
+      if (action === 'export') {
+        exportToCSV(rows, `inventory-${allResults ? 'all-' : ''}${new Date().toISOString().split('T')[0]}`);
+        toast.success(`تم تصدير ${products.length} منتج بنجاح`);
+      } else {
+        printTable(rows, ['الاسم', 'SKU', 'السعر قبل الضريبة', 'المخزون', 'الحالة'], 'تقرير المخزون');
+        toast.success(`تم تجهيز تقرير ${products.length} منتج للطباعة`);
+      }
+    } catch (error) {
+      console.error('Inventory report failed:', error);
+      toast.error('تعذر تجهيز تقرير المخزون');
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const handleProductsView = () => {
+    setViewMode('products');
+    if (supplierOnly || manualOnly) {
+      void refetch();
+    }
+  };
+
+  const handleItemsView = () => {
     setViewMode('items');
-  };
-
-  const handleExport = () => {
-    const dataToExport = filteredProducts.map((product: Product) => ({
-      'الاسم': product.name,
-      'SKU': product.sku,
-      'التصنيف': product.category_name || product.category || '-',
-      'السعر قبل الضريبة': product.sellingPrice,
-      'المخزون': product.stock,
-      'الحالة': product.condition
-    }));
-    exportToCSV(dataToExport, `inventory-${new Date().toISOString().split('T')[0]}`);
-  };
-
-  const handlePrint = () => {
-    const dataToPrint = filteredProducts.map((product: Product) => ({
-      'الاسم': product.name,
-      'SKU': product.sku,
-      'التصنيف': product.category_name || product.category || '-',
-      'السعر قبل الضريبة': product.sellingPrice,
-      'المخزون': product.stock,
-      'الحالة': product.condition
-    }));
-    printTable(dataToPrint, ['الاسم', 'SKU', 'السعر قبل الضريبة', 'المخزون', 'الحالة'], 'تقرير المخزون');
+    if (supplierOnly || manualOnly) {
+      void refetch();
+    }
   };
 
   const handleViewProduct = (product: Product) => {
@@ -437,6 +551,10 @@ export function InventoryPage() {
     void refetch();
   };
 
+  const handleCreatePurchase = () => {
+    navigate('/app/purchases/create');
+  };
+
   const handleRecommendationClick = (action: string) => {
     if (action === 'low_stock') {
       setSearchQuery('');
@@ -462,8 +580,11 @@ export function InventoryPage() {
       item.productId === productId ||
       item.product_name === product?.name
     );
-    const itemIds = productInventoryItems.map((item: any) => item.id).filter(Boolean);
-    if (itemIds.length === 0) itemIds.push(productId);
+    const itemIds = [...new Set(
+      productInventoryItems
+        .map((item: any) => item.id)
+        .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    )];
 
     setInventoryLedgerLoading(true);
     setInventoryLedgerError(null);
@@ -471,9 +592,23 @@ export function InventoryPage() {
     setInventoryLedgerProduct(product);
 
     try {
-      const responses = await Promise.all(itemIds.map((itemId) =>
-        inventoryApi.movements<{ movements?: InventoryMovementResponse[] }>(itemId)
-      ));
+      if (itemIds.length === 0) {
+        setInventoryMovements([]);
+        setInventoryLedgerError('لا توجد عناصر مخزون فردية لهذا المنتج لعرض سجل الحركات.');
+        return;
+      }
+
+      const responses = await Promise.all(itemIds.map(async (itemId) => {
+        try {
+          return await inventoryApi.movements<{ movements?: InventoryMovementResponse[] }>(itemId);
+        } catch (error: any) {
+          const message = error?.message || '';
+          if (error?.status === 404 || message.includes('inventory item not found')) {
+            return { data: { movements: [] } } as any;
+          }
+          throw error;
+        }
+      }));
       const movements = responses
         .flatMap((response) => response.data?.movements ?? [])
         .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
@@ -523,47 +658,47 @@ export function InventoryPage() {
               variant="primary"
               size={getButtonSize('inventory', 'headerActions')}
               className={cn(isMobile ? "w-full" : "")}
-              onClick={handleManualAdd}
+              onClick={() => setIsInventoryEntryModalOpen(true)}
             >
               <Plus className="w-3.5 h-3.5 me-1.5" />
-              {t('inventory.addItem')}
+              إضافة مخزون
             </Button>
-            <Button
-              variant="secondary"
-              size={getButtonSize('inventory', 'headerActions')}
-              className={cn(isMobile ? "w-full" : "")}
-              onClick={() => setIsOpeningStockModalOpen(true)}
-            >
-              <PackageOpen className="w-3.5 h-3.5 me-1.5" />
-              إضافة المخزون الحالي
-            </Button>
-            <Button
-              variant={supplierOnly ? 'primary' : 'outline'}
-              size={getButtonSize('inventory', 'headerActions')}
-              className={cn(isMobile ? "w-full" : "")}
-              onClick={handleSupplierInventoryToggle}
-            >
-              <Package className="w-3.5 h-3.5 me-1.5" />
-              {supplierOnly ? 'عرض المخزون العام' : 'مشتريات الموردين'}
-            </Button>
-            <Button 
-              variant="outline"
-              size={getButtonSize('inventory', 'headerActions')} 
-              onClick={handleExport}
-              className={cn(isMobile ? "w-full" : "")}
-            >
-              <Download className="w-3.5 h-3.5 me-1.5" />
-              تصدير
-            </Button>
-            <Button 
-              variant="secondary" 
-              size={getButtonSize('inventory', 'headerActions')} 
-              onClick={handlePrint}
-              className={cn(isMobile ? "w-full" : "")}
-            >
-              <Printer className="w-3.5 h-3.5 me-1.5" />
-              طباعة
-            </Button>
+            <div className={cn('flex items-center gap-1 rounded-[8px] border border-border bg-surface-muted p-1', isMobile ? 'w-full' : '')} aria-label="مصدر المخزون">
+              <Button
+                variant={inventorySource === 'all' ? 'primary' : 'ghost'}
+                size={getButtonSize('inventory', 'headerActions')}
+                className={cn(isMobile ? 'flex-1' : '')}
+                onClick={handleGeneralInventoryToggle}
+              >
+                <Package className="w-3.5 h-3.5 me-1.5" />
+                الكل
+              </Button>
+              <Button
+                variant={inventorySource === 'manual' ? 'primary' : 'ghost'}
+                size={getButtonSize('inventory', 'headerActions')}
+                className={cn(isMobile ? 'flex-1' : '')}
+                onClick={handleManualInventoryToggle}
+              >
+                <PackageOpen className="w-3.5 h-3.5 me-1.5" />
+                المضاف يدويًا
+              </Button>
+              <Button
+                variant={inventorySource === 'supplier' ? 'primary' : 'ghost'}
+                size={getButtonSize('inventory', 'headerActions')}
+                className={cn(isMobile ? 'flex-1' : '')}
+                onClick={handleSupplierInventoryToggle}
+              >
+                <Package className="w-3.5 h-3.5 me-1.5" />
+                مشتريات الموردين
+              </Button>
+            </div>
+            <ReportActions
+              onExportCurrent={() => { void runReportAction('export', false); }}
+              onPrintCurrent={() => { void runReportAction('print', false); }}
+              onExportAll={() => { void runReportAction('export', true); }}
+              onPrintAll={() => { void runReportAction('print', true); }}
+              loading={reportLoading}
+            />
           </div>
         }
       />
@@ -573,6 +708,7 @@ export function InventoryPage() {
         products={filteredProducts}
         inventoryItems={inventoryItems}
         supplierOnly={supplierOnly}
+        manualOnly={manualOnly}
         onRecommendationClick={handleRecommendationClick}
         isMobile={isMobile}
       />
@@ -582,8 +718,15 @@ export function InventoryPage() {
         barcodeInput={barcodeInput}
         setBarcodeInput={setBarcodeInput}
         onBarcodeScan={handleBarcodeScan}
-        onManualAdd={handleManualAdd}
-        onOpeningStock={() => setIsOpeningStockModalOpen(true)}
+        onAddInventory={() => setIsInventoryEntryModalOpen(true)}
+      />
+
+      <InventoryEntryModal
+        isOpen={isInventoryEntryModalOpen}
+        onClose={() => setIsInventoryEntryModalOpen(false)}
+        onAddProduct={handleManualAdd}
+        onAddExistingStock={() => setIsOpeningStockModalOpen(true)}
+        onCreatePurchase={handleCreatePurchase}
       />
 
       <OpeningStockModal
@@ -609,14 +752,14 @@ export function InventoryPage() {
       <div className="flex gap-2" style={{ marginBottom: '16px' }}>
         <Button
           variant={viewMode === 'products' ? 'primary' : 'secondary'}
-          onClick={() => setViewMode('products')}
+          onClick={handleProductsView}
         >
           <Package className="w-3 h-3 me-1.5" />
           {t('products.title')}
         </Button>
         <Button
           variant={viewMode === 'items' ? 'primary' : 'secondary'}
-          onClick={() => setViewMode('items')}
+          onClick={handleItemsView}
         >
           <PackageOpen className="w-3 h-3 me-1.5" />
           {t('inventory.items')}

@@ -8,11 +8,16 @@ import (
 
 // ToPurchaseResponse converts Purchase to PurchaseResponse
 func (p *Purchase) ToPurchaseResponse(items []PurchaseItem, supplier *SupplierInfo) *PurchaseResponse {
+	totalItems := 0
+	for _, item := range items {
+		totalItems += item.Quantity
+	}
+
 	return &PurchaseResponse{
 		Purchase:   *p,
 		Items:      items,
 		Supplier:   supplier,
-		TotalItems: len(items),
+		TotalItems: totalItems,
 		Remaining:  p.TotalAmount - p.PaidAmount,
 	}
 }

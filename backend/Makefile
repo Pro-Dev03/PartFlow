@@ -1,10 +1,13 @@
-.PHONY: help setup-owner seed-db migrate test-api clean
+.PHONY: help dev setup-owner seed-db migrate test-api clean
 
 help: ## Show this help message
 	@echo 'PartFlow Backend - Available Commands:'
 	@echo ''
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 	@echo ''
+
+dev: ## Run the API with automatic restart on Go file changes
+	@air -c .air.toml
 
 setup-owner: ## Create or update owner account
 	@echo "🔧 Setting up owner account..."

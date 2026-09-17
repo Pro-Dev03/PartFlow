@@ -188,6 +188,10 @@ export function InventoryList({
     : displayInventoryItems.filter((item) => String(item.status || '').toUpperCase() === inventoryStatusFilter);
 
   const getStockValue = (product: any): number | undefined => {
+    if (product.current_quantity !== undefined && product.current_quantity !== null) {
+      return Number(product.current_quantity);
+    }
+
     const mappedStock = inventoryStockMap?.get(String(product.id));
     if (mappedStock !== undefined) {
       return mappedStock;
@@ -227,6 +231,19 @@ export function InventoryList({
     return sectionOrder[leftSection] - sectionOrder[rightSection];
   });
 
+  const emptyProductsState = (
+    <EmptyState
+      icon={<Inbox className="h-5 w-5" />}
+      title="لا توجد منتجات"
+      description="لم يتم العثور على منتجات تطابق بحثك"
+      action={{
+        label: 'مسح البحث',
+        onClick: onClearSearch,
+        variant: 'primary',
+      }}
+    />
+  );
+
   return (
     <>
       {viewMode === 'products' && (
@@ -239,210 +256,183 @@ export function InventoryList({
           {productsLoading ? (
             <LoadingSpinner />
           ) : displayProducts.length === 0 ? (
-            <EmptyState
-              icon={<Inbox className="h-5 w-5" />}
-              title="لا توجد منتجات"
-              description="لم يتم العثور على منتجات تطابق بحثك"
-              action={{
-                label: 'مسح البحث',
-                onClick: onClearSearch,
-                variant: 'primary',
-              }}
-            />
+            emptyProductsState
           ) : (
-            <div className={layoutMode === 'table' ? 'block' : 'hidden'}>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[72px]">الصورة</TableHead>
-                    <TableHead className="w-[24%]">الاسم</TableHead>
-                    <TableHead className="w-[12%]">SKU</TableHead>
-                    <TableHead className="w-[14%]">التصنيف</TableHead>
-                    <TableHead className="w-[12%]">الحالة</TableHead>
-                    <TableHead className="w-[10%] text-center">المخزون</TableHead>
-                    <TableHead className="w-[12%] text-center">السعر قبل الضريبة</TableHead>
-                    <TableHead className="w-[12%]">المؤشر</TableHead>
-                    <TableHead className="w-[8%] text-end">الإجراءات</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+            <>
+              <div className={layoutMode === 'table' ? 'block' : 'hidden'}>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[72px]">الصورة</TableHead>
+                      <TableHead className="w-[24%]">الاسم</TableHead>
+                      <TableHead className="w-[12%]">SKU</TableHead>
+                      <TableHead className="w-[14%]">التصنيف</TableHead>
+                      <TableHead className="w-[12%]">الحالة</TableHead>
+                      <TableHead className="w-[10%] text-center">المخزون</TableHead>
+                      <TableHead className="w-[12%] text-center">السعر قبل الضريبة</TableHead>
+                      <TableHead className="w-[12%]">المؤشر</TableHead>
+                      <TableHead className="w-[8%] text-end">الإجراءات</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {displayProducts.map((product: Product) => {
+                      const stockVal = getStockValue(product);
+                      const stockBadge = getStockDisplay(stockVal, product.min_stock_level);
+                      const conditionBadge = getConditionBadge(product.condition || '');
+
+                      return (
+                        <TableRow key={product.id} className="align-middle">
+                          <TableCell>
+                            <div style={{ width: '48px', height: '48px', overflow: 'hidden', borderRadius: '6px' }}>
+                              {product.image_url ? (
+                                <img src={product.image_url} alt={product.name || 'المنتج'} style={{ width: '48px', height: '48px', maxWidth: '48px', maxHeight: '48px', objectFit: 'contain', display: 'block' }} />
+                              ) : <Package className="h-8 w-8 text-text-tertiary" />}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="min-w-0">
+                              <div className="max-w-[220px] truncate font-semibold text-text-primary">{product.name || '-'}</div>
+                              <div className="mt-0.5 text-[11px] text-text-tertiary">{product.barcode || product.sku || '-'}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-medium text-text-secondary">{product.sku || '-'}</TableCell>
+                          <TableCell className="text-text-secondary">{product.category_name || product.category || product.categoryName || '-'}</TableCell>
+                          <TableCell>
+                            <Badge variant={conditionBadge.variant} size="sm">{conditionBadge.label}</Badge>
+                          </TableCell>
+                          <TableCell className="text-center font-semibold text-text-primary">{stockVal !== undefined ? stockVal : '-'}</TableCell>
+                          <TableCell className="text-center font-semibold text-primary">{getPrice(product)}</TableCell>
+                          <TableCell>
+                            <Badge variant={stockBadge.variant} size="sm" className="capitalize">{stockBadge.text}</Badge>
+                          </TableCell>
+                          <TableCell className="text-end">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => onViewProduct(product)}
+                                aria-label="عرض المنتج"
+                                title="عرض المنتج"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                              {onViewInventoryLedger && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => onViewInventoryLedger(product.id)}
+                                  className="h-8 px-2.5 text-[11px]"
+                                  aria-label={`سجل حركات ${product.name || 'المنتج'}`}
+                                  title="سجل الحركات"
+                                >
+                                  <FileText className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              <RowActionMenu
+                                product={product}
+                                onViewProduct={onViewProduct}
+                                onAddPurchase={onAddPurchase}
+                                onEditProduct={onEditProduct}
+                                onEditMinimumStock={onEditMinimumStock}
+                                onDeleteProduct={onDeleteProduct}
+                                onViewInventoryLedger={onViewInventoryLedger}
+                              />
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+                {pagination && (
+                  <PaginationControls
+                    page={pagination.page}
+                    pageSize={pagination.pageSize}
+                    total={pagination.total}
+                    onPageChange={pagination.onPageChange}
+                    isLoading={productsLoading}
+                  />
+                )}
+              </div>
+
+              <div className={layoutMode === 'cards' ? 'block' : 'hidden'}>
+                <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
                   {displayProducts.map((product: Product) => {
                     const stockVal = getStockValue(product);
                     const stockBadge = getStockDisplay(stockVal, product.min_stock_level);
                     const conditionBadge = getConditionBadge(product.condition || '');
 
                     return (
-                      <TableRow key={product.id} className="align-middle">
-                        <TableCell>
-                          <div style={{ width: '48px', height: '48px', overflow: 'hidden', borderRadius: '6px' }}>
-                            {product.image_url ? (
-                              <img src={product.image_url} alt={product.name || 'المنتج'} style={{ width: '48px', height: '48px', maxWidth: '48px', maxHeight: '48px', objectFit: 'contain', display: 'block' }} />
-                            ) : <Package className="h-8 w-8 text-text-tertiary" />}
-                          </div>
-                        </TableCell>
-                        <TableCell>
+                      <div key={product.id} className="rounded-xl border border-border bg-surface-elevated/25 p-4">
+                        <div className="mb-3 flex items-center justify-center overflow-hidden rounded-lg bg-surface-muted" style={{ height: '144px', minHeight: '144px' }}>
+                          {product.image_url ? (
+                            <img src={product.image_url} alt={product.name || 'المنتج'} className="max-h-full max-w-full object-contain" style={{ width: '100%', height: '100%' }} />
+                          ) : (
+                            <Package className="h-12 w-12 text-text-tertiary" />
+                          )}
+                        </div>
+                        <div className="mb-3 flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="max-w-[220px] truncate font-semibold text-text-primary">{product.name || '-'}</div>
-                            <div className="mt-0.5 text-[11px] text-text-tertiary">{product.barcode || product.sku || '-'}</div>
+                            <div className="truncate font-semibold text-text-primary">{product.name || '-'}</div>
+                            <div className="mt-1 text-[11px] text-text-tertiary">{product.sku || '-'}</div>
                           </div>
-                        </TableCell>
-                        <TableCell className="font-medium text-text-secondary">{product.sku || '-'}</TableCell>
-                        <TableCell className="text-text-secondary">{product.category_name || product.category || product.categoryName || '-'}</TableCell>
-                        <TableCell>
-                          <Badge variant={conditionBadge.variant} size="sm">{conditionBadge.label}</Badge>
-                        </TableCell>
-                        <TableCell className="text-center font-semibold text-text-primary">{stockVal !== undefined ? stockVal : '-'}</TableCell>
-                        <TableCell className="text-center font-semibold text-primary">{getPrice(product)}</TableCell>
-                        <TableCell>
                           <Badge variant={stockBadge.variant} size="sm" className="capitalize">{stockBadge.text}</Badge>
-                        </TableCell>
-                        <TableCell className="text-end">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => onViewProduct(product)}
-                              aria-label="عرض المنتج"
-                              title="عرض المنتج"
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </Button>
-                            {onViewInventoryLedger && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => onViewInventoryLedger(product.id)}
-                                className="h-8 px-2.5 text-[11px]"
-                                aria-label={`سجل حركات ${product.name || 'المنتج'}`}
-                                title="سجل الحركات"
-                              >
-                                <FileText className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                            <RowActionMenu
-                              product={product}
-                              onViewProduct={onViewProduct}
-                              onAddPurchase={onAddPurchase}
-                              onEditProduct={onEditProduct}
-                              onEditMinimumStock={onEditMinimumStock}
-                              onDeleteProduct={onDeleteProduct}
-                              onViewInventoryLedger={onViewInventoryLedger}
-                            />
+                        </div>
+
+                        <div className="space-y-2 text-sm">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-text-tertiary">التصنيف</span>
+                            <span className="font-medium text-text-secondary">{product.category_name || product.category || product.categoryName || '-'}</span>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-text-tertiary">المورد</span>
+                            <span className="font-medium text-text-secondary">{product.supplier_name || 'غير محدد'}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-text-tertiary">الحالة</span>
+                            <Badge variant={conditionBadge.variant} size="sm">{conditionBadge.label}</Badge>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-text-tertiary">المخزون</span>
+                            <span className="font-semibold text-text-primary">{stockVal !== undefined ? stockVal : '-'}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-text-tertiary">السعر قبل الضريبة</span>
+                            <span className="font-semibold text-primary">{getPrice(product)}</span>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => onViewProduct(product)}
+                            aria-label={`عرض المنتج ${product.name || ''}`}
+                            title="عرض المنتج"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            عرض
+                          </Button>
+                          <RowActionMenu
+                            product={product}
+                            onViewProduct={onViewProduct}
+                            onAddPurchase={onAddPurchase}
+                            onEditProduct={onEditProduct}
+                            onEditMinimumStock={onEditMinimumStock}
+                            onDeleteProduct={onDeleteProduct}
+                            onViewInventoryLedger={onViewInventoryLedger}
+                          />
+                        </div>
+                      </div>
                     );
                   })}
-                </TableBody>
-              </Table>
-              {pagination && (
-                <PaginationControls
-                  page={pagination.page}
-                  pageSize={pagination.pageSize}
-                  total={pagination.total}
-                  onPageChange={pagination.onPageChange}
-                  isLoading={productsLoading}
-                />
-              )}
-            </div>
-          )}
-
-          <div className={layoutMode === 'cards' ? 'block' : 'hidden'}>
-            {productsLoading ? (
-              <div className="p-4"><LoadingSpinner /></div>
-            ) : displayProducts.length === 0 ? (
-              <EmptyState
-                icon={<Inbox className="h-5 w-5" />}
-                title="لا توجد منتجات"
-                description="لم يتم العثور على منتجات تطابق بحثك"
-                action={{ label: 'مسح البحث', onClick: onClearSearch, variant: 'primary' }}
-              />
-            ) : (
-              <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-                {displayProducts.map((product: Product) => {
-                  const stockVal = getStockValue(product);
-                  const stockBadge = getStockDisplay(stockVal, product.min_stock_level);
-                  const conditionBadge = getConditionBadge(product.condition || '');
-
-                  return (
-                    <div key={product.id} className="rounded-xl border border-border bg-surface-elevated/25 p-4">
-                      <div className="mb-3 flex items-center justify-center overflow-hidden rounded-lg bg-surface-muted" style={{ height: '144px', minHeight: '144px' }}>
-                        {product.image_url ? (
-                          <img src={product.image_url} alt={product.name || 'المنتج'} className="max-h-full max-w-full object-contain" style={{ width: '100%', height: '100%' }} />
-                        ) : (
-                          <Package className="h-12 w-12 text-text-tertiary" />
-                        )}
-                      </div>
-                      <div className="mb-3 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate font-semibold text-text-primary">{product.name || '-'}</div>
-                          <div className="mt-1 text-[11px] text-text-tertiary">{product.sku || '-'}</div>
-                        </div>
-                        <Badge variant={stockBadge.variant} size="sm" className="capitalize">{stockBadge.text}</Badge>
-                      </div>
-
-                      <div className="space-y-2 text-sm">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-text-tertiary">التصنيف</span>
-                          <span className="font-medium text-text-secondary">{product.category_name || product.category || product.categoryName || '-'}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-text-tertiary">المورد</span>
-                          <span className="font-medium text-text-secondary">{product.supplier_name || 'غير محدد'}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-text-tertiary">الحالة</span>
-                          <Badge variant={conditionBadge.variant} size="sm">{conditionBadge.label}</Badge>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-text-tertiary">المخزون</span>
-                          <span className="font-semibold text-text-primary">{stockVal !== undefined ? stockVal : '-'}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-text-tertiary">السعر قبل الضريبة</span>
-                          <span className="font-semibold text-primary">{getPrice(product)}</span>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => onViewProduct(product)}
-                          aria-label={`عرض المنتج ${product.name || ''}`}
-                          title="عرض المنتج"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          عرض
-                        </Button>
-                        <RowActionMenu
-                          product={product}
-                          onViewProduct={onViewProduct}
-                          onAddPurchase={onAddPurchase}
-                          onEditProduct={onEditProduct}
-                          onEditMinimumStock={onEditMinimumStock}
-                          onDeleteProduct={onDeleteProduct}
-                          onViewInventoryLedger={onViewInventoryLedger}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
+                </div>
               </div>
-            )}
-            {pagination && displayProducts.length > 0 && (
-              <PaginationControls
-                page={pagination.page}
-                pageSize={pagination.pageSize}
-                total={pagination.total}
-                onPageChange={pagination.onPageChange}
-                isLoading={productsLoading}
-              />
-            )}
-          </div>
+            </>
+          )}
         </div>
       )}
 
@@ -450,7 +440,7 @@ export function InventoryList({
         <div className="rounded-[12px] border border-border bg-surface shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
           <div className="flex items-center gap-2 border-b border-border px-5 py-4">
             <PackageOpen className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-semibold text-text-primary">{supplierOnly ? 'مشتريات الموردين' : 'عناصر المخزون'}</h3>
+            <h3 className="text-sm font-semibold text-text-primary">{supplierOnly ? 'مشتريات الموردين' : 'عناصر المخزون الفردية'}</h3>
           </div>
 
           <div className="flex flex-wrap gap-2 border-b border-border px-5 py-3" role="tablist" aria-label="أقسام حالات المخزون">
@@ -477,7 +467,11 @@ export function InventoryList({
           {inventoryLoading ? (
             <LoadingSpinner />
           ) : visibleInventoryItems.length === 0 ? (
-            <EmptyState icon={<Inbox className="h-5 w-5" />} title="لا توجد عناصر" description="لم يتم العثور على عناصر في المخزون" />
+            <EmptyState
+              icon={<Inbox className="h-5 w-5" />}
+              title="لا توجد قطع فردية مسجلة"
+              description="الكميات الإجمالية تظهر في تبويب المنتجات. استخدم طريقة القطعة المحددة بالباركود لإظهار كل قطعة هنا."
+            />
           ) : (
             <div className={layoutMode === 'table' ? 'block' : 'hidden'}>
               <Table>
@@ -590,7 +584,11 @@ export function InventoryList({
             {inventoryLoading ? (
               <div className="p-4"><LoadingSpinner /></div>
             ) : visibleInventoryItems.length === 0 ? (
-              <EmptyState icon={<Inbox className="h-5 w-5" />} title="لا توجد عناصر" description="لم يتم العثور على عناصر في المخزون" />
+              <EmptyState
+                icon={<Inbox className="h-5 w-5" />}
+                title="لا توجد قطع فردية مسجلة"
+                description="الكميات الإجمالية تظهر في تبويب المنتجات. استخدم طريقة القطعة المحددة بالباركود لإظهار كل قطعة هنا."
+              />
             ) : (
               <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
                 {visibleInventoryItems.map((item: InventoryItem) => {

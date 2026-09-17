@@ -18,6 +18,8 @@ export function useInventory() {
   const [inventoryPage, setInventoryPage] = useState(1);
   const pageSize = 10;
   const lowStockOnly = filters.some((filter) => filter.key === 'low_stock');
+  const manualOnly = filters.some((filter) => filter.key === 'manual_only' && String(filter.value).toLowerCase() === 'true');
+  const supplierOnly = filters.some((filter) => filter.key === 'supplier_only' && String(filter.value).toLowerCase() === 'true');
 
   // Fetch data with debounce search for scalability
   const { data: productsData, isLoading: productsLoading, refetch: refetchProducts } = useQuery({
@@ -50,9 +52,12 @@ export function useInventory() {
     queryKey: ['inventory', inventoryPage, pageSize, debouncedSearchQuery, filters],
     queryFn: () => {
       const supplierOnlyFilter = filters.find(f => f.key === 'supplier_only');
+      const manualOnlyFilter = filters.find(f => f.key === 'manual_only');
       const params: any = { page: inventoryPage, per_page: pageSize };
       if (supplierOnlyFilter?.value === 'true') {
         params.supplier_only = 'true';
+      } else if (manualOnlyFilter?.value === 'true') {
+        params.manual_only = 'true';
       } else {
         params.exclude_condition = 'USED';
       }
@@ -100,8 +105,8 @@ export function useInventory() {
   });
 
   const { data: completeInventoryData } = useQuery({
-    queryKey: ['inventory', 'complete-general-stock'],
-    queryFn: () => inventoryApi.listWithSupplier({ page: 1, per_page: 1000, exclude_condition: 'USED' }),
+    queryKey: ['inventory', 'complete-general-stock', manualOnly ? 'manual' : 'all'],
+    queryFn: () => inventoryApi.listWithSupplier({ page: 1, per_page: 1000, exclude_condition: 'USED', ...(manualOnly ? { manual_only: 'true' } : {}) }),
     staleTime: 60000,
   });
 
@@ -133,21 +138,23 @@ export function useInventory() {
   const productsWithInventoryFallback = useMemo(() => {
     const productsById = new Map(safeProducts.map((product) => [String(product.id), product]));
 
-    completeInventoryItems.forEach((item: any) => {
+    [...completeInventoryItems, ...safeInventoryItems].forEach((item: any) => {
       const productId = String(item.product_id || item.product?.id || item.productId || '').trim();
       if (!productId) return;
 
       const supplierId = String(item.supplier_id || item.supplier?.id || '').trim();
       const supplierName = String(item.supplier_name || item.supplier?.name || '').trim();
+      const itemCondition = String(item.condition || '').trim();
       const existingProduct = productsById.get(productId);
       if (existingProduct) {
-        if ((!existingProduct.supplier_id && supplierId) || (!existingProduct.supplier_name && supplierName)) {
-          productsById.set(productId, {
-            ...existingProduct,
-            supplier_id: existingProduct.supplier_id || supplierId,
-            supplier_name: existingProduct.supplier_name || supplierName,
-          });
-        }
+        productsById.set(productId, {
+          ...existingProduct,
+          supplier_id: existingProduct.supplier_id || supplierId,
+          supplier_name: existingProduct.supplier_name || supplierName,
+          condition: existingProduct.condition || itemCondition,
+          category_id: existingProduct.category_id || item.category_id,
+          category_name: existingProduct.category_name || item.category_name,
+        });
         return;
       }
 
@@ -172,7 +179,7 @@ export function useInventory() {
     });
 
     return Array.from(productsById.values());
-  }, [completeInventoryItems, safeProducts]);
+  }, [completeInventoryItems, safeInventoryItems, safeProducts]);
 
   const isUsedItemCondition = (value: unknown) => {
     const condition = String(value ?? '').trim().toUpperCase();
@@ -204,11 +211,20 @@ export function useInventory() {
 
   const regularProducts = useMemo(
     () => productsWithInventoryFallback.filter((product: Product) => {
+      if (manualOnly || supplierOnly) {
+        const hasMatchingInventory = [...completeInventoryItems, ...safeInventoryItems].some((item: any) =>
+          String(item.product_id || item.product?.id || item.productId || '') === String(product.id) &&
+          (manualOnly
+            ? !String(item.supplier_id || item.supplier?.id || '').trim()
+            : Boolean(String(item.supplier_id || item.supplier?.id || '').trim()))
+        );
+        if (!hasMatchingInventory) return false;
+      }
       const sku = String((product as any).sku || '').trim().toUpperCase();
       const isUsedProduct = usedProductIds.has(product.id) || sku.startsWith('USED-');
       return !isUsedProduct || regularProductIds.has(product.id);
     }),
-    [productsWithInventoryFallback, regularProductIds, usedProductIds]
+    [productsWithInventoryFallback, regularProductIds, usedProductIds, manualOnly, supplierOnly, completeInventoryItems, safeInventoryItems]
   );
 
   const inventoryStockMap = useMemo(() => {
@@ -352,7 +368,13 @@ export function useInventory() {
       ...product,
       category_name: categoryMap.get(product.category_id) || product.category || product.category_name || '-',
       condition: product.condition || inventoryConditionMap.get(product.id) || '',
-      stock: Number(inventoryStockMap.get(product.id) ?? product.stock ?? product.quantity ?? 0),
+       stock: Number(
+         inventoryStockMap.get(product.id) ??
+         product.current_quantity ??
+         product.stock ??
+         product.quantity ??
+         0
+       ),
       image_url: product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined),
     }));
 
@@ -377,6 +399,10 @@ export function useInventory() {
             const stock = Number(product.stock ?? 0);
             const minimumStock = Math.max(1, Number(product.min_stock_level) || 3);
             return stock > 0 && stock <= minimumStock;
+          }
+
+          if (filter.key === 'manual_only' || filter.key === 'supplier_only') {
+            return true;
           }
 
           const value = product[filter.key as keyof Product];

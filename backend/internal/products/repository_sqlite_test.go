@@ -71,7 +71,7 @@ func TestListProducts_LowStockFilterUsesInventoryItems(t *testing.T) {
 			model, barcode, cost_price, selling_price, track_serial, track_individual,
 			min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-	`, productID, "SKU-LOW-1", "Low Stock Product", "Test", nil, nil, nil, "Model A", "BAR-LOW-1", 10.0, 25.0, 0, 0, 3, 0, now, now, now)
+	`, productID, "SKU-LOW-1", "Low Stock Product", "Test", nil, nil, nil, "Model A", "BAR-LOW-1", 10.0, 25.0, 0, 0, 3, 0, nil, now, now)
 	if err != nil {
 		t.Fatalf("insert product: %v", err)
 	}

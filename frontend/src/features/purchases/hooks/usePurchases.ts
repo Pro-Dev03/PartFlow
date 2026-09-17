@@ -121,12 +121,20 @@ export function usePurchases() {
   const deletePurchaseMutation = useMutation({
     mutationFn: async (purchaseId: string): Promise<SmartDeleteResult> => {
       const response = await purchasesApi.delete(purchaseId);
-      return response.data as SmartDeleteResult; // ARCHITECTURE-PRINCIPLES.md
+      return response as SmartDeleteResult; // API client returns the SmartDeleteResult body directly.
     },
     onSuccess: (result) => {
       if (result.can_proceed) {
         queryClient.invalidateQueries({ queryKey: ['purchases'] });
         queryClient.invalidateQueries({ queryKey: ['inventory'] });
+        queryClient.invalidateQueries({ queryKey: ['reports'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard-activity'] });
+        queryClient.invalidateQueries({ queryKey: ['low-stock-items'] });
+        queryClient.invalidateQueries({ queryKey: ['overdue-debts'] });
+        queryClient.invalidateQueries({ queryKey: ['debts'] });
+        queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+        queryClient.invalidateQueries({ queryKey: ['supplier-ledger'] });
       }
     },
     onError: (error) => {

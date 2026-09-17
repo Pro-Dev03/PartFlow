@@ -521,17 +521,27 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 	report.Valuation.ByCondition = make(map[string]float64)
 
 	err := r.db.GetContext(ctx, &report.TotalItems,
-		`SELECT COUNT(*) FROM inventory_items ii
-		 JOIN products p ON p.id = ii.product_id
-		 WHERE ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' AND p.deleted_at IS NULL`)
+		`SELECT COALESCE(SUM(stock), 0) FROM (
+			SELECT p.id, COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0) AS stock
+			FROM products p
+			LEFT JOIN inventory inv ON inv.product_id = p.id
+			LEFT JOIN inventory_items ii ON ii.product_id = p.id
+			WHERE p.deleted_at IS NULL
+			GROUP BY p.id, inv.quantity
+		) stock_totals WHERE stock > 0`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve inventory totals: %w", err)
 	}
 
 	err = r.db.GetContext(ctx, &report.TotalValue,
-		`SELECT COALESCE(SUM(ii.purchase_cost), 0) FROM inventory_items ii
-		 JOIN products p ON p.id = ii.product_id
-		 WHERE ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' AND p.deleted_at IS NULL`)
+		`SELECT COALESCE(SUM(stock * p.cost_price), 0) FROM (
+			SELECT p.id, COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0) AS stock
+			FROM products p
+			LEFT JOIN inventory inv ON inv.product_id = p.id
+			LEFT JOIN inventory_items ii ON ii.product_id = p.id
+			WHERE p.deleted_at IS NULL
+			GROUP BY p.id, inv.quantity
+		) stock_totals JOIN products p ON p.id = stock_totals.id WHERE stock > 0`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve inventory value: %w", err)
 	}
@@ -560,9 +570,14 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 	rows.Close()
 	report.Valuation.TotalCost = report.TotalValue
 	err = r.db.GetContext(ctx, &report.Valuation.TotalRetail,
-		`SELECT COALESCE(SUM(ROUND(p.selling_price)), 0) FROM inventory_items ii
-		 JOIN products p ON p.id = ii.product_id
-			WHERE ii.status = 'AVAILABLE' AND ii.condition <> 'USED' AND p.deleted_at IS NULL`)
+		`SELECT COALESCE(SUM(stock * p.selling_price), 0) FROM (
+			SELECT p.id, COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0) AS stock
+			FROM products p
+			LEFT JOIN inventory inv ON inv.product_id = p.id
+			LEFT JOIN inventory_items ii ON ii.product_id = p.id
+			WHERE p.deleted_at IS NULL
+			GROUP BY p.id, inv.quantity
+		) stock_totals JOIN products p ON p.id = stock_totals.id WHERE stock > 0`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve retail inventory value: %w", err)
 	}
@@ -575,17 +590,14 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT p.id, p.name,
-				COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' AND ii.condition <> 'USED' THEN 1 ELSE 0 END), 0),
+				COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0),
 				p.min_stock_level
 		 FROM products p
+		 LEFT JOIN inventory inv ON inv.product_id = p.id
 		 LEFT JOIN inventory_items ii ON ii.product_id = p.id
 		 WHERE p.is_active = true AND p.deleted_at IS NULL
-		   AND EXISTS (
-				SELECT 1 FROM inventory_items available_item
-				WHERE available_item.product_id = p.id
-				  AND UPPER(COALESCE(available_item.condition, '')) <> 'USED'
-		   )
-		 GROUP BY p.id, p.name, p.min_stock_level
+		 GROUP BY p.id, p.name, p.min_stock_level, inv.quantity
+		 HAVING COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0) > 0
 		 ORDER BY p.name`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve inventory items: %w", err)
@@ -606,19 +618,15 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT p.id, p.name,
-				 COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' AND ii.condition <> 'USED' THEN 1 ELSE 0 END), 0),
+					 COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0),
 		        p.min_stock_level, p.min_stock_level
 		 FROM products p
+		 LEFT JOIN inventory inv ON inv.product_id = p.id
 		 LEFT JOIN inventory_items ii ON ii.product_id = p.id
 		 WHERE p.is_active = true AND p.deleted_at IS NULL AND p.min_stock_level > 0
-		   AND EXISTS (
-				SELECT 1 FROM inventory_items available_item
-				WHERE available_item.product_id = p.id
-				  AND UPPER(COALESCE(available_item.condition, '')) <> 'USED'
-		   )
-		 GROUP BY p.id, p.name, p.min_stock_level
-			 HAVING COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' AND ii.condition <> 'USED' THEN 1 ELSE 0 END), 0) <= p.min_stock_level
-			 ORDER BY (p.min_stock_level - COALESCE(SUM(CASE WHEN ii.status = 'AVAILABLE' AND ii.condition <> 'USED' THEN 1 ELSE 0 END), 0)) DESC`)
+		 GROUP BY p.id, p.name, p.min_stock_level, inv.quantity
+			 HAVING COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0) <= p.min_stock_level
+			 ORDER BY (p.min_stock_level - COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0)) DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve low stock items: %w", err)
 	}

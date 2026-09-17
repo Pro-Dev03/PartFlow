@@ -614,6 +614,24 @@ func (r *Repository) GetProductByID(ctx context.Context, id uuid.UUID) (*Product
 
 // GetProductByBarcode retrieves a product by barcode
 func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string) (*Product, error) {
+	if dbutil.IsSQLite(r.db) {
+		var productID string
+		err := r.db.GetContext(ctx, &productID,
+			`SELECT id FROM products WHERE barcode = $1 AND deleted_at IS NULL`, barcode)
+		if err == sql.ErrNoRows {
+			return nil, ErrProductNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		id, err := uuid.Parse(productID)
+		if err != nil {
+			return nil, fmt.Errorf("parse product id: %w", err)
+		}
+		return r.GetProductByID(ctx, id)
+	}
+
 	query := `
 		SELECT id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
 		FROM products
@@ -627,29 +645,8 @@ func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string) (*
 	return &product, err
 }
 
-func (r *Repository) restoreProductsWithAvailableInventory(ctx context.Context) error {
-	_, err := r.db.ExecContext(ctx, `
-		UPDATE products
-		SET deleted_at = NULL,
-		    is_active = 1,
-		    updated_at = CURRENT_TIMESTAMP
-		WHERE deleted_at IS NOT NULL
-		  AND EXISTS (
-			SELECT 1
-			FROM inventory_items ii
-			WHERE ii.product_id = products.id
-			  AND UPPER(TRIM(COALESCE(ii.status, ''))) = 'AVAILABLE'
-		  )
-	`)
-	return err
-}
-
 // ListProducts retrieves products with pagination and filters
 func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) ([]Product, int, error) {
-	if err := r.restoreProductsWithAvailableInventory(ctx); err != nil {
-		return nil, 0, err
-	}
-
 	// Build base query with current quantity from inventory
 	baseQuery := `
 		SELECT p.id, p.category_id, p.brand_id, p.preferred_supplier_id, p.name, p.description, p.model, p.sku, p.barcode, p.cost_price, p.selling_price, p.track_serial, p.track_individual, p.min_stock_level, p.warranty_days, p.is_active, p.deleted_at, p.created_at, p.updated_at
@@ -711,13 +708,13 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 		baseQuery += ` AND (
 			SELECT COALESCE(COUNT(*), 0)
 			FROM inventory_items ii
-			WHERE ii.product_id = p.id AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND ii.condition <> 'USED'
+			WHERE ii.product_id = p.id AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED'
 		) < p.min_stock_level
 		AND p.min_stock_level > 0`
 		countQuery += ` AND (
 			SELECT COALESCE(COUNT(*), 0)
 			FROM inventory_items ii
-			WHERE ii.product_id = p.id AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND ii.condition <> 'USED'
+			WHERE ii.product_id = p.id AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED'
 		) < p.min_stock_level
 		AND p.min_stock_level > 0`
 	}

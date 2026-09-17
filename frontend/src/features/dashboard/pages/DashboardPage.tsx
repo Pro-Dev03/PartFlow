@@ -214,7 +214,7 @@ export function DashboardPage() {
               className={cn("gap-2", isMobile ? "w-full" : "")}
             >
               <Plus className="w-4 h-4" />
-              <span>{t('dashboard.addProduct')}</span>
+              <span>إضافة مخزون</span>
             </Button>
           </div>
         }

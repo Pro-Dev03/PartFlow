@@ -1,11 +1,14 @@
 package assistant
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/partflow/smart-store/internal/dashboard"
+	_ "modernc.org/sqlite"
 )
 
 func TestDetectIntentUnderstandsNaturalArabic(t *testing.T) {
@@ -59,6 +62,67 @@ func TestBuildReplyUsesCurrentValuesAndDoesNotInventZeroData(t *testing.T) {
 	zeroReply := buildReply(IntentSales, "كم بعنا؟", nil, &dashboard.DashboardStats{}, storeSummary{})
 	if zeroReply != "ما عندي مبيعات مسجلة اليوم حتى الآن." {
 		t.Fatalf("zero sales reply = %q", zeroReply)
+	}
+}
+
+func TestLoadSummaryExcludesDeletedProductsFromInventoryTotals(t *testing.T) {
+	db := sqlx.MustConnect("sqlite", ":memory:")
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE products (
+			id TEXT PRIMARY KEY,
+			name TEXT,
+			cost_price REAL,
+			selling_price REAL,
+			deleted_at TEXT,
+			min_stock_level INTEGER,
+			is_active INTEGER
+		);
+		CREATE TABLE inventory_items (
+			id TEXT PRIMARY KEY,
+			product_id TEXT,
+			status TEXT,
+			purchase_cost REAL,
+			selling_price REAL
+		);
+		CREATE TABLE sales (id TEXT PRIMARY KEY, status TEXT, sale_date TEXT, total_amount REAL, created_at TEXT);
+		CREATE TABLE purchases (id TEXT PRIMARY KEY, status TEXT, purchase_date TEXT, total_amount REAL, created_at TEXT);
+		CREATE TABLE expenses (id TEXT PRIMARY KEY, status TEXT, amount REAL, expense_date TEXT, created_at TEXT);
+		CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT, remaining_amount REAL, created_at TEXT);
+		CREATE TABLE suppliers (id TEXT PRIMARY KEY, is_active INTEGER, current_balance REAL);
+		CREATE TABLE settings (key TEXT, value TEXT);
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO products (id, name, cost_price, selling_price, deleted_at, min_stock_level, is_active)
+		VALUES
+			('p1', 'Active product', 50, 100, NULL, 5, 1),
+			('p2', 'Deleted product', 80, 160, '2026-09-16T00:00:00Z', 5, 1);
+		INSERT INTO inventory_items (id, product_id, status, purchase_cost, selling_price)
+		VALUES
+			('i1', 'p1', 'AVAILABLE', 50, 100),
+			('i2', 'p2', 'AVAILABLE', 80, 160);
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(db)
+	result, err := service.loadSummary(context.Background())
+	if err != nil {
+		t.Fatalf("loadSummary() error = %v", err)
+	}
+
+	if result.InventoryValue != 50 {
+		t.Fatalf("InventoryValue = %v, want 50", result.InventoryValue)
+	}
+	if result.InventoryRetail != 100 {
+		t.Fatalf("InventoryRetail = %v, want 100", result.InventoryRetail)
+	}
+	if result.PotentialProfit != 50 {
+		t.Fatalf("PotentialProfit = %v, want 50", result.PotentialProfit)
 	}
 }
 

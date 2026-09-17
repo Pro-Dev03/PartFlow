@@ -351,6 +351,9 @@ func (h *Handler) ListInventoryItemsWithSupplierInfo(c *gin.Context) {
 	if c.Query("supplier_only") == "true" {
 		filters["supplier_only"] = true
 	}
+	if c.Query("manual_only") == "true" {
+		filters["manual_only"] = true
+	}
 	if purchaseDateFrom := c.Query("purchase_date_from"); purchaseDateFrom != "" {
 		filters["purchase_date_from"] = purchaseDateFrom
 	}

@@ -76,6 +76,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 	var items []SaleItem
 	productNames := make(map[uuid.UUID]string)
+	aggregateStockMap := make(map[uuid.UUID]int)
 	itemStockMap := make(map[uuid.UUID][]struct {
 		ID   uuid.UUID `db:"id"`
 		Cost float64   `db:"purchase_cost"`
@@ -119,6 +120,31 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		productNames[itemReq.ProductID] = productName
 
 		if len(availableItems) < itemReq.Quantity {
+			// Quantity-based products do not have one inventory_items row per unit.
+			// Fall back to the aggregate inventory balance for those products.
+			if len(availableItems) == 0 {
+				var aggregateQuantity int
+				aggregateErr := tx.GetContext(ctx, &aggregateQuantity, `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1`, itemReq.ProductID)
+				if aggregateErr == nil && aggregateQuantity >= itemReq.Quantity {
+					aggregateStockMap[itemReq.ProductID] = aggregateQuantity
+				} else {
+					return nil, &InsufficientStockError{
+						ProductID:   itemReq.ProductID,
+						ProductName: productName,
+						Requested:   itemReq.Quantity,
+						Available:   aggregateQuantity,
+					}
+				}
+			} else {
+				return nil, &InsufficientStockError{
+					ProductID:   itemReq.ProductID,
+					ProductName: productName,
+					Requested:   itemReq.Quantity,
+					Available:   len(availableItems),
+				}
+			}
+		}
+		if len(availableItems) < itemReq.Quantity && aggregateStockMap[itemReq.ProductID] == 0 {
 			return nil, &InsufficientStockError{
 				ProductID:   itemReq.ProductID,
 				ProductName: productName,
@@ -491,6 +517,35 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		if inventoryErr != nil {
 			// Log but don't fail if inventory table doesn't exist or has no record
 			fmt.Printf("Warning: failed to update aggregate inventory: %v\n", inventoryErr)
+		}
+
+		if beforeQuantity, isAggregate := aggregateStockMap[items[i].ProductID]; isAggregate {
+			var currentQuantity int
+			if err := tx.GetContext(ctx, &currentQuantity, `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1`, items[i].ProductID); err != nil {
+				return nil, fmt.Errorf("failed to read aggregate inventory quantity: %w", err)
+			}
+			if currentQuantity < items[i].Quantity {
+				return nil, &InsufficientStockError{
+					ProductID:   items[i].ProductID,
+					ProductName: productNames[items[i].ProductID],
+					Requested:   items[i].Quantity,
+					Available:   currentQuantity,
+				}
+			}
+			afterQuantity := currentQuantity - items[i].Quantity
+			_, err := tx.ExecContext(ctx, fmt.Sprintf(`
+				UPDATE inventory SET quantity = quantity - $1, updated_at = %s WHERE product_id = $2
+			`, dbutil.NowSQL(s.db)), items[i].Quantity, items[i].ProductID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decrement aggregate inventory quantity: %w", err)
+			}
+			_, err = tx.ExecContext(ctx, fmt.Sprintf(`
+				INSERT INTO inventory_movements (id, item_id, product_id, movement_type, quantity, before_quantity, after_quantity, reference_type, reference_id, reason, created_by, created_at)
+				VALUES ($1, NULL, $2, 'SALE', $3, $4, $5, 'sale', $6, $7, $8, %s)
+			`, dbutil.NowSQL(s.db)), uuid.New(), items[i].ProductID, -items[i].Quantity, beforeQuantity, afterQuantity, sale.ID, "Sale: "+invoiceNumber, userID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create aggregate inventory movement: %w", err)
+			}
 		}
 	}
 

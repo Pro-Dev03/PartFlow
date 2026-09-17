@@ -215,7 +215,20 @@ func (s *Service) ListProducts(ctx context.Context, req *ProductListRequest) ([]
 		req.PerPage = 20
 	}
 
-	return s.repo.ListProducts(ctx, req)
+	products, total, err := s.repo.ListProducts(ctx, req)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	for index := range products {
+		stockCount, stockErr := s.repo.GetProductStockCount(ctx, products[index].ID)
+		if stockErr != nil {
+			return nil, 0, stockErr
+		}
+		products[index].CurrentQuantity = stockCount
+	}
+
+	return products, total, nil
 }
 
 // UpdateProduct updates a product

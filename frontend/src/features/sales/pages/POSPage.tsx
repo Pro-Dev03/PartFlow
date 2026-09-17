@@ -407,6 +407,14 @@ export function POSPage() {
     });
   }, [debouncedSearchQuery, inventoryItems, soldUsedPartIds]);
 
+  const cartQuantities = useMemo(() => {
+    return cart.reduce<Record<string, number>>((quantities, item) => {
+      const productId = String(item.id);
+      quantities[productId] = (quantities[productId] ?? 0) + item.quantity;
+      return quantities;
+    }, {});
+  }, [cart]);
+
   const usedPartTotalPages = Math.max(1, Math.ceil(availableUsedParts.length / productsPerPage));
   const visibleUsedParts = availableUsedParts.slice(
     (usedPartPage - 1) * productsPerPage,
@@ -472,7 +480,12 @@ export function POSPage() {
 
     return productsWithInventoryFallback.filter((product) => {
       const productId = String(product.id);
-      const declaredStock = Number((product as any).stock ?? 0);
+      const declaredStock = Number(
+        (product as any).current_quantity ??
+        (product as any).stock ??
+        (product as any).stock_quantity ??
+        0,
+      );
       return newStockProducts.has(productId) || (!inventoryItems.some((item: any) => String(item.product_id || item.product?.id || '') === productId) && declaredStock > 0);
     }).map((product) => {
       const rawProduct = product as Product & {
@@ -480,8 +493,20 @@ export function POSPage() {
         category?: { id?: string };
       };
       const categoryId = rawProduct.category_id || rawProduct.categoryId || rawProduct.category?.id;
-      const baseStock = Number(stockMap.get(String(product.id)) ?? (product as any).stock ?? 0);
-      const stock = Math.max(0, baseStock - Number(optimisticSoldQuantities[String(product.id)] ?? 0));
+      const baseStock = Number(
+        stockMap.get(String(product.id)) ??
+        (product as any).current_quantity ??
+        (product as any).stock ??
+        (product as any).stock_quantity ??
+        0,
+      );
+      const productId = String(product.id);
+      const stock = Math.max(
+        0,
+        baseStock -
+          Number(optimisticSoldQuantities[productId] ?? 0) -
+          Number(cartQuantities[productId] ?? 0),
+      );
       return {
         ...product,
         stock,
@@ -489,7 +514,7 @@ export function POSPage() {
         category_image_url: categoryId ? getCategoryImage(String(categoryId)) : undefined,
       };
     }).filter((product) => Number(product.stock ?? 0) > 0);
-  }, [productsWithInventoryFallback, products, inventoryItems, categories, optimisticSoldQuantities]);
+  }, [productsWithInventoryFallback, products, inventoryItems, categories, optimisticSoldQuantities, cartQuantities]);
 
   const visibleProducts = useMemo(
     () => productsWithStock.slice(0, productsPerPage),
@@ -499,7 +524,13 @@ export function POSPage() {
   const getAvailableStockCount = useCallback(
     (productId: string) => {
       if (!productId) return 0;
-      return inventoryItems.filter((item) => {
+      const productInventoryItems = inventoryItems.filter((item) => String(item.product_id) === String(productId));
+      if (productInventoryItems.length === 0) {
+        const product = productsWithStock.find((item) => String(item.id) === String(productId));
+        return Number(product?.stock ?? 0);
+      }
+
+      return productInventoryItems.filter((item) => {
         if (String(item.product_id) !== String(productId)) return false;
         const status = String(item.status || '').toUpperCase();
         return ![
@@ -513,7 +544,7 @@ export function POSPage() {
         ].includes(status);
       }).length;
     },
-    [inventoryItems]
+    [inventoryItems, productsWithStock]
   );
 
   const canAddProductToCart = useCallback(
@@ -854,11 +885,18 @@ export function POSPage() {
     } catch {
     }
 
-    const availableStockCount = (productId: string) => latestInventoryItems.filter((item: any) => {
-      if (String(item.product_id) !== String(productId)) return false;
-      const status = String(item.status || '').toUpperCase();
-      return !['SOLD', 'RESERVED', 'DAMAGED', 'IN_REPAIR', 'RETURNED', 'FOR_PARTS', 'ARCHIVED'].includes(status);
-    }).length;
+    const availableStockCount = (productId: string) => {
+      const productInventoryItems = latestInventoryItems.filter((item: any) => String(item.product_id) === String(productId));
+      if (productInventoryItems.length === 0) {
+        const product = productsWithStock.find((item) => String(item.id) === String(productId));
+        return Number(product?.stock ?? 0);
+      }
+
+      return productInventoryItems.filter((item: any) => {
+        const status = String(item.status || '').toUpperCase();
+        return !['SOLD', 'RESERVED', 'DAMAGED', 'IN_REPAIR', 'RETURNED', 'FOR_PARTS', 'ARCHIVED'].includes(status);
+      }).length;
+    };
 
     const exhaustedItems = cart.reduce((items, item) => {
       const availableStock = item.inventoryItemId
@@ -999,6 +1037,7 @@ export function POSPage() {
     createSaleMutation,
     inventoryItems,
     queryClient,
+    productsWithStock,
     removeFromCart,
     toast,
   ]);

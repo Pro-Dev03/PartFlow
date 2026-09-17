@@ -771,6 +771,7 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 		}
 	}
 	for _, statement := range []string{
+		`ALTER TABLE purchases ADD COLUMN purchase_date TEXT`,
 		`ALTER TABLE sales ADD COLUMN cash_received REAL DEFAULT 0`,
 		`ALTER TABLE sales ADD COLUMN change_amount REAL DEFAULT 0`,
 		`ALTER TABLE inventory_items ADD COLUMN customer_id TEXT`,
@@ -780,6 +781,9 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 		if _, err := db.Exec(statement); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
 			return fmt.Errorf("upgrade local schema: %w", err)
 		}
+	}
+	if _, err := db.Exec(`UPDATE purchases SET purchase_date = substr(COALESCE(NULLIF(purchase_date, ''), created_at), 1, 19) WHERE purchase_date IS NULL OR TRIM(purchase_date) = '' OR instr(purchase_date, 'm=') > 0`); err != nil {
+		return fmt.Errorf("backfill purchase dates: %w", err)
 	}
 	if err := ensureTradeInsInventoryItemNullable(db); err != nil {
 		return fmt.Errorf("migrate trade-ins schema: %w", err)
@@ -824,7 +828,8 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 		       ('setting-max-discount-rate', 'max_discount_rate', '15', 'number', 'financial', 'Maximum percentage discount', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 		       ('setting-discounts-enabled', 'discounts_enabled', 'true', 'boolean', 'financial', 'Allow discounts', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
 		       ('setting-store-name', 'store_name', 'PartFlow Store', 'string', 'general', 'Store name', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-		       ('setting-currency', 'currency', 'ILS', 'string', 'general', 'Currency', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+		       ('setting-currency', 'currency', 'ILS', 'string', 'general', 'Currency', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+		       ('setting-default-profit-margin', 'default_profit_margin', '30', 'number', 'financial', 'Default profit margin percentage', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
 		return fmt.Errorf("seed local settings: %w", err)
 	}
 
@@ -1266,6 +1271,9 @@ func migrateLegacySchema(db *sql.DB) error {
 			return err
 		}
 	}
+	if err := reconcileOrphanedPurchaseLedger(db); err != nil {
+		return err
+	}
 	if err := allowMissingSupplierReturnSource(db); err != nil {
 		return err
 	}
@@ -1317,6 +1325,38 @@ func migrateLegacySchema(db *sql.DB) error {
 			}
 		}
 	}
+	return nil
+}
+
+func reconcileOrphanedPurchaseLedger(db *sql.DB) error {
+	_, err := db.Exec(`
+		DELETE FROM supplier_ledger
+		WHERE reference_id IS NOT NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM purchases WHERE purchases.id = supplier_ledger.reference_id
+		  )
+		  AND (
+			description LIKE 'Purchase:%'
+			OR description LIKE 'Payment for purchase %'
+		  )`)
+	if err != nil {
+		return fmt.Errorf("reconcile orphaned purchase ledger entries: %w", err)
+	}
+
+	_, err = db.Exec(`
+		UPDATE suppliers
+		SET current_balance = COALESCE((
+			SELECT SUM(CASE
+				WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount
+				ELSE -amount
+			END)
+			FROM supplier_ledger
+			WHERE supplier_id = suppliers.id
+		), 0), updated_at = CURRENT_TIMESTAMP`)
+	if err != nil {
+		return fmt.Errorf("reconcile supplier balances: %w", err)
+	}
+
 	return nil
 }
 

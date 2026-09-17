@@ -984,6 +984,12 @@ func (s *Service) createSupplierReturnBridge(ctx context.Context, returnRecord *
 		if err != nil {
 			return err
 		}
+		if purchaseItemID == uuid.Nil || purchaseID == uuid.Nil || supplierID == uuid.Nil {
+			if err := s.ensureSupplierReturnBridgeEntry(ctx, returnRecord, uuid.Nil, uuid.Nil, uuid.Nil, item); err != nil {
+				return err
+			}
+			continue
+		}
 
 		if err := s.ensureSupplierReturnBridgeEntry(ctx, returnRecord, purchaseID, supplierID, purchaseItemID, item); err != nil {
 			return err
@@ -1030,18 +1036,7 @@ func (s *Service) findPurchaseItemForReturnItem(ctx context.Context, item Return
 			// Legacy callers may invoke the bridge helper before source identity
 			// has been populated. The live completion transaction never uses this
 			// fallback; it persists NEEDS_SOURCE_DATA instead.
-			if item.ProductID == nil || *item.ProductID == uuid.Nil {
-				return uuid.Nil, uuid.Nil, uuid.Nil, nil
-			}
-			if fallbackErr := s.repo.db.GetContext(ctx, &candidate, `
-				SELECT pi.id AS purchase_item_id, pi.purchase_id, p.supplier_id
-				FROM purchase_items pi JOIN purchases p ON p.id = pi.purchase_id
-				WHERE pi.product_id = ? ORDER BY pi.created_at DESC LIMIT 1`, item.ProductID.String()); fallbackErr != nil {
-				if fallbackErr == sql.ErrNoRows {
-					return uuid.Nil, uuid.Nil, uuid.Nil, nil
-				}
-				return uuid.Nil, uuid.Nil, uuid.Nil, fmt.Errorf("failed to find legacy purchase item for supplier return bridge: %w", fallbackErr)
-			}
+			return uuid.Nil, uuid.Nil, uuid.Nil, nil
 		}
 		if err != sql.ErrNoRows {
 			return uuid.Nil, uuid.Nil, uuid.Nil, fmt.Errorf("failed to find purchase item for supplier return bridge: %w", err)
@@ -1134,6 +1129,9 @@ func (s *Service) ensureSupplierReturnBridgeEntry(ctx context.Context, returnRec
 		}
 		if err := storeSupplierReturnBridgeLink(supplierReturnID); err != nil {
 			return err
+		}
+		if purchaseID == uuid.Nil || supplierID == uuid.Nil || item.ProductID == nil || *item.ProductID == uuid.Nil {
+			return nil
 		}
 	}
 

@@ -149,16 +149,16 @@ func (s *Service) loadSummary(ctx context.Context) (storeSummary, error) {
 		_ = s.db.GetContext(ctx, &result.MonthlySales, `SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE date(COALESCE(sale_date, created_at)) >= date('now', 'start of month') AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`)
 		_ = s.db.GetContext(ctx, &result.MonthlyExpenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date(expense_date) >= date('now', 'start of month') AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`)
 		_ = s.db.GetContext(ctx, &result.MonthlyPurchases, `SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE date(COALESCE(purchase_date, created_at)) >= date('now', 'start of month') AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'reversed')`)
-		_ = s.db.GetContext(ctx, &result.InventoryValue, `SELECT COALESCE(SUM(purchase_cost), 0) FROM inventory_items WHERE UPPER(COALESCE(status, '')) = 'AVAILABLE'`)
-		_ = s.db.GetContext(ctx, &result.InventoryRetail, `SELECT COALESCE(SUM(selling_price), 0) FROM inventory_items WHERE UPPER(COALESCE(status, '')) = 'AVAILABLE'`)
+		_ = s.db.GetContext(ctx, &result.InventoryValue, `SELECT COALESCE(SUM(ii.purchase_cost), 0) FROM inventory_items ii JOIN products p ON p.id = ii.product_id WHERE UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND p.deleted_at IS NULL`)
+		_ = s.db.GetContext(ctx, &result.InventoryRetail, `SELECT COALESCE(SUM(ii.selling_price), 0) FROM inventory_items ii JOIN products p ON p.id = ii.product_id WHERE UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND p.deleted_at IS NULL`)
 		result.PotentialProfit = result.InventoryRetail - result.InventoryValue
 		_ = s.db.GetContext(ctx, &result.ExpenseAverage7d, `SELECT COALESCE(SUM(amount), 0) / 7.0 FROM expenses WHERE date(expense_date) >= date('now', '-6 days') AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`)
-		_ = s.db.GetContext(ctx, &result.BestMarginProduct, `SELECT name FROM products WHERE COALESCE(selling_price, 0) > 0 ORDER BY (COALESCE(selling_price, 0) - COALESCE(cost_price, 0)) DESC LIMIT 1`)
+		_ = s.db.GetContext(ctx, &result.BestMarginProduct, `SELECT name FROM products WHERE deleted_at IS NULL AND COALESCE(selling_price, 0) > 0 ORDER BY (COALESCE(selling_price, 0) - COALESCE(cost_price, 0)) DESC LIMIT 1`)
 		if result.BestMarginProduct != "" {
-			_ = s.db.GetContext(ctx, &result.BestMarginRate, `SELECT COALESCE((selling_price - cost_price) * 100.0 / NULLIF(selling_price, 0), 0) FROM products WHERE name = ? LIMIT 1`, result.BestMarginProduct)
+			_ = s.db.GetContext(ctx, &result.BestMarginRate, `SELECT COALESCE((selling_price - cost_price) * 100.0 / NULLIF(selling_price, 0), 0) FROM products WHERE deleted_at IS NULL AND name = ? LIMIT 1`, result.BestMarginProduct)
 		}
 		_ = s.db.GetContext(ctx, &result.TaxRate, `SELECT COALESCE(value, '0') FROM settings WHERE key = 'tax_rate' LIMIT 1`)
-		rows, err := s.db.QueryxContext(ctx, `SELECT p.name FROM products p JOIN inventory_items i ON i.product_id = p.id WHERE UPPER(COALESCE(i.status, '')) = 'AVAILABLE' GROUP BY p.id, p.name, p.min_stock_level HAVING COUNT(i.id) <= MAX(1, COALESCE(p.min_stock_level, 3)) ORDER BY p.name LIMIT 5`)
+		rows, err := s.db.QueryxContext(ctx, `SELECT p.name FROM products p JOIN inventory_items i ON i.product_id = p.id WHERE p.deleted_at IS NULL AND UPPER(COALESCE(i.status, '')) = 'AVAILABLE' GROUP BY p.id, p.name, p.min_stock_level HAVING COUNT(i.id) <= MAX(1, COALESCE(p.min_stock_level, 3)) ORDER BY p.name LIMIT 5`)
 		if err != nil {
 			return result, err
 		}
@@ -194,16 +194,16 @@ func (s *Service) loadSummary(ctx context.Context) (storeSummary, error) {
 	_ = s.db.GetContext(ctx, &result.MonthlySales, `SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE COALESCE(sale_date::date, created_at::date) >= date_trunc('month', CURRENT_DATE)::date AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`)
 	_ = s.db.GetContext(ctx, &result.MonthlyExpenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date::date >= date_trunc('month', CURRENT_DATE)::date AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`)
 	_ = s.db.GetContext(ctx, &result.MonthlyPurchases, `SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE COALESCE(purchase_date::date, created_at::date) >= date_trunc('month', CURRENT_DATE)::date AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'reversed')`)
-	_ = s.db.GetContext(ctx, &result.InventoryValue, `SELECT COALESCE(SUM(purchase_cost), 0) FROM inventory_items WHERE UPPER(COALESCE(status, '')) = 'AVAILABLE'`)
-	_ = s.db.GetContext(ctx, &result.InventoryRetail, `SELECT COALESCE(SUM(selling_price), 0) FROM inventory_items WHERE UPPER(COALESCE(status, '')) = 'AVAILABLE'`)
+	_ = s.db.GetContext(ctx, &result.InventoryValue, `SELECT COALESCE(SUM(ii.purchase_cost), 0) FROM inventory_items ii JOIN products p ON p.id = ii.product_id WHERE UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND p.deleted_at IS NULL`)
+	_ = s.db.GetContext(ctx, &result.InventoryRetail, `SELECT COALESCE(SUM(ii.selling_price), 0) FROM inventory_items ii JOIN products p ON p.id = ii.product_id WHERE UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND p.deleted_at IS NULL`)
 	result.PotentialProfit = result.InventoryRetail - result.InventoryValue
 	_ = s.db.GetContext(ctx, &result.ExpenseAverage7d, `SELECT COALESCE(SUM(amount), 0) / 7.0 FROM expenses WHERE expense_date::date >= CURRENT_DATE - INTERVAL '6 days' AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`)
-	_ = s.db.GetContext(ctx, &result.BestMarginProduct, `SELECT name FROM products WHERE COALESCE(selling_price, 0) > 0 ORDER BY (COALESCE(selling_price, 0) - COALESCE(cost_price, 0)) DESC LIMIT 1`)
+	_ = s.db.GetContext(ctx, &result.BestMarginProduct, `SELECT name FROM products WHERE deleted_at IS NULL AND COALESCE(selling_price, 0) > 0 ORDER BY (COALESCE(selling_price, 0) - COALESCE(cost_price, 0)) DESC LIMIT 1`)
 	if result.BestMarginProduct != "" {
-		_ = s.db.GetContext(ctx, &result.BestMarginRate, `SELECT COALESCE((selling_price - cost_price) * 100.0 / NULLIF(selling_price, 0), 0) FROM products WHERE name = $1 LIMIT 1`, result.BestMarginProduct)
+		_ = s.db.GetContext(ctx, &result.BestMarginRate, `SELECT COALESCE((selling_price - cost_price) * 100.0 / NULLIF(selling_price, 0), 0) FROM products WHERE deleted_at IS NULL AND name = $1 LIMIT 1`, result.BestMarginProduct)
 	}
 	_ = s.db.GetContext(ctx, &result.TaxRate, `SELECT COALESCE(value, '0') FROM settings WHERE key = 'tax_rate' LIMIT 1`)
-	rows, err := s.db.QueryxContext(ctx, `SELECT p.name FROM products p JOIN inventory_items i ON i.product_id = p.id WHERE UPPER(COALESCE(i.status, '')) = 'AVAILABLE' GROUP BY p.id, p.name, p.min_stock_level HAVING COUNT(i.id) <= GREATEST(1, COALESCE(p.min_stock_level, 3)) ORDER BY p.name LIMIT 5`)
+	rows, err := s.db.QueryxContext(ctx, `SELECT p.name FROM products p JOIN inventory_items i ON i.product_id = p.id WHERE p.deleted_at IS NULL AND UPPER(COALESCE(i.status, '')) = 'AVAILABLE' GROUP BY p.id, p.name, p.min_stock_level HAVING COUNT(i.id) <= GREATEST(1, COALESCE(p.min_stock_level, 3)) ORDER BY p.name LIMIT 5`)
 	if err != nil {
 		return result, err
 	}
@@ -231,6 +231,7 @@ func loadProductQuantities(ctx context.Context, db *sqlx.DB) (map[string]int, er
 		LEFT JOIN inventory_items i
 			ON i.product_id = p.id
 			AND UPPER(COALESCE(i.status, '')) = 'AVAILABLE'
+		WHERE p.deleted_at IS NULL
 		GROUP BY p.id, p.name`)
 	if err != nil {
 		return nil, err

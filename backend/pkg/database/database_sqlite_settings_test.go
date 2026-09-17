@@ -33,4 +33,12 @@ func TestEnsureRequiredSchemaCreatesSettingsTableInSQLite(t *testing.T) {
 	if taxRate != "0" {
 		t.Fatalf("expected tax_rate default to 0, got %q", taxRate)
 	}
+
+	var defaultProfitMargin string
+	if err := db.Get(&defaultProfitMargin, `SELECT value FROM settings WHERE key = 'default_profit_margin' LIMIT 1`); err != nil {
+		t.Fatalf("expected default_profit_margin setting row: %v", err)
+	}
+	if defaultProfitMargin != "30" {
+		t.Fatalf("expected default_profit_margin default to 30, got %q", defaultProfitMargin)
+	}
 }
