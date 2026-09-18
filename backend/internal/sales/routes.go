@@ -10,6 +10,9 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 	repo := NewRepository(db)
 	service := NewService(repo, db)
 	handler := NewHandler(service)
+	if err := RegisterShiftRoutes(router, db); err != nil {
+		panic(err)
+	}
 
 	// Sale routes
 	sales := router.Group("/sales")

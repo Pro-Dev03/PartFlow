@@ -313,6 +313,12 @@ export const salesApi = {
   refund: (id: string, data: { reason?: string; refund_amount?: number }) => apiClient.post(`/sales/${id}/refund`, data),
 };
 
+export const posShiftsApi = {
+  current: () => apiClient.get('/sales/shifts/current'),
+  open: (amount: number) => apiClient.post('/sales/shifts/open', { amount }),
+  close: (amount: number) => apiClient.post('/sales/shifts/close', { amount }),
+};
+
 export const paymentTransactionsApi = {
   create: (data: import('./types').PaymentTransactionCreateRequest) => apiClient.post('/payment-transactions', data),
   get: (id: string) => apiClient.get(`/payment-transactions/${id}`),

@@ -242,6 +242,9 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			}
 
 			// Sales routes
+			if err := sales.RegisterShiftRoutes(protected, db); err != nil {
+				panic(err)
+			}
 			sales := protected.Group("/sales")
 			{
 				sales.POST("", salesHandler.CreateSale)

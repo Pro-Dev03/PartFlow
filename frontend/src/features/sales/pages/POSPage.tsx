@@ -18,6 +18,7 @@ import {
   categoriesApi,
   settingsApi,
   paymentTransactionsApi,
+  posShiftsApi,
 } from '../../../services/api/endpoints';
 import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
@@ -39,6 +40,9 @@ import {
   ChevronDown,
   Info,
   FilePlus2,
+  Wallet,
+  LockKeyhole,
+  UnlockKeyhole,
 } from 'lucide-react';
 
 // Modern Components
@@ -64,6 +68,43 @@ interface HeldSale {
   id: string;
   items: PosCartProduct[];
   created_at?: string;
+}
+
+interface PosShiftState {
+  status: 'open' | 'closed';
+  openedAt: string;
+  openingCash: number;
+  closedAt?: string;
+  closingCash?: number;
+  salesTotal: number;
+  saleCount: number;
+}
+
+const POS_SHIFT_STORAGE_KEY = 'partflow-pos-shift';
+
+function createDefaultShift(): PosShiftState {
+  return {
+    status: 'open',
+    openedAt: new Date().toISOString(),
+    openingCash: 0,
+    salesTotal: 0,
+    saleCount: 0,
+  };
+}
+
+function normalizeRemoteShift(value: unknown): PosShiftState | null {
+  if (!value || typeof value !== 'object') return null;
+  const shift = value as Record<string, unknown>;
+  if (shift.status !== 'open' && shift.status !== 'closed') return null;
+  return {
+    status: shift.status,
+    openedAt: String(shift.opened_at || new Date().toISOString()),
+    openingCash: Number(shift.opening_cash) || 0,
+    closedAt: typeof shift.closed_at === 'string' ? shift.closed_at : undefined,
+    closingCash: shift.closing_cash == null ? undefined : Number(shift.closing_cash) || 0,
+    salesTotal: Number(shift.sales_total) || 0,
+    saleCount: Number(shift.sale_count) || 0,
+  };
 }
 
 export function POSPage() {
@@ -224,6 +265,22 @@ export function POSPage() {
   });
   const [unknownBarcode, setUnknownBarcode] = useState('');
   const [isHeldSalesOpen, setIsHeldSalesOpen] = useState(false);
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
+  const [shiftOpeningCash, setShiftOpeningCash] = useState('');
+  const [shiftClosingCash, setShiftClosingCash] = useState('');
+  const [shift, setShift] = useState<PosShiftState>(() => {
+    if (typeof window === 'undefined') return createDefaultShift();
+    try {
+      const stored = window.localStorage.getItem(POS_SHIFT_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as PosShiftState;
+        if (parsed?.status && parsed.openedAt) return parsed;
+      }
+    } catch {
+      // Use a fresh local shift when stored state is unavailable.
+    }
+    return createDefaultShift();
+  });
   const { checkoutMode, setCheckoutMode } = useUIStore();
   const initialCheckoutMode = useRef(checkoutMode);
 
@@ -235,11 +292,35 @@ export function POSPage() {
     };
   }, [setCheckoutMode]);
 
+  useEffect(() => {
+    window.localStorage.setItem(POS_SHIFT_STORAGE_KEY, JSON.stringify(shift));
+  }, [shift]);
+
   // Held sales query
   const { data: heldSalesData } = useQuery({
     queryKey: ['held-sales'],
     queryFn: () => salesApi.listHeld(),
   });
+  const { data: currentShiftData } = useQuery({
+    queryKey: ['pos-shift', 'current'],
+    queryFn: () => posShiftsApi.current(),
+    retry: false,
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    const remoteShift = normalizeRemoteShift(currentShiftData?.data);
+    if (remoteShift) {
+      setShift(remoteShift);
+      return;
+    }
+    if (currentShiftData && currentShiftData.data === null) {
+      setShift({
+        ...createDefaultShift(),
+        status: 'closed',
+      });
+    }
+  }, [currentShiftData]);
   const heldSales = (
     (
       (heldSalesData?.data as unknown) as Array<Record<string, unknown>> | undefined
@@ -683,6 +764,9 @@ export function POSPage() {
       return salesApi.create(data);
     },
     onSuccess: (response) => {
+      setShift((current) => current.status === 'open'
+        ? { ...current, salesTotal: current.salesTotal + displayTotal, saleCount: current.saleCount + 1 }
+        : current);
       const soldProductQuantities = cart.reduce<Record<string, number>>((quantities, item) => {
         if (!item.inventoryItemId) {
           const productId = String(item.id);
@@ -890,6 +974,10 @@ export function POSPage() {
 
   const handleCheckout = useCallback(async () => {
     if (cart.length === 0) return;
+    if (shift.status !== 'open') {
+      toast.error('افتح الوردية أولًا قبل إتمام البيع', 'الوردية مغلقة');
+      return;
+    }
     if (paymentMethod === 'credit' && paidAmount.trim() === '') return;
 
     let latestInventoryItems = inventoryItems;
@@ -1075,6 +1163,10 @@ export function POSPage() {
   // Quick sale handler - one click to complete cash sale
   const handleQuickSale = useCallback(() => {
     if (cart.length === 0) return
+    if (shift.status !== 'open') {
+      toast.error('افتح الوردية أولًا قبل إتمام البيع', 'الوردية مغلقة');
+      return;
+    }
     
     const exhaustedItems = cart.reduce((items, item) => {
       const availableStock = item.isTradeIn
@@ -1211,6 +1303,37 @@ export function POSPage() {
     setTaxExempt(false);
   };
 
+  const handleOpenShift = () => {
+    const openingCash = Math.max(0, Number(shiftOpeningCash) || 0);
+    setShift({
+      status: 'open',
+      openedAt: new Date().toISOString(),
+      openingCash,
+      salesTotal: 0,
+      saleCount: 0,
+    });
+    void posShiftsApi.open(openingCash).then((response) => {
+      const remoteShift = normalizeRemoteShift(response?.data);
+      if (remoteShift) setShift(remoteShift);
+    }).catch(() => undefined);
+    setShiftOpeningCash('');
+  };
+
+  const handleCloseShift = () => {
+    const closingCash = Math.max(0, Number(shiftClosingCash) || 0);
+    setShift((current) => ({
+      ...current,
+      status: 'closed',
+      closedAt: new Date().toISOString(),
+      closingCash,
+    }));
+    void posShiftsApi.close(closingCash).then((response) => {
+      const remoteShift = normalizeRemoteShift(response?.data);
+      if (remoteShift) setShift(remoteShift);
+    }).catch(() => undefined);
+    setShiftClosingCash('');
+  };
+
   return (
     <div className="pos-modern-container">
       {/* Modern Header */}
@@ -1261,10 +1384,17 @@ export function POSPage() {
                 ₪{total.toLocaleString()}
               </span>
             )}
-            <span className="pos-badge cashier">
-              <Wifi className="w-3.5 h-3.5 text-green-500" />
-              <span>Cashier 01</span>
-            </span>
+            <button
+              type="button"
+              className="pos-badge cashier"
+              onClick={() => setIsShiftModalOpen(true)}
+              title="إدارة الوردية"
+            >
+              {shift.status === 'open'
+                ? <UnlockKeyhole className="w-3.5 h-3.5 text-green-500" />
+                : <LockKeyhole className="w-3.5 h-3.5 text-amber-500" />}
+              <span>{shift.status === 'open' ? 'الوردية مفتوحة' : 'الوردية مغلقة'}</span>
+            </button>
             <span className="pos-badge time">
               {new Intl.DateTimeFormat('ar', {
                 hour: '2-digit',
@@ -1716,15 +1846,13 @@ export function POSPage() {
           <Pause className="h-4 w-4" />
           <span>تعليق البيع <kbd className="footer-kbd">F4</kbd></span>
         </Button>
-        {heldSales.length > 0 && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setIsHeldSalesOpen(true)}
-          >
-            <span>المبيعات المعلقة ({heldSales.length})</span>
-          </Button>
-        )}
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setIsHeldSalesOpen(true)}
+        >
+          <span>المبيعات المعلقة ({heldSales.length})</span>
+        </Button>
         
         {/* Keyboard Shortcuts Help */}
         <div className="footer-shortcuts">
@@ -1741,6 +1869,60 @@ export function POSPage() {
       </footer>
 
       {/* Modals */}
+      {/* Cashier Shift Modal */}
+      <Modal
+        isOpen={isShiftModalOpen}
+        onClose={() => setIsShiftModalOpen(false)}
+        title="إدارة الوردية"
+        variant="modern"
+        size="md"
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between rounded-lg border border-border-default p-3">
+            <div className="flex items-center gap-2">
+              <Wallet className="h-5 w-5" />
+              <span>{shift.status === 'open' ? 'الوردية مفتوحة' : 'الوردية مغلقة'}</span>
+            </div>
+            <span className="text-sm text-text-secondary">
+              {new Date(shift.openedAt).toLocaleString('ar')}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-text-secondary">رصيد البداية</span><strong className="block">₪{shift.openingCash.toLocaleString()}</strong></div>
+            <div><span className="text-text-secondary">عدد المبيعات</span><strong className="block">{shift.saleCount}</strong></div>
+            <div><span className="text-text-secondary">إجمالي المبيعات</span><strong className="block">₪{shift.salesTotal.toLocaleString()}</strong></div>
+            <div><span className="text-text-secondary">النقد المتوقع</span><strong className="block">₪{(shift.openingCash + shift.salesTotal).toLocaleString()}</strong></div>
+          </div>
+          {shift.status === 'open' ? (
+            <>
+              <Input
+                type="number"
+                min="0"
+                placeholder="النقد الفعلي عند الإغلاق"
+                value={shiftClosingCash}
+                onChange={(event) => setShiftClosingCash(event.target.value)}
+              />
+              <Button variant="primary" onClick={handleCloseShift}>
+                إغلاق الوردية
+              </Button>
+            </>
+          ) : (
+            <>
+              <Input
+                type="number"
+                min="0"
+                placeholder="رصيد بداية الوردية الجديدة"
+                value={shiftOpeningCash}
+                onChange={(event) => setShiftOpeningCash(event.target.value)}
+              />
+              <Button variant="primary" onClick={handleOpenShift}>
+                فتح وردية جديدة
+              </Button>
+            </>
+          )}
+        </div>
+      </Modal>
+
       {/* Held Sales Modal */}
       <Modal
         isOpen={isHeldSalesOpen}
@@ -1749,19 +1931,27 @@ export function POSPage() {
         variant="modern"
         size="md"
       >
-        <div className="flex flex-col gap-3">
-          {heldSales.map((held, index) => (
-            <Button
-              key={held.id}
-              variant="secondary"
-              className="justify-between"
-              onClick={() => handleResumeSale(held)}
-            >
-              <span>بيع معلّق #{index + 1}</span>
-              <span>{held.items.length} منتجات</span>
-            </Button>
-          ))}
-        </div>
+        {heldSales.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-6 text-center text-text-secondary">
+            <Pause className="h-8 w-8 opacity-50" />
+            <p>لا توجد مبيعات معلقة</p>
+            <p className="text-sm">استخدم «تعليق البيع» لحفظ الفاتورة والعودة إليها لاحقًا.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {heldSales.map((held, index) => (
+              <Button
+                key={held.id}
+                variant="secondary"
+                className="justify-between"
+                onClick={() => handleResumeSale(held)}
+              >
+                <span>بيع معلّق #{index + 1}</span>
+                <span>{held.items.length} منتجات</span>
+              </Button>
+            ))}
+          </div>
+        )}
       </Modal>
 
       {/* Manual Product Modal */}
