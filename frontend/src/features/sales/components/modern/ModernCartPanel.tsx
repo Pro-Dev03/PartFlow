@@ -3,6 +3,9 @@ import { CartItem } from '../../types/pos.types';
 
 interface ModernCartPanelProps {
   cart: CartItem[];
+  subtotal?: number;
+  discount?: number;
+  tax?: number;
   total: number;
   onUpdateQuantity: (barcode: string, quantity: number) => void;
   onRemoveFromCart: (barcode: string) => void;
@@ -11,6 +14,9 @@ interface ModernCartPanelProps {
 
 export function ModernCartPanel({
   cart,
+  subtotal,
+  discount = 0,
+  tax = 0,
   total,
   onUpdateQuantity,
   onRemoveFromCart,
@@ -60,10 +66,24 @@ export function ModernCartPanel({
       {/* Cart Total */}
       {cart.length > 0 && (
         <div className="cart-panel-footer">
-          <div className="cart-panel-subtotal">
-            <span>المجموع الفرعي</span>
-            <span>₪{total.toLocaleString()}</span>
-          </div>
+          {subtotal !== undefined && (
+            <div className="cart-panel-subtotal">
+              <span>المجموع الفرعي</span>
+              <span>₪{subtotal.toLocaleString()}</span>
+            </div>
+          )}
+          {tax > 0 && (
+            <div className="cart-panel-subtotal">
+              <span>الضريبة</span>
+              <span>₪{tax.toLocaleString()}</span>
+            </div>
+          )}
+          {discount > 0 && (
+            <div className="cart-panel-subtotal cart-panel-discount">
+              <span>الخصم</span>
+              <span>-₪{discount.toLocaleString()}</span>
+            </div>
+          )}
           <div className="cart-panel-total">
             <span>الإجمالي</span>
             <span className="total-value">₪{total.toLocaleString()}</span>

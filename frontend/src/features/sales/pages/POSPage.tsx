@@ -1641,6 +1641,9 @@ export function POSPage() {
           {/* Cart Panel */}
           <ModernCartPanel
             cart={displayCart}
+            subtotal={displaySubtotal}
+            discount={displayDiscount}
+            tax={Math.max(0, displaySubtotal - subtotal)}
             total={displayTotal}
             onUpdateQuantity={updateQuantity}
             onRemoveFromCart={removeFromCart}
