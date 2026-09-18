@@ -38,6 +38,7 @@ import {
   UserRound,
   ChevronDown,
   Info,
+  FilePlus2,
 } from 'lucide-react';
 
 // Modern Components
@@ -1196,6 +1197,20 @@ export function POSPage() {
     }
   };
 
+  const handleNewSale = () => {
+    if (cart.length > 0 && !window.confirm('سيتم مسح الفاتورة الحالية وبدء فاتورة جديدة. هل تريد المتابعة؟')) {
+      return;
+    }
+
+    clearCart();
+    resetPayment();
+    setPaymentAllocations([]);
+    setSelectedCustomer('');
+    setSelectedCustomerOption(undefined);
+    setDiscountRate(0);
+    setTaxExempt(false);
+  };
+
   return (
     <div className="pos-modern-container">
       {/* Modern Header */}
@@ -1679,6 +1694,15 @@ export function POSPage() {
 
       {/* Footer Actions */}
       <footer className="pos-modern-footer">
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={handleNewSale}
+          className="gap-2"
+        >
+          <FilePlus2 className="h-4 w-4" />
+          <span>فاتورة جديدة</span>
+        </Button>
         <Button
           variant="secondary"
           size="sm"
