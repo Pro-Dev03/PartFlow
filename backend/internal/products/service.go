@@ -283,11 +283,13 @@ func (s *Service) UpdateMinimumStock(ctx context.Context, id uuid.UUID, minStock
 	return nil
 }
 
-// DeleteProduct deletes a product (soft delete)
+// DeleteProduct permanently deletes a product when it has no transaction history.
 func (s *Service) DeleteProduct(ctx context.Context, id uuid.UUID) error {
-	// Invalidate dashboard cache since products data changed
+	if err := s.repo.DeleteProduct(ctx, id); err != nil {
+		return err
+	}
 	dashboard.InvalidateDashboardCacheWithReason("product_deleted")
-	return s.repo.DeleteProduct(ctx, id)
+	return nil
 }
 
 // RestoreProduct restores a soft-deleted product

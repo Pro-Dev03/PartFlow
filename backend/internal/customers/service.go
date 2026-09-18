@@ -61,6 +61,35 @@ func (s *Service) CreateCustomer(ctx context.Context, req *CustomerRequest) (*Cu
 	return customer, nil
 }
 
+// AddOpeningDebt records an existing customer balance without creating a sale.
+func (s *Service) AddOpeningDebt(ctx context.Context, customerID uuid.UUID, amount float64) error {
+	if amount <= 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	if err := s.repo.CreateDebtEntry(ctx, &DebtEntry{
+		ID:            uuid.New(),
+		CustomerID:    customerID,
+		Amount:        amount,
+		ReferenceID:   uuid.Nil,
+		ReferenceType: "opening_debt",
+		DueDate:       now,
+		IsPaid:        false,
+		PaidAmount:    0,
+		CreatedAt:     now,
+	}); err != nil {
+		return fmt.Errorf("failed to add opening debt entry: %w", err)
+	}
+	if err := s.repo.AddLedgerEntry(ctx, customerID, "debit", amount, "دين سابق قبل استخدام النظام", uuid.Nil); err != nil {
+		return fmt.Errorf("failed to add opening debt ledger entry: %w", err)
+	}
+	if err := s.repo.UpdateBalance(ctx, customerID, amount); err != nil {
+		return fmt.Errorf("failed to update opening debt balance: %w", err)
+	}
+	dashboard.InvalidateDashboardCacheWithReason("opening_debt_created")
+	return nil
+}
+
 // GetCustomer retrieves a customer by ID
 func (s *Service) GetCustomer(ctx context.Context, id uuid.UUID) (*Customer, error) {
 	return s.repo.GetByID(ctx, id)

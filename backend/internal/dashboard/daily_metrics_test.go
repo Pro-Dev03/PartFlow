@@ -152,6 +152,7 @@ func TestCachedDashboardStatsUseDateScopedTodayProfit(t *testing.T) {
 		CREATE TABLE returns (id TEXT PRIMARY KEY, status TEXT, refund_amount REAL);
 		CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT, remaining_amount REAL, due_date TEXT, status TEXT);
 		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT, status TEXT, condition TEXT, purchase_cost REAL, selling_price REAL);
+		CREATE TABLE inventory (product_id TEXT, quantity INTEGER, reserved_quantity INTEGER);
 		CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, inventory_item_id TEXT, product_id TEXT, quantity INTEGER);
 	`)
 	if err != nil {

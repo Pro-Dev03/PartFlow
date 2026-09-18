@@ -78,6 +78,10 @@ func (h *Handler) CreateCustomer(c *gin.Context) {
 		errors.HandleError(c, errors.ValidateRequest(err))
 		return
 	}
+	if req.OpeningDebt < 0 {
+		response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Opening debt cannot be negative", "")
+		return
+	}
 
 	customer, err := h.service.CreateCustomer(c.Request.Context(), &req)
 	if err != nil {
@@ -86,6 +90,10 @@ func (h *Handler) CreateCustomer(c *gin.Context) {
 			return
 		}
 		errors.HandleError(c, errors.WrapError(err, "Failed to create customer"))
+		return
+	}
+	if err := h.service.AddOpeningDebt(c.Request.Context(), customer.ID, req.OpeningDebt); err != nil {
+		errors.HandleError(c, errors.WrapError(err, "Failed to add opening debt"))
 		return
 	}
 	h.cache.clear()

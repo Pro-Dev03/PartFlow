@@ -1,5 +1,5 @@
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 
 const queryClient = new QueryClient({
   mutationCache: new MutationCache({
@@ -26,6 +26,16 @@ interface QueryProviderProps {
 }
 
 export function QueryProvider({ children }: QueryProviderProps) {
+  useEffect(() => {
+    const handleAuthInvalidated = () => {
+      void queryClient.cancelQueries();
+      queryClient.clear();
+    };
+
+    window.addEventListener('partflow:auth-invalidated', handleAuthInvalidated);
+    return () => window.removeEventListener('partflow:auth-invalidated', handleAuthInvalidated);
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       {children}

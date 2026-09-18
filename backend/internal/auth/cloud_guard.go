@@ -9,9 +9,9 @@ import (
 )
 
 func requiresCloudAuthForLocalMode() bool {
-	// Local SQLite is the operational store, but every protected request still
-	// requires a live cloud subscription decision in every environment.
-	return true
+	// SQLite is the store's local operational mode. A live cloud check is
+	// opt-in so a temporary cloud outage cannot block the cashier locally.
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")), "true")
 }
 
 func isLocalDatabaseMode() bool {
@@ -27,8 +27,8 @@ func isLocalDatabaseMode() bool {
 	return strings.HasPrefix(databaseURL, "sqlite://")
 }
 
-// CloudGuard rejects direct local-API access that does not carry a currently
-// valid cloud session. This protects reads, writes, and manual sync equally.
+// CloudGuard optionally enforces the cloud authority for local API requests.
+// Local operation remains available unless the deployment explicitly opts in.
 func CloudGuard(service *Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !requiresCloudAuthForLocalMode() || !isLocalDatabaseMode() {

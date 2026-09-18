@@ -733,6 +733,12 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 		) > 0`
 	}
 
+	if req.ManualOnly != nil && *req.ManualOnly {
+		manualStock := `EXISTS (SELECT 1 FROM inventory_movements im WHERE im.product_id = p.id AND UPPER(COALESCE(im.source_type, '')) = 'OPENING_STOCK')`
+		baseQuery += ` AND ` + manualStock
+		countQuery += ` AND ` + manualStock
+	}
+
 	// Get total count
 	var total int
 	err := r.db.GetContext(ctx, &total, countQuery, args...)
@@ -850,15 +856,44 @@ func (r *Repository) UpdateMinimumStock(ctx context.Context, id uuid.UUID, minSt
 	return nil
 }
 
-// DeleteProduct deletes a product (soft delete)
+// DeleteProduct permanently deletes a product and its unreferenced inventory items.
 func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
-	query := `UPDATE products SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`
-	now := time.Now()
-	result, err := r.db.ExecContext(ctx, query, now, now, id)
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
+	var productExists bool
+	if err := tx.GetContext(ctx, &productExists, `SELECT EXISTS (SELECT 1 FROM products WHERE id = $1)`, id); err != nil {
+		return err
+	}
+	if !productExists {
+		return ErrProductNotFound
+	}
+
+	var hasHistory bool
+	if err := tx.GetContext(ctx, &hasHistory, `
+		SELECT EXISTS (
+			SELECT 1 FROM sale_items WHERE product_id = $1
+			UNION ALL SELECT 1 FROM purchase_items WHERE product_id = $1
+			UNION ALL SELECT 1 FROM return_items WHERE product_id = $1
+			UNION ALL SELECT 1 FROM supplier_return_items WHERE product_id = $1
+		)
+	`, id); err != nil {
+		return err
+	}
+	if hasHistory {
+		return fmt.Errorf("product has historical transactions and cannot be permanently deleted")
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM inventory_items WHERE product_id = $1`, id); err != nil {
+		return fmt.Errorf("failed to delete product inventory: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM products WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete product: %w", err)
+	}
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return err
@@ -868,7 +903,7 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 		return ErrProductNotFound
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // RestoreProduct restores a soft-deleted product

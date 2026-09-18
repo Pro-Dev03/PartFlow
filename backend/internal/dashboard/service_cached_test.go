@@ -21,6 +21,36 @@ func TestInventoryStatusPresentationSeparatesReservedAndReturned(t *testing.T) {
 	}
 }
 
+func TestGetLowStockItemsUsesGeneralInventoryQuantity(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE products (
+			id TEXT PRIMARY KEY, name TEXT, min_stock_level INTEGER,
+			cost_price REAL, selling_price REAL, preferred_supplier_id TEXT,
+			is_active INTEGER, deleted_at TEXT
+		);
+		CREATE TABLE inventory (product_id TEXT, quantity INTEGER);
+		CREATE TABLE inventory_items (id TEXT, product_id TEXT, status TEXT, condition TEXT);
+		INSERT INTO products (id, name, min_stock_level, is_active) VALUES ('manual-product', 'Manual Product', 1, 1);
+		INSERT INTO inventory (product_id, quantity) VALUES ('manual-product', 5);
+	`); err != nil {
+		t.Fatalf("seed general inventory: %v", err)
+	}
+
+	items, err := (&CachedService{db: sqlx.NewDb(db, "sqlite")}).GetLowStockItems(context.Background())
+	if err != nil {
+		t.Fatalf("get low stock items: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("manual product with quantity 5 was reported as low stock: %#v", items)
+	}
+}
+
 func TestInventoryStatusPresentationShowsReversedSeparately(t *testing.T) {
 	name, _, health := inventoryStatusPresentation("REVERSED", "")
 	if name != "شراء ملغى" || health != "neutral" {

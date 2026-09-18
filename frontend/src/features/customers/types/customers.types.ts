@@ -10,6 +10,7 @@ export interface Customer {
   outstanding: number;
   lastPurchase?: string;
   credit_limit?: number;
+  opening_debt?: number;
   is_active?: boolean;
   financial_timeline?: any[];
 }
@@ -22,6 +23,7 @@ export interface CustomerFormData {
   address?: string;
   notes?: string;
   credit_limit?: number;
+  opening_debt?: number;
   is_active?: boolean;
 }
 

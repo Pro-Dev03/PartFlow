@@ -58,6 +58,8 @@ export function useCustomers() {
     mutationFn: (data: CustomerFormData) => customersApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('تم إضافة العميل بنجاح');
     },
     onError: (error: any) => {

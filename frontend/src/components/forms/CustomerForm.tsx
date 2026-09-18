@@ -21,6 +21,7 @@ export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormPr
     address: initialData?.address || '',
     notes: initialData?.notes || '',
     credit_limit: initialData?.credit_limit || 0,
+    opening_debt: 0,
     is_active: initialData?.is_active !== undefined ? initialData.is_active : true,
   });
 
@@ -68,6 +69,18 @@ export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormPr
             value={formData.address}
             onChange={(e) => setFormData({ ...formData, address: e.target.value })}
           />
+
+          {!initialData && (
+            <Input
+              label="مبلغ سابق مستحق على العميل"
+              type="number"
+              min="0"
+              step="0.01"
+              value={formData.opening_debt || ''}
+              onChange={(e) => setFormData({ ...formData, opening_debt: Number(e.target.value) || 0 })}
+              placeholder="0"
+            />
+          )}
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">

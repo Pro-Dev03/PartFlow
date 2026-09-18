@@ -97,6 +97,50 @@ func TestListProducts_LowStockFilterUsesInventoryItems(t *testing.T) {
 	}
 }
 
+func TestDeleteProductPermanentlyRemovesInventoryItems(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		PRAGMA foreign_keys = ON;
+		CREATE TABLE products (id TEXT PRIMARY KEY, deleted_at TEXT);
+		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT NOT NULL);
+		CREATE TABLE sale_items (product_id TEXT);
+		CREATE TABLE purchase_items (product_id TEXT);
+		CREATE TABLE return_items (product_id TEXT);
+		CREATE TABLE supplier_return_items (product_id TEXT);
+	`)
+	if err != nil {
+		t.Fatalf("create test schema: %v", err)
+	}
+
+	productID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO products (id) VALUES (?)`, productID); err != nil {
+		t.Fatalf("insert product: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id) VALUES (?, ?)`, uuid.New(), productID); err != nil {
+		t.Fatalf("insert inventory item: %v", err)
+	}
+
+	if err := NewRepository(db).DeleteProduct(context.Background(), productID); err != nil {
+		t.Fatalf("delete product: %v", err)
+	}
+
+	var productCount, itemCount int
+	if err := db.Get(&productCount, `SELECT COUNT(*) FROM products WHERE id = ?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&itemCount, `SELECT COUNT(*) FROM inventory_items WHERE product_id = ?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if productCount != 0 || itemCount != 0 {
+		t.Fatalf("deleted product remains: products=%d inventory_items=%d", productCount, itemCount)
+	}
+}
+
 func TestCreateCategory_SqliteReturningTimestamps(t *testing.T) {
 	db, err := sqlx.Open("sqlite", ":memory:")
 	if err != nil {

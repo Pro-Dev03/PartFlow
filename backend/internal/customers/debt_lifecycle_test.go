@@ -11,6 +11,56 @@ import (
 	customerreturns "github.com/partflow/smart-store/internal/returns"
 )
 
+func TestAddOpeningDebtSQLite(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/opening-debt.db")
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+
+	db := sqlx.NewDb(database.DB, "sqlite")
+	ctx := context.Background()
+	customerID := uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := db.Exec(`INSERT INTO customers (id, code, name, credit_limit, current_balance, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)`, customerID, "C-OPENING-DEBT", "Opening Debt Customer", 1000, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(NewRepository(db))
+	if err := service.AddOpeningDebt(ctx, customerID, 1500); err != nil {
+		t.Fatalf("add opening debt: %v", err)
+	}
+
+	var debt struct {
+		Amount          float64 `db:"amount"`
+		RemainingAmount float64 `db:"remaining_amount"`
+		Notes           string  `db:"notes"`
+	}
+	if err := db.Get(&debt, `SELECT amount, remaining_amount, notes FROM debts WHERE customer_id = ?`, customerID); err != nil {
+		t.Fatalf("read opening debt: %v", err)
+	}
+	if debt.Amount != 1500 || debt.RemainingAmount != 1500 || debt.Notes != "opening_debt" {
+		t.Fatalf("opening debt = %+v, want amount and remaining 1500 with opening_debt note", debt)
+	}
+
+	var ledgerCount int
+	if err := db.Get(&ledgerCount, `SELECT COUNT(*) FROM customer_ledger WHERE customer_id = ? AND type = 'debit' AND amount = 1500`, customerID); err != nil {
+		t.Fatalf("read opening debt ledger: %v", err)
+	}
+	if ledgerCount != 1 {
+		t.Fatalf("opening debt ledger count = %d, want 1", ledgerCount)
+	}
+
+	var balance float64
+	if err := db.Get(&balance, `SELECT current_balance FROM customers WHERE id = ?`, customerID); err != nil {
+		t.Fatalf("read opening debt balance: %v", err)
+	}
+	if balance != 1500 {
+		t.Fatalf("customer balance = %v, want 1500", balance)
+	}
+}
+
 func TestCustomerDebtLifecyclePaymentAndReturnCreditSQLite(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/customer-debt-lifecycle.db")
 	database, err := localdb.Open()

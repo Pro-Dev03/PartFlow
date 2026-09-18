@@ -26,6 +26,8 @@ interface AuthState {
 
 let refreshInterval: ReturnType<typeof setTimeout> | null = null;
 let cloudValidationInFlight: Promise<boolean> | null = null;
+const CLOUD_VALIDATION_GRACE_MS = 72 * 60 * 60 * 1000;
+const CLOUD_LAST_VALIDATED_AT_KEY = 'partflow-cloud-last-validated-at';
 
 const authStorage = {
   getItem: (name: string) => localStorage.getItem(name),
@@ -44,6 +46,7 @@ function clearPersistedAuthStorage() {
   localStorage.removeItem('refresh_token');
   localStorage.removeItem('cloud_token');
   localStorage.removeItem('cloud_refresh_token');
+  localStorage.removeItem(CLOUD_LAST_VALIDATED_AT_KEY);
   localStorage.removeItem('partflow-user-phone');
 
   try {
@@ -67,6 +70,20 @@ function getPersistedAuthState() {
   }
 }
 
+function hasCloudValidationGrace(): boolean {
+  if (typeof window === 'undefined') return false;
+  const lastValidatedAt = Number(localStorage.getItem(CLOUD_LAST_VALIDATED_AT_KEY));
+  return Number.isFinite(lastValidatedAt)
+    && lastValidatedAt > 0
+    && Date.now() - lastValidatedAt <= CLOUD_VALIDATION_GRACE_MS;
+}
+
+function rememberCloudValidation(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(CLOUD_LAST_VALIDATED_AT_KEY, String(Date.now()));
+  }
+}
+
 export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = window.location.pathname): boolean {
   if (!error || typeof error !== 'object') return false;
   if (pathname.includes('/subscription-expired')) return false;
@@ -83,9 +100,6 @@ export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = w
   const combined = `${code} ${message}`.toLowerCase();
 
   if (code === 'SUBSCRIPTION_EXPIRED') return true;
-  if (code === 'CLOUD_AUTH_REQUIRED') {
-    return anyError.status === 403 || anyError.response?.status === 403;
-  }
 
   return /subscription.*expired|expired.*subscription|اشتراك.*منتهي|اشتراك.*منتهية/.test(combined);
 }
@@ -171,6 +185,11 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
 
       if (!response.ok) {
         if (response.status === 403) {
+          const rejectedPayload = await response.clone().json().catch(() => ({}));
+          const rejectionCode = rejectedPayload?.code || rejectedPayload?.error?.code || rejectedPayload?.data?.code;
+          if (rejectionCode !== 'SUBSCRIPTION_EXPIRED') {
+            return hasCloudValidationGrace();
+          }
           stopTokenRefresh();
           apiClient.logout();
           TokenManager.clearToken();
@@ -191,9 +210,9 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
           // a transient cloud session problem. Keep the session until the
           // server explicitly confirms subscription expiry or the connection
           // is lost.
-          return false;
+          return hasCloudValidationGrace();
         }
-        return false;
+        return hasCloudValidationGrace();
       }
 
       const payload = await response.json();
@@ -225,11 +244,12 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
         isAuthenticated: true,
         sessionVerified: true,
       });
+      rememberCloudValidation();
       goToAppDashboard();
       return true;
     } catch {
-      // A cloud outage is not proof of an active subscription.
-      return false;
+      // A cloud outage is tolerated only during the bounded grace period.
+      return hasCloudValidationGrace();
     }
   })();
 
@@ -454,7 +474,7 @@ export const useAuthStore = create<AuthState>()(
           apiClient.setCloudToken(cloudToken);
         }
 
-        if (!token || !cloudToken) {
+        if (!token) {
           forceLogoutToLogin('No active cloud session');
           set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
           return;

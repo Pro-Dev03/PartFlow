@@ -26,6 +26,7 @@ func TestGetDashboardStatsWorksWithSQLite(t *testing.T) {
         CREATE TABLE returns (id TEXT PRIMARY KEY, status TEXT, refund_amount REAL);
         CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT, remaining_amount REAL, due_date TEXT, status TEXT);
 		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT, status TEXT, condition TEXT);
+		CREATE TABLE inventory (product_id TEXT, quantity INTEGER);
     `
 	if _, err := db.Exec(schema); err != nil {
 		t.Fatalf("create schema: %v", err)
@@ -102,6 +103,7 @@ func TestGetLowStockItemsIncludesOutOfStockProducts(t *testing.T) {
 			status TEXT,
 			condition TEXT
 		);
+		CREATE TABLE inventory (product_id TEXT, quantity INTEGER);
 		INSERT INTO products (id, name, is_active, deleted_at, min_stock_level, cost_price, selling_price) VALUES
 			('p1', 'Out of stock', 1, NULL, 2, 10, 20),
 			('p2', 'Used only', 1, NULL, 2, 10, 20),

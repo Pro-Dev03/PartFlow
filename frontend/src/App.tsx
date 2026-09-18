@@ -126,8 +126,13 @@ function App() {
         forceLogoutToLogin('Internet connection is required');
       }
     };
+    const handleAuthInvalidated = (event: Event) => {
+      const reason = (event as CustomEvent<{ reason?: string }>).detail?.reason;
+      forceLogoutToLogin(reason || 'Cloud subscription or account authorization was rejected');
+    };
     window.addEventListener('online', validate);
     window.addEventListener('offline', handleOffline);
+    window.addEventListener('partflow:auth-invalidated', handleAuthInvalidated);
     // The cloud is the subscription authority. If connectivity disappears, the
     // protected route stops new operations until it returns.
     const interval = window.setInterval(() => {
@@ -139,6 +144,7 @@ function App() {
     return () => {
       window.removeEventListener('online', validate);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('partflow:auth-invalidated', handleAuthInvalidated);
       window.clearInterval(interval);
     };
   }, []);

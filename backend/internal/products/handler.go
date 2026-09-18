@@ -479,6 +479,11 @@ func (h *Handler) ListProducts(c *gin.Context) {
 	req.Search = search
 	req.SortBy = c.DefaultQuery("sort_by", "name")
 	req.SortOrder = c.DefaultQuery("sort_order", "ASC")
+	if manualOnly := c.Query("manual_only"); manualOnly != "" {
+		if val, err := strconv.ParseBool(manualOnly); err == nil {
+			req.ManualOnly = &val
+		}
+	}
 
 	if trackSerial := c.Query("track_serial"); trackSerial != "" {
 		if val, err := strconv.ParseBool(trackSerial); err == nil {
@@ -598,9 +603,9 @@ func (h *Handler) UpdateMinimumStock(c *gin.Context) {
 	response.OK(c, gin.H{"min_stock_level": req.MinStockLevel}, "Minimum stock updated successfully")
 }
 
-// DeleteProduct deletes a product (soft delete)
+// DeleteProduct permanently deletes a product without transaction history.
 // @Summary Delete Product
-// @Description Delete a product (soft delete - marks as deleted but keeps record)
+// @Description Permanently delete a product that has no transaction history
 // @Tags products
 // @Security Bearer
 // @Param id path string true "Product ID"
@@ -620,7 +625,7 @@ func (h *Handler) DeleteProduct(c *gin.Context) {
 		return
 	}
 
-	response.OK(c, gin.H{"message": "product deleted successfully (soft delete)"}, "Operation successful")
+	response.OK(c, gin.H{"message": "product deleted successfully"}, "Operation successful")
 }
 
 // RestoreProduct restores a soft-deleted product

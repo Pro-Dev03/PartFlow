@@ -530,6 +530,13 @@ export function POSPage() {
         return Number(product?.stock ?? 0);
       }
 
+      const reportedQuantities = productInventoryItems
+        .map((item: any) => Number(item.available_quantity ?? item.current_quantity))
+        .filter((quantity: number) => Number.isFinite(quantity));
+      if (reportedQuantities.length > 0) {
+        return Math.max(...reportedQuantities, 0);
+      }
+
       return productInventoryItems.filter((item) => {
         if (String(item.product_id) !== String(productId)) return false;
         const status = String(item.status || '').toUpperCase();
@@ -890,6 +897,13 @@ export function POSPage() {
       if (productInventoryItems.length === 0) {
         const product = productsWithStock.find((item) => String(item.id) === String(productId));
         return Number(product?.stock ?? 0);
+      }
+
+      const reportedQuantities = productInventoryItems
+        .map((item: any) => Number(item.available_quantity ?? item.current_quantity))
+        .filter((quantity: number) => Number.isFinite(quantity));
+      if (reportedQuantities.length > 0) {
+        return Math.max(...reportedQuantities, 0);
       }
 
       return productInventoryItems.filter((item: any) => {

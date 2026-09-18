@@ -107,6 +107,7 @@ type ProductListRequest struct {
 	TrackIndividual *bool      `form:"track_individual"`
 	LowStockOnly    *bool      `form:"low_stock_only"`
 	InStockOnly     *bool      `form:"in_stock_only"`
+	ManualOnly      *bool      `form:"manual_only"`
 	SortBy          string     `form:"sort_by"`
 	SortOrder       string     `form:"sort_order"`
 }

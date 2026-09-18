@@ -332,19 +332,20 @@ func (s *Service) GetLowStockItems(ctx context.Context) ([]LowStockItem, error) 
 		SELECT 
 			p.id,
 			p.name as product_name,
-			COALESCE(SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) as quantity,
+			COALESCE(inv.quantity, SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) as quantity,
 			p.min_stock_level,
 			p.cost_price,
 			p.selling_price,
 			p.preferred_supplier_id
 		FROM products p
+		LEFT JOIN inventory inv ON inv.product_id = p.id
 		LEFT JOIN inventory_items i ON p.id = i.product_id
 		WHERE p.is_active = true
 			AND p.deleted_at IS NULL
-		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
-		HAVING (COALESCE(p.min_stock_level, 0) > 0 AND COALESCE(SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) <= p.min_stock_level)
-			OR (COALESCE(p.min_stock_level, 0) <= 0 AND COALESCE(SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) < 5)
-		ORDER BY (CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 5 END - COALESCE(SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0)) DESC
+		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id, inv.quantity
+		HAVING (COALESCE(p.min_stock_level, 0) > 0 AND COALESCE(inv.quantity, SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) <= p.min_stock_level)
+			OR (COALESCE(p.min_stock_level, 0) <= 0 AND COALESCE(inv.quantity, SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) < 5)
+		ORDER BY (CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 5 END - COALESCE(inv.quantity, SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0)) DESC
 		LIMIT 10
 	`
 

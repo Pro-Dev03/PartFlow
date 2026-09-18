@@ -17,6 +17,7 @@ type CustomerRequest struct {
 	Country     *string `json:"country,omitempty"`
 	TaxID       *string `json:"tax_id,omitempty"`
 	CreditLimit float64 `json:"credit_limit"`
+	OpeningDebt float64 `json:"opening_debt"`
 	Notes       *string `json:"notes,omitempty"`
 	IsActive    bool    `json:"is_active"`
 }

@@ -82,13 +82,14 @@ func (s *CachedService) fetchFromDatabaseAt(ctx context.Context, now time.Time) 
 		))`
 	}
 	lowStockExpr := `(SELECT COUNT(*) FROM products p
+			 LEFT JOIN inventory inv ON inv.product_id = p.id
 			 WHERE p.is_active = true
 			 AND p.deleted_at IS NULL
 			 AND NOT EXISTS (SELECT 1 FROM inventory_items used_i WHERE used_i.product_id = p.id AND UPPER(COALESCE(used_i.condition, '')) = 'USED')
 			 AND (NOT EXISTS (SELECT 1 FROM inventory_items ii WHERE ii.product_id = p.id)
 			      OR EXISTS (SELECT 1 FROM inventory_items ii WHERE ii.product_id = p.id AND COALESCE(ii.condition, '') <> 'USED'))
-			 AND (SELECT COUNT(*) FROM inventory_items ii
-			      WHERE ii.product_id = p.id AND COALESCE(ii.condition, '') <> 'USED' AND ii.status = 'AVAILABLE') <= CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END)`
+			 AND COALESCE(inv.quantity, (SELECT COUNT(*) FROM inventory_items ii
+			      WHERE ii.product_id = p.id AND COALESCE(ii.condition, '') <> 'USED' AND ii.status = 'AVAILABLE'), 0) <= CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END)`
 	query := fmt.Sprintf(`
 		SELECT
 			(SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) as total_sales,
@@ -686,20 +687,20 @@ func (s *CachedService) GetLowStockItems(ctx context.Context) ([]LowStockItem, e
 		SELECT 
 			p.id,
 			p.name as product_name,
-			COUNT(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN i.id END) as quantity,
+			COALESCE(inv.quantity, COUNT(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN i.id END)) as quantity,
 			CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END as min_stock_level,
 			p.cost_price,
 			p.selling_price,
 			p.preferred_supplier_id
 		FROM products p
+		LEFT JOIN inventory inv ON inv.product_id = p.id
 		LEFT JOIN inventory_items i ON p.id = i.product_id
 		WHERE p.is_active = true
 			AND p.deleted_at IS NULL
 			AND NOT EXISTS (SELECT 1 FROM inventory_items used_i WHERE used_i.product_id = p.id AND UPPER(COALESCE(used_i.condition, '')) = 'USED')
-		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id
-		HAVING COUNT(CASE WHEN i.status = 'AVAILABLE' AND COALESCE(i.condition, '') <> 'USED' THEN i.id END) <= CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END
-			AND (COUNT(i.id) = 0 OR COUNT(CASE WHEN COALESCE(i.condition, '') <> 'USED' THEN i.id END) > 0)
-		ORDER BY (CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END - COUNT(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN i.id END)) DESC
+		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id, inv.quantity
+		HAVING COALESCE(inv.quantity, COUNT(CASE WHEN i.status = 'AVAILABLE' AND COALESCE(i.condition, '') <> 'USED' THEN i.id END)) <= CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END
+		ORDER BY (CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END - COALESCE(inv.quantity, COUNT(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN i.id END))) DESC
 			LIMIT 5
 	`
 

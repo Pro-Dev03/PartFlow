@@ -120,13 +120,16 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		productNames[itemReq.ProductID] = productName
 
 		if len(availableItems) < itemReq.Quantity {
-			// Quantity-based products do not have one inventory_items row per unit.
-			// Fall back to the aggregate inventory balance for those products.
-			if len(availableItems) == 0 {
-				var aggregateQuantity int
-				aggregateErr := tx.GetContext(ctx, &aggregateQuantity, `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1`, itemReq.ProductID)
-				if aggregateErr == nil && aggregateQuantity >= itemReq.Quantity {
-					aggregateStockMap[itemReq.ProductID] = aggregateQuantity
+			// Quantity-based products may be represented by a single inventory row while the
+			// true available balance lives in the aggregate inventory table.
+			var aggregateQuantity int
+			aggregateErr := tx.GetContext(ctx, &aggregateQuantity, `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1`, itemReq.ProductID)
+			if aggregateErr == nil && aggregateQuantity >= itemReq.Quantity {
+				aggregateStockMap[itemReq.ProductID] = aggregateQuantity
+			} else if aggregateErr == nil && aggregateQuantity > 0 {
+				aggregateStockMap[itemReq.ProductID] = aggregateQuantity
+				if aggregateQuantity >= itemReq.Quantity {
+					// Accept the fallback quantity as the effective availability for this product.
 				} else {
 					return nil, &InsufficientStockError{
 						ProductID:   itemReq.ProductID,
@@ -140,7 +143,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 					ProductID:   itemReq.ProductID,
 					ProductName: productName,
 					Requested:   itemReq.Quantity,
-					Available:   len(availableItems),
+					Available:   aggregateQuantity,
 				}
 			}
 		}
@@ -513,10 +516,13 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			SET quantity = quantity - $1, updated_at = %s
 			WHERE product_id = $2
 		`, sqlNow)
-		_, inventoryErr := tx.ExecContext(ctx, inventoryUpdateQuery, items[i].Quantity, items[i].ProductID)
-		if inventoryErr != nil {
-			// Log but don't fail if inventory table doesn't exist or has no record
-			fmt.Printf("Warning: failed to update aggregate inventory: %v\n", inventoryErr)
+		_, isAggregate := aggregateStockMap[items[i].ProductID]
+		if !isAggregate {
+			_, inventoryErr := tx.ExecContext(ctx, inventoryUpdateQuery, items[i].Quantity, items[i].ProductID)
+			if inventoryErr != nil {
+				// Log but don't fail if inventory table doesn't exist or has no record
+				fmt.Printf("Warning: failed to update aggregate inventory: %v\n", inventoryErr)
+			}
 		}
 
 		if beforeQuantity, isAggregate := aggregateStockMap[items[i].ProductID]; isAggregate {

@@ -25,6 +25,7 @@ class ApiClient {
   private cache: Map<string, { data: unknown; timestamp: number }> = new Map();
   private refreshInFlight: Promise<string | null> | null = null;
   private refreshFailedForSession = false;
+  private authInvalidationDispatched = false;
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
@@ -39,6 +40,7 @@ class ApiClient {
   setToken(token: string) {
     this.token = token;
     this.refreshFailedForSession = false;
+    this.authInvalidationDispatched = false;
     TokenManager.setToken(token);
   }
 
@@ -71,6 +73,16 @@ class ApiClient {
     this.clearToken();
     this.clearCloudToken();
     this.clearCache();
+  }
+
+  private notifyAuthInvalidated(reason: string): void {
+    if (this.authInvalidationDispatched || typeof window === 'undefined') return;
+
+    this.authInvalidationDispatched = true;
+    this.logout();
+    window.dispatchEvent(new CustomEvent('partflow:auth-invalidated', {
+      detail: { reason },
+    }));
   }
 
   private getBaseURL(): string {
@@ -454,9 +466,9 @@ class ApiClient {
         // authorization decision and leave ordinary permission errors to the
         // caller.
         if (response.status === 403 && (
-          data.error?.code === 'SUBSCRIPTION_EXPIRED' ||
-          data.error?.code === 'CLOUD_AUTH_REQUIRED'
+          data.error?.code === 'SUBSCRIPTION_EXPIRED'
         )) {
+          this.notifyAuthInvalidated('Cloud subscription or account authorization was rejected');
           if (typeof window !== 'undefined' && !window.location.hash.includes('/subscription-expired')) {
             try {
               window.location.hash = '#/subscription-expired';
@@ -483,7 +495,11 @@ class ApiClient {
     } catch (error: any) {
       clearTimeout(timeoutId);
 
-      console.error('API request failed:', error);
+      const isExpectedAuthInvalidation = error?.code === 'SUBSCRIPTION_EXPIRED'
+        || error?.code === 'CLOUD_AUTH_REQUIRED';
+      if (!isExpectedAuthInvalidation) {
+        console.error('API request failed:', error);
+      }
 
       // Handle abort errors (timeout)
       if (error.name === 'AbortError') {
@@ -581,7 +597,7 @@ class ApiClient {
     if (!response.ok) {
       if (typeof window !== 'undefined') {
         if (response.status === 403) {
-          this.logout();
+          this.notifyAuthInvalidated('Cloud subscription or account authorization was rejected');
           window.location.hash = '#/subscription-expired';
         }
       }
