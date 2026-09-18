@@ -85,18 +85,19 @@ func (s *CachedService) fetchFromDatabaseAt(ctx context.Context, now time.Time) 
 			 LEFT JOIN inventory inv ON inv.product_id = p.id
 			 WHERE p.is_active = true
 			 AND p.deleted_at IS NULL
+			 AND p.min_stock_level > 0
 			 AND NOT EXISTS (SELECT 1 FROM inventory_items used_i WHERE used_i.product_id = p.id AND UPPER(COALESCE(used_i.condition, '')) = 'USED')
 			 AND (NOT EXISTS (SELECT 1 FROM inventory_items ii WHERE ii.product_id = p.id)
 			      OR EXISTS (SELECT 1 FROM inventory_items ii WHERE ii.product_id = p.id AND COALESCE(ii.condition, '') <> 'USED'))
 			 AND COALESCE(inv.quantity, (SELECT COUNT(*) FROM inventory_items ii
-			      WHERE ii.product_id = p.id AND COALESCE(ii.condition, '') <> 'USED' AND ii.status = 'AVAILABLE'), 0) <= CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END)`
+			      WHERE ii.product_id = p.id AND COALESCE(ii.condition, '') <> 'USED' AND ii.status = 'AVAILABLE'), 0) <= p.min_stock_level)`
 	query := fmt.Sprintf(`
 		SELECT
 			(SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) as total_sales,
 			(SELECT COUNT(*) FROM sales WHERE status = 'pending') as pending_orders,
 			(SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) as total_purchases,
 			(SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')) as total_expenses,
-			(SELECT COUNT(*) FROM products WHERE is_active = true) as total_products,
+			(SELECT COUNT(*) FROM products WHERE is_active = true AND deleted_at IS NULL) as total_products,
 			(SELECT COUNT(*) FROM customers) as total_customers,
 			(SELECT COUNT(*) FROM suppliers) as total_suppliers,
 			%s as low_stock_items,
@@ -688,7 +689,7 @@ func (s *CachedService) GetLowStockItems(ctx context.Context) ([]LowStockItem, e
 			p.id,
 			p.name as product_name,
 			COALESCE(inv.quantity, COUNT(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN i.id END)) as quantity,
-			CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END as min_stock_level,
+			p.min_stock_level,
 			p.cost_price,
 			p.selling_price,
 			p.preferred_supplier_id
@@ -697,10 +698,11 @@ func (s *CachedService) GetLowStockItems(ctx context.Context) ([]LowStockItem, e
 		LEFT JOIN inventory_items i ON p.id = i.product_id
 		WHERE p.is_active = true
 			AND p.deleted_at IS NULL
+			AND p.min_stock_level > 0
 			AND NOT EXISTS (SELECT 1 FROM inventory_items used_i WHERE used_i.product_id = p.id AND UPPER(COALESCE(used_i.condition, '')) = 'USED')
 		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id, inv.quantity
-		HAVING COALESCE(inv.quantity, COUNT(CASE WHEN i.status = 'AVAILABLE' AND COALESCE(i.condition, '') <> 'USED' THEN i.id END)) <= CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END
-		ORDER BY (CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 3 END - COALESCE(inv.quantity, COUNT(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN i.id END))) DESC
+		HAVING COALESCE(inv.quantity, COUNT(CASE WHEN i.status = 'AVAILABLE' AND COALESCE(i.condition, '') <> 'USED' THEN i.id END)) <= p.min_stock_level
+		ORDER BY (p.min_stock_level - COALESCE(inv.quantity, COUNT(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN i.id END))) DESC
 			LIMIT 5
 	`
 

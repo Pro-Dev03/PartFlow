@@ -561,7 +561,7 @@ func (h *Handler) GenerateProductsReport(c *gin.Context) {
 	// Get total products - simplified
 	var totalProducts int
 	err := h.repo.db.GetContext(c.Request.Context(), &totalProducts,
-		"SELECT COUNT(*) FROM products WHERE is_active = true")
+		"SELECT COUNT(*) FROM products WHERE is_active = true AND deleted_at IS NULL")
 	if err != nil {
 		// If products table doesn't exist, return empty report
 		reportData["total_products"] = 0
@@ -578,7 +578,7 @@ func (h *Handler) GenerateProductsReport(c *gin.Context) {
 		`SELECT COALESCE(c.name, 'غير مصنف'), COUNT(p.id) as count
 		 FROM categories c 
 		 RIGHT JOIN products p ON c.id = p.category_id AND p.is_active = true
-		 WHERE p.is_active = true
+		 WHERE p.is_active = true AND p.deleted_at IS NULL
 		 GROUP BY COALESCE(c.name, 'غير مصنف')`)
 	if err == nil {
 		defer rows.Close()
@@ -602,7 +602,7 @@ func (h *Handler) GenerateProductsReport(c *gin.Context) {
 			SELECT p.id
 			FROM inventory_items ii
 			JOIN products p ON ii.product_id = p.id
-			WHERE ii.status = 'AVAILABLE' AND p.min_stock_level > 0
+			WHERE ii.status = 'AVAILABLE' AND p.min_stock_level > 0 AND p.deleted_at IS NULL
 			GROUP BY p.id, p.min_stock_level
 			HAVING COUNT(ii.id) <= p.min_stock_level
 		) low_stock`)

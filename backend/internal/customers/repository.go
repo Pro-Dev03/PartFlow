@@ -499,10 +499,73 @@ func (r *Repository) Update(ctx context.Context, customer *Customer) error {
 	return nil
 }
 
-// Delete deletes a customer
+// Delete deletes a customer and all related rows so no foreign-key conflict remains.
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
-	query := `DELETE FROM customers WHERE id = $1`
-	result, err := r.db.ExecContext(ctx, query, id)
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin delete transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	deleteQueries := []string{
+		`DELETE FROM return_payment_refunds WHERE return_id IN (SELECT id FROM returns WHERE customer_id = $1)`,
+		`DELETE FROM payment_refunds WHERE payment_transaction_id IN (
+			SELECT id FROM payment_transactions
+			WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1)
+			OR payment_id IN (SELECT id FROM payments WHERE customer_id = $1)
+		)`,
+		`DELETE FROM payment_webhook_events WHERE payment_transaction_id IN (
+			SELECT id FROM payment_transactions
+			WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1)
+			OR payment_id IN (SELECT id FROM payments WHERE customer_id = $1)
+		)`,
+		`DELETE FROM payment_transactions WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1) OR payment_id IN (SELECT id FROM payments WHERE customer_id = $1)`,
+		`DELETE FROM sale_payment_allocations WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1)`,
+		`DELETE FROM supplier_return_items
+			WHERE supplier_return_id IN (
+				SELECT sr.id
+				FROM supplier_returns sr
+				WHERE sr.customer_return_id IN (SELECT id FROM returns WHERE customer_id = $1)
+				   OR sr.sale_id IN (SELECT id FROM sales WHERE customer_id = $1)
+			)
+			OR customer_return_id IN (SELECT id FROM returns WHERE customer_id = $1)
+			OR sale_id IN (SELECT id FROM sales WHERE customer_id = $1)
+			OR sale_item_id IN (SELECT id FROM sale_items WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1))`,
+		`DELETE FROM supplier_returns
+			WHERE id IN (
+				SELECT sri.supplier_return_id
+				FROM supplier_return_items sri
+				WHERE sri.customer_return_id IN (SELECT id FROM returns WHERE customer_id = $1)
+				   OR sri.sale_id IN (SELECT id FROM sales WHERE customer_id = $1)
+			)
+			OR customer_return_id IN (SELECT id FROM returns WHERE customer_id = $1)
+			OR sale_id IN (SELECT id FROM sales WHERE customer_id = $1)`,
+		`DELETE FROM return_items WHERE return_id IN (SELECT id FROM returns WHERE customer_id = $1)`,
+		`DELETE FROM sale_items WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1)`,
+		`DELETE FROM returns WHERE customer_id = $1`,
+		`DELETE FROM warranty_claims WHERE customer_id = $1`,
+		`DELETE FROM debt_collections WHERE customer_id = $1`,
+		`DELETE FROM customer_payments WHERE customer_id = $1`,
+		`DELETE FROM customer_ledger WHERE customer_id = $1`,
+		`DELETE FROM customer_debts WHERE customer_id = $1`,
+		`DELETE FROM debts WHERE customer_id = $1`,
+		`DELETE FROM payments WHERE customer_id = $1`,
+		`DELETE FROM sales WHERE customer_id = $1`,
+		`DELETE FROM reservations WHERE customer_id = $1`,
+		`DELETE FROM inventory_items WHERE customer_id = $1`,
+		`DELETE FROM trade_ins WHERE customer_id = $1`,
+		`DELETE FROM acquisitions WHERE customer_id = $1`,
+		`DELETE FROM seller_payments WHERE customer_id = $1`,
+	}
+
+	for i, query := range deleteQueries {
+		if _, err := tx.ExecContext(ctx, query, id); err != nil {
+			fmt.Printf("DELETE QUERY %d FAILED: %s\nERR: %v\n", i, query, err)
+			return fmt.Errorf("failed to clean customer dependencies: %w", err)
+		}
+	}
+
+	result, err := tx.ExecContext(ctx, `DELETE FROM customers WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete customer: %w", err)
 	}
@@ -510,6 +573,10 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		return ErrCustomerNotFound
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit customer delete: %w", err)
 	}
 
 	return nil

@@ -395,7 +395,7 @@ func (s *Service) GetSearchStats(ctx context.Context) (*SearchStats, error) {
 	stats := &SearchStats{}
 
 	// Get total products
-	err := s.db.GetContext(ctx, &stats.TotalProducts, `SELECT COUNT(*) FROM products WHERE is_active = true`)
+	err := s.db.GetContext(ctx, &stats.TotalProducts, `SELECT COUNT(*) FROM products WHERE is_active = true AND deleted_at IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get total products: %w", err)
 	}

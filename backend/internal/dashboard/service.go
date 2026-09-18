@@ -152,7 +152,7 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 			(SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE status = 'completed') as total_sales,
 			(SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE status = 'received') as total_purchases,
 			(SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE status = 'approved') as total_expenses,
-			(SELECT COUNT(*) FROM products WHERE is_active = true) as total_products,
+			(SELECT COUNT(*) FROM products WHERE is_active = true AND deleted_at IS NULL) as total_products,
 			(SELECT COUNT(*) FROM customers) as total_customers,
 			(SELECT COUNT(*) FROM suppliers) as total_suppliers,
 			(SELECT COUNT(*) FROM returns WHERE status = 'pending') as pending_returns,
@@ -342,10 +342,10 @@ func (s *Service) GetLowStockItems(ctx context.Context) ([]LowStockItem, error) 
 		LEFT JOIN inventory_items i ON p.id = i.product_id
 		WHERE p.is_active = true
 			AND p.deleted_at IS NULL
+			AND p.min_stock_level > 0
 		GROUP BY p.id, p.name, p.min_stock_level, p.cost_price, p.selling_price, p.preferred_supplier_id, inv.quantity
-		HAVING (COALESCE(p.min_stock_level, 0) > 0 AND COALESCE(inv.quantity, SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) <= p.min_stock_level)
-			OR (COALESCE(p.min_stock_level, 0) <= 0 AND COALESCE(inv.quantity, SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) < 5)
-		ORDER BY (CASE WHEN COALESCE(p.min_stock_level, 0) > 0 THEN p.min_stock_level ELSE 5 END - COALESCE(inv.quantity, SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0)) DESC
+		HAVING COALESCE(inv.quantity, SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0) <= p.min_stock_level
+		ORDER BY (p.min_stock_level - COALESCE(inv.quantity, SUM(CASE WHEN i.status = 'AVAILABLE' AND i.condition <> 'USED' THEN 1 ELSE 0 END), 0)) DESC
 		LIMIT 10
 	`
 

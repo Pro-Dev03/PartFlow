@@ -155,13 +155,13 @@ func (h *MainHandler) GetInventorySummary(c *gin.Context) {
 
 	query := `
 		SELECT 
-			(SELECT COUNT(DISTINCT product_id) FROM inventory) as total_products,
-			(SELECT COALESCE(SUM(quantity), 0) FROM inventory) as total_quantity,
-			(SELECT COALESCE(SUM(purchase_cost), 0) FROM inventory_items WHERE status = 'AVAILABLE') as total_value,
-			(SELECT COUNT(*) FROM inventory WHERE quantity < 5 AND quantity > 0) as low_stock_items,
-			(SELECT COUNT(*) FROM inventory WHERE quantity = 0) as out_of_stock_items,
-			(SELECT COALESCE(SUM(reserved_quantity), 0) FROM inventory) as reserved_quantity,
-			(SELECT COALESCE(SUM(quantity - reserved_quantity), 0) FROM inventory) as available_quantity
+			(SELECT COUNT(DISTINCT inv.product_id) FROM inventory inv JOIN products p ON p.id = inv.product_id WHERE p.deleted_at IS NULL AND p.is_active = true) as total_products,
+			(SELECT COALESCE(SUM(inv.quantity), 0) FROM inventory inv JOIN products p ON p.id = inv.product_id WHERE p.deleted_at IS NULL AND p.is_active = true) as total_quantity,
+			(SELECT COALESCE(SUM(ii.purchase_cost), 0) FROM inventory_items ii JOIN products p ON p.id = ii.product_id WHERE ii.status = 'AVAILABLE' AND p.deleted_at IS NULL AND p.is_active = true) as total_value,
+			(SELECT COUNT(*) FROM inventory inv JOIN products p ON p.id = inv.product_id WHERE p.deleted_at IS NULL AND p.is_active = true AND p.min_stock_level > 0 AND inv.quantity > 0 AND inv.quantity <= p.min_stock_level) as low_stock_items,
+			(SELECT COUNT(*) FROM inventory inv JOIN products p ON p.id = inv.product_id WHERE p.deleted_at IS NULL AND p.is_active = true AND inv.quantity = 0) as out_of_stock_items,
+			(SELECT COALESCE(SUM(inv.reserved_quantity), 0) FROM inventory inv JOIN products p ON p.id = inv.product_id WHERE p.deleted_at IS NULL AND p.is_active = true) as reserved_quantity,
+			(SELECT COALESCE(SUM(inv.quantity - inv.reserved_quantity), 0) FROM inventory inv JOIN products p ON p.id = inv.product_id WHERE p.deleted_at IS NULL AND p.is_active = true) as available_quantity
 	`
 
 	row := h.db.QueryRow(query)

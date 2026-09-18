@@ -121,3 +121,50 @@ func TestGetLowStockItemsIncludesOutOfStockProducts(t *testing.T) {
 		t.Fatalf("expected only the out-of-stock general product, got %+v", items)
 	}
 }
+
+func TestDeletedProductsAreExcludedFromDashboardStats(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	schema := `
+		CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT, is_active INTEGER, deleted_at TEXT, min_stock_level INTEGER);
+		CREATE TABLE customers (id TEXT PRIMARY KEY, name TEXT, current_balance REAL);
+		CREATE TABLE suppliers (id TEXT PRIMARY KEY, name TEXT);
+		CREATE TABLE sales (id TEXT PRIMARY KEY, customer_id TEXT, status TEXT, total_amount REAL);
+		CREATE TABLE purchases (id TEXT PRIMARY KEY, status TEXT, total_amount REAL);
+		CREATE TABLE expenses (id TEXT PRIMARY KEY, status TEXT, amount REAL);
+		CREATE TABLE returns (id TEXT PRIMARY KEY, status TEXT, refund_amount REAL);
+		CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT, remaining_amount REAL, due_date TEXT, status TEXT);
+		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT, status TEXT, condition TEXT);
+		CREATE TABLE inventory (product_id TEXT, quantity INTEGER);
+	`
+	if _, err := db.Exec(schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO products (id, name, is_active, deleted_at, min_stock_level) VALUES
+			('active', 'Active Product', 1, NULL, 2),
+			('deleted', 'Deleted Product', 1, '2026-09-16T00:00:00Z', 2),
+			('debug', 'test1', 1, '2026-09-16T00:00:00Z', 0),
+			('debug2', '123123', 1, '2026-09-16T00:00:00Z', 0);
+		INSERT INTO inventory (product_id, quantity) VALUES ('active', 1), ('deleted', 0), ('debug', 0), ('debug2', 0);
+	`); err != nil {
+		t.Fatalf("insert products: %v", err)
+	}
+
+	svc := NewService(sqlx.NewDb(db, "sqlite"))
+	stats, err := svc.GetDashboardStats(context.Background())
+	if err != nil {
+		t.Fatalf("GetDashboardStats should work: %v", err)
+	}
+	if stats.TotalProducts != 1 {
+		t.Fatalf("deleted and stale test rows must not be counted; got %d", stats.TotalProducts)
+	}
+	if stats.LowStockCount != 1 {
+		t.Fatalf("deleted rows must not appear as low stock; got %d", stats.LowStockCount)
+	}
+}

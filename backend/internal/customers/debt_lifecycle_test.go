@@ -194,6 +194,130 @@ func TestCustomerDebtLifecyclePaymentAndReturnCreditSQLite(t *testing.T) {
 	}
 }
 
+func TestDeleteCustomerRemovesRelatedFinancialRowsSQLite(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/delete-customer-cascade.db")
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+
+	db := sqlx.NewDb(database.DB, "sqlite")
+	ctx := context.Background()
+	customerID := uuid.New()
+	saleID := uuid.New()
+	productID := uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+
+	if _, err := db.Exec(`INSERT INTO customers (id, code, name, credit_limit, current_balance, created_at, updated_at) VALUES (?, ?, ?, ?, 200, ?, ?)`, customerID, "C-DELETE-CASCADE", "Delete Cascade Customer", 1000, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO products (id, sku, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, productID, "DELETE-CASCADE-001", "Delete Cascade Product", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO sales (id, sale_number, customer_id, total_amount, tax_amount, discount_amount, paid_amount, cash_received, change_amount, remaining_amount, payment_method, status, notes, created_at, updated_at) VALUES (?, ?, ?, 200, 0, 0, 0, 0, 0, 200, 'cash', 'completed', 'cascade delete test', ?, ?)`, saleID, "SALE-DELETE-CASCADE", customerID, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO debts (id, customer_id, sale_id, amount, paid_amount, remaining_amount, due_date, status, notes, created_at, updated_at) VALUES (?, ?, ?, 200, 0, 200, ?, 'pending', 'cascade delete test', ?, ?)`, uuid.New(), customerID, saleID, time.Now().UTC().AddDate(0, 0, 7).Format(time.RFC3339), now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO payments (id, transaction_number, customer_id, amount, payment_method, reference, notes, created_at) VALUES (?, ?, ?, 50, 'cash', ?, ?, ?)`, uuid.New(), "PAY-DELETE-CASCADE", customerID, "REF-DELETE-CASCADE", "cascade delete test", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO customer_ledger (id, customer_id, type, transaction_type, amount, balance, description, reference_id, reference_type, created_by, created_at) VALUES (?, ?, 'debit', 'sale', 200, 200, 'cascade delete test', ?, 'sale', 'system', ?)`, uuid.New(), customerID, saleID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO customer_payments (id, customer_id, amount, payment_date, method, reference, notes, created_at) VALUES (?, ?, 50, ?, 'cash', ?, ?, ?)`, uuid.New(), customerID, now, "REF-DELETE-CASCADE", "cascade delete test", now); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(NewRepository(db))
+	if err := service.DeleteCustomer(ctx, customerID); err != nil {
+		t.Fatalf("delete customer: %v", err)
+	}
+
+	var customerCount int
+	if err := db.Get(&customerCount, `SELECT COUNT(*) FROM customers WHERE id = ?`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if customerCount != 0 {
+		t.Fatalf("customer remains after delete, count = %d", customerCount)
+	}
+
+	for _, query := range []string{
+		`SELECT COUNT(*) FROM sales WHERE customer_id = ?`,
+		`SELECT COUNT(*) FROM debts WHERE customer_id = ?`,
+		`SELECT COUNT(*) FROM payments WHERE customer_id = ?`,
+		`SELECT COUNT(*) FROM customer_ledger WHERE customer_id = ?`,
+		`SELECT COUNT(*) FROM customer_payments WHERE customer_id = ?`,
+	} {
+		var count int
+		if err := db.Get(&count, query, customerID); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("query %s left %d rows for customer after delete", query, count)
+		}
+	}
+}
+
+func TestDeleteCustomerRemovesSupplierReturnReferencesSQLite(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/delete-customer-supplier-returns.db")
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+
+	db := sqlx.NewDb(database.DB, "sqlite")
+	ctx := context.Background()
+	customerID := uuid.New()
+	returnID := uuid.New()
+	supplierID := uuid.New()
+	saleID := uuid.New()
+	purchaseID := uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+
+	if _, err := db.Exec(`INSERT INTO customers (id, code, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, customerID, "C-SUPPLIER-RET", "Supplier Return Customer", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO sales (id, sale_number, customer_id, total_amount, remaining_amount, payment_method, status, created_at, updated_at) VALUES (?, ?, ?, 200, 200, 'cash', 'completed', ?, ?)`, saleID, "SALE-SUPPLIER-RET", customerID, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO suppliers (id, code, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, supplierID, "SUP-RET-001", "Supplier Return Vendor", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO purchases (id, purchase_number, supplier_id, total_amount, paid_amount, status, created_at, updated_at) VALUES (?, ?, ?, 50, 0, 'received', ?, ?)`, purchaseID, "PUR-SUPPLIER-RET-001", supplierID, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO returns (id, return_number, customer_id, sale_id, total_refund_amount, refund_status, status, reason, return_date, created_at, updated_at) VALUES (?, ?, ?, ?, 50, 'pending', 'pending', 'customer_changed_mind', ?, ?, ?)`, returnID, "RET-SUPPLIER-001", customerID, saleID, now, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO supplier_returns (id, customer_return_id, sale_id, purchase_id, supplier_id, return_number, status, source_status, reason, refund_amount, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', 'RESOLVED', 'customer_return', 50, ?, ?)`, uuid.New(), returnID, saleID, purchaseID, supplierID, "SRET-SUPPLIER-001", now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(NewRepository(db))
+	if err := service.DeleteCustomer(ctx, customerID); err != nil {
+		t.Fatalf("delete customer with supplier return references: %v", err)
+	}
+
+	var returnCount int
+	if err := db.Get(&returnCount, `SELECT COUNT(*) FROM returns WHERE id = ?`, returnID); err != nil {
+		t.Fatal(err)
+	}
+	if returnCount != 0 {
+		t.Fatalf("customer return remained after delete, count = %d", returnCount)
+	}
+	var supplierReturnCount int
+	if err := db.Get(&supplierReturnCount, `SELECT COUNT(*) FROM supplier_returns WHERE customer_return_id = ?`, returnID); err != nil {
+		t.Fatal(err)
+	}
+	if supplierReturnCount != 0 {
+		t.Fatalf("supplier return rows remained after delete, count = %d", supplierReturnCount)
+	}
+}
+
 func assertCustomerDebtBalance(t *testing.T, db *sqlx.DB, customerID uuid.UUID, want float64) {
 	t.Helper()
 	var balance float64

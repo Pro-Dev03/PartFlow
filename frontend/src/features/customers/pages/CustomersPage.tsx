@@ -219,8 +219,8 @@ export function CustomersPage() {
         }}
         onConfirm={handleConfirmDelete}
         title="حذف العميل"
-        message="هل أنت متأكد من حذف هذا العميل؟ هذا الإجراء لا يمكن التراجع عنه."
-        confirmText="حذف العميل"
+        message="سيتم حذف هذا العميل مع جميع البيانات المالية المرتبطة به، مثل الديون والدفعات والمبيعات والمرتجعات والقيود المرتبطة. هذا الإجراء لا يمكن التراجع عنه."
+        confirmText="حذف العميل مع البيانات"
         cancelText="إلغاء"
         variant="danger"
         isLoading={deleteMutation.isPending}

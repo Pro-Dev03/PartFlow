@@ -154,45 +154,16 @@ func (s *Service) UpdateCustomer(ctx context.Context, id uuid.UUID, req *UpdateC
 	return customer, nil
 }
 
-// DeleteCustomer deletes a customer with safety checks
+// DeleteCustomer deletes a customer and all related finance/operational records.
 func (s *Service) DeleteCustomer(ctx context.Context, id uuid.UUID) error {
-	// Safety check: Get customer first
-	customer, err := s.repo.GetByID(ctx, id)
-	if err != nil {
+	if _, err := s.repo.GetByID(ctx, id); err != nil {
 		return err
 	}
 
-	// CRITICAL: Check if customer has outstanding debt
-	if customer.CurrentBalance > 0 {
-		return ErrCustomerHasOutstandingDebt
-	}
-
-	// Check for active sales/transactions
-	hasActiveTransactions, err := s.repo.HasActiveTransactions(ctx, id)
-	if err != nil {
-		return fmt.Errorf("failed to check for active transactions: %w", err)
-	}
-
-	if hasActiveTransactions {
-		return ErrCustomerHasActiveTransactions
-	}
-
-	// Check for active warranties
-	hasActiveWarranties, err := s.repo.HasActiveWarranties(ctx, id)
-	if err != nil {
-		return fmt.Errorf("failed to check for active warranties: %w", err)
-	}
-
-	if hasActiveWarranties {
-		return ErrCustomerHasActiveWarranties
-	}
-
-	// Safe to delete
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return err
 	}
 
-	// Invalidate dashboard cache since customers data changed
 	dashboard.InvalidateDashboardCacheWithReason("customer_deleted")
 
 	return nil
