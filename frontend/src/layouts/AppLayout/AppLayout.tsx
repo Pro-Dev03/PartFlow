@@ -60,9 +60,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <Header
-          onToggleSidebar={toggleSidebar}
-        />
+        {!checkoutMode && <Header onToggleSidebar={toggleSidebar} />}
         <div style={{ display: 'flex', flex: 1, minWidth: 0, alignItems: 'stretch' }}>
           {!checkoutMode && (
             <Sidebar

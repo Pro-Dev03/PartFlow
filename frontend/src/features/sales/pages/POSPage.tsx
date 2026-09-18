@@ -223,6 +223,15 @@ export function POSPage() {
   const [unknownBarcode, setUnknownBarcode] = useState('');
   const [isHeldSalesOpen, setIsHeldSalesOpen] = useState(false);
   const { checkoutMode, setCheckoutMode } = useUIStore();
+  const initialCheckoutMode = useRef(checkoutMode);
+
+  useEffect(() => {
+    setCheckoutMode(true);
+
+    return () => {
+      setCheckoutMode(initialCheckoutMode.current);
+    };
+  }, [setCheckoutMode]);
 
   // Held sales query
   const { data: heldSalesData } = useQuery({
