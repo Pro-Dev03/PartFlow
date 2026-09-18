@@ -63,7 +63,7 @@ func localSupplierFromRow(row localSupplierRow) (Supplier, error) {
 }
 
 func localSupplierQuery() string {
-	return `SELECT s.id, s.code, s.name, s.email, s.phone, s.address, s.city, s.country, s.tax_id, s.payment_terms, s.credit_limit, s.current_balance, COALESCE((SELECT SUM(total_amount) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) AS total_purchases, COALESCE((SELECT SUM(COALESCE(paid_amount,0)) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) AS paid_amount, MAX(0, COALESCE((SELECT SUM(CASE WHEN total_amount - COALESCE(paid_amount,0) > 0 THEN total_amount - COALESCE(paid_amount,0) ELSE 0 END) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = s.id AND sr.status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND sl.description NOT LIKE 'Payment for purchase%'), 0)) AS outstanding, s.notes, s.is_active, s.created_at, s.updated_at FROM suppliers s`
+	return `SELECT s.id, s.code, s.name, s.email, s.phone, s.address, s.city, s.country, s.tax_id, s.payment_terms, s.credit_limit, s.current_balance, COALESCE((SELECT SUM(total_amount) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) AS total_purchases, COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) AS paid_amount, COALESCE((SELECT SUM(total_amount) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = s.id AND sr.status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) AS outstanding, s.notes, s.is_active, s.created_at, s.updated_at FROM suppliers s`
 }
 
 // NewRepository creates a new supplier repository
@@ -153,8 +153,8 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Supplier, erro
 		SELECT id, code, name, email, phone, address, city, country, tax_id,
 			payment_terms, credit_limit, current_balance,
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
-			COALESCE((SELECT SUM(COALESCE(paid_amount, 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS paid_amount,
-			GREATEST(0, COALESCE((SELECT SUM(CASE WHEN total_amount - COALESCE(paid_amount, 0) > 0 THEN total_amount - COALESCE(paid_amount, 0) ELSE 0 END) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE supplier_id = suppliers.id AND status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT' AND description NOT LIKE 'Payment for purchase%'), 0)) AS outstanding,
+			COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS paid_amount,
+			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE supplier_id = suppliers.id AND status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS outstanding,
 			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE id = $1
@@ -184,8 +184,8 @@ func (r *Repository) GetByCode(ctx context.Context, code string) (*Supplier, err
 		SELECT id, code, name, email, phone, address, city, country, tax_id,
 			payment_terms, credit_limit, current_balance,
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
-			COALESCE((SELECT SUM(COALESCE(paid_amount, 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS paid_amount,
-			GREATEST(0, COALESCE((SELECT SUM(CASE WHEN total_amount - COALESCE(paid_amount, 0) > 0 THEN total_amount - COALESCE(paid_amount, 0) ELSE 0 END) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE supplier_id = suppliers.id AND status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT' AND description NOT LIKE 'Payment for purchase%'), 0)) AS outstanding,
+			COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS paid_amount,
+			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE supplier_id = suppliers.id AND status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS outstanding,
 			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE code = $1
@@ -254,8 +254,8 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 		SELECT id, code, name, email, phone, address, city, country, tax_id,
 			payment_terms, credit_limit, current_balance,
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
-			COALESCE((SELECT SUM(COALESCE(paid_amount, 0)) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS paid_amount,
-			GREATEST(0, COALESCE((SELECT SUM(CASE WHEN total_amount - COALESCE(paid_amount, 0) > 0 THEN total_amount - COALESCE(paid_amount, 0) ELSE 0 END) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE supplier_id = suppliers.id AND status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT' AND description NOT LIKE 'Payment for purchase%'), 0)) AS outstanding,
+			COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS paid_amount,
+			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE supplier_id = suppliers.id AND status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS outstanding,
 			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE 1=1

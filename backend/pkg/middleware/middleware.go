@@ -541,7 +541,7 @@ func rateLimitSetting(name string, fallback float64) float64 {
 // a shared limiter at the edge (or use one process per tenant).
 func RateLimiter() gin.HandlerFunc {
 	rps := rateLimitSetting("RATE_LIMIT_RPS", 100)
-	burst := rateLimitSetting("RATE_LIMIT_BURST", 10)
+	burst := rateLimitSetting("RATE_LIMIT_BURST", 50)
 	if burst < 1 {
 		burst = 1
 	}

@@ -50,14 +50,42 @@ type AddItemRequest struct {
 }
 
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	result, err := s.db.ExecContext(ctx, `DELETE FROM supplier_returns
-		WHERE id = $1 AND status IN ('DRAFT', 'PENDING')
-		AND NOT EXISTS (SELECT 1 FROM supplier_return_items WHERE supplier_return_id = $1)`, id)
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete supplier return: %w", err)
+	}
+	defer tx.Rollback()
+
+	customerReturnQuery := `SELECT COALESCE(customer_return_id, '') FROM supplier_returns WHERE id = $1`
+	if dbutil.IsSQLite(s.db) {
+		customerReturnQuery = `SELECT COALESCE(customer_return_id, '') FROM supplier_returns WHERE id = ?`
+	}
+	var customerReturnID string
+	if err = tx.GetContext(ctx, &customerReturnID, customerReturnQuery, id); err != nil {
+		return fmt.Errorf("get supplier return source: %w", err)
+	}
+	if strings.TrimSpace(customerReturnID) != "" && customerReturnID != uuid.Nil.String() {
+		return fmt.Errorf("only an empty, unprocessed supplier return can be deleted")
+	}
+
+	deleteItemsQuery := `DELETE FROM supplier_return_items WHERE supplier_return_id = $1`
+	if dbutil.IsSQLite(s.db) {
+		deleteItemsQuery = `DELETE FROM supplier_return_items WHERE supplier_return_id = ?`
+	}
+	if _, err = tx.ExecContext(ctx, deleteItemsQuery, id); err != nil {
+		return fmt.Errorf("delete supplier return items: %w", err)
+	}
+
+	result, err := tx.ExecContext(ctx, `DELETE FROM supplier_returns
+		WHERE id = $1 AND status IN ('DRAFT', 'PENDING')`, id)
 	if err != nil {
 		return fmt.Errorf("delete supplier return: %w", err)
 	}
 	if count, err := result.RowsAffected(); err != nil || count != 1 {
 		return fmt.Errorf("only an empty, unprocessed supplier return can be deleted")
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete supplier return: %w", err)
 	}
 	return nil
 }
@@ -181,7 +209,12 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 			SupplierID: supplierID, SupplierName: row.SupplierName, InventoryItemID: inventoryItemID, Barcode: row.Barcode,
 			SerialNumber: row.SerialNumber, Quantity: row.Quantity, PurchaseCost: row.PurchaseCost, ReturnReason: row.ReturnReason, ReturnDate: returnDate,
 			ReturnNumber: row.ReturnNumber, Status: row.Status, SourceStatus: row.SourceStatus, NeedsSourceResolution: row.SourceStatus == "NEEDS_SOURCE_DATA" || row.Status == "NEEDS_SOURCE_DATA",
-			Source: "Customer Return", Reason: row.Reason, RefundAmount: row.RefundAmount, Notes: row.Notes, CreatedAt: createdAt,
+			Source: func() string {
+				if customerReturnID != uuid.Nil {
+					return "Customer Return"
+				}
+				return "Supplier Return"
+			}(), Reason: row.Reason, RefundAmount: row.RefundAmount, Notes: row.Notes, CreatedAt: createdAt,
 		})
 	}
 	return out, nil
@@ -210,10 +243,11 @@ func sqliteColumnExists(ctx context.Context, db *sqlx.DB, table, column string) 
 }
 
 func parseOptionalUUID(value string) (uuid.UUID, error) {
-	if strings.TrimSpace(value) == "" {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || trimmed == "00000000-0000-0000-0000-000000000000" {
 		return uuid.Nil, nil
 	}
-	return uuid.Parse(value)
+	return uuid.Parse(trimmed)
 }
 
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, req CreateRequest) (*SupplierReturn, error) {

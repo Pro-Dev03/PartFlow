@@ -251,7 +251,7 @@ export function SupplierReturnsPage() {
                 <span>السبب: {readableReturnReason(item.reason)}</span>
                 <span>الحالة: {item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'يحتاج بيانات المصدر' : readableStatus(item.status)}</span>
                 <span>₪{Number(item.refund_amount || 0).toLocaleString('en-US')}</span>
-                {item.customer_return_id && (
+                {item.customer_return_id && item.customer_return_id !== '00000000-0000-0000-0000-000000000000' && (
                   <div className={`basis-full grid gap-2 rounded border p-3 text-xs sm:grid-cols-2 lg:grid-cols-4 ${item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'border-warning/40 bg-warning/10' : 'border-border bg-surface-muted'}`}>
                     <strong className="sm:col-span-2 lg:col-span-4">{item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'مرتجع عميل يحتاج بيانات الشراء أو المورد' : 'مصدر الطلب: مرتجع عميل'}</strong>
                     <span data-testid="unresolved-customer-return-id">معرّف مرتجع العميل: {item.customer_return_id}</span>

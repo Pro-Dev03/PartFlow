@@ -8,8 +8,13 @@ export default function SubscriptionExpiredPage() {
   const logout = useAuthStore((state) => state.logout);
 
   useEffect(() => {
-    void validateSubscriptionWithCloud();
-  }, []);
+    void (async () => {
+      const valid = await validateSubscriptionWithCloud();
+      if (valid) {
+        navigate('/app/dashboard', { replace: true });
+      }
+    })();
+  }, [navigate]);
 
   const handleLogout = () => {
     logout();
