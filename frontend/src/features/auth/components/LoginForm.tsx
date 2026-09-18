@@ -2,6 +2,18 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { Eye, EyeOff, AlertCircle, Headset, X } from 'lucide-react';
 
+const SAVED_EMAILS_KEY = 'partflow-saved-login-emails';
+const MAX_SAVED_EMAILS = 5;
+
+function readSavedEmails(): string[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SAVED_EMAILS_KEY) || '[]');
+    return Array.isArray(saved) ? saved.filter((email): email is string => typeof email === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 interface LoginFormProps {
   isDark: boolean;
   isLoading: boolean;
@@ -17,6 +29,7 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [savedEmails, setSavedEmails] = useState<string[]>(readSavedEmails);
 
   useEffect(() => {
     if (!showForgotPassword) return;
@@ -34,6 +47,13 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
     
     try {
       await onSubmit(email, password);
+      const normalizedEmail = email.trim().toLowerCase();
+      if (normalizedEmail) {
+        const nextEmails = [normalizedEmail, ...savedEmails.filter((savedEmail) => savedEmail !== normalizedEmail)]
+          .slice(0, MAX_SAVED_EMAILS);
+        localStorage.setItem(SAVED_EMAILS_KEY, JSON.stringify(nextEmails));
+        setSavedEmails(nextEmails);
+      }
     } catch (err) {
       setError(t('auth.invalidCredentials'));
     }
@@ -166,11 +186,17 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
             onChange={(e) => setEmail(e.target.value)}
             required
             autoComplete="email"
+            list="partflow-saved-emails"
             style={inputStyle}
             className="placeholder:text-[#4f5c70]"
             onFocus={handleFocus}
             onBlur={handleBlur}
           />
+          <datalist id="partflow-saved-emails">
+            {savedEmails.map((savedEmail) => (
+              <option key={savedEmail} value={savedEmail} />
+            ))}
+          </datalist>
         </div>
 
         {/* Password Input */}
