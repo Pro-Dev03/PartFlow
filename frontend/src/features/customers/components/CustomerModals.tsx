@@ -157,9 +157,6 @@ export function CustomerModals({
     }
   };
 
-  const totalPurchases = Number(selectedCustomer?.totalPurchases ?? 0);
-  const outstanding = Number(selectedCustomer?.outstanding ?? 0);
-  const totalPaid = Math.max(totalPurchases - outstanding, 0);
   const purchaseEntries = ledgerEntries.filter((entry) => {
     const type = String(entry.transaction_type || entry.type || '').toLowerCase();
     return type === 'sale' || type === 'debit';
@@ -168,6 +165,18 @@ export function CustomerModals({
     const type = String(entry.transaction_type || entry.type || '').toLowerCase();
     return type === 'payment' || type === 'credit';
   });
+  const ledgerPurchases = purchaseEntries.reduce((sum, entry) => sum + Math.max(Number(entry.amount) || 0, 0), 0);
+  const ledgerPayments = paymentEntries.reduce((sum, entry) => sum + Math.max(Number(entry.amount) || 0, 0), 0);
+  const selectedPurchases = Math.max(Number(selectedCustomer?.totalPurchases ?? 0), 0);
+  const selectedOutstanding = Math.max(Number(selectedCustomer?.outstanding ?? 0), 0);
+  const lastLedgerBalance = Number(ledgerEntries[ledgerEntries.length - 1]?.balance);
+  const outstanding = Number.isFinite(lastLedgerBalance)
+    ? Math.max(lastLedgerBalance, 0)
+    : selectedOutstanding;
+  const totalPaid = ledgerPayments > 0
+    ? ledgerPayments
+    : Math.max(selectedPurchases - outstanding, 0);
+  const totalPurchases = Math.max(selectedPurchases, ledgerPurchases, totalPaid + outstanding);
   const totalTransactions = ledgerEntries.length;
   const paymentRate = totalPurchases > 0
     ? Math.min(Math.max((totalPaid / totalPurchases) * 100, 0), 100)

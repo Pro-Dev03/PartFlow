@@ -1530,22 +1530,55 @@ export function POSPage() {
               </button>
               {isCustomerMenuOpen && (
                 <div className="customer-select-menu" role="listbox" aria-label="اختيار العميل">
+                  <div className="customer-select-search">
+                    <Search className="h-4 w-4" aria-hidden="true" />
+                    <input
+                      type="search"
+                      value={customerSearchQuery}
+                      onChange={(event) => setCustomerSearchQuery(event.target.value)}
+                      placeholder="ابحث بالاسم أو الهاتف..."
+                      aria-label="بحث عن عميل بالاسم أو الهاتف"
+                      autoFocus
+                    />
+                    {customerSearchQuery && (
+                      <button
+                        type="button"
+                        className="customer-select-search-clear"
+                        onClick={() => setCustomerSearchQuery('')}
+                        aria-label="مسح بحث العملاء"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="customer-select-results-hint" aria-live="polite">
+                    {customersLoading
+                      ? 'جارٍ البحث...'
+                      : customerSearchQuery.trim().length >= 2
+                        ? `${customers.length} نتيجة مطابقة`
+                        : 'اكتب حرفين على الأقل للبحث'}
+                  </div>
                   <button
                     type="button"
                     className={`customer-option ${!selectedCustomer ? 'selected' : ''}`}
-                    onClick={() => { handleCustomerChange(''); setIsCustomerMenuOpen(false); }}
+                    onClick={() => { handleCustomerChange(''); setCustomerSearchQuery(''); setIsCustomerMenuOpen(false); }}
                     role="option"
                     aria-selected={!selectedCustomer}
                   >
                     <span className="customer-option-avatar guest" aria-hidden="true"><UserRound className="h-4 w-4" /></span>
                     <span className="customer-option-copy"><strong>عميل عام</strong><small>بيع مباشر بدون حساب عميل</small></span>
                   </button>
-                  {customers.map((customer) => (
+                  {[
+                    ...(selectedCustomerOption && !customers.some((customer) => String(customer.id) === String(selectedCustomerOption.id))
+                      ? [selectedCustomerOption]
+                      : []),
+                    ...customers,
+                  ].map((customer) => (
                     <button
                       key={customer.id}
                       type="button"
                       className={`customer-option ${String(customer.id) === String(selectedCustomer) ? 'selected' : ''}`}
-                      onClick={() => { handleCustomerChange(String(customer.id)); setIsCustomerMenuOpen(false); }}
+                      onClick={() => { handleCustomerChange(String(customer.id)); setCustomerSearchQuery(''); setIsCustomerMenuOpen(false); }}
                       role="option"
                       aria-selected={String(customer.id) === String(selectedCustomer)}
                     >
@@ -1553,6 +1586,9 @@ export function POSPage() {
                       <span className="customer-option-copy"><strong>{customer.name}</strong><small>حساب عميل</small></span>
                     </button>
                   ))}
+                  {!customersLoading && customers.length === 0 && customerSearchQuery.trim().length >= 2 && (
+                    <p className="customer-select-empty">لا يوجد عميل مطابق للبحث</p>
+                  )}
                 </div>
               )}
             </div>
