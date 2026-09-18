@@ -3,7 +3,6 @@ package auth
 import (
 	"errors"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -43,32 +42,12 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 
 // Register handles user registration
 func (h *Handler) Register(c *gin.Context) {
-	// Subscriber accounts are created and managed from the administrator
-	// tooling. Keep public registration disabled by default; it can be enabled
-	// explicitly for a development or invite-based deployment.
-	allowPublicRegistration := strings.EqualFold(strings.TrimSpace(os.Getenv("PARTFLOW_ALLOW_PUBLIC_REGISTRATION")), "true") ||
-		os.Getenv("PARTFLOW_ALLOW_PUBLIC_REGISTRATION") == "1"
-	if !allowPublicRegistration {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "public registration is disabled",
-			"code":  "REGISTRATION_DISABLED",
-		})
-		return
-	}
-
-	var req RegisterRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	resp, err := h.service.Register(c.Request.Context(), &req)
-	if err != nil {
-		handleAuthError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusCreated, resp)
+	// Subscriber accounts are created only through the protected administrator
+	// route. Client-controlled configuration must never enable registration.
+	c.JSON(http.StatusForbidden, gin.H{
+		"error": "public registration is disabled",
+		"code":  "REGISTRATION_DISABLED",
+	})
 }
 
 // Login handles admin login (based on worktrack)

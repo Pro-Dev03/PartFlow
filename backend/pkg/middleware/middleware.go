@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -43,12 +42,6 @@ func allowLocalAuthBypass() bool {
 
 const defaultCloudAPIURL = "https://partflow-api.onrender.com/api/v1"
 
-// Cloud validation is intentionally cached only for a very short period. The
-// cloud remains the source of truth (a revoked account is rejected on the
-// next validation window), while requests made by the dashboard do not cause
-// a validation request for every single local endpoint.
-const cloudValidationCacheTTL = 15 * time.Second
-
 // Keep validation traffic bounded when several dashboard requests arrive at
 // once. Render/Supabase can briefly return 502/503 under a burst; one small
 // queue is enough for local requests and avoids turning that burst into a
@@ -60,12 +53,6 @@ type cloudAuthError struct {
 	err    error
 }
 
-type cloudValidationCacheEntry struct {
-	userID    uuid.UUID
-	email     string
-	expiresAt time.Time
-}
-
 type cloudValidationCall struct {
 	done    chan struct{}
 	userID  uuid.UUID
@@ -74,7 +61,6 @@ type cloudValidationCall struct {
 }
 
 var cloudValidationMu sync.Mutex
-var cloudValidationCache = make(map[string]cloudValidationCacheEntry)
 var cloudValidationInFlight = make(map[string]*cloudValidationCall)
 
 func requiresCloudAuth() bool {
@@ -101,18 +87,9 @@ func validateWithCloud(ctx context.Context, tokenString string) (uuid.UUID, stri
 	if baseURL == "" {
 		baseURL = defaultCloudAPIURL
 	}
-	keyBytes := sha256.Sum256([]byte(baseURL + "\x00" + tokenString))
-	cacheKey := fmt.Sprintf("%x", keyBytes[:])
+	cacheKey := baseURL + "\x00" + tokenString
 
-	now := time.Now()
 	cloudValidationMu.Lock()
-	if cached, ok := cloudValidationCache[cacheKey]; ok {
-		if now.Before(cached.expiresAt) {
-			cloudValidationMu.Unlock()
-			return cached.userID, cached.email, nil
-		}
-		delete(cloudValidationCache, cacheKey)
-	}
 	if call, ok := cloudValidationInFlight[cacheKey]; ok {
 		cloudValidationMu.Unlock()
 		select {
@@ -132,13 +109,6 @@ func validateWithCloud(ctx context.Context, tokenString string) (uuid.UUID, stri
 	call.userID = userID
 	call.email = email
 	call.authErr = authErr
-	if authErr == nil {
-		cloudValidationCache[cacheKey] = cloudValidationCacheEntry{
-			userID:    userID,
-			email:     email,
-			expiresAt: time.Now().Add(cloudValidationCacheTTL),
-		}
-	}
 	close(call.done)
 	cloudValidationMu.Unlock()
 	return userID, email, authErr

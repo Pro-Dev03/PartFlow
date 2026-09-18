@@ -25,7 +25,7 @@ init: migrate seed-db setup-owner ## Initialize database (migrate + seed + setup
 	@echo "✅ Database initialization complete!"
 
 test-api: ## Test API registration
-	@echo "🧪 Public registration is disabled by default. Set PARTFLOW_ALLOW_PUBLIC_REGISTRATION=true only for development."
+	@echo "🧪 Public registration is permanently disabled; create subscribers from the protected Admin route."
 
 clean: ## Clean temporary files
 	@echo "🧹 Cleaning temporary files..."
