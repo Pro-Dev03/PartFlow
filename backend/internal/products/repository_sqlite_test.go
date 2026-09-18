@@ -107,6 +107,7 @@ func TestDeleteProductPermanentlyRemovesInventoryItems(t *testing.T) {
 	_, err = db.Exec(`
 		PRAGMA foreign_keys = ON;
 		CREATE TABLE products (id TEXT PRIMARY KEY, deleted_at TEXT);
+		CREATE TABLE inventory (id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id));
 		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT NOT NULL);
 		CREATE TABLE sale_items (product_id TEXT);
 		CREATE TABLE purchase_items (product_id TEXT);
@@ -121,6 +122,9 @@ func TestDeleteProductPermanentlyRemovesInventoryItems(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO products (id) VALUES (?)`, productID); err != nil {
 		t.Fatalf("insert product: %v", err)
 	}
+	if _, err := db.Exec(`INSERT INTO inventory (id, product_id) VALUES (?, ?)`, uuid.New(), productID); err != nil {
+		t.Fatalf("insert inventory summary: %v", err)
+	}
 	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id) VALUES (?, ?)`, uuid.New(), productID); err != nil {
 		t.Fatalf("insert inventory item: %v", err)
 	}
@@ -129,15 +133,18 @@ func TestDeleteProductPermanentlyRemovesInventoryItems(t *testing.T) {
 		t.Fatalf("delete product: %v", err)
 	}
 
-	var productCount, itemCount int
+	var productCount, inventoryCount, itemCount int
 	if err := db.Get(&productCount, `SELECT COUNT(*) FROM products WHERE id = ?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&inventoryCount, `SELECT COUNT(*) FROM inventory WHERE product_id = ?`, productID); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Get(&itemCount, `SELECT COUNT(*) FROM inventory_items WHERE product_id = ?`, productID); err != nil {
 		t.Fatal(err)
 	}
-	if productCount != 0 || itemCount != 0 {
-		t.Fatalf("deleted product remains: products=%d inventory_items=%d", productCount, itemCount)
+	if productCount != 0 || inventoryCount != 0 || itemCount != 0 {
+		t.Fatalf("deleted product remains: products=%d inventory=%d inventory_items=%d", productCount, inventoryCount, itemCount)
 	}
 }
 

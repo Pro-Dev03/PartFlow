@@ -887,6 +887,9 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("product has historical transactions and cannot be permanently deleted")
 	}
 
+	if _, err := tx.ExecContext(ctx, `DELETE FROM inventory WHERE product_id = $1`, id); err != nil {
+		return fmt.Errorf("failed to delete product inventory summary: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM inventory_items WHERE product_id = $1`, id); err != nil {
 		return fmt.Errorf("failed to delete product inventory: %w", err)
 	}
