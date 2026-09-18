@@ -6,6 +6,7 @@ import { TokenManager } from '../lib/token-manager';
 import { User } from '../types/models';
 import { getCloudApiUrl } from '../lib/config/app';
 import { isNetworkError } from '../lib/error-messages';
+import { saveAutoLogoutReason, type AutoLogoutReason } from '../features/auth/sessionReason';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -293,6 +294,16 @@ function goToAppDashboard(): void {
 export function forceLogoutToLogin(reason = 'Session expired') {
   if (typeof window === 'undefined') return;
 
+  const logoutReason: AutoLogoutReason = reason.includes('Internet')
+    ? 'offline'
+    : reason.includes('subscription') || reason.includes('اشتراك')
+      ? 'subscription'
+      : reason.includes('No active')
+        ? 'missing-session'
+        : reason.includes('Cloud')
+          ? 'cloud-rejected'
+          : 'session-expired';
+  saveAutoLogoutReason(logoutReason);
   stopTokenRefresh();
   apiClient.logout();
   TokenManager.clearToken();

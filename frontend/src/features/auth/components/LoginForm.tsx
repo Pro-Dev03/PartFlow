@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { Eye, EyeOff, AlertCircle, Headset, X } from 'lucide-react';
+import { clearAutoLogoutReason, getAutoLogoutMessage, readAutoLogoutReason, type AutoLogoutReason } from '../sessionReason';
 
 const SAVED_EMAILS_KEY = 'partflow-saved-login-emails';
 const MAX_SAVED_EMAILS = 5;
@@ -30,6 +31,7 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
   const [rememberMe, setRememberMe] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [savedEmails, setSavedEmails] = useState<string[]>(readSavedEmails);
+  const [autoLogoutReason, setAutoLogoutReason] = useState<AutoLogoutReason | null>(readAutoLogoutReason);
 
   useEffect(() => {
     if (!showForgotPassword) return;
@@ -47,6 +49,8 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
     
     try {
       await onSubmit(email, password);
+      clearAutoLogoutReason();
+      setAutoLogoutReason(null);
       const normalizedEmail = email.trim().toLowerCase();
       if (normalizedEmail) {
         const nextEmails = [normalizedEmail, ...savedEmails.filter((savedEmail) => savedEmail !== normalizedEmail)]
@@ -133,6 +137,27 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
             <AlertCircle style={{ width: '12px', height: '12px' }} />
           </span>
           <span>{externalError || error}</span>
+        </div>
+      )}
+
+      {autoLogoutReason && !error && !externalError && (
+        <div
+          role="status"
+          style={{
+            marginBottom: '18px',
+            padding: '14px 15px',
+            border: '1px solid rgba(251, 191, 36, 0.28)',
+            borderRadius: '12px',
+            background: 'rgba(251, 191, 36, 0.09)',
+            color: isDark ? '#fde68a' : '#92400e',
+            fontSize: '11px',
+            lineHeight: 1.7,
+          }}
+        >
+          <strong style={{ display: 'block', marginBottom: '3px', fontSize: '12px' }}>
+            {getAutoLogoutMessage(autoLogoutReason).title}
+          </strong>
+          <span>{getAutoLogoutMessage(autoLogoutReason).message}</span>
         </div>
       )}
 
