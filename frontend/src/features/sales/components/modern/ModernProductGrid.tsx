@@ -24,6 +24,8 @@ interface ModernProductGridProps {
   taxExempt?: boolean;
   showDetails: boolean;
   onToggleDetails: () => void;
+  onAddProduct?: () => void;
+  hasSearch?: boolean;
 }
 
 export function ModernProductGrid({
@@ -39,6 +41,8 @@ export function ModernProductGrid({
   taxExempt = false,
   showDetails,
   onToggleDetails,
+  onAddProduct,
+  hasSearch = false,
 }: ModernProductGridProps) {
   if (isLoading) {
     return (
@@ -58,8 +62,16 @@ export function ModernProductGrid({
     return (
       <div className="pos-modern-products-empty">
         <Package className="empty-icon" />
-        <p className="empty-title">لا توجد منتجات</p>
-        <p className="empty-subtitle">ابدأ بالبحث أو امسح الباركود</p>
+        <p className="empty-title">{hasSearch ? 'لا توجد نتائج مطابقة' : 'لا توجد منتجات في المخزون'}</p>
+        <p className="empty-subtitle">
+          {hasSearch ? 'جرّب اسمًا أو باركودًا مختلفًا' : 'أضف أول منتج لبدء البيع من نقطة البيع'}
+        </p>
+        {!hasSearch && onAddProduct && (
+          <button type="button" className="pos-empty-add-product" onClick={onAddProduct}>
+            <Plus className="h-4 w-4" />
+            <span>إضافة منتج</span>
+          </button>
+        )}
       </div>
     );
   }

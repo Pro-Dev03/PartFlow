@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useToast } from '../../../hooks/useToast';
 import { useUIStore } from '../../../stores/uiStore';
@@ -68,6 +68,7 @@ interface HeldSale {
 export function POSPage() {
   const { t } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToast();
   const { data: taxSetting } = useQuery({
@@ -1390,6 +1391,8 @@ export function POSPage() {
               onPreviousPage={() => setProductPage((page) => Math.max(1, page - 1))}
               onNextPage={() => setProductPage((page) => page + 1)}
               isLoading={productsLoading}
+              hasSearch={Boolean(debouncedSearchQuery.trim())}
+              onAddProduct={() => navigate('/app/inventory')}
             />
           ) : (
             <>
