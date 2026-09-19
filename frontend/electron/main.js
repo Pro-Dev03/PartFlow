@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, Tray, Menu, nativeImage, ipcMain } from 'electron';
+import { app, BrowserWindow, shell, Tray, Menu, nativeImage, ipcMain, dialog } from 'electron';
 import { spawn, execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -236,6 +236,212 @@ ipcMain.handle('category-images:delete', async (_event, categoryId) => {
     if (error.code !== 'ENOENT') throw error;
   }
   return true;
+});
+
+function escapeInvoiceHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function formatInvoiceNumber(value) {
+  const normalized = String(value || '').trim();
+  return normalized || '-';
+}
+
+function formatInvoiceAmount(value) {
+  return Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function buildSupplierInvoiceHtml(payload) {
+  const purchase = payload?.purchase || {};
+  const supplier = payload?.supplier || {};
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  const total = Number(purchase.total_amount || 0);
+  const paid = Number(purchase.paid_amount || 0);
+  const remaining = Math.max(0, Number(purchase.remaining ?? total - paid));
+  const paymentStatus = remaining <= 0 ? 'مدفوعة' : paid > 0 ? 'مدفوعة جزئيًا' : 'غير مدفوعة';
+  const invoiceNumber = formatInvoiceNumber(purchase.invoice_number || purchase.purchase_number);
+  const purchaseId = formatInvoiceNumber(purchase.id);
+  const purchaseDate = purchase.purchase_date
+    ? new Date(purchase.purchase_date).toLocaleDateString('ar-SA')
+    : '-';
+  const rows = items.map((item) => {
+    const quantity = Number(item.quantity || 0);
+    const unitCost = Number(item.unit_cost || 0);
+    const productName = item.product_name || item.product?.name || 'قطعة';
+    const sku = item.sku || item.product?.sku || '';
+    return `<tr>
+      <td><strong>${escapeInvoiceHtml(productName)}</strong>${sku ? `<small>SKU: ${escapeInvoiceHtml(sku)}</small>` : ''}</td>
+      <td>${quantity}</td>
+      <td>₪${formatInvoiceAmount(unitCost)}</td>
+      <td>₪${formatInvoiceAmount(quantity * unitCost)}</td>
+    </tr>`;
+  }).join('');
+  const subtotal = Number(purchase.subtotal ?? items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_cost || 0), 0));
+  const tax = Number(purchase.tax_amount || 0);
+  const discount = Number(purchase.discount_amount || 0);
+
+  return `<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><title>${escapeInvoiceHtml(invoiceNumber)}</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: #172033; font-family: "Segoe UI", Tahoma, Arial, sans-serif; font-size: 12px; direction: rtl; }
+  .header { display: flex; justify-content: space-between; gap: 24px; border-bottom: 2px solid #172033; padding-bottom: 16px; }
+  h1 { margin: 0 0 6px; font-size: 24px; }
+  h2 { margin: 0; font-size: 16px; }
+  .muted { color: #5d687a; }
+  .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 18px 0; }
+  .meta div { border: 1px solid #d8dee8; padding: 10px; border-radius: 6px; }
+  .label { display: block; color: #5d687a; font-size: 10px; margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { border: 1px solid #cbd3df; padding: 9px 10px; text-align: right; }
+  th { background: #eef2f7; font-weight: 700; }
+  td small { display: block; color: #5d687a; margin-top: 3px; direction: ltr; text-align: right; }
+  .totals { width: 310px; margin-inline-start: auto; margin-top: 20px; }
+  .total-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #e1e6ee; }
+  .total-row.final { font-size: 15px; font-weight: 700; border-bottom: 2px solid #172033; }
+  .status { margin-top: 16px; font-weight: 700; }
+  .footer { margin-top: 36px; color: #5d687a; border-top: 1px solid #d8dee8; padding-top: 10px; }
+  @media print { .no-print { display: none !important; } }
+</style></head>
+<body>
+  <header class="header">
+    <div><h1>PartFlow</h1><div class="muted">فاتورة شراء من مورد</div></div>
+    <div><h2>رقم فاتورة المورد: ${escapeInvoiceHtml(invoiceNumber)}</h2><div class="muted">رقم عملية الشراء: ${escapeInvoiceHtml(purchaseId)}</div></div>
+  </header>
+  <section class="meta">
+    <div><span class="label">المورد</span><strong>${escapeInvoiceHtml(supplier.name || purchase.supplier_name || '-')}</strong></div>
+    <div><span class="label">تاريخ الفاتورة</span><strong>${escapeInvoiceHtml(purchaseDate)}</strong></div>
+    <div><span class="label">حالة الدفع</span><strong>${paymentStatus}</strong></div>
+    <div><span class="label">العملة</span><strong>₪</strong></div>
+  </section>
+  <table><thead><tr><th>المنتج</th><th>الكمية</th><th>سعر الشراء</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
+  <section class="totals">
+    <div class="total-row"><span>الإجمالي قبل الضريبة</span><strong>₪${formatInvoiceAmount(subtotal)}</strong></div>
+    ${discount ? `<div class="total-row"><span>الخصم</span><strong>-₪${formatInvoiceAmount(discount)}</strong></div>` : ''}
+    <div class="total-row"><span>الضريبة</span><strong>₪${formatInvoiceAmount(tax)}</strong></div>
+    <div class="total-row final"><span>الإجمالي النهائي</span><strong>₪${formatInvoiceAmount(total)}</strong></div>
+    <div class="total-row"><span>المدفوع</span><strong>₪${formatInvoiceAmount(paid)}</strong></div>
+    <div class="total-row"><span>المتبقي</span><strong>₪${formatInvoiceAmount(remaining)}</strong></div>
+    <div class="status">الحالة: ${paymentStatus}</div>
+  </section>
+  <footer class="footer">تم إنشاء هذه الفاتورة بواسطة PartFlow</footer>
+</body></html>`;
+}
+
+async function prepareInvoiceHtml(html) {
+  const source = String(html || '');
+  if (!source.includes("/fonts/NotoNaskhArabic.ttf")) return source;
+
+  const fontPaths = [
+    path.join(__dirname, '..', 'public', 'fonts', 'NotoNaskhArabic.ttf'),
+    path.join(app.getAppPath(), 'dist', 'fonts', 'NotoNaskhArabic.ttf'),
+  ];
+  for (const fontPath of fontPaths) {
+    try {
+      const fontData = await fs.promises.readFile(fontPath);
+      return source.replaceAll('/fonts/NotoNaskhArabic.ttf', `data:font/ttf;base64,${fontData.toString('base64')}`);
+    } catch {
+      // Try the next packaged or development font location.
+    }
+  }
+  return source;
+}
+
+async function createInvoiceWindow(html) {
+  const invoiceWindow = new BrowserWindow({
+    show: false,
+    width: 900,
+    height: 1200,
+    webPreferences: { sandbox: true },
+  });
+  await invoiceWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(await prepareInvoiceHtml(html))}`);
+  return invoiceWindow;
+}
+
+ipcMain.handle('document:print-html', async (_event, html) => {
+  const printWindow = await createInvoiceWindow(String(html || ''));
+  try {
+    return await new Promise((resolve, reject) => {
+      printWindow.webContents.print({ silent: false, printBackground: true }, (success, failureReason) => {
+        if (!success) reject(new Error(failureReason || 'تعذر فتح نظام الطباعة في Windows.'));
+        else resolve(true);
+      });
+    });
+  } finally {
+    if (!printWindow.isDestroyed()) printWindow.close();
+  }
+});
+
+function buildInvoiceHtml(document) {
+  const invoice = document || {};
+  const items = Array.isArray(invoice.items) ? invoice.items : [];
+  const rows = items.map((item) => `<tr>
+    <td><strong>${escapeInvoiceHtml(item.name || 'منتج')}</strong>${item.sku || item.barcode ? `<small>${escapeInvoiceHtml(item.sku ? `SKU: ${item.sku}` : `Barcode: ${item.barcode}`)}</small>` : ''}</td>
+    <td>${formatInvoiceAmount(item.quantity)}</td>
+    <td>₪${formatInvoiceAmount(item.unitPrice)}</td>
+    <td>₪${formatInvoiceAmount(item.total)}</td>
+  </tr>`).join('');
+  const date = invoice.date ? new Date(invoice.date).toLocaleDateString('ar-SA') : '-';
+  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${escapeInvoiceHtml(invoice.invoiceNumber)}</title>
+<style>@page{size:A4;margin:14mm}*{box-sizing:border-box}body{margin:0;color:#172033;font-family:"Segoe UI",Tahoma,Arial,sans-serif;font-size:12px;direction:rtl}.header{display:flex;justify-content:space-between;gap:24px;border-bottom:2px solid #172033;padding-bottom:16px}h1{margin:0 0 6px;font-size:24px}h2{margin:0;font-size:16px}.muted{color:#5d687a}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}.meta div{border:1px solid #d8dee8;padding:10px;border-radius:6px}.label{display:block;color:#5d687a;font-size:10px;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #cbd3df;padding:9px 10px;text-align:right}th{background:#eef2f7;font-weight:700}td small{display:block;color:#5d687a;margin-top:3px;direction:ltr;text-align:right}.totals{width:310px;margin-inline-start:auto;margin-top:20px}.total-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e1e6ee}.total-row.final{font-size:15px;font-weight:700;border-bottom:2px solid #172033}.footer{margin-top:36px;color:#5d687a;border-top:1px solid #d8dee8;padding-top:10px}</style></head>
+<body><header class="header"><div><h1>PartFlow</h1><div class="muted">${escapeInvoiceHtml(invoice.title || 'فاتورة')}</div></div><div><h2>رقم الفاتورة: ${escapeInvoiceHtml(invoice.invoiceNumber)}</h2><div class="muted">رقم العملية: ${escapeInvoiceHtml(invoice.transactionId || '-')}</div></div></header>
+<section class="meta"><div><span class="label">${escapeInvoiceHtml(invoice.partyLabel || 'الطرف')}</span><strong>${escapeInvoiceHtml(invoice.partyName || '-')}</strong></div><div><span class="label">التاريخ</span><strong>${escapeInvoiceHtml(date)}</strong></div><div><span class="label">حالة الدفع</span><strong>${escapeInvoiceHtml(invoice.status || '-')}</strong></div><div><span class="label">طريقة الدفع</span><strong>${escapeInvoiceHtml(invoice.paymentMethod || '-')}</strong></div></section>
+<table><thead><tr><th>المنتج</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table>
+<section class="totals"><div class="total-row"><span>الإجمالي قبل الضريبة</span><strong>₪${formatInvoiceAmount(invoice.subtotal)}</strong></div>${invoice.discount ? `<div class="total-row"><span>الخصم</span><strong>-₪${formatInvoiceAmount(invoice.discount)}</strong></div>` : ''}<div class="total-row"><span>الضريبة</span><strong>₪${formatInvoiceAmount(invoice.tax)}</strong></div><div class="total-row final"><span>الإجمالي النهائي</span><strong>₪${formatInvoiceAmount(invoice.total)}</strong></div><div class="total-row"><span>المدفوع</span><strong>₪${formatInvoiceAmount(invoice.paid)}</strong></div><div class="total-row"><span>المتبقي</span><strong>₪${formatInvoiceAmount(invoice.remaining)}</strong></div></section><footer class="footer">تم إنشاء هذه الفاتورة بواسطة PartFlow</footer></body></html>`;
+}
+
+function safeInvoiceFileName(payload) {
+  const purchase = payload?.purchase || {};
+  const invoice = String(purchase.invoice_number || purchase.purchase_number || '').trim();
+  const fallback = String(purchase.id || 'XXXXXXXX').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 12) || 'XXXXXXXX';
+  const value = invoice || `PO-${fallback}`;
+  return `فاتورة-مورد-${value.replace(/[<>:"/\\|?*]/g, '-')}.pdf`;
+}
+
+ipcMain.handle('invoice:print', async (_event, payload) => {
+  const invoiceWindow = await createInvoiceWindow(String(payload?.html || ''));
+  try {
+    return await new Promise((resolve, reject) => {
+      invoiceWindow.webContents.print({ silent: false, printBackground: true }, (success, failureReason) => {
+        if (!success) reject(new Error(failureReason || 'تعذر فتح نظام الطباعة في Windows.'));
+        else resolve(true);
+      });
+    });
+  } finally {
+    if (!invoiceWindow.isDestroyed()) invoiceWindow.close();
+  }
+});
+
+ipcMain.handle('invoice:save-pdf', async (_event, payload) => {
+  const defaultName = String(payload?.fileName || safeInvoiceFileName(payload));
+  const defaultPath = path.join(app.getPath('documents'), defaultName);
+  const result = await dialog.showSaveDialog(appState.mainWindow, {
+    title: 'حفظ الفاتورة كـ PDF',
+    defaultPath,
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+
+  const invoiceWindow = await createInvoiceWindow(String(payload?.html || ''));
+  try {
+    const pdf = await invoiceWindow.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+      pageSize: 'A4',
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    });
+    await fs.promises.writeFile(result.filePath, pdf);
+    return { canceled: false, filePath: result.filePath };
+  } finally {
+    if (!invoiceWindow.isDestroyed()) invoiceWindow.close();
+  }
 });
 
 async function waitForBackend() {

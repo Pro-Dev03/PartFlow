@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { cn } from '../../../utils';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Button } from '../../../components/ui/button';
-import { Modal } from '../../../components/ui/modal';
-import { Input } from '../../../components/ui/input';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Button } from '../../../design-system/components/button';
+import { Modal } from '../../../design-system/components/modal';
+import { Input } from '../../../design-system/components/input';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { Plus, Package, PackageOpen, LayoutGrid, List } from 'lucide-react';
+import { Plus, Package, PackageOpen, ShoppingCart, LayoutGrid, List } from 'lucide-react';
 
 // Custom hooks
 import { useInventory } from '../hooks/useInventory';
@@ -18,24 +18,26 @@ import { useIsMobile } from '../../../hooks/useIsMobile';
 // Components
 import { InventoryStats } from '../components/InventoryStats';
 import { InventoryFilters } from '../components/InventoryFilters';
-import { InventoryScanner } from '../components/InventoryScanner';
 import { InventoryList } from '../components/InventoryList';
 import { StockAlertCards } from '../components/StockAlertCards';
 import { InventoryModals } from '../components/InventoryModals';
 import { OpeningStockModal } from '../components/OpeningStockModal';
 import { InventoryEntryModal } from '../components/InventoryEntryModal';
-import { InventoryLedger } from '../../../components/ui/inventory-ledger';
-import type { InventoryMovement } from '../../../components/ui/inventory-ledger';
-import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
-import { ReportActions } from '../../../components/ui/report-actions';
+import { InventoryLedger } from '../../../design-system/components/inventory-ledger';
+import type { InventoryMovement } from '../../../design-system/components/inventory-ledger';
+import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
+import { ReportActions } from '../../../design-system/components/report-actions';
 
 // Types
 import { ViewMode, Product } from '../types/inventory.types';
-import { inventoryApi, productsApi } from '../../../services/api/endpoints';
+import { categoriesApi, inventoryApi, productsApi } from '../../../services/api/endpoints';
 import { toast } from 'sonner';
 import { getLocalProductImage } from '../../../services/localProductImages';
 import { getCategoryImage } from '../../../services/localCategoryImages';
 import { generateSku } from '../../../utils/sku';
+import { InventoryQuickCreateModal } from '../components/InventoryQuickCreateModal';
+import { CreatePurchasePage } from '../../purchases/pages/CreatePurchasePage';
+import { SupplierInvoiceModal } from '../../purchases/components/SupplierInvoiceModal';
 
 interface InventoryMovementResponse {
   id: string;
@@ -63,10 +65,15 @@ export function InventoryPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [returnToSalesAfterSave, setReturnToSalesAfterSave] = useState(false);
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
   const [isOpeningStockModalOpen, setIsOpeningStockModalOpen] = useState(false);
   const [isInventoryEntryModalOpen, setIsInventoryEntryModalOpen] = useState(false);
-  const [barcodeInput, setBarcodeInput] = useState('');
+  const [isPurchaseWorkflowOpen, setIsPurchaseWorkflowOpen] = useState(false);
+  const [completedPurchase, setCompletedPurchase] = useState<any | null>(null);
+  const [quickCreateMode, setQuickCreateMode] = useState<'category' | 'supplier' | null>(null);
+  const [isProductCategoryPickerOpen, setIsProductCategoryPickerOpen] = useState(false);
+  const [pendingProductCategoryId, setPendingProductCategoryId] = useState('');
   const [showInventoryLedger, setShowInventoryLedger] = useState(false);
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
   const [inventoryLedgerLoading, setInventoryLedgerLoading] = useState(false);
@@ -111,11 +118,17 @@ export function InventoryPage() {
   const supplierOnly = filters.some((filter) => filter.key === 'supplier_only' && String(filter.value).toLowerCase() === 'true');
   const manualOnly = filters.some((filter) => filter.key === 'manual_only' && String(filter.value).toLowerCase() === 'true');
   const inventorySource = manualOnly ? 'manual' : supplierOnly ? 'supplier' : 'all';
+  const { data: categoriesData } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => categoriesApi.list(),
+  });
+  const inventoryCategories = (categoriesData?.data as Array<{ id: string; name: string }>) || [];
 
   // Handle edit product from navigation state
   useEffect(() => {
     if (location.state?.editProduct) {
       setSelectedProduct(location.state.editProduct);
+      setReturnToSalesAfterSave(Boolean(location.state.returnToSalesAfterSave));
       setIsEditModalOpen(true);
       // Clear the state to prevent reopening on refresh
       navigate(location.pathname, { replace: true, state: null });
@@ -148,6 +161,19 @@ export function InventoryPage() {
 
   const handleClearSearch = () => {
     setSearchQuery('');
+  };
+
+  const handleBarcodeScan = async (barcode: string) => {
+    const product = await lookupProduct(barcode);
+    if (!product) {
+      toast.error('لم يتم العثور على منتج بهذا الباركود');
+      setSearchQuery('');
+      return false;
+    }
+
+    setViewMode('products');
+    setSearchQuery(product.sku || product.name || barcode);
+    return true;
   };
 
   const handleGeneralInventoryToggle = () => {
@@ -389,25 +415,25 @@ export function InventoryPage() {
     }
   };
 
-  const handleSaveProduct = async (productData: Product) => {
+  const handleSaveProduct = async (productData: Product): Promise<boolean> => {
     if (!productData.name?.trim()) {
       toast.error('أدخل اسم المنتج');
-      return;
+      return false;
     }
 
     if (!productData.sku?.trim()) {
       toast.error('أدخل رمز المنتج SKU');
-      return;
+      return false;
     }
 
     if (!Number.isFinite(productData.costPrice) || productData.costPrice <= 0) {
       toast.error('أدخل سعر تكلفة أكبر من صفر');
-      return;
+      return false;
     }
 
     if (!Number.isFinite(productData.sellingPrice) || productData.sellingPrice <= 0) {
       toast.error('أدخل سعر بيع أكبر من صفر');
-      return;
+      return false;
     }
 
     const barcode = productData.barcode?.trim() || '';
@@ -415,7 +441,7 @@ export function InventoryPage() {
       const existingProduct = await lookupProduct(barcode);
       if (existingProduct) {
         toast.error('هذا الباركود مسجل لمنتج موجود بالفعل');
-        return;
+        return false;
       }
     }
 
@@ -449,9 +475,12 @@ export function InventoryPage() {
         setIsEditModalOpen(false);
         setSelectedProduct(null);
         setIsCreatingProduct(false);
+        setReturnToSalesAfterSave(false);
+        return true;
       } catch (error: any) {
         console.error('Update product or quantity failed:', error);
         toast.error(error?.arabicMessage || error?.message || 'تعذر تحديث المنتج أو الكمية');
+        return false;
       }
     } else {
       // Add new product - map to API field names
@@ -473,7 +502,14 @@ export function InventoryPage() {
           setSelectedProduct(null);
           setIsCreatingProduct(false);
           const quantity = Math.max(0, Math.floor(Number(productData.stock) || 0));
-          if (!product?.id || quantity === 0) {
+          if (!product?.id) {
+            return;
+          }
+
+          await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+          await queryClient.invalidateQueries({ queryKey: ['products'] });
+          if (quantity === 0) {
+            toast.success('تمت إضافة المنتج بنجاح');
             return;
           }
 
@@ -500,38 +536,21 @@ export function InventoryPage() {
           }
         },
       });
+      return false;
     }
   };
 
-  const handleBarcodeScan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (barcodeInput.trim()) {
-      const product = await lookupProduct(barcodeInput.trim());
-      
-      if (product) {
-        setSelectedProduct(product);
-        setIsCreatingProduct(false);
-        setIsEditModalOpen(true);
-        setBarcodeInput('');
-      } else {
-        // Product not found, open modal for new product
-        setSelectedProduct({
-          id: '',
-          name: '',
-          sku: generateSku(),
-          sellingPrice: 0,
-          costPrice: 0,
-          stock: 0,
-          condition: 'new',
-        });
-        setIsCreatingProduct(true);
-        setIsEditModalOpen(true);
-        setBarcodeInput('');
-      }
-    }
+  const handleSaveProductAndReturnToSales = async (productData: Product) => {
+    const saved = await handleSaveProduct(productData);
+    if (saved) navigate('/app/sales');
   };
 
   const handleManualAdd = () => {
+    setPendingProductCategoryId('');
+    setIsProductCategoryPickerOpen(true);
+  };
+
+  const openProductWithCategory = (categoryId: string) => {
     setSelectedProduct({
       id: '',
       name: '',
@@ -540,7 +559,9 @@ export function InventoryPage() {
       costPrice: 0,
       stock: 0,
       condition: 'new',
+      category_id: categoryId,
     });
+    setIsProductCategoryPickerOpen(false);
     setIsCreatingProduct(true);
     setIsEditModalOpen(true);
   };
@@ -552,7 +573,21 @@ export function InventoryPage() {
   };
 
   const handleCreatePurchase = () => {
-    navigate('/app/purchases/create');
+    setIsInventoryEntryModalOpen(false);
+    setIsPurchaseWorkflowOpen(true);
+  };
+
+  const handlePurchaseWorkflowComplete = async (response?: any) => {
+    const completed = response?.purchase ? response : response?.data?.purchase ? response.data : response?.data || response;
+    setCompletedPurchase(completed?.purchase ? completed : { purchase: completed });
+    setIsPurchaseWorkflowOpen(false);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['products'] }),
+      queryClient.invalidateQueries({ queryKey: ['inventory'] }),
+      queryClient.invalidateQueries({ queryKey: ['purchases'] }),
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+    ]);
+    await refetch();
   };
 
   const handleRecommendationClick = (action: string) => {
@@ -564,6 +599,15 @@ export function InventoryPage() {
       ]);
       setViewMode('products');
     }
+  };
+
+  const handleStockAlertClick = (alert: 'out_of_stock' | 'low_stock') => {
+    const isActive = filters.some((filter) => filter.key === alert);
+    setSearchQuery('');
+    setFilters(isActive ? [] : [{ key: alert, value: 'true' }]);
+    setProductPage(1);
+    setInventoryPage(1);
+    setViewMode('products');
   };
 
   const handleRefresh = () => {
@@ -654,14 +698,14 @@ export function InventoryPage() {
             "flex gap-2",
             isMobile ? "flex-col w-full" : ""
           )}>
-            <Button 
+            <Button
               variant="primary"
               size={getButtonSize('inventory', 'headerActions')}
               className={cn(isMobile ? "w-full" : "")}
               onClick={() => setIsInventoryEntryModalOpen(true)}
             >
               <Plus className="w-3.5 h-3.5 me-1.5" />
-              إضافة مخزون
+              إضافة
             </Button>
             <div className={cn('flex items-center gap-1 rounded-[8px] border border-border bg-surface-muted p-1', isMobile ? 'w-full' : '')} aria-label="مصدر المخزون">
               <Button
@@ -713,20 +757,72 @@ export function InventoryPage() {
         isMobile={isMobile}
       />
 
-      {/* Inventory Scanner */}
-      <InventoryScanner
-        barcodeInput={barcodeInput}
-        setBarcodeInput={setBarcodeInput}
-        onBarcodeScan={handleBarcodeScan}
-        onAddInventory={() => setIsInventoryEntryModalOpen(true)}
-      />
-
       <InventoryEntryModal
         isOpen={isInventoryEntryModalOpen}
         onClose={() => setIsInventoryEntryModalOpen(false)}
         onAddProduct={handleManualAdd}
+        onAddCategory={() => setQuickCreateMode('category')}
+        onAddSupplier={() => setQuickCreateMode('supplier')}
         onAddExistingStock={() => setIsOpeningStockModalOpen(true)}
         onCreatePurchase={handleCreatePurchase}
+      />
+
+      <Modal
+        isOpen={isProductCategoryPickerOpen}
+        onClose={() => setIsProductCategoryPickerOpen(false)}
+        title="اختر تصنيف المنتج"
+        variant="modern"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-secondary">المنتج جزء من منظومة التصنيف. اختر تصنيفًا قبل إدخال بياناته.</p>
+          <select
+            autoFocus
+            value={pendingProductCategoryId}
+            onChange={(event) => setPendingProductCategoryId(event.target.value)}
+            className="pf-select-control w-full rounded-xl border border-border bg-surface px-3"
+          >
+            <option value="">اختر التصنيف...</option>
+            {inventoryCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="ghost" onClick={() => setQuickCreateMode('category')}>+ إضافة تصنيف</Button>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setIsProductCategoryPickerOpen(false)}>إلغاء</Button>
+              <Button variant="primary" disabled={!pendingProductCategoryId} onClick={() => openProductWithCategory(pendingProductCategoryId)}>متابعة للمنتج</Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <InventoryQuickCreateModal
+        mode={quickCreateMode || 'category'}
+        isOpen={quickCreateMode !== null}
+        onClose={() => setQuickCreateMode(null)}
+        onCreated={(record) => {
+          void queryClient.invalidateQueries({ queryKey: ['categories'] });
+          void queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+          if (quickCreateMode === 'category' && isProductCategoryPickerOpen) {
+            openProductWithCategory(record.id);
+          }
+          setQuickCreateMode(null);
+        }}
+      />
+
+      {isPurchaseWorkflowOpen && (
+        <CreatePurchasePage
+          isOpen
+          onClose={() => setIsPurchaseWorkflowOpen(false)}
+          onComplete={handlePurchaseWorkflowComplete}
+        />
+      )}
+
+      <SupplierInvoiceModal
+        isOpen={completedPurchase !== null}
+        onClose={() => setCompletedPurchase(null)}
+        purchase={completedPurchase?.purchase}
+        supplier={completedPurchase?.supplier}
+        items={completedPurchase?.items || []}
       />
 
       <OpeningStockModal
@@ -740,6 +836,7 @@ export function InventoryPage() {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         onClearSearch={handleClearSearch}
+        onBarcodeScan={handleBarcodeScan}
         filters={filters}
         setFilters={setFilters}
         sortConfig={sortConfig}
@@ -749,7 +846,7 @@ export function InventoryPage() {
       />
 
       {/* View Toggle */}
-      <div className="flex gap-2" style={{ marginBottom: '16px' }}>
+      <div className="flex flex-wrap gap-2" style={{ marginBottom: '16px' }}>
         <Button
           variant={viewMode === 'products' ? 'primary' : 'secondary'}
           onClick={handleProductsView}
@@ -798,6 +895,12 @@ export function InventoryPage() {
           <List className="w-3 h-3 me-1.5" />
           جدول
         </Button>
+        <StockAlertCards
+          products={filteredProducts}
+          inventoryStockMap={inventoryStockMap}
+          onAlertClick={handleStockAlertClick}
+          activeAlert={filters.find((filter) => filter.key === 'out_of_stock' || filter.key === 'low_stock')?.key as 'out_of_stock' | 'low_stock' | undefined}
+        />
       </div>
 
       {/* Inventory List */}
@@ -846,12 +949,6 @@ export function InventoryPage() {
             error={inventoryLedgerError}
           />
         ) : null}
-        <StockAlertCards
-          products={filteredProducts}
-          inventoryStockMap={inventoryStockMap}
-          onViewProduct={handleViewProduct}
-          layoutMode={layoutMode}
-        />
       </div>
 
       {/* Inventory Modals */}
@@ -864,6 +961,7 @@ export function InventoryPage() {
         selectedProduct={selectedProduct}
         setSelectedProduct={setSelectedProduct}
         onSaveProduct={handleSaveProduct}
+        onSaveProductAndReturnToSales={returnToSalesAfterSave ? handleSaveProductAndReturnToSales : undefined}
       />
 
       <Modal

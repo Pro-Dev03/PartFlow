@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { Card, CardContent } from '../../../components/ui/card';
+import { Card, CardContent } from '../../../design-system/components/card';
 import { ShoppingCart, Plus, User, CreditCard, Receipt, Sparkles, Phone, Package } from 'lucide-react';
 
 interface ActionItem {

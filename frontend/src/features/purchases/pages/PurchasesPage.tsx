@@ -2,15 +2,15 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Badge } from '../../../components/ui/badge';
-import { EmptyState } from '../../../components/ui/empty-state';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Badge } from '../../../design-system/components/badge';
+import { EmptyState } from '../../../design-system/components/empty-state';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../design-system/components/table';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { ReportActions } from '../../../components/ui/report-actions';
+import { ReportActions } from '../../../design-system/components/report-actions';
 import { getButtonSize } from '../../../config/button-sizes';
 import {
   Plus,
@@ -32,16 +32,18 @@ import { categoriesApi, purchasesApi } from '../../../services/api/endpoints';
 // Components
 import { PurchaseStats } from '../components/PurchaseStats';
 import { PurchaseFilters } from '../components/PurchaseFilters';
+import { SupplierInvoiceModal } from '../components/SupplierInvoiceModal';
 
 // Types
 import { Purchase } from '../types/purchases.types';
 
 // SmartDelete utility (ARCHITECTURE-PRINCIPLES.md)
 import { handleSmartDelete } from '../../../utils/smartDelete';
-import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
-import { Modal } from '../../../components/ui/modal';
-import { PaginationControls } from '../../../components/ui/pagination-controls';
+import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
+import { Modal } from '../../../design-system/components/modal';
+import { PaginationControls } from '../../../design-system/components/pagination-controls';
 import { toast } from 'sonner';
+import { isReceivedPurchaseStatus, normalizePurchaseStatus } from '../utils/purchase-status';
 
 export function PurchasesPage() {
   const { t } = useTranslation();
@@ -75,6 +77,7 @@ export function PurchasesPage() {
   const [purchaseToReverse, setPurchaseToReverse] = useState<string | null>(null);
   const [reversalReason, setReversalReason] = useState('');
   const [purchaseToView, setPurchaseToView] = useState<string | null>(null);
+  const [supplierInvoiceOpen, setSupplierInvoiceOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<any | null>(null);
   const { data: purchaseDetailsData, isLoading: purchaseDetailsLoading } = useQuery({
     queryKey: ['purchase', purchaseToView],
@@ -165,17 +168,17 @@ export function PurchasesPage() {
   };
 
   const getStatusBadge = (status: string) => {
+    const normalizedStatus = normalizePurchaseStatus(status);
     const variants: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
       draft: { label: 'مسودة', variant: 'outline' },
       pending: { label: 'قيد الانتظار', variant: 'secondary' },
       ordered: { label: 'تم الطلب', variant: 'outline' },
       received: { label: 'تم الاستلام', variant: 'default' },
-      completed: { label: 'تم الاستلام', variant: 'default' },
       cancelled: { label: 'ملغي', variant: 'destructive' },
-      reversed: { label: 'ملغاة', variant: 'danger' },
+      reversed: { label: 'ملغاة', variant: 'default' },
       partially_received: { label: 'استلام جزئي', variant: 'secondary' },
     };
-    return variants[status] || { label: status, variant: 'default' };
+    return variants[normalizedStatus] || { label: normalizedStatus || status, variant: 'default' };
   };
 
   const getPurchaseReportRows = (purchaseRows: Purchase[]) => purchaseRows.map((purchase: Purchase) => ({
@@ -198,11 +201,11 @@ export function PurchasesPage() {
     const response = await purchasesApi.list({ page: 1, per_page: 1000, ...(searchQuery ? { search: searchQuery } : {}) });
     const allPurchases = (((response as any)?.data ?? []) as Purchase[]);
     return allPurchases.filter((purchase: any) => {
-      const isArchived = purchase.status === 'reversed' || purchase.status === 'cancelled';
-      const isReceived = purchase.status === 'received' || purchase.status === 'completed';
-      const matchesView = Boolean(statusFilter) || viewFilter === 'all' || (viewFilter === 'archived' && isArchived) || (viewFilter === 'received' && isReceived) || (viewFilter === 'active' && !isArchived && !isReceived);
-      const normalizedStatus = purchase.status === 'completed' ? 'received' : purchase.status;
-      return matchesView && (!statusFilter || normalizedStatus === statusFilter);
+      const normalizedStatus = normalizePurchaseStatus(purchase.status);
+      const matchesView = isReceivedPurchaseStatus(normalizedStatus)
+        ? viewFilter === 'received' || viewFilter === 'all'
+        : viewFilter === 'active' || viewFilter === 'all';
+      return matchesView && (!statusFilter || normalizePurchaseStatus(statusFilter) === normalizedStatus);
     });
   };
 
@@ -223,10 +226,6 @@ export function PurchasesPage() {
         description="إدارة المشتريات والطلبات"
         actions={
           <div style={{ display: 'flex', gap: '10px' }}>
-            <Button variant="primary" size={getButtonSize('customers', 'headerActions')} className="gap-2" onClick={() => navigate('/app/purchases/create')}>
-              <Plus className="w-4 h-4" />
-              {t('purchases.newPurchase')}
-            </Button>
             <ReportActions onExportCurrent={handleExport} onPrintCurrent={handlePrint} onExportAll={() => { void handleExportAll(); }} onPrintAll={() => { void handlePrintAll(); }} />
           </div>
         }
@@ -297,7 +296,7 @@ export function PurchasesPage() {
             <Table className="min-w-[1100px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[12%]">رقم الطلب</TableHead>
+                  <TableHead className="w-[12%]">فاتورة المورد</TableHead>
                   <TableHead className="w-[18%]">المورد</TableHead>
                   <TableHead className="w-[9%]">القطع</TableHead>
                   <TableHead className="w-[11%] text-center">الضريبة</TableHead>
@@ -311,8 +310,8 @@ export function PurchasesPage() {
               </TableHeader>
               <TableBody className="divide-y divide-[var(--border-subtle)]" dir="rtl">
                 {filteredPurchases.map((purchase: any) => {
-                  const normalizedStatus = purchase.status === 'completed' ? 'received' : purchase.status;
-                  const statusBadge = getStatusBadge(purchase.status);
+                  const normalizedStatus = normalizePurchaseStatus(purchase.status);
+                  const statusBadge = getStatusBadge(normalizedStatus);
                   return (
                     <TableRow key={purchase.id} dir="rtl" className="transition-all duration-200 hover:bg-[var(--color-primary-05)] [&>td]:h-[76px]">
                       <TableCell className="font-mono text-xs font-extrabold text-[var(--primary)]">{purchase.invoice_number}</TableCell>
@@ -389,8 +388,8 @@ export function PurchasesPage() {
           ) : (
             <div className="grid gap-3 p-4">
               {filteredPurchases.map((purchase: any) => {
-                const normalizedStatus = purchase.status === 'completed' ? 'received' : purchase.status;
-                const statusBadge = getStatusBadge(purchase.status);
+                const normalizedStatus = normalizePurchaseStatus(purchase.status);
+                const statusBadge = getStatusBadge(normalizedStatus);
                 return (
                   <div key={purchase.id} className="rounded-xl border border-border bg-surface-elevated/25 p-4">
                     <div className="mb-3 flex items-start justify-between gap-3">
@@ -474,15 +473,19 @@ export function PurchasesPage() {
           <div className="p-10 text-center">جاري تحميل التفاصيل...</div>
         ) : purchaseDetails ? (
           <div className="space-y-6">
+            <div className="flex justify-end">
+              <Button type="button" variant="primary" size="sm" onClick={() => setSupplierInvoiceOpen(true)}>عرض فاتورة المورد</Button>
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div><span className="text-sm text-text-muted">رقم الطلب</span><p>{purchaseDetails.invoice_number || '-'}</p></div>
+              <div><span className="text-sm text-text-muted">رقم فاتورة المورد</span><p>{purchaseDetails.invoice_number || '-'}</p></div>
               <div><span className="text-sm text-text-muted">المورد</span><p>{purchaseDetailsSupplier?.name || purchaseDetails?.supplier_name || '-'}</p></div>
               <div><span className="text-sm text-text-muted">الحالة</span><p><Badge>{purchaseDetails.status}</Badge></p></div>
-              <div><span className="text-sm text-text-muted">التاريخ</span><p>{purchaseDetails.purchase_date ? new Date(purchaseDetails.purchase_date).toLocaleDateString('en-US') : '-'}</p></div>
+              <div><span className="text-sm text-text-muted">تاريخ الفاتورة</span><p>{purchaseDetails.purchase_date ? new Date(purchaseDetails.purchase_date).toLocaleDateString('en-US') : '-'}</p></div>
               <div><span className="text-sm text-text-muted">الضريبة</span><p>{Number(purchaseDetails.tax_amount || 0) > 0 ? `₪${Number(purchaseDetails.tax_amount).toLocaleString('en-US')}` : 'بدون ضريبة'}</p></div>
               <div><span className="text-sm text-text-muted">الإجمالي</span><p>₪{Number(purchaseDetails.total_amount || 0).toLocaleString('en-US')}</p></div>
               <div><span className="text-sm text-text-muted">المدفوع</span><p>₪{Number(purchaseDetails.paid_amount || 0).toLocaleString('en-US')}</p></div>
               <div><span className="text-sm text-text-muted">المتبقي</span><p>₪{Number(purchaseDetailsRemaining).toLocaleString('en-US')}</p></div>
+              <div><span className="text-sm text-text-muted">حالة الدفع</span><p><Badge variant={Number(purchaseDetailsRemaining) <= 0 ? 'success' : Number(purchaseDetails.paid_amount || 0) > 0 ? 'warning' : 'danger'}>{Number(purchaseDetailsRemaining) <= 0 ? 'مدفوعة' : Number(purchaseDetails.paid_amount || 0) > 0 ? 'مدفوعة جزئيًا' : 'غير مدفوعة'}</Badge></p></div>
             </div>
             <div>
               <h2 className="font-semibold mb-3">القطع</h2>
@@ -519,6 +522,13 @@ export function PurchasesPage() {
           <div className="p-10 text-center text-red-500">تعذر تحميل تفاصيل الشراء</div>
         )}
       </Modal>
+      <SupplierInvoiceModal
+        isOpen={supplierInvoiceOpen}
+        onClose={() => setSupplierInvoiceOpen(false)}
+        purchase={purchaseDetails}
+        supplier={purchaseDetailsSupplier}
+        items={purchaseItems}
+      />
       <ConfirmDialog
         isOpen={itemToDelete !== null}
         onClose={() => setItemToDelete(null)}

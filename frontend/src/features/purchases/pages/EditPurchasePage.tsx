@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { Select } from '../../../components/ui/select';
-import { Badge } from '../../../components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Modal } from '../../../components/ui/modal';
-import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { Select } from '../../../design-system/components/select';
+import { Badge } from '../../../design-system/components/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Modal } from '../../../design-system/components/modal';
+import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
 import { Product, Supplier, Category } from '../../../types/models';
 import {
   Search,

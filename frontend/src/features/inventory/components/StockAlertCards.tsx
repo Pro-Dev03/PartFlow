@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Eye, Package, PackageX } from 'lucide-react';
-import { Badge } from '../../../components/ui/badge';
-import { Button } from '../../../components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { Badge } from '../../../design-system/components/badge';
+import { Button } from '../../../design-system/components/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../design-system/components/table';
 import { formatPrice, normalizeCurrencyValue } from '../../../utils';
 import { getLocalProductImage } from '../../../services/localProductImages';
 import { getCategoryImage } from '../../../services/localCategoryImages';
@@ -13,6 +13,8 @@ interface StockAlertCardsProps {
   inventoryStockMap?: Map<string, number>;
   onViewProduct: (product: Product) => void;
   layoutMode: 'cards' | 'table';
+  onAlertClick?: (alert: 'out_of_stock' | 'low_stock') => void;
+  activeAlert?: 'out_of_stock' | 'low_stock';
 }
 
 function getStockValue(product: Product, inventoryStockMap?: Map<string, number>): number {
@@ -182,7 +184,7 @@ function AlertCard({
   );
 }
 
-export function StockAlertCards({ products, inventoryStockMap, onViewProduct, layoutMode }: StockAlertCardsProps) {
+export function StockAlertCards({ products, inventoryStockMap, onAlertClick, activeAlert }: StockAlertCardsProps) {
   const outOfStockProducts = products.filter((product) => getStockValue(product, inventoryStockMap) === 0);
   const lowStockProducts = products.filter((product) => {
     const stock = getStockValue(product, inventoryStockMap);
@@ -191,27 +193,43 @@ export function StockAlertCards({ products, inventoryStockMap, onViewProduct, la
   });
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-      <AlertCard
-        title="المنتجات التي نفدت"
-        description="تحتاج إلى إعادة تزويد المخزون"
-        products={outOfStockProducts}
-        inventoryStockMap={inventoryStockMap}
-        icon={PackageX}
-        tone="danger"
-        onViewProduct={onViewProduct}
-        layoutMode={layoutMode}
-      />
-      <AlertCard
-        title="المنتجات ذات الكمية القليلة"
-        description="اقتربت من الحد الأدنى للمخزون"
-        products={lowStockProducts}
-        inventoryStockMap={inventoryStockMap}
-        icon={AlertTriangle}
-        tone="warning"
-        onViewProduct={onViewProduct}
-        layoutMode={layoutMode}
-      />
+    <div className="flex flex-wrap gap-2">
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={() => onAlertClick?.('out_of_stock')}
+        className="pf-stock-alert-button"
+        data-tone="danger"
+        data-active={activeAlert === 'out_of_stock'}
+        aria-label={`عرض المنتجات التي نفدت (${outOfStockProducts.length})`}
+        aria-pressed={activeAlert === 'out_of_stock'}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="pf-stock-alert-icon text-danger">
+            <PackageX className="h-4 w-4" />
+          </span>
+          <span className="truncate">المنتجات التي نفدت</span>
+        </span>
+        <span className="pf-stock-alert-count text-danger">{outOfStockProducts.length}</span>
+      </Button>
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={() => onAlertClick?.('low_stock')}
+        className="pf-stock-alert-button"
+        data-tone="warning"
+        data-active={activeAlert === 'low_stock'}
+        aria-label={`عرض المنتجات ذات الكمية القليلة (${lowStockProducts.length})`}
+        aria-pressed={activeAlert === 'low_stock'}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="pf-stock-alert-icon text-warning">
+            <AlertTriangle className="h-4 w-4" />
+          </span>
+          <span className="truncate">المنتجات ذات الكمية القليلة</span>
+        </span>
+        <span className="pf-stock-alert-count text-warning">{lowStockProducts.length}</span>
+      </Button>
     </div>
   );
 }

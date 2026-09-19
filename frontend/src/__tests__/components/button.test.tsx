@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '../../test/utils'
-import Button from '../../components/ui/button'
+import Button from '../../design-system/components/button'
 
 describe('Button Component', () => {
   it('should render button with text', () => {

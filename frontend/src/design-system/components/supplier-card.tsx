@@ -3,7 +3,7 @@ import { cn } from '../../utils';
 import { Phone, Mail, Package, Eye, Edit, Trash2, ChevronDown, ChevronUp, CircleDollarSign, RotateCcw, UserRound } from 'lucide-react';
 import { Button } from './button';
 import { Badge } from './badge';
-import { DataTable, Column } from '../tables/data-table';
+import { DataTable, Column } from './tables/data-table';
 import { ActionMenu } from './action-menu';
 
 export interface SupplierCardProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onToggle'> {

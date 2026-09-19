@@ -20,7 +20,7 @@ function formatChartDate(value: string) {
 
 export function SalesChart({ data }: SalesChartProps) {
   return (
-    <ResponsiveContainer width="100%" height={220}>
+    <ResponsiveContainer width="100%" height={270}>
       <ComposedChart data={data} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
         <CartesianGrid vertical={false} stroke="var(--border-default)" strokeDasharray="4 5" opacity={0.65} />
         <XAxis
@@ -52,10 +52,10 @@ export function SalesChart({ data }: SalesChartProps) {
           ]}
         />
         <Legend
-          verticalAlign="top"
+          verticalAlign="bottom"
           align="right"
           iconType="circle"
-          wrapperStyle={{ paddingBottom: '12px', fontSize: '11px', color: 'var(--text-secondary)' }}
+          wrapperStyle={{ paddingTop: '12px', fontSize: '11px', color: 'var(--text-secondary)' }}
           formatter={(value) => value === 'sales' ? 'المبيعات' : 'الربح الإجمالي'}
         />
         <Bar

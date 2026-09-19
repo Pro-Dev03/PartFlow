@@ -1,7 +1,7 @@
-import { Card, CardContent } from '../../../components/ui/card';
-import { Input } from '../../../components/ui/input';
-import { Select } from '../../../components/ui/select';
-import { Button } from '../../../components/ui/button';
+import { Card, CardContent } from '../../../design-system/components/card';
+import { Input } from '../../../design-system/components/input';
+import { Select } from '../../../design-system/components/select';
+import { Button } from '../../../design-system/components/button';
 import { Search, Filter, X } from 'lucide-react';
 
 interface PurchaseFiltersProps {

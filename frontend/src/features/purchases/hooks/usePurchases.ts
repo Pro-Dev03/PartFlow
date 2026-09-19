@@ -5,6 +5,7 @@ import { Purchase, PurchaseFormData, PurchaseStats } from '../types/purchases.ty
 import { SmartDeleteResult } from '../../../types/api'; // ARCHITECTURE-PRINCIPLES.md
 import { toast } from 'sonner';
 import { useDebounce } from '../../../hooks/useDebounce';
+import { isReceivedPurchaseStatus, matchesPurchaseViewFilter, normalizePurchaseStatus } from '../utils/purchase-status';
 
 export function usePurchases() {
   const queryClient = useQueryClient();
@@ -31,17 +32,23 @@ export function usePurchases() {
 
   const purchases = (purchasesData?.data as Purchase[]) || [];
   const suppliers = (suppliersData?.data as any[]) || [];
-  const activePurchases = purchases.filter((p) => p.status !== 'cancelled' && p.status !== 'reversed');
-  const receivedPurchases = activePurchases.filter((p) => p.status === 'received' || p.status === 'completed');
-  const pendingPurchases = activePurchases.filter((p) => p.status !== 'received' && p.status !== 'completed');
+  const activePurchases = purchases.filter((p) => {
+    const normalized = normalizePurchaseStatus(p.status);
+    return normalized !== 'cancelled' && normalized !== 'reversed';
+  });
+  const receivedPurchases = activePurchases.filter((p) => isReceivedPurchaseStatus(p.status));
+  const pendingPurchases = activePurchases.filter((p) => !isReceivedPurchaseStatus(p.status));
   const untaxedPurchases = activePurchases.filter((p) => Number(p.tax_amount || 0) === 0);
   const taxedPurchases = activePurchases.filter((p) => Number(p.tax_amount || 0) > 0);
 
   const stats: PurchaseStats = {
     totalPurchases: activePurchases.length,
-    pendingCount: purchases.filter((p) => p.status === 'pending' || p.status === 'draft').length,
-    receivedCount: purchases.filter((p) => p.status === 'received' || p.status === 'completed' || p.status === 'partially_received').length,
-    reversedCount: purchases.filter((p) => p.status === 'reversed').length,
+    pendingCount: purchases.filter((p) => {
+      const normalized = normalizePurchaseStatus(p.status);
+      return normalized === 'pending' || normalized === 'draft';
+    }).length,
+    receivedCount: purchases.filter((p) => isReceivedPurchaseStatus(p.status)).length,
+    reversedCount: purchases.filter((p) => normalizePurchaseStatus(p.status) === 'reversed').length,
     pendingCost: pendingPurchases.reduce((sum, p) => sum + Number(p.total_amount || 0), 0),
     receivedCost: receivedPurchases.reduce((sum, p) => sum + Number(p.total_amount || 0), 0),
     outstandingAmount: activePurchases.reduce(
@@ -55,14 +62,8 @@ export function usePurchases() {
   };
 
   const filteredPurchases = purchases.filter((purchase: any) => {
-    const isArchived = purchase.status === 'reversed' || purchase.status === 'cancelled';
-    const isReceived = purchase.status === 'received' || purchase.status === 'completed';
-    const matchesView =
-      Boolean(statusFilter) ||
-      viewFilter === 'all' ||
-      (viewFilter === 'archived' && isArchived) ||
-      (viewFilter === 'received' && isReceived) ||
-      (viewFilter === 'active' && !isArchived && !isReceived);
+    const normalizedStatus = normalizePurchaseStatus(purchase.status);
+    const matchesView = matchesPurchaseViewFilter(normalizedStatus, viewFilter);
     const matchesSearch =
       (purchase.invoice_number || '').toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
       (purchase.supplier?.name || purchase.supplier_name || '').toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
@@ -71,8 +72,7 @@ export function usePurchases() {
       (purchase.items || []).some((item: any) =>
         (item.product_name || '').toLowerCase().includes(debouncedSearchQuery.toLowerCase())
       );
-    const normalizedStatus = purchase.status === 'completed' ? 'received' : purchase.status;
-    const matchesStatus = !statusFilter || normalizedStatus === statusFilter;
+    const matchesStatus = !statusFilter || normalizePurchaseStatus(statusFilter) === normalizedStatus;
     return matchesView && matchesSearch && matchesStatus;
   });
 

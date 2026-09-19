@@ -1,5 +1,5 @@
-import { StatCard } from '../../../components/ui/stat-card';
-import { Button } from '../../../components/ui/button';
+import { StatCard } from '../../../design-system/components/stat-card';
+import { Button } from '../../../design-system/components/button';
 import { useQuery } from '@tanstack/react-query';
 import { inventoryApi, productsApi, settingsApi } from '../../../services/api/endpoints';
 import { getButtonSize } from '../../../config/button-sizes';
@@ -134,7 +134,7 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, manualO
       </div>
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px' }}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(190px, 1fr))', gap: '10px' }}
            className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard 
           title="إجمالي العناصر" 
@@ -142,6 +142,7 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, manualO
           icon={Package}
           subtitle="إجمالي العناصر"
           variant="featured"
+          compact
         />
         <StatCard
           title="القطع المتاحة"
@@ -149,13 +150,15 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, manualO
           icon={PackageOpen}
           subtitle="القطع العامة الجاهزة للبيع"
           variant="success"
+          compact
         />
         <StatCard 
           title="إجمالي قيمة البيع قبل الضريبة"
           value={formattedValue} 
           icon={Package}
-          subtitle={`شامل الضريبة ${taxRate}%: ${formattedValueWithTax}`}
+          subtitle={taxRate > 0 ? `شامل الضريبة ${taxRate}%: ${formattedValueWithTax}` : 'القيمة الحالية بدون ضريبة'}
           variant="default"
+          compact
         />
         <StatCard 
           title="يحتاج طلب" 
@@ -163,6 +166,7 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, manualO
           icon={AlertTriangle}
           subtitle="منخفض المخزون"
           variant={lowStockItems > 0 ? 'warning' : 'success'}
+          compact
         />
       </div>
     </>

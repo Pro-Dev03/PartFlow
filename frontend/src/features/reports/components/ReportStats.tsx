@@ -1,4 +1,4 @@
-import { StatCard } from '../../../components/ui/stat-card';
+import { StatCard } from '../../../design-system/components/stat-card';
 import { DollarSign, TrendingUp, Database, Target, AlertTriangle, Package, RotateCcw } from 'lucide-react';
 
 interface ReportStatsProps {

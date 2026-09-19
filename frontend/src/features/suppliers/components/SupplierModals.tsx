@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Modal } from '../../../components/ui/modal';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
+import { Modal } from '../../../design-system/components/modal';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
 import { SupplierForm, type SupplierFormData } from '../../../components/forms/SupplierForm';
 import { suppliersApi } from '../../../services/api/endpoints';
 import { getButtonSize } from '../../../config/button-sizes';

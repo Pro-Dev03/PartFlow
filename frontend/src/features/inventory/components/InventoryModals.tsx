@@ -1,8 +1,10 @@
-import { Modal } from '../../../components/ui/modal';
-import { Input } from '../../../components/ui/input';
-import { Select } from '../../../components/ui/select';
+import { Modal } from '../../../design-system/components/modal';
+import { Input } from '../../../design-system/components/input';
+import { Select } from '../../../design-system/components/select';
+import { Button } from '../../../design-system/components/button';
 import { Product } from '../types/inventory.types';
 import { Package, Plus, Sparkles, Tag, DollarSign } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { categoriesApi, settingsApi } from '../../../services/api/endpoints';
 import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
@@ -16,7 +18,8 @@ interface InventoryModalsProps {
   isCreatingProduct: boolean;
   selectedProduct: Product | null;
   setSelectedProduct: (product: Product | null) => void;
-  onSaveProduct: (productData: Product) => void;
+  onSaveProduct: (productData: Product) => Promise<boolean>;
+  onSaveProductAndReturnToSales?: (productData: Product) => Promise<void>;
 }
 
 export function InventoryModals({
@@ -28,6 +31,7 @@ export function InventoryModals({
   selectedProduct,
   setSelectedProduct,
   onSaveProduct,
+  onSaveProductAndReturnToSales,
 }: InventoryModalsProps) {
   const { data: categoriesData } = useQuery({
     queryKey: ['categories'],
@@ -51,6 +55,15 @@ export function InventoryModals({
   const profitMargin = Number.isFinite(configuredMargin) && configuredMargin >= 0 && configuredMargin < 100
     ? configuredMargin
     : DEFAULT_PROFIT_MARGIN;
+  const [productStep, setProductStep] = useState<1 | 2 | 3 | 4>(1);
+
+  useEffect(() => {
+    if (!isEditModalOpen || !isCreatingProduct) return;
+    setProductStep(1);
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('.product-create-stage input:not([disabled]), .product-create-stage select:not([disabled])')?.focus();
+    });
+  }, [isEditModalOpen, isCreatingProduct]);
   return (
     <>
       {/* View Product Modal */}
@@ -64,7 +77,7 @@ export function InventoryModals({
         enableEnterNavigation={false}
       >
         {selectedProduct && (
-          <div className="space-y-md">
+          <div className="product-edit-fields space-y-md">
             <div style={{ 
               display: 'grid', 
               gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
@@ -161,10 +174,10 @@ export function InventoryModals({
         }}
         title={isCreatingProduct ? "إضافة منتج جديد" : "تعديل المنتج"}
         variant="modern"
-        size="lg"
+        size="xl"
         autoFocus={true}
         enableEnterNavigation={true}
-        className="modal-custom-style"
+        className="modal-custom-style inventory-product-edit-modal"
         style={{
           borderRadius: '24px',
           overflow: 'hidden',
@@ -317,62 +330,35 @@ export function InventoryModals({
                     }}
                   />
                 </div>
-              </div>
-            </div>
-
-            {/* Classification Section */}
-            <div style={{ 
-              marginBottom: '20px',
-              paddingBottom: '20px',
-              borderBottom: '1px solid var(--border-subtle)'
-            }}>
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '10px',
-                marginBottom: '16px',
-                padding: '10px 14px',
-                background: 'var(--bg-surface-elevated)',
-                borderRadius: '12px',
-                border: '1px solid var(--border-subtle)'
-              }}>
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  background: 'var(--info)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
-                }}>
-                  <Tag className="w-4 h-4" style={{ color: 'var(--text-on-primary)' }} />
-                </div>
-                <h4 style={{ 
-                  fontSize: '13px', 
-                  fontWeight: '600', 
-                  color: 'var(--text-primary)',
-                  margin: 0,
-                  letterSpacing: '0.2px'
-                }}>
-                  التصنيف
-                </h4>
-              </div>
-              
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', 
-                gap: '16px' 
-              }}>
                 <div>
-                  <label style={{ 
-                    fontSize: '12px', 
-                    fontWeight: '600', 
-                    color: 'var(--text-secondary)',
-                    marginBottom: '8px',
-                    display: 'block',
-                    letterSpacing: '0.2px'
-                  }}>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>
+                    سعر البيع قبل الضريبة (₪)
+                    <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
+                  </label>
+                  <Input
+                    type="number"
+                    value={selectedProduct.sellingPrice || ''}
+                    onChange={(e) => setSelectedProduct({ ...selectedProduct, sellingPrice: Number(e.target.value) })}
+                    placeholder="0.00"
+                    min="0"
+                    step="1"
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>
+                    الكمية الحالية
+                    <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
+                  </label>
+                  <Input
+                    type="number"
+                    value={selectedProduct.stock}
+                    onChange={(e) => setSelectedProduct({ ...selectedProduct, stock: Number(e.target.value) })}
+                    placeholder="0"
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>
                     التصنيف
                   </label>
                   <Select
@@ -383,135 +369,6 @@ export function InventoryModals({
                       ...categories.map((cat: any) => ({ value: cat.id, label: cat.name }))
                     ]}
                   />
-                </div>
-              </div>
-            </div>
-
-            {/* Pricing & Inventory Section */}
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '10px',
-                marginBottom: '16px',
-                padding: '10px 14px',
-                background: 'var(--bg-surface-elevated)',
-                borderRadius: '12px',
-                border: '1px solid var(--border-subtle)'
-              }}>
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '8px',
-                  background: 'var(--success)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(34, 197, 94, 0.3)'
-                }}>
-                  <DollarSign className="w-4 h-4" style={{ color: 'var(--text-on-primary)' }} />
-                </div>
-                <h4 style={{ 
-                  fontSize: '13px', 
-                  fontWeight: '600', 
-                  color: 'var(--text-primary)',
-                  margin: 0,
-                  letterSpacing: '0.2px'
-                }}>
-                  التسعير والمخزون
-                </h4>
-              </div>
-              
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', 
-                gap: '16px' 
-              }}>
-                <div>
-                  <label style={{ 
-                    fontSize: '12px', 
-                    fontWeight: '600', 
-                    color: 'var(--text-secondary)',
-                    marginBottom: '8px',
-                    display: 'block',
-                    letterSpacing: '0.2px'
-                  }}>
-                    سعر التكلفة (₪)
-                  </label>
-                  <Input 
-                    type="number"
-                    value={selectedProduct.costPrice || ''}
-                    onChange={(e) => {
-                      const costPrice = Number(e.target.value);
-                      setSelectedProduct({
-                        ...selectedProduct,
-                        costPrice,
-                        sellingPrice: calculateSuggestedSellingPrice(costPrice, profitMargin),
-                      });
-                    }}
-                    placeholder="0.00"
-                    min="0"
-                    step="0.01"
-                    style={{
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      borderRadius: '10px'
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ 
-                    fontSize: '12px', 
-                    fontWeight: '600', 
-                    color: 'var(--text-secondary)',
-                    marginBottom: '8px',
-                    display: 'block',
-                    letterSpacing: '0.2px'
-                  }}>
-                    سعر البيع قبل الضريبة (₪)
-                    <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
-                  </label>
-                  <Input 
-                    type="number"
-                    value={selectedProduct.sellingPrice || ''}
-                    onChange={(e) => setSelectedProduct({ ...selectedProduct, sellingPrice: Number(e.target.value) })}
-                    placeholder="0.00"
-                    min="0"
-                    step="1"
-                    style={{
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      borderRadius: '10px'
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ 
-                    fontSize: '12px', 
-                    fontWeight: '600', 
-                    color: 'var(--text-secondary)',
-                    marginBottom: '8px',
-                    display: 'block',
-                    letterSpacing: '0.2px'
-                  }}>
-                    الكمية الحالية
-                    <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
-                  </label>
-                  <Input 
-                    type="number"
-                    value={selectedProduct.stock}
-                    onChange={(e) => setSelectedProduct({ ...selectedProduct, stock: Number(e.target.value) })}
-                    placeholder="0"
-                    min="0"
-                    style={{
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      borderRadius: '10px'
-                    }}
-                  />
-                  <p style={{ margin: '5px 0 0', color: 'var(--text-tertiary)', fontSize: '11px' }}>
-                    الرصيد الحالي للمخزون
-                  </p>
                 </div>
               </div>
             </div>
@@ -603,27 +460,42 @@ export function InventoryModals({
                 <Sparkles className="w-4 h-4" />
                 حفظ التغييرات
               </button>
+              {onSaveProductAndReturnToSales && (
+                <Button type="button" variant="success" size="sm" onClick={() => { void onSaveProductAndReturnToSales(selectedProduct); }}>
+                  حفظ والعودة لنقطة البيع
+                </Button>
+              )}
             </div>
           </div>
         ) : (
           <div
-            className="space-y-md"
+            className="product-create-stage space-y-md"
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || event.shiftKey) return;
               const target = event.target as HTMLElement;
               if (target.tagName !== 'INPUT' && target.tagName !== 'SELECT') return;
-
-              const fields = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
-                'input:not([disabled]), select:not([disabled]), textarea:not([disabled])'
-              ));
-              if (target === fields[fields.length - 1] && selectedProduct) {
-                event.preventDefault();
-                event.stopPropagation();
+              event.preventDefault();
+              event.stopPropagation();
+              if (productStep === 1) {
+                if (!selectedProduct?.category_id) return;
+                setProductStep(2);
+              } else if (productStep === 2) {
+                setProductStep(3);
+              } else if (productStep === 3) {
+                setProductStep(4);
+              } else if (selectedProduct) {
                 onSaveProduct(selectedProduct);
               }
             }}
           >
-            {/* Basic Information Section */}
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2" aria-label={`مرحلة المنتج ${productStep} من 4`}>
+                {[1, 2, 3, 4].map((step) => <span key={step} className={`h-1.5 rounded-full transition-all duration-150 ${step === productStep ? 'w-6 bg-primary' : 'w-1.5 bg-border'}`} />)}
+              </div>
+              {productStep > 1 && <Button type="button" variant="ghost" size="sm" onClick={() => setProductStep((step) => Math.max(1, step - 1) as 1 | 2 | 3 | 4)}>رجوع</Button>}
+            </div>
+
+            {productStep === 2 && (
             <div style={{ 
               marginBottom: '20px',
               paddingBottom: '20px',
@@ -758,7 +630,9 @@ export function InventoryModals({
                 </div>
               </div>
             </div>
+            )}
 
+            {productStep === 1 && (<>
             {/* Classification Section */}
             <div style={{ 
               marginBottom: '20px',
@@ -825,7 +699,9 @@ export function InventoryModals({
                 </div>
               </div>
             </div>
+            </>)}
 
+            {productStep === 3 && (<>
             {/* Pricing & Inventory Section */}
             <div style={{ marginBottom: '20px' }}>
               <div style={{ 
@@ -949,7 +825,9 @@ export function InventoryModals({
                 </div>
               </div>
             </div>
+            </>)}
 
+            {productStep === 4 && (<>
             {/* Action Buttons */}
             <div style={{ 
               display: 'flex', 
@@ -1038,6 +916,7 @@ export function InventoryModals({
                 إضافة المنتج
               </button>
             </div>
+            </>)}
           </div>
         )}
       </Modal>

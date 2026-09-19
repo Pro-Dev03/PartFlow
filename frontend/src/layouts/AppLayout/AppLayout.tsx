@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Header } from '../../components/navigation/header';
 import { Sidebar } from '../../components/navigation/sidebar';
-import { ScrollIndicator, ScrollProgress } from '../../components/ui/scroll-indicator';
+import { ScrollIndicator, ScrollProgress } from '../../design-system/components/scroll-indicator';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useUIStore } from '../../stores/uiStore';
 import { useLayout } from '../../contexts/LayoutContext';

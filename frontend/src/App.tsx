@@ -3,11 +3,11 @@ import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryProvider } from './app/providers/QueryProvider';
 import { AppLayout, AuthLayout } from './layouts';
 import { forceLogoutToLogin, useAuthStore, validateSubscriptionWithCloud } from './stores/authStore';
-import { ErrorBoundary } from './components/ui/error-boundary';
-import { ToastContainer } from './components/ui/ToastContainer';
+import { ErrorBoundary } from './design-system/components/error-boundary';
+import { ToastContainer } from './design-system/components/ToastContainer';
 import { appRoutes, PageLoader } from './app/router';
 import { LayoutProvider } from './contexts/LayoutContext';
-import AIAssistantWrapper from './components/ui/ai-assistant-wrapper';
+import AIAssistantWrapper from './design-system/components/ai-assistant-wrapper';
 import { InitialDataSyncModal } from './features/settings/components/InitialDataSyncModal';
 import { isInitialSyncNeeded } from './hooks/useInitialDataSync';
 import { authApi } from './services/api/endpoints';

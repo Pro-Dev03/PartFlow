@@ -1,7 +1,7 @@
 import { act, fireEvent, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from '../../test/utils';
-import AIChatModern from '../../components/ui/ai-chat-modern';
+import AIChatModern from '../../design-system/components/ai-chat-modern';
 import { assistantApi } from '../../services/api/endpoints';
 
 vi.mock('../../services/api/endpoints', () => ({

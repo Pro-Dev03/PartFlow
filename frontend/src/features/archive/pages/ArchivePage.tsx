@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Archive, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, CreditCard, Eye, History, Package, PackageOpen, ReceiptText, Search, ShoppingCart, Truck, UserRound, X } from 'lucide-react';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Badge } from '../../../components/ui/badge';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Badge } from '../../../design-system/components/badge';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../design-system/components/table';
 import { auditApi, customersApi, inventoryApi, purchasesApi, returnsApi, salesApi, settingsApi, supplierReturnsApi } from '../../../services/api/endpoints';
 
 const formatDate = (value?: string) => {

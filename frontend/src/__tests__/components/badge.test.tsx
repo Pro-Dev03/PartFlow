@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '../../test/utils'
-import { Badge } from '../../components/ui/badge'
+import { Badge } from '../../design-system/components/badge'
 
 describe('Badge Component', () => {
   it('should render badge with text', () => {

@@ -1,5 +1,5 @@
-import { Select } from '../../../components/ui/select';
-import { SearchInput } from '../../../components/ui/search-input';
+import { Select } from '../../../design-system/components/select';
+import { SearchInput } from '../../../design-system/components/search-input';
 import { User, Users } from 'lucide-react';
 
 interface CustomerOption {

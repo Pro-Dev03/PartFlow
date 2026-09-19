@@ -24,3 +24,13 @@ func TestSQLiteDialect(t *testing.T) {
 		t.Fatalf("Placeholder() = %q", Placeholder(db, 1))
 	}
 }
+
+func TestParseTimestampAcceptsTimezoneLessISOText(t *testing.T) {
+	parsed, err := ParseTimestamp("2026-09-18T19:54:37")
+	if err != nil {
+		t.Fatalf("ParseTimestamp() error = %v", err)
+	}
+	if got := parsed.Format("2006-01-02T15:04:05"); got != "2026-09-18T19:54:37" {
+		t.Fatalf("ParseTimestamp() = %q", got)
+	}
+}

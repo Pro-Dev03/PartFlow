@@ -1,6 +1,6 @@
-import { StatCard } from '../../../components/ui/stat-card';
+import { StatCard } from '../../../design-system/components/stat-card';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '../../../components/ui/button';
+import { Button } from '../../../design-system/components/button';
 import { getButtonSize } from '../../../config/button-sizes';
 import { Users, UserPlus, DollarSign, Shield, Sparkles } from 'lucide-react';
 import { CustomerStats } from '../types/customers.types';

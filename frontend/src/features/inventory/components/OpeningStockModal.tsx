@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CalendarDays, Plus, ScanLine, Trash2, Warehouse } from 'lucide-react';
 import { toast } from 'sonner';
-import { Modal } from '../../../components/ui/modal';
-import { Input } from '../../../components/ui/input';
-import { Select } from '../../../components/ui/select';
-import { Button } from '../../../components/ui/button';
+import { Modal } from '../../../design-system/components/modal';
+import { Input } from '../../../design-system/components/input';
+import { Select } from '../../../design-system/components/select';
+import { Button } from '../../../design-system/components/button';
 import { barcodeApi, customersApi, inventoryApi, partTypesApi, productsApi, suppliersApi } from '../../../services/api/endpoints';
 
 interface OpeningStockModalProps {
@@ -21,7 +21,6 @@ type OpeningCondition = 'NEW' | 'USED' | 'REFURBISHED' | 'DAMAGED' | 'FOR_PARTS'
 interface BatchRow {
   id: string;
   barcode: string;
-  serialNumber: string;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -35,7 +34,6 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
   const [quantity, setQuantity] = useState('1');
   const [businessDate, setBusinessDate] = useState(today);
   const [barcode, setBarcode] = useState('');
-  const [serialNumber, setSerialNumber] = useState('');
   const [batchRows, setBatchRows] = useState<BatchRow[]>([]);
   const [condition, setCondition] = useState<OpeningCondition>('NEW');
   const [partTypeId, setPartTypeId] = useState('');
@@ -46,6 +44,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResolvingBarcode, setIsResolvingBarcode] = useState(false);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
 
   const { data: productsData, isLoading: productsLoading } = useQuery({
     queryKey: ['products', 'opening-stock-picker'],
@@ -113,8 +112,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
     setQuantity('1');
     setBusinessDate(today());
     setBarcode('');
-    setSerialNumber('');
-    setBatchRows([{ id: `${Date.now()}`, barcode: '', serialNumber: '' }]);
+    setBatchRows([{ id: `${Date.now()}`, barcode: '' }]);
     setCondition('NEW');
     setPartTypeId('');
     setSupplierId('');
@@ -122,7 +120,41 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
     setPurchaseCost('0');
     setSellingPrice('0');
     setNotes('');
+    setCurrentStep(1);
   }, [isOpen]);
+
+  const advanceStep = () => {
+    if (currentStep === 1) {
+      if ((!isUsedStock && !productId) || (isUsedStock && usedProductMode === 'new' && !productName.trim()) || (isUsedStock && usedProductMode === 'existing' && !productId)) {
+        toast.error(isUsedStock && usedProductMode === 'new' ? 'أدخل اسم القطعة واختر نوعها.' : 'اختر القطعة أولًا.');
+        return;
+      }
+      setCurrentStep(2);
+      return;
+    }
+    if (currentStep === 2) {
+      const parsedQuantity = Math.floor(Number(quantity));
+      if ((mode !== 'batch' && (!parsedQuantity || parsedQuantity < 1)) || (mode === 'batch' && batchRows.length < 1) || (mode === 'individual' && !barcode.trim()) || (isUsedStock && !partTypeId)) {
+        toast.error('أكمل بيانات الكمية أو تعريف القطعة قبل المتابعة.');
+        return;
+      }
+      setCurrentStep(3);
+      return;
+    }
+    if (currentStep === 3) {
+      setCurrentStep(4);
+      return;
+    }
+    void handleSubmit(new Event('submit') as unknown as React.FormEvent);
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    requestAnimationFrame(() => {
+      const firstField = document.querySelector<HTMLElement>('.opening-stock-stage input:not([disabled]), .opening-stock-stage select:not([disabled])');
+      firstField?.focus();
+    });
+  }, [currentStep, isOpen]);
 
   const resolveBarcode = async () => {
     const value = barcode.trim();
@@ -166,44 +198,31 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
     }
     if (mode === 'batch') {
       const barcodes = batchRows.map((row) => row.barcode.trim());
-      const serials = batchRows.map((row) => row.serialNumber.trim()).filter(Boolean);
       if (barcodes.some((value) => !value)) {
         toast.error('أدخل باركودًا لكل قطعة في الدفعة.');
         return;
       }
-      if (new Set(barcodes).size !== barcodes.length || new Set(serials).size !== serials.length) {
-        toast.error('لا يمكن تكرار الباركود أو الرقم التسلسلي داخل الدفعة.');
+      if (new Set(barcodes).size !== barcodes.length) {
+        toast.error('لا يمكن تكرار الباركود داخل الدفعة.');
         return;
       }
     }
 
     setIsSubmitting(true);
     try {
-      const serials = mode === 'batch'
-        ? batchRows.map((row) => row.serialNumber.trim()).filter(Boolean)
-        : serialNumber.trim() ? [serialNumber.trim()] : [];
       const barcodes = mode === 'batch'
         ? batchRows.map((row) => row.barcode.trim()).filter(Boolean)
         : barcode.trim() ? [barcode.trim()] : [];
-      if (serials.length > 0 || barcodes.length > 0) {
+      if (barcodes.length > 0) {
         const response = await inventoryApi.list({ page: 1, per_page: 1000 });
         const items = Array.isArray(response?.data)
           ? response.data
           : Array.isArray(response?.data?.items) ? response.data.items : [];
-        const existingSerials = new Set(
-          items
-            .map((item: any) => String(item.serial_number || '').trim().toLowerCase())
-            .filter(Boolean),
-        );
         const existingBarcodes = new Set(
           items
             .map((item: any) => String(item.barcode || '').trim().toLowerCase())
             .filter(Boolean),
         );
-        const duplicateSerial = serials.find((value) => existingSerials.has(value.toLowerCase()));
-        if (duplicateSerial) {
-          throw new Error(`الرقم التسلسلي موجود مسبقًا: ${duplicateSerial}`);
-        }
         const duplicateBarcode = barcodes.find((value) => existingBarcodes.has(value.toLowerCase()));
         if (duplicateBarcode) {
           throw new Error(`الباركود موجود مسبقًا: ${duplicateBarcode}`);
@@ -244,7 +263,6 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
             mode: 'individual',
             quantity: 1,
             barcode: row.barcode.trim(),
-            serial_number: row.serialNumber.trim() || undefined,
           });
         }
       } else {
@@ -253,7 +271,6 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
           mode,
           quantity: mode === 'individual' ? 1 : parsedQuantity,
           barcode: mode === 'individual' ? barcode.trim() : undefined,
-          serial_number: mode === 'individual' ? serialNumber.trim() || undefined : undefined,
         });
       }
       toast.success(mode === 'batch' ? `تمت إضافة ${batchQuantity} قطع إلى المخزون.` : 'تمت إضافة المخزون الحالي دون إنشاء فاتورة شراء.');
@@ -278,15 +295,49 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={isUsedStock ? 'إضافة مخزون مستعمل موجود' : 'إضافة المخزون الحالي'} variant="modern" size="lg">
-      <form onSubmit={handleSubmit} className="space-y-5">
+    <Modal isOpen={isOpen} onClose={onClose} title={isUsedStock ? 'إضافة مخزون مستعمل موجود' : 'إضافة المخزون الحالي'} variant="modern" size="xl" className="opening-stock-modal">
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-5"
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+          const target = event.target as HTMLElement;
+          if (target.tagName === 'TEXTAREA') return;
+          if (target instanceof HTMLInputElement && target.dataset.openingBarcode === 'true') {
+            event.preventDefault();
+            event.stopPropagation();
+            if (mode === 'batch' && target.value.trim()) {
+              setBatchRows((rows) => [...rows, { id: `${Date.now()}-${rows.length}`, barcode: '' }]);
+              requestAnimationFrame(() => {
+                const barcodeInputs = document.querySelectorAll<HTMLInputElement>('[data-opening-barcode="true"]');
+                barcodeInputs[barcodeInputs.length - 1]?.focus();
+              });
+            }
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          advanceStep();
+        }}
+      >
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <div className="flex items-center gap-2" aria-label={`المرحلة ${currentStep} من 4`}>
+            {[1, 2, 3, 4].map((step) => <span key={step} className={`h-1.5 rounded-full transition-all duration-150 ${step === currentStep ? 'w-6 bg-primary' : 'w-1.5 bg-border'}`} />)}
+          </div>
+          <div className="flex items-center gap-1">
+            {currentStep > 1 && <Button type="button" variant="ghost" size="sm" onClick={() => setCurrentStep((step) => Math.max(1, step - 1) as 1 | 2 | 3 | 4)}>رجوع</Button>}
+            <Button type="button" variant="ghost" size="sm" onClick={onClose}>إلغاء</Button>
+          </div>
+        </div>
+
+        {currentStep === 1 && <div className="opening-stock-stage space-y-5 rounded-2xl border border-border bg-surface p-5">
         <div className="rounded-xl border border-cyan/20 bg-cyan/5 p-4 text-sm text-text-secondary">
           {isUsedStock
             ? 'سجّل القطع المستعملة الموجودة لديك الآن دون إنشاء عملية شراء. يمكنك ربط القطعة بالعميل الذي جاءت منه بشكل اختياري.'
             : 'استخدم هذه النافذة لتسجيل البضاعة الموجودة لديك الآن، مثل المخزون عند بدء استخدام النظام. لن يتم إنشاء فاتورة شراء أو مديونية للمورد.'}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-3">
           <Select
             label="طريقة تسجيل المخزون"
             value={mode}
@@ -345,8 +396,11 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
             )}
           </div>
         )}
+        </div>}
 
-        <div className="grid gap-4 md:grid-cols-3">
+        {currentStep === 2 && <div className="opening-stock-stage space-y-5 rounded-2xl border border-border bg-surface p-5">
+        <h3 className="text-lg font-bold text-text-primary">الكمية وتعريف القطعة</h3>
+        <div className="grid gap-3 md:grid-cols-4">
           {mode !== 'batch' && (
             <Input
               label="الكمية"
@@ -390,13 +444,12 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
         {mode === 'individual' && (
           <div className="rounded-xl border border-border-subtle bg-surface-elevated p-4 space-y-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-text-primary"><ScanLine className="h-4 w-4" /> بيانات القطعة المحددة</div>
-            <div className="grid gap-4 md:grid-cols-[1fr_auto]">
-              <Input label="الباركود" value={barcode} onChange={(event) => setBarcode(event.target.value)} placeholder="امسح أو أدخل الباركود" required />
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+              <Input label="الباركود" data-opening-barcode="true" value={barcode} onChange={(event) => setBarcode(event.target.value)} placeholder="امسح أو أدخل الباركود" required />
               <Button type="button" variant="secondary" className="self-end" onClick={() => void resolveBarcode()} disabled={isResolvingBarcode || !barcode.trim()}>
                 {isResolvingBarcode ? 'جارٍ التحقق...' : 'تحقق من الباركود'}
               </Button>
             </div>
-            <Input label="الرقم التسلسلي" value={serialNumber} onChange={(event) => setSerialNumber(event.target.value)} placeholder="اختياري" />
           </div>
         )}
 
@@ -407,15 +460,14 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
                 <div className="text-sm font-semibold text-text-primary">بيانات القطع</div>
                 <p className="mt-1 text-xs text-text-secondary">أدخل باركودًا مختلفًا لكل قطعة، والرقم التسلسلي اختياري.</p>
               </div>
-              <Button type="button" variant="secondary" size="sm" onClick={() => setBatchRows((rows) => [...rows, { id: `${Date.now()}-${rows.length}`, barcode: '', serialNumber: '' }])}>
+              <Button type="button" variant="secondary" size="sm" onClick={() => setBatchRows((rows) => [...rows, { id: `${Date.now()}-${rows.length}`, barcode: '' }])}>
                 <Plus className="h-4 w-4" /> إضافة قطعة
               </Button>
             </div>
             {batchRows.map((row, index) => (
-              <div key={row.id} className="grid gap-2 md:grid-cols-[auto_1fr_1fr_auto] md:items-end">
+              <div key={row.id} className="grid gap-2 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-end">
                 <span className="pb-3 text-xs font-semibold text-text-muted">#{index + 1}</span>
-                <Input label="الباركود" value={row.barcode} onChange={(event) => setBatchRows((rows) => rows.map((current) => current.id === row.id ? { ...current, barcode: event.target.value } : current))} placeholder="باركود القطعة" required />
-                <Input label="الرقم التسلسلي" value={row.serialNumber} onChange={(event) => setBatchRows((rows) => rows.map((current) => current.id === row.id ? { ...current, serialNumber: event.target.value } : current))} placeholder="اختياري" />
+                <Input label="الباركود" data-opening-barcode="true" value={row.barcode} onChange={(event) => setBatchRows((rows) => rows.map((current) => current.id === row.id ? { ...current, barcode: event.target.value } : current))} placeholder="باركود القطعة" required />
                 <Button type="button" variant="ghost" size="icon" aria-label="حذف القطعة" disabled={batchRows.length === 1} onClick={() => setBatchRows((rows) => rows.filter((current) => current.id !== row.id))}>
                   <Trash2 className="h-4 w-4 text-danger" />
                 </Button>
@@ -423,7 +475,10 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
             ))}
           </div>
         )}
+        </div>}
 
+        {currentStep === 3 && <div className="opening-stock-stage space-y-5 rounded-2xl border border-border bg-surface p-5">
+        <h3 className="text-lg font-bold text-text-primary">التفاصيل والربط</h3>
         <div className="grid gap-4 md:grid-cols-3">
           {isUsedStock ? (
             <Select
@@ -452,16 +507,25 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
         </div>
 
         <Input label="ملاحظات" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="مثال: موجود قبل تشغيل النظام" />
+        </div>}
 
+        {currentStep === 4 && <div className="opening-stock-stage space-y-5 rounded-2xl border border-border bg-surface p-5">
+        <h3 className="text-lg font-bold text-text-primary">مراجعة المخزون الحالي</h3>
+        <div className="grid gap-3 rounded-xl border border-border-subtle bg-surface-elevated p-4 text-sm text-text-secondary">
+          <div className="flex justify-between"><span>الطريقة</span><strong className="text-text-primary">{mode === 'quantity' ? 'كمية إجمالية' : mode === 'individual' ? 'قطعة فردية' : 'دفعة'}</strong></div>
+          <div className="flex justify-between"><span>الكمية</span><strong className="text-text-primary">{mode === 'batch' ? batchRows.length : mode === 'individual' ? 1 : quantity}</strong></div>
+          <div className="flex justify-between"><span>سعر التكلفة</span><strong className="text-text-primary">₪{Number(purchaseCost || 0).toFixed(2)}</strong></div>
+          <div className="flex justify-between"><span>سعر البيع</span><strong className="text-text-primary">₪{Number(sellingPrice || 0).toFixed(2)}</strong></div>
+        </div>
         <div className="flex items-center justify-between rounded-xl border border-border-subtle bg-surface-elevated px-4 py-3 text-xs text-text-secondary">
           <span className="flex items-center gap-2"><Warehouse className="h-4 w-4" /> النوع: {isUsedStock ? 'مخزون مستعمل موجود' : 'مخزون موجود مسبقًا'}</span>
           <span className="flex items-center gap-2"><CalendarDays className="h-4 w-4" /> {businessDate || 'اختر التاريخ'}</span>
         </div>
 
         <div className="flex justify-end gap-3">
-          <Button type="button" variant="outline" onClick={onClose}>إلغاء</Button>
           <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'جارٍ الحفظ...' : isUsedStock ? 'حفظ المخزون المستعمل' : 'حفظ المخزون الحالي'}</Button>
         </div>
+        </div>}
       </form>
     </Modal>
   );

@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
 import { AlertCircle, Package, AlertTriangle, CheckCircle, ArrowRight } from 'lucide-react';
 import { formatStoreDate } from '../../../utils/store-time';
 

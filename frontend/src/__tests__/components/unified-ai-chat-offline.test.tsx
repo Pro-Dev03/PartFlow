@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { fireEvent, render, screen } from '../../test/utils'
-import UnifiedAIChat from '../../components/ui/unified-ai-chat'
+import UnifiedAIChat from '../../design-system/components/unified-ai-chat'
 import { generateAssistantReply } from '../../lib/assistant-response'
 
 describe('UnifiedAIChat offline fallback', () => {

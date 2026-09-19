@@ -7,10 +7,10 @@ import {
   playScanSound 
 } from '../../hooks/useBarcodeContext';
 import { barcodeApi } from '../../services/api/endpoints';
-import { Dialog } from '../ui/dialog';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Card, CardContent } from '../ui/card';
+import { Dialog } from '../../design-system/components/dialog';
+import { Button } from '../../design-system/components/button';
+import { Input } from '../../design-system/components/input';
+import { Card, CardContent } from '../../design-system/components/card';
 import { 
   Scan, 
   X, 

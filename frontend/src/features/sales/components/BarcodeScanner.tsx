@@ -1,9 +1,9 @@
 import { useRef } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { ItemInputMethod } from '../../../components/ui/item-input-method';
-import { CameraScanner } from '../../../components/ui/camera-scanner';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { ItemInputMethod } from '../../../design-system/components/item-input-method';
+import { CameraScanner } from '../../../design-system/components/camera-scanner';
 import { Camera } from 'lucide-react';
 import { useTranslation } from '../../../hooks/useTranslation';
 

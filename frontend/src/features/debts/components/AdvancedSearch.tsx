@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Search, ChevronDown, ChevronUp, Filter, History } from 'lucide-react';
-import { SearchInput } from '../../../components/ui/search-input';
+import { SearchInput } from '../../../design-system/components/search-input';
 
 interface AdvancedSearchProps {
   onSearch: (query: string, filters: SearchFilters) => void;

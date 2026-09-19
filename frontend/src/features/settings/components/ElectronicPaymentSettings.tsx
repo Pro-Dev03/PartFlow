@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Apple, Check, CreditCard, KeyRound, PlugZap, QrCode, Save, ShieldCheck, Smartphone } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { Select } from '../../../components/ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { Select } from '../../../design-system/components/select';
 import { settingsApi } from '../../../services/api/endpoints';
 import { toast } from 'sonner';
 

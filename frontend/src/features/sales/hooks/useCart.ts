@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { CartItem } from '../types/pos.types';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
 
@@ -37,8 +37,29 @@ function getCartItemKey(item: PosCartProduct): string {
   return String(item.inventoryItemId || item.barcode || item.sku || item.id);
 }
 
+const POS_CART_STORAGE_KEY = 'partflow-pos-cart';
+
+function loadPersistedCart(): CartItem[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(POS_CART_STORAGE_KEY) || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is CartItem => (
+      item && typeof item === 'object' && typeof item.id !== 'undefined' &&
+      typeof item.name === 'string' && typeof item.barcode === 'string' &&
+      Number.isFinite(Number(item.price)) && Number(item.quantity) > 0
+    ));
+  } catch {
+    return [];
+  }
+}
+
 export function useCart(soundEnabled: boolean = true, taxRate: number = 0) {
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(loadPersistedCart);
+
+  useEffect(() => {
+    window.localStorage.setItem(POS_CART_STORAGE_KEY, JSON.stringify(cart));
+  }, [cart]);
 
   const addToCart = useCallback((item: PosCartProduct, requestedQuantity = 1) => {
     const quantityToAdd = Math.max(1, requestedQuantity);

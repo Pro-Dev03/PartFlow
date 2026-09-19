@@ -1,5 +1,5 @@
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
 import { Sparkles, TrendingUp } from 'lucide-react';
 
 interface AIInsightProps {

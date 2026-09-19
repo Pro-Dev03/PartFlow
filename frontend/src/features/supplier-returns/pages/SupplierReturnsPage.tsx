@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supplierReturnsApi, purchasesApi } from '../../../services/api/endpoints';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { Select } from '../../../components/ui/select';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { Select } from '../../../design-system/components/select';
 import { toast } from 'sonner';
-import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { printHtmlDocument } from '../../../services/documents/print-html';
+import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
 import { Printer, Trash2, XCircle } from 'lucide-react';
 import { formatDateTime } from '../../../utils/format';
 
@@ -124,13 +125,8 @@ export function SupplierReturnsPage() {
     return matchesView && matchesSearch;
   });
   const printReturn = (item: any) => {
-    const printWindow = window.open('', '_blank', 'width=800,height=700');
-    if (!printWindow) {
-      toast.error('تعذر فتح نافذة الطباعة');
-      return;
-    }
     const returnItem = item.items?.[0] || item.item;
-    printWindow.document.write(`
+    void printHtmlDocument(`
       <html dir="rtl" lang="ar"><head><title>مرتجع مورد ${item.return_number}</title>
       <style>body{font-family:Arial,sans-serif;padding:32px;color:#111}h1{margin-bottom:24px}p{margin:10px 0}.line{border-bottom:1px solid #ddd;padding:12px 0}</style>
       </head><body>
@@ -143,10 +139,7 @@ export function SupplierReturnsPage() {
       <p><strong>قيمة الاسترداد:</strong> ₪${Number(item.refund_amount || 0).toLocaleString('en-US')}</p>
       <p class="line"><strong>ملاحظة:</strong> ${item.notes || '-'}</p>
       </body></html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
+    `).catch(() => toast.error('تعذر فتح نافذة الطباعة'));
   };
 
   return (

@@ -2,17 +2,17 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { acquisitionsApi, inventoryApi, partTypesApi } from '../../../services/api/endpoints';
-import { Card, CardContent } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { Badge } from '../../../components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
-import { PageHeader } from '../../../components/ui/page-header';
-import { StatCard } from '../../../components/ui/stat-card';
-import { Select } from '../../../components/ui/select';
+import { Card, CardContent } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { Badge } from '../../../design-system/components/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../design-system/components/table';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { StatCard } from '../../../design-system/components/stat-card';
+import { Select } from '../../../design-system/components/select';
 import { ArrowRight, Package, ShoppingCart, TrendingUp, LayoutGrid, List } from 'lucide-react';
 import { formatPrice } from '../../../utils';
 import { getPartTypeImage } from '../../../services/localPartTypeImages';
-import { PaginationControls } from '../../../components/ui/pagination-controls';
+import { PaginationControls } from '../../../design-system/components/pagination-controls';
 
 export function UsedPartsStockPage() {
   const navigate = useNavigate();

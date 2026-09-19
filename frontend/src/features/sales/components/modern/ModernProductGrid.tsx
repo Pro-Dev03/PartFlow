@@ -1,6 +1,6 @@
 import { Info, Package, Plus } from 'lucide-react';
 import { cn } from '../../../../utils';
-import type { ProductCardProps } from '../../../../components/ui/product-card';
+import type { ProductCardProps } from '../../../../design-system/components/product-card';
 import { getLocalProductImage } from '../../../../services/localProductImages';
 
 type SearchProduct = ProductCardProps['product'] & {

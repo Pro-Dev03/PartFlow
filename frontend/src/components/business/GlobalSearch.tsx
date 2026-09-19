@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { searchApi } from '../../services/api/endpoints';
-import { Card, CardContent } from '../ui/card';
-import { Input } from '../ui/input';
-import { Button } from '../ui/button';
+import { Card, CardContent } from '../../design-system/components/card';
+import { Input } from '../../design-system/components/input';
+import { Button } from '../../design-system/components/button';
 import { 
   Search, 
   X, 

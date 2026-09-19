@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { SearchInput } from '../../../components/ui/search-input';
-import { Badge } from '../../../components/ui/badge';
-import { Button } from '../../../components/ui/button';
-import { ProductCard } from '../../../components/ui/product-card';
-import { FilterDropdown } from '../../../components/ui/filter-dropdown';
+import { SearchInput } from '../../../design-system/components/search-input';
+import { Badge } from '../../../design-system/components/badge';
+import { Button } from '../../../design-system/components/button';
+import { ProductCard } from '../../../design-system/components/product-card';
+import { FilterDropdown } from '../../../design-system/components/filter-dropdown';
 import { Package } from 'lucide-react';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { cn } from '../../../utils';
-import type { ProductCardProps } from '../../../components/ui/product-card';
+import type { ProductCardProps } from '../../../design-system/components/product-card';
 
 type SearchProduct = ProductCardProps['product'] & {
   category_id?: string;

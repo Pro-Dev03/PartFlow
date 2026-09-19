@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 import { X } from 'lucide-react';
-import { cn } from '../../utils';
-import { Button } from '../ui/button';
+import { cn } from '../../../utils';
+import { Button } from '../button';
 
 export interface DialogProps {
   isOpen: boolean;

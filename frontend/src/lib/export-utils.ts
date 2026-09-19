@@ -2,6 +2,8 @@
  * Export Utilities - أدوات التصدير والطباعة
  */
 
+import { printHtmlDocument } from '../services/documents/print-html';
+
 // تصدير البيانات إلى CSV
 export const exportToCSV = (data: any[], filename: string, headers?: string[]) => {
   if (!data || data.length === 0) {
@@ -89,12 +91,6 @@ export const printContent = (elementId: string) => {
     return;
   }
 
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    console.warn('Failed to open print window');
-    return;
-  }
-
   const printContent = element.innerHTML;
   const printStyles = `
     <style>
@@ -123,7 +119,7 @@ export const printContent = (elementId: string) => {
     </style>
   `;
 
-  printWindow.document.write(`
+  void printHtmlDocument(`
     <!DOCTYPE html>
     <html>
     <head>
@@ -134,23 +130,11 @@ export const printContent = (elementId: string) => {
       ${printContent}
     </body>
     </html>
-  `);
-
-  printWindow.document.close();
-  setTimeout(() => {
-    printWindow.focus();
-    printWindow.print();
-  }, 100);
+  `).catch((error) => console.warn('Failed to open print window', error));
 };
 
 // طباعة الجدول مباشرة
 export const printTable = (data: any[], headers: string[], title: string) => {
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    console.warn('Failed to open print window');
-    return;
-  }
-
   const tableRows = data.map(row => {
     const cells = Object.values(row).map(value => 
       `<td>${String(value ?? '')}</td>`
@@ -205,7 +189,7 @@ export const printTable = (data: any[], headers: string[], title: string) => {
     </style>
   `;
 
-  printWindow.document.write(`
+  void printHtmlDocument(`
     <!DOCTYPE html>
     <html>
     <head>
@@ -216,10 +200,7 @@ export const printTable = (data: any[], headers: string[], title: string) => {
       ${printContent}
     </body>
     </html>
-  `);
-
-  printWindow.document.close();
-  printWindow.print();
+  `).catch((error) => console.warn('Failed to open print window', error));
 };
 
 // طباعة إيصال الدفع - تصميم احترافي وعصري
@@ -508,25 +489,5 @@ export const printPaymentReceipt = (paymentData: {
   `;
 
   // إنشاء نافذة جديدة للطباعة
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    console.warn('Failed to open print window. The browser may have blocked popups.');
-    return;
-  }
-
-  printWindow.document.open();
-  printWindow.document.write(htmlContent);
-  printWindow.document.close();
-
-  // Chromium/Electron may not emit onload after document.write. Use one
-  // guarded print trigger with a short fallback for both browser runtimes.
-  let printed = false;
-  const triggerPrint = () => {
-    if (printed || printWindow.closed) return;
-    printed = true;
-    printWindow.focus();
-    printWindow.print();
-  };
-  printWindow.addEventListener('load', triggerPrint, { once: true });
-  window.setTimeout(triggerPrint, 250);
+  void printHtmlDocument(htmlContent).catch((error) => console.warn('Failed to open print window', error));
 };

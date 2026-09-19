@@ -1,8 +1,7 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Printer, Download, Package, Layers, Clock, CheckCircle, XCircle } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
-import { Button } from '../ui/button';
+import { Button } from '../../design-system/components/button';
+import { invoiceDocumentFromSale, printInvoiceDocument, renderInvoiceHtml, saveInvoiceDocumentPdf } from '../../services/documents/invoice-document';
 
 interface UsedPartsInvoiceProps {
   saleData: {
@@ -19,6 +18,10 @@ interface UsedPartsInvoiceProps {
       sellingPrice: number;
       quantity: number;
       total: number;
+      sku?: string;
+      barcode?: string;
+      discountAmount?: number;
+      taxAmount?: number;
       specifications?: Record<string, any>;
       warranty?: string;
     }>;
@@ -29,6 +32,11 @@ interface UsedPartsInvoiceProps {
     changeAmount?: number;
     remaining: number;
     paymentMethod: string;
+    paymentStatus?: string;
+    invoiceNumber?: string;
+    discountAmount?: number;
+    taxAmount?: number;
+    notes?: string;
     paymentAllocations?: Array<{
       amount: number;
       method: string;
@@ -45,66 +53,32 @@ interface UsedPartsInvoiceProps {
     email?: string;
     taxNumber?: string;
   };
-  onPrint?: () => void;
   onClose?: () => void;
 }
 
-export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: UsedPartsInvoiceProps) {
-  const invoiceRef = useRef<HTMLDivElement>(null);
+export function UsedPartsInvoice({ saleData, storeInfo, onClose }: UsedPartsInvoiceProps) {
   const [isDownloading, setIsDownloading] = useState(false);
 
   const persistedStoreName = typeof window !== 'undefined' ? localStorage.getItem('partflow-store-name') : null;
-  const defaultStoreInfo = {
-    name: persistedStoreName || 'PartFlow',
-    address: 'عنوان المتجر',
-    phone: 'رقم الهاتف',
-    email: 'store@example.com',
-    taxNumber: 'رقم الضريبة',
+  const store = storeInfo || { name: persistedStoreName || 'PartFlow' };
+  const documentStoreInfo = {
+    storeName: store.name,
+    storeAddress: storeInfo?.address,
+    storePhone: storeInfo?.phone,
+    storeWebsite: storeInfo?.email,
   };
-
-  const store = storeInfo || defaultStoreInfo;
+  const invoiceDocument = invoiceDocumentFromSale(saleData, documentStoreInfo);
 
   const handlePrint = () => {
-    if (onPrint) {
-      onPrint();
-    } else {
-      window.print();
-    }
+    void printInvoiceDocument(invoiceDocument);
   };
 
   const handleDownload = async () => {
-    if (!invoiceRef.current || isDownloading) return;
+    if (isDownloading) return;
 
     setIsDownloading(true);
     try {
-      const canvas = await html2canvas(invoiceRef.current, {
-        backgroundColor: '#ffffff',
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
-      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-      const margin = 10;
-      const pageWidth = 210;
-      const pageHeight = 297;
-      const imageWidth = pageWidth - margin * 2;
-      const imageHeight = (canvas.height * imageWidth) / canvas.width;
-      const imageData = canvas.toDataURL('image/png');
-      let heightLeft = imageHeight;
-      let position = margin;
-
-      pdf.addImage(imageData, 'PNG', margin, position, imageWidth, imageHeight);
-      heightLeft -= pageHeight - margin * 2;
-
-      while (heightLeft > 0) {
-        position = heightLeft - imageHeight + margin;
-        pdf.addPage();
-        pdf.addImage(imageData, 'PNG', margin, position, imageWidth, imageHeight);
-        heightLeft -= pageHeight - margin * 2;
-      }
-
-      const invoiceNumber = String(saleData.id || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '_');
-      pdf.save(`${invoiceNumber}.pdf`);
+      await saveInvoiceDocumentPdf(invoiceDocument);
     } finally {
       setIsDownloading(false);
     }
@@ -159,6 +133,21 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
 
   return (
     <div className="space-y-4">
+      <div className="flex gap-2 print:hidden">
+        <Button onClick={handlePrint} variant="primary"><Printer className="w-4 h-4 mr-2" />طباعة الفاتورة</Button>
+        <Button onClick={handleDownload} variant="secondary" disabled={isDownloading}><Download className="w-4 h-4 mr-2" />{isDownloading ? 'جاري إنشاء PDF...' : 'حفظ كـ PDF'}</Button>
+        {onClose && <Button onClick={onClose} variant="default">إغلاق</Button>}
+      </div>
+      <iframe
+        title="قالب الفاتورة"
+        srcDoc={renderInvoiceHtml(invoiceDocument)}
+        className="h-[760px] w-full border-0 bg-white"
+      />
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
       {/* Action Buttons */}
       <div className="flex gap-2 print:hidden">
         <Button
@@ -188,7 +177,6 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
 
       {/* Invoice Container */}
       <div
-        ref={invoiceRef}
         className="bg-white text-gray-900 p-8 max-w-4xl mx-auto border border-gray-200"
         style={{ direction: 'rtl' }}
       >
@@ -197,8 +185,8 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
           <div className="flex justify-between items-start">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">فاتورة بيع</h1>
-              <p className="text-gray-600">رقم الفاتورة: {saleData.id}</p>
-              <p className="text-gray-600">التاريخ: {new Date(saleData.saleDate).toLocaleDateString('ar-SA')}</p>
+              <p className="text-gray-600">رقم الفاتورة: {saleData.invoiceNumber || saleData.id}</p>
+              <p className="text-gray-600">التاريخ: {new Date(saleData.saleDate).toLocaleString('ar-SA')}</p>
             </div>
             <div className="text-left">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">{store.name}</h2>
@@ -252,6 +240,12 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
                 <tr key={index} className="border-b border-gray-200">
                   <td className="p-3">
                     <div className="font-semibold">{item.name}</div>
+                    {(item.sku || item.barcode) && (
+                      <div className="text-xs text-gray-600 mt-1">
+                        {item.sku && <span className="ml-2">SKU: {item.sku}</span>}
+                        {item.barcode && <span>Barcode: {item.barcode}</span>}
+                      </div>
+                    )}
                     {item.specifications && Object.keys(item.specifications).length > 0 && (
                       <div className="text-xs text-gray-600 mt-1">
                         {Object.entries(item.specifications).map(([key, value]) => (
@@ -317,6 +311,22 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
         {/* Totals */}
         <div className="bg-gray-50 p-4 rounded-lg mb-6">
           <div className="space-y-2">
+            <div className="flex justify-between">
+              <span className="text-gray-600">الإجمالي قبل الضريبة:</span>
+              <span className="font-semibold">{formatInvoiceAmount(saleData.subtotal)} ₪</span>
+            </div>
+            {(saleData.discountAmount ?? 0) > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-600">الخصم:</span>
+                <span className="font-semibold">{formatInvoiceAmount(saleData.discountAmount)} ₪</span>
+              </div>
+            )}
+            {(saleData.taxAmount ?? 0) > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-600">الضريبة:</span>
+                <span className="font-semibold">{formatInvoiceAmount(saleData.taxAmount)} ₪</span>
+              </div>
+            )}
             <div className="flex justify-between border-t-2 border-gray-800 pt-2">
               <span className="font-bold text-lg">الإجمالي:</span>
               <span className="font-bold text-lg">{formatInvoiceAmount(saleData.total)} ₪</span>
@@ -337,12 +347,10 @@ export function UsedPartsInvoice({ saleData, storeInfo, onPrint, onClose }: Used
                 </div>
               </>
             )}
-            {saleData.remaining > 0 && (
-              <div className="flex justify-between text-red">
+            <div className={`flex justify-between ${saleData.remaining > 0 ? 'text-red' : 'text-green-700'}`}>
                 <span className="font-semibold">المتبقي:</span>
                 <span className="font-semibold">{formatInvoiceAmount(saleData.remaining)} ₪</span>
-              </div>
-            )}
+            </div>
           </div>
         </div>
 

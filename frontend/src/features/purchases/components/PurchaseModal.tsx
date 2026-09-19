@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Modal } from '../../../components/ui/modal';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { Select } from '../../../components/ui/select';
-import { Badge } from '../../../components/ui/badge';
-import { Card, CardContent } from '../../../components/ui/card';
+import { Modal } from '../../../design-system/components/modal';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { Select } from '../../../design-system/components/select';
+import { Badge } from '../../../design-system/components/badge';
+import { Card, CardContent } from '../../../design-system/components/card';
 import {
   Search,
   Plus,
@@ -540,7 +540,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
             <div className="text-sm text-text-muted">إجمالي الشراء</div>
             <div className="space-y-1 text-left">
               <div className="text-sm text-text-muted">الضريبة ({taxRate}%): ₪{taxAmount.toFixed(2)}</div>
-              <div className="text-2xl font-bold text-cyan">الإجمالي: ₪{totalWithTax.toFixed(2)}</div>
+              <div className="text-2xl font-bold text-cyan">{taxRate > 0 ? 'الإجمالي شامل الضريبة' : 'الإجمالي'}: ₪{totalWithTax.toFixed(2)}</div>
             </div>
             <div className="text-xs text-text-muted mt-1">
               {items.length} عنصر • {totalQuantity} قطعة

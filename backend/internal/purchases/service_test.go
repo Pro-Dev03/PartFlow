@@ -161,6 +161,86 @@ func TestReceivePurchaseSkipsDuplicateInventoryItemsOnSQLite(t *testing.T) {
 	}
 }
 
+func TestReceivePurchaseUpdatesEachProductForMultiItemPurchaseOnSQLite(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "purchase-multi-item.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	xdb := sqlx.NewDb(db, "sqlite")
+	for _, statement := range []string{
+		`CREATE TABLE suppliers (id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT)`,
+		`CREATE TABLE users (id TEXT PRIMARY KEY)`,
+		`CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT, selling_price REAL DEFAULT 0)`,
+		`CREATE TABLE purchases (id TEXT PRIMARY KEY, purchase_number TEXT NOT NULL UNIQUE, supplier_id TEXT, tax_amount REAL DEFAULT 0, total_amount REAL NOT NULL, paid_amount REAL DEFAULT 0, remaining_amount REAL DEFAULT 0, status TEXT NOT NULL, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE purchase_items (id TEXT PRIMARY KEY, purchase_id TEXT NOT NULL, product_id TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price REAL NOT NULL, item_total REAL NOT NULL, serial_number TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE inventory (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT, category_id TEXT, item_code TEXT UNIQUE, barcode TEXT UNIQUE, serial_number TEXT, condition TEXT, grade TEXT, purchase_cost REAL, selling_price REAL, status TEXT, supplier_id TEXT, purchase_date TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE supplier_returns (id TEXT PRIMARY KEY, purchase_id TEXT, status TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE supplier_return_items (id TEXT PRIMARY KEY, supplier_return_id TEXT NOT NULL, purchase_item_id TEXT NOT NULL, quantity INTEGER NOT NULL, created_at TEXT NOT NULL)`,
+	} {
+		if _, err := xdb.Exec(statement); err != nil {
+			t.Fatalf("create test table: %v", err)
+		}
+	}
+
+	supplierID, userID := uuid.New(), uuid.New()
+	productA, productB := uuid.New(), uuid.New()
+	purchaseID := uuid.New()
+	now := time.Now()
+	for _, args := range [][3]interface{}{
+		{supplierID, "Supplier", "000"},
+	} {
+		if _, err := xdb.Exec(`INSERT INTO suppliers (id, name, phone) VALUES (?, ?, ?)`, args[:]...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := xdb.Exec(`INSERT INTO users (id) VALUES (?)`, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO products (id, name, selling_price) VALUES (?, ?, ?), (?, ?, ?)`, productA, "Product A", 100, productB, "Product B", 200); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO purchases (id, purchase_number, supplier_id, total_amount, paid_amount, remaining_amount, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, purchaseID, "INV-MULTI", supplierID, 1100, 1, 1099, "pending", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO purchase_items (id, purchase_id, product_id, quantity, unit_price, item_total, created_at) VALUES (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?)`, uuid.New(), purchaseID, productA, 5, 100, 500, now, uuid.New(), purchaseID, productB, 3, 200, 600, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, 0, ?, ?), (?, ?, 0, ?, ?)`, uuid.New(), productA, now, now, uuid.New(), productB, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(NewRepository(xdb), xdb)
+	received, err := service.ReceivePurchase(context.Background(), purchaseID, userID)
+	if err != nil {
+		t.Fatalf("receive multi-item purchase: %v", err)
+	}
+	if len(received.Items) != 2 || received.Items[0].ProductName != "Product A" || received.Items[1].ProductName != "Product B" {
+		t.Fatalf("received purchase item names = %#v, want Product A and Product B", received.Items)
+	}
+
+	for _, check := range []struct {
+		productID uuid.UUID
+		quantity  int
+	}{
+		{productA, 5},
+		{productB, 3},
+	} {
+		var aggregate, itemCount int
+		if err := xdb.Get(&aggregate, `SELECT quantity FROM inventory WHERE product_id = ?`, check.productID); err != nil {
+			t.Fatal(err)
+		}
+		if err := xdb.Get(&itemCount, `SELECT COUNT(*) FROM inventory_items WHERE product_id = ?`, check.productID); err != nil {
+			t.Fatal(err)
+		}
+		if aggregate != check.quantity || itemCount != check.quantity {
+			t.Fatalf("product %s received aggregate=%d items=%d, want %d", check.productID, aggregate, itemCount, check.quantity)
+		}
+	}
+}
+
 func TestListSummariesHandlesNullPurchaseDateOnSQLite(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -451,9 +531,23 @@ func TestPurchaseLifecycleSupplierBalanceAndReturnLedgerSQLite(t *testing.T) {
 	if response.Purchase.TotalAmount != 300 {
 		t.Fatalf("purchase total = %v, want 300", response.Purchase.TotalAmount)
 	}
+	if response.Purchase.PaidAmount != 0 || response.Remaining != 300 {
+		t.Fatalf("unpaid projection = paid %.2f remaining %.2f, want 0/300", response.Purchase.PaidAmount, response.Remaining)
+	}
 
-	if _, err := purchaseSvc.AddPayment(ctx, response.Purchase.ID, userID, 150, "cash"); err != nil {
+	partial, err := purchaseSvc.AddPayment(ctx, response.Purchase.ID, userID, 150, "cash")
+	if err != nil {
 		t.Fatalf("partial payment: %v", err)
+	}
+	if partial.Purchase.PaidAmount != 150 || partial.Remaining != 150 {
+		t.Fatalf("partial payment projection = paid %.2f remaining %.2f, want 150/150", partial.Purchase.PaidAmount, partial.Remaining)
+	}
+	full, err := purchaseSvc.AddPayment(ctx, response.Purchase.ID, userID, 150, "cash")
+	if err != nil {
+		t.Fatalf("full payment: %v", err)
+	}
+	if full.Purchase.PaidAmount != 300 || full.Remaining != 0 {
+		t.Fatalf("full payment projection = paid %.2f remaining %.2f, want 300/0", full.Purchase.PaidAmount, full.Remaining)
 	}
 	if _, err := purchaseSvc.ReceivePurchase(ctx, response.Purchase.ID, userID); err != nil {
 		t.Fatalf("receive purchase: %v", err)
@@ -463,8 +557,8 @@ func TestPurchaseLifecycleSupplierBalanceAndReturnLedgerSQLite(t *testing.T) {
 	if err := xdb.Get(&balance, `SELECT current_balance FROM suppliers WHERE id = ?`, supplierID); err != nil {
 		t.Fatalf("read supplier balance after partial payment: %v", err)
 	}
-	if balance != 150 {
-		t.Fatalf("supplier balance after payment = %v, want 150", balance)
+	if balance != 0 {
+		t.Fatalf("supplier balance after full payment = %v, want 0", balance)
 	}
 
 	var purchaseItemID string
@@ -486,16 +580,16 @@ func TestPurchaseLifecycleSupplierBalanceAndReturnLedgerSQLite(t *testing.T) {
 	if err := xdb.Get(&balance, `SELECT current_balance FROM suppliers WHERE id = ?`, supplierID); err != nil {
 		t.Fatalf("read supplier balance after supplier return: %v", err)
 	}
-	if balance != 50 {
-		t.Fatalf("supplier balance after supplier return = %v, want 50", balance)
+	if balance != -100 {
+		t.Fatalf("supplier balance after supplier return = %v, want -100", balance)
 	}
 
 	var ledgerCount int
 	if err := xdb.Get(&ledgerCount, `SELECT COUNT(*) FROM supplier_ledger WHERE supplier_id = ? AND transaction_type IN ('PURCHASE', 'PAYMENT', 'SUPPLIER_RETURN')`, supplierID); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 3 {
-		t.Fatalf("ledger entry count = %d, want 3 (purchase + payment + supplier return)", ledgerCount)
+	if ledgerCount != 4 {
+		t.Fatalf("ledger entry count = %d, want 4 (purchase + two payments + supplier return)", ledgerCount)
 	}
 
 	var refundAmount float64

@@ -401,6 +401,10 @@ export function useInventory() {
             return stock > 0 && stock <= minimumStock;
           }
 
+          if (filter.key === 'out_of_stock') {
+            return Number(product.stock ?? 0) <= 0;
+          }
+
           if (filter.key === 'manual_only' || filter.key === 'supplier_only') {
             return true;
           }

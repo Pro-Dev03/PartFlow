@@ -11,6 +11,51 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestCurrentShiftParsesTextTimestamps(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	userID := uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err = db.Exec(`
+		CREATE TABLE pos_shifts (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'open',
+			opened_at TEXT NOT NULL,
+			opening_cash REAL NOT NULL DEFAULT 0,
+			closed_at TEXT,
+			closing_cash REAL,
+			sales_total REAL NOT NULL DEFAULT 0,
+			sale_count INTEGER NOT NULL DEFAULT 0
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO pos_shifts (id, user_id, status, opened_at, opening_cash) VALUES (?, ?, 'open', ?, 100)`, uuid.New().String(), userID.String(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	shift, err := currentShift(context.Background(), db, userID)
+	if err != nil {
+		t.Fatalf("currentShift() error = %v", err)
+	}
+	if shift == nil {
+		t.Fatal("currentShift() returned nil shift")
+	}
+	if shift.OpenedAt.IsZero() {
+		t.Fatal("currentShift() opened_at is zero")
+	}
+	if shift.OpeningCash != 100 {
+		t.Fatalf("opening_cash = %v, want 100", shift.OpeningCash)
+	}
+}
+
 func TestGenerateInvoiceNumberIncludesUniqueSuffix(t *testing.T) {
 	svc := NewService(nil, nil)
 	invoice := svc.generateInvoiceNumber()

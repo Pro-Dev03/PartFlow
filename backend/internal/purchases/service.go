@@ -571,17 +571,20 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 
 	var existingRows []struct {
 		ItemCode     string         `db:"item_code"`
+		ProductID    string         `db:"product_id"`
 		Barcode      string         `db:"barcode"`
 		SerialNumber sql.NullString `db:"serial_number"`
 	}
-	if err = tx.SelectContext(ctx, &existingRows, `SELECT item_code, barcode, serial_number FROM inventory_items WHERE item_code LIKE $1`, itemPattern); err != nil {
+	if err = tx.SelectContext(ctx, &existingRows, `SELECT item_code, product_id, barcode, serial_number FROM inventory_items WHERE item_code LIKE $1`, itemPattern); err != nil {
 		return nil, fmt.Errorf("failed to inspect existing inventory items: %w", err)
 	}
 
 	existingItemCodes := make(map[string]struct{}, len(existingRows))
+	existingItemProducts := make(map[string]string, len(existingRows))
 	existingSerialNumbers := make(map[string]struct{}, len(existingRows))
 	for _, row := range existingRows {
 		existingItemCodes[row.ItemCode] = struct{}{}
+		existingItemProducts[row.ItemCode] = row.ProductID
 		if row.SerialNumber.Valid {
 			trimmed := strings.TrimSpace(row.SerialNumber.String)
 			if trimmed != "" {
@@ -591,6 +594,7 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 	}
 
 	// Create only missing inventory items so repeated receive requests are safe.
+	nextItemNumber := 1
 	for _, item := range items {
 		var productSellingPrice float64
 		productQuery := `SELECT selling_price FROM products WHERE id = $1`
@@ -601,15 +605,31 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 
 		createdCount := 0
 		for i := 0; i < item.Quantity; i++ {
-			itemCode := fmt.Sprintf("ITM-%s-%03d", purchasePrefix, i+1)
+			itemCode := ""
+			itemNumber := 0
+			existingItem := false
+			for {
+				itemNumber = nextItemNumber
+				candidate := fmt.Sprintf("ITM-%s-%03d", purchasePrefix, itemNumber)
+				nextItemNumber++
+				if _, exists := existingItemCodes[candidate]; !exists {
+					itemCode = candidate
+					break
+				}
+				if existingItemProducts[candidate] == item.ProductID.String() {
+					itemCode = candidate
+					existingItem = true
+					break
+				}
+			}
 			barcode := ""
 			if item.Quantity == 1 && strings.TrimSpace(item.Barcode) != "" {
 				barcode = strings.TrimSpace(item.Barcode)
 			} else {
-				barcode = fmt.Sprintf("BC-%s-%03d", purchasePrefix, i+1)
+				barcode = fmt.Sprintf("BC-%s-%03d", purchasePrefix, itemNumber)
 			}
 
-			if _, exists := existingItemCodes[itemCode]; exists {
+			if existingItem {
 				continue
 			}
 

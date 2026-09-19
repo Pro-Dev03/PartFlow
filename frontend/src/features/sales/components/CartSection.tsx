@@ -1,6 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { Badge } from '../../../components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { Badge } from '../../../design-system/components/badge';
 import { ShoppingCart, Plus, Minus, Trash2 } from 'lucide-react';
 import { CartItem } from '../types/pos.types';
 import { cn } from '../../../utils';

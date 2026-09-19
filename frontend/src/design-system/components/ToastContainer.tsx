@@ -1,5 +1,5 @@
 import { useToastStore } from '../../hooks/useToast';
-import { Toast } from '../feedback/toast';
+import { Toast } from './feedback/toast';
 
 export function ToastContainer() {
   const { toasts, removeToast } = useToastStore();

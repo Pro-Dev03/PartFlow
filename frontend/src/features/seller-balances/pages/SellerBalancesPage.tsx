@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { acquisitionsApi } from '../../../services/api/endpoints';
-import { Card, CardContent } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { SearchInput } from '../../../components/ui/search-input';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Badge } from '../../../components/ui/badge';
-import { Modal } from '../../../components/ui/modal';
+import { Card, CardContent } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { SearchInput } from '../../../design-system/components/search-input';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Badge } from '../../../design-system/components/badge';
+import { Modal } from '../../../design-system/components/modal';
 import {
   DollarSign,
   TrendingUp,

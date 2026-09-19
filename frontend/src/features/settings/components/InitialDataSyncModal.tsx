@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
 import { RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
 import { useInitialDataSync, isInitialSyncNeeded } from '../../../hooks/useInitialDataSync';
 

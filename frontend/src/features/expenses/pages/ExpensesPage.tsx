@@ -3,19 +3,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { expenseCategoriesApi, expensesApi } from '../../../services/api/endpoints';
 import type { ExpenseCategory, ExpenseCategoryCreateRequest } from '../../../services/api/types';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { PageHeader } from '../../../components/ui/page-header';
-import { StatCard } from '../../../components/ui/stat-card';
-import { Select } from '../../../components/ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
-import { PaginationControls } from '../../../components/ui/pagination-controls';
-import { Badge } from '../../../components/ui/badge';
-import { EmptyState } from '../../../components/ui/empty-state';
-import { Modal } from '../../../components/ui/modal';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { StatCard } from '../../../design-system/components/stat-card';
+import { Select } from '../../../design-system/components/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../design-system/components/table';
+import { PaginationControls } from '../../../design-system/components/pagination-controls';
+import { Badge } from '../../../design-system/components/badge';
+import { EmptyState } from '../../../design-system/components/empty-state';
+import { Modal } from '../../../design-system/components/modal';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { ReportActions } from '../../../components/ui/report-actions';
+import { ReportActions } from '../../../design-system/components/report-actions';
 import { 
   DollarSign, 
   Search, 

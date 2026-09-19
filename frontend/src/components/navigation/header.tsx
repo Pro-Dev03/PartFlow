@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Bell, Moon, Sun, Globe, User, LogOut, Menu, ShoppingCart, Plus, CreditCard, Users } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Bell, Moon, Sun, Globe, User, LogOut, Menu, ShoppingCart, Plus, CreditCard, Users, LayoutDashboard, Package } from 'lucide-react';
 import { useTranslation } from '../../hooks/useTranslation';
-import { SearchInput } from '../ui/search-input';
-import { Button } from '../ui/button';
-import { IconButton } from '../ui/icon-button';
+import { SearchInput } from '../../design-system/components/search-input';
+import { Button } from '../../design-system/components/button';
+import { IconButton } from '../../design-system/components/icon-button';
 import { useAuthStore } from '../../stores/authStore';
 import { useUIStore } from '../../stores/uiStore';
 
@@ -15,12 +15,18 @@ interface HeaderProps {
 export function Header({ onToggleSidebar }: HeaderProps) {
   const { t, languages, changeLanguage } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
   const { theme, setTheme } = useUIStore();
   const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
   const langDropdownRef = useRef<HTMLDivElement>(null);
   const [headerSearchQuery, setHeaderSearchQuery] = useState('');
+  const primaryNavigation = [
+    { label: 'لوحة التحكم', path: '/app/dashboard', icon: LayoutDashboard },
+    { label: 'نقطة البيع', path: '/app/sales', icon: ShoppingCart },
+    { label: 'المخزون', path: '/app/inventory', icon: Package },
+  ];
 
   const handleClearHeaderSearch = () => {
     setHeaderSearchQuery('');
@@ -83,8 +89,28 @@ export function Header({ onToggleSidebar }: HeaderProps) {
             <Menu className="w-4 h-4 flip-rtl" />
           </Button>
 
+          <nav className="header-primary-nav flex shrink-0 items-center gap-1" aria-label="التنقل الرئيسي">
+            {primaryNavigation.map(({ label, path, icon: Icon }) => {
+              const isActive = location.pathname === path || location.pathname.startsWith(`${path}/`);
+              return (
+                <Button
+                  key={path}
+                  type="button"
+                  variant={isActive ? 'primary' : 'ghost'}
+                  size="sm"
+                  className="gap-1.5"
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={() => navigate(path)}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{label}</span>
+                </Button>
+              );
+            })}
+          </nav>
+
           {/* Search */}
-          <div className="hidden md:block">
+          <div className="hidden xl:block">
             <SearchInput
               placeholder={t('common.search') || "بحث المنتجات، العملاء، الفواتير..."}
               value={headerSearchQuery}

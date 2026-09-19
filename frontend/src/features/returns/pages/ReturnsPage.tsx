@@ -4,15 +4,15 @@ import { formatStoreDate } from '../../../utils/store-time';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
 import { returnsApi } from '../../../services/api/endpoints';
-import { Card, CardContent } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { SearchInput } from '../../../components/ui/search-input';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Select } from '../../../components/ui/select';
-import { Badge } from '../../../components/ui/badge';
-import { Modal } from '../../../components/ui/modal';
-import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
-import { PaginationControls } from '../../../components/ui/pagination-controls';
+import { Card, CardContent } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { SearchInput } from '../../../design-system/components/search-input';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Select } from '../../../design-system/components/select';
+import { Badge } from '../../../design-system/components/badge';
+import { Modal } from '../../../design-system/components/modal';
+import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
+import { PaginationControls } from '../../../design-system/components/pagination-controls';
 import { 
   RotateCcw, 
   Plus, 

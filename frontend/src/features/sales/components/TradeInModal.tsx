@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Modal } from '../../../components/ui/modal';
-import { Input } from '../../../components/ui/input';
-import { Select } from '../../../components/ui/select';
+import { Modal } from '../../../design-system/components/modal';
+import { Input } from '../../../design-system/components/input';
+import { Select } from '../../../design-system/components/select';
 import { TradeInFormData } from '../types/pos.types';
 import type { Customer, Product } from '../../../services/api/types';
 import { ShoppingCart } from 'lucide-react';

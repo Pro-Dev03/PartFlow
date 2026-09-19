@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Badge } from '../../../components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Badge } from '../../../design-system/components/badge';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { ReportActions } from '../../../components/ui/report-actions';
+import { ReportActions } from '../../../design-system/components/report-actions';
 import { getButtonSize } from '../../../config/button-sizes';
 import {
   BarChart3,

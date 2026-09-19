@@ -42,6 +42,8 @@ type SaleItem struct {
 	SaleID            uuid.UUID  `json:"sale_id" db:"sale_id"`
 	ProductID         uuid.UUID  `json:"product_id" db:"product_id"`
 	ProductName       *string    `json:"product_name,omitempty" db:"product_name"`
+	SKU               *string    `json:"sku,omitempty" db:"sku"`
+	Barcode           *string    `json:"barcode,omitempty" db:"barcode"`
 	InventoryItemID   *uuid.UUID `json:"inventory_item_id,omitempty" db:"inventory_item_id"`
 	SerialNumber      *string    `json:"serial_number,omitempty" db:"serial_number"`
 	Quantity          int        `json:"quantity" db:"quantity"`

@@ -3,19 +3,17 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
 import { useIsMobile } from '../../../hooks/useIsMobile';
-import { cn } from '../../../utils';
 import { dashboardApi, debtsApi } from '../../../services/api/endpoints';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Badge } from '../../../components/ui/badge';
-import { StatCardSkeleton } from '../../../components/ui/skeleton';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Badge } from '../../../design-system/components/badge';
+import { StatCardSkeleton } from '../../../design-system/components/skeleton';
 import { SalesChart } from '../../../components/charts/SalesChart';
 import { DashboardMetrics } from '../components/DashboardMetrics';
 import { AttentionSection } from '../components/AttentionSection';
 import { SmartActions } from '../components/SmartActions';
 import { InventoryDistribution } from '../../../components/dashboard/InventoryDistribution';
-import { getButtonSize } from '../../../config/button-sizes';
 import { DashboardStats } from '../../../types/api';
 import { addStoreDays, formatStoreActivityDateTime, formatStoreDateTime, getStoreDateKey } from '../../../utils/store-time';
 import {
@@ -25,9 +23,7 @@ import {
   Clock,
   Activity,
   RotateCcw,
-  Plus,
   Package,
-  TrendingUp,
   ArrowLeft,
 } from 'lucide-react';
 
@@ -193,31 +189,6 @@ export function DashboardPage() {
         eyebrow={t('dashboard.title')}
         title={welcomeMessage}
         description={t('dashboard.subtitle')}
-        actions={
-          <div className={cn(
-            "flex gap-3",
-            isMobile ? "flex-col w-full" : ""
-          )}>
-            <Button 
-              variant="secondary" 
-              size={getButtonSize('customers', 'headerActions')} 
-              onClick={() => navigate('/app/sales')} 
-              className={cn("gap-2", isMobile ? "w-full" : "")}
-            >
-              <ShoppingCart className="w-4 h-4" />
-              <span>{t('dashboard.newSale')}</span>
-            </Button>
-            <Button 
-              variant="secondary" 
-              size={getButtonSize('customers', 'headerActions')} 
-              onClick={() => navigate('/app/inventory')} 
-              className={cn("gap-2", isMobile ? "w-full" : "")}
-            >
-              <Plus className="w-4 h-4" />
-              <span>إضافة مخزون</span>
-            </Button>
-          </div>
-        }
       />
 
       {/* Priority 1: Attention Section - يحتاج انتباهك */}
@@ -252,37 +223,38 @@ export function DashboardPage() {
           alignItems: 'start'
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-            <Card variant="open">
-              <CardHeader>
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <TrendingUp className="w-5 h-5" style={{ color: 'var(--color-success)' }} />
-                      {t('dashboard.performance')}
-                    </CardTitle>
-                    <p className="mt-1 text-xs text-text-muted">المبيعات والربح الإجمالي قبل خصم المصروفات</p>
+            <Card
+              className="dashboard-performance-card"
+              style={{ padding: 0 }}
+            >
+              <CardHeader className="dashboard-performance-header">
+                <div className="flex w-full items-center justify-between gap-4 flex-wrap">
+                  <div className="min-w-0">
+                    <CardTitle>أداء المبيعات والأرباح</CardTitle>
+                    <p className="mt-1 text-xs text-text-muted">مقارنة المبيعات مع الربح الإجمالي خلال الفترة المحددة</p>
                   </div>
-                  <div className="flex items-center gap-1" aria-label="الفترة الزمنية للرسم البياني">
+                  <div className="dashboard-performance-range" role="group" aria-label="الفترة الزمنية للرسم البياني">
                     {([
-                      { days: 1, label: 'اليوم' },
-                      { days: 7, label: '7 أيام' },
-                      { days: 30, label: '30 يومًا' },
-                      { days: 90, label: '90 يومًا' },
+                      { days: 1, label: 'يوم' },
+                      { days: 7, label: '٧ أيام' },
+                      { days: 30, label: '٣٠' },
+                      { days: 90, label: '٩٠' },
                     ] as const).map(({ days, label }) => (
                       <Button
                         key={days}
                         type="button"
-                        size="sm"
+                        size="xs"
                         variant={chartRange === days ? 'primary' : 'ghost'}
-                      onClick={() => setChartRange(days)}
+                        className="dashboard-performance-range-button"
+                        onClick={() => setChartRange(days)}
                       >
-                      {label}
+                        {label}
                       </Button>
                     ))}
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="dashboard-performance-content">
                   {chartData.length > 0 ? (
                     <SalesChart data={chartData} />
                 ) : (

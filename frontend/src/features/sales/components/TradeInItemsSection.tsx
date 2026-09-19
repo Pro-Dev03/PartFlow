@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
 import { Layers } from 'lucide-react';
 import type { InventoryItem } from '../../../types/models';
 

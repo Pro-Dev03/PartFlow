@@ -5,6 +5,11 @@ declare global {
     partflowDesktop?: {
       appVersion: string;
       platform: string;
+      printHtml?: (html: string) => Promise<boolean>;
+      invoice?: {
+        print: (payload: unknown) => Promise<boolean>;
+        savePdf: (payload: unknown) => Promise<{ canceled: boolean; filePath?: string }>;
+      };
       productImages?: {
         list: () => Promise<Record<string, string>>;
         save: (productId: string, dataUrl: string) => Promise<string>;

@@ -4,9 +4,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useToast } from '../../../hooks/useToast';
 import { useUIStore } from '../../../stores/uiStore';
-import { Modal } from '../../../components/ui/modal';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
+import { Modal } from '../../../design-system/components/modal';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
 import { PartFlowLogo } from '../../../components/branding/PartFlowLogo';
 import {
   productsApi,
@@ -223,6 +223,9 @@ export function POSPage() {
 
   // Local state
   const [searchQuery, setSearchQuery] = useState('');
+  const barcodeScanValueRef = useRef('');
+  const barcodeScanTimerRef = useRef<number | null>(null);
+  const processBarcodeValueRef = useRef<(value: string) => Promise<void>>(async () => undefined);
   const [posSection, setPosSection] = useState<'products' | 'used'>('products');
   const [soldUsedPartIds, setSoldUsedPartIds] = useState<Set<string>>(() => new Set());
   const [optimisticSoldQuantities, setOptimisticSoldQuantities] = useState<Record<string, number>>({});
@@ -548,12 +551,7 @@ export function POSPage() {
 
       const status = String(item.status || '').trim().toUpperCase();
       const condition = String(item.condition || '').trim().toUpperCase();
-      if (['SOLD', 'RESERVED', 'DAMAGED', 'IN_REPAIR', 'RETURNED', 'FOR_PARTS', 'ARCHIVED'].includes(status)) {
-        return;
-      }
-
       if (condition === 'USED') return;
-      newStockProducts.add(productId);
 
       const explicitStock = Number(
         item.available_quantity ??
@@ -562,6 +560,10 @@ export function POSPage() {
         item.quantity ??
         0
       );
+
+      const unavailableStatus = ['SOLD', 'RESERVED', 'DAMAGED', 'IN_REPAIR', 'RETURNED', 'FOR_PARTS', 'ARCHIVED'].includes(status);
+      if (unavailableStatus && !(Number.isFinite(explicitStock) && explicitStock > 0)) return;
+      newStockProducts.add(productId);
 
       const calculatedStock = Number.isFinite(explicitStock) && explicitStock > 0 ? explicitStock : (status === 'AVAILABLE' ? 1 : 0);
       if (calculatedStock <= 0) return;
@@ -888,12 +890,12 @@ export function POSPage() {
     setIsHeldSalesOpen(false);
   };
 
-  const handleBarcodeScan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
+  const processBarcodeValue = async (barcodeValue: string) => {
+    const normalizedBarcode = barcodeValue.trim();
+    if (!normalizedBarcode) return;
 
     if (posSection === 'used') {
-      const scannedValue = searchQuery.trim().toLowerCase();
+      const scannedValue = normalizedBarcode.toLowerCase();
       const usedPart = inventoryItems.find((item: any) =>
         String(item.status || '').toUpperCase() === 'AVAILABLE' &&
         String(item.condition || '').toUpperCase() === 'USED' &&
@@ -911,17 +913,35 @@ export function POSPage() {
     }
 
     try {
-      const response = await barcodeApi.lookupProduct(searchQuery.trim());
+      const response = await barcodeApi.lookupProduct(normalizedBarcode);
       const product = response.data as Product & { inventory_item_id?: string; serial_number?: string; inventory_item?: any };
 
       if (product && product.id) {
-        if (!canAddProductToCart(product.id, product.name, 1)) return;
+        if (!canAddProductToCart(product.id, product.name, 1)) {
+          navigate('/app/inventory', {
+            state: {
+              editProduct: {
+                id: product.id,
+                name: product.name,
+                sku: product.sku,
+                barcode: product.barcode || normalizedBarcode,
+                sellingPrice: normalizePosPrice(product.sellingPrice, product.selling_price),
+                costPrice: Number(product.costPrice ?? product.cost_price ?? 0),
+                stock: Number(product.stock ?? product.current_quantity ?? 0),
+                condition: 'new',
+              },
+              returnToSalesAfterSave: true,
+            },
+          });
+          toast.info('تم فتح المنتج في المخزون لزيادة الكمية', 'المخزون نفد');
+          return;
+        }
         addToCart({
           id: product.id,
           inventoryItemId: product.inventory_item_id || product.inventory_item?.id,
           serialNumber: product.serial_number || product.inventory_item?.serial_number,
           name: product.name,
-          barcode: product.barcode || searchQuery.trim(),
+          barcode: product.barcode || normalizedBarcode,
           price: normalizePosPrice(
             product.sellingPrice,
             (product as Product & { selling_price?: number }).selling_price
@@ -933,21 +953,21 @@ export function POSPage() {
         setSearchQuery('');
       } else {
         if (soundEnabled) playScanSound(false);
-        setUnknownBarcode(searchQuery.trim());
+        setUnknownBarcode(normalizedBarcode);
         setSearchQuery('');
       }
     } catch {
       if (soundEnabled) playScanSound(false);
       const product = products?.find(
         (p) =>
-          p.sku === searchQuery.trim() || p.barcode === searchQuery.trim()
+          p.sku === normalizedBarcode || p.barcode === normalizedBarcode
       );
       if (product) {
         if (!canAddProductToCart(product.id, product.name, 1)) return;
         addToCart({
           id: product.id,
           name: product.name,
-          barcode: searchQuery.trim(),
+          barcode: normalizedBarcode,
           price: normalizePosPrice(
             product.sellingPrice,
             (product as Product & { selling_price?: number }).selling_price
@@ -958,11 +978,51 @@ export function POSPage() {
         });
         setSearchQuery('');
       } else {
-        setUnknownBarcode(searchQuery.trim());
+        setUnknownBarcode(normalizedBarcode);
         setSearchQuery('');
       }
     }
   };
+
+  processBarcodeValueRef.current = processBarcodeValue;
+
+  const handleBarcodeScan = (e: React.FormEvent) => {
+    e.preventDefault();
+    void processBarcodeValue(searchQuery);
+  };
+
+  useEffect(() => {
+    const handleScannerKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.matches('input, textarea, select, [contenteditable="true"]') || target.isContentEditable)) return;
+
+      if (event.key === 'Enter') {
+        const scannedValue = barcodeScanValueRef.current;
+        barcodeScanValueRef.current = '';
+        if (barcodeScanTimerRef.current !== null) window.clearTimeout(barcodeScanTimerRef.current);
+        barcodeScanTimerRef.current = null;
+        if (scannedValue.length >= 4) {
+          event.preventDefault();
+          void processBarcodeValueRef.current(scannedValue);
+        }
+        return;
+      }
+
+      if (event.key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) return;
+      barcodeScanValueRef.current += event.key;
+      if (barcodeScanTimerRef.current !== null) window.clearTimeout(barcodeScanTimerRef.current);
+      barcodeScanTimerRef.current = window.setTimeout(() => {
+        barcodeScanValueRef.current = '';
+        barcodeScanTimerRef.current = null;
+      }, 100);
+    };
+
+    window.addEventListener('keydown', handleScannerKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleScannerKeyDown);
+      if (barcodeScanTimerRef.current !== null) window.clearTimeout(barcodeScanTimerRef.current);
+    };
+  }, []);
 
   const handleProductSelect = useCallback(
     (product: PosCartProduct) => {
@@ -2075,7 +2135,6 @@ export function POSPage() {
         {lastSaleData && (
           <UsedPartsInvoice
             saleData={lastSaleData}
-            onPrint={() => window.print()}
             onClose={() => setIsInvoiceModalOpen(false)}
           />
         )}

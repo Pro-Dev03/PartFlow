@@ -1,17 +1,17 @@
 import { useState, lazy, Suspense, useEffect } from 'react';
-import { Modal } from '../../../components/ui/modal';
-import { Button } from '../../../components/ui/button';
+import { Modal } from '../../../design-system/components/modal';
+import { Button } from '../../../design-system/components/button';
 import { CustomerForm, type CustomerFormData } from '../../../components/forms/CustomerForm';
 import { getButtonSize } from '../../../config/button-sizes';
 import { Customer } from '../types/customers.types';
 import { User, DollarSign, ShoppingCart, Calendar, CreditCard, FileText, History, AlertTriangle, RotateCcw } from 'lucide-react';
-import { LedgerEntry } from '../../../components/ui/financial-timeline';
+import { LedgerEntry } from '../../../design-system/components/financial-timeline';
 import { customersApi, salesApi } from '../../../services/api/endpoints';
 import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
 import { useNavigate } from 'react-router-dom';
 
 // Lazy load heavy FinancialTimeline component
-const FinancialTimeline = lazy(() => import('../../../components/ui/financial-timeline').then(m => ({ default: m.FinancialTimeline })));
+const FinancialTimeline = lazy(() => import('../../../design-system/components/financial-timeline').then(m => ({ default: m.FinancialTimeline })));
 
 interface CustomerModalsProps {
   isModalOpen: boolean;
@@ -123,24 +123,36 @@ export function CustomerModals({
       const paidAmount = Number(saleDetails.paid_amount ?? sale.paid_amount ?? 0);
 
       setInvoiceData({
-        id: saleDetails.invoice_number || sale.invoice_number || saleDetails.id,
+        id: saleDetails.id,
+        invoiceNumber: saleDetails.invoice_number || sale.invoice_number || saleDetails.id,
         customerName: selectedCustomer?.name || '',
         customerPhone: selectedCustomer?.phone,
         saleDate: saleDetails.sale_date || sale.created_at || new Date().toISOString(),
         items: items.map((item: any) => ({
           name: item.product_name || item.name || 'منتج',
+          sku: item.sku,
+          barcode: item.barcode,
           condition: item.condition || 'NEW',
           grade: item.grade,
           sellingPrice: Number(item.unit_price ?? item.selling_price ?? 0),
           quantity: Number(item.quantity ?? 1),
           total: Number(item.total_amount ?? item.total ?? 0),
+          discountAmount: Number(item.discount_amount || 0),
+          taxAmount: Number(item.tax_amount || 0),
           partType: item.part_type || item.partType,
           partTypeColor: item.part_type_color || item.partTypeColor,
         })),
         subtotal: Number(saleDetails.subtotal ?? total),
+        discountAmount: Number(saleDetails.discount_amount || 0),
+        taxAmount: Number(saleDetails.tax_amount || 0),
         total,
         paidAmount,
         remaining: Math.max(total - paidAmount, 0),
+        paymentStatus: saleDetails.payment_status,
+        cashReceived: Number(saleDetails.cash_received || 0),
+        changeAmount: Number(saleDetails.change_amount || 0),
+        notes: saleDetails.notes,
+        paymentAllocations: Array.isArray(payload?.payment_allocations) ? payload.payment_allocations : [],
         paymentMethod: saleDetails.payment_method === 'debt'
           ? 'credit'
           : saleDetails.payment_method === 'transfer'
@@ -544,7 +556,6 @@ export function CustomerModals({
         {invoiceData && (
           <UsedPartsInvoice
             saleData={invoiceData}
-            onPrint={() => window.print()}
             onClose={() => setIsInvoiceOpen(false)}
           />
         )}

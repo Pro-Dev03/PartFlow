@@ -15,11 +15,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { Button } from '../../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Modal } from '../../../components/ui/modal';
-import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
-import { TableActionButton } from '../../../components/ui/table-action-button';
+import { Button } from '../../../design-system/components/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Modal } from '../../../design-system/components/modal';
+import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
+import { TableActionButton } from '../../../design-system/components/table-action-button';
 import { settingsApi } from '../../../services/api/endpoints';
 import type { User } from '../../../types/models';
 

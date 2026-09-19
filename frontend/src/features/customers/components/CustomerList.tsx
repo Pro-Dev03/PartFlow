@@ -1,10 +1,10 @@
-import { Button } from '../../../components/ui/button';
-import { EmptyState } from '../../../components/ui/empty-state';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
-import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../design-system/components/button';
+import { EmptyState } from '../../../design-system/components/empty-state';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../design-system/components/table';
+import { Badge } from '../../../design-system/components/badge';
 import { Users, Eye, Edit, Trash2, Phone, UserRound, Inbox } from 'lucide-react';
-import { ActionMenu } from '../../../components/ui/action-menu';
-import { PaginationControls } from '../../../components/ui/pagination-controls';
+import { ActionMenu } from '../../../design-system/components/action-menu';
+import { PaginationControls } from '../../../design-system/components/pagination-controls';
 import { Customer } from '../types/customers.types';
 
 interface CustomerListProps {

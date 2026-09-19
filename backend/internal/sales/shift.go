@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 	"github.com/partflow/smart-store/pkg/errors"
 	"github.com/partflow/smart-store/pkg/response"
 )
@@ -46,8 +48,19 @@ func ensurePosShiftTable(db *sqlx.DB) error {
 }
 
 func currentShift(ctx context.Context, db *sqlx.DB, userID uuid.UUID) (*PosShift, error) {
-	var shift PosShift
-	err := db.GetContext(ctx, &shift, `
+	var row struct {
+		ID          string  `db:"id"`
+		UserID      string  `db:"user_id"`
+		Status      string  `db:"status"`
+		OpenedAt    any     `db:"opened_at"`
+		OpeningCash float64 `db:"opening_cash"`
+		ClosedAt    any     `db:"closed_at"`
+		ClosingCash any     `db:"closing_cash"`
+		SalesTotal  float64 `db:"sales_total"`
+		SaleCount   int     `db:"sale_count"`
+	}
+
+	err := db.GetContext(ctx, &row, `
 		SELECT id, user_id, status, opened_at, opening_cash, closed_at, closing_cash, sales_total, sale_count
 		FROM pos_shifts WHERE user_id = $1 AND status = 'open' ORDER BY opened_at DESC LIMIT 1`, userID.String())
 	if err != nil {
@@ -56,7 +69,58 @@ func currentShift(ctx context.Context, db *sqlx.DB, userID uuid.UUID) (*PosShift
 		}
 		return nil, err
 	}
-	return &shift, nil
+
+	openedAt, err := dbutil.ParseTimestamp(row.OpenedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	shift := &PosShift{
+		ID:          mustParseUUID(row.ID),
+		UserID:      mustParseUUID(row.UserID),
+		Status:      row.Status,
+		OpenedAt:    openedAt,
+		OpeningCash: row.OpeningCash,
+		SalesTotal:  row.SalesTotal,
+		SaleCount:   row.SaleCount,
+	}
+	if row.ClosedAt != nil {
+		closedAt, err := dbutil.ParseTimestamp(row.ClosedAt)
+		if err != nil {
+			return nil, err
+		}
+		shift.ClosedAt = &closedAt
+	}
+	if row.ClosingCash != nil {
+		switch value := row.ClosingCash.(type) {
+		case float64:
+			shift.ClosingCash = &value
+		case float32:
+			converted := float64(value)
+			shift.ClosingCash = &converted
+		case int:
+			converted := float64(value)
+			shift.ClosingCash = &converted
+		case int64:
+			converted := float64(value)
+			shift.ClosingCash = &converted
+		case []byte:
+			parsed, err := strconv.ParseFloat(string(value), 64)
+			if err != nil {
+				return nil, err
+			}
+			shift.ClosingCash = &parsed
+		}
+	}
+	return shift, nil
+}
+
+func mustParseUUID(value string) uuid.UUID {
+	parsed, err := uuid.Parse(value)
+	if err != nil {
+		return uuid.Nil
+	}
+	return parsed
 }
 
 func shiftUserID(c *gin.Context) (uuid.UUID, bool) {

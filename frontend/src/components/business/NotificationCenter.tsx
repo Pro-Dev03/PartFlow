@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../hooks/useTranslation';
 import { notificationsApi } from '../../services/api/endpoints';
-import { Button } from '../ui/button';
-import { Card, CardContent } from '../ui/card';
-import { Badge } from '../ui/badge';
+import { Button } from '../../design-system/components/button';
+import { Card, CardContent } from '../../design-system/components/card';
+import { Badge } from '../../design-system/components/badge';
 import { playScanSound } from '../../hooks/useBarcodeContext';
 import { 
   Bell, 

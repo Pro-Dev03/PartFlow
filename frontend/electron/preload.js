@@ -6,6 +6,11 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('partflowDesktop', {
   appVersion: process.versions.electron,
   platform: process.platform,
+  printHtml: (html) => ipcRenderer.invoke('document:print-html', html),
+  invoice: {
+    print: (payload) => ipcRenderer.invoke('invoice:print', payload),
+    savePdf: (payload) => ipcRenderer.invoke('invoice:save-pdf', payload),
+  },
   productImages: {
     list: () => ipcRenderer.invoke('product-images:list'),
     save: (productId, dataUrl) => ipcRenderer.invoke('product-images:save', productId, dataUrl),

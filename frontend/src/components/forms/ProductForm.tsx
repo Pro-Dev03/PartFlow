@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Input } from '../ui/input';
-import { Button } from '../ui/button';
-import { Select } from '../ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Input } from '../../design-system/components/input';
+import { Button } from '../../design-system/components/button';
+import { Select } from '../../design-system/components/select';
+import { Card, CardContent, CardHeader, CardTitle } from '../../design-system/components/card';
 import { suppliersApi } from '../../services/api/endpoints';
 import { generateSku } from '../../utils/sku';
 

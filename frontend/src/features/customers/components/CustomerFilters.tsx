@@ -1,7 +1,7 @@
-import { Button } from '../../../components/ui/button';
-import { SearchInput } from '../../../components/ui/search-input';
+import { Button } from '../../../design-system/components/button';
+import { SearchInput } from '../../../design-system/components/search-input';
 import { ArrowDownAZ, ArrowDownWideNarrow, X } from 'lucide-react';
-import { SortButton } from '../../../components/ui/sort-button';
+import { SortButton } from '../../../design-system/components/sort-button';
 
 interface CustomerFiltersProps {
   searchQuery: string;

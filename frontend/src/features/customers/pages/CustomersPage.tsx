@@ -1,10 +1,10 @@
 import { useState, lazy, Suspense } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Button } from '../../../components/ui/button';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Button } from '../../../design-system/components/button';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { ReportActions } from '../../../components/ui/report-actions';
+import { ReportActions } from '../../../design-system/components/report-actions';
 import { Plus } from 'lucide-react';
 
 // Custom hooks
@@ -14,7 +14,7 @@ import { useCustomers } from '../hooks/useCustomers';
 import { CustomerFilters } from '../components/CustomerFilters';
 import { CustomerList } from '../components/CustomerList';
 import { CustomerModals } from '../components/CustomerModals';
-import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
 
 // Lazy load heavy components
 const CustomerStats = lazy(() => import('../components/CustomerStats').then(m => ({ default: m.CustomerStats })));

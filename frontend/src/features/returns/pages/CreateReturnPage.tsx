@@ -3,12 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { returnsApi } from '../../../services/api/endpoints';
 import { customersApi, debtsApi, salesApi } from '../../../services/api/endpoints';
-import { Button } from '../../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Input } from '../../../components/ui/input';
-import { Select } from '../../../components/ui/select';
-import { SearchInput } from '../../../components/ui/search-input';
-import { PageHeader } from '../../../components/ui/page-header';
+import { Button } from '../../../design-system/components/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Input } from '../../../design-system/components/input';
+import { Select } from '../../../design-system/components/select';
+import { SearchInput } from '../../../design-system/components/search-input';
+import { PageHeader } from '../../../design-system/components/page-header';
 import { ArrowRight, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Card, CardContent } from '../ui/card';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
+import { Card, CardContent } from '../../design-system/components/card';
+import { Button } from '../../design-system/components/button';
+import { Input } from '../../design-system/components/input';
 import { 
   CheckCircle, 
   AlertCircle, 

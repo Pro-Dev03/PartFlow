@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { Badge } from '../../../components/ui/badge';
-import { EmptyState } from '../../../components/ui/empty-state';
-import { Button } from '../../../components/ui/button';
-import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../../../components/ui/table';
+import { Badge } from '../../../design-system/components/badge';
+import { EmptyState } from '../../../design-system/components/empty-state';
+import { Button } from '../../../design-system/components/button';
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../../../design-system/components/table';
 import { Package, PackageOpen, Eye, Edit, SlidersHorizontal, Trash2, Inbox, RefreshCw, FileText, Plus, ArrowUpRight, Trash, Copy, PencilLine } from 'lucide-react';
-import { ActionMenu } from '../../../components/ui/action-menu';
+import { ActionMenu } from '../../../design-system/components/action-menu';
 import { Product, InventoryItem, ViewMode } from '../types/inventory.types';
 import { formatPrice, normalizeCurrencyValue } from '../../../utils';
 import { cn } from '../../../utils';
-import { PaginationControls } from '../../../components/ui/pagination-controls';
+import { PaginationControls } from '../../../design-system/components/pagination-controls';
 import { getLocalProductImage } from '../../../services/localProductImages';
 import { getCategoryImage } from '../../../services/localCategoryImages';
 
@@ -263,14 +263,11 @@ export function InventoryList({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[72px]">الصورة</TableHead>
-                      <TableHead className="w-[24%]">الاسم</TableHead>
-                      <TableHead className="w-[12%]">SKU</TableHead>
-                      <TableHead className="w-[14%]">التصنيف</TableHead>
-                      <TableHead className="w-[12%]">الحالة</TableHead>
-                      <TableHead className="w-[10%] text-center">المخزون</TableHead>
-                      <TableHead className="w-[12%] text-center">السعر قبل الضريبة</TableHead>
-                      <TableHead className="w-[12%]">المؤشر</TableHead>
+                      <TableHead className="w-[32%]">المنتج</TableHead>
+                      <TableHead className="w-[15%]">الحالة</TableHead>
+                      <TableHead className="w-[12%] text-center">المخزون</TableHead>
+                      <TableHead className="w-[14%] text-center">السعر</TableHead>
+                      <TableHead className="w-[19%]">التفاصيل</TableHead>
                       <TableHead className="w-[8%] text-end">الإجراءات</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -283,27 +280,35 @@ export function InventoryList({
                       return (
                         <TableRow key={product.id} className="align-middle">
                           <TableCell>
-                            <div style={{ width: '48px', height: '48px', overflow: 'hidden', borderRadius: '6px' }}>
-                              {product.image_url ? (
-                                <img src={product.image_url} alt={product.name || 'المنتج'} style={{ width: '48px', height: '48px', maxWidth: '48px', maxHeight: '48px', objectFit: 'contain', display: 'block' }} />
-                              ) : <Package className="h-8 w-8 text-text-tertiary" />}
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-surface-muted">
+                                {product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined) ? (
+                                  <img
+                                    src={product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined)}
+                                    alt={product.name || 'المنتج'}
+                                    className="h-full w-full object-contain"
+                                  />
+                                ) : <Package className="h-4 w-4 text-text-tertiary" />}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="truncate font-semibold text-text-primary">{product.name || '-'}</div>
+                                <div className="mt-0.5 truncate text-[11px] text-text-tertiary">{product.sku || '-'}</div>
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div className="min-w-0">
-                              <div className="max-w-[220px] truncate font-semibold text-text-primary">{product.name || '-'}</div>
-                              <div className="mt-0.5 text-[11px] text-text-tertiary">{product.barcode || product.sku || '-'}</div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge variant={stockBadge.variant} size="sm" className="capitalize">{stockBadge.text}</Badge>
+                              <Badge variant={conditionBadge.variant} size="sm">{conditionBadge.label}</Badge>
                             </div>
                           </TableCell>
-                          <TableCell className="font-medium text-text-secondary">{product.sku || '-'}</TableCell>
-                          <TableCell className="text-text-secondary">{product.category_name || product.category || product.categoryName || '-'}</TableCell>
-                          <TableCell>
-                            <Badge variant={conditionBadge.variant} size="sm">{conditionBadge.label}</Badge>
-                          </TableCell>
-                          <TableCell className="text-center font-semibold text-text-primary">{stockVal !== undefined ? stockVal : '-'}</TableCell>
+                          <TableCell className="text-center text-base font-bold text-text-primary">{stockVal !== undefined ? stockVal : '-'}</TableCell>
                           <TableCell className="text-center font-semibold text-primary">{getPrice(product)}</TableCell>
                           <TableCell>
-                            <Badge variant={stockBadge.variant} size="sm" className="capitalize">{stockBadge.text}</Badge>
+                            <div className="space-y-0.5 text-xs text-text-secondary">
+                              <div className="truncate">التصنيف: {product.category_name || product.category || product.categoryName || '-'}</div>
+                              <div className="truncate text-text-tertiary">المورد: {product.supplier_name || 'غير محدد'}</div>
+                            </div>
                           </TableCell>
                           <TableCell className="text-end">
                             <div className="flex items-center justify-end gap-2">
@@ -365,50 +370,48 @@ export function InventoryList({
                     const conditionBadge = getConditionBadge(product.condition || '');
 
                     return (
-                      <div key={product.id} className="rounded-xl border border-border bg-surface-elevated/25 p-4">
-                        <div className="mb-3 flex items-center justify-center overflow-hidden rounded-lg bg-surface-muted" style={{ height: '144px', minHeight: '144px' }}>
-                          {product.image_url ? (
-                            <img src={product.image_url} alt={product.name || 'المنتج'} className="max-h-full max-w-full object-contain" style={{ width: '100%', height: '100%' }} />
-                          ) : (
-                            <Package className="h-12 w-12 text-text-tertiary" />
-                          )}
-                        </div>
-                        <div className="mb-3 flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="truncate font-semibold text-text-primary">{product.name || '-'}</div>
-                            <div className="mt-1 text-[11px] text-text-tertiary">{product.sku || '-'}</div>
+                      <article key={product.id} className="compact-product-card">
+                        <div className="compact-product-card-header">
+                          <div className="compact-product-media">
+                            {product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined) ? (
+                              <img
+                                src={product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined)}
+                                alt={product.name || 'المنتج'}
+                                className="h-full w-full object-contain"
+                              />
+                            ) : (
+                              <Package className="h-5 w-5 text-text-tertiary" />
+                            )}
                           </div>
-                          <Badge variant={stockBadge.variant} size="sm" className="capitalize">{stockBadge.text}</Badge>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-semibold text-text-primary">{product.name || '-'}</div>
+                            <div className="mt-0.5 truncate text-[11px] text-text-tertiary">{product.sku || '-'}</div>
+                          </div>
+                          <Badge variant={stockBadge.variant} size="sm" className="shrink-0 capitalize">{stockBadge.text}</Badge>
                         </div>
 
-                        <div className="space-y-2 text-sm">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-text-tertiary">التصنيف</span>
-                            <span className="font-medium text-text-secondary">{product.category_name || product.category || product.categoryName || '-'}</span>
+                        <div className="compact-product-metrics">
+                          <div>
+                            <span>المخزون</span>
+                            <strong>{stockVal !== undefined ? stockVal : '-'}</strong>
                           </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-text-tertiary">المورد</span>
-                            <span className="font-medium text-text-secondary">{product.supplier_name || 'غير محدد'}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-text-tertiary">الحالة</span>
-                            <Badge variant={conditionBadge.variant} size="sm">{conditionBadge.label}</Badge>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-text-tertiary">المخزون</span>
-                            <span className="font-semibold text-text-primary">{stockVal !== undefined ? stockVal : '-'}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-text-tertiary">السعر قبل الضريبة</span>
-                            <span className="font-semibold text-primary">{getPrice(product)}</span>
+                          <div>
+                            <span>السعر</span>
+                            <strong className="text-primary">{getPrice(product)}</strong>
                           </div>
                         </div>
 
-                        <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
+                        <div className="compact-product-meta">
+                          <span className="truncate">التصنيف: <strong>{product.category_name || product.category || product.categoryName || '-'}</strong></span>
+                          <span className="truncate">المورد: <strong>{product.supplier_name || 'غير محدد'}</strong></span>
+                          <Badge variant={conditionBadge.variant} size="sm">{conditionBadge.label}</Badge>
+                        </div>
+
+                        <div className="compact-product-actions">
                           <Button
                             type="button"
-                            variant="ghost"
-                            size="icon"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => onViewProduct(product)}
                             aria-label={`عرض المنتج ${product.name || ''}`}
                             title="عرض المنتج"
@@ -426,7 +429,7 @@ export function InventoryList({
                             onViewInventoryLedger={onViewInventoryLedger}
                           />
                         </div>
-                      </div>
+                      </article>
                     );
                   })}
                 </div>
@@ -477,14 +480,13 @@ export function InventoryList({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[72px]">الصورة</TableHead>
-                    <TableHead className="w-[17%]">المنتج</TableHead>
-                    <TableHead className="w-[10%]">الحالة</TableHead>
-                    <TableHead className="w-[12%]">المورد</TableHead>
-                    <TableHead className="w-[12%]">تاريخ الشراء</TableHead>
-                    <TableHead className="w-[12%] text-center">شراء</TableHead>
-                    <TableHead className="w-[12%] text-center">بيع</TableHead>
-                    <TableHead className="w-[10%]">حالة القطعة</TableHead>
+                    <TableHead className="w-[30%]">العنصر</TableHead>
+                    <TableHead className="w-[14%]">الحالة</TableHead>
+                    <TableHead className="w-[16%]">المورد</TableHead>
+                    <TableHead className="w-[14%]">تاريخ الشراء</TableHead>
+                    <TableHead className="w-[10%] text-center">شراء</TableHead>
+                    <TableHead className="w-[10%] text-center">بيع</TableHead>
+                    <TableHead className="w-[8%]">القطعة</TableHead>
                     <TableHead className="w-[8%] text-end">الإجراءات</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -497,20 +499,19 @@ export function InventoryList({
                     return (
                       <TableRow key={item.id}>
                         <TableCell>
-                          <div style={{ width: '48px', height: '48px', overflow: 'hidden', borderRadius: '6px' }}>
-                            {((item as any).image_url || (item.product as any)?.image_url || getLocalProductImage(item.product_id || item.id) || getCategoryImage((item as any).category_id || '')) ? (
-                              <img src={(item as any).image_url || (item.product as any)?.image_url || getLocalProductImage(item.product_id || item.id) || getCategoryImage((item as any).category_id || '')} alt={item.product_name || 'عنصر المخزون'} style={{ width: '48px', height: '48px', maxWidth: '48px', maxHeight: '48px', objectFit: 'contain', display: 'block' }} />
-                            ) : <PackageOpen className="h-8 w-8 text-text-tertiary" />}
-                          </div>
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-surface-muted">
+                                {((item as any).image_url || (item.product as any)?.image_url || getLocalProductImage(item.product_id || item.id) || getCategoryImage((item as any).category_id || '')) ? (
+                                  <img src={(item as any).image_url || (item.product as any)?.image_url || getLocalProductImage(item.product_id || item.id) || getCategoryImage((item as any).category_id || '')} alt={item.product_name || 'عنصر المخزون'} className="h-full w-full object-contain" />
+                                ) : <PackageOpen className="h-4 w-4 text-text-tertiary" />}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="truncate font-semibold text-text-primary">{item.product_name || item.product?.name || '-'}</div>
+                                <div className="mt-0.5 truncate text-[11px] text-text-tertiary">{item.barcode || item.product?.barcode || '-'}</div>
+                              </div>
+                            </div>
                         </TableCell>
-                        <TableCell>
-                          <div className="min-w-0">
-                            <div className="truncate font-semibold text-text-primary">{item.product_name || item.product?.name || '-'}</div>
-                            <div className="mt-0.5 text-[11px] text-text-tertiary">{item.barcode || item.product?.barcode || '-'}</div>
-                            <div className="mt-0.5 text-[11px] text-text-tertiary">التصنيف: {item.category_name || 'بدون تصنيف'}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell><Badge variant={itemStatus.variant} size="sm">{itemStatus.text}</Badge></TableCell>
+                        <TableCell><div className="flex flex-wrap gap-1.5"><Badge variant={itemStatus.variant} size="sm">{itemStatus.text}</Badge><Badge variant={condBadge.variant} size="sm">{condBadge.label}</Badge></div></TableCell>
                         <TableCell className="text-text-secondary">{item.supplier_name || '-'}</TableCell>
                         <TableCell className="text-text-secondary">{item.purchase_date ? new Date(item.purchase_date).toLocaleDateString('ar-SA') : '-'}</TableCell>
                         <TableCell className="text-center font-medium text-text-secondary">{formatPrice(normalizeCurrencyValue(item.purchase_cost ?? 0))}</TableCell>
@@ -593,35 +594,34 @@ export function InventoryList({
               <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
                 {visibleInventoryItems.map((item: InventoryItem) => {
                   const condBadge = getConditionBadge(item.condition?.toLowerCase() || '');
+                  const itemStatus = getInventoryStatusDisplay(item.status);
+                  const itemImage = (item as any).image_url || (item.product as any)?.image_url || getLocalProductImage(item.product_id || item.id) || getCategoryImage((item as any).category_id || '');
                   return (
-                    <div key={item.id} className="rounded-xl border border-border bg-surface-elevated/25 p-4">
-                      <div className="mb-3 flex items-center justify-center overflow-hidden rounded-lg bg-surface-muted" style={{ height: '144px', minHeight: '144px' }}>
-                        {((item as any).image_url || (item.product as any)?.image_url || getLocalProductImage(item.product_id || item.id) || getCategoryImage((item as any).category_id || '')) ? (
-                          <img src={(item as any).image_url || (item.product as any)?.image_url || getLocalProductImage(item.product_id || item.id) || getCategoryImage((item as any).category_id || '')} alt={item.product_name || 'عنصر المخزون'} className="max-h-full max-w-full object-contain" style={{ width: '100%', height: '100%' }} />
-                        ) : (
-                          <PackageOpen className="h-12 w-12 text-text-tertiary" />
-                        )}
-                      </div>
-                      <div className="mb-3 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate font-semibold text-text-primary">{item.product_name || item.product?.name || '-'}</div>
-                          <div className="mt-1 text-[11px] text-text-tertiary">{item.barcode || item.product?.barcode || '-'}</div>
-                          <div className="mt-0.5 text-[11px] text-text-tertiary">التصنيف: {item.category_name || 'بدون تصنيف'}</div>
+                    <article key={item.id} className="compact-product-card">
+                      <div className="compact-product-card-header">
+                        <div className="compact-product-media">
+                          {itemImage ? <img src={itemImage} alt={item.product_name || 'عنصر المخزون'} className="h-full w-full object-contain" /> : <PackageOpen className="h-5 w-5 text-text-tertiary" />}
                         </div>
-                        {(() => {
-                          const itemStatus = getInventoryStatusDisplay(item.status);
-                          return <Badge variant={itemStatus.variant} size="sm">{itemStatus.text}</Badge>;
-                        })()}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-text-primary">{item.product_name || item.product?.name || '-'}</div>
+                          <div className="mt-0.5 truncate text-[11px] text-text-tertiary">{item.barcode || item.product?.barcode || '-'}</div>
+                        </div>
+                        <Badge variant={itemStatus.variant} size="sm" className="shrink-0">{itemStatus.text}</Badge>
                       </div>
 
-                      <div className="space-y-2 text-sm">
-                        <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">الحالة</span><Badge variant={condBadge.variant} size="sm">{condBadge.label}</Badge></div>
-                        <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">المورد</span><span className="font-medium text-text-secondary">{item.supplier_name || '-'}</span></div>
-                        <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">شراء</span><span className="font-medium text-text-secondary">{formatPrice(normalizeCurrencyValue(item.purchase_cost ?? 0))}</span></div>
-                        <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">بيع</span><span className="font-medium text-primary">{formatPrice(normalizeCurrencyValue(item.selling_price ?? item.price ?? 0))}</span></div>
+                      <div className="compact-product-metrics">
+                        <div><span>شراء</span><strong>{formatPrice(normalizeCurrencyValue(item.purchase_cost ?? 0))}</strong></div>
+                        <div><span>بيع</span><strong className="text-primary">{formatPrice(normalizeCurrencyValue(item.selling_price ?? item.price ?? 0))}</strong></div>
                       </div>
 
-                      <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
+                      <div className="compact-product-meta">
+                        <span className="truncate">المورد: <strong>{item.supplier_name || '-'}</strong></span>
+                        <span className="truncate">التصنيف: <strong>{item.category_name || 'بدون تصنيف'}</strong></span>
+                        <span className="truncate">الشراء: <strong>{item.purchase_date ? new Date(item.purchase_date).toLocaleDateString('ar-SA') : '-'}</strong></span>
+                        <Badge variant={condBadge.variant} size="sm">{condBadge.label}</Badge>
+                      </div>
+
+                      <div className="compact-product-actions">
                         <Button type="button" variant="primary" size="sm" onClick={() => onViewProduct({
                           id: item.id,
                           name: item.product_name || item.product?.name || '-',
@@ -663,7 +663,7 @@ export function InventoryList({
                           onViewInventoryLedger={onViewInventoryLedger}
                         />
                       </div>
-                    </div>
+                    </article>
                   );
                 })}
               </div>

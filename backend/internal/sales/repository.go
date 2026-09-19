@@ -308,8 +308,15 @@ func (r *Repository) CreateSaleItem(ctx context.Context, item *SaleItem) error {
 
 // GetSaleItems retrieves items for a sale
 func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]SaleItem, error) {
+	productCodeColumns := "p.sku, p.barcode"
+	if dbutil.IsSQLite(r.db) {
+		var productCodeCount int
+		if err := r.db.GetContext(ctx, &productCodeCount, `SELECT COUNT(*) FROM pragma_table_info('products') WHERE name IN ('sku', 'barcode')`); err != nil || productCodeCount < 2 {
+			productCodeColumns = "NULL AS sku, NULL AS barcode"
+		}
+	}
 	baseQuery := `
-		SELECT si.id, si.sale_id, si.product_id, p.name AS product_name, si.inventory_item_id, ii.serial_number,
+		SELECT si.id, si.sale_id, si.product_id, p.name AS product_name, %s, si.inventory_item_id, ii.serial_number,
 			si.quantity, 0 AS returned_quantity, si.quantity AS remaining_quantity,
 			si.unit_price, si.unit_cost,
 			si.discount_amount, si.tax_amount, si.total_amount, si.created_at
@@ -318,8 +325,8 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 		LEFT JOIN products p ON p.id = si.product_id
 		WHERE si.sale_id = $1
 	`
-	query := `
-		SELECT si.id, si.sale_id, si.product_id, p.name AS product_name, si.inventory_item_id, ii.serial_number,
+	query := fmt.Sprintf(`
+		SELECT si.id, si.sale_id, si.product_id, p.name AS product_name, %s, si.inventory_item_id, ii.serial_number,
 			si.quantity,
 			COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri JOIN returns r ON r.id = ri.return_id WHERE ri.sale_item_id = si.id AND LOWER(COALESCE(r.status, 'completed')) NOT IN ('rejected', 'cancelled', 'canceled')), 0) AS returned_quantity,
 			si.quantity - COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri JOIN returns r ON r.id = ri.return_id WHERE ri.sale_item_id = si.id AND LOWER(COALESCE(r.status, 'completed')) NOT IN ('rejected', 'cancelled', 'canceled')), 0) AS remaining_quantity,
@@ -333,7 +340,8 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 		LEFT JOIN products p ON p.id = si.product_id
 		LEFT JOIN suppliers sup ON sup.id = COALESCE(si.supplier_id, ii.supplier_id)
 		WHERE si.sale_id = $1
-	`
+	`, productCodeColumns)
+	baseQuery = fmt.Sprintf(baseQuery, productCodeColumns)
 	if dbutil.IsSQLite(r.db) {
 		var hasReturnItems bool
 		if err := r.db.GetContext(ctx, &hasReturnItems, `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'return_items')`); err != nil || !hasReturnItems {
@@ -346,6 +354,8 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 			SaleID            string          `db:"sale_id"`
 			ProductID         string          `db:"product_id"`
 			ProductName       sql.NullString  `db:"product_name"`
+			SKU               sql.NullString  `db:"sku"`
+			Barcode           sql.NullString  `db:"barcode"`
 			InventoryItemID   sql.NullString  `db:"inventory_item_id"`
 			SerialNumber      sql.NullString  `db:"serial_number"`
 			Quantity          int             `db:"quantity"`
@@ -398,6 +408,14 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 			if row.ProductName.Valid && row.ProductName.String != "" {
 				name := row.ProductName.String
 				item.ProductName = &name
+			}
+			if row.SKU.Valid && row.SKU.String != "" {
+				sku := row.SKU.String
+				item.SKU = &sku
+			}
+			if row.Barcode.Valid && row.Barcode.String != "" {
+				barcode := row.Barcode.String
+				item.Barcode = &barcode
 			}
 			if row.InventoryItemID.Valid && row.InventoryItemID.String != "" {
 				v, parseErr := uuid.Parse(row.InventoryItemID.String)

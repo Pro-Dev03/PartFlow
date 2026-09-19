@@ -1,4 +1,4 @@
-import { StatCard } from '../../../components/ui/stat-card';
+import { StatCard } from '../../../design-system/components/stat-card';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingCart, DollarSign, AlertTriangle, Package, RotateCcw } from 'lucide-react';
 

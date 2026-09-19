@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation as useTranslationHook } from '../../../hooks/useTranslation';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
-import { PaginationControls } from '../../../components/ui/pagination-controls';
-import { Badge } from '../../../components/ui/badge';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../design-system/components/table';
+import { PaginationControls } from '../../../design-system/components/pagination-controls';
+import { Badge } from '../../../design-system/components/badge';
 import { getButtonSize } from '../../../config/button-sizes';
 import { 
   DollarSign, 

@@ -1,29 +1,29 @@
+import { InventoryQuickCreateModal } from '../../inventory/components/InventoryQuickCreateModal';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { Select } from '../../../components/ui/select';
-import { Badge } from '../../../components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Modal } from '../../../components/ui/modal';
-import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { Select } from '../../../design-system/components/select';
+import { Badge } from '../../../design-system/components/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Modal } from '../../../design-system/components/modal';
+import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
 import { Product, Supplier, Category } from '../../../types/models';
 import {
   Search,
-  Scan,
+  Plus,
   Trash2,
   ShoppingCart,
   Truck,
   CheckCircle2,
   Package,
   FileText,
-  Save,
   Sparkles,
   DollarSign,
   Box,
-  Edit,
+  MoreHorizontal,
   ChevronLeft,
   ChevronRight,
   ImagePlus,
@@ -41,32 +41,59 @@ import { compressProductImage, getLocalProductImage, setLocalProductImage } from
 
 interface LineItem extends PurchaseItem {
   key: string;
+  sku?: string;
+  barcode?: string;
 }
 
-export function CreatePurchasePage() {
+interface CreatePurchasePageProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+  onComplete?: (purchase?: any) => void | Promise<void>;
+}
+
+export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: CreatePurchasePageProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  const isEmbedded = Boolean(onComplete);
   const [selectedSupplier, setSelectedSupplier] = useState('');
   const [items, setItems] = useState<LineItem[]>([]);
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [productPage, setProductPage] = useState(1);
-  const [barcodeInput, setBarcodeInput] = useState('');
-  const [activeTab, setActiveTab] = useState<'scan' | 'manual'>('manual');
-  const [lastScannedProduct, setLastScannedProduct] = useState<string | null>(null);
+  const [selectedProductDraft, setSelectedProductDraft] = useState<any | null>(null);
+  const [draftQuantity, setDraftQuantity] = useState('1');
+  const [draftUnitCost, setDraftUnitCost] = useState('0');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
-  const [receiveImmediately, setReceiveImmediately] = useState(false);
+  const [receiveImmediately, setReceiveImmediately] = useState(isEmbedded);
   const [initialPayment, setInitialPayment] = useState('');
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [quickCreateMode, setQuickCreateMode] = useState<'category' | 'supplier' | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const [expandedItemKey, setExpandedItemKey] = useState<string | null>(null);
+  const [showUnsavedExitDialog, setShowUnsavedExitDialog] = useState(false);
+  const invoiceNumberInputRef = useRef<HTMLInputElement>(null);
+  const productSearchInputRef = useRef<HTMLInputElement>(null);
+  const paymentInputRef = useRef<HTMLInputElement>(null);
+  const draftQuantityInputRef = useRef<HTMLInputElement>(null);
+  const draftUnitCostInputRef = useRef<HTMLInputElement>(null);
+  const manualNameInputRef = useRef<HTMLInputElement>(null);
+  const manualSkuInputRef = useRef<HTMLInputElement>(null);
+  const manualBarcodeInputRef = useRef<HTMLInputElement>(null);
+  const manualCategoryInputRef = useRef<HTMLSelectElement>(null);
+  const manualCostInputRef = useRef<HTMLInputElement>(null);
+  const manualSellingInputRef = useRef<HTMLInputElement>(null);
+  const manualMinStockInputRef = useRef<HTMLInputElement>(null);
+  const createPurchaseButtonRef = useRef<HTMLButtonElement>(null);
   const quantityInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const unitCostInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   
   // Manual product addition states
   const [isManualProductModalOpen, setIsManualProductModalOpen] = useState(false);
+  const [showManualProductDetails, setShowManualProductDetails] = useState(false);
   const [manualProductData, setManualProductData] = useState({
     name: '',
     sku: '',
@@ -133,6 +160,8 @@ export function CreatePurchasePage() {
           key: `${newProduct.id}-${Date.now()}`,
           product_id: newProduct.id,
           product_name: newProduct.name,
+          sku: newProduct.sku || '',
+          barcode: newProduct.barcode || '',
           quantity: 1,
           unit_cost: newProduct.cost_price || 0,
           selling_price: newProduct.selling_price || 0,
@@ -142,6 +171,7 @@ export function CreatePurchasePage() {
       ]);
       
       setIsManualProductModalOpen(false);
+      setShowManualProductDetails(false);
       setManualProductData({
         name: '',
         sku: '',
@@ -153,6 +183,10 @@ export function CreatePurchasePage() {
         description: '',
       });
       setManualProductImage(null);
+      requestAnimationFrame(() => {
+        productSearchInputRef.current?.focus();
+        productSearchInputRef.current?.select();
+      });
     },
   });
 
@@ -177,6 +211,11 @@ export function CreatePurchasePage() {
       ));
       setEditingProductId(null);
       setIsManualProductModalOpen(false);
+      setShowManualProductDetails(false);
+      requestAnimationFrame(() => {
+        productSearchInputRef.current?.focus();
+        productSearchInputRef.current?.select();
+      });
       toast.success('تم تحديث بيانات القطعة');
     },
     onError: () => toast.error('تعذر تحديث بيانات القطعة'),
@@ -235,71 +274,75 @@ export function CreatePurchasePage() {
     navigate(location.pathname, { replace: true, state: null });
   }, [items.length, location.pathname, location.state, navigate]);
 
-  const handleBarcodeScan = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!barcodeInput.trim()) return;
+  const handleManualAdd = useCallback((product: any) => {
+    setSelectedProductDraft(product);
+    setDraftQuantity('1');
+    setDraftUnitCost(String(product.cost_price ?? 0));
+    setProductSearchQuery('');
+    requestAnimationFrame(() => draftQuantityInputRef.current?.focus());
+  }, []);
+
+  const handleQuickProductSearch = useCallback(async () => {
+    const query = productSearchQuery.trim();
+    if (!query) return;
+
+    if (searchedProducts[0]) {
+      handleManualAdd(searchedProducts[0]);
+      return;
+    }
 
     try {
-      const response = await productsApi.getByBarcode(barcodeInput);
+      const response = await productsApi.getByBarcode(query);
       const product = response.data?.product || response.data;
-
-      setItems((prev) => {
-        const existingIndex = prev.findIndex((item) => item.product_id === product.id);
-        if (existingIndex >= 0) {
-          return prev.map((item, idx) =>
-            idx === existingIndex ? { ...item, quantity: item.quantity + 1 } : item
-          );
-        }
-        return [
-          ...prev,
-          {
-            key: `${product.id}-${Date.now()}`,
-            product_id: product.id,
-            product_name: product.name,
-            quantity: 1,
-            unit_cost: product.cost_price || 0,
-            selling_price: product.selling_price || 0,
-            category_id: product.category_id || '',
-            condition: 'new',
-          },
-        ];
-      });
-
-      setBarcodeInput('');
-      const existingItem = items.find((item) => item.product_id === product.id);
-      setLastScannedProduct(`${product.name} - الكمية ${existingItem ? existingItem.quantity + 1 : 1}`);
-      requestAnimationFrame(() => barcodeInputRef.current?.focus());
-    } catch (error) {
-      console.error('Error scanning barcode:', error);
-      toast.error('لم يتم العثور على منتج بهذا الباركود. يمكنك إنشاء قطعة جديدة.');
-      requestAnimationFrame(() => barcodeInputRef.current?.focus());
-    }
-  }, [barcodeInput, items]);
-
-  const handleManualAdd = useCallback((product: any) => {
-    setItems((prev) => {
-      const existingIndex = prev.findIndex((item) => item.product_id === product.id);
-      if (existingIndex >= 0) {
-        return prev.map((item, idx) =>
-          idx === existingIndex ? { ...item, quantity: item.quantity + 1 } : item
-        );
+      if (product?.id) {
+        handleManualAdd(product);
+        return;
       }
-      return [
-        ...prev,
-        {
-          key: `${product.id}-${Date.now()}`,
-          product_id: product.id,
-          product_name: product.name,
-          quantity: 1,
-          unit_cost: product.cost_price || 0,
-          selling_price: product.selling_price || 0,
-          category_id: product.category_id || '',
-          condition: 'new',
-        },
-      ];
+    } catch (error) {
+      console.debug('Barcode lookup did not find a product:', error);
+    }
+
+    toast.error('لم يتم العثور على المنتج بهذا الباركود');
+  }, [handleManualAdd, productSearchQuery, searchedProducts]);
+
+  const handleAddDraftProduct = useCallback(() => {
+    if (!selectedProductDraft) return;
+    const quantity = Math.max(1, parseInt(draftQuantity, 10) || 0);
+    const unitCost = Math.max(0, Number(draftUnitCost) || 0);
+    if (unitCost <= 0) {
+      toast.error('أدخل سعر شراء صحيح');
+      draftUnitCostInputRef.current?.focus();
+      return;
+    }
+
+    setItems((prev) => {
+      const existingIndex = prev.findIndex((item) => item.product_id === selectedProductDraft.id);
+      if (existingIndex >= 0) {
+        return prev.map((item, index) => index === existingIndex
+          ? { ...item, quantity: item.quantity + quantity, unit_cost: unitCost }
+          : item);
+      }
+      return [...prev, {
+        key: `${selectedProductDraft.id}-${Date.now()}`,
+        product_id: selectedProductDraft.id,
+        product_name: selectedProductDraft.name,
+        sku: selectedProductDraft.sku || '',
+        barcode: selectedProductDraft.barcode || '',
+        quantity,
+        unit_cost: unitCost,
+        selling_price: Number(selectedProductDraft.selling_price ?? selectedProductDraft.sellingPrice ?? 0),
+        category_id: selectedProductDraft.category_id || '',
+        condition: 'new',
+      }];
     });
-    setProductSearchQuery('');
-  }, []);
+    setSelectedProductDraft(null);
+    setDraftQuantity('1');
+    setDraftUnitCost('0');
+    requestAnimationFrame(() => {
+      productSearchInputRef.current?.focus();
+      productSearchInputRef.current?.select();
+    });
+  }, [draftQuantity, draftUnitCost, selectedProductDraft]);
 
   const handleRemoveItem = useCallback((key: string) => {
     setItems((prev) => prev.filter((item) => item.key !== key));
@@ -361,6 +404,13 @@ export function CreatePurchasePage() {
     }
   }, [manualProductData, editingProductId, createProductMutation, updateProductMutation]);
 
+  const focusManualField = (event: React.KeyboardEvent, next: HTMLElement | null) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    next?.focus();
+    if (next instanceof HTMLInputElement) next.select();
+  };
+
   const handleCostPriceChange = (costPrice: string) => {
     setManualProductData((current) => ({
       ...current,
@@ -418,6 +468,10 @@ export function CreatePurchasePage() {
       toast.error(`أدخل دفعة صحيحة بين ₪0.01 و ₪${totalWithTax.toLocaleString('en-US', { maximumFractionDigits: 2 })}`);
       return;
     }
+    if (receiveImmediately && (!Number.isFinite(paymentAmount) || paymentAmount <= 0)) {
+      toast.error('أدخل مبلغ الدفعة قبل استلام البضاعة وتحديث المخزون');
+      return;
+    }
 
     // Debug logging (can be removed in production)
     if (process.env.NODE_ENV === 'development') {
@@ -426,6 +480,7 @@ export function CreatePurchasePage() {
 
     createPurchaseMutation.mutate(formData, {
       onSuccess: async (response) => {
+        let latestResponse = response;
         const purchaseId =
           response?.purchase?.id ||
           response?.data?.purchase?.id ||
@@ -434,26 +489,40 @@ export function CreatePurchasePage() {
         if (purchaseId && (paymentAmount > 0 || receiveImmediately)) {
           try {
             if (paymentAmount > 0) {
-              await purchasesApi.addPayment(purchaseId, {
+              latestResponse = await purchasesApi.addPayment(purchaseId, {
                 amount: paymentAmount,
                 paymentMethod: 'cash',
               });
             }
             if (receiveImmediately) {
-              await receivePurchaseMutation.mutateAsync(purchaseId);
+              latestResponse = await receivePurchaseMutation.mutateAsync(purchaseId);
             }
             queryClient.invalidateQueries({ queryKey: ['purchases'] });
             queryClient.invalidateQueries({ queryKey: ['dashboard'] });
             queryClient.invalidateQueries({ queryKey: ['inventory'] });
             queryClient.invalidateQueries({ queryKey: ['products'] });
-            navigate('/app/purchases');
+            queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+            toast.success(receiveImmediately ? 'تم إنشاء الشراء وتحديث المخزون بنجاح' : 'تم إنشاء الشراء بنجاح');
+            if (onComplete) {
+              await onComplete(latestResponse);
+            } else {
+              navigate('/app/inventory');
+            }
           } catch (error) {
             const message = error instanceof Error ? error.message : 'خطأ غير معروف';
             toast.error(`تم إنشاء الشراء، لكن تعذر تسجيل الدفعة أو الاستلام: ${message}`);
           }
         } else {
           queryClient.invalidateQueries({ queryKey: ['purchases'] });
-          navigate('/app/purchases');
+          queryClient.invalidateQueries({ queryKey: ['inventory'] });
+          queryClient.invalidateQueries({ queryKey: ['products'] });
+          queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+          toast.success('تم إنشاء الشراء بنجاح');
+          if (onComplete) {
+            await onComplete(latestResponse);
+          } else {
+            navigate('/app/inventory');
+          }
         }
       },
     });
@@ -471,82 +540,154 @@ export function CreatePurchasePage() {
     receivePurchaseMutation,
     queryClient,
     navigate,
+    onComplete,
   ]);
 
   const isSubmitting =
     createPurchaseMutation.isPending || receivePurchaseMutation.isPending;
 
+  const hasUnsavedPurchase = Boolean(selectedSupplier || items.length || notes || initialPayment);
+  const completeClosePurchase = useCallback(() => {
+    setShowUnsavedExitDialog(false);
+    if (onClose) {
+      onClose();
+      return;
+    }
+    navigate('/app/purchases');
+  }, [navigate, onClose]);
+
+  const closePurchase = useCallback(() => {
+    if (hasUnsavedPurchase) {
+      setShowUnsavedExitDialog(true);
+      return;
+    }
+    completeClosePurchase();
+  }, [completeClosePurchase, hasUnsavedPurchase]);
+
+  const advanceStep = useCallback(() => {
+    if (currentStep === 1) {
+      if (!selectedSupplier) {
+        toast.error('يرجى اختيار المورد');
+        return;
+      }
+      setCurrentStep(2);
+    } else if (currentStep === 2) {
+      setCurrentStep(3);
+    } else if (currentStep === 3) {
+      if (items.length === 0) {
+        toast.error('أضف منتجًا واحدًا على الأقل');
+        return;
+      }
+      setCurrentStep(4);
+    } else if (currentStep === 4) {
+      setCurrentStep(5);
+    } else {
+      void handleCreatePurchase();
+    }
+  }, [currentStep, selectedSupplier, items.length, handleCreatePurchase]);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      if (currentStep === 3) productSearchInputRef.current?.focus();
+      if (currentStep === 4) paymentInputRef.current?.focus();
+      if (currentStep === 2) invoiceNumberInputRef.current?.focus();
+      if (currentStep === 5) createPurchaseButtonRef.current?.focus();
+    });
+  }, [currentStep]);
+
   return (
-    <div className="space-y-5 pb-10">
-      {/* Page Header */}
-      <PageHeader
-        eyebrow="Purchase Management"
-        title="إنشاء شراء جديد"
-        description="أدخل بيانات المورد، أضف المنتجات، ثم راجع الإجمالي قبل الحفظ"
-        actions={
-          <Button variant="secondary" onClick={() => navigate('/app/purchases')} className="gap-2">
-            <ChevronRight className="w-4 h-4" />
-            عودة للمشتريات
-          </Button>
-        }
-      />
-
-      <div className="grid grid-cols-1 gap-3 rounded-[var(--card-border-radius)] border border-border bg-surface-elevated/60 p-3 sm:grid-cols-3">
-        {[
-          { number: '01', label: 'بيانات الشراء', detail: 'المورد والفاتورة' },
-          { number: '02', label: 'إضافة المنتجات', detail: 'بحث أو مسح باركود' },
-          { number: '03', label: 'المراجعة والحفظ', detail: 'الإجمالي والاستلام' },
-        ].map((step, index) => (
-          <div key={step.number} className="flex items-center gap-3 rounded-lg px-3 py-2">
-            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${index === 0 ? 'bg-primary text-white' : 'bg-surface text-text-muted'}`}>
-              {step.number}
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-text">{step.label}</div>
-              <div className="truncate text-xs text-text-muted">{step.detail}</div>
-            </div>
+    <>
+    <Modal
+      isOpen={isOpen}
+      onClose={closePurchase}
+      title="إنشاء شراء جديد"
+      variant="modern"
+      size={currentStep === 3 ? '2xl' : 'lg'}
+      autoFocus
+      enableEnterNavigation={false}
+      className={currentStep === 3 ? 'max-w-[980px]' : 'max-w-[620px]'}
+    >
+      <div
+        key={currentStep}
+        className="space-y-5 pb-2"
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+          const target = event.target as HTMLElement;
+          if (!['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) || target.tagName === 'TEXTAREA') return;
+          event.preventDefault();
+          event.stopPropagation();
+          advanceStep();
+        }}
+      >
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <div className="flex items-center gap-2 text-xs text-text-muted" aria-label={`المرحلة ${currentStep} من 5`}>
+            {[1, 2, 3, 4, 5].map((step) => <span key={step} className={`h-1.5 rounded-full transition-all duration-150 ${step === currentStep ? 'w-6 bg-primary' : 'w-1.5 bg-border'}`} />)}
           </div>
-        ))}
-      </div>
+          <div className="flex items-center gap-1">
+            {currentStep > 1 && <Button variant="ghost" size="sm" onClick={() => setCurrentStep((step) => Math.max(1, step - 1) as 1 | 2 | 3 | 4 | 5)} className="gap-1"><ChevronRight className="h-4 w-4" />رجوع</Button>}
+            <Button variant="ghost" size="sm" onClick={closePurchase}>إلغاء</Button>
+          </div>
+        </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className={currentStep === 3 ? 'mx-auto w-full max-w-5xl' : 'mx-auto w-full max-w-2xl'}>
         {/* Left Column - Main Form */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="space-y-6">
           {/* Supplier and Invoice Info */}
-          <Card className="border-primary/15">
+          {currentStep === 1 && <Card className="border-primary/15">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Truck className="w-5 h-5 text-cyan" />
+                اختيار المورد
+              </CardTitle>
+              <span className="text-xs text-text-muted">اختر المورد المرتبط بعملية الشراء</span>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <label className="block text-sm font-medium text-text">المورد *</label>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setQuickCreateMode('supplier')}>+ إضافة مورد</Button>
+                  </div>
+                  <Select
+                      value={selectedSupplier}
+                      onChange={(e) => setSelectedSupplier(e.target.value)}
+                      loading={suppliersLoading}
+                      options={[
+                        { value: '', label: 'اختر المورد...' },
+                        ...suppliers.map((s) => ({ value: s.id, label: s.name })),
+                      ]}
+                      emptyMessage="لا يوجد موردين"
+                    />
+                  <p className="mt-1.5 text-xs text-text-muted">يمكنك إضافة مورد من هنا دون مغادرة عملية الشراء.</p>
+                </div>
+              </div>
+                <div className="mt-5 flex justify-end border-t border-border pt-4">
+                  <Button type="button" variant="primary" onClick={() => advanceStep()}>متابعة إلى معلومات الفاتورة</Button>
+                </div>
+            </CardContent>
+          </Card>}
+
+          {currentStep === 2 && <Card className="border-primary/15">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="w-5 h-5 text-cyan" />
                 معلومات الفاتورة
               </CardTitle>
-              <span className="text-xs text-text-muted">الحقول التي عليها * إلزامية</span>
+              <span className="text-xs text-text-muted">بيانات فاتورة المورد وتواريخها</span>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-text mb-2">المورد *</label>
-                  <Select
-                    value={selectedSupplier}
-                    onChange={(e) => setSelectedSupplier(e.target.value)}
-                    loading={suppliersLoading}
-                    options={[
-                      { value: '', label: 'اختر المورد...' },
-                      ...suppliers.map((s) => ({ value: s.id, label: s.name })),
-                    ]}
-                    emptyMessage="لا يوجد موردين"
-                  />
-                  <p className="mt-1.5 text-xs text-text-muted">اختر المورد المرتبط بهذه الفاتورة قبل إضافة المنتجات.</p>
-                </div>
+              <div className="grid grid-cols-1 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-text mb-2">رقم الفاتورة</label>
+                  <label className="block text-sm font-medium text-text mb-2">رقم فاتورة المورد</label>
                   <Input
+                    ref={invoiceNumberInputRef}
                     value={invoiceNumber}
                     onChange={(e) => setInvoiceNumber(e.target.value)}
                     placeholder="PO-..."
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-text mb-2">تاريخ الشراء</label>
+                  <label className="block text-sm font-medium text-text mb-2">تاريخ فاتورة المورد</label>
                   <Input
                     type="date"
                     value={purchaseDate}
@@ -562,213 +703,184 @@ export function CreatePurchasePage() {
                   />
                 </div>
               </div>
+              <div className="mt-5 flex justify-end border-t border-border pt-4">
+                <Button type="button" variant="primary" onClick={() => advanceStep()}>متابعة إلى المنتجات</Button>
+              </div>
             </CardContent>
-          </Card>
+          </Card>}
 
           {/* Items Section */}
-          <Card className="overflow-visible">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <ShoppingCart className="w-5 h-5 text-cyan" />
-                  إضافة القطع
-                </CardTitle>
-                <div className="text-left">
-                  <Badge variant="secondary">{items.length} منتج</Badge>
-                  <div className="mt-1 text-xs text-text-muted">{totalQuantity} قطعة إجمالاً</div>
-                </div>
+          {currentStep === 3 && <div className="space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-4">
+              <CardTitle className="flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5 text-cyan" />
+                إضافة القطع
+              </CardTitle>
+              <div className="text-left">
+                <Badge variant="secondary">{items.length} منتج</Badge>
+                <div className="mt-1 text-xs text-text-muted">{totalQuantity} قطعة إجمالاً</div>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Tab Selection */}
-              <div className="grid grid-cols-2 gap-2 rounded-lg bg-surface p-1">
-                <Button
-                  variant={activeTab === 'scan' ? 'primary' : 'secondary'}
-                  size="sm"
-                  onClick={() => setActiveTab('scan')}
-                  className="w-full"
-                >
-                  <Scan className="w-4 h-4 ml-2" />
-                  مسح الباركود
-                </Button>
+            </div>
 
-                <Button
-                  variant={activeTab === 'manual' ? 'primary' : 'secondary'}
-                  size="sm"
-                  onClick={() => {
-                    setManualProductData((current) => ({ ...current, sku: generateSku() }));
-                    setEditingProductId(null);
-                    setManualProductImage(null);
-                    setIsManualProductModalOpen(true);
+            <div className="space-y-3">
+              <label className="sr-only" htmlFor="purchase-product-search">ابحث عن منتج أو امسح الباركود</label>
+              <div className="relative">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                <Input
+                  id="purchase-product-search"
+                  ref={productSearchInputRef}
+                  placeholder="ابحث عن منتج أو امسح الباركود..."
+                  value={productSearchQuery}
+                  onChange={(e) => setProductSearchQuery(e.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setProductSearchQuery('');
+                      return;
+                    }
+                    if (event.key !== 'Enter') return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void handleQuickProductSearch();
                   }}
-                  className="w-full flex items-center gap-2"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  إضافة قطعة جديدة
-                </Button>
+                  className="h-11 pr-10"
+                  autoFocus
+                />
               </div>
 
-              {/* Scan Tab */}
-              {activeTab === 'scan' ? (
-                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-text">
-                    <Scan className="h-4 w-4 text-primary" />
-                    امسح باركود المنتج أو اكتبه يدويًا
+              {selectedProductDraft && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                  <div className="mb-3 flex items-center gap-3">
+                    <div className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{selectedProductDraft.name}</div>
+                    <Badge variant="success" size="sm">جديد</Badge>
                   </div>
-                  <form onSubmit={handleBarcodeScan} className="pf-barcode-row">
-                    <Input
-                      placeholder="مثال: 6281234567890"
-                      value={barcodeInput}
-                      onChange={(e) => setBarcodeInput(e.target.value)}
-                      className="min-w-0 flex-1 bg-surface-elevated"
-                      autoFocus
-                      ref={barcodeInputRef}
-                      aria-label="الباركود أو الإدخال اليدوي"
-                    />
-                    <Button type="submit" variant="primary" className="pf-barcode-submit" aria-label="إضافة بالباركود">
-                      <Scan className="w-4 h-4" />
-                    </Button>
-                  </form>
-                  <p className="mt-2 text-xs text-text-muted">سيتم زيادة الكمية تلقائيًا عند مسح المنتج نفسه مرة أخرى.</p>
-                  {lastScannedProduct && (
-                    <div className="mt-3 flex items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-xs font-medium text-success" role="status">
-                      <CheckCircle2 className="h-4 w-4 shrink-0" />
-                      تمت الإضافة: {lastScannedProduct}
+                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end gap-2">
+                    <div>
+                      <label className="mb-1 block text-xs text-text-muted">الكمية</label>
+                      <Input ref={draftQuantityInputRef} type="number" min="1" step="1" value={draftQuantity} onChange={(event) => setDraftQuantity(event.target.value)} onKeyDown={(event) => { if (event.key !== 'Enter') return; event.preventDefault(); event.stopPropagation(); draftUnitCostInputRef.current?.focus(); draftUnitCostInputRef.current?.select(); }} className="w-full" />
                     </div>
-                  )}
-                </div>
-              ) : (
-                /* Manual Tab */
-                <div className="space-y-3">
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-                      <Input
-                        placeholder="ابحث باسم المنتج أو الباركود أو SKU..."
-                        value={productSearchQuery}
-                        onChange={(e) => setProductSearchQuery(e.target.value)}
-                        className="pr-10"
-                        autoFocus
-                      />
+                    <div>
+                      <label className="mb-1 block text-xs text-text-muted">سعر الشراء</label>
+                      <Input ref={draftUnitCostInputRef} type="number" min="0" step="0.01" value={draftUnitCost} onChange={(event) => setDraftUnitCost(event.target.value)} onKeyDown={(event) => { if (event.key !== 'Enter') return; event.preventDefault(); event.stopPropagation(); handleAddDraftProduct(); }} className="w-full" />
                     </div>
+                    <Button type="button" variant="primary" onClick={handleAddDraftProduct}><Plus className="h-4 w-4" />إضافة</Button>
                   </div>
-                  {searchedProducts.length > 0 ? (
-                    <>
-                    <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-surface-elevated">
-                      {searchedProducts.map((product) => (
-                        <div
-                          key={product.id}
-                          className="flex cursor-pointer items-center justify-between border-b border-border p-3 transition-colors last:border-b-0 hover:bg-primary/5"
-                          onClick={() => handleManualAdd(product)}
-                        >
-                          <div className="flex-1">
-                            <div className="font-medium text-text">{product.name}</div>
-                            <div className="text-sm text-text-muted">
-                              {product.barcode ? `الباركود: ${product.barcode}` : product.sku ? `SKU: ${product.sku}` : product.id}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <div className="text-sm font-semibold text-cyan">
-                              ₪{product.cost_price?.toFixed(2) || '0.00'}
-                            </div>
-                            <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setEditingProductId(product.id);
-                                  setManualProductData({
-                                    name: product.name || '',
-                                    sku: product.sku || '',
-                                    barcode: product.barcode || '',
-                                    category_id: product.category_id || '',
-                                    cost_price: String(product.cost_price ?? ''),
-                                    selling_price: String(product.selling_price ?? ''),
-                                    min_stock: String(product.min_stock_level ?? 0),
-                                    description: product.description || '',
-                                  });
-                                  setManualProductImage(getLocalProductImage(product.id) || null);
-                                  setIsManualProductModalOpen(true);
-                                }}
-                                className="text-blue-600 hover:text-blue-700"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  if (product.sales_count > 0) {
-                                    toast.error('لا يمكن حذف هذا المنتج لأنه تم بيعه مسبقاً. يمكن حذف المنتجات التي لم يتم بيعها فقط.');
-                                    return;
-                                  }
-                                  setProductToDelete(product);
-                                }}
-                                className={product.sales_count > 0 ? "text-gray-400 cursor-not-allowed" : "text-red-600 hover:text-red-700"}
-                                title={product.sales_count > 0 ? "لا يمكن حذف منتج تم بيعه" : "حذف المنتج نهائياً"}
-                                disabled={product.sales_count > 0}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    {productTotalPages > 1 && (
-                      <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs text-text-muted">
-                        <Button type="button" variant="ghost" size="sm" disabled={productPage <= 1} onClick={() => setProductPage((page) => page - 1)}>
-                          <ChevronRight className="h-4 w-4" /> السابق
-                        </Button>
-                        <span>صفحة {productPage} من {productTotalPages}</span>
-                        <Button type="button" variant="ghost" size="sm" disabled={productPage >= productTotalPages} onClick={() => setProductPage((page) => page + 1)}>
-                          التالي <ChevronLeft className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
-                    </>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-text-muted">
-                      <Package className="mx-auto mb-2 h-7 w-7 opacity-60" />
-                      {productSearchQuery ? 'لا توجد نتائج مطابقة' : 'ابدأ بكتابة اسم المنتج أو الباركود'}
-                    </div>
-                  )}
                 </div>
               )}
-            </CardContent>
-          </Card>
 
-          {/* Items Table */}
-          {items.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>العناصر المضافة ({items.length})</CardTitle>
+              {productSearchQuery.trim() && searchedProducts.length > 0 ? (
+                <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-surface-elevated">
+                  <div className="border-b border-border px-3 py-2 text-xs font-medium text-text-muted">نتائج البحث</div>
+                  {searchedProducts.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      className="flex w-full items-center justify-between border-b border-border p-3 text-right transition-colors last:border-b-0 hover:bg-primary/5"
+                      onClick={() => handleManualAdd(product)}
+                    >
+                      <span className="min-w-0 truncate font-medium text-text">{product.name}</span>
+                      <span className="flex shrink-0 items-center gap-3 text-sm">
+                        <span className="font-semibold text-cyan">₪{product.cost_price?.toFixed(2) || '0.00'}</span>
+                        <Plus className="h-4 w-4 text-primary" />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm text-text-muted">
+                  {productSearchQuery ? (
+                    <>
+                      <div>لم يتم العثور على منتج بهذا البحث</div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mt-1 text-primary"
+                        onClick={() => {
+                          setManualProductData((current) => ({ ...current, name: productSearchQuery, sku: generateSku() }));
+                          setEditingProductId(null);
+                          setManualProductImage(null);
+                          setShowManualProductDetails(false);
+                          setIsManualProductModalOpen(true);
+                        }}
+                      >
+                        <Plus className="h-4 w-4" />
+                        المنتج غير موجود؟ أضف منتجًا جديدًا
+                      </Button>
+                    </>
+                  ) : 'ابدأ بكتابة اسم المنتج أو امسح الباركود'}
+                </div>
+              )}
+            </div>
+
+              <div className="flex justify-end border-t border-border pt-4">
+                <Button type="button" variant="primary" onClick={() => advanceStep()}>متابعة إلى الدفع</Button>
+              </div>
+          </div>}
+
+          {/* Added items cards */}
+          {currentStep === 3 && items.length > 0 && (
+            <div className="rounded-2xl border border-border bg-surface">
+              <CardHeader className="border-b border-border pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle>العناصر المضافة ({items.length})</CardTitle>
+                  <span className="text-sm text-text-muted">₪{totalCost.toFixed(2)}</span>
+                </div>
               </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-surface/30">
-                      <tr>
-                        <th className="text-right p-3 text-sm font-medium">المنتج</th>
-                        <th className="text-right p-3 text-sm font-medium">الحالة</th>
-                        <th className="text-right p-3 text-sm font-medium">التصنيف</th>
-                        <th className="text-right p-3 text-sm font-medium">الكمية</th>
-                        <th className="text-right p-3 text-sm font-medium">سعر الوحدة</th>
-                        <th className="text-right p-3 text-sm font-medium">سعر البيع</th>
-                        <th className="text-right p-3 text-sm font-medium">الإجمالي</th>
-                        <th className="text-right p-3 text-sm font-medium">إجراء</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((item) => (
-                        <tr key={item.key} className="border-t border-border">
-                          <td className="p-3">
-                            <div>
-                              <div className="font-medium">{item.product_name}</div>
-                              <div className="text-xs text-text-muted">{item.product_id}</div>
-                            </div>
-                          </td>
-                          <td className="p-3">
+              <CardContent className="p-0">
+                <div className="divide-y divide-border">
+                  {items.map((item) => (
+                    <article key={item.key} className="px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                        <div className="min-w-[12rem] flex-1">
+                          <div className="truncate font-semibold text-text-primary">{item.product_name}</div>
+                        </div>
+                        <div className="flex items-center gap-1 text-sm text-text-secondary">
+                          <span>×{item.quantity}</span>
+                          <span className="text-text-muted">شراء ₪{Number(item.unit_cost).toFixed(2)}</span>
+                        </div>
+                        <span className="text-sm font-semibold text-text-primary">الإجمالي ₪{(item.quantity * item.unit_cost).toFixed(2)}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setExpandedItemKey((current) => current === item.key ? null : item.key)}
+                          className="shrink-0"
+                          aria-label={`تفاصيل ${item.product_name}`}
+                          title="تعديل أو تفاصيل"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      {expandedItemKey === item.key && (
+                        <div className="mt-3 grid grid-cols-1 gap-3 rounded-lg border border-border bg-surface-elevated/40 p-3 sm:grid-cols-2 lg:grid-cols-4">
+                          <div>
+                            <label className="mb-1 block text-xs text-text-muted">الكمية</label>
+                            <Input
+                              ref={(element) => { quantityInputRefs.current[item.key] = element; }}
+                              type="number"
+                              value={item.quantity}
+                              onChange={(e) => handleUpdateQuantity(item.key, parseInt(e.target.value) || 0)}
+                              className="w-full"
+                              min="1"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs text-text-muted">سعر الشراء</label>
+                            <Input
+                              ref={(element) => { unitCostInputRefs.current[item.key] = element; }}
+                              type="number"
+                              value={item.unit_cost}
+                              onChange={(e) => handleUpdateUnitCost(item.key, parseFloat(e.target.value) || 0)}
+                              className="w-full"
+                              min="0"
+                              step="0.01"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs text-text-muted">الحالة</label>
                             <Select
                               value={item.condition}
                               onChange={(e) => handleUpdateCondition(item.key, e.target.value as 'new' | 'used' | 'refurbished')}
@@ -777,11 +889,25 @@ export function CreatePurchasePage() {
                                 { value: 'used', label: 'مستعمل' },
                                 { value: 'refurbished', label: 'مجدد' },
                               ]}
-                              className="w-28"
-                              style={{ minWidth: '7rem' }}
+                              className="w-full"
                             />
-                          </td>
-                          <td className="p-3">
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs text-text-muted">سعر البيع (اختياري)</label>
+                            <Input
+                              type="number"
+                              value={item.selling_price ?? 0}
+                              onChange={(e) => setItems((prev) => prev.map((current) => current.key === item.key ? { ...current, selling_price: parseFloat(e.target.value) || 0 } : current))}
+                              className="w-full"
+                              min="0"
+                              step="0.01"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between gap-2 sm:col-span-2 lg:col-span-4">
+                            <div className="min-w-0 text-xs text-text-muted">
+                              {item.sku && <div className="truncate">SKU: {item.sku}</div>}
+                              {item.barcode && <div className="truncate">الباركود: {item.barcode}</div>}
+                            </div>
                             <Select
                               value={item.category_id ?? ''}
                               onChange={(e) => setItems((prev) => prev.map((current) => current.key === item.key ? { ...current, category_id: e.target.value } : current))}
@@ -789,102 +915,35 @@ export function CreatePurchasePage() {
                                 { value: '', label: 'بدون تصنيف' },
                                 ...categories.map((category) => ({ value: category.id, label: category.name })),
                               ]}
-                              className="w-36"
-                              style={{ minWidth: '9rem' }}
+                              className="max-w-xs"
+                              aria-label="التصنيف"
                             />
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              ref={(element) => { quantityInputRefs.current[item.key] = element; }}
-                              type="number"
-                              value={item.quantity}
-                              onChange={(e) => handleUpdateQuantity(item.key, parseInt(e.target.value) || 0)}
-                              className="w-20"
-                              min="1"
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              value={item.unit_cost}
-                              onChange={(e) => handleUpdateUnitCost(item.key, parseFloat(e.target.value) || 0)}
-                              className="w-28"
-                              min="0"
-                              step="0.01"
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              value={item.selling_price ?? 0}
-                              onChange={(e) => setItems((prev) => prev.map((current) => current.key === item.key ? { ...current, selling_price: parseFloat(e.target.value) || 0 } : current))}
-                              className="w-28"
-                              min="0"
-                              step="0.01"
-                            />
-                          </td>
-                          <td className="p-3 font-medium">
-                            ₪{(item.quantity * item.unit_cost).toFixed(2)}
-                          </td>
-                          <td className="p-3">
-                            <div className="flex gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  const input = quantityInputRefs.current[item.key];
-                                  input?.focus();
-                                  input?.select();
-                                }}
-                                className="text-blue-600 hover:text-blue-700"
-                                title="تعديل العنصر"
-                                aria-label={`تعديل ${item.product_name}`}
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleRemoveItem(item.key)}
-                                className="text-red-600 hover:text-red-700"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRemoveItem(item.key)}
+                              className="text-red-600 hover:text-red-700"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              حذف
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </article>
+                  ))}
                 </div>
               </CardContent>
-            </Card>
+            </div>
           )}
 
-          {/* Notes */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-cyan" />
-                ملاحظات
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={4}
-                placeholder="ملاحظات على طلب الشراء..."
-                className="w-full px-4 py-3 border border-border rounded-xl focus:ring-2 focus:ring-cyan/30 focus:border-cyan/50 transition-all"
-              />
-            </CardContent>
-          </Card>
         </div>
 
         {/* Right Column - Summary and Actions */}
-        <div className="space-y-6 lg:sticky lg:top-4 lg:self-start">
+        <div className="grid grid-cols-1 gap-6">
           {/* Quick Stats */}
-          <Card className="border-primary/20 bg-primary/5">
+          {currentStep === 5 && <Card className="border-primary/20 bg-primary/5">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Package className="w-5 h-5 text-cyan" />
@@ -913,21 +972,73 @@ export function CreatePurchasePage() {
                   <span className="font-semibold">₪{taxAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center border-t border-border pt-3">
-                  <span className="text-text-muted">الإجمالي شامل الضريبة</span>
+                  <span className="text-text-muted">{taxRate > 0 ? 'الإجمالي شامل الضريبة' : 'الإجمالي'}</span>
                   <span className="text-2xl font-bold text-cyan">₪{totalWithTax.toFixed(2)}</span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border pt-3 text-sm">
+                  <div className="flex justify-between"><span className="text-text-muted">المدفوع</span><span className="font-semibold">₪{(Number(initialPayment) || 0).toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-text-muted">المتبقي</span><span className="font-semibold">₪{Math.max(0, totalWithTax - (Number(initialPayment) || 0)).toFixed(2)}</span></div>
+                </div>
+                <div className="mt-3 space-y-2 border-t border-border pt-3">
+                  {items.map((item) => (
+                    <div key={item.key} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="min-w-0 truncate text-text-secondary">{item.product_name}</span>
+                      <span className="shrink-0 text-text-muted">{item.quantity} × ₪{Number(item.unit_cost).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+                {selectedSupplier && (() => {
+                  const supplier = suppliers.find((entry) => entry.id === selectedSupplier);
+                  return supplier ? (
+                    <div className="mt-3 border-t border-border pt-3 text-sm text-text-secondary">
+                      المورد: <span className="font-semibold text-text-primary">{supplier.name}</span>
+                      {supplier.phone ? ` · ${supplier.phone}` : ''}
+                    </div>
+                  ) : null;
+                })()}
+                <div className="mt-3 border-t border-border pt-3">
+                  <label className="mb-2 block text-sm font-medium text-text">ملاحظات (اختياري)</label>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={2}
+                    placeholder="أضف ملاحظة إذا لزم الأمر"
+                    className="w-full rounded-xl border border-border px-3 py-2 text-sm focus:border-cyan/50 focus:ring-2 focus:ring-cyan/30"
+                  />
+                </div>
+                <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4">
+                  <Button ref={createPurchaseButtonRef} variant="primary" onClick={() => { void handleCreatePurchase(); }} disabled={isSubmitting} className="w-full gap-2" size="lg">
+                    {isSubmitting ? 'جاري التنفيذ...' : (receiveImmediately ? 'إنشاء واستلام' : 'إنشاء الشراء')}
+                  </Button>
+                  <Button variant="secondary" onClick={closePurchase} className="w-full">إلغاء</Button>
                 </div>
               </div>
             </CardContent>
-          </Card>
+          </Card>}
 
           {/* Receive Immediately */}
-          <Card className="border-success/25 bg-success/5">
+          {currentStep === 4 && <Card className="border-success/25 bg-success/5">
             <CardContent className="p-4">
+              <div className="mb-4 grid grid-cols-3 gap-2 rounded-xl border border-border bg-surface/70 p-3 text-center">
+                <div>
+                  <div className="text-xs text-text-muted">إجمالي الشراء</div>
+                  <div className="mt-1 font-bold text-text-primary">₪{totalWithTax.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-text-muted">المدفوع</div>
+                  <div className="mt-1 font-bold text-success">₪{(Number(initialPayment) || 0).toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-text-muted">المتبقي</div>
+                  <div className="mt-1 font-bold text-warning">₪{Math.max(0, totalWithTax - (Number(initialPayment) || 0)).toFixed(2)}</div>
+                </div>
+              </div>
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={receiveImmediately}
                   onChange={(e) => setReceiveImmediately(e.target.checked)}
+                  disabled={isEmbedded}
                   className="w-5 h-5 rounded border-gray-300 text-green focus:ring-green"
                 />
                 <div>
@@ -946,12 +1057,19 @@ export function CreatePurchasePage() {
                     مبلغ الدفعة المسبقة {receiveImmediately ? '*' : '(اختياري)'}
                   </label>
                   <Input
+                    ref={paymentInputRef}
                     type="number"
                     min="0.01"
-                    max={totalCost}
+                    max={totalWithTax}
                     step="0.01"
                     value={initialPayment}
                     onChange={(e) => setInitialPayment(e.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setCurrentStep(5);
+                    }}
                     placeholder={`أدخل دفعة كاملة أو جزئية (الإجمالي ₪${totalCost.toLocaleString('en-US', { maximumFractionDigits: 2 })})`}
                   />
                   <p className="mt-1 text-xs text-text-muted">
@@ -959,129 +1077,34 @@ export function CreatePurchasePage() {
                   </p>
                 </div>
               )}
+              <div className="mt-5 flex justify-end border-t border-border pt-4">
+                <Button type="button" variant="primary" onClick={() => advanceStep()}>متابعة إلى المراجعة</Button>
+              </div>
             </CardContent>
-          </Card>
+          </Card>}
 
-          {/* Actions */}
-          <Card className="border-primary/20">
-            <CardContent className="p-4 space-y-3">
-              <Button
-                variant="primary"
-                onClick={handleCreatePurchase}
-                disabled={isSubmitting}
-                className="w-full gap-2 shadow-lg shadow-primary/15"
-                size="lg"
-              >
-                {isSubmitting ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                    جاري التنفيذ...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    {receiveImmediately ? 'إنشاء واستلام' : 'إنشاء الشراء'}
-                  </>
-                )}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => navigate('/app/purchases')}
-                className="w-full"
-              >
-                إلغاء
-              </Button>
-              <p className="text-center text-xs text-text-muted">
-                {items.length === 0
-                  ? 'أضف منتجًا واحدًا على الأقل للمتابعة'
-                  : !selectedSupplier
-                    ? 'اختر المورد لإكمال العملية'
-                    : 'يمكنك تعديل الكمية والأسعار قبل الحفظ'}
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* Supplier Info */}
-          {selectedSupplier && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <Truck className="w-4 h-4 text-cyan" />
-                  معلومات المورد
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {(() => {
-                  const supplier = suppliers.find(s => s.id === selectedSupplier);
-                  if (!supplier) return null;
-                  return (
-                    <div className="space-y-2 text-sm">
-                      <div><span className="text-text-muted">الاسم:</span> {supplier.name}</div>
-                      {supplier.phone && <div><span className="text-text-muted">الهاتف:</span> {supplier.phone}</div>}
-                      {supplier.email && <div><span className="text-text-muted">البريد:</span> {supplier.email}</div>}
-                      {supplier.address && <div><span className="text-text-muted">العنوان:</span> {supplier.address}</div>}
-                    </div>
-                  );
-                })()}
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
+
+      </div>
+    </Modal>
 
       {/* Manual Product Creation Modal */}
       <Modal
         isOpen={isManualProductModalOpen}
-        onClose={() => { setIsManualProductModalOpen(false); setEditingProductId(null); }}
+        onClose={() => { setIsManualProductModalOpen(false); setEditingProductId(null); setShowManualProductDetails(false); }}
         title={editingProductId ? 'تعديل بيانات القطعة' : 'إضافة قطعة جديدة'}
         variant="modern"
         size="lg"
       >
-        <div className="space-y-4">
+        <div className="rounded-xl border border-border bg-surface p-3">
           {/* Basic Information */}
           <div style={{ 
-            marginBottom: '20px',
-            paddingBottom: '20px',
+            marginBottom: '12px',
+            paddingBottom: '12px',
             borderBottom: '1px solid var(--border-subtle)'
           }}>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '10px',
-              marginBottom: '16px',
-              padding: '10px 14px',
-              background: 'var(--bg-surface-elevated)',
-              borderRadius: '12px',
-              border: '1px solid var(--border-subtle)'
-            }}>
-              <div style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                background: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)'
-              }}>
-                <Sparkles className="w-4 h-4" style={{ color: 'var(--text-on-primary)' }} />
-              </div>
-              <h4 style={{ 
-                fontSize: '13px', 
-                fontWeight: '600', 
-                color: 'var(--text-primary)',
-                margin: 0,
-                letterSpacing: '0.2px'
-              }}>
-                المعلومات الأساسية
-              </h4>
-            </div>
-            
-            <div style={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', 
-              gap: '16px' 
-            }}>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)]">
               <div>
                 <label style={{ 
                   fontSize: '12px', 
@@ -1095,9 +1118,12 @@ export function CreatePurchasePage() {
                   <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
                 </label>
                 <Input 
+                  ref={manualNameInputRef}
                   value={manualProductData.name}
                   onChange={(e) => setManualProductData({ ...manualProductData, name: e.target.value })}
+                  onKeyDown={(event) => focusManualField(event, manualSkuInputRef.current)}
                   placeholder="أدخل اسم المنتج"
+                  autoFocus
                 />
               </div>
               <div>
@@ -1112,9 +1138,10 @@ export function CreatePurchasePage() {
                   SKU
                 </label>
                 <Input 
+                  ref={manualSkuInputRef}
                   value={manualProductData.sku}
                   readOnly
-                  helperText="يتم توليده تلقائيًا"
+                  onKeyDown={(event) => focusManualField(event, manualBarcodeInputRef.current)}
                   placeholder="SKU-..."
                 />
               </div>
@@ -1130,8 +1157,10 @@ export function CreatePurchasePage() {
                   الباركود
                 </label>
                 <Input 
+                  ref={manualBarcodeInputRef}
                   value={manualProductData.barcode}
                   onChange={(e) => setManualProductData({ ...manualProductData, barcode: e.target.value })}
+                  onKeyDown={(event) => focusManualField(event, manualCategoryInputRef.current)}
                   placeholder="أدخل الباركود"
                 />
               </div>
@@ -1146,28 +1175,31 @@ export function CreatePurchasePage() {
                 }}>
                   التصنيف
                 </label>
-                <Select
-                  value={manualProductData.category_id}
-                  onChange={(e) => setManualProductData({ ...manualProductData, category_id: e.target.value })}
-                  options={[
-                    { value: '', label: 'اختر التصنيف...' },
-                    ...categories.map((c) => ({ value: c.id, label: c.name })),
-                  ]}
-                  emptyMessage="لا يوجد تصنيفات"
-                />
+                <div className="flex items-center gap-1">
+                  <Select
+                    ref={manualCategoryInputRef}
+                    value={manualProductData.category_id}
+                    onChange={(e) => setManualProductData({ ...manualProductData, category_id: e.target.value })}
+                    onKeyDown={(event) => focusManualField(event, manualCostInputRef.current)}
+                    options={[
+                      { value: '', label: 'اختر التصنيف...' },
+                      ...categories.map((c) => ({ value: c.id, label: c.name })),
+                    ]}
+                    emptyMessage="لا يوجد تصنيفات"
+                    className="min-w-0"
+                  />
+                  <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => setQuickCreateMode('category')} aria-label="إضافة تصنيف" title="إضافة تصنيف">
+                    +
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
 
-          <div style={{ marginBottom: '20px', paddingBottom: '20px', borderBottom: '1px solid var(--border-subtle)' }}>
+          {showManualProductDetails && <div className="mb-4 border-t border-border pt-4">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <label className="block text-sm font-semibold text-text-primary">صورة المنتج</label>
-                <p className="mt-1 text-xs text-text-muted">أضف صورة تساعدك على تمييز الماركة بسرعة</p>
-              </div>
-              <span className="rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] font-semibold text-primary">
-                اختياري
-              </span>
+              <div className="text-sm font-semibold text-text-primary">معلومات إضافية</div>
+              <span className="text-xs text-text-muted">اختياري</span>
             </div>
 
             <div className="relative overflow-hidden rounded-2xl border border-border bg-surface-elevated p-2 shadow-sm">
@@ -1230,52 +1262,10 @@ export function CreatePurchasePage() {
                 aria-label="رفع صورة المنتج"
               />
             </div>
-          </div>
+          </div>}
 
-          {/* Pricing Information */}
-          <div style={{ 
-            marginBottom: '20px',
-            paddingBottom: '20px',
-            borderBottom: '1px solid var(--border-subtle)'
-          }}>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '10px',
-              marginBottom: '16px',
-              padding: '10px 14px',
-              background: 'var(--bg-surface-elevated)',
-              borderRadius: '12px',
-              border: '1px solid var(--border-subtle)'
-            }}>
-              <div style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                background: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)'
-              }}>
-                <DollarSign className="w-4 h-4" style={{ color: 'var(--text-on-primary)' }} />
-              </div>
-              <h4 style={{ 
-                fontSize: '13px', 
-                fontWeight: '600', 
-                color: 'var(--text-primary)',
-                margin: 0,
-                letterSpacing: '0.2px'
-              }}>
-                معلومات التسعير
-              </h4>
-            </div>
-            
-            <div style={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', 
-              gap: '16px' 
-            }}>
+          <div className="border-t border-border pt-3">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
               <div>
                 <label style={{ 
                   fontSize: '12px', 
@@ -1289,9 +1279,11 @@ export function CreatePurchasePage() {
                   <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
                 </label>
                 <Input
+                  ref={manualCostInputRef}
                   type="number"
                   value={manualProductData.cost_price}
                   onChange={(e) => handleCostPriceChange(e.target.value)}
+                  onKeyDown={(event) => focusManualField(event, manualSellingInputRef.current)}
                   placeholder="0.00"
                 />
               </div>
@@ -1308,9 +1300,11 @@ export function CreatePurchasePage() {
                   <span style={{ color: 'var(--danger)', marginRight: '4px' }}>*</span>
                 </label>
                 <Input
+                  ref={manualSellingInputRef}
                   type="number"
                   value={manualProductData.selling_price}
                   onChange={(e) => setManualProductData({ ...manualProductData, selling_price: e.target.value })}
+                  onKeyDown={(event) => focusManualField(event, manualMinStockInputRef.current)}
                   placeholder="0.00"
                 />
               </div>
@@ -1326,11 +1320,17 @@ export function CreatePurchasePage() {
                   الحد الأدنى للمخزون
                 </label>
                 <Input
+                  ref={manualMinStockInputRef}
                   type="number"
                   min="0"
                   step="1"
                   value={manualProductData.min_stock}
                   onChange={(e) => setManualProductData({ ...manualProductData, min_stock: e.target.value })}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return;
+                    event.preventDefault();
+                    void handleManualProductCreate();
+                  }}
                   placeholder="0"
                   aria-label="الحد الأدنى للمخزون"
                 />
@@ -1338,65 +1338,33 @@ export function CreatePurchasePage() {
             </div>
           </div>
 
-          {/* Additional Information */}
-          <div>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '10px',
-              marginBottom: '16px',
-              padding: '10px 14px',
-              background: 'var(--bg-surface-elevated)',
-              borderRadius: '12px',
-              border: '1px solid var(--border-subtle)'
-            }}>
-              <div style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                background: 'var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)'
-              }}>
-                <Box className="w-4 h-4" style={{ color: 'var(--text-on-primary)' }} />
-              </div>
-              <h4 style={{ 
-                fontSize: '13px', 
-                fontWeight: '600', 
-                color: 'var(--text-primary)',
-                margin: 0,
-                letterSpacing: '0.2px'
-              }}>
-                معلومات إضافية
-              </h4>
-            </div>
-            
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mt-4 w-full justify-start border-t border-border pt-4 text-text-secondary"
+            onClick={() => setShowManualProductDetails((current) => !current)}
+          >
+            <Box className="h-4 w-4" />
+            {showManualProductDetails ? 'إخفاء المعلومات الإضافية' : '+ معلومات إضافية'}
+          </Button>
+
+          {showManualProductDetails && (
             <div>
-              <label style={{ 
-                fontSize: '12px', 
-                fontWeight: '600', 
-                color: 'var(--text-secondary)',
-                marginBottom: '8px',
-                display: 'block',
-                letterSpacing: '0.2px'
-              }}>
-                الوصف
-              </label>
-              <Input 
+              <label className="mb-2 block text-xs font-semibold text-text-secondary">الوصف</label>
+              <Input
                 value={manualProductData.description}
                 onChange={(e) => setManualProductData({ ...manualProductData, description: e.target.value })}
                 placeholder="أدخل وصف المنتج"
               />
             </div>
-          </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-3 justify-end pt-4">
             <Button
               variant="secondary"
-              onClick={() => { setIsManualProductModalOpen(false); setEditingProductId(null); }}
+              onClick={() => { setIsManualProductModalOpen(false); setEditingProductId(null); setShowManualProductDetails(false); }}
               disabled={createProductMutation.isPending || updateProductMutation.isPending}
             >
               إلغاء
@@ -1423,6 +1391,16 @@ export function CreatePurchasePage() {
         </div>
       </Modal>
       <ConfirmDialog
+        isOpen={showUnsavedExitDialog}
+        onClose={() => setShowUnsavedExitDialog(false)}
+        onConfirm={completeClosePurchase}
+        title="الخروج من عملية الشراء؟"
+        message="لديك بيانات غير محفوظة. يمكنك متابعة التحرير أو الخروج دون حفظ هذه العملية."
+        confirmText="خروج دون حفظ"
+        cancelText="متابعة التحرير"
+        variant="warning"
+      />
+      <ConfirmDialog
         isOpen={productToDelete !== null}
         onClose={() => setProductToDelete(null)}
         onConfirm={() => {
@@ -1437,6 +1415,20 @@ export function CreatePurchasePage() {
         isLoading={deleteProductMutation.isPending}
         variant="danger"
       />
-    </div>
+      <InventoryQuickCreateModal
+        mode={quickCreateMode || 'category'}
+        isOpen={quickCreateMode !== null}
+        onClose={() => setQuickCreateMode(null)}
+        onCreated={(record) => {
+          if (quickCreateMode === 'supplier') {
+            setSelectedSupplier(record.id);
+          } else {
+            setManualProductData((current) => ({ ...current, category_id: record.id }));
+          }
+          void queryClient.invalidateQueries({ queryKey: quickCreateMode === 'supplier' ? ['suppliers'] : ['categories'] });
+          setQuickCreateMode(null);
+        }}
+      />
+    </>
   );
 }

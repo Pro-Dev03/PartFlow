@@ -1,0 +1,58 @@
+directories:
+  output: dist-electron-internal
+  buildResources: build
+appId: com.partflow.desktop
+productName: PartFlow
+artifactName: PartFlow-${version}-${arch}.${ext}
+files:
+  - filter:
+      - dist/**/*
+      - electron/**/*
+      - package.json
+extraResources:
+  - from: ../dist/windows-release/partflow-api.exe
+    to: backend/partflow-api.exe
+  - from: ../backend/partflow-local.db
+    to: partflow.db
+  - from: build/PartFlow-Internal-Code-Signing.cer
+    to: PartFlow-Internal-Code-Signing.cer
+  - from: public/partflow-logo.png
+    to: partflow-logo.png
+  - from: public/partflow-logo.ico
+    to: partflow-logo.ico
+extraMetadata:
+  main: electron/main.js
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  requestedExecutionLevel: asInvoker
+  icon: public/partflow-logo.ico
+  signAndEditExecutable: true
+  signtoolOptions:
+    certificateSubjectName: PartFlow Internal Code Signing
+  forceCodeSigning: true
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  include: build/installer.nsh
+  shortcutName: PartFlow
+  artifactName: PartFlow-${version}-setup.exe
+portable:
+  artifactName: PartFlow-${version}-portable.exe
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: build/icon.png
+  category: Office
+mac:
+  target:
+    - dmg
+  icon: build/icon.icns
+electronVersion: 44.0.0

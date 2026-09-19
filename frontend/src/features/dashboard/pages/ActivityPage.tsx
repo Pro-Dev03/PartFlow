@@ -3,10 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Activity, ArrowLeft, ArrowRight, Clock, DollarSign, RotateCcw, ShoppingCart } from 'lucide-react';
 import { dashboardApi } from '../../../services/api/endpoints';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { Badge } from '../../../components/ui/badge';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { Badge } from '../../../design-system/components/badge';
 import { formatStoreActivityDateTime } from '../../../utils/store-time';
 
 const PAGE_SIZE = 10;

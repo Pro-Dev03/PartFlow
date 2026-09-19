@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, FileText, Plus, Search } from 'lucide-react';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Button } from '../../../components/ui/button';
-import { Card, CardContent } from '../../../components/ui/card';
-import { Input } from '../../../components/ui/input';
-import { Badge } from '../../../components/ui/badge';
-import { PaginationControls } from '../../../components/ui/pagination-controls';
+import { ArrowRight, CalendarDays, CircleDollarSign, Eye, FileText, Plus, ReceiptText, Search } from 'lucide-react';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Button } from '../../../design-system/components/button';
+import { Card, CardContent } from '../../../design-system/components/card';
+import { Input } from '../../../design-system/components/input';
+import { Badge } from '../../../design-system/components/badge';
+import { Modal } from '../../../design-system/components/modal';
+import { PaginationControls } from '../../../design-system/components/pagination-controls';
 import { salesApi, customersApi, debtsApi } from '../../../services/api/endpoints';
 import { useDebounce } from '../../../hooks/useDebounce';
+import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
 
 const formatMoney = (value: unknown) => `₪${Number(value || 0).toLocaleString('en-US')}`;
 
@@ -24,6 +26,7 @@ export function CustomerPurchasesPage() {
   const { customerId } = useParams();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
   const pageSize = 20;
   const debouncedSearch = useDebounce(search, 250);
 
@@ -51,7 +54,45 @@ export function CustomerPurchasesPage() {
     enabled: Boolean(customerId),
   });
 
+  const saleDetailsQuery = useQuery({
+    queryKey: ['customer-purchase-invoice', selectedSaleId],
+    queryFn: () => salesApi.get(selectedSaleId || ''),
+    enabled: Boolean(selectedSaleId),
+  });
+
   const customer = customerQuery.data?.data ?? customerQuery.data;
+  const saleDetailsPayload = saleDetailsQuery.data?.data ?? saleDetailsQuery.data;
+  const saleDetails = saleDetailsPayload?.sale ?? saleDetailsPayload;
+  const saleItems = Array.isArray(saleDetailsPayload?.items) ? saleDetailsPayload.items : [];
+  const invoiceData = saleDetails ? {
+    id: saleDetails.id,
+    invoiceNumber: saleDetails.invoice_number,
+    customerName: customer?.name || '',
+    customerPhone: customer?.phone,
+    saleDate: saleDetails.sale_date || saleDetails.created_at,
+    items: saleItems.map((item: any) => ({
+      name: item.product_name || item.name || 'منتج',
+      sku: item.sku,
+      barcode: item.barcode,
+      condition: item.condition || 'NEW',
+      sellingPrice: Number(item.unit_price || 0),
+      quantity: Number(item.quantity || 0),
+      total: Number(item.total_amount || 0),
+      discountAmount: Number(item.discount_amount || 0),
+      taxAmount: Number(item.tax_amount || 0),
+    })),
+    subtotal: Number(saleDetails.subtotal || 0),
+    discountAmount: Number(saleDetails.discount_amount || 0),
+    taxAmount: Number(saleDetails.tax_amount || 0),
+    total: Number(saleDetails.total_amount || 0),
+    paidAmount: Number(saleDetails.paid_amount || 0),
+    remaining: Math.max(Number(saleDetails.total_amount || 0) - Number(saleDetails.paid_amount || 0), 0),
+    paymentMethod: saleDetails.payment_method === 'debt' ? 'credit' : saleDetails.payment_method || 'cash',
+    paymentStatus: saleDetails.payment_status,
+    cashReceived: Number(saleDetails.cash_received || 0),
+    changeAmount: Number(saleDetails.change_amount || 0),
+    notes: saleDetails.notes,
+  } : null;
   const payload = salesQuery.data?.data ?? salesQuery.data;
   const sales = Array.isArray(payload) ? payload : (payload?.sales ?? []);
   const ledgerPayload = ledgerQuery.data?.data ?? ledgerQuery.data;
@@ -95,16 +136,23 @@ export function CustomerPurchasesPage() {
         <Card><CardContent className="p-4"><span className="text-xs text-text-muted">الرصيد المستحق</span><p className="mt-1 text-xl font-bold text-red-600">{formatMoney(outstanding)}</p></CardContent></Card>
       </div>
 
-      <Card>
+      <Card className="overflow-hidden">
         <CardContent className="p-0">
-          <div className="flex flex-col gap-3 border-b border-border p-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="flex items-center gap-2 font-bold text-text-primary"><FileText className="h-5 w-5 text-primary" /> فواتير العميل</h2>
-              <p className="mt-1 text-xs text-text-muted">{total} فاتورة، ويمكن فتح أي فاتورة لعرض المنتجات والتفاصيل</p>
+          <div className="flex flex-col gap-5 border-b border-border bg-surface-elevated px-5 py-5 md:flex-row md:items-end md:justify-between">
+            <div className="min-w-0">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-primary">
+                <ReceiptText className="h-4 w-4" />
+                <span>سجل الفواتير</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="flex items-center gap-2 text-lg font-bold text-text-primary"><FileText className="h-5 w-5 text-primary" /> فواتير العميل</h2>
+                <span className="rounded-full border border-primary/20 bg-primary/8 px-2.5 py-1 text-xs font-semibold text-primary">{total} فاتورة</span>
+              </div>
+              <p className="mt-2 max-w-xl text-sm text-text-muted">افتح أي فاتورة لمراجعة المنتجات والمدفوعات والتفاصيل.</p>
             </div>
-            <div className="relative w-full md:w-72">
+            <div className="relative w-full md:w-80 md:max-w-[40%]">
               <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث برقم الفاتورة..." className="pr-9" />
+              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث برقم الفاتورة..." className="h-10 bg-surface pr-9" />
             </div>
           </div>
 
@@ -116,15 +164,15 @@ export function CustomerPurchasesPage() {
             <div className="p-12 text-center text-text-muted">لا توجد مشتريات مطابقة</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-[820px] w-full text-sm" dir="rtl">
-                <thead className="border-b border-border bg-surface-muted text-right text-xs text-text-muted">
+              <table className="min-w-[760px] w-full text-sm" dir="rtl">
+                <thead className="border-b border-border bg-surface-muted text-right text-xs font-semibold text-text-muted">
                   <tr>
-                    <th className="px-4 py-3">الفاتورة</th>
-                    <th className="px-4 py-3">التاريخ</th>
-                    <th className="px-4 py-3">الإجمالي</th>
-                    <th className="px-4 py-3">المدفوع</th>
-                    <th className="px-4 py-3">المتبقي</th>
-                    <th className="px-4 py-3">الحالة</th>
+                    <th className="px-5 py-3.5">الفاتورة</th>
+                    <th className="px-5 py-3.5"><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5" />التاريخ</span></th>
+                    <th className="px-5 py-3.5"><span className="inline-flex items-center gap-1.5"><CircleDollarSign className="h-3.5 w-3.5" />الإجمالي</span></th>
+                    <th className="px-5 py-3.5">المدفوع</th>
+                    <th className="px-5 py-3.5">المتبقي</th>
+                    <th className="px-5 py-3.5">الحالة</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -134,13 +182,20 @@ export function CustomerPurchasesPage() {
                     const remaining = Math.max(Number(debt?.remaining_amount ?? sale.remaining_amount ?? (totalAmount - Number(sale.paid_amount ?? 0))), 0);
                     const paidAmount = Math.max(totalAmount - remaining, 0);
                     return (
-                      <tr key={sale.id} className="hover:bg-surface-muted">
-                        <td className="px-4 py-4 font-semibold text-text-primary">{sale.invoice_number || sale.id}</td>
-                        <td className="px-4 py-4 text-text-secondary">{formatDate(sale.sale_date || sale.created_at)}</td>
-                        <td className="px-4 py-4 font-semibold">{formatMoney(totalAmount)}</td>
-                        <td className="px-4 py-4 text-green-600">{formatMoney(paidAmount)}</td>
-                        <td className="px-4 py-4 font-semibold text-red-600">{formatMoney(remaining)}</td>
-                        <td className="px-4 py-4"><Badge variant={remaining > 0 ? 'danger' : 'success'}>{remaining > 0 ? 'متبقي عليها مبلغ' : 'مدفوعة بالكامل'}</Badge></td>
+                      <tr key={sale.id} className="group transition-colors hover:bg-surface-muted/70">
+                        <td className="px-5 py-4 font-semibold text-text-primary">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="min-w-0 truncate font-mono text-xs font-semibold tracking-wide text-text-primary">{sale.invoice_number || sale.id}</span>
+                            <Button type="button" variant="ghost" size="icon" tableAction className="text-primary" onClick={() => setSelectedSaleId(String(sale.id))} aria-label={`عرض الفاتورة ${sale.invoice_number || sale.id}`} title="عرض الفاتورة">
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-5 py-4 text-text-secondary">{formatDate(sale.sale_date || sale.created_at)}</td>
+                        <td className="whitespace-nowrap px-5 py-4 font-bold text-text-primary">{formatMoney(totalAmount)}</td>
+                        <td className="whitespace-nowrap px-5 py-4 font-medium text-green-600">{formatMoney(paidAmount)}</td>
+                        <td className="whitespace-nowrap px-5 py-4 font-semibold text-red-600">{formatMoney(remaining)}</td>
+                        <td className="px-5 py-4"><Badge variant={remaining > 0 ? 'danger' : 'success'}>{remaining > 0 ? 'متبقي عليها مبلغ' : 'مدفوعة بالكامل'}</Badge></td>
                       </tr>
                     );
                   })}
@@ -151,6 +206,16 @@ export function CustomerPurchasesPage() {
           )}
         </CardContent>
       </Card>
+
+      <Modal isOpen={Boolean(selectedSaleId)} onClose={() => setSelectedSaleId(null)} title="فاتورة البيع" variant="modern" size="xl">
+        {saleDetailsQuery.isLoading ? (
+          <div className="p-10 text-center text-text-muted">جاري تحميل الفاتورة...</div>
+        ) : saleDetailsQuery.isError || !invoiceData ? (
+          <div className="p-10 text-center text-red-600">تعذر تحميل تفاصيل الفاتورة</div>
+        ) : (
+          <UsedPartsInvoice saleData={invoiceData} onClose={() => setSelectedSaleId(null)} />
+        )}
+      </Modal>
     </div>
   );
 }

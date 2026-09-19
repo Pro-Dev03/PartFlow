@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Input } from '../ui/input';
-import { Button } from '../ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Input } from '../../design-system/components/input';
+import { Button } from '../../design-system/components/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../design-system/components/card';
 import { CustomerFormData } from '../../features/customers/types/customers.types';
 
 const generateCustomerCode = () => `CUST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;

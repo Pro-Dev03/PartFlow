@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Globe2, Save, ShieldAlert } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button } from '../../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Select } from '../../../components/ui/select';
+import { Button } from '../../../design-system/components/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Select } from '../../../design-system/components/select';
 import { settingsApi } from '../../../services/api/endpoints';
 import { RegionalProfile } from '../../../types/regional';
 import { getDeviceTimezone, setRegionalProfile } from '../../../utils/store-time';

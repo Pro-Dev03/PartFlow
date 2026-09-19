@@ -2,12 +2,15 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import { purchasesApi, suppliersApi } from '../../../services/api/endpoints';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Button } from '../../../components/ui/button';
-import { Card, CardContent } from '../../../components/ui/card';
-import { Badge } from '../../../components/ui/badge';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Button } from '../../../design-system/components/button';
+import { Card, CardContent } from '../../../design-system/components/card';
+import { Badge } from '../../../design-system/components/badge';
+import { SupplierInvoiceModal } from '../components/SupplierInvoiceModal';
+import { useState } from 'react';
 
 export function PurchaseDetailsPage() {
+  const [supplierInvoiceOpen, setSupplierInvoiceOpen] = useState(false);
   const navigate = useNavigate();
   const { id } = useParams();
   const { data, isLoading, isError } = useQuery({
@@ -36,10 +39,13 @@ export function PurchaseDetailsPage() {
         title="تفاصيل عملية الشراء"
         description={purchase?.invoice_number || 'معلومات العملية والقطع المرتبطة بها'}
         actions={
-          <Button variant="secondary" onClick={() => navigate('/app/purchases')}>
-            <ArrowRight className="w-4 h-4" />
-            رجوع
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={() => setSupplierInvoiceOpen(true)} disabled={!purchase}>عرض فاتورة المورد</Button>
+            <Button variant="secondary" onClick={() => navigate('/app/purchases')}>
+              <ArrowRight className="w-4 h-4" />
+              رجوع
+            </Button>
+          </div>
         }
       />
       {isLoading && <div className="p-12 text-center">جاري التحميل...</div>}
@@ -51,7 +57,10 @@ export function PurchaseDetailsPage() {
               <div><span className="text-sm text-text-muted">المورد</span><p>{purchase.supplier?.name || purchase.supplier_name || '-'}</p></div>
               <div><span className="text-sm text-text-muted">الحالة</span><p><Badge>{purchase.status}</Badge></p></div>
               <div><span className="text-sm text-text-muted">الإجمالي</span><p>₪{Number(purchase.total_amount || 0).toLocaleString('en-US')}</p></div>
-              <div><span className="text-sm text-text-muted">التاريخ</span><p>{purchase.purchase_date ? new Date(purchase.purchase_date).toLocaleDateString('en-US') : '-'}</p></div>
+              <div><span className="text-sm text-text-muted">تاريخ فاتورة المورد</span><p>{purchase.purchase_date ? new Date(purchase.purchase_date).toLocaleDateString('en-US') : '-'}</p></div>
+              <div><span className="text-sm text-text-muted">رقم فاتورة المورد</span><p>{purchase.invoice_number || '-'}</p></div>
+              <div><span className="text-sm text-text-muted">المدفوع</span><p>₪{Number(purchase.paid_amount || 0).toLocaleString('en-US')}</p></div>
+              <div><span className="text-sm text-text-muted">المتبقي</span><p>₪{Math.max(0, Number(purchase.total_amount || 0) - Number(purchase.paid_amount || 0)).toLocaleString('en-US')}</p></div>
             </div>
             <div className="rounded border border-border bg-surface-muted p-4">
               <h2 className="font-semibold mb-3">ملخص حساب المورد</h2>
@@ -93,6 +102,13 @@ export function PurchaseDetailsPage() {
           </CardContent>
         </Card>
       )}
+      <SupplierInvoiceModal
+        isOpen={supplierInvoiceOpen}
+        onClose={() => setSupplierInvoiceOpen(false)}
+        purchase={purchase}
+        supplier={purchase?.supplier}
+        items={items}
+      />
     </div>
   );
 }

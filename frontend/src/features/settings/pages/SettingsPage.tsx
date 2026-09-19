@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Button } from '../../../components/ui/button';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Button } from '../../../design-system/components/button';
 import { useAuthStore } from '../../../stores/authStore';
 import { authApi } from '../../../services/api/endpoints';
 import {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '../../test/utils'
-import { Card, CardContent } from '../../components/ui/card'
+import { Card, CardContent } from '../../design-system/components/card'
 
 describe('Card Component', () => {
   it('should render card with content', () => {

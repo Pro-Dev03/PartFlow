@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { returnsApi } from '../../../services/api/endpoints';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { PageHeader } from '../../../components/ui/page-header';
-import { Badge } from '../../../components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { Badge } from '../../../design-system/components/badge';
 import { toast } from 'sonner';
 import { formatStoreDate } from '../../../utils/store-time';
 import { 

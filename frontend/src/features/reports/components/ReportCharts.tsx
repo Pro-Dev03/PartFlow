@@ -1,4 +1,4 @@
-import { SimpleBarChart, SimpleLineChart, SimplePieChart } from '../../../components/ui/charts';
+import { SimpleBarChart, SimpleLineChart, SimplePieChart } from '../../../design-system/components/charts';
 import { formatStoreDate } from '../../../utils/store-time';
 
 interface ReportChartsProps {

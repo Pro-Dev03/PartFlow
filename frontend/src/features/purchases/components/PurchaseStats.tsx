@@ -1,4 +1,4 @@
-import { StatCard } from '../../../components/ui/stat-card';
+import { StatCard } from '../../../design-system/components/stat-card';
 import { ShoppingCart, Calendar, Package, RotateCcw, Truck, CreditCard, Receipt } from 'lucide-react';
 import { PurchaseStats } from '../types/purchases.types';
 

@@ -1,7 +1,7 @@
 import { Bell, TrendingUp, Package, AlertTriangle, CheckCircle, Clock, Sparkles, ArrowRight, X } from 'lucide-react';
-import { Card, CardContent } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
+import { Card, CardContent } from '../../design-system/components/card';
+import { Button } from '../../design-system/components/button';
+import { Badge } from '../../design-system/components/badge';
 
 interface SmartAlert {
   id: string;

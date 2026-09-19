@@ -1,4 +1,4 @@
-import { StatCard } from '../../../components/ui/stat-card';
+import { StatCard } from '../../../design-system/components/stat-card';
 import { DollarSign, AlertTriangle, Calendar, Users } from 'lucide-react';
 import { DebtStats } from '../types/debts.types';
 

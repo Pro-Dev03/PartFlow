@@ -4,21 +4,22 @@ import { useTranslation } from '../../../hooks/useTranslation';
 import { useToast } from '../../../hooks/useToast';
 import { useDebounce } from '../../../hooks/useDebounce';
 import { suppliersApi } from '../../../services/api/endpoints';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { Input } from '../../../components/ui/input';
-import { PageHeader } from '../../../components/ui/page-header';
-import { EmptyState } from '../../../components/ui/empty-state';
-import { LoadingSpinner } from '../../../components/ui/loading-spinner';
-import { SupplierCard } from '../../../components/ui/supplier-card';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { Input } from '../../../design-system/components/input';
+import { PageHeader } from '../../../design-system/components/page-header';
+import { EmptyState } from '../../../design-system/components/empty-state';
+import { LoadingSpinner } from '../../../design-system/components/loading-spinner';
+import { SupplierCard } from '../../../design-system/components/supplier-card';
 import { SupplierModals } from '../components/SupplierModals';
-import { ConfirmDialog } from '../../../components/ui/confirm-dialog';
-import { PaginationControls } from '../../../components/ui/pagination-controls';
-import { SortButton } from '../../../components/ui/sort-button';
+import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
+import { PaginationControls } from '../../../design-system/components/pagination-controls';
+import { SortButton } from '../../../design-system/components/sort-button';
 import type { SupplierFormData } from '../../../components/forms/SupplierForm';
 import { Supplier } from '../../../types/models';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { ReportActions } from '../../../components/ui/report-actions';
+import { ReportActions } from '../../../design-system/components/report-actions';
+import { StatCard } from '../../../design-system/components/stat-card';
 import { getButtonSize } from '../../../config/button-sizes';
 import { normalizeSupplier } from '../utils/supplier-normalization';
 import {
@@ -192,60 +193,35 @@ export function SuppliersPage() {
       />
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '14px' }}
-           className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-small text-text-muted">إجمالي الموردين</p>
-                <p className="text-h2 font-bold text-text mt-1">
-                  {totalSuppliers}
-                </p>
-              </div>
-              <Truck className="w-5 h-5 text-text-muted" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-small text-text-muted">إجمالي المشتريات</p>
-                <p className="text-h2 font-bold text-text mt-1">
-                  ₪{totalPurchases.toLocaleString()}
-                </p>
-              </div>
-              <DollarSign className="w-5 h-5 text-text-muted" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-small text-text-muted">المدفوع</p>
-                <p className="text-h2 font-bold text-text mt-1">
-                  ₪{totalPaid.toLocaleString()}
-                </p>
-              </div>
-              <DollarSign className="w-5 h-5 text-text-muted" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-small text-text-muted">صافي المستحق</p>
-                <p className="text-h2 font-bold text-text mt-1">
-                  ₪{totalOutstanding.toLocaleString()}
-                </p>
-              </div>
-              <DollarSign className="w-5 h-5 text-text-muted" />
-            </div>
-          </CardContent>
-        </Card>
+      <div className="unified-stats-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          title="إجمالي الموردين"
+          value={totalSuppliers}
+          icon={Truck}
+          subtitle="مورد نشط"
+          variant="featured"
+        />
+        <StatCard
+          title="إجمالي المشتريات"
+          value={`₪${totalPurchases.toLocaleString()}`}
+          icon={DollarSign}
+          subtitle="قيمة المشتريات"
+          variant="default"
+        />
+        <StatCard
+          title="المدفوع"
+          value={`₪${totalPaid.toLocaleString()}`}
+          icon={DollarSign}
+          subtitle="تم الدفع"
+          variant="success"
+        />
+        <StatCard
+          title="صافي المستحق"
+          value={`₪${totalOutstanding.toLocaleString()}`}
+          icon={DollarSign}
+          subtitle="المتبقي"
+          variant="warning"
+        />
       </div>
 
       {/* Search and Filters */}

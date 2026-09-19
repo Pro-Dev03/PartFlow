@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '../../test/utils'
-import Modal from '../../components/ui/modal'
+import Modal from '../../design-system/components/modal'
 
 describe('Modal Component', () => {
   it('should render when isOpen is true', () => {

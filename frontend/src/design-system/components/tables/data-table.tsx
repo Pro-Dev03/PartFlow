@@ -1,8 +1,8 @@
 import { useState, useMemo, Fragment } from 'react';
-import { cn } from '../../utils';
-import { useIsMobile } from '../../hooks/useIsMobile';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
+import { cn } from '../../../utils';
+import { useIsMobile } from '../../../hooks/useIsMobile';
+import { Button } from '../button';
+import { Badge } from '../badge';
 import {
   Table,
   TableHeader,
@@ -10,7 +10,7 @@ import {
   TableHead,
   TableRow,
   TableCell,
-} from '../ui/table';
+} from '../table';
 import { 
   ChevronDown, 
   ChevronUp, 

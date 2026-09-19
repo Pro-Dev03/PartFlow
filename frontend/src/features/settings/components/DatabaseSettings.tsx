@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
 import { settingsApi } from '../../../services/api/endpoints';
 import { useAuthStore } from '../../../stores/authStore';
 import { RefreshCw, Wifi, Check, X, HardDrive, Trash2 } from 'lucide-react';

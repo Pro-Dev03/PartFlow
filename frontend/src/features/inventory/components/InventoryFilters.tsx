@@ -1,21 +1,22 @@
-import { Card, CardContent } from '../../../components/ui/card';
-import { Button } from '../../../components/ui/button';
-import { SearchInput } from '../../../components/ui/search-input';
-import { Select } from '../../../components/ui/select';
-import { Input } from '../../../components/ui/input';
-import { SortButton } from '../../../components/ui/sort-button';
+import { Card, CardContent } from '../../../design-system/components/card';
+import { Button } from '../../../design-system/components/button';
+import { SearchInput } from '../../../design-system/components/search-input';
+import { Select } from '../../../design-system/components/select';
+import { Input } from '../../../design-system/components/input';
+import { SortButton } from '../../../design-system/components/sort-button';
 import { getButtonSize } from '../../../config/button-sizes';
 import { cn } from '../../../utils';
-import { Filter, Zap } from 'lucide-react';
+import { Filter, RefreshCw } from 'lucide-react';
 import { FilterConfig, SortConfig } from '../types/inventory.types';
 import { useQuery } from '@tanstack/react-query';
 import { suppliersApi, categoriesApi } from '../../../services/api/endpoints';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 interface InventoryFiltersProps {
   searchQuery: string;
   setSearchQuery: (value: string) => void;
   onClearSearch: () => void;
+  onBarcodeScan?: (barcode: string) => Promise<boolean>;
   filters: FilterConfig[];
   setFilters: (filters: FilterConfig[]) => void;
   sortConfig: SortConfig;
@@ -28,6 +29,7 @@ export function InventoryFilters({
   searchQuery,
   setSearchQuery,
   onClearSearch,
+  onBarcodeScan,
   filters,
   setFilters,
   sortConfig,
@@ -65,6 +67,41 @@ export function InventoryFilters({
   const [purchaseDateTo, setPurchaseDateTo] = useState('');
   const [minPurchaseCost, setMinPurchaseCost] = useState('');
   const [maxPurchaseCost, setMaxPurchaseCost] = useState('');
+  const [showSortOptions, setShowSortOptions] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const scanStartedAtRef = useRef<number | null>(null);
+  const lastScanKeyAtRef = useRef<number | null>(null);
+
+  const handleSearchKeyDown = async (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      const value = searchQuery.trim();
+      const startedAt = scanStartedAtRef.current;
+      const elapsed = startedAt === null ? Number.POSITIVE_INFINITY : performance.now() - startedAt;
+      const isLikelyUsbScan = Boolean(onBarcodeScan && value.length >= 6 && (elapsed <= 700 || event.key === 'Enter'));
+      scanStartedAtRef.current = null;
+      lastScanKeyAtRef.current = null;
+
+      if (isLikelyUsbScan) {
+        event.preventDefault();
+        event.stopPropagation();
+        await onBarcodeScan(value);
+        requestAnimationFrame(() => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        });
+      }
+      return;
+    }
+
+    if (event.key.length === 1) {
+      const now = performance.now();
+      const gap = lastScanKeyAtRef.current === null ? Number.POSITIVE_INFINITY : now - lastScanKeyAtRef.current;
+      if (gap > 100 || scanStartedAtRef.current === null) {
+        scanStartedAtRef.current = now;
+      }
+      lastScanKeyAtRef.current = now;
+    }
+  };
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' | null = 'asc';
@@ -135,155 +172,165 @@ export function InventoryFilters({
     setFilters(newFilters);
   };
 
+  const activeFilterCount = filters.length;
+  const conditionFilterActive = filters.some((filter) => filter.key === 'condition' && filter.value === 'new');
+  const sortLabels: Record<string, string> = {
+    name: 'الاسم',
+    price: 'السعر',
+    sellingPrice: 'السعر',
+    stock: 'المخزون',
+    current_quantity: 'المخزون',
+    purchase_date: 'التاريخ',
+  };
+  const sortLabel = sortLabels[sortConfig.key] || 'الاسم';
+
   return (
     <Card>
       <CardContent>
-        <div style={{ padding: '18px' }}>
-          <div className={cn(
-            "flex flex-col gap-md",
-            isMobile ? "" : "md:flex-row"
-          )}>
+        <div className="p-4 md:p-[18px]">
+          <div className={cn('flex flex-col gap-3', !isMobile && 'md:flex-row md:items-center')}>
             <div className="min-w-0 flex-1">
               <SearchInput
-                placeholder="بحث"
+                ref={searchInputRef}
+                placeholder="ابحث عن منتج أو امسح الباركود"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(event) => { void handleSearchKeyDown(event); }}
                 onClear={onClearSearch}
                 size="sm"
-                className={cn(isMobile ? "w-full" : "w-full md:w-[500px] lg:w-[600px]")}
+                className="w-full"
               />
             </div>
-            <div className={cn(
-              "pf-search-controls flex shrink-0 gap-2",
-              isMobile ? "flex-wrap" : ""
-            )}>
-              {/* Category Filter */}
+
+            <div className={cn('flex min-w-0 flex-wrap items-center gap-2', isMobile ? 'w-full' : 'shrink-0')}>
               <Select
                 value={filters.find(f => f.key === 'category_id')?.value || ''}
                 onChange={(e) => handleCategoryFilter(e.target.value)}
-                options={[
-                  { value: '', label: 'كل التصنيفات' },
-                  ...categories.map((c) => ({ value: c.id, label: c.name })),
-                ]}
-                className={cn(isMobile ? "flex-1" : "w-48")}
+                options={[{ value: '', label: 'كل التصنيفات' }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
+                className={cn('pf-inventory-filter-select', isMobile ? 'min-w-0 flex-1' : 'w-36')}
                 size="sm"
               />
-
-              {/* Supplier Filter */}
               <Select
                 value={filters.find(f => f.key === 'supplier_id')?.value || ''}
                 onChange={(e) => handleSupplierFilter(e.target.value)}
-                options={[
-                  { value: '', label: 'كل الموردين' },
-                  ...suppliers.map((s) => ({ value: s.id, label: s.name })),
-                ]}
-                className={cn(isMobile ? "flex-1" : "w-48")}
+                options={[{ value: '', label: 'كل الموردين' }, ...suppliers.map((s) => ({ value: s.id, label: s.name }))]}
+                className={cn('pf-inventory-filter-select', isMobile ? 'min-w-0 flex-1' : 'w-36')}
                 size="sm"
               />
-              
-              <Button
-                variant="secondary"
-                size={getButtonSize('inventory', 'headerActions')}
-                onClick={() => {
-                  if (filters.some(f => f.key === 'condition' && f.value === 'new')) {
-                    setFilters(filters.filter(f => !(f.key === 'condition' && f.value === 'new')));
-                  } else {
-                    setFilters([...filters.filter(f => f.key !== 'condition'), { key: 'condition', value: 'new' }]);
-                  }
-                }}
-                className={cn("gap-2", isMobile ? "flex-1" : "")}
-              >
-                <Filter className="w-4 h-4" />
-                <span>فلتر</span>
-                {filters.some(f => f.key === 'condition' || f.key === 'category_id') && (
-                  <span className="text-xs" style={{
-                    background: 'rgba(34, 211, 238, 0.2)',
-                    color: 'var(--color-primary)',
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    fontWeight: '600'
-                  }}>{filters.filter(f => f.key === 'condition' || f.key === 'category_id').length}</span>
+
+              <div className="relative">
+                <SortButton
+                  onClick={() => setShowSortOptions((open) => !open)}
+                  label={`ترتيب: ${sortLabel}`}
+                  active={Boolean(sortConfig.key && sortConfig.direction)}
+                  direction={sortConfig.key ? sortConfig.direction : null}
+                  className="min-w-0 w-auto"
+                  aria-label="ترتيب نتائج المخزون"
+                />
+                {showSortOptions && (
+                  <div className="pf-sort-menu absolute end-0 top-full z-30 mt-2 min-w-40 rounded-xl p-1.5" role="menu">
+                    {[
+                      ['name', 'الاسم'],
+                      ['price', 'السعر'],
+                      ['stock', 'المخزون'],
+                      ['purchase_date', 'التاريخ'],
+                    ].map(([key, label]) => (
+                      <Button
+                        key={key}
+                        type="button"
+                        variant={sortConfig.key === key ? 'primary' : 'ghost'}
+                        size="sm"
+                        className="pf-sort-option w-full justify-start text-xs"
+                        onClick={() => { handleSort(key); setShowSortOptions(false); }}
+                        role="menuitem"
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
                 )}
-              </Button>
-              <SortButton
-                onClick={() => handleSort('name')}
-                label="الاسم"
-                active={sortConfig.key === 'name'}
-                direction={sortConfig.key === 'name' ? sortConfig.direction : null}
-                className={cn(isMobile ? "flex-1" : "")}
-                aria-label="ترتيب المخزون حسب الاسم"
-              />
+              </div>
+
               <Button
-                variant="secondary"
-                size={getButtonSize('inventory', 'headerActions')}
-                onClick={onRefresh}
-                className={cn("gap-2", isMobile ? "flex-1" : "")}
+                type="button"
+                variant={showAdvancedFilters || activeFilterCount > 0 ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setShowAdvancedFilters((open) => !open)}
+                className="pf-inventory-filter-trigger gap-1.5"
               >
-                <Zap className="w-4 h-4" />
-                <span>تحديث</span>
+                <Filter className="h-3.5 w-3.5" />
+                الفلاتر
+                {activeFilterCount > 0 && <span className="rounded-full bg-white/20 px-1.5 text-[10px]">{activeFilterCount}</span>}
               </Button>
-              {filters.length > 0 && (
+
+              {activeFilterCount > 0 && (
                 <Button
-                  variant="secondary"
-                  size={getButtonSize('inventory', 'headerActions')}
-                  onClick={() => setFilters([])}
-                  className={cn("gap-2", isMobile ? "flex-1" : "")}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setFilters([]);
+                    setPurchaseDateFrom('');
+                    setPurchaseDateTo('');
+                    setMinPurchaseCost('');
+                    setMaxPurchaseCost('');
+                  }}
+                  className="gap-1 text-xs text-text-secondary"
                 >
-                  <Filter className="w-4 h-4" />
-                  <span>مسح الفلاتر</span>
+                  مسح الفلاتر <span aria-hidden="true">×</span>
                 </Button>
               )}
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={onRefresh}
+                aria-label="تحديث المخزون"
+                title="تحديث المخزون"
+                className="h-8 w-8"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
             </div>
           </div>
-          
-          {/* Advanced Filters */}
+
           {showAdvancedFilters && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4 p-4 bg-surface-elevated/30 rounded-lg">
+            <div className="pf-inventory-advanced-panel mt-3 grid grid-cols-1 gap-3 rounded-xl p-3 sm:grid-cols-2 lg:grid-cols-5">
               <div>
-                <label className="block text-xs font-medium text-text-tertiary mb-2">تاريخ الشراء من</label>
-                <Input
-                  type="date"
-                  value={purchaseDateFrom}
-                  onChange={(e) => setPurchaseDateFrom(e.target.value)}
-                  className="w-full"
-                  size="sm"
-                />
+                <label className="mb-1.5 block text-xs font-medium text-text-tertiary">تاريخ الشراء من</label>
+                <Input type="date" value={purchaseDateFrom} onChange={(e) => setPurchaseDateFrom(e.target.value)} className="w-full" size="sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-text-tertiary mb-2">تاريخ الشراء إلى</label>
-                <Input
-                  type="date"
-                  value={purchaseDateTo}
-                  onChange={(e) => setPurchaseDateTo(e.target.value)}
-                  className="w-full"
-                  size="sm"
-                />
+                <label className="mb-1.5 block text-xs font-medium text-text-tertiary">تاريخ الشراء إلى</label>
+                <Input type="date" value={purchaseDateTo} onChange={(e) => setPurchaseDateTo(e.target.value)} className="w-full" size="sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-text-tertiary mb-2">أقل سعر شراء</label>
-                <Input
-                  type="number"
-                  placeholder="0"
-                  value={minPurchaseCost}
-                  onChange={(e) => setMinPurchaseCost(e.target.value)}
-                  className="w-full"
-                  size="sm"
-                />
+                <label className="mb-1.5 block text-xs font-medium text-text-tertiary">أقل سعر شراء</label>
+                <Input type="number" placeholder="0" value={minPurchaseCost} onChange={(e) => setMinPurchaseCost(e.target.value)} className="w-full" size="sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-text-tertiary mb-2">أعلى سعر شراء</label>
-                <Input
-                  type="number"
-                  placeholder="∞"
-                  value={maxPurchaseCost}
-                  onChange={(e) => setMaxPurchaseCost(e.target.value)}
-                  className="w-full"
-                  size="sm"
-                />
+                <label className="mb-1.5 block text-xs font-medium text-text-tertiary">أعلى سعر شراء</label>
+                <Input type="number" placeholder="∞" value={maxPurchaseCost} onChange={(e) => setMaxPurchaseCost(e.target.value)} className="w-full" size="sm" />
               </div>
-              <div className="md:col-span-4 flex justify-end gap-2 mt-2">
+              <div className="flex items-end gap-2 sm:col-span-2 lg:col-span-1">
                 <Button
-                  variant="secondary"
+                  type="button"
+                  variant={conditionFilterActive ? 'primary' : 'secondary'}
+                  size="sm"
+                  onClick={() => {
+                    if (conditionFilterActive) setFilters(filters.filter(f => !(f.key === 'condition' && f.value === 'new')));
+                    else setFilters([...filters.filter(f => f.key !== 'condition'), { key: 'condition', value: 'new' }]);
+                  }}
+                  className="w-full"
+                >
+                  منتجات جديدة
+                </Button>
+              </div>
+              <div className="flex justify-end gap-2 sm:col-span-2 lg:col-span-5">
+                <Button
+                  type="button"
+                  variant="ghost"
                   size="sm"
                   onClick={() => {
                     setPurchaseDateFrom('');
@@ -293,31 +340,12 @@ export function InventoryFilters({
                     setFilters(filters.filter(f => !['purchase_date_from', 'purchase_date_to', 'min_purchase_cost', 'max_purchase_cost'].includes(f.key)));
                   }}
                 >
-                  مسح
+                  مسح الإضافية
                 </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleAdvancedFilters}
-                >
-                  تطبيق الفلاتر
-                </Button>
+                <Button type="button" variant="primary" size="sm" onClick={handleAdvancedFilters}>تطبيق الفلاتر</Button>
               </div>
             </div>
           )}
-          
-          {/* Advanced Filters Toggle */}
-          <div className="mt-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              className="text-xs text-text-secondary"
-            >
-              {showAdvancedFilters ? 'إخفاء الفلاتر المتقدمة' : 'عرض الفلاتر المتقدمة'}
-              <Filter className="w-3 h-3 ml-2" />
-            </Button>
-          </div>
         </div>
       </CardContent>
     </Card>
