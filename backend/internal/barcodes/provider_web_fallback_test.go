@@ -170,6 +170,21 @@ func TestServiceUsesProviderTwoBeforeWebFallback(t *testing.T) {
 	}
 }
 
+func TestServiceUsesLocalCatalogBeforeExternalProviders(t *testing.T) {
+	local := &stubBarcodeProvider{result: &ProductLookup{Barcode: "8993242596979", Name: "Tasco Iced Coffee", Source: "local-catalog"}}
+	providerTwo := &stubBarcodeProvider{result: &ProductLookup{Barcode: "8993242596979", Name: "Should Not Be Used", Source: "openfoodfacts"}}
+	web := &stubBarcodeProvider{result: &ProductLookup{Barcode: "8993242596979", Name: "Should Not Be Used", Source: "searxng-web"}}
+	service := &Service{provider: local, provider2: providerTwo, webProvider: web, lookupCache: make(map[string]ProductLookup)}
+
+	result, err := service.LookupExternalProduct(context.Background(), "899 324-2596979")
+	if err != nil || result == nil || result.Source != "local-catalog" || result.Name != "Tasco Iced Coffee" {
+		t.Fatalf("expected local catalog result, got result=%+v err=%v", result, err)
+	}
+	if providerTwo.calls != 0 || web.calls != 0 {
+		t.Fatalf("external providers were called for a local product: provider-two=%d web=%d", providerTwo.calls, web.calls)
+	}
+}
+
 func TestServiceDoesNotCacheNoResultOrProviderError(t *testing.T) {
 	for name, providerErr := range map[string]error{"no-result": errExternalNoResult, "provider-error": errors.New("provider unavailable")} {
 		t.Run(name, func(t *testing.T) {

@@ -56,7 +56,7 @@ func (s *Service) LookupExternalProduct(ctx context.Context, barcode string) (*E
 	}
 
 	var providerErr error
-	for _, provider := range []BarcodeProvider{s.provider, s.provider2, s.webProvider} {
+	for _, provider := range []BarcodeProvider{s.provider, s.provider2, s.provider3, s.webProvider} {
 		if provider == nil {
 			continue
 		}

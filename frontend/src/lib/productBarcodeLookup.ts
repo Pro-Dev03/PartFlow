@@ -1,6 +1,6 @@
 import { barcodeApi } from '../services/api/endpoints';
 
-export type ProductBarcodeLookupSource = 'cache' | 'upcitemdb';
+export type ProductBarcodeLookupSource = 'cache' | 'local-catalog' | 'upcitemdb' | 'openfoodfacts' | 'searxng-web';
 
 export interface ProductBarcodeLookupResult {
   barcode: string;
@@ -65,7 +65,10 @@ export function normalizeBarcodeLookupResult(raw: Partial<ProductBarcodeLookupRe
   const description = cleanText(raw.description) || '';
   const size = cleanText(raw.size) || '';
   const model = cleanText(raw.model) || '';
-  const source = raw.source === 'upcitemdb' ? 'upcitemdb' : 'cache';
+  const validSources: ProductBarcodeLookupSource[] = ['cache', 'local-catalog', 'upcitemdb', 'openfoodfacts', 'searxng-web'];
+  const source = validSources.includes(raw.source as ProductBarcodeLookupSource)
+    ? raw.source as ProductBarcodeLookupSource
+    : 'cache';
 
   return {
     barcode,

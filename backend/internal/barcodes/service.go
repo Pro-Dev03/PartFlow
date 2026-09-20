@@ -48,13 +48,14 @@ type Service struct {
 	repo        *Repository
 	provider    BarcodeProvider
 	provider2   BarcodeProvider
+	provider3   BarcodeProvider
 	webProvider BarcodeProvider
 	lookupMu    sync.RWMutex
 	lookupCache map[string]ProductLookup
 }
 
 func NewService(repo *Repository) *Service {
-	return &Service{repo: repo, provider: NewUPCItemDBProvider(), provider2: NewOpenFoodFactsProvider(), webProvider: NewWebFallbackProvider(), lookupCache: make(map[string]ProductLookup)}
+	return &Service{repo: repo, provider: NewLocalProductProvider(repo), provider2: NewUPCItemDBProvider(), provider3: NewOpenFoodFactsProvider(), webProvider: NewWebFallbackProvider(), lookupCache: make(map[string]ProductLookup)}
 }
 
 // LookupBarcode looks up a barcode and returns associated information
