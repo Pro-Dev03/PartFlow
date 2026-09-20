@@ -79,6 +79,25 @@ func TestWebFallbackFindsTascoIcedCoffeeByExactBarcode(t *testing.T) {
 	}
 }
 
+func TestWebFallbackReadsDirectBarcodeLookupPageAfterEmptySearch(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/search" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"results":[]}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><head><meta property="og:title" content="Tasco Iced Coffee"><meta property="og:image" content="https://example.test/tasco.jpg"></head><body><h1>Tasco Iced Coffee</h1><p>EAN 8854419001507</p></body></html>`))
+	}))
+	defer server.Close()
+
+	provider := &searxngSearchProvider{baseURL: server.URL, publicPageBaseURL: server.URL, client: server.Client()}
+	result, err := provider.Lookup(context.Background(), "8854419001507")
+	if err != nil || result == nil || result.Name != "Tasco Iced Coffee" || result.Barcode != "8854419001507" {
+		t.Fatalf("expected direct public-page result, got result=%+v err=%v", result, err)
+	}
+}
+
 func TestServiceFallsBackOnlyAfterProviderNoResult(t *testing.T) {
 	primary := &stubBarcodeProvider{err: errExternalNoResult}
 	web := &stubBarcodeProvider{result: &ProductLookup{Barcode: "0123456789012", Name: "Fallback Product", Source: "web-fallback"}}

@@ -20,8 +20,9 @@ var errWebFallbackDisabled = errors.New("web fallback is not configured")
 const maxPublicPageBytes = 2 << 20
 
 type searxngSearchProvider struct {
-	baseURL string
-	client  *http.Client
+	baseURL           string
+	publicPageBaseURL string
+	client            *http.Client
 }
 
 type searxngResponse struct {
@@ -45,7 +46,11 @@ func NewWebFallbackProvider() BarcodeProvider {
 	if baseURL == "" {
 		baseURL = "http://searxng:8080"
 	}
-	return &searxngSearchProvider{baseURL: baseURL, client: &http.Client{Timeout: 8 * time.Second}}
+	publicPageBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("BARCODE_PUBLIC_PAGE_BASE_URL")), "/")
+	if publicPageBaseURL == "" {
+		publicPageBaseURL = "https://www.barcodelookup.com"
+	}
+	return &searxngSearchProvider{baseURL: baseURL, publicPageBaseURL: publicPageBaseURL, client: &http.Client{Timeout: 8 * time.Second}}
 }
 
 func (p *searxngSearchProvider) Lookup(ctx context.Context, barcode string) (*ProductLookup, error) {
@@ -81,6 +86,22 @@ func (p *searxngSearchProvider) Lookup(ctx context.Context, barcode string) (*Pr
 		if err != nil {
 			continue
 		}
+		return &ProductLookup{
+			Barcode:     barcode,
+			Name:        page.Name,
+			Brand:       page.Brand,
+			Category:    page.Category,
+			Description: page.Description,
+			Image:       page.Image,
+			Source:      "searxng-web",
+			Confidence:  0.6,
+		}, nil
+	}
+
+	// Barcode Lookup exposes a public page keyed by the exact barcode. Read at
+	// most this single page after SearXNG returns no verified result.
+	page, err := p.readPublicProductPage(ctx, p.publicPageBaseURL+"/"+url.PathEscape(barcode), barcode)
+	if err == nil {
 		return &ProductLookup{
 			Barcode:     barcode,
 			Name:        page.Name,
