@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { getActiveApiUrl, shouldUseLocalApi } from '../../../lib/config/app';
+import { getActiveApiUrl, getConnectionMode, setConnectionMode, shouldUseLocalApi } from '../../../lib/config/app';
 
 describe('app config', () => {
   beforeEach(() => {
@@ -15,6 +15,14 @@ describe('app config', () => {
 
   it('always uses the local backend for business operations', () => {
     expect(getActiveApiUrl()).toBe('http://localhost:8080/api/v1');
+  });
+
+  it('routes all business operations to the cloud when cloud mode is selected', () => {
+    setConnectionMode('cloud');
+
+    expect(getConnectionMode()).toBe('cloud');
+    expect(getActiveApiUrl()).toBe('https://partflow-api.onrender.com/api/v1');
+    expect(shouldUseLocalApi('localhost')).toBe(false);
   });
 
   it('never triggers automatic initial sync because cloud sync is manual', async () => {

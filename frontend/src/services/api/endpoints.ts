@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 import { TokenManager } from '../../lib/token-manager';
-import { getCloudApiUrl, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
+import { getActiveApiUrl, getCloudApiUrl, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
 import type {
   ProductCreateRequest,
   ProductUpdateRequest,
@@ -100,7 +100,7 @@ export const authApi = {
       throw new Error('No active local session');
     }
 
-    const response = await fetch(`${getLocalApiUrl()}/auth/admin-check`, {
+    const response = await fetch(`${getActiveApiUrl()}/auth/admin-check`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

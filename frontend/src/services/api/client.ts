@@ -1,5 +1,5 @@
 import { getArabicErrorMessage, isRetryableError } from '../../lib/error-messages';
-import { appConfig, getActiveApiUrl, getCloudApiUrl, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
+import { appConfig, getActiveApiUrl, getCloudApiUrl, getConnectionMode, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
 import { TokenManager } from '../../lib/token-manager';
 
 const API_BASE_URL = appConfig.apiUrl;
@@ -361,7 +361,7 @@ class ApiClient {
             if (this.token) {
               refreshAttempted = true;
               newToken = await this.refreshAccessToken().catch(async refreshError => {
-                if (refreshError?.status === 401 && this.getCloudAccessToken()) {
+                if (refreshError?.status === 401 && this.getCloudAccessToken() && getConnectionMode() === 'local') {
                   return this.createLocalSessionFromCloud();
                 }
                 throw refreshError;
@@ -382,11 +382,17 @@ class ApiClient {
                 // secret even when the cloud session refresh succeeds. Rebuild
                 // the local session from the fresh cloud token so local
                 // middleware and the retried request use the same issuer.
-                const localSessionToken = await this.createLocalSessionFromCloud();
-                if (localSessionToken) {
-                  newToken = localSessionToken;
-                  this.setToken(localSessionToken);
-                  headers['Authorization'] = `Bearer ${localSessionToken}`;
+                if (getConnectionMode() === 'local') {
+                  const localSessionToken = await this.createLocalSessionFromCloud();
+                  if (localSessionToken) {
+                    newToken = localSessionToken;
+                    this.setToken(localSessionToken);
+                    headers['Authorization'] = `Bearer ${localSessionToken}`;
+                  }
+                } else {
+                  newToken = refreshedCloudToken;
+                  this.setToken(refreshedCloudToken);
+                  headers['Authorization'] = `Bearer ${refreshedCloudToken}`;
                 }
               }
             }

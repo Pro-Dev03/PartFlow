@@ -4,7 +4,7 @@ import { authApi } from '../services/api/endpoints';
 import { apiClient } from '../services/api/client';
 import { TokenManager } from '../lib/token-manager';
 import { User } from '../types/models';
-import { getCloudApiUrl } from '../lib/config/app';
+import { getCloudApiUrl, getConnectionMode } from '../lib/config/app';
 import { isNetworkError } from '../lib/error-messages';
 import { saveAutoLogoutReason, type AutoLogoutReason } from '../features/auth/sessionReason';
 
@@ -332,7 +332,9 @@ export function forceLogoutToLogin(reason = 'Session expired') {
     window.location.hash = '#/login';
   }
 
-  console.warn('Clearing stale auth session:', reason);
+  if (reason !== 'No active cloud session') {
+    console.warn('Clearing stale auth session:', reason);
+  }
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -354,7 +356,7 @@ export const useAuthStore = create<AuthState>()(
         apiClient.logout();
         set({ isLoading: true, loginError: null });
         try {
-          // Authenticate with the cloud authority before creating a local session.
+              const connectionMode = getConnectionMode();
           const data = await authApi.loginWithCloud(email, password) as {
             user: User;
             token?: string;
@@ -369,6 +371,40 @@ export const useAuthStore = create<AuthState>()(
             throw new Error('Cloud login response did not include an access token');
           }
           const cloudRefreshToken = data.refresh_token;
+
+          if (connectionMode === 'cloud') {
+            TokenManager.setToken(accessToken);
+            if (cloudRefreshToken) {
+              TokenManager.setRefreshToken(cloudRefreshToken);
+            }
+            localStorage.setItem('cloud_token', accessToken);
+            apiClient.setCloudToken(accessToken);
+            if (cloudRefreshToken) {
+              localStorage.setItem('cloud_refresh_token', cloudRefreshToken);
+            }
+            apiClient.setToken(accessToken);
+
+            const valid = await validateSubscriptionWithCloud();
+            if (!valid) {
+              throw new Error('Cloud subscription verification failed');
+            }
+
+            set({
+              isAuthenticated: true,
+              sessionVerified: true,
+              user: user || null,
+              token: accessToken,
+              refreshTokenValue: cloudRefreshToken || null,
+              cloudToken: accessToken,
+              isLoading: false,
+            });
+
+            startTokenRefresh();
+            return;
+          }
+
+          // Local mode authenticates with the cloud authority, then creates a
+          // separate local SQLite session for business operations.
           const localSession = await authApi.createLocalSession(accessToken);
           const localData = localSession as {
             user: User;

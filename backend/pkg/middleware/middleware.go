@@ -294,7 +294,7 @@ func configuredCORSOrigins() []string {
 	if raw == "" {
 		// Development and Electron defaults. Production should set an explicit
 		// comma-separated allowlist in Render/environment configuration.
-		raw = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000,http://127.0.0.1:3000,null"
+		raw = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:3000,http://127.0.0.1:3000,null"
 	}
 	origins := make([]string, 0)
 	for _, value := range strings.Split(raw, ",") {

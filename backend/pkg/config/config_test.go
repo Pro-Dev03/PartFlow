@@ -99,3 +99,18 @@ func TestResolveDatabaseURL_CloudModeRequiresConfiguredCloudURL(t *testing.T) {
 		t.Fatal("ResolveDatabaseURL() expected error when cloud mode has no configured URL")
 	}
 }
+
+func TestResolveDatabaseURL_CloudModeUsesCloudURL(t *testing.T) {
+	t.Setenv("DB_CONNECTION_MODE", "cloud")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DATABASE_URL_LOCAL", "sqlite://local.db")
+	t.Setenv("DATABASE_URL_CLOUD", "postgresql://cloud.example.test/postgres")
+
+	url, source, err := ResolveDatabaseURL()
+	if err != nil {
+		t.Fatalf("ResolveDatabaseURL() returned error for configured cloud mode: %v", err)
+	}
+	if url != "postgresql://cloud.example.test/postgres" || source != "cloud" {
+		t.Fatalf("ResolveDatabaseURL() = (%q, %q), want configured cloud URL", url, source)
+	}
+}

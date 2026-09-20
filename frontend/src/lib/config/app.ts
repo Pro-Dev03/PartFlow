@@ -20,11 +20,27 @@ const cloudApiUrl = getEnvValue(
   'https://partflow-api.onrender.com/api/v1',
 );
 
+export type ConnectionMode = 'local' | 'cloud';
+export const CONNECTION_MODE_KEY = 'partflow-connection-mode';
+
+export function getConnectionMode(): ConnectionMode {
+  if (typeof window === 'undefined') return 'local';
+  return localStorage.getItem(CONNECTION_MODE_KEY) === 'cloud' ? 'cloud' : 'local';
+}
+
+export function setConnectionMode(mode: ConnectionMode): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(CONNECTION_MODE_KEY, mode);
+  window.dispatchEvent(new CustomEvent('partflow:connection-mode-changed', { detail: { mode } }));
+}
+
 /**
  * Business operations always use the local SQLite API. The cloud URL is used
  * only by authentication/subscription validation helpers.
  */
 export function shouldUseLocalApi(hostname = typeof window !== 'undefined' ? window.location.hostname : ''): boolean {
+  if (getConnectionMode() === 'cloud') return false;
+
   const isElectron = typeof window !== 'undefined' && (
     window.location.protocol === 'file:' ||
     /Electron/i.test(window.navigator.userAgent)
@@ -34,7 +50,7 @@ export function shouldUseLocalApi(hostname = typeof window !== 'undefined' ? win
 }
 
 export function getActiveApiUrl(): string {
-  return localApiUrl;
+  return getConnectionMode() === 'cloud' ? cloudApiUrl : localApiUrl;
 }
 
 /**

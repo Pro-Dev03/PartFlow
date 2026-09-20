@@ -162,6 +162,26 @@ func TestSaleDayContractUsesSaleDateAcrossChartAndActivity(t *testing.T) {
 	}
 }
 
+func TestGetActivityReturnsEmptyPageWhenActivityTablesAreMissing(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	service := &CachedService{db: sqlx.NewDb(db, "sqlite")}
+	activityPage, err := service.GetActivity(context.Background(), 2, 5, "")
+	if err != nil {
+		t.Fatalf("get activity from empty database: %v", err)
+	}
+	if activityPage.Page != 2 || activityPage.PerPage != 5 || activityPage.Total != 0 || activityPage.TotalPages != 0 {
+		t.Fatalf("empty activity page = %#v, want page 2 with no results", activityPage)
+	}
+	if activityPage.Items == nil {
+		t.Fatal("empty activity items must be an initialized list")
+	}
+}
+
 func TestSQLiteSalesChartUsesCreatedAtOnlyForLegacyRows(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {

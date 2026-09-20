@@ -632,23 +632,32 @@ func (s *CachedService) GetActivity(ctx context.Context, page, perPage int, acti
 	}
 
 	hasPurchasesTable := hasTable(ctx, s.db, "purchases")
+	hasSalesTable := hasTable(ctx, s.db, "sales")
 	hasUsersTable := hasTable(ctx, s.db, "users")
 	saleSellerExpr := "'' AS seller_name"
-	if hasUsersTable && (s.db.DriverName() != "sqlite" || sqliteHasColumns(s.db, "sales", "user_id")) {
+	if hasSalesTable && hasUsersTable && (s.db.DriverName() != "sqlite" || sqliteHasColumns(s.db, "sales", "user_id")) {
 		saleSellerExpr = "COALESCE((SELECT first_name || ' ' || last_name FROM users WHERE users.id = s.user_id), '') AS seller_name"
 	}
 
-	activityParts := []string{fmt.Sprintf(`
-		SELECT s.id, 'sale' AS type, 'بيع' AS title, 'عملية بيع' AS description,
-		       s.total_amount AS amount, s.created_at AS activity_time, s.sale_date, s.status,
-		       %s
-		FROM sales s`, saleSellerExpr)}
+	activityParts := make([]string, 0, 2)
+	if hasSalesTable {
+		activityParts = append(activityParts, fmt.Sprintf(`
+			SELECT s.id, 'sale' AS type, 'بيع' AS title, 'عملية بيع' AS description,
+			       s.total_amount AS amount, s.created_at AS activity_time, s.sale_date, s.status,
+			       %s
+			FROM sales s`, saleSellerExpr))
+	}
 	if hasPurchasesTable {
 		activityParts = append(activityParts, `
 		SELECT p.id, 'purchase' AS type, 'شراء' AS title, 'عملية شراء' AS description,
 		       p.total_amount AS amount, p.created_at AS activity_time, '' AS sale_date, p.status,
 		       '' AS seller_name
 		FROM purchases p`)
+	}
+	if len(activityParts) == 0 {
+		return &ActivityPage{
+			Items: []RecentActivityItem{}, Page: page, PerPage: perPage,
+		}, nil
 	}
 	activityQuery := fmt.Sprintf("(%s) AS activity", strings.Join(activityParts, " UNION ALL "))
 	where := ""

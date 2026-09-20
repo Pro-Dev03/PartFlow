@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../../stores/authStore';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { Sun, Moon, Globe } from 'lucide-react';
+import { Sun, Moon, Globe, Cloud, HardDrive } from 'lucide-react';
+import { getConnectionMode, setConnectionMode, type ConnectionMode } from '../../../lib/config/app';
 
 // Components
 import { LoginBackground } from '../components/LoginBackground';
@@ -19,6 +20,7 @@ export function LoginPage() {
   const [loginError, setLoginError] = useState('');
   const [isDark, setIsDark] = useState(true);
   const [language, setLanguage] = useState('ar');
+  const [connectionMode, setSelectedConnectionMode] = useState<ConnectionMode>(getConnectionMode);
 
   // Check theme on mount and listen for changes
   useEffect(() => {
@@ -57,6 +59,12 @@ export function LoginPage() {
     document.documentElement.setAttribute('dir', newLang === 'ar' ? 'rtl' : 'ltr');
     // Store preference
     localStorage.setItem('language', newLang);
+  };
+
+  const handleConnectionModeChange = (mode: ConnectionMode) => {
+    setSelectedConnectionMode(mode);
+    setConnectionMode(mode);
+    setLoginError('');
   };
 
   const handleSubmit = async (email: string, password: string) => {
@@ -157,6 +165,65 @@ export function LoginPage() {
               </button>
             </div>
             <div style={{ width: '100%', maxWidth: '360px', margin: '0 auto' }}>
+              <div style={{ marginBottom: '24px' }}>
+                <div style={{
+                  marginBottom: '9px',
+                  color: isDark ? '#cbd5e1' : '#374151',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                }}>
+                  طريقة الاتصال
+                </div>
+                <div
+                  role="group"
+                  aria-label="طريقة الاتصال"
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '7px',
+                    padding: '5px',
+                    borderRadius: '12px',
+                    border: isDark ? '1px solid rgba(148, 163, 184, 0.16)' : '1px solid rgba(0, 0, 0, 0.09)',
+                    background: isDark ? 'rgba(15, 23, 42, 0.72)' : 'rgba(243, 244, 246, 0.82)',
+                  }}
+                >
+                  {([
+                    { mode: 'local' as const, label: 'محلي', description: 'بيانات على الجهاز', Icon: HardDrive },
+                    { mode: 'cloud' as const, label: 'سحابي Online', description: 'بيانات سحابية مباشرة', Icon: Cloud },
+                  ]).map(({ mode, label, description, Icon }) => {
+                    const selected = connectionMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => handleConnectionModeChange(mode)}
+                        aria-pressed={selected}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          minWidth: 0,
+                          padding: '9px 8px',
+                          border: selected ? '1px solid rgba(34, 211, 238, 0.48)' : '1px solid transparent',
+                          borderRadius: '9px',
+                          color: selected ? (isDark ? '#ecfeff' : '#0f172a') : (isDark ? '#94a3b8' : '#6b7280'),
+                          background: selected
+                            ? (isDark ? 'rgba(8, 145, 178, 0.18)' : 'rgba(14, 165, 233, 0.1)')
+                            : 'transparent',
+                          cursor: 'pointer',
+                          textAlign: 'right',
+                        }}
+                      >
+                        <Icon style={{ width: '16px', height: '16px', flexShrink: 0 }} />
+                        <span style={{ minWidth: 0 }}>
+                          <span style={{ display: 'block', fontSize: '11px', fontWeight: 750 }}>{label}</span>
+                          <span style={{ display: 'block', marginTop: '2px', fontSize: '9px', opacity: 0.78, whiteSpace: 'nowrap' }}>{description}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <LoginForm
                 isDark={isDark}
                 isLoading={isLoading}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/dashboard"
 	"github.com/partflow/smart-store/internal/localdb"
 )
 
@@ -138,7 +139,18 @@ func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
 	}
 	defer db.DB.Close()
 
-	rows, err := db.DB.Query(`
+	tx, err := db.DB.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ Ø¨Ø¯Ø¡ Ù…Ø¹Ø§Ù…Ù„Ø© ØªÙ†Ø¸ÙŠÙ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ©", "details": err.Error()})
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("PRAGMA defer_foreign_keys = ON"); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªÙ‡ÙŠØ¦Ø© Ù‚ÙŠÙˆØ¯ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ©", "details": err.Error()})
+		return
+	}
+
+	rows, err := tx.Query(`
 		SELECT name
 		FROM sqlite_master
 		WHERE type = 'table'
@@ -165,16 +177,27 @@ func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ Ø¥Ù†Ù‡Ø§Ø¡ Ù‚Ø±Ø§Ø¡Ø© Ø¬Ø¯Ø§ÙˆÙ„ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ©", "details": err.Error()})
 		return
 	}
+	if err := rows.Close(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ Ø¥ØºÙ„Ø§Ù‚ Ù‚Ø±Ø§Ø¡Ø© Ø¬Ø¯Ø§ÙˆÙ„ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ©", "details": err.Error()})
+		return
+	}
 
 	for _, table := range tables {
 		// Keep table definitions intact; reset only business rows.
 		if table == "users" || table == "local_sessions" || table == "refresh_tokens" || table == "settings" || table == "schema_migrations" {
 			continue
 		}
-		if _, err := db.DB.Exec(fmt.Sprintf("DELETE FROM %q", table)); err != nil {
+		if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %q", table)); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªØµÙÙŠØ± Ø¨ÙŠØ§Ù†Ø§Øª Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ©", "details": err.Error()})
 			return
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªØ£ÙƒÙŠØ¯ ØªÙ†Ø¸ÙŠÙ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ©", "details": err.Error()})
+		return
+	}
+	if service := dashboard.GetGlobalCacheService(); service != nil {
+		service.InvalidateCache()
 	}
 
 	if err := localdb.SetMetadata(db.DB, "operating_mode", "offline"); err != nil {

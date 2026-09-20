@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCart, normalizePosPrice } from '../../features/sales/hooks/useCart';
 
 vi.mock('../../hooks/useBarcodeContext', () => ({
@@ -15,6 +15,10 @@ const product = {
 };
 
 describe('useCart', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it('normalizes the first finite price value', () => {
     expect(normalizePosPrice(undefined, '', '1450')).toBe(1450);
     expect(normalizePosPrice('invalid', null, undefined)).toBe(0);

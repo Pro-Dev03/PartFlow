@@ -3,7 +3,7 @@ import { Badge } from '../../../design-system/components/badge';
 import { EmptyState } from '../../../design-system/components/empty-state';
 import { Button } from '../../../design-system/components/button';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../../../design-system/components/table';
-import { Package, PackageOpen, Eye, Edit, SlidersHorizontal, Trash2, Inbox, RefreshCw, FileText, Plus, ArrowUpRight, Trash, Copy, PencilLine } from 'lucide-react';
+import { Archive, Package, PackageOpen, Eye, Edit, SlidersHorizontal, Trash2, Inbox, RefreshCw, FileText, Plus, ArrowUpRight, Trash, Copy, PencilLine } from 'lucide-react';
 import { ActionMenu } from '../../../design-system/components/action-menu';
 import { Product, InventoryItem, ViewMode } from '../types/inventory.types';
 import { formatPrice, normalizeCurrencyValue } from '../../../utils';
@@ -25,6 +25,7 @@ interface InventoryListProps {
   onEditProduct: (product: Product) => void;
   onEditMinimumStock: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
+  onArchiveProduct?: (productId: string) => void;
   onDeleteInventoryItem?: (itemId: string) => void;
   onClearSearch: () => void;
   onReorderFromSupplier?: (supplierId: string, productName: string) => void;
@@ -68,6 +69,7 @@ function RowActionMenu({
   onEditProduct,
   onEditMinimumStock,
   onDeleteProduct,
+  onArchiveProduct,
   onDeleteInventoryItem,
   onViewInventoryLedger,
 }: {
@@ -77,6 +79,7 @@ function RowActionMenu({
   onEditProduct: (product: Product) => void;
   onEditMinimumStock: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
+  onArchiveProduct?: (productId: string) => void;
   onDeleteInventoryItem?: (itemId: string) => void;
   onViewInventoryLedger?: (productId: string) => void;
 }) {
@@ -90,6 +93,7 @@ function RowActionMenu({
         { label: 'تعديل', icon: PencilLine, onClick: () => onEditProduct(product) },
         { label: 'حد الأدنى', icon: SlidersHorizontal, onClick: () => onEditMinimumStock(product) },
           ...(onViewInventoryLedger ? [{ label: 'سجل الحركات', icon: FileText, onClick: () => onViewInventoryLedger(product.id) }] : []),
+          ...(onArchiveProduct ? [{ label: 'أرشفة', icon: Archive, onClick: () => onArchiveProduct(product.id) }] : []),
         { label: 'حذف', icon: Trash, onClick: () => (onDeleteInventoryItem ? onDeleteInventoryItem(product.id) : onDeleteProduct(product.id)), danger: true },
       ]}
     />
@@ -157,6 +161,7 @@ export function InventoryList({
   onEditProduct,
   onEditMinimumStock,
   onDeleteProduct,
+  onArchiveProduct,
   onDeleteInventoryItem,
   onClearSearch,
   onReorderFromSupplier,
@@ -342,6 +347,7 @@ export function InventoryList({
                                 onEditProduct={onEditProduct}
                                 onEditMinimumStock={onEditMinimumStock}
                                 onDeleteProduct={onDeleteProduct}
+                                onArchiveProduct={onArchiveProduct}
                                 onViewInventoryLedger={onViewInventoryLedger}
                               />
                             </div>
@@ -426,6 +432,7 @@ export function InventoryList({
                             onEditProduct={onEditProduct}
                             onEditMinimumStock={onEditMinimumStock}
                             onDeleteProduct={onDeleteProduct}
+                            onArchiveProduct={onArchiveProduct}
                             onViewInventoryLedger={onViewInventoryLedger}
                           />
                         </div>
@@ -559,6 +566,7 @@ export function InventoryList({
                               onEditProduct={onEditProduct}
                               onEditMinimumStock={onEditMinimumStock}
                               onDeleteProduct={onDeleteProduct}
+                              onArchiveProduct={onArchiveProduct}
                               onDeleteInventoryItem={onDeleteInventoryItem}
                               onViewInventoryLedger={onViewInventoryLedger}
                             />
@@ -659,6 +667,7 @@ export function InventoryList({
                           onEditProduct={onEditProduct}
                           onEditMinimumStock={onEditMinimumStock}
                           onDeleteProduct={onDeleteProduct}
+                              onArchiveProduct={onArchiveProduct}
                           onDeleteInventoryItem={onDeleteInventoryItem}
                           onViewInventoryLedger={onViewInventoryLedger}
                         />
