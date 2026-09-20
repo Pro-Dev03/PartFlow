@@ -131,6 +131,25 @@ func TestServiceStopsAfterPrimaryProviderSuccess(t *testing.T) {
 	}
 }
 
+func TestServiceFallsBackAfterPrimaryProviderError(t *testing.T) {
+	primary := &stubBarcodeProvider{err: errors.New("UPCitemDB unavailable")}
+	web := &stubBarcodeProvider{result: &ProductLookup{Barcode: "8854419001507", Name: "Fallback Product", Source: "searxng-web"}}
+	service := &Service{provider: primary, webProvider: web, lookupCache: make(map[string]ProductLookup)}
+
+	result, err := service.LookupExternalProduct(context.Background(), "885 441-9001507")
+	if err != nil || result == nil || result.Source != "searxng-web" {
+		t.Fatalf("expected fallback result after primary error, got result=%+v err=%v", result, err)
+	}
+	if primary.calls != 1 || web.calls != 1 || web.lastCode != "8854419001507" {
+		t.Fatalf("expected normalized fallback call, primary=%+v web=%+v", primary, web)
+	}
+
+	_, err = service.LookupExternalProduct(context.Background(), "8854419001507")
+	if err != nil || web.calls != 1 {
+		t.Fatalf("expected cached fallback result without provider call, calls=%d err=%v", web.calls, err)
+	}
+}
+
 func TestServiceDoesNotCacheNoResultOrProviderError(t *testing.T) {
 	for name, providerErr := range map[string]error{"no-result": errExternalNoResult, "provider-error": errors.New("provider unavailable")} {
 		t.Run(name, func(t *testing.T) {

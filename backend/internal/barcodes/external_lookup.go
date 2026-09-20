@@ -55,28 +55,31 @@ func (s *Service) LookupExternalProduct(ctx context.Context, barcode string) (*E
 		return &cached, nil
 	}
 
-	result, err := s.provider.Lookup(ctx, code)
-	if errors.Is(err, errExternalNoResult) {
-		result, webErr := s.webProvider.Lookup(ctx, code)
-		if webErr == nil {
-			s.lookupMu.Lock()
-			s.lookupCache[code] = *result
-			s.lookupMu.Unlock()
-			return result, nil
-		}
-		if !errors.Is(webErr, errExternalNoResult) && !errors.Is(webErr, errWebFallbackDisabled) {
-			return nil, fmt.Errorf("free barcode provider unavailable: %w", webErr)
-		}
-		return nil, fmt.Errorf("product not found in free sources")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("free barcode provider unavailable: %w", err)
+	result, primaryErr := s.provider.Lookup(ctx, code)
+	if primaryErr == nil {
+		s.lookupMu.Lock()
+		s.lookupCache[code] = *result
+		s.lookupMu.Unlock()
+		return result, nil
 	}
 
-	s.lookupMu.Lock()
-	s.lookupCache[code] = *result
-	s.lookupMu.Unlock()
-	return result, nil
+	result, webErr := s.webProvider.Lookup(ctx, code)
+	if webErr == nil {
+		s.lookupMu.Lock()
+		s.lookupCache[code] = *result
+		s.lookupMu.Unlock()
+		return result, nil
+	}
+	if errors.Is(primaryErr, errExternalNoResult) && (errors.Is(webErr, errExternalNoResult) || errors.Is(webErr, errWebFallbackDisabled)) {
+		return nil, fmt.Errorf("product not found in free sources")
+	}
+	if !errors.Is(webErr, errExternalNoResult) && !errors.Is(webErr, errWebFallbackDisabled) {
+		return nil, fmt.Errorf("free barcode provider unavailable: %w", webErr)
+	}
+	if !errors.Is(primaryErr, errExternalNoResult) {
+		return nil, fmt.Errorf("free barcode provider unavailable: %w", primaryErr)
+	}
+	return nil, fmt.Errorf("product not found in free sources")
 }
 
 func externalJSONRequest(ctx context.Context, endpoint string, target interface{}) error {
