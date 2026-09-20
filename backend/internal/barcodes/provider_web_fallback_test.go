@@ -150,6 +150,26 @@ func TestServiceFallsBackAfterPrimaryProviderError(t *testing.T) {
 	}
 }
 
+func TestServiceUsesProviderTwoBeforeWebFallback(t *testing.T) {
+	primary := &stubBarcodeProvider{err: errExternalNoResult}
+	providerTwo := &stubBarcodeProvider{result: &ProductLookup{Barcode: "8854419001507", Name: "Tasco Iced Coffee", Source: "openfoodfacts"}}
+	web := &stubBarcodeProvider{result: &ProductLookup{Barcode: "8854419001507", Name: "Should Not Be Used", Source: "searxng-web"}}
+	service := &Service{provider: primary, provider2: providerTwo, webProvider: web, lookupCache: make(map[string]ProductLookup)}
+
+	result, err := service.LookupExternalProduct(context.Background(), "8854419001507")
+	if err != nil || result == nil || result.Source != "openfoodfacts" {
+		t.Fatalf("expected provider-two result, got result=%+v err=%v", result, err)
+	}
+	if primary.calls != 1 || providerTwo.calls != 1 || web.calls != 0 {
+		t.Fatalf("unexpected provider calls: primary=%d provider-two=%d web=%d", primary.calls, providerTwo.calls, web.calls)
+	}
+
+	result, err = service.LookupExternalProduct(context.Background(), "8854419001507")
+	if err != nil || result.Source != "cache" || providerTwo.calls != 1 {
+		t.Fatalf("expected provider-two result from cache, got result=%+v err=%v calls=%d", result, err, providerTwo.calls)
+	}
+}
+
 func TestServiceDoesNotCacheNoResultOrProviderError(t *testing.T) {
 	for name, providerErr := range map[string]error{"no-result": errExternalNoResult, "provider-error": errors.New("provider unavailable")} {
 		t.Run(name, func(t *testing.T) {
