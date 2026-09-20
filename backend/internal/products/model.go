@@ -78,14 +78,32 @@ type ProductRequest struct {
 	Name                string     `json:"name" binding:"required"`
 	Description         *string    `json:"description"`
 	Model               *string    `json:"model"`
-	SKU                 string     `json:"sku" binding:"required"`
+	SKU                 string     `json:"sku"`
 	Barcode             string     `json:"barcode"`
-	CostPrice           float64    `json:"cost_price" binding:"required"`
-	SellingPrice        float64    `json:"selling_price" binding:"required"`
+	CostPrice           float64    `json:"cost_price"`
+	SellingPrice        float64    `json:"selling_price"`
 	TrackSerial         bool       `json:"track_serial"`
 	TrackIndividual     bool       `json:"track_individual"`
 	MinStockLevel       int        `json:"min_stock_level"`
 	WarrantyDays        int        `json:"warranty_days"`
+}
+
+type BulkProductCreateRequest struct {
+	Items []ProductRequest `json:"items" binding:"required"`
+}
+
+type BulkProductFailure struct {
+	Index int    `json:"index"`
+	Name  string `json:"name,omitempty"`
+	SKU   string `json:"sku,omitempty"`
+	Error string `json:"error"`
+}
+
+type BulkProductCreateResponse struct {
+	Created      []*Product           `json:"created"`
+	Failed       []BulkProductFailure `json:"failed"`
+	Total        int                  `json:"total"`
+	CreatedCount int                  `json:"created_count"`
 }
 
 // ProductResponse represents product response with related data

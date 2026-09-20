@@ -10,6 +10,7 @@ interface InventoryEntryModalProps {
   onAddSupplier: () => void;
   onAddExistingStock: () => void;
   onCreatePurchase: () => void;
+  onBulkImport?: () => void;
 }
 
 export function InventoryEntryModal({
@@ -20,6 +21,7 @@ export function InventoryEntryModal({
   onAddSupplier,
   onAddExistingStock,
   onCreatePurchase,
+  onBulkImport,
 }: InventoryEntryModalProps) {
   const choose = (action: () => void) => {
     onClose();
@@ -125,6 +127,26 @@ export function InventoryEntryModal({
           </span>
           <ArrowLeft className="h-4 w-4 shrink-0 text-text-secondary transition-transform group-hover:-translate-x-1 group-hover:text-[var(--primary)]" />
         </button>
+
+        {onBulkImport && (
+          <button
+            type="button"
+            onClick={() => choose(onBulkImport)}
+            className="pf-entry-option group order-1.5"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
+              <Plus className="h-5 w-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="mb-1.5 flex flex-wrap items-center gap-2 text-base">
+                <span className="rounded-md bg-[var(--color-primary-10)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--primary)]">01.5</span>
+                <span className="font-semibold text-text-primary">إضافة منتجات متعددة</span>
+              </span>
+              <span className="block text-sm leading-6 text-text-secondary">استيراد عدة أصناف في سطر واحد بصيغة اسم | SKU | سعر الشراء | سعر البيع.</span>
+            </span>
+            <ArrowLeft className="h-4 w-4 shrink-0 text-text-secondary transition-transform group-hover:-translate-x-1 group-hover:text-[var(--primary)]" />
+          </button>
+        )}
 
         <div className="flex justify-end pt-2">
           <Button variant="secondary" onClick={onClose}>إلغاء</Button>

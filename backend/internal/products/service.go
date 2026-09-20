@@ -10,6 +10,17 @@ import (
 	"github.com/partflow/smart-store/internal/dashboard"
 )
 
+func generateSKUFromName(name string) string {
+	base := strings.ToUpper(strings.NewReplacer(" ", "-", "/", "-", "\\", "-", "_", "-").Replace(strings.TrimSpace(name)))
+	if base == "" {
+		base = "SKU"
+	}
+	if len(base) > 18 {
+		base = base[:18]
+	}
+	return fmt.Sprintf("%s-%s", base, strings.ToUpper(uuid.NewString()[:6]))
+}
+
 // Service handles products business logic
 type Service struct {
 	repo *Repository
@@ -132,14 +143,27 @@ func (s *Service) DeleteBrand(ctx context.Context, id uuid.UUID) error {
 
 // CreateProduct creates a new product
 func (s *Service) CreateProduct(ctx context.Context, req *ProductRequest) (*Product, error) {
+	if req == nil {
+		return nil, fmt.Errorf("product request is required")
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return nil, fmt.Errorf("product name is required")
+	}
+	if req.CategoryID == nil {
+		return nil, fmt.Errorf("category is required")
+	}
+	if req.SKU == "" {
+		req.SKU = generateSKUFromName(req.Name)
+	}
+
 	product := &Product{
 		CategoryID:          req.CategoryID,
 		BrandID:             req.BrandID,
 		PreferredSupplierID: req.PreferredSupplierID,
-		Name:                req.Name,
+		Name:                strings.TrimSpace(req.Name),
 		Description:         req.Description,
 		Model:               req.Model,
-		SKU:                 req.SKU,
+		SKU:                 strings.TrimSpace(req.SKU),
 		Barcode:             req.Barcode,
 		CostPrice:           req.CostPrice,
 		SellingPrice:        req.SellingPrice,
@@ -157,6 +181,55 @@ func (s *Service) CreateProduct(ctx context.Context, req *ProductRequest) (*Prod
 	dashboard.InvalidateDashboardCacheWithReason("product_created")
 
 	return product, nil
+}
+
+// CreateProductsBulk creates multiple products in one request while preserving category validation and duplicate checks.
+func (s *Service) CreateProductsBulk(ctx context.Context, requests []ProductRequest) ([]*Product, []BulkProductFailure, error) {
+	created := make([]*Product, 0, len(requests))
+	failed := make([]BulkProductFailure, 0)
+	seenSKUs := make(map[string]struct{}, len(requests))
+
+	for index, request := range requests {
+		request.Name = strings.TrimSpace(request.Name)
+		request.SKU = strings.TrimSpace(request.SKU)
+		request.Barcode = strings.TrimSpace(request.Barcode)
+
+		if request.CategoryID == nil {
+			failed = append(failed, BulkProductFailure{Index: index, Name: request.Name, SKU: request.SKU, Error: "category is required"})
+			continue
+		}
+		if _, err := s.repo.GetCategoryByID(ctx, *request.CategoryID); err != nil {
+			failed = append(failed, BulkProductFailure{Index: index, Name: request.Name, SKU: request.SKU, Error: fmt.Sprintf("invalid category: %v", err)})
+			continue
+		}
+		if request.Name == "" {
+			failed = append(failed, BulkProductFailure{Index: index, Name: request.Name, SKU: request.SKU, Error: "product name is required"})
+			continue
+		}
+		if request.SKU == "" {
+			request.SKU = generateSKUFromName(request.Name)
+		}
+		if _, exists := seenSKUs[request.SKU]; exists {
+			failed = append(failed, BulkProductFailure{Index: index, Name: request.Name, SKU: request.SKU, Error: "duplicate sku in this batch"})
+			continue
+		}
+		product, err := s.CreateProduct(ctx, &request)
+		if err != nil {
+			msg := err.Error()
+			if strings.Contains(strings.ToLower(msg), "unique") || strings.Contains(strings.ToLower(msg), "duplicate") || strings.Contains(strings.ToLower(msg), "constraint") {
+				msg = "product with this sku already exists"
+			}
+			failed = append(failed, BulkProductFailure{Index: index, Name: request.Name, SKU: request.SKU, Error: msg})
+			continue
+		}
+		created = append(created, product)
+		seenSKUs[request.SKU] = struct{}{}
+	}
+
+	if len(created) > 0 {
+		dashboard.InvalidateDashboardCacheWithReason("product_created")
+	}
+	return created, failed, nil
 }
 
 // GetProduct retrieves a product by ID

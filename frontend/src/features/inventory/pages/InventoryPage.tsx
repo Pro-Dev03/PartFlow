@@ -36,6 +36,7 @@ import { getLocalProductImage } from '../../../services/localProductImages';
 import { getCategoryImage } from '../../../services/localCategoryImages';
 import { generateSku } from '../../../utils/sku';
 import { InventoryQuickCreateModal } from '../components/InventoryQuickCreateModal';
+import { BulkProductImportModal } from '../components/BulkProductImportModal';
 import { CreatePurchasePage } from '../../purchases/pages/CreatePurchasePage';
 import { SupplierInvoiceModal } from '../../purchases/components/SupplierInvoiceModal';
 
@@ -69,6 +70,7 @@ export function InventoryPage() {
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
   const [isOpeningStockModalOpen, setIsOpeningStockModalOpen] = useState(false);
   const [isInventoryEntryModalOpen, setIsInventoryEntryModalOpen] = useState(false);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isPurchaseWorkflowOpen, setIsPurchaseWorkflowOpen] = useState(false);
   const [completedPurchase, setCompletedPurchase] = useState<any | null>(null);
   const [quickCreateMode, setQuickCreateMode] = useState<'category' | 'supplier' | null>(null);
@@ -765,6 +767,19 @@ export function InventoryPage() {
         onAddSupplier={() => setQuickCreateMode('supplier')}
         onAddExistingStock={() => setIsOpeningStockModalOpen(true)}
         onCreatePurchase={handleCreatePurchase}
+        onBulkImport={() => setIsBulkImportOpen(true)}
+      />
+
+      <BulkProductImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+        onImported={async () => {
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['products'] }),
+            queryClient.invalidateQueries({ queryKey: ['inventory'] }),
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+          ]);
+        }}
       />
 
       <Modal

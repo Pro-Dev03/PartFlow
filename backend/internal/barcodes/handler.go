@@ -20,6 +20,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	barcodes := router.Group("/barcodes")
 	{
+		barcodes.GET("/product-lookup/:code", h.LookupExternalProduct)
 		barcodes.GET("/:code", h.LookupBarcode)
 		barcodes.GET("/resolve/:code", h.ResolveBarcode)
 		barcodes.GET("/product/:code", h.LookupProductByBarcode)
@@ -29,6 +30,19 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		barcodes.GET("", h.ListBarcodes)
 		barcodes.DELETE("/:id", h.DeleteBarcode)
 	}
+}
+
+func (h *Handler) LookupExternalProduct(c *gin.Context) {
+	product, err := h.service.LookupExternalProduct(c.Request.Context(), c.Param("code"))
+	if err != nil {
+		if err.Error() == "product not found in free sources" {
+			c.JSON(http.StatusNotFound, gin.H{"code": "BARCODE_NO_RESULT", "error": "لم يتم العثور على بيانات لهذا الباركود"})
+			return
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"code": "BARCODE_PROVIDER_ERROR", "error": "تعذر الوصول إلى مصادر الباركود المجانية"})
+		return
+	}
+	c.JSON(http.StatusOK, product)
 }
 
 func (h *Handler) ResolveBarcode(c *gin.Context) {

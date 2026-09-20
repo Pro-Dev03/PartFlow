@@ -192,3 +192,76 @@ func TestCreateCategory_SqliteReturningTimestamps(t *testing.T) {
 		t.Fatal("expected updated_at to be populated")
 	}
 }
+
+func TestCreateProductsBulk_ValidatesCategoryAndDuplicateSKU(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE categories (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT,
+			parent_id TEXT,
+			icon TEXT,
+			color TEXT,
+			is_active INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+		CREATE TABLE products (
+			id TEXT PRIMARY KEY,
+			sku TEXT NOT NULL UNIQUE,
+			name TEXT NOT NULL,
+			description TEXT,
+			category_id TEXT,
+			brand_id TEXT,
+			preferred_supplier_id TEXT,
+			model TEXT,
+			barcode TEXT,
+			cost_price REAL DEFAULT 0,
+			selling_price REAL DEFAULT 0,
+			track_serial INTEGER NOT NULL DEFAULT 0,
+			track_individual INTEGER NOT NULL DEFAULT 0,
+			min_stock_level INTEGER DEFAULT 0,
+			warranty_days INTEGER DEFAULT 0,
+			is_active INTEGER NOT NULL DEFAULT 1,
+			deleted_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+	`)
+	if err != nil {
+		t.Fatalf("create test schema: %v", err)
+	}
+
+	categoryID := uuid.New()
+	_, err = db.Exec(`INSERT INTO categories (id, name, description, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)`, categoryID.String(), "Electronics", "Test category", time.Now().UTC().Format(time.RFC3339), time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		t.Fatalf("insert category: %v", err)
+	}
+
+	service := NewService(NewRepository(db))
+	items := []ProductRequest{
+		{Name: "Keyboard", SKU: "KEY-001", CategoryID: &categoryID, CostPrice: 20, SellingPrice: 40},
+		{Name: "Mouse", SKU: "KEY-001", CategoryID: &categoryID, CostPrice: 15, SellingPrice: 30},
+		{Name: "", SKU: "KEY-003", CategoryID: &categoryID, CostPrice: 10, SellingPrice: 20},
+	}
+
+	created, failed, err := service.CreateProductsBulk(context.Background(), items)
+	if err != nil {
+		t.Fatalf("CreateProductsBulk returned unexpected error: %v", err)
+	}
+	if len(created) != 1 {
+		t.Fatalf("expected 1 created product, got %d", len(created))
+	}
+	if len(failed) != 2 {
+		t.Fatalf("expected 2 failed items, got %d", len(failed))
+	}
+	if failed[0].Error == "" {
+		t.Fatalf("expected first failed item to include an error")
+	}
+}

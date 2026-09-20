@@ -211,6 +211,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			products := protected.Group("/products")
 			{
 				products.POST("", productHandler.CreateProduct)
+				products.POST("/bulk", productHandler.CreateProductsBulk)
 				products.GET("/:id", productHandler.GetProduct)
 				products.GET("/barcode/:barcode", productHandler.GetProductByBarcode)
 				products.GET("", productHandler.ListProducts)

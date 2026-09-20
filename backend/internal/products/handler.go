@@ -1,6 +1,7 @@
 package products
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"sync"
@@ -376,6 +377,44 @@ func (h *Handler) CreateProduct(c *gin.Context) {
 	}
 
 	response.OK(c, product, "Operation successful")
+}
+
+// CreateProductsBulk creates several products in one request with validation per item.
+func (h *Handler) CreateProductsBulk(c *gin.Context) {
+	body, err := c.GetRawData()
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("invalid bulk product payload", err))
+		return
+	}
+
+	var payload BulkProductCreateRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &payload); err != nil || len(payload.Items) == 0 {
+			var items []ProductRequest
+			if err2 := json.Unmarshal(body, &items); err2 != nil {
+				errors.HandleError(c, errors.ValidateRequest(err))
+				return
+			}
+			payload.Items = items
+		}
+	}
+	if len(payload.Items) == 0 {
+		errors.HandleError(c, errors.NewValidationError("items are required", nil))
+		return
+	}
+
+	created, failed, err := h.service.CreateProductsBulk(c.Request.Context(), payload.Items)
+	if err != nil {
+		errors.HandleError(c, errors.WrapError(err, "Failed to create products bulk"))
+		return
+	}
+
+	response.OK(c, gin.H{
+		"created":       created,
+		"failed":        failed,
+		"total":         len(payload.Items),
+		"created_count": len(created),
+	}, "Operation successful")
 }
 
 // GetProduct retrieves a product by ID

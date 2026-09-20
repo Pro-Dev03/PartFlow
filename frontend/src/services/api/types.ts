@@ -63,6 +63,10 @@ export interface ProductCreateRequest {
 
 export interface ProductUpdateRequest extends Partial<ProductCreateRequest> {}
 
+export interface BulkProductCreateRequest {
+  items: ProductCreateRequest[];
+}
+
 export interface ProductListParams extends PaginationParams {
   search?: string;
   category_id?: string;

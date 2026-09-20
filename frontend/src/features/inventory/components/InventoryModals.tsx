@@ -9,6 +9,8 @@ import { useQuery } from '@tanstack/react-query';
 import { categoriesApi, settingsApi } from '../../../services/api/endpoints';
 import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
 import { formatPrice } from '../../../utils/helpers';
+import { clearBarcodeLookupFields, lookupProductByBarcode } from '../../../lib/productBarcodeLookup';
+import { toast } from 'sonner';
 
 interface InventoryModalsProps {
   isViewModalOpen: boolean;
@@ -64,6 +66,43 @@ export function InventoryModals({
       document.querySelector<HTMLElement>('.product-create-stage input:not([disabled]), .product-create-stage select:not([disabled])')?.focus();
     });
   }, [isEditModalOpen, isCreatingProduct]);
+
+  useEffect(() => {
+    if (!isEditModalOpen || !isCreatingProduct || !selectedProduct?.barcode) return;
+
+    const barcode = selectedProduct.barcode.trim();
+    if (!barcode) return;
+
+    let active = true;
+    setSelectedProduct((prev) => prev ? clearBarcodeLookupFields(prev) : prev);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const match = await lookupProductByBarcode(barcode);
+        if (!active) return;
+        if (!match) {
+          toast.info('لم يتم العثور على بيانات لهذا الباركود. يمكنك إكمال الإدخال يدويًا.');
+          return;
+        }
+
+        setSelectedProduct((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            name: prev.name || match.name || prev.name,
+            barcode: match.barcode || prev.barcode,
+            image_url: prev.image_url || match.image || prev.image_url,
+            category: prev.category || match.category || prev.category,
+          };
+        });
+      })();
+    }, 300);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [isEditModalOpen, isCreatingProduct, selectedProduct?.barcode]);
+
   return (
     <>
       {/* View Product Modal */}
@@ -553,6 +592,7 @@ export function InventoryModals({
                   </label>
                   <Input 
                     placeholder="أدخل اسم المنتج"
+                    value={selectedProduct?.name || ''}
                     onChange={(e) => setSelectedProduct((prev) => prev ? { ...prev, name: e.target.value } : prev)}
                     style={{
                       fontSize: '14px',
@@ -698,6 +738,17 @@ export function InventoryModals({
                   />
                 </div>
               </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' }}>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                disabled={!selectedProduct?.category_id}
+                onClick={() => setProductStep(2)}
+              >
+                متابعة إلى بيانات المنتج
+              </Button>
             </div>
             </>)}
 

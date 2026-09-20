@@ -3,6 +3,7 @@ package barcodes
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,11 +45,15 @@ type BarcodeResolution struct {
 }
 
 type Service struct {
-	repo *Repository
+	repo        *Repository
+	provider    BarcodeProvider
+	webProvider BarcodeProvider
+	lookupMu    sync.RWMutex
+	lookupCache map[string]ProductLookup
 }
 
 func NewService(repo *Repository) *Service {
-	return &Service{repo: repo}
+	return &Service{repo: repo, provider: NewUPCItemDBProvider(), webProvider: NewWebFallbackProvider(), lookupCache: make(map[string]ProductLookup)}
 }
 
 // LookupBarcode looks up a barcode and returns associated information

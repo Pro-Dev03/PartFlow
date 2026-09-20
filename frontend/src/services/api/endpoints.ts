@@ -227,6 +227,7 @@ export const productsApi = {
   getByBarcode: (barcode: string) => apiClient.get(`/products/barcode/${encodeURIComponent(barcode.trim())}`),
   getStock: (id: string) => apiClient.get(`/products/${id}/stock`),
   create: (data: ProductCreateRequest) => apiClient.post('/products', data),
+  bulkCreate: (data: { items: ProductCreateRequest[] }) => apiClient.post('/products/bulk', data),
   update: (id: string, data: ProductUpdateRequest) => apiClient.put(`/products/${id}`, data),
   updateName: (id: string, name: string) => apiClient.patch(`/products/${id}/name`, { name }),
   updateMinimumStock: (id: string, minStockLevel: number) => apiClient.patch(`/products/${id}/min-stock`, { min_stock_level: minStockLevel }),
@@ -548,6 +549,7 @@ export const syncApi = {
 
 // Barcode endpoints
 export const barcodeApi = {
+  lookupProductMetadata: (barcode: string) => apiClient.get(`/barcodes/product-lookup/${encodeURIComponent(barcode)}`),
   // All scanning contexts resolve through the shared product/item/lifecycle lookup.
   // The flattened product fields preserve the existing POS consumer contract.
   scan: async (barcode: string) => {
