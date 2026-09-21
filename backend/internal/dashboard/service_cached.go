@@ -561,6 +561,21 @@ func hasTable(ctx context.Context, db *sqlx.DB, tableName string) bool {
 	return err == nil && count > 0
 }
 
+func hasColumn(ctx context.Context, db *sqlx.DB, tableName, columnName string) bool {
+	if isSQLiteDriver(db.DriverName()) {
+		var count int
+		err := db.GetContext(ctx, &count, `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, tableName, columnName)
+		return err == nil && count > 0
+	}
+
+	var count int
+	err := db.GetContext(ctx, &count, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2
+	`, tableName, columnName)
+	return err == nil && count > 0
+}
+
 func (s *CachedService) fetchRecentActivity(ctx context.Context) []RecentActivityItem {
 	hasPurchasesTable := hasTable(ctx, s.db, "purchases")
 	hasUsersTable := hasTable(ctx, s.db, "users")
@@ -635,24 +650,32 @@ func (s *CachedService) GetActivity(ctx context.Context, page, perPage int, acti
 	hasSalesTable := hasTable(ctx, s.db, "sales")
 	hasUsersTable := hasTable(ctx, s.db, "users")
 	saleSellerExpr := "'' AS seller_name"
-	if hasSalesTable && hasUsersTable && (s.db.DriverName() != "sqlite" || sqliteHasColumns(s.db, "sales", "user_id")) {
+	if hasSalesTable && hasUsersTable && hasColumn(ctx, s.db, "sales", "user_id") {
 		saleSellerExpr = "COALESCE((SELECT first_name || ' ' || last_name FROM users WHERE users.id = s.user_id), '') AS seller_name"
+	}
+	saleDateExpr := "'' AS sale_date"
+	if hasSalesTable && hasColumn(ctx, s.db, "sales", "sale_date") {
+		saleDateExpr = "s.sale_date"
+	}
+	purchaseStatusExpr := "'' AS status"
+	if hasPurchasesTable && hasColumn(ctx, s.db, "purchases", "status") {
+		purchaseStatusExpr = "p.status"
 	}
 
 	activityParts := make([]string, 0, 2)
 	if hasSalesTable {
 		activityParts = append(activityParts, fmt.Sprintf(`
 			SELECT s.id, 'sale' AS type, 'بيع' AS title, 'عملية بيع' AS description,
-			       s.total_amount AS amount, s.created_at AS activity_time, s.sale_date, s.status,
+			       s.total_amount AS amount, s.created_at AS activity_time, %s, s.status,
 			       %s
-			FROM sales s`, saleSellerExpr))
+			FROM sales s`, saleDateExpr, saleSellerExpr))
 	}
 	if hasPurchasesTable {
-		activityParts = append(activityParts, `
+		activityParts = append(activityParts, fmt.Sprintf(`
 		SELECT p.id, 'purchase' AS type, 'شراء' AS title, 'عملية شراء' AS description,
-		       p.total_amount AS amount, p.created_at AS activity_time, '' AS sale_date, p.status,
+		       p.total_amount AS amount, p.created_at AS activity_time, '' AS sale_date, %s,
 		       '' AS seller_name
-		FROM purchases p`)
+		FROM purchases p`, purchaseStatusExpr))
 	}
 	if len(activityParts) == 0 {
 		return &ActivityPage{

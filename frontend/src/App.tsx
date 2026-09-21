@@ -17,7 +17,7 @@ import { initializeProductImages } from './services/localProductImages';
 import { initializePartTypeImages } from './services/localPartTypeImages';
 import { initializeCategoryImages } from './services/localCategoryImages';
 import { RegionalProfileLoader } from './components/RegionalProfileLoader';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, LogOut, RefreshCw } from 'lucide-react';
 
 // Lazy load auth pages separately
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -227,6 +227,14 @@ function App() {
               >
                 <RefreshCw className={`h-4 w-4 ${isRetryingCloudVerification ? 'animate-spin' : ''}`} aria-hidden="true" />
                 {isRetryingCloudVerification ? 'جارٍ التحقق...' : 'إعادة التحقق الآن'}
+              </button>
+              <button
+                type="button"
+                className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                onClick={() => forceLogoutToLogin('Session expired')}
+              >
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+                تسجيل الخروج
               </button>
             </div>
           </div>,
