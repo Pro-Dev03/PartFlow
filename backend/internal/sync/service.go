@@ -393,6 +393,7 @@ func syncColumns(tableName string) map[string]struct{} {
 		"sales":                     "id invoice_number customer_id user_id sale_date subtotal tax_amount discount_amount total_amount paid_amount payment_method payment_status status notes created_at updated_at",
 		"purchases":                 "id invoice_number supplier_id user_id purchase_date subtotal tax_amount discount_amount total_amount paid_amount remaining_amount payment_method payment_status status notes created_at updated_at",
 		"payments":                  "id reference_number sale_id purchase_id customer_id supplier_id amount payment_method payment_date notes created_at updated_at",
+		"debts":                     "id customer_id sale_id amount paid_amount remaining_amount due_date status notes created_at updated_at",
 		"categories":                "id name description parent_id icon color is_active created_at updated_at",
 		"brands":                    "id name description logo_url created_at updated_at",
 		"sale_items":                "id sale_id inventory_item_id product_id quantity unit_price total_amount unit_cost created_at",
@@ -474,6 +475,8 @@ func tableNameForEntity(entityType string) (string, error) {
 		return "purchases", nil
 	case "payment", "payments":
 		return "payments", nil
+	case "debt", "debts":
+		return "debts", nil
 	case "category", "categories":
 		return "categories", nil
 	case "brand", "brands":
