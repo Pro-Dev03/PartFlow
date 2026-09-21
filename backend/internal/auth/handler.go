@@ -2,7 +2,9 @@ package auth
 
 import (
 	"errors"
+	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -13,6 +15,21 @@ import (
 type Handler struct {
 	service *Service
 	db      *sqlx.DB
+}
+
+const (
+	refreshTokenCookieName = "partflow_refresh_token"
+	refreshTokenCookieAge  = 7 * 24 * 60 * 60
+)
+
+func setRefreshTokenCookie(c *gin.Context, token string, maxAge int) {
+	secure := c.Request.TLS != nil || strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production")
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(refreshTokenCookieName, token, maxAge, "/api/v1/auth", "", secure, true)
+}
+
+func clearRefreshTokenCookie(c *gin.Context) {
+	setRefreshTokenCookie(c, "", -1)
 }
 
 func NewHandler(service *Service, db *sqlx.DB) *Handler {
@@ -63,6 +80,7 @@ func (h *Handler) Login(c *gin.Context) {
 		handleAuthError(c, err)
 		return
 	}
+	setRefreshTokenCookie(c, resp.RefreshToken, refreshTokenCookieAge)
 
 	// Response format based on worktrack
 	response := gin.H{
@@ -90,8 +108,15 @@ func (h *Handler) Login(c *gin.Context) {
 // RefreshToken handles token refresh
 func (h *Handler) RefreshToken(c *gin.Context) {
 	var req RefreshTokenRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.RefreshToken) == "" {
+		req.RefreshToken, _ = c.Cookie(refreshTokenCookieName)
+	}
+	if strings.TrimSpace(req.RefreshToken) == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token required"})
 		return
 	}
 
@@ -100,6 +125,7 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 		handleAuthError(c, err)
 		return
 	}
+	setRefreshTokenCookie(c, resp.RefreshToken, refreshTokenCookieAge)
 
 	response := gin.H{
 		"data": gin.H{
@@ -131,6 +157,7 @@ func (h *Handler) Logout(c *gin.Context) {
 		handleAuthError(c, err)
 		return
 	}
+	clearRefreshTokenCookie(c)
 
 	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})
 }
@@ -183,6 +210,7 @@ func (h *Handler) CloudSession(c *gin.Context) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
+	setRefreshTokenCookie(c, resp.RefreshToken, refreshTokenCookieAge)
 
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{

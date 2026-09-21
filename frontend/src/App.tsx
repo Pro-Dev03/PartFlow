@@ -1,8 +1,9 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryProvider } from './app/providers/QueryProvider';
 import { AppLayout, AuthLayout } from './layouts';
-import { forceLogoutToLogin, markCloudVerificationPending, useAuthStore, validateSubscriptionWithCloud } from './stores/authStore';
+import { forceLogoutToLogin, markCloudVerificationPending, retrySubscriptionVerification, useAuthStore, validateSubscriptionWithCloud } from './stores/authStore';
 import { ErrorBoundary } from './design-system/components/error-boundary';
 import { ToastContainer } from './design-system/components/ToastContainer';
 import { appRoutes, PageLoader } from './app/router';
@@ -16,6 +17,7 @@ import { initializeProductImages } from './services/localProductImages';
 import { initializePartTypeImages } from './services/localPartTypeImages';
 import { initializeCategoryImages } from './services/localCategoryImages';
 import { RegionalProfileLoader } from './components/RegionalProfileLoader';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 // Lazy load auth pages separately
 const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
@@ -96,12 +98,22 @@ function InitialSyncController() {
 function App() {
   const checkAuth = useAuthStore((state) => state.checkAuth);
   const { isAuthenticated, sessionVerified, cloudVerificationPending, isLoading, isPostLoginVerifying } = useAuthStore();
+  const [isRetryingCloudVerification, setIsRetryingCloudVerification] = useState(false);
 
   useEffect(() => {
     void initializeProductImages();
     void initializePartTypeImages();
     void initializeCategoryImages();
   }, []);
+
+  const retryCloudVerification = async () => {
+    setIsRetryingCloudVerification(true);
+    try {
+      await retrySubscriptionVerification();
+    } finally {
+      setIsRetryingCloudVerification(false);
+    }
+  };
 
   // HashRouter is required by the packaged Electron build, but a normal
   // browser can still open a deep link such as /app/sales directly. Normalize
@@ -193,20 +205,32 @@ function App() {
       <QueryProvider>
         <InitialSyncController />
         {isAuthenticated && sessionVerified && <RegionalProfileLoader />}
-        {isAuthenticated && sessionVerified && cloudVerificationPending && (
+        {isAuthenticated && sessionVerified && cloudVerificationPending && typeof document !== 'undefined' && createPortal(
           <div
             role="status"
-            className="fixed inset-x-0 top-0 z-[100] flex items-center justify-center gap-3 bg-amber-100 px-4 py-2 text-sm text-amber-950 shadow-sm"
+            className="fixed inset-0 z-[100] flex min-h-screen items-center justify-center bg-slate-950/20 px-4 py-6 backdrop-blur-[2px]"
+            style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, width: '100vw', height: '100vh' }}
           >
-            <span>تعذر التحقق من الاشتراك مؤقتًا. عمليات الحفظ متوقفة حتى عودة الاتصال.</span>
-            <button
-              type="button"
-              className="font-semibold underline"
-              onClick={() => void validateSubscriptionWithCloud()}
-            >
-              إعادة المحاولة
-            </button>
-          </div>
+            <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-white p-6 text-center shadow-2xl" dir="rtl">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+                <AlertTriangle className="h-7 w-7" aria-hidden="true" />
+              </div>
+              <h2 className="mt-4 text-lg font-bold text-slate-900">تعذر التحقق من الاشتراك</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                تعذر الاتصال بخدمة الاشتراك في الوقت الحالي. أوقفنا عمليات الحفظ مؤقتًا لحماية بياناتك، وسيُعاد التحقق تلقائيًا عند عودة الاتصال.
+              </p>
+              <button
+                type="button"
+                className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-amber-600 px-5 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => void retryCloudVerification()}
+                disabled={isRetryingCloudVerification}
+              >
+                <RefreshCw className={`h-4 w-4 ${isRetryingCloudVerification ? 'animate-spin' : ''}`} aria-hidden="true" />
+                {isRetryingCloudVerification ? 'جارٍ التحقق...' : 'إعادة التحقق الآن'}
+              </button>
+            </div>
+          </div>,
+          document.body,
         )}
         <Router>
           <PagePreloader />

@@ -39,6 +39,7 @@ export const authApi = {
 
     const response = await fetch(`${getCloudApiUrl()}/auth/login`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
@@ -55,6 +56,7 @@ export const authApi = {
   createLocalSession: async (cloudToken: string) => {
     const response = await fetch(`${getLocalApiUrl()}/auth/cloud-session`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cloud_token: cloudToken }),
     });
@@ -76,6 +78,7 @@ export const authApi = {
     // logout still works while offline.
     return fetch(`${getCloudApiUrl()}/auth/logout`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${accessToken}`,
@@ -96,9 +99,6 @@ export const authApi = {
   },
   refreshToken: async () => {
     const refreshToken = TokenManager.getRefreshToken();
-    if (!refreshToken) {
-      return Promise.reject(new Error('No refresh token available'));
-    }
 
     const baseUrl = typeof window !== 'undefined' && shouldUseLocalApi(window.location.hostname)
       ? getLocalApiUrl()
@@ -106,10 +106,11 @@ export const authApi = {
 
     const response = await fetch(`${baseUrl}/auth/refresh`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : '{}',
     });
 
     const payload = await (async () => {
@@ -436,15 +437,46 @@ const cloudSettingsRequest = async <T>(endpoint: string, options: RequestInit = 
   };
 };
 
+// Device synchronization must run through the local API even when the UI is
+// connected to the cloud. The local API owns the device SQLite database and
+// forwards only authenticated sync operations to the cloud authority.
+const localSyncRequest = async <T>(endpoint: string, options: RequestInit = {}) => {
+  const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
+  if (!cloudToken) throw new Error('لا توجد جلسة سحابية نشطة للمزامنة.');
+
+  let localToken = TokenManager.getToken();
+  if (getConnectionMode() === 'cloud') {
+    const session = await authApi.createLocalSession(cloudToken);
+    const sessionData = (session as any)?.data ?? session;
+    localToken = sessionData?.access_token || sessionData?.token || null;
+  }
+  if (!localToken) throw new Error('تعذر إنشاء جلسة المزامنة المحلية.');
+
+  const response = await fetch(`${getLocalApiUrl()}${endpoint}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${localToken}`,
+      'X-PartFlow-Cloud-Token': cloudToken,
+      ...(options.headers ?? {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || payload?.error || 'تعذر تنفيذ مزامنة البيانات المحلية.');
+  }
+  return payload as T;
+};
+
 export const settingsApi = {
   getRegionalSettings: () => apiClient.get('/settings/regional'),
   initializeRegionalSettings: (timezone: string) => apiClient.post('/settings/regional/initialize', { timezone }),
   updateRegionalSettings: (settings: string | { country_code?: string; timezone?: string }) =>
     apiClient.put('/settings/regional', typeof settings === 'string' ? { country_code: settings } : settings),
   syncCloudData: () =>
-    apiClient.post('/settings/sync', {}),
+    localSyncRequest('/api/v1/settings/sync', { method: 'POST', body: '{}' }),
   syncLocalDataToCloud: () =>
-    apiClient.post('/settings/sync/push', {}),
+    localSyncRequest('/api/v1/settings/sync/push', { method: 'POST', body: '{}' }),
   getUsers: (params?: { page?: number; per_page?: number }) =>
     apiClient.get('/users', params),
   getSubscribers: (params?: { page?: number; per_page?: number; search?: string; is_active?: boolean }) => {

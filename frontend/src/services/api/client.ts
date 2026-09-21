@@ -153,10 +153,6 @@ class ApiClient {
     }
 
     const refreshToken = TokenManager.getRefreshToken();
-    if (!refreshToken) {
-      this.refreshFailedForSession = true;
-      return null;
-    }
 
     const refreshPromise = (async () => {
       const baseUrl = typeof window !== 'undefined' && shouldUseLocalApi(window.location.hostname)
@@ -165,10 +161,11 @@ class ApiClient {
 
       const refreshResponse = await fetch(`${baseUrl}/auth/refresh`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ refresh_token: refreshToken }),
+        body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : '{}',
       });
 
       const refreshData = await refreshResponse.json().catch(() => ({}));
@@ -197,9 +194,6 @@ class ApiClient {
 
       this.refreshFailedForSession = false;
       this.setToken(newToken);
-      if (newRefreshToken) {
-        TokenManager.setRefreshToken(newRefreshToken);
-      }
       return newToken as string;
     })();
 

@@ -146,7 +146,9 @@ func (h *LocalDatabaseHandler) SyncLocalDataToCloud(c *gin.Context) {
 		return
 	}
 	if len(entries) == 0 {
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"processed": 0, "failed": 0, "direction": "local_to_cloud"}})
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+			"processed": 0, "failed": 0, "direction": "local_to_cloud", "operations": []gin.H{},
+		}})
 		return
 	}
 
@@ -224,12 +226,39 @@ func (h *LocalDatabaseHandler) SyncLocalDataToCloud(c *gin.Context) {
 		}
 	}
 
+	acceptedIDs := make(map[string]struct{}, len(result.Data.AcceptedIDs))
+	for _, id := range result.Data.AcceptedIDs {
+		acceptedIDs[id] = struct{}{}
+	}
+	operationDetails := make([]gin.H, 0, len(entries))
+	for _, entry := range entries {
+		detail := gin.H{
+			"id": entry.ID, "entity_type": entry.EntityType, "entity_id": entry.EntityID,
+			"operation": entry.Operation, "status": "failed",
+		}
+		if _, ok := acceptedIDs[entry.ID]; ok {
+			detail["status"] = "processed"
+		} else {
+			for _, rejected := range result.Data.Rejected {
+				if rejected.ID == entry.ID {
+					detail["error"] = rejected.Error
+					if rejected.Conflict {
+						detail["status"] = "conflict"
+					}
+					break
+				}
+			}
+		}
+		operationDetails = append(operationDetails, detail)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"processed": result.Data.Processed,
-			"failed":    result.Data.Failed,
-			"direction": "local_to_cloud",
+			"processed":  result.Data.Processed,
+			"failed":     result.Data.Failed,
+			"direction":  "local_to_cloud",
+			"operations": operationDetails,
 		},
 	})
 }

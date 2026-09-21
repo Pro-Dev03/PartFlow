@@ -61,8 +61,9 @@ export function DatabaseSettings() {
     mutationFn: () => settingsApi.syncLocalDataToCloud(),
     onSuccess: (result: any) => {
       void queryClient.invalidateQueries();
-      const processed = Number(result?.processed || 0);
-      const failed = Number(result?.failed || 0);
+      const summary = result?.data ?? result;
+      const processed = Number(summary?.processed || 0);
+      const failed = Number(summary?.failed || 0);
       toast.success(`تمت مزامنة ${processed} عملية محلية إلى السحابة${failed ? `، وفشلت ${failed}` : ''}.`);
     },
     onError: (error: any) => {

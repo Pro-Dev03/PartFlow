@@ -157,8 +157,6 @@ export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = w
 async function refreshCloudAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
   if (localStorage.getItem(CLOUD_REFRESH_FAILED_KEY) === 'true') return null;
-  const refreshToken = localStorage.getItem('cloud_refresh_token');
-  if (!refreshToken) return null;
 
   const lockOwner = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const lockIsActive = () => {
@@ -199,7 +197,7 @@ async function refreshCloudAccessToken(): Promise<string | null> {
     const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      body: '{}',
     });
     const refreshData = await refreshResponse.json().catch(() => ({}));
     if (!refreshResponse.ok) {
@@ -224,10 +222,6 @@ async function refreshCloudAccessToken(): Promise<string | null> {
     if (!nextToken) return null;
 
     localStorage.setItem('cloud_token', nextToken);
-    const nextRefresh = payload?.refresh_token || payload?.refreshToken;
-    if (nextRefresh) {
-      localStorage.setItem('cloud_refresh_token', nextRefresh);
-    }
     localStorage.removeItem(CLOUD_REFRESH_FAILED_KEY);
     useAuthStore.setState({ cloudToken: nextToken });
     return nextToken as string;
@@ -334,14 +328,10 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
       const payload = await response.json();
       const data = payload?.data ?? payload;
       const nextToken = data?.token || data?.access_token || cloudToken;
-      const nextRefreshToken = data?.refresh_token || localStorage.getItem('cloud_refresh_token');
       if (nextToken) {
         localStorage.setItem('cloud_token', nextToken);
         apiClient.setCloudToken(nextToken);
         useAuthStore.setState({ cloudToken: nextToken });
-      }
-      if (nextRefreshToken) {
-        localStorage.setItem('cloud_refresh_token', nextRefreshToken);
       }
 
       const currentUser = useAuthStore.getState().user;
@@ -381,6 +371,19 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
       cloudValidationInFlight = null;
     }
   }
+}
+
+export async function retrySubscriptionVerification(): Promise<boolean> {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(CLOUD_REFRESH_FAILED_KEY);
+  }
+  if (typeof window !== 'undefined' && !localStorage.getItem('cloud_token')) {
+    const refreshedToken = await refreshCloudAccessToken();
+    if (refreshedToken) {
+      apiClient.setCloudToken(refreshedToken);
+    }
+  }
+  return validateSubscriptionWithCloud();
 }
 
 function goToSubscriptionExpiredPage(): void {
@@ -498,14 +501,8 @@ export const useAuthStore = create<AuthState>()(
 
           if (connectionMode === 'cloud') {
             TokenManager.setToken(accessToken);
-            if (cloudRefreshToken) {
-              TokenManager.setRefreshToken(cloudRefreshToken);
-            }
             localStorage.setItem('cloud_token', accessToken);
             apiClient.setCloudToken(accessToken);
-            if (cloudRefreshToken) {
-              localStorage.setItem('cloud_refresh_token', cloudRefreshToken);
-            }
             apiClient.setToken(accessToken);
 
             const valid = await validateSubscriptionWithCloud();
@@ -544,14 +541,8 @@ export const useAuthStore = create<AuthState>()(
           const localRefreshToken = localData.refresh_token;
 
           TokenManager.setToken(localToken);
-          if (localRefreshToken) {
-            TokenManager.setRefreshToken(localRefreshToken);
-          }
           localStorage.setItem('cloud_token', accessToken);
           apiClient.setCloudToken(accessToken);
-          if (cloudRefreshToken) {
-            localStorage.setItem('cloud_refresh_token', cloudRefreshToken);
-          }
           apiClient.setToken(localToken);
 
           const valid = await validateSubscriptionWithCloud();
@@ -695,12 +686,7 @@ export const useAuthStore = create<AuthState>()(
           if (!user || !token) {
             throw new Error('Refresh response did not include user and token');
           }
-          const refreshToken = data.refresh_token || TokenManager.getRefreshToken();
-
           TokenManager.setToken(token);
-          if (refreshToken) {
-            TokenManager.setRefreshToken(refreshToken);
-          }
           apiClient.setToken(token);
           const cloudValid = await validateSubscriptionWithCloud();
           if (!cloudValid) {
@@ -725,17 +711,18 @@ export const useAuthStore = create<AuthState>()(
             sessionVerified: true,
             user: mergedUser,
             token,
-            refreshTokenValue: refreshToken || null,
+            refreshTokenValue: null,
           });
         } catch (error) {
           console.error('Failed to refresh token:', error);
 
           const status = Number((error as { status?: number })?.status);
           if (status === 401) {
-            // Stop the timer after an unrecoverable refresh token so the same
-            // rejected request cannot repeat in the background.
-            stopTokenRefresh();
-            TokenManager.clearRefreshToken();
+            // A rejected refresh token proves that the persisted session is no
+            // longer valid. Clear all credentials instead of leaving the user
+            // inside the app with an unusable authenticated state.
+            forceLogoutToLogin('Session expired');
+            return;
           }
 
           if (shouldRedirectToSubscriptionExpired(error, window.location.pathname)) {
