@@ -1065,10 +1065,10 @@ func (r *Repository) GetReturnSummary(ctx context.Context) ([]map[string]interfa
 	return summary, nil
 }
 
-// ReverseReturn reverses a return (instead of deleting it)
+// ReverseReturn cancels the original return instead of creating a second return record.
 func (r *Repository) ReverseReturn(ctx context.Context, id uuid.UUID, reversedBy uuid.UUID) error {
 	if dbutil.IsSQLite(r.db) {
-		result, err := r.db.ExecContext(ctx, `UPDATE returns SET status='REVERSED',processed_by=?,updated_at=? WHERE id=?`, idArgPtr(&reversedBy), time.Now().UTC().Format(time.RFC3339Nano), id.String())
+		result, err := r.db.ExecContext(ctx, `UPDATE returns SET status='CANCELLED', processed_by=?, internal_notes=?, updated_at=? WHERE id=?`, idArgPtr(&reversedBy), "Cancelled without creating a new return record.", time.Now().UTC().Format(time.RFC3339Nano), id.String())
 		if err != nil {
 			return fmt.Errorf("failed to reverse return: %w", err)
 		}
@@ -1080,14 +1080,15 @@ func (r *Repository) ReverseReturn(ctx context.Context, id uuid.UUID, reversedBy
 	}
 	query := `
 		UPDATE returns 
-		SET status = 'REVERSED', 
-		    processed_by = $2, 
+		SET status = 'CANCELLED',
+		    processed_by = $2,
+		    internal_notes = $3,
 		    updated_at = NOW() 
 		WHERE id = $1
 		RETURNING updated_at
 	`
 
-	err := r.db.QueryRowContext(ctx, query, id, reversedBy).Scan(new(time.Time))
+	err := r.db.QueryRowContext(ctx, query, id, reversedBy, "Cancelled without creating a new return record.").Scan(new(time.Time))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return ErrReturnNotFound

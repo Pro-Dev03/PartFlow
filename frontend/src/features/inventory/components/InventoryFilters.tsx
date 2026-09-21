@@ -198,7 +198,7 @@ export function InventoryFilters({
                 onKeyDown={(event) => { void handleSearchKeyDown(event); }}
                 onClear={onClearSearch}
                 size="sm"
-                className="w-full"
+                className="w-full pf-inventory-search-input"
               />
             </div>
 
@@ -213,7 +213,7 @@ export function InventoryFilters({
               <Select
                 value={filters.find(f => f.key === 'supplier_id')?.value || ''}
                 onChange={(e) => handleSupplierFilter(e.target.value)}
-                options={[{ value: '', label: 'كل الموردين' }, ...suppliers.map((s) => ({ value: s.id, label: s.name }))]}
+                options={[{ value: '', label: 'كل التجار' }, ...suppliers.map((s) => ({ value: s.id, label: s.name }))]}
                 className={cn('pf-inventory-filter-select', isMobile ? 'min-w-0 flex-1' : 'w-36')}
                 size="sm"
               />

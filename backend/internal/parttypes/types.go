@@ -1,8 +1,9 @@
 package parttypes
 
 import (
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // PartType represents a type of used part (GPU, RAM, etc.)
@@ -59,7 +60,7 @@ type PartTypeWithSpecs struct {
 // CreatePartTypeRequest for creating new part types
 type CreatePartTypeRequest struct {
 	NameAr    string `json:"name_ar" binding:"required"`
-	NameEn    string `json:"name_en" binding:"required"`
+	NameEn    string `json:"name_en"`
 	Icon      string `json:"icon"`
 	Color     string `json:"color"`
 	SortOrder int    `json:"sort_order"`

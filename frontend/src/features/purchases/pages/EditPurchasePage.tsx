@@ -137,6 +137,8 @@ export function EditPurchasePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
       toast.success('تم حذف المنتج بنجاح');
     },
     onError: (error) => {
@@ -321,7 +323,7 @@ export function EditPurchasePage() {
 
   const handleUpdatePurchase = useCallback(async () => {
     if (!selectedSupplier) {
-      toast.error('يرجى اختيار المورد');
+      toast.error('يرجى اختيار التاجر');
       return;
     }
     if (items.length === 0) {
@@ -394,7 +396,6 @@ export function EditPurchasePage() {
     <div className="space-y-6">
       {/* Page Header */}
       <PageHeader
-        eyebrow="Purchase Management"
         title="تعديل الشراء"
         description="تعديل طلب شراء موجود"
         actions={
@@ -418,16 +419,16 @@ export function EditPurchasePage() {
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-text mb-2">المورد *</label>
+                  <label className="block text-sm font-medium text-text mb-2">التاجر *</label>
                   <Select
                     value={selectedSupplier}
                     onChange={(e) => setSelectedSupplier(e.target.value)}
                     loading={suppliersLoading}
                     options={[
-                      { value: '', label: 'اختر المورد...' },
+                      { value: '', label: 'اختر التاجر...' },
                       ...suppliers.map((s) => ({ value: s.id, label: s.name })),
                     ]}
-                    emptyMessage="لا يوجد موردين"
+                    emptyMessage="لا يوجد تجار"
                   />
                 </div>
                 <div>
@@ -562,15 +563,10 @@ export function EditPurchasePage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
-                                  if (product.sales_count > 0) {
-                                    toast.error('لا يمكن حذف هذا المنتج لأنه تم بيعه مسبقاً. يمكن حذف المنتجات التي لم يتم بيعها فقط.');
-                                    return;
-                                  }
                                   setProductToDelete(product);
                                 }}
-                                className={product.sales_count > 0 ? "text-gray-400 cursor-not-allowed" : "text-red-600 hover:text-red-700"}
-                                title={product.sales_count > 0 ? "لا يمكن حذف منتج تم بيعه" : "حذف المنتج نهائياً"}
-                                disabled={product.sales_count > 0}
+                                className="text-red-600 hover:text-red-700"
+                                title="حذف المنتج نهائياً وتنظيف سجله المرتبط"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
@@ -1220,7 +1216,7 @@ export function EditPurchasePage() {
           setProductToDelete(null);
         }}
         title="حذف المنتج"
-        message="هل أنت متأكد من حذف هذا المنتج نهائياً؟ هذا الإجراء لا يمكن التراجع عنه."
+        message="سيُحذف المنتج نهائيًا مع تنظيف المبيعات والمشتريات والمرتجعات المرتبطة به من البطاقات والتقارير. هل تريد المتابعة؟"
         confirmText="حذف المنتج"
         isLoading={deleteProductMutation.isPending}
         variant="danger"

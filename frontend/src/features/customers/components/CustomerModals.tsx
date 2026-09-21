@@ -320,6 +320,43 @@ export function CustomerModals({
                     {selectedCustomer.lastPurchase ? new Date(selectedCustomer.lastPurchase).toLocaleDateString('ar-SA') : 'لا يوجد'}
                   </div>
                 </div>
+
+                <div style={{
+                  marginTop: '16px',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '12px'
+                }}>
+                  <div style={{
+                    background: 'rgba(15, 23, 42, 0.02)',
+                    border: '1px solid var(--border-default)',
+                    borderRadius: '10px',
+                    padding: '12px 14px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <FileText className="w-4 h-4" style={{ color: 'var(--color-info)' }} />
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>ملاحظات العميل</span>
+                    </div>
+                    <p style={{ fontSize: '13px', lineHeight: '1.7', color: 'var(--text-primary)', margin: 0, whiteSpace: 'pre-wrap' }}>
+                      {selectedCustomer.notes || 'لا توجد ملاحظات للعميل'}
+                    </p>
+                  </div>
+
+                  <div style={{
+                    background: 'rgba(15, 23, 42, 0.02)',
+                    border: '1px solid var(--border-default)',
+                    borderRadius: '10px',
+                    padding: '12px 14px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <AlertTriangle className="w-4 h-4" style={{ color: 'var(--color-warning)' }} />
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>سبب الدين</span>
+                    </div>
+                    <p style={{ fontSize: '13px', lineHeight: '1.7', color: 'var(--text-primary)', margin: 0, whiteSpace: 'pre-wrap' }}>
+                      {selectedCustomer.debt_reason || 'لا يوجد سبب دين محدد'}
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div style={{

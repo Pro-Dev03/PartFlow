@@ -100,6 +100,13 @@ export const ButtonSizeBySection = {
     modalAction: ButtonSizes.sm
   },
 
+  // قسم المشتريات
+  purchases: {
+    headerActions: ButtonSizes.sm,
+    tableAction: ButtonSizes.sm,
+    modalAction: ButtonSizes.sm
+  },
+
   // قسم القطع المستعملة
   usedparts: {
     headerActions: ButtonSizes.sm,

@@ -64,7 +64,6 @@ export function UsedPartsStockPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Used Parts Stock"
         title="مخزون القطع المستعملة"
         description="القطع المستعملة المتاحة وغير المباعة"
         actions={

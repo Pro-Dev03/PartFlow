@@ -5,6 +5,8 @@ export interface Customer {
   phone: string;
   email?: string;
   address?: string;
+  notes?: string;
+  debt_reason?: string;
   totalPurchases: number;
   paidAmount?: number;
   outstanding: number;
@@ -22,6 +24,7 @@ export interface CustomerFormData {
   email?: string;
   address?: string;
   notes?: string;
+  debt_reason?: string;
   credit_limit?: number;
   opening_debt?: number;
   is_active?: boolean;

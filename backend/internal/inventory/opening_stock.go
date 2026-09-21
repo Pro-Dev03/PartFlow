@@ -24,6 +24,75 @@ type OpeningStockResult struct {
 	Item         *InventoryItem `json:"item,omitempty"`
 }
 
+type BulkUsedStockResult struct {
+	Created int              `json:"created"`
+	Items   []*InventoryItem `json:"items"`
+}
+
+func (s *Service) CreateBulkUsedStock(ctx context.Context, req *BulkUsedStockRequest, userID uuid.UUID) (*BulkUsedStockResult, error) {
+	if req == nil || req.ProductID == nil || req.PartTypeID == nil || len(req.Barcodes) == 0 || len(req.Barcodes) > 1000 {
+		return nil, fmt.Errorf("product_id, part_type_id and 1-1000 barcodes are required")
+	}
+	businessDate, err := time.Parse("2006-01-02", req.BusinessDate)
+	if err != nil {
+		return nil, ErrInvalidBusinessDate
+	}
+	seen := make(map[string]struct{}, len(req.Barcodes))
+	for index, barcode := range req.Barcodes {
+		barcode = strings.TrimSpace(barcode)
+		if barcode == "" {
+			return nil, fmt.Errorf("barcode at row %d is empty", index+1)
+		}
+		key := strings.ToLower(barcode)
+		if _, exists := seen[key]; exists {
+			return nil, fmt.Errorf("duplicate barcode in batch: %s", barcode)
+		}
+		seen[key] = struct{}{}
+	}
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin bulk used stock: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	before, err := openingStockQuantity(ctx, tx, *req.ProductID)
+	if err != nil {
+		return nil, err
+	}
+	if err := updateOpeningStockQuantity(ctx, tx, *req.ProductID, len(req.Barcodes)); err != nil {
+		return nil, err
+	}
+	result := &BulkUsedStockResult{Items: make([]*InventoryItem, 0, len(req.Barcodes))}
+	condition := ConditionUsed
+	for index, barcode := range req.Barcodes {
+		barcodeCopy := strings.TrimSpace(barcode)
+		itemReq := &OpeningStockRequest{
+			ProductID: req.ProductID, Mode: OpeningStockModeIndividual, Quantity: 1,
+			BusinessDate: req.BusinessDate, Barcode: &barcodeCopy, PartTypeID: req.PartTypeID,
+			Condition: condition, Grade: req.Grade, PurchaseCost: req.PurchaseCost,
+			SellingPrice: req.SellingPrice, Notes: req.Notes,
+		}
+		item, err := insertOpeningStockItem(ctx, tx, itemReq, condition, index)
+		if err != nil {
+			return nil, fmt.Errorf("failed at barcode %s: %w", barcodeCopy, err)
+		}
+		if err := insertOpeningStockMovement(ctx, tx, req.ProductID, item, before+index, 1, businessDate, userID); err != nil {
+			return nil, err
+		}
+		result.Items = append(result.Items, item)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit bulk used stock: %w", err)
+	}
+	committed = true
+	result.Created = len(result.Items)
+	return result, nil
+}
+
 // CreateOpeningStock records an initial balance or item identity in one transaction.
 func (s *Service) CreateOpeningStock(ctx context.Context, req *OpeningStockRequest, userID uuid.UUID) (*OpeningStockResult, error) {
 	if req == nil || req.ProductID == nil {

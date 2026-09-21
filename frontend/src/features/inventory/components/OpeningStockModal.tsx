@@ -35,6 +35,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
   const [businessDate, setBusinessDate] = useState(today);
   const [barcode, setBarcode] = useState('');
   const [batchRows, setBatchRows] = useState<BatchRow[]>([]);
+  const [batchBarcodeText, setBatchBarcodeText] = useState('');
   const [condition, setCondition] = useState<OpeningCondition>('NEW');
   const [partTypeId, setPartTypeId] = useState('');
   const [supplierId, setSupplierId] = useState('');
@@ -113,6 +114,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
     setBusinessDate(today());
     setBarcode('');
     setBatchRows([{ id: `${Date.now()}`, barcode: '' }]);
+    setBatchBarcodeText('');
     setCondition('NEW');
     setPartTypeId('');
     setSupplierId('');
@@ -257,13 +259,25 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
         notes: notes.trim() || undefined,
       };
       if (mode === 'batch') {
-        for (const row of batchRows) {
-          await inventoryApi.createOpeningStock({
-            ...commonPayload,
-            mode: 'individual',
-            quantity: 1,
-            barcode: row.barcode.trim(),
+        if (isUsedStock) {
+          await inventoryApi.createBulkUsedStock({
+            product_id: resolvedProductId,
+            barcodes: batchRows.map((row) => row.barcode.trim()),
+            business_date: businessDate,
+            part_type_id: partTypeId,
+            purchase_cost: Number(purchaseCost) || 0,
+            selling_price: Number(sellingPrice) || resolvedProductPrice,
+            notes: notes.trim() || undefined,
           });
+        } else {
+          for (const row of batchRows) {
+            await inventoryApi.createOpeningStock({
+              ...commonPayload,
+              mode: 'individual',
+              quantity: 1,
+              barcode: row.barcode.trim(),
+            });
+          }
         }
       } else {
         await inventoryApi.createOpeningStock({
@@ -303,18 +317,19 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
           if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
           const target = event.target as HTMLElement;
           if (target.tagName === 'TEXTAREA') return;
-          if (target instanceof HTMLInputElement && target.dataset.openingBarcode === 'true') {
+
+          const isBarcodeField = target instanceof HTMLInputElement && target.dataset.openingBarcode === 'true';
+          if (isBarcodeField && mode === 'batch') {
             event.preventDefault();
             event.stopPropagation();
-            if (mode === 'batch' && target.value.trim()) {
-              setBatchRows((rows) => [...rows, { id: `${Date.now()}-${rows.length}`, barcode: '' }]);
-              requestAnimationFrame(() => {
-                const barcodeInputs = document.querySelectorAll<HTMLInputElement>('[data-opening-barcode="true"]');
-                barcodeInputs[barcodeInputs.length - 1]?.focus();
-              });
-            }
+            advanceStep();
             return;
           }
+
+          if (target instanceof HTMLButtonElement || target.closest('button')) {
+            return;
+          }
+
           event.preventDefault();
           event.stopPropagation();
           advanceStep();
@@ -324,8 +339,21 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
           <div className="flex items-center gap-2" aria-label={`المرحلة ${currentStep} من 4`}>
             {[1, 2, 3, 4].map((step) => <span key={step} className={`h-1.5 rounded-full transition-all duration-150 ${step === currentStep ? 'w-6 bg-primary' : 'w-1.5 bg-border'}`} />)}
           </div>
-          <div className="flex items-center gap-1">
-            {currentStep > 1 && <Button type="button" variant="ghost" size="sm" onClick={() => setCurrentStep((step) => Math.max(1, step - 1) as 1 | 2 | 3 | 4)}>رجوع</Button>}
+          <div className="flex items-center gap-2">
+            {currentStep > 1 && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setCurrentStep((step) => Math.max(1, step - 1) as 1 | 2 | 3 | 4)}>
+                رجوع
+              </Button>
+            )}
+            {currentStep < 4 ? (
+              <Button type="button" variant="primary" size="sm" onClick={advanceStep}>
+                التالي
+              </Button>
+            ) : (
+              <Button type="button" variant="primary" size="sm" onClick={(event) => void handleSubmit(event as unknown as React.FormEvent)}>
+                حفظ
+              </Button>
+            )}
             <Button type="button" variant="ghost" size="sm" onClick={onClose}>إلغاء</Button>
           </div>
         </div>
@@ -334,7 +362,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
         <div className="rounded-xl border border-cyan/20 bg-cyan/5 p-4 text-sm text-text-secondary">
           {isUsedStock
             ? 'سجّل القطع المستعملة الموجودة لديك الآن دون إنشاء عملية شراء. يمكنك ربط القطعة بالعميل الذي جاءت منه بشكل اختياري.'
-            : 'استخدم هذه النافذة لتسجيل البضاعة الموجودة لديك الآن، مثل المخزون عند بدء استخدام النظام. لن يتم إنشاء فاتورة شراء أو مديونية للمورد.'}
+            : 'استخدم هذه النافذة لتسجيل البضاعة الموجودة لديك الآن، مثل المخزون عند بدء استخدام النظام. لن يتم إنشاء فاتورة شراء أو مديونية للتاجر.'}
         </div>
 
         <div className="grid gap-3 md:grid-cols-3">
@@ -464,6 +492,29 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
                 <Plus className="h-4 w-4" /> إضافة قطعة
               </Button>
             </div>
+            {isUsedStock && (
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+                <label htmlFor="used-bulk-barcodes" className="mb-1 block text-xs font-semibold text-text-primary">
+                  لصق عدة باركودات دفعة واحدة
+                </label>
+                <textarea
+                  id="used-bulk-barcodes"
+                  value={batchBarcodeText}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setBatchBarcodeText(value);
+                    const barcodes = value.split(/[\r\n,;]+/).map((entry) => entry.trim()).filter(Boolean);
+                    if (barcodes.length > 0) {
+                      setBatchRows(barcodes.map((value, index) => ({ id: `${Date.now()}-${index}`, barcode: value })));
+                    }
+                  }}
+                  placeholder="امسح أو الصق باركودًا في كل سطر"
+                  rows={3}
+                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm"
+                />
+                <p className="mt-1 text-[11px] text-text-secondary">بعد اللصق اضغط «التالي». سيتم فحص التكرار وحفظ الدفعة بمعاملة واحدة.</p>
+              </div>
+            )}
             {batchRows.map((row, index) => (
               <div key={row.id} className="grid gap-2 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-end">
                 <span className="pb-3 text-xs font-semibold text-text-muted">#{index + 1}</span>
@@ -491,16 +542,16 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
             />
           ) : (
             <Select
-              label="ربط بمورد (اختياري)"
+              label="ربط بتاجر (اختياري)"
               value={supplierId}
               onChange={(event) => setSupplierId(event.target.value)}
-              options={[{ value: '', label: 'بدون مورد' }, ...supplierOptions]}
+              options={[{ value: '', label: 'بدون تاجر' }, ...supplierOptions]}
               loading={suppliersLoading}
-              emptyMessage="لا يوجد موردون"
+              emptyMessage="لا يوجد تجار"
             />
           )}
           <p className="-mt-2 text-xs text-text-secondary md:col-span-3">
-            {isUsedStock ? 'اختر عميلًا إذا أردت تسجيل مصدر هذه القطعة.' : 'اختر موردًا إذا أردت تسجيل اسم المورد المرتبط بهذه البضاعة.'}
+            {isUsedStock ? 'اختر عميلًا إذا أردت تسجيل مصدر هذه القطعة.' : 'اختر تاجرًا إذا أردت تسجيل اسم التاجر المرتبط بهذه البضاعة.'}
           </p>
           <Input label="سعر التكلفة" type="number" min="0" step="0.01" value={purchaseCost} onChange={(event) => setPurchaseCost(event.target.value)} />
           <Input label="سعر البيع" type="number" min="0" step="0.01" value={sellingPrice} onChange={(event) => setSellingPrice(event.target.value)} />

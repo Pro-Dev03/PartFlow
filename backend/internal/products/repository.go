@@ -856,7 +856,10 @@ func (r *Repository) UpdateMinimumStock(ctx context.Context, id uuid.UUID, minSt
 	return nil
 }
 
-// DeleteProduct permanently deletes a product and its unreferenced inventory items.
+// DeleteProduct permanently deletes a product and all transaction history that
+// is linked to it. The cleanup is intentionally done in one
+// transaction: dashboard/report totals read the parent transaction tables, so
+// deleting only sale_items or purchase_items would leave stale totals behind.
 func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -865,35 +868,169 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	defer tx.Rollback()
 
 	var productExists bool
-	if err := tx.GetContext(ctx, &productExists, `SELECT EXISTS (SELECT 1 FROM products WHERE id = $1)`, id); err != nil {
+	if err := tx.GetContext(ctx, &productExists, tx.Rebind(`SELECT EXISTS (SELECT 1 FROM products WHERE id = ?)`), id); err != nil {
 		return err
 	}
 	if !productExists {
 		return ErrProductNotFound
 	}
 
-	var hasHistory bool
-	if err := tx.GetContext(ctx, &hasHistory, `
-		SELECT EXISTS (
-			SELECT 1 FROM sale_items WHERE product_id = $1
-			UNION ALL SELECT 1 FROM purchase_items WHERE product_id = $1
-			UNION ALL SELECT 1 FROM return_items WHERE product_id = $1
-			UNION ALL SELECT 1 FROM supplier_return_items WHERE product_id = $1
-		)
-	`, id); err != nil {
-		return err
+	// Capture parent and child IDs before deleting any rows. This lets us remove
+	// dependent records in the correct order on schemas with foreign keys.
+	saleIDs, err := collectProductDeleteIDs(ctx, tx, `SELECT DISTINCT sale_id FROM sale_items WHERE product_id = ? AND sale_id IS NOT NULL`, id)
+	if err != nil {
+		return fmt.Errorf("find product sales: %w", err)
 	}
-	if hasHistory {
-		return fmt.Errorf("product has historical transactions and cannot be permanently deleted")
+	purchaseIDs, err := collectProductDeleteIDs(ctx, tx, `SELECT DISTINCT purchase_id FROM purchase_items WHERE product_id = ? AND purchase_id IS NOT NULL`, id)
+	if err != nil {
+		return fmt.Errorf("find product purchases: %w", err)
+	}
+	saleItemIDs, err := collectProductDeleteIDs(ctx, tx, `SELECT id FROM sale_items WHERE product_id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("find product sale items: %w", err)
+	}
+	purchaseItemIDs, err := collectProductDeleteIDs(ctx, tx, `SELECT id FROM purchase_items WHERE product_id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("find product purchase items: %w", err)
+	}
+	inventoryItemIDs, err := collectProductDeleteIDs(ctx, tx, `SELECT id FROM inventory_items WHERE product_id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("find product inventory items: %w", err)
+	}
+	returnIDs, err := collectProductDeleteIDs(ctx, tx, `SELECT DISTINCT return_id FROM return_items WHERE product_id = ? AND return_id IS NOT NULL`, id)
+	if err != nil {
+		return fmt.Errorf("find product returns: %w", err)
+	}
+	acquisitionIDs, err := collectProductDeleteIDs(ctx, tx, `SELECT DISTINCT acquisition_id FROM acquisition_items WHERE product_id = ? AND acquisition_id IS NOT NULL`, id)
+	if err != nil {
+		return fmt.Errorf("find product acquisitions: %w", err)
+	}
+	supplierReturnIDs, err := collectProductDeleteIDs(ctx, tx, `SELECT DISTINCT supplier_return_id FROM supplier_return_items WHERE product_id = ? AND supplier_return_id IS NOT NULL`, id)
+	if err != nil {
+		return fmt.Errorf("find product supplier returns: %w", err)
 	}
 
-	if _, err := tx.ExecContext(ctx, `DELETE FROM inventory WHERE product_id = $1`, id); err != nil {
-		return fmt.Errorf("failed to delete product inventory summary: %w", err)
+	// A return can be linked through a sale/purchase or only through its item.
+	returnIDs = appendUniqueProductDeleteIDs(returnIDs, collectProductDeleteIDsForIDs(ctx, tx, `SELECT id FROM returns WHERE sale_id IN (?)`, saleIDs)...)
+	returnIDs = appendUniqueProductDeleteIDs(returnIDs, collectProductDeleteIDsForIDs(ctx, tx, `SELECT id FROM returns WHERE purchase_id IN (?)`, purchaseIDs)...)
+	returnIDs = appendUniqueProductDeleteIDs(returnIDs, collectProductDeleteIDsForIDs(ctx, tx, `SELECT DISTINCT return_id FROM return_items WHERE sale_item_id IN (?)`, saleItemIDs)...)
+	supplierReturnIDs = appendUniqueProductDeleteIDs(supplierReturnIDs, collectProductDeleteIDsForIDs(ctx, tx, `SELECT id FROM supplier_returns WHERE purchase_id IN (?) OR sale_id IN (?)`, purchaseIDs, saleIDs)...)
+	supplierReturnIDs = appendUniqueProductDeleteIDs(supplierReturnIDs, collectProductDeleteIDsForIDs(ctx, tx, `SELECT DISTINCT supplier_return_id FROM supplier_return_items WHERE customer_return_id IN (?)`, returnIDs)...)
+
+	paymentIDs, err := collectProductDeleteIDsForIDsChecked(ctx, tx, `SELECT id FROM payments WHERE sale_id IN (?) OR purchase_id IN (?)`, saleIDs, purchaseIDs)
+	if err != nil {
+		return fmt.Errorf("find product payments: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM inventory_items WHERE product_id = $1`, id); err != nil {
-		return fmt.Errorf("failed to delete product inventory: %w", err)
+	paymentTransactionIDs, err := collectProductDeleteIDsForIDsChecked(ctx, tx, `SELECT id FROM payment_transactions WHERE sale_id IN (?) OR payment_id IN (?)`, saleIDs, paymentIDs)
+	if err != nil {
+		return fmt.Errorf("find product payment transactions: %w", err)
 	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM products WHERE id = $1`, id)
+	paymentTransactionIDs = appendUniqueProductDeleteIDs(paymentTransactionIDs, collectProductDeleteIDsForIDs(ctx, tx, `SELECT payment_transaction_id FROM return_payment_refunds WHERE return_id IN (?)`, returnIDs)...)
+
+	// Remove return and payment dependents before their parent records. These
+	// tables were introduced over time, so absent legacy tables are ignored.
+	for _, cleanup := range []struct {
+		query string
+		args  []any
+	}{
+		{`DELETE FROM return_payment_refunds WHERE return_id IN (?) OR payment_transaction_id IN (?)`, []any{returnIDs, paymentTransactionIDs}},
+		{`DELETE FROM return_refunds WHERE return_id IN (?)`, []any{returnIDs}},
+		{`DELETE FROM return_inspection WHERE return_item_id IN (SELECT id FROM return_items WHERE return_id IN (?))`, []any{returnIDs}},
+		{`DELETE FROM return_audit_log WHERE return_id IN (?) OR return_item_id IN (SELECT id FROM return_items WHERE return_id IN (?))`, []any{returnIDs, returnIDs}},
+		{`DELETE FROM payment_refunds WHERE payment_transaction_id IN (?)`, []any{paymentTransactionIDs}},
+		{`DELETE FROM payment_webhook_events WHERE payment_transaction_id IN (?)`, []any{paymentTransactionIDs}},
+		{`DELETE FROM supplier_return_items WHERE supplier_return_id IN (?)`, []any{supplierReturnIDs}},
+		{`DELETE FROM supplier_return_items WHERE product_id = ?`, []any{id}},
+		{`DELETE FROM supplier_return_items WHERE purchase_item_id IN (?)`, []any{purchaseItemIDs}},
+		{`DELETE FROM supplier_return_items WHERE sale_item_id IN (?)`, []any{saleItemIDs}},
+		{`DELETE FROM return_items WHERE return_id IN (?)`, []any{returnIDs}},
+		{`DELETE FROM return_items WHERE product_id = ?`, []any{id}},
+		{`DELETE FROM return_items WHERE sale_item_id IN (?)`, []any{saleItemIDs}},
+		{`DELETE FROM return_items WHERE inventory_item_id IN (?)`, []any{inventoryItemIDs}},
+	} {
+		if err := execProductCleanup(ctx, tx, cleanup.query, cleanup.args...); err != nil {
+			return fmt.Errorf("clean product transaction details: %w", err)
+		}
+	}
+
+	for _, cleanup := range []struct {
+		table string
+		col   string
+		ids   []string
+	}{
+		{"supplier_returns", "id", supplierReturnIDs},
+		{"returns", "id", returnIDs},
+		{"payment_transactions", "id", paymentTransactionIDs},
+		{"debts", "sale_id", saleIDs},
+		{"financial_transactions", "sale_id", saleIDs},
+		{"payments", "id", paymentIDs},
+		{"sale_payment_allocations", "sale_id", saleIDs},
+	} {
+		if err := deleteProductRowsByIDs(ctx, tx, cleanup.table, cleanup.col, cleanup.ids); err != nil {
+			return fmt.Errorf("clean product %s: %w", cleanup.table, err)
+		}
+	}
+
+	// Delete the transaction line items before deleting their parent records.
+	for _, cleanup := range []struct {
+		query string
+		args  []any
+	}{
+		{`DELETE FROM sale_items WHERE product_id = ? OR sale_id IN (?)`, []any{id, saleIDs}},
+		{`DELETE FROM purchase_items WHERE product_id = ? OR purchase_id IN (?)`, []any{id, purchaseIDs}},
+		{`DELETE FROM seller_payments WHERE acquisition_id IN (?)`, []any{acquisitionIDs}},
+		{`DELETE FROM item_repair_costs WHERE inventory_item_id IN (?)`, []any{inventoryItemIDs}},
+		{`DELETE FROM item_repair_costs WHERE acquisition_item_id IN (SELECT id FROM acquisition_items WHERE product_id = ?)`, []any{id}},
+		{`DELETE FROM item_history WHERE inventory_item_id IN (?)`, []any{inventoryItemIDs}},
+		{`DELETE FROM inspection_items WHERE inspection_id IN (SELECT id FROM inspections WHERE product_id = ?)`, []any{id}},
+		{`DELETE FROM inspection_items WHERE inspection_id IN (SELECT id FROM inspections WHERE inventory_item_id IN (?))`, []any{inventoryItemIDs}},
+		{`DELETE FROM inspection_items WHERE inspection_id IN (SELECT id FROM inspections WHERE acquisition_item_id IN (SELECT id FROM acquisition_items WHERE product_id = ?))`, []any{id}},
+		{`DELETE FROM inspections WHERE product_id = ?`, []any{id}},
+		{`DELETE FROM inspections WHERE inventory_item_id IN (?)`, []any{inventoryItemIDs}},
+		{`DELETE FROM inspections WHERE acquisition_item_id IN (SELECT id FROM acquisition_items WHERE product_id = ?)`, []any{id}},
+		{`DELETE FROM acquisition_items WHERE product_id = ? OR acquisition_id IN (?)`, []any{id, acquisitionIDs}},
+	} {
+		if err := execProductCleanup(ctx, tx, cleanup.query, cleanup.args...); err != nil {
+			return fmt.Errorf("clean product transaction lines: %w", err)
+		}
+	}
+	for _, cleanup := range []struct {
+		table string
+		col   string
+		ids   []string
+	}{
+		{"sales", "id", saleIDs},
+		{"purchases", "id", purchaseIDs},
+		{"acquisitions", "id", acquisitionIDs},
+	} {
+		if err := deleteProductRowsByIDs(ctx, tx, cleanup.table, cleanup.col, cleanup.ids); err != nil {
+			return fmt.Errorf("clean product %s: %w", cleanup.table, err)
+		}
+	}
+
+	// Finally remove product-level operational/history rows and the product.
+	for _, cleanup := range []struct {
+		query string
+		args  []any
+	}{
+		{`DELETE FROM inventory_movements WHERE product_id = ?`, []any{id}},
+		{`DELETE FROM inventory_movements WHERE item_id IN (?)`, []any{inventoryItemIDs}},
+		{`DELETE FROM reservations WHERE item_id IN (?)`, []any{inventoryItemIDs}},
+		{`DELETE FROM item_specification_values WHERE inventory_item_id IN (?)`, []any{inventoryItemIDs}},
+		{`DELETE FROM barcodes WHERE product_id = ?`, []any{id}},
+		{`DELETE FROM barcodes WHERE inventory_item_id IN (?)`, []any{inventoryItemIDs}},
+		{`DELETE FROM trade_ins WHERE inventory_item_id IN (?)`, []any{inventoryItemIDs}},
+		{`DELETE FROM ledger_entries WHERE product_id = ? OR reference_id IN (?)`, []any{id, appendUniqueProductDeleteIDs(append(append([]string{}, saleIDs...), purchaseIDs...), acquisitionIDs...)}},
+		{`DELETE FROM warranty_claims WHERE product_id = ?`, []any{id}},
+		{`DELETE FROM inventory WHERE product_id = ?`, []any{id}},
+		{`DELETE FROM inventory_items WHERE product_id = ?`, []any{id}},
+	} {
+		if err := execProductCleanup(ctx, tx, cleanup.query, cleanup.args...); err != nil {
+			return fmt.Errorf("clean product history: %w", err)
+		}
+	}
+
+	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM products WHERE id = ?`), id)
 	if err != nil {
 		return fmt.Errorf("failed to delete product: %w", err)
 	}
@@ -901,12 +1038,154 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return err
 	}
-
 	if rows == 0 {
 		return ErrProductNotFound
 	}
 
 	return tx.Commit()
+}
+
+func collectProductDeleteIDs(ctx context.Context, tx *sqlx.Tx, query string, args ...any) ([]string, error) {
+	rows, err := tx.QueryxContext(ctx, tx.Rebind(query), args...)
+	if err != nil {
+		if isOptionalProductCleanupError(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(id) != "" {
+			ids = appendUniqueProductDeleteIDs(ids, id)
+		}
+	}
+	return ids, rows.Err()
+}
+
+// collectProductDeleteIDsForIDs is best-effort for optional legacy tables and
+// is used only after the primary product-linked IDs have been collected.
+func collectProductDeleteIDsForIDs(ctx context.Context, tx *sqlx.Tx, query string, idLists ...[]string) []string {
+	ids, _ := collectProductDeleteIDsForIDsChecked(ctx, tx, query, idLists...)
+	return ids
+}
+
+func collectProductDeleteIDsForIDsChecked(ctx context.Context, tx *sqlx.Tx, query string, idLists ...[]string) ([]string, error) {
+	hasValues := false
+	args := make([]any, len(idLists))
+	for _, ids := range idLists {
+		if len(ids) > 0 {
+			hasValues = true
+		}
+	}
+	if !hasValues {
+		return nil, nil
+	}
+	for index, ids := range idLists {
+		if len(ids) == 0 {
+			args[index] = []string{uuid.Nil.String()}
+		} else {
+			args[index] = ids
+		}
+	}
+	expanded, values, err := sqlx.In(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return collectProductDeleteIDs(ctx, tx, expanded, values...)
+}
+
+func execProductCleanup(ctx context.Context, tx *sqlx.Tx, query string, args ...any) error {
+	if len(args) == 0 {
+		return nil
+	}
+	args = normalizeProductDeleteArgs(args)
+	expanded, values, err := sqlx.In(query, args...)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, tx.Rebind(expanded), values...)
+	if isOptionalProductCleanupError(err) {
+		return nil
+	}
+	return err
+}
+
+func normalizeProductDeleteArgs(args []any) []any {
+	normalized := make([]any, len(args))
+	for index, arg := range args {
+		switch values := arg.(type) {
+		case []string:
+			if len(values) == 0 {
+				// sqlx.In rejects empty slices. A valid zero UUID keeps the
+				// optional cleanup query valid for PostgreSQL UUID columns
+				// without matching any real row.
+				normalized[index] = []string{uuid.Nil.String()}
+			} else {
+				normalized[index] = values
+			}
+		default:
+			normalized[index] = arg
+		}
+	}
+	return normalized
+}
+
+func deleteProductRowsByIDs(ctx context.Context, tx *sqlx.Tx, table, column string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	query, args, err := sqlx.In(fmt.Sprintf("DELETE FROM %s WHERE %s IN (?)", table, column), ids)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, tx.Rebind(query), args...)
+	if isOptionalProductCleanupError(err) {
+		return nil
+	}
+	return err
+}
+
+func appendUniqueProductDeleteIDs(ids []string, candidates ...string) []string {
+	seen := make(map[string]struct{}, len(ids)+len(candidates))
+	for _, id := range ids {
+		seen[id] = struct{}{}
+	}
+	for _, id := range candidates {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func isOptionalProductCleanupError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, fragment := range []string{
+		"no such table",
+		"no such column",
+		"relation \"",
+		"does not exist",
+		"undefined table",
+		"undefined column",
+	} {
+		if strings.Contains(message, fragment) {
+			return true
+		}
+	}
+	return false
 }
 
 // RestoreProduct restores a soft-deleted product

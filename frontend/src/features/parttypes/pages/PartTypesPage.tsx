@@ -164,11 +164,19 @@ export function PartTypesPage() {
   });
 
   const handleCreate = () => {
-    if (!newPartType.name_ar) {
+    const normalizedNameAr = newPartType.name_ar.trim();
+    if (!normalizedNameAr) {
       toast.error('يرجى ملء جميع الحقول المطلوبة');
       return;
     }
-    createMutation.mutate(newPartType);
+
+    const payload = {
+      ...newPartType,
+      name_ar: normalizedNameAr,
+      name_en: (newPartType.name_en || normalizedNameAr).trim() || normalizedNameAr,
+    };
+
+    createMutation.mutate(payload);
   };
 
   const handleUpdate = () => {
@@ -176,10 +184,18 @@ export function PartTypesPage() {
       toast.error('يرجى ملء جميع الحقول المطلوبة');
       return;
     }
-    setPartTypeImage(selectedPartType.id, selectedPartType.image_url || null);
+    const normalizedNameAr = selectedPartType.name_ar.trim();
+    const normalizedNameEn = (selectedPartType.name_en || normalizedNameAr).trim() || normalizedNameAr;
+    const updatedPartType = {
+      ...selectedPartType,
+      name_ar: normalizedNameAr,
+      name_en: normalizedNameEn,
+    };
+    setSelectedPartType(updatedPartType);
+    setPartTypeImage(updatedPartType.id, updatedPartType.image_url || null);
     updateMutation.mutate({
-      id: selectedPartType.id,
-      data: selectedPartType
+      id: updatedPartType.id,
+      data: updatedPartType
     });
   };
 
@@ -219,7 +235,6 @@ export function PartTypesPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Part Types Management"
         title="إدارة أنواع القطع"
         description="إدارة أنواع القطع المستعملة ومواصفاتها"
         actions={

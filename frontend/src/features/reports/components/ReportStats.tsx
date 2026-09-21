@@ -38,16 +38,16 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
         ];
       case 'suppliers':
         return [
-          ['الموردون النشطون', count(report.total_suppliers), Database, 'متاحون للتعامل اليومي', 'featured'],
-          ['إجمالي المشتريات', value(report.total_purchases), DollarSign, 'من الموردين', 'info'],
-          ['المدفوع للموردين', value(report.total_paid), DollarSign, 'دفعات مسجلة', 'success'],
-          ['المستحق للموردين', value(report.total_outstanding), DollarSign, 'الرصيد المفتوح', 'warning'],
+          ['التجار النشطون', count(report.total_suppliers), Database, 'متاحون للتعامل اليومي', 'featured'],
+          ['إجمالي المشتريات', value(report.total_purchases), DollarSign, 'من التجار', 'info'],
+          ['المدفوع للتجار', value(report.total_paid), DollarSign, 'دفعات مسجلة', 'success'],
+          ['المستحق للتجار', value(report.total_outstanding), DollarSign, 'الرصيد المفتوح', 'warning'],
         ];
       case 'purchases':
         return [
-          ['إجمالي المشتريات', value(report.total_cost), DollarSign, 'قبل خصم مرتجعات الموردين', 'featured'],
-          ['مرتجعات الموردين', value(report.supplier_return_credits), RotateCcw, 'قيمة المرتجعات المكتملة', 'warning'],
-          ['صافي المشتريات', value(report.net_purchases ?? Number(report.total_cost || 0) - Number(report.supplier_return_credits || 0)), DollarSign, 'بعد مرتجعات الموردين', 'success'],
+          ['إجمالي المشتريات', value(report.total_cost), DollarSign, 'قبل خصم مرتجعات التجار', 'featured'],
+          ['مرتجعات التجار', value(report.supplier_return_credits), RotateCcw, 'قيمة المرتجعات المكتملة', 'warning'],
+          ['صافي المشتريات', value(report.net_purchases ?? Number(report.total_cost || 0) - Number(report.supplier_return_credits || 0)), DollarSign, 'بعد مرتجعات التجار', 'success'],
         ];
       case 'expenses':
         return [

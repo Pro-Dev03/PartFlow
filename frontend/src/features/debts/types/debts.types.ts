@@ -4,12 +4,15 @@ export interface Debt {
   amount: number;
   remaining_amount: number;
   due_date: string;
+  notes?: string;
+  debt_reason?: string;
   status: 'pending' | 'partial' | 'paid' | 'overdue';
   created_at: string;
   customer?: {
     id: string;
     name: string;
     code: string;
+    notes?: string;
   };
 }
 

@@ -56,7 +56,7 @@ func TestAuthAllowsLocalJWTWhenCloudRequirementIsUnset(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Setenv("DB_CONNECTION_MODE", "local")
-	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "")
+	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "false")
 	SetDisableAuth(false)
 
 	localToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": uuid.NewString()})
@@ -160,6 +160,7 @@ func TestAuthAcceptsLegacySubjectClaimWhenUserIDMissing(t *testing.T) {
 	defer db.Close()
 
 	t.Setenv("DB_CONNECTION_MODE", "local")
+	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "false")
 	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "false")
 	SetJWTSecret("test-secret")
 	SetDatabase(db)

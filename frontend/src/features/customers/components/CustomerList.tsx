@@ -32,8 +32,8 @@ export function CustomerList({
             <Users className="h-4 w-4" />
           </span>
           <div>
-            <h3 className="text-sm font-extrabold text-[var(--text-primary)]">قائمة العملاء</h3>
-            <span className="text-[11px] font-medium text-[var(--text-muted)]">{filteredCustomers.length} عميل</span>
+            <h3 className="text-sm font-extrabold text-[var(--text-primary)]">قائمة الزبائن</h3>
+            <span className="text-[11px] font-medium text-[var(--text-muted)]">{filteredCustomers.length} زبون</span>
           </div>
         </div>
       </div>
@@ -45,11 +45,50 @@ export function CustomerList({
       ) : filteredCustomers.length === 0 ? (
         <EmptyState
           icon={<Inbox className="h-5 w-5" />}
-          title="لا يوجد عملاء"
-          description="ابدأ بإضافة عملاء جدد"
+          title="لا يوجد زبائن"
+          description="ابدأ بإضافة زبائن جدد"
         />
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        <div className="customer-cards-grid gap-3 p-4">
+          {filteredCustomers.map((customer: Customer) => (
+            <article
+              key={customer.id}
+              className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[0_6px_18px_rgba(15,23,42,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--color-primary-20)] hover:shadow-[0_10px_24px_rgba(15,23,42,0.08)]"
+              onClick={() => onViewCustomer(customer)}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--color-primary-10)] text-[var(--primary)]">
+                    <UserRound className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="truncate text-sm font-black text-[var(--text-primary)]">{customer.name}</h4>
+                    <p className="mt-0.5 truncate text-[10px] font-medium text-[var(--text-tertiary)]">{customer.code || 'عميل مسجل'}</p>
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full border border-[var(--border-subtle)] bg-[var(--color-primary-10)] px-2 py-1 text-[10px] font-bold text-[var(--primary)]">{customer.code || 'عميل'}</span>
+              </div>
+              <div className="mt-3 flex items-center gap-2 rounded-xl bg-[var(--bg-surface-elevated)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)]" dir="ltr">
+                <Phone className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                <span className="truncate">{customer.phone || 'لا يوجد هاتف'}</span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-[var(--bg-surface-elevated)] px-3 py-2"><span className="block text-[10px] text-[var(--text-muted)]">المشتريات</span><strong className="mt-0.5 block text-sm text-[var(--primary)]">₪{customer.totalPurchases?.toLocaleString() || '0'}</strong></div>
+                <div className="rounded-xl bg-[var(--bg-surface-elevated)] px-3 py-2"><span className="block text-[10px] text-[var(--text-muted)]">المستحق</span><strong className={`mt-0.5 block text-sm ${customer.outstanding > 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-success)]'}`}>{customer.outstanding > 0 ? `₪${customer.outstanding.toLocaleString()}` : 'سليم'}</strong></div>
+              </div>
+              <div className="mt-3 flex justify-end gap-1.5 border-t border-[var(--border-subtle)] pt-2.5">
+                <Button type="button" variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); onViewCustomer(customer); }} aria-label={`عرض العميل ${customer.name || ''}`} title="عرض العميل"><Eye className="h-3.5 w-3.5" /></Button>
+                <Button type="button" variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); onEditCustomer(customer); }} aria-label={`تعديل العميل ${customer.name || ''}`} title="تعديل العميل"><Edit className="h-3.5 w-3.5" /></Button>
+                <ActionMenu label="خيارات العميل" widthClassName="w-48" items={[{ label: 'عرض', icon: Eye, onClick: () => onViewCustomer(customer) }, { label: 'تعديل', icon: Edit, onClick: () => onEditCustomer(customer) }, { label: 'حذف', icon: Trash2, onClick: () => onDeleteCustomer(customer.id), danger: true }]} />
+              </div>
+            </article>
+          ))}
+        </div>
+        <div className="border-t border-border-subtle">
+          <PaginationControls {...pagination} />
+        </div>
+        <div className="hidden overflow-x-auto">
           <Table className="min-w-[760px]">
             <TableHeader>
               <TableRow>
@@ -121,6 +160,7 @@ export function CustomerList({
           </Table>
           <PaginationControls {...pagination} />
         </div>
+        </>
       )}
     </div>
   );

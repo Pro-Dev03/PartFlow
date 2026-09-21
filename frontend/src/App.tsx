@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryProvider } from './app/providers/QueryProvider';
 import { AppLayout, AuthLayout } from './layouts';
-import { forceLogoutToLogin, useAuthStore, validateSubscriptionWithCloud } from './stores/authStore';
+import { forceLogoutToLogin, markCloudVerificationPending, useAuthStore, validateSubscriptionWithCloud } from './stores/authStore';
 import { ErrorBoundary } from './design-system/components/error-boundary';
 import { ToastContainer } from './design-system/components/ToastContainer';
 import { appRoutes, PageLoader } from './app/router';
@@ -49,6 +49,18 @@ function InitialSyncController() {
       return () => { mounted = false; };
     }
 
+    // The admin check is only needed when the optional automatic initial sync
+    // is enabled. Avoid probing a protected endpoint on every app load when
+    // there is no sync modal to open; this also prevents a stale local token
+    // from producing a misleading 401 in the browser console during normal
+    // offline-first use.
+    const autoSyncEnabled = localStorage.getItem('partflow-auto-sync-enabled') === 'true';
+    if (!autoSyncEnabled) {
+      setIsAdmin(false);
+      setIsOpen(false);
+      return () => { mounted = false; };
+    }
+
     // Operational cloud snapshots are global in the current schema. Only the
     // configured administrator may download one until tenant isolation exists.
     void authApi.checkAdminAccess()
@@ -83,7 +95,7 @@ function InitialSyncController() {
 
 function App() {
   const checkAuth = useAuthStore((state) => state.checkAuth);
-  const { isAuthenticated, sessionVerified, isLoading, isPostLoginVerifying } = useAuthStore();
+  const { isAuthenticated, sessionVerified, cloudVerificationPending, isLoading, isPostLoginVerifying } = useAuthStore();
 
   useEffect(() => {
     void initializeProductImages();
@@ -123,16 +135,22 @@ function App() {
     const handleOffline = () => {
       const state = useAuthStore.getState();
       if (state.isAuthenticated || state.token || state.cloudToken) {
-        forceLogoutToLogin('Internet connection is required');
+        markCloudVerificationPending();
       }
     };
     const handleAuthInvalidated = (event: Event) => {
-      const reason = (event as CustomEvent<{ reason?: string }>).detail?.reason;
-      forceLogoutToLogin(reason || 'Cloud subscription or account authorization was rejected');
+      // A rejected/expired access token is recoverable through refresh or a
+      // later online validation. Subscription expiry is handled only by the
+      // explicit SUBSCRIPTION_EXPIRED response in validateSubscriptionWithCloud.
+      markCloudVerificationPending();
+    };
+    const handleCloudVerificationPending = () => {
+      markCloudVerificationPending();
     };
     window.addEventListener('online', validate);
     window.addEventListener('offline', handleOffline);
     window.addEventListener('partflow:auth-invalidated', handleAuthInvalidated);
+    window.addEventListener('partflow:cloud-verification-pending', handleCloudVerificationPending);
     // The cloud is the subscription authority. If connectivity disappears, the
     // protected route stops new operations until it returns.
     const interval = window.setInterval(() => {
@@ -145,6 +163,7 @@ function App() {
       window.removeEventListener('online', validate);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('partflow:auth-invalidated', handleAuthInvalidated);
+      window.removeEventListener('partflow:cloud-verification-pending', handleCloudVerificationPending);
       window.clearInterval(interval);
     };
   }, []);
@@ -174,6 +193,21 @@ function App() {
       <QueryProvider>
         <InitialSyncController />
         {isAuthenticated && sessionVerified && <RegionalProfileLoader />}
+        {isAuthenticated && sessionVerified && cloudVerificationPending && (
+          <div
+            role="status"
+            className="fixed inset-x-0 top-0 z-[100] flex items-center justify-center gap-3 bg-amber-100 px-4 py-2 text-sm text-amber-950 shadow-sm"
+          >
+            <span>تعذر التحقق من الاشتراك مؤقتًا. عمليات الحفظ متوقفة حتى عودة الاتصال.</span>
+            <button
+              type="button"
+              className="font-semibold underline"
+              onClick={() => void validateSubscriptionWithCloud()}
+            >
+              إعادة المحاولة
+            </button>
+          </div>
+        )}
         <Router>
           <PagePreloader />
           <Routes>

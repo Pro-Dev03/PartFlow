@@ -27,14 +27,6 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 
-function getWelcomeKey() {
-  const hour = new Date().getHours();
-
-  if (hour >= 5 && hour < 12) return 'dashboard.welcomeMorning';
-  if (hour >= 17 && hour < 22) return 'dashboard.welcomeEvening';
-  return 'dashboard.welcomeNight';
-}
-
 function formatDashboardActivityTime(value: unknown) {
   return value ? formatStoreDateTime(String(value), 'ar') : '-';
 }
@@ -66,7 +58,6 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [chartRange, setChartRange] = useState<1 | 7 | 30 | 90>(7);
-  const welcomeMessage = t(getWelcomeKey());
   const { data: dashboardData, isLoading, error } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => dashboardApi.getStats(),
@@ -107,8 +98,7 @@ export function DashboardPage() {
     return (
       <div>
         <PageHeader
-          eyebrow={t('dashboard.title')}
-          title={welcomeMessage}
+          title={t('dashboard.title')}
           description={t('dashboard.subtitle')}
         />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
@@ -186,8 +176,7 @@ export function DashboardPage() {
     <div>
       {/* Page Header with Today's Summary */}
       <PageHeader
-        eyebrow={t('dashboard.title')}
-        title={welcomeMessage}
+        title={t('dashboard.title')}
         description={t('dashboard.subtitle')}
       />
 

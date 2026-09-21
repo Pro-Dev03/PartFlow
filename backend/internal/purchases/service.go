@@ -137,7 +137,7 @@ func (s *Service) CreatePurchase(ctx context.Context, userID uuid.UUID, req *Pur
 	if err := s.recordSupplierPurchaseLedger(ctx, tx, req.SupplierID, totalAmount, purchase.ID, req.InvoiceNumber, userID); err != nil {
 		return nil, err
 	}
-	if err := s.recordPurchaseAudit(ctx, tx, purchase, len(items), totalAmount, userID); err != nil {
+	if err := s.recordPurchaseAudit(ctx, tx, purchase, items, userID); err != nil {
 		return nil, err
 	}
 
@@ -207,11 +207,19 @@ func (s *Service) recordSupplierPurchaseLedger(ctx context.Context, tx *sqlx.Tx,
 	return nil
 }
 
-func (s *Service) recordPurchaseAudit(ctx context.Context, tx *sqlx.Tx, purchase *Purchase, itemCount int, totalAmount float64, userID uuid.UUID) error {
+func (s *Service) recordPurchaseAudit(ctx context.Context, tx *sqlx.Tx, purchase *Purchase, items []PurchaseItem, userID uuid.UUID) error {
 	changes, err := json.Marshal(map[string]interface{}{
+		"purchase_id":    purchase.ID,
+		"supplier_id":    purchase.SupplierID,
 		"invoice_number": purchase.InvoiceNumber,
-		"items_count":    itemCount,
-		"total_amount":   totalAmount,
+		"purchase_date":  purchase.PurchaseDate,
+		"subtotal":       purchase.Subtotal,
+		"tax":            purchase.TaxAmount,
+		"total_amount":   purchase.TotalAmount,
+		"paid_amount":    purchase.PaidAmount,
+		"status":         purchase.Status,
+		"items_count":    len(items),
+		"items":          items,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to encode purchase audit: %w", err)
@@ -464,33 +472,12 @@ func isValidStatusTransition(currentStatus, newStatus string) bool {
 	return false
 }
 
-// DeletePurchase deletes a purchase based on its status
-// - draft/pending: full deletion
-// - received: use ReversePurchase instead
-// - cancelled/reversed: cannot delete
+// DeletePurchase deletes a purchase and its dependent rows when the caller is authorized.
 func (s *Service) DeletePurchase(ctx context.Context, id uuid.UUID) error {
-	purchase, err := s.repo.GetByID(ctx, id)
-	if err != nil {
+	if _, err := s.repo.GetByID(ctx, id); err != nil {
 		return err
 	}
-
-	// Status-based deletion logic
-	switch purchase.Status {
-	case StatusDraft, StatusPending:
-		if purchase.PaidAmount > 0 {
-			return ErrCannotDeletePaidPurchase
-		}
-		// Allow full deletion only before any payment or receipt
-		return s.deleteDraftPurchase(ctx, id)
-	case StatusReceived, StatusPartiallyReceived:
-		// Received purchases cannot be deleted directly - must be reversed
-		return ErrCannotDeleteReceivedPurchase
-	case StatusCancelled, StatusReversed:
-		// Cancelled and reversed purchases cannot be deleted for audit trail
-		return ErrInvalidPurchaseStatus
-	default:
-		return ErrInvalidPurchaseStatus
-	}
+	return s.deleteDraftPurchase(ctx, id)
 }
 
 // deleteDraftPurchase performs full deletion for draft/pending purchases
@@ -505,6 +492,18 @@ func (s *Service) deleteDraftPurchase(ctx context.Context, id uuid.UUID) error {
 			tx.Rollback()
 		}
 	}()
+	for _, query := range []string{
+		`DELETE FROM payments WHERE purchase_id = $1`,
+		`DELETE FROM supplier_ledger WHERE reference_id = $1`,
+		`DELETE FROM supplier_return_items WHERE supplier_return_id IN (SELECT id FROM supplier_returns WHERE purchase_id = $1)`,
+		`DELETE FROM supplier_returns WHERE purchase_id = $1`,
+		`DELETE FROM inventory_movements WHERE reference_type = 'purchase' AND reference_id = $1`,
+		`DELETE FROM item_history WHERE reference_type = 'purchase' AND reference_id = $1`,
+	} {
+		if _, err = tx.ExecContext(ctx, query, id); err != nil {
+			return fmt.Errorf("failed to delete purchase dependent rows: %w", err)
+		}
+	}
 
 	// Delete purchase items
 	deleteItemsQuery := `DELETE FROM purchase_items WHERE purchase_id = $1`

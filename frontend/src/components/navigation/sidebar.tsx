@@ -15,14 +15,13 @@ import {
   Settings,
   Scan,
   BarChart3,
-  Layers,
   Tag,
-  FileText,
   Archive,
 } from 'lucide-react';
 import { cn } from '../../utils';
 import type { LucideIcon } from 'lucide-react';
 import { settingsApi } from '../../services/api/endpoints';
+import { useAuthStore } from '../../stores/authStore';
 import { PartFlowLogo } from '../branding/PartFlowLogo';
 import { BarcodeScanner } from '../business/BarcodeScanner';
 
@@ -48,9 +47,12 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
   const location = useLocation();
   const [activeItem, setActiveItem] = useState('dashboard');
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
+  const sessionReady = useAuthStore((state) => state.isAuthenticated && state.sessionVerified);
   const { data: storeNameSetting } = useQuery({
     queryKey: ['settings', 'store_name'],
     queryFn: () => settingsApi.getSetting('store_name'),
+    enabled: sessionReady,
+    retry: false,
   });
   const storeName = storeNameSetting?.data?.value?.trim() || 'PARTFLOW';
 
@@ -62,39 +64,30 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
 
   const menuGroups: MenuGroup[] = [
     {
-      title: t('nav.main') || 'الرئيسية',
+      title: '',
       items: [
         { id: 'dashboard', icon: LayoutDashboard, label: t('nav.dashboard') || 'لوحة التحكم', path: '/app/dashboard' },
-      ]
-    },
-    {
-      title: 'البيع',
-      items: [
         { id: 'sales', icon: ShoppingCart, label: t('nav.pos') || 'نقطة البيع', path: '/app/sales' },
-        { id: 'customers', icon: Users, label: t('nav.customers') || 'العملاء', path: '/app/customers' },
-        { id: 'debts', icon: DollarSign, label: t('nav.debts') || 'الديون', path: '/app/debts' },
+        { id: 'customers', icon: Users, label: t('nav.customers') || 'الزبائن', path: '/app/customers' },
+        { id: 'inventory', icon: Package, label: t('nav.inventory') || 'المخزون', path: '/app/inventory' },
       ]
     },
     {
       title: 'المخزون',
       items: [
-        { id: 'inventory', icon: Package, label: t('nav.inventory') || 'المنتجات', path: '/app/inventory' },
-        { id: 'used-parts', icon: Layers, label: 'مخزون القطع المستعملة', path: '/app/usedparts' },
       ]
     },
     {
-      title: 'المشتريات',
+      title: '',
       items: [
-        { id: 'purchases', icon: CreditCard, label: t('nav.purchases') || 'المشتريات', path: '/app/purchases' },
-        { id: 'suppliers', icon: Truck, label: t('nav.suppliers') || 'الموردون', path: '/app/suppliers' },
+        { id: 'suppliers', icon: Truck, label: t('nav.suppliers') || 'التجار', path: '/app/suppliers' },
       ]
     },
     {
-      title: 'المال',
+      title: '',
       items: [
         { id: 'expenses', icon: DollarSign, label: t('nav.expenses') || 'المصروفات', path: '/app/expenses' },
         { id: 'returns', icon: RotateCcw, label: t('nav.returns') || 'المرتجعات', path: '/app/returns' },
-        { id: 'supplier-returns', icon: PackageMinus, label: 'مرتجعات الموردين', path: '/app/supplier-returns' },
         { id: 'reports', icon: BarChart3, label: t('nav.reports') || 'التقارير', path: '/app/reports' },
       ]
     },
@@ -102,7 +95,6 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
       title: t('nav.system') || 'النظام',
       items: [
         { id: 'categories', icon: Tag, label: 'التصنيفات', path: '/app/categories' },
-        { id: 'part-types', icon: FileText, label: 'أنواع القطع', path: '/app/part-types' },
         { id: 'archive', icon: Archive, label: 'الأرشيف والسجل التاريخي', path: '/app/archive' },
         { id: 'settings', icon: Settings, label: t('nav.settings') || 'الإعدادات', path: '/app/settings' },
       ]
@@ -181,17 +173,20 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 px-[var(--spacing-3)] py-[var(--spacing-4)] space-y-[var(--spacing-4)] overflow-hidden">
-        {menuGroups.map((group) => (
-          <div key={group.title}>
-            {!isCollapsed && (
-              <div
-                className="mb-[var(--spacing-2)] px-[var(--spacing-3)] py-[var(--spacing-2)] text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]"
-              >
-                {group.title}
-              </div>
-            )}
-            <div className="space-y-[var(--spacing-1)]">
-              {group.items.map((item) => {
+        {menuGroups.map((group) => {
+          if (group.items.length === 0) return null;
+
+          return (
+            <div key={`${group.title}-${group.items[0]?.id || 'group'}`}>
+              {!isCollapsed && group.title && (
+                <div
+                  className="mb-[var(--spacing-2)] px-[var(--spacing-3)] py-[var(--spacing-2)] text-xs font-semibold uppercase tracking-wider text-[var(--text-tertiary)]"
+                >
+                  {group.title}
+                </div>
+              )}
+              <div className="space-y-[var(--spacing-1)]">
+                {group.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeItem === item.id;
 
@@ -220,11 +215,12 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
                       <span className="truncate nav-label">{item.label}</span>
                     )}
                   </button>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* Quick Scan Button */}

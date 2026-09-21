@@ -12,14 +12,13 @@ import {
   DollarSign, 
   AlertTriangle,
   Calendar,
-  Zap,
   Eye,
-  Bell,
   CheckCircle,
   UserRound,
   Printer,
   FileDown,
-  MoreHorizontal
+  MoreHorizontal,
+  ArrowRight
 } from 'lucide-react';
 import '../styles/success-modal.css';
 import { printPaymentReceipt } from '../../../lib/export-utils';
@@ -57,7 +56,6 @@ export function DebtsPage() {
     filteredDebts,
     stats,
     isLoading,
-    refetch,
     setSearchQuery,
     setSearchFilters,
     recordPaymentMutation,
@@ -209,27 +207,21 @@ export function DebtsPage() {
 
   return (
     <div>
-      {/* Page Header */}
       <PageHeader
-        eyebrow="Debt Intelligence"
         title={t('debts.title')}
         description="تتبع الديون وتحليل التقادم مع تنبيهات ذكية"
         actions={
           <div style={{ display: 'flex', gap: '10px' }}>
-            <Button variant="secondary" size={getButtonSize('debts', 'headerActions')} onClick={() => void refetch()}>
-              <Zap style={{ width: '16px', height: '16px', marginRight: '8px' }} />
-              تحديث
-            </Button>
-            <Button variant="secondary" size={getButtonSize('debts', 'headerActions')} onClick={() => toast.info('لا توجد تنبيهات جديدة حالياً')}>
-              <Bell style={{ width: '16px', height: '16px', marginRight: '8px' }} />
-              تنبيهات
-            </Button>
+              <Button variant="secondary" size={getButtonSize('debts', 'headerActions')} onClick={() => navigate('/app/customers')}>
+                <ArrowRight style={{ width: '16px', height: '16px', marginRight: '8px' }} />
+                العودة للزبائن
+              </Button>
           </div>
         }
       />
 
       {/* Stats Cards + Advanced Search - side by side on desktop */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginBottom: '12px', alignItems: 'start' }}>
         <DebtStats stats={stats} />
         <AdvancedSearch
           onSearch={handleSearchAdvanced}
@@ -262,27 +254,72 @@ export function DebtsPage() {
             <p className="mt-1 text-[11px] text-text-tertiary">جميع الديون مدفوعة</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table className="min-w-[900px]">
+          <>
+          <div className="customer-cards-grid gap-3 p-4">
+            {filteredDebts.map((debt: any) => {
+              const aging = getDebtAging(debt.dueDate, debt.status);
+              return (
+                <article
+                  key={debt.id}
+                  className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[0_6px_18px_rgba(15,23,42,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--color-primary-20)] hover:shadow-[0_10px_24px_rgba(15,23,42,0.08)]"
+                  onClick={() => handleViewDebt(debt)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--color-primary-10)] text-[var(--primary)]">
+                        <UserRound className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="truncate text-sm font-black text-[var(--text-primary)]">{debt.customer?.name || 'عميل غير محدد'}</h4>
+                        <p className="mt-0.5 truncate text-[10px] font-medium text-[var(--text-tertiary)]">{debt.invoiceNumber || 'فاتورة غير مرتبطة'}</p>
+                      </div>
+                    </div>
+                    <Badge variant={aging.category === 'PAID' ? 'success' : aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm" className="shrink-0 rounded-full">
+                      {aging.category === 'PAID' ? 'مدفوع' : aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-[var(--bg-surface-elevated)] px-3 py-2"><span className="block text-[10px] text-[var(--text-muted)]">المبلغ</span><strong className="mt-0.5 block text-sm text-[var(--text-primary)]">₪{debt.amount?.toLocaleString() || '0'}</strong></div>
+                    <div className="rounded-xl bg-[var(--bg-surface-elevated)] px-3 py-2"><span className="block text-[10px] text-[var(--text-muted)]">المتبقي</span><strong className="mt-0.5 block text-sm text-[var(--color-danger)]">₪{debt.remainingAmount?.toLocaleString() || '0'}</strong></div>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
+                    <Calendar className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                    <span>{formatStoreDate(debt.dueDate, 'ar-SA')}</span>
+                    <span className="text-[var(--text-muted)]">·</span>
+                    <span className="truncate">{aging.days > 0 ? `متبقي ${aging.days} أيام` : aging.label}</span>
+                  </div>
+                  <div className="mt-3 flex justify-end gap-1.5 border-t border-[var(--border-subtle)] pt-2.5">
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="عرض الدين" title="عرض الدين"><Eye className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} aria-label="تسجيل دفعة" title="تسجيل دفعة"><DollarSign className="h-4 w-4" /></Button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          <div className="hidden md:block">
+            <PaginationControls page={page} pageSize={pageSize} total={total} onPageChange={setPage} isLoading={isLoading} />
+          </div>
+          <div className="hidden overflow-x-auto">
+            <Table className="min-w-[820px] table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[18%]">العميل / الفاتورة</TableHead>
-                  <TableHead className="w-[12%] text-center">المبلغ</TableHead>
-                  <TableHead className="w-[12%] text-center">المتبقي</TableHead>
-                  <TableHead className="w-[14%]">موعد السداد</TableHead>
-                  <TableHead className="w-[24%]">تصنيف العمر</TableHead>
+                  <TableHead className="w-[22%]">العميل / الفاتورة</TableHead>
+                  <TableHead className="w-[11%] whitespace-nowrap text-center">المبلغ</TableHead>
+                  <TableHead className="w-[12%] whitespace-nowrap text-center">المتبقي</TableHead>
+                  <TableHead className="w-[15%] whitespace-nowrap">موعد السداد</TableHead>
+                  <TableHead className="w-[20%]">تصنيف العمر</TableHead>
                   <TableHead className="w-[10%]">الحالة</TableHead>
-                  <TableHead className="w-[10%] text-end">الإجراءات</TableHead>
+                  <TableHead className="sticky left-0 z-10 w-[10%] bg-[var(--bg-surface)] text-end">الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody className="divide-y divide-[var(--border-subtle)]" dir="rtl">
                 {filteredDebts.map((debt: any) => {
                   const aging = getDebtAging(debt.dueDate, debt.status);
                   return (
-                    <TableRow key={debt.id} dir="rtl" className="cursor-pointer transition-all duration-200 hover:bg-[var(--color-primary-05)] [&>td]:h-[76px]" onClick={() => handleViewDebt(debt)}>
+                    <TableRow key={debt.id} dir="rtl" className="cursor-pointer transition-all duration-200 hover:bg-[var(--color-primary-05)] [&>td]:h-[60px] [&>td]:py-2" onClick={() => handleViewDebt(debt)}>
                       <TableCell>
-                        <div className="flex min-w-0 items-center gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-subtle)] bg-[var(--color-primary-10)] text-[var(--primary)] shadow-sm">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--color-primary-10)] text-[var(--primary)] shadow-sm">
                             <UserRound className="h-4 w-4" />
                           </div>
                           <div className="min-w-0">
@@ -291,16 +328,16 @@ export function DebtsPage() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-center font-black text-[var(--text-primary)]">₪{debt.amount?.toLocaleString() || '0'}</TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant={Number(debt.remainingAmount || 0) > 0 ? 'danger' : 'success'} size="sm" className="min-w-[82px] justify-center rounded-full">
+                      <TableCell className="whitespace-nowrap px-3 text-center font-black text-[var(--text-primary)]">₪{debt.amount?.toLocaleString() || '0'}</TableCell>
+                      <TableCell className="whitespace-nowrap px-3 text-center">
+                        <Badge variant={Number(debt.remainingAmount || 0) > 0 ? 'danger' : 'success'} size="sm" className="min-w-[88px] justify-center rounded-full">
                           ₪{debt.remainingAmount?.toLocaleString() || '0'}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2 font-semibold text-[var(--text-secondary)]">
                           <Calendar className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-                          {formatStoreDate(debt.dueDate, 'en-GB')}
+                          {formatStoreDate(debt.dueDate, 'ar-SA')}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -324,7 +361,7 @@ export function DebtsPage() {
                           {aging.category === 'PAID' ? 'مدفوع' : aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-end">
+                      <TableCell className="sticky left-0 z-[1] bg-[var(--bg-surface)] text-end">
                         <div className="flex items-center justify-end gap-1">
                           <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="عرض الدين" title="عرض الدين">
                             <Eye className="h-3.5 w-3.5" />
@@ -341,6 +378,49 @@ export function DebtsPage() {
             </Table>
             <PaginationControls page={page} pageSize={pageSize} total={total} onPageChange={setPage} isLoading={isLoading} />
           </div>
+          <div className="debt-mobile-cards space-y-3 p-3">
+            {filteredDebts.map((debt: any) => {
+              const aging = getDebtAging(debt.dueDate, debt.status);
+              return (
+                <article
+                  key={debt.id}
+                  className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-[0_6px_18px_rgba(15,23,42,0.05)]"
+                  onClick={() => handleViewDebt(debt)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-[var(--border-subtle)] bg-[var(--color-primary-10)] text-[var(--primary)]">
+                        <UserRound className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="truncate font-black text-[var(--text-primary)]">{debt.customer?.name || 'عميل غير محدد'}</h4>
+                        <p className="truncate text-[11px] text-[var(--text-tertiary)]">{debt.invoiceNumber || 'فاتورة غير مرتبطة'}</p>
+                      </div>
+                    </div>
+                    <Badge variant={aging.category === 'PAID' ? 'success' : aging.category.startsWith('OVERDUE') ? 'danger' : debt.status === 'partial' ? 'warning' : 'secondary'} size="sm" className="shrink-0 rounded-full">
+                      {aging.category === 'PAID' ? 'مدفوع' : aging.category.startsWith('OVERDUE') ? 'متأخر' : debt.status === 'partial' ? 'جزئي' : 'معلق'}
+                    </Badge>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-xl bg-[var(--bg-surface-elevated)] p-3"><span className="block text-[11px] text-[var(--text-muted)]">المبلغ</span><strong className="mt-1 block text-[var(--text-primary)]">₪{debt.amount?.toLocaleString() || '0'}</strong></div>
+                    <div className="rounded-xl bg-[var(--bg-surface-elevated)] p-3"><span className="block text-[11px] text-[var(--text-muted)]">المتبقي</span><strong className="mt-1 block text-[var(--color-danger)]">₪{debt.remainingAmount?.toLocaleString() || '0'}</strong></div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)]">
+                    <Calendar className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                    <span>{formatStoreDate(debt.dueDate, 'ar-SA')}</span>
+                    <span className="text-[var(--text-muted)]">·</span>
+                    <span>{aging.days > 0 ? `متبقي ${aging.days} أيام` : aging.label}</span>
+                  </div>
+                  <div className="mt-4 flex justify-end gap-2 border-t border-[var(--border-subtle)] pt-3">
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="عرض الدين" title="عرض الدين"><Eye className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} aria-label="تسجيل دفعة" title="تسجيل دفعة"><DollarSign className="h-4 w-4" /></Button>
+                  </div>
+                </article>
+              );
+            })}
+            <PaginationControls page={page} pageSize={pageSize} total={total} onPageChange={setPage} isLoading={isLoading} />
+          </div>
+          </>
         )}
       </div>
 
@@ -506,6 +586,23 @@ export function DebtsPage() {
                 gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
                 gap: '16px' 
               }}>
+                {((selectedDebt.debt_reason || selectedDebt.reason || selectedDebt.notes) && (
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label className="text-small font-medium text-text mb-sm block">سبب الدين</label>
+                    <div style={{
+                      background: 'rgba(15, 23, 42, 0.02)',
+                      border: '1px solid var(--border-default)',
+                      borderRadius: '10px',
+                      padding: '12px 14px',
+                      fontSize: '13px',
+                      lineHeight: '1.7',
+                      color: 'var(--text-primary)',
+                      whiteSpace: 'pre-wrap',
+                    }}>
+                      {selectedDebt.debt_reason || selectedDebt.reason || selectedDebt.notes || 'لا يوجد سبب محدد'}
+                    </div>
+                  </div>
+                ))}
                 <div>
                   <label className="text-small font-medium text-text mb-sm block">العميل</label>
                   <Input value={selectedDebt.customer?.name || ''} disabled />
@@ -518,7 +615,7 @@ export function DebtsPage() {
                 </div>
                 <div>
                   <label className="text-small font-medium text-text mb-sm block">موعد السداد</label>
-                  <Input value={selectedDebt.dueDate ? new Date(selectedDebt.dueDate).toLocaleDateString('en-GB') : 'غير محدد'} disabled />
+                  <Input value={selectedDebt.dueDate ? formatStoreDate(selectedDebt.dueDate, 'ar-SA') : 'غير محدد'} disabled />
                 </div>
                 <div>
                   <label className="text-small font-medium text-text mb-sm block">الحالة</label>

@@ -10,6 +10,7 @@ import (
 
 	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/acquisitions"
+	"github.com/partflow/smart-store/internal/archive"
 	"github.com/partflow/smart-store/internal/assistant"
 	"github.com/partflow/smart-store/internal/audit"
 	"github.com/partflow/smart-store/internal/auth"
@@ -248,7 +249,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			}
 			sales := protected.Group("/sales")
 			{
-				sales.POST("", salesHandler.CreateSale)
+				sales.POST("", middleware.NewIdempotencyMiddleware(db.DB).Idempotency(), salesHandler.CreateSale)
 				sales.GET("/held", salesHandler.ListHeldSales)
 				sales.POST("/held", salesHandler.HoldSale)
 				sales.DELETE("/held/:id", salesHandler.DeleteHeldSale)
@@ -392,6 +393,9 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 
 			// Audit routes
 			audit.RegisterRoutes(protected, db)
+
+			// Central archive read model over existing audit and business history sources
+			archive.RegisterRoutes(protected, db)
 
 			// Ledger routes
 			ledgers.RegisterRoutes(protected, ledgerHandler)

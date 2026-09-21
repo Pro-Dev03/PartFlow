@@ -9,7 +9,7 @@ import { Modal } from '../../../design-system/components/modal';
 import { Input } from '../../../design-system/components/input';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
-import { Plus, Package, PackageOpen, ShoppingCart, LayoutGrid, List } from 'lucide-react';
+import { FileText, Plus, Package, PackageOpen, LayoutGrid, List } from 'lucide-react';
 
 // Custom hooks
 import { useInventory } from '../hooks/useInventory';
@@ -21,7 +21,6 @@ import { InventoryFilters } from '../components/InventoryFilters';
 import { InventoryList } from '../components/InventoryList';
 import { StockAlertCards } from '../components/StockAlertCards';
 import { InventoryModals } from '../components/InventoryModals';
-import { OpeningStockModal } from '../components/OpeningStockModal';
 import { InventoryEntryModal } from '../components/InventoryEntryModal';
 import { InventoryLedger } from '../../../design-system/components/inventory-ledger';
 import type { InventoryMovement } from '../../../design-system/components/inventory-ledger';
@@ -68,7 +67,6 @@ export function InventoryPage() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [returnToSalesAfterSave, setReturnToSalesAfterSave] = useState(false);
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
-  const [isOpeningStockModalOpen, setIsOpeningStockModalOpen] = useState(false);
   const [isInventoryEntryModalOpen, setIsInventoryEntryModalOpen] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isPurchaseWorkflowOpen, setIsPurchaseWorkflowOpen] = useState(false);
@@ -104,6 +102,7 @@ export function InventoryPage() {
     setFilters,
     refetch,
     deleteProductMutation,
+    archiveProductMutation,
     deleteInventoryItemMutation,
     createProductMutation,
     updateProductMutation,
@@ -336,7 +335,7 @@ export function InventoryPage() {
       barcode: product.barcode,
       image_url: product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined),
       min_stock_level: Number((product as Record<string, unknown>).min_stock_level ?? 0),
-      supplier_id: String((product as Record<string, unknown>).supplier_id ?? (product as Record<string, any>).supplier?.id ?? ''),
+      supplier_id: String((product as Record<string, unknown>).supplier_id ?? (product as Record<string, unknown>).preferred_supplier_id ?? (product as Record<string, any>).supplier?.id ?? ''),
       supplier_name: String((product as Record<string, unknown>).supplier_name ?? (product as Record<string, any>).supplier?.name ?? ''),
     };
     setSelectedProduct(mappedProduct);
@@ -346,6 +345,7 @@ export function InventoryPage() {
   const handleAddPurchase = (product: Product) => {
     navigate('/app/purchases/create', {
       state: {
+        supplierId: product.supplier_id || undefined,
         product: {
           id: product.id,
           name: product.name,
@@ -372,7 +372,7 @@ export function InventoryPage() {
       barcode: product.barcode,
       image_url: product.image_url || getLocalProductImage(product.id) || (product.category_id ? getCategoryImage(product.category_id) : undefined),
       min_stock_level: Number((product as Record<string, unknown>).min_stock_level ?? 0),
-      supplier_id: String((product as Record<string, unknown>).supplier_id ?? (product as Record<string, any>).supplier?.id ?? ''),
+      supplier_id: String((product as Record<string, unknown>).supplier_id ?? (product as Record<string, unknown>).preferred_supplier_id ?? (product as Record<string, any>).supplier?.id ?? ''),
       supplier_name: String((product as Record<string, unknown>).supplier_name ?? (product as Record<string, any>).supplier?.name ?? ''),
     };
     setSelectedProduct(mappedProduct);
@@ -457,6 +457,7 @@ export function InventoryPage() {
         min_stock_level: Number(productData.min_stock_level) || 0,
         condition: productData.condition,
         category_id: productData.category_id || null,
+        preferred_supplier_id: productData.supplier_id || null,
         barcode: productData.barcode,
       };
       try {
@@ -472,7 +473,9 @@ export function InventoryPage() {
           );
         }
         await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+        await queryClient.invalidateQueries({ queryKey: ['inventory', 'stats'] });
         await queryClient.invalidateQueries({ queryKey: ['products'] });
+        await queryClient.invalidateQueries({ queryKey: ['products', 'inventory-stats'] });
         toast.success('تم تحديث المنتج والكمية بنجاح');
         setIsEditModalOpen(false);
         setSelectedProduct(null);
@@ -568,12 +571,6 @@ export function InventoryPage() {
     setIsEditModalOpen(true);
   };
 
-  const handleOpeningStockCreated = () => {
-    void queryClient.invalidateQueries({ queryKey: ['products'] });
-    void queryClient.invalidateQueries({ queryKey: ['inventory'] });
-    void refetch();
-  };
-
   const handleCreatePurchase = () => {
     setIsInventoryEntryModalOpen(false);
     setIsPurchaseWorkflowOpen(true);
@@ -590,17 +587,6 @@ export function InventoryPage() {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
     ]);
     await refetch();
-  };
-
-  const handleRecommendationClick = (action: string) => {
-    if (action === 'low_stock') {
-      setSearchQuery('');
-      setFilters([
-        ...filters.filter((filter) => filter.key !== 'low_stock'),
-        { key: 'low_stock', value: 'true' },
-      ]);
-      setViewMode('products');
-    }
   };
 
   const handleStockAlertClick = (alert: 'out_of_stock' | 'low_stock') => {
@@ -692,7 +678,6 @@ export function InventoryPage() {
     <div>
       {/* Page Header */}
       <PageHeader
-        eyebrow="Inventory Intelligence"
         title={t('inventory.title')}
         description="إدارة المخزون والقطع مع تحليلات فورية"
         actions={
@@ -735,7 +720,7 @@ export function InventoryPage() {
                 onClick={handleSupplierInventoryToggle}
               >
                 <Package className="w-3.5 h-3.5 me-1.5" />
-                مشتريات الموردين
+                مشتريات التجار
               </Button>
             </div>
             <ReportActions
@@ -755,7 +740,6 @@ export function InventoryPage() {
         inventoryItems={inventoryItems}
         supplierOnly={supplierOnly}
         manualOnly={manualOnly}
-        onRecommendationClick={handleRecommendationClick}
         isMobile={isMobile}
       />
 
@@ -765,7 +749,6 @@ export function InventoryPage() {
         onAddProduct={handleManualAdd}
         onAddCategory={() => setQuickCreateMode('category')}
         onAddSupplier={() => setQuickCreateMode('supplier')}
-        onAddExistingStock={() => setIsOpeningStockModalOpen(true)}
         onCreatePurchase={handleCreatePurchase}
         onBulkImport={() => setIsBulkImportOpen(true)}
       />
@@ -840,12 +823,6 @@ export function InventoryPage() {
         items={completedPurchase?.items || []}
       />
 
-      <OpeningStockModal
-        isOpen={isOpeningStockModalOpen}
-        onClose={() => setIsOpeningStockModalOpen(false)}
-        onCreated={handleOpeningStockCreated}
-      />
-
       {/* Inventory Filters */}
       <InventoryFilters
         searchQuery={searchQuery}
@@ -861,55 +838,64 @@ export function InventoryPage() {
       />
 
       {/* View Toggle */}
-      <div className="flex flex-wrap gap-2" style={{ marginBottom: '16px' }}>
-        <Button
-          variant={viewMode === 'products' ? 'primary' : 'secondary'}
-          onClick={handleProductsView}
-        >
-          <Package className="w-3 h-3 me-1.5" />
-          {t('products.title')}
-        </Button>
-        <Button
-          variant={viewMode === 'items' ? 'primary' : 'secondary'}
-          onClick={handleItemsView}
-        >
-          <PackageOpen className="w-3 h-3 me-1.5" />
-          {t('inventory.items')}
-        </Button>
-        <Button
-          variant={showInventoryLedger ? 'primary' : 'secondary'}
-          onClick={() => {
-            if (showInventoryLedger) {
-              handleCloseInventoryLedger();
-            } else {
-              // Show ledger for first product as example
-              if (filteredProducts.length > 0) {
+      <div className="inventory-command-bar" style={{ marginBottom: '16px' }}>
+        <div className="inventory-command-group">
+          <Button
+            variant={viewMode === 'products' ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={handleProductsView}
+            className="inventory-command-button"
+          >
+            <Package className="h-3.5 w-3.5" />
+            {t('products.title')}
+          </Button>
+          <Button
+            variant={viewMode === 'items' ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={handleItemsView}
+            className="inventory-command-button"
+          >
+            <PackageOpen className="h-3.5 w-3.5" />
+            {t('inventory.items')}
+          </Button>
+          <Button
+            variant={showInventoryLedger ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => {
+              if (showInventoryLedger) {
+                handleCloseInventoryLedger();
+              } else if (filteredProducts.length > 0) {
                 handleViewInventoryLedger(filteredProducts[0].id);
               }
-            }
-          }}
-        >
-          📊
-          سجل الحركات
-        </Button>
-        <Button
-          variant={layoutMode === 'cards' ? 'primary' : 'secondary'}
-          onClick={() => setLayoutMode('cards')}
-          aria-label="عرض البطاقات"
-          title="عرض البطاقات"
-        >
-          <LayoutGrid className="w-3 h-3 me-1.5" />
-          بطاقات
-        </Button>
-        <Button
-          variant={layoutMode === 'table' ? 'primary' : 'secondary'}
-          onClick={() => setLayoutMode('table')}
-          aria-label="عرض الجدول"
-          title="عرض الجدول"
-        >
-          <List className="w-3 h-3 me-1.5" />
-          جدول
-        </Button>
+            }}
+            className="inventory-command-button"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            سجل الحركات
+          </Button>
+        </div>
+        <div className="inventory-command-group inventory-layout-actions" aria-label="طريقة عرض المخزون">
+          <Button
+            variant={layoutMode === 'cards' ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => setLayoutMode('cards')}
+            aria-label="عرض البطاقات"
+            title="عرض البطاقات"
+            className="inventory-icon-button"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={layoutMode === 'table' ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => setLayoutMode('table')}
+            aria-label="عرض الجدول"
+            title="عرض الجدول"
+            className="inventory-icon-button"
+          >
+            <List className="h-4 w-4" />
+          </Button>
+        </div>
         <StockAlertCards
           products={filteredProducts}
           inventoryStockMap={inventoryStockMap}
@@ -932,6 +918,7 @@ export function InventoryPage() {
         onEditProduct={handleEditProduct}
         onEditMinimumStock={handleEditMinimumStock}
         onDeleteProduct={handleDeleteProduct}
+        onArchiveProduct={(productId) => archiveProductMutation.mutate(productId)}
         onDeleteInventoryItem={(itemId) => { setInventoryItemToDelete(itemId); setDeleteDialogOpen(true); }}
         onClearSearch={handleClearSearch}
         onReorderFromSupplier={(supplierId, productName) => {
@@ -1013,7 +1000,7 @@ export function InventoryPage() {
         }}
         onConfirm={handleConfirmDelete}
         title="حذف المنتج"
-        message="هل أنت متأكد من حذف هذا المنتج؟ هذا الإجراء لا يمكن التراجع عنه."
+        message="سيُحذف المنتج نهائيًا مع تنظيف المبيعات والمشتريات والمرتجعات المرتبطة به من البطاقات والتقارير. هل تريد المتابعة؟"
         confirmText="حذف المنتج"
         cancelText="إلغاء"
         variant="danger"

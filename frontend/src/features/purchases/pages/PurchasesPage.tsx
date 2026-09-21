@@ -23,6 +23,7 @@ import {
   DollarSign,
   UserRound,
   Inbox,
+  ArrowRight,
 } from 'lucide-react';
 
 // Custom hooks
@@ -221,11 +222,14 @@ export function PurchasesPage() {
     <div>
       {/* Page Header */}
       <PageHeader
-        eyebrow="Purchase Management"
         title={t('purchases.title')}
         description="إدارة المشتريات والطلبات"
         actions={
           <div style={{ display: 'flex', gap: '10px' }}>
+            <Button variant="secondary" size={getButtonSize('purchases', 'headerActions')} onClick={() => navigate('/app/suppliers')}>
+              <ArrowRight style={{ width: '16px', height: '16px', marginRight: '8px' }} />
+              العودة للتجار
+            </Button>
             <ReportActions onExportCurrent={handleExport} onPrintCurrent={handlePrint} onExportAll={() => { void handleExportAll(); }} onPrintAll={() => { void handlePrintAll(); }} />
           </div>
         }
@@ -296,8 +300,8 @@ export function PurchasesPage() {
             <Table className="min-w-[1100px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[12%]">فاتورة المورد</TableHead>
-                  <TableHead className="w-[18%]">المورد</TableHead>
+                  <TableHead className="w-[12%]">فاتورة التاجر</TableHead>
+                  <TableHead className="w-[18%]">التاجر</TableHead>
                   <TableHead className="w-[9%]">القطع</TableHead>
                   <TableHead className="w-[11%] text-center">الضريبة</TableHead>
                   <TableHead className="w-[12%] text-center">التكلفة</TableHead>
@@ -321,8 +325,8 @@ export function PurchasesPage() {
                             <UserRound className="h-4 w-4" />
                           </div>
                           <div className="min-w-0">
-                            <div className="truncate font-black text-[var(--text-primary)]">{purchase.supplier?.name || purchase.supplier_name || 'مورد غير محدد'}</div>
-                            <div className="mt-0.5 text-[11px] font-medium text-[var(--text-tertiary)]">مورد مسجل</div>
+                            <div className="truncate font-black text-[var(--text-primary)]">{purchase.supplier?.name || purchase.supplier_name || 'تاجر غير محدد'}</div>
+                            <div className="mt-0.5 text-[11px] font-medium text-[var(--text-tertiary)]">تاجر مسجل</div>
                           </div>
                         </div>
                       </TableCell>
@@ -474,7 +478,7 @@ export function PurchasesPage() {
         ) : purchaseDetails ? (
           <div className="space-y-6">
             <div className="flex justify-end">
-              <Button type="button" variant="primary" size="sm" onClick={() => setSupplierInvoiceOpen(true)}>عرض فاتورة المورد</Button>
+              <Button type="button" variant="primary" size="sm" onClick={() => setSupplierInvoiceOpen(true)}>عرض فاتورة التاجر</Button>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div><span className="text-sm text-text-muted">رقم فاتورة المورد</span><p>{purchaseDetails.invoice_number || '-'}</p></div>

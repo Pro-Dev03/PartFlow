@@ -213,7 +213,6 @@ export function ReturnDetailsPage() {
     <div>
       {/* Page Header */}
       <PageHeader
-        eyebrow="Return Details"
         title="تفاصيل المرتجع"
         description="معلومات كاملة عن المرتجع والمنتجات المرتجعة"
         actions={

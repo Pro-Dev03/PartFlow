@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -57,6 +58,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	{
 		inventory.POST("/items", h.CreateInventoryItem)
 		inventory.POST("/opening-stock", h.CreateOpeningStock)
+		inventory.POST("/used/bulk", h.CreateBulkUsedStock)
 		inventory.POST("/products/:id/quantity", h.AdjustProductQuantity)
 		inventory.GET("/items-with-supplier", h.ListInventoryItemsWithSupplierInfo)
 		inventory.GET("/archive", h.ListArchivedInventoryItems)
@@ -198,6 +200,20 @@ func (h *Handler) CreateOpeningStock(c *gin.Context) {
 		return
 	}
 
+	c.JSON(http.StatusCreated, result)
+}
+
+func (h *Handler) CreateBulkUsedStock(c *gin.Context) {
+	var req BulkUsedStockRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	result, err := h.service.CreateBulkUsedStock(c.Request.Context(), &req, getUserID(c))
+	if err != nil {
+		handleError(c, err)
+		return
+	}
 	c.JSON(http.StatusCreated, result)
 }
 
@@ -835,17 +851,17 @@ func handleError(c *gin.Context, err error) {
 	status := http.StatusInternalServerError
 	message := "internal server error"
 
-	switch err {
-	case ErrItemNotFound, ErrLocationNotFound:
+	switch {
+	case errors.Is(err, ErrItemNotFound), errors.Is(err, ErrLocationNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
-	case ErrInvalidStatus, ErrInvalidCondition, ErrInvalidGrade, ErrInvalidQuantity:
+	case errors.Is(err, ErrInvalidStatus), errors.Is(err, ErrInvalidCondition), errors.Is(err, ErrInvalidGrade), errors.Is(err, ErrInvalidQuantity):
 		status = http.StatusBadRequest
 		message = err.Error()
-	case ErrInsufficientStock, ErrItemAlreadyReserved, ErrDuplicateBarcode, ErrDuplicateSerialNumber:
+	case errors.Is(err, ErrInsufficientStock), errors.Is(err, ErrItemAlreadyReserved), errors.Is(err, ErrDuplicateBarcode), errors.Is(err, ErrDuplicateSerialNumber):
 		status = http.StatusConflict
 		message = err.Error()
-	case ErrCannotDeleteSoldItem:
+	case errors.Is(err, ErrCannotDeleteSoldItem):
 		status = http.StatusConflict
 		message = err.Error()
 	}

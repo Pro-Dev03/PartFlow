@@ -60,7 +60,6 @@ export function ActivityPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="السجل"
         title="كل النشاط"
         description="سجل المبيعات والمشتريات مرتبًا من الأحدث إلى الأقدم"
         actions={(

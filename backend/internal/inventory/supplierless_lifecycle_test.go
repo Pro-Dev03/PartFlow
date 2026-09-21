@@ -82,6 +82,7 @@ func TestSupplierlessOpeningStockSaleAndCustomerReturnPreserveIdentitySQLite(t *
 
 	assertSupplierlessIdentity(t, db, itemID, productID, barcode, serial, "AVAILABLE")
 	assertInventoryQuantity(t, db, productID, 1)
+	assertMovementTypes(t, db, itemID, []string{"ADJUSTMENT", "SALE", "RETURN"})
 }
 
 func assertSupplierlessIdentity(t *testing.T, db *sqlx.DB, itemID, productID uuid.UUID, barcode, serial, status string) {
@@ -104,5 +105,18 @@ func assertInventoryQuantity(t *testing.T, db *sqlx.DB, productID uuid.UUID, wan
 	}
 	if quantity != want {
 		t.Fatalf("inventory quantity = %d, want %d", quantity, want)
+	}
+}
+
+func assertMovementTypes(t *testing.T, db *sqlx.DB, itemID uuid.UUID, want []string) {
+	t.Helper()
+	for _, movementType := range want {
+		var count int
+		if err := db.Get(&count, `SELECT COUNT(*) FROM inventory_movements WHERE item_id = ? AND movement_type = ?`, itemID, movementType); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("movement type %s count = %d, want 1", movementType, count)
+		}
 	}
 }

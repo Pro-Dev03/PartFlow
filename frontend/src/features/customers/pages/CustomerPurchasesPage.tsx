@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, CalendarDays, CircleDollarSign, Eye, FileText, Plus, ReceiptText, Search } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Calendar, CalendarDays, CircleDollarSign, DollarSign, Eye, FileText, Plus, ReceiptText, Search } from 'lucide-react';
 import { PageHeader } from '../../../design-system/components/page-header';
 import { Button } from '../../../design-system/components/button';
 import { Card, CardContent } from '../../../design-system/components/card';
+import { StatCard } from '../../../design-system/components/stat-card';
 import { Input } from '../../../design-system/components/input';
 import { Badge } from '../../../design-system/components/badge';
 import { Modal } from '../../../design-system/components/modal';
@@ -113,7 +114,6 @@ export function CustomerPurchasesPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Customer Purchases"
         title={`مشتريات ${customer?.name || 'العميل'}`}
         description="سجل مستقل لجميع فواتير العميل والمدفوع والمتبقي لكل عملية"
         actions={
@@ -130,10 +130,34 @@ export function CustomerPurchasesPage() {
         }
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <Card><CardContent className="p-4"><span className="text-xs text-text-muted">إجمالي المشتريات</span><p className="mt-1 text-xl font-bold text-text-primary">{formatMoney(totalPurchases)}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><span className="text-xs text-text-muted">إجمالي المدفوع</span><p className="mt-1 text-xl font-bold text-green-600">{formatMoney(totalPaid)}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><span className="text-xs text-text-muted">الرصيد المستحق</span><p className="mt-1 text-xl font-bold text-red-600">{formatMoney(outstanding)}</p></CardContent></Card>
+      <div
+        className="mb-5 grid-cols-1 sm:grid-cols-3"
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '10px' }}
+      >
+        <StatCard
+          title="إجمالي المشتريات"
+          value={<span className="numeric-metric">{formatMoney(totalPurchases)}</span>}
+          icon={DollarSign}
+          subtitle="قيمة مشتريات العميل"
+          variant="featured"
+          compact
+        />
+        <StatCard
+          title="إجمالي المدفوع"
+          value={<span className="numeric-metric">{formatMoney(totalPaid)}</span>}
+          icon={Calendar}
+          subtitle="ما تم تحصيله من المشتريات"
+          variant="success"
+          compact
+        />
+        <StatCard
+          title="الرصيد المستحق"
+          value={<span className="numeric-metric">{formatMoney(outstanding)}</span>}
+          icon={AlertTriangle}
+          subtitle="المبلغ المتبقي على العميل"
+          variant="warning"
+          compact
+        />
       </div>
 
       <Card className="overflow-hidden">

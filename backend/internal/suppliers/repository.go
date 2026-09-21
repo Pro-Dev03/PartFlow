@@ -364,7 +364,6 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 	if !exists {
 		return ErrSupplierNotFound
 	}
-
 	query := fmt.Sprintf(`UPDATE suppliers SET is_active = false, updated_at = %s WHERE id = $1`, dbutil.NowSQL(r.db))
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {

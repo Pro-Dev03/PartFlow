@@ -85,10 +85,10 @@ const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
           <button
             onClick={action.onClick}
             className={cn(
-              'mt-4 px-4 py-2 rounded-lg font-medium transition-colors',
+              'mt-4 inline-flex min-h-10 items-center justify-center rounded-xl px-4 py-2 font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
               action.variant === 'primary' 
-                ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                ? 'border border-blue-200 bg-blue-50 text-blue-700 shadow-sm hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-md'
+                : 'border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80'
             )}
             style={{ fontSize: 'var(--font-size-secondary)' }}
           >

@@ -40,7 +40,7 @@ export function InventoryLedger({
       PURCHASE: 'شراء',
       SALE: 'بيع',
       RETURN: 'مرتجع',
-      SUPPLIER_RETURN: 'مرتجع مورد',
+      SUPPLIER_RETURN: 'مرتجع تاجر',
       ADJUSTMENT: 'تعديل مخزون',
       TRANSFER: 'نقل مخزون',
     };

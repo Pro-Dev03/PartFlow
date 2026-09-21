@@ -8,20 +8,25 @@ interface DebtStatsProps {
 
 export function DebtStats({ stats }: DebtStatsProps) {
   return (
-    <div className="unified-stats-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+    <div
+      style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '10px' }}
+      className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
+    >
       <StatCard
         title="إجمالي الديون الأصلية"
         value={<span className="numeric-metric">₪{stats.totalDebt.toLocaleString()}</span>}
         icon={DollarSign}
         subtitle="قيمة الديون الأصلية على العملاء"
         variant="featured"
+        compact
       />
       <StatCard
-        title="المحصّل"
+        title="التحصيل"
         value={<span className="numeric-metric">₪{stats.paidAmount.toLocaleString()}</span>}
         icon={Calendar}
         subtitle="ما تم تحصيله من هذه الديون"
         variant="success"
+        compact
       />
       <StatCard
         title="غير مسدد"
@@ -29,6 +34,7 @@ export function DebtStats({ stats }: DebtStatsProps) {
         icon={AlertTriangle}
         subtitle="المبلغ الذي ما زال على العملاء"
         variant="warning"
+        compact
       />
       <StatCard
         title="العملاء المدينون"
@@ -36,6 +42,7 @@ export function DebtStats({ stats }: DebtStatsProps) {
         icon={Users}
         subtitle="لديهم مبلغ غير مسدد"
         variant="default"
+        compact
       />
     </div>
   );

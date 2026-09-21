@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { returnsApi } from '../../../services/api/endpoints';
 import { Card, CardContent } from '../../../design-system/components/card';
 import { Button } from '../../../design-system/components/button';
+import { StatCard } from '../../../design-system/components/stat-card';
 import { SearchInput } from '../../../design-system/components/search-input';
 import { PageHeader } from '../../../design-system/components/page-header';
 import { Select } from '../../../design-system/components/select';
@@ -232,7 +233,6 @@ export function ReturnsPage() {
     <div>
       {/* Page Header */}
       <PageHeader
-        eyebrow="Returns Management"
         title={t('returns.title') || 'المرتجعات'}
         description="إدارة المرتجعات والاسترجاع مع تتبع كامل للمنتجات والماليات"
         actions={
@@ -245,74 +245,44 @@ export function ReturnsPage() {
               <Plus className="w-4 h-4" />
               مرتجع جديد
             </Button>
-            <Button variant="secondary" className="gap-2" onClick={() => navigate('/app/supplier-returns')}>
+            <Button variant="secondary" className="me-auto gap-2" onClick={() => navigate('/app/supplier-returns')}>
               <Truck className="w-4 h-4" />
-              مرتجع للمورد
+              مرتجعات التجار
             </Button>
           </div>
         }
       />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-cyan/10">
-                <RotateCcw className="w-5 h-5 text-cyan" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">إجمالي المرتجعات</p>
-                <p className="text-2xl font-bold">{activeReturnCount}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-yellow/10">
-                <AlertTriangle className="w-5 h-5 text-yellow" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">قيد الانتظار</p>
-                <p className="text-2xl font-bold">
-                  {statistics?.pending_returns || returns.filter((r) => r.status === 'PENDING').length}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-green/10">
-                <DollarSign className="w-5 h-5 text-green" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">قيمة المرتجعات</p>
-                <p className="text-2xl font-bold">
-                  ₪{(statistics?.total_refunded ?? returns.filter((r) => r.status === 'COMPLETED').reduce((sum, r) => sum + r.total_refund_amount, 0)).toLocaleString()}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue/10">
-                <TrendingDown className="w-5 h-5 text-blue" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">صافي المبيعات</p>
-                <p className="text-2xl font-bold">
-                  ₪{(salesReturnsAnalysis?.data?.[0]?.net_sales || 0).toLocaleString()}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="unified-stats-grid supplier-stats grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+        <StatCard
+          title="إجمالي المرتجعات"
+          value={activeReturnCount}
+          icon={RotateCcw}
+          variant="featured"
+          size="sm"
+        />
+        <StatCard
+          title="قيد الانتظار"
+          value={statistics?.pending_returns || returns.filter((r) => r.status === 'PENDING').length}
+          icon={AlertTriangle}
+          variant="warning"
+          size="sm"
+        />
+        <StatCard
+          title="قيمة المرتجعات"
+          value={`₪${(statistics?.total_refunded ?? returns.filter((r) => r.status === 'COMPLETED').reduce((sum, r) => sum + r.total_refund_amount, 0)).toLocaleString()}`}
+          icon={DollarSign}
+          variant="success"
+          size="sm"
+        />
+        <StatCard
+          title="صافي المبيعات"
+          value={`₪${(salesReturnsAnalysis?.data?.[0]?.net_sales || 0).toLocaleString()}`}
+          icon={TrendingDown}
+          variant="default"
+          size="sm"
+        />
       </div>
 
       {/* Search and Filters */}
@@ -383,12 +353,12 @@ export function ReturnsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="product-cards-grid gap-4">
           {returns.map((returnItem) => {
             const statusBadge = getStatusBadge(returnItem.status);
             const StatusIcon = statusBadge.icon;
             return (
-              <Card key={returnItem.id} className="hover:shadow-md transition-shadow">
+              <Card key={returnItem.id} className="return-card">
                 <CardContent className="p-4">
                   <div className="flex justify-between items-start mb-3">
                     <div>

@@ -49,7 +49,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
         <h2 id="dashboard-core-metrics" className="mb-3 text-sm font-semibold text-text-primary">
           المؤشرات الأساسية
         </h2>
-           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}
+           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}
              className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
           <StatCard
             title="صافي مبيعات اليوم"
@@ -59,6 +59,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
             trendUp={stats?.salesTrendUp}
             subtitle="بعد خصم مرتجعات العملاء"
             variant="featured"
+            compact
             onClick={() => navigate('/app/reports?report=net-sales')}
           />
           <StatCard
@@ -70,6 +71,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
             subtitle={profitMargin
               ? `المبيعات - التكلفة - المصروفات - المرتجعات | هامش الربح: ${profitMargin}%`
               : 'المبيعات - تكلفة المنتجات - المصروفات - المرتجعات + تكلفة المرتجعات'}
+            compact
             onClick={() => navigate('/app/reports?report=profit')}
           />
           <StatCard
@@ -80,6 +82,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
             trendUp={stats?.debtsTrendUp}
             subtitle={<span className="numeric-quantity">{outstandingDebtorCount} عميل</span>}
             variant="warning"
+            compact
             onClick={() => navigate('/app/debts')}
           />
           <StatCard
@@ -90,14 +93,16 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
             trendUp={null}
             subtitle="يحتاج انتباه"
             variant="danger"
+            compact
             onClick={() => navigate('/app/inventory')}
           />
           <StatCard
-            title="مرتجعات الموردين اليوم"
+            title="مرتجعات التجار اليوم"
             value={<span className="numeric-metric">₪{formatCurrency(todaySupplierReturns)}</span>}
             icon={RotateCcw}
             subtitle="قيمة المرتجعات المكتملة"
             variant="warning"
+            compact
             onClick={() => navigate('/app/supplier-returns')}
           />
         </div>
@@ -107,7 +112,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
         <h2 id="dashboard-financial-operations" className="mb-3 text-sm font-semibold text-text-primary">
           العمليات المالية اليوم
         </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}
              className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="تحصيل ديون العملاء اليوم"
@@ -115,14 +120,16 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
             icon={DollarSign}
             subtitle="المبالغ المدفوعة لسداد الديون"
             variant="success"
+            compact
             onClick={() => navigate('/app/debts')}
           />
           <StatCard
-            title="المدفوع للموردين اليوم"
+            title="المدفوع للتجار اليوم"
             value={<span className="numeric-metric">₪{formatCurrency(todaySupplierPaid)}</span>}
             icon={Package}
-            subtitle="دفعات خرجت للموردين"
+            subtitle="دفعات خرجت للتجار"
             variant="warning"
+            compact
             onClick={() => navigate('/app/purchases')}
           />
           <StatCard
@@ -131,6 +138,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
             icon={DollarSign}
             subtitle="مصروفات معتمدة داخلة في الربح، دون إثبات دفع نقدي"
             variant="warning"
+            compact
             onClick={() => navigate('/app/expenses')}
           />
           <StatCard
@@ -139,6 +147,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
             icon={todayCashDifference >= 0 ? DollarSign : AlertTriangle}
             subtitle="ما دخل إلى المتجر ناقص ما خرج منه"
             variant={todayCashDifference >= 0 ? 'success' : 'danger'}
+            compact
           />
         </div>
       </section>

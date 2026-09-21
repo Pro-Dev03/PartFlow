@@ -116,9 +116,17 @@ func (h *Handler) ListDebts(c *gin.Context) {
 			Status          string  `db:"status"`
 			CreatedAt       string  `db:"created_at"`
 		}
-		query := `SELECT d.id, d.customer_id, c.name AS customer_name, COALESCE(s.invoice_number, '') AS invoice_number, d.amount, d.remaining_amount,
-			d.due_date, d.status, d.created_at FROM debts d JOIN customers c ON d.customer_id = c.id LEFT JOIN sales s ON d.sale_id = s.id
-			ORDER BY d.due_date DESC LIMIT ? OFFSET ?`
+		query := `SELECT MIN(d.id) AS id, d.customer_id AS customer_id, c.name AS customer_name,
+			CASE WHEN COUNT(*) = 1 THEN COALESCE(MAX(s.invoice_number), '') ELSE 'عدة ديون' END AS invoice_number,
+			SUM(d.amount) AS amount, SUM(d.remaining_amount) AS remaining_amount,
+			COALESCE(MIN(CASE WHEN d.remaining_amount > 0 THEN d.due_date END), MAX(d.due_date)) AS due_date,
+			CASE WHEN SUM(d.remaining_amount) <= 0 THEN 'paid'
+				WHEN SUM(CASE WHEN d.status = 'overdue' THEN 1 ELSE 0 END) > 0 THEN 'overdue'
+				WHEN SUM(d.remaining_amount) < SUM(d.amount) THEN 'partial' ELSE 'pending' END AS status,
+			MAX(d.created_at) AS created_at
+			FROM debts d JOIN customers c ON d.customer_id = c.id LEFT JOIN sales s ON d.sale_id = s.id
+			GROUP BY d.customer_id, c.name
+			ORDER BY MAX(d.due_date) DESC LIMIT ? OFFSET ?`
 		if err := h.db.Select(&rows, query, perPage, offset); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -130,7 +138,7 @@ func (h *Handler) ListDebts(c *gin.Context) {
 				"status": row.Status, "created_at": row.CreatedAt})
 		}
 		var total int
-		if err := h.db.Get(&total, "SELECT COUNT(*) FROM debts"); err != nil {
+		if err := h.db.Get(&total, "SELECT COUNT(DISTINCT customer_id) FROM debts"); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -152,12 +160,19 @@ func (h *Handler) ListDebts(c *gin.Context) {
 	}
 
 	query := `
-		SELECT d.id, d.customer_id, c.name as customer_name, COALESCE(s.invoice_number, '') as invoice_number, d.amount, d.remaining_amount,
-		       d.due_date, d.status, d.created_at
+		SELECT (array_agg(d.id ORDER BY d.due_date DESC))[1] AS id, d.customer_id AS customer_id, c.name AS customer_name,
+		       CASE WHEN COUNT(*) = 1 THEN COALESCE(MAX(s.invoice_number), '') ELSE 'عدة ديون' END AS invoice_number,
+		       SUM(d.amount) AS amount, SUM(d.remaining_amount) AS remaining_amount,
+		       COALESCE(MIN(CASE WHEN d.remaining_amount > 0 THEN d.due_date END), MAX(d.due_date)) AS due_date,
+		       CASE WHEN SUM(d.remaining_amount) <= 0 THEN 'paid'
+			       WHEN SUM(CASE WHEN d.status = 'overdue' THEN 1 ELSE 0 END) > 0 THEN 'overdue'
+			       WHEN SUM(d.remaining_amount) < SUM(d.amount) THEN 'partial' ELSE 'pending' END AS status,
+		       MAX(d.created_at) AS created_at
 		FROM debts d
 		JOIN customers c ON d.customer_id = c.id
 		LEFT JOIN sales s ON d.sale_id = s.id
-		ORDER BY d.due_date DESC
+		GROUP BY d.customer_id, c.name
+		ORDER BY MAX(d.due_date) DESC
 		LIMIT $1 OFFSET $2
 	`
 
@@ -193,7 +208,7 @@ func (h *Handler) ListDebts(c *gin.Context) {
 	}
 
 	var total int
-	h.db.Get(&total, "SELECT COUNT(*) FROM debts")
+	h.db.Get(&total, "SELECT COUNT(DISTINCT customer_id) FROM debts")
 
 	response := gin.H{
 		"success": true,

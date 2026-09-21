@@ -20,6 +20,7 @@ export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormPr
     email: initialData?.email || '',
     address: initialData?.address || '',
     notes: initialData?.notes || '',
+    debt_reason: initialData?.debt_reason || '',
     credit_limit: initialData?.credit_limit || 0,
     opening_debt: 0,
     is_active: initialData?.is_active !== undefined ? initialData.is_active : true,
@@ -37,61 +38,95 @@ export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormPr
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <Input
-            label="كود العميل"
-            value={formData.code}
-            onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-          />
-          <Input
-            label="الاسم الكامل"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-          />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Input
+                label="كود العميل"
+                value={formData.code}
+                onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+              />
+            </div>
 
-          <Input
-            label="رقم الهاتف"
-            type="tel"
-            value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-            required
-          />
+            <div>
+              <Input
+                label="الاسم الكامل"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                required
+              />
+            </div>
 
-          <Input
-            label="البريد الإلكتروني"
-            type="email"
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-          />
+            <div>
+              <Input
+                label="رقم الهاتف"
+                type="tel"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                required
+              />
+            </div>
 
-          <Input
-            label="العنوان"
-            value={formData.address}
-            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-          />
+            <div>
+              <Input
+                label="البريد الإلكتروني"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              />
+            </div>
 
-          {!initialData && (
-            <Input
-              label="مبلغ سابق مستحق على العميل"
-              type="number"
-              min="0"
-              step="0.01"
-              value={formData.opening_debt || ''}
-              onChange={(e) => setFormData({ ...formData, opening_debt: Number(e.target.value) || 0 })}
-              placeholder="0"
-            />
-          )}
+            <div
+              className="col-span-2"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                gap: '16px',
+                alignItems: 'start',
+              }}
+            >
+              <Input
+                label="العنوان"
+                value={formData.address}
+                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+              />
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              ملاحظات
-            </label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:bg-gray-800 dark:text-gray-100"
-            />
+              {!initialData && (
+                <Input
+                  label="مبلغ سابق مستحق على العميل"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.opening_debt || ''}
+                  onChange={(e) => setFormData({ ...formData, opening_debt: Number(e.target.value) || 0 })}
+                  placeholder="0"
+                />
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  ملاحظات العميل
+                </label>
+                <textarea
+                  value={formData.notes || ''}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:bg-gray-800 dark:text-gray-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  سبب الدين
+                </label>
+                <textarea
+                  value={formData.debt_reason || ''}
+                  onChange={(e) => setFormData({ ...formData, debt_reason: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:bg-gray-800 dark:text-gray-100"
+                  placeholder="اكتب سبب الدين أو المذكرة المالية للعميل"
+                />
+              </div>
+            </div>
           </div>
 
           <div className="flex gap-3 justify-end">

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Bell, Moon, Sun, Globe, User, LogOut, Menu, ShoppingCart, Plus, CreditCard, Users, LayoutDashboard, Package } from 'lucide-react';
+import { Bell, Moon, Sun, Globe, User, LogOut, Menu, ShoppingCart, Plus, Users, LayoutDashboard, Package } from 'lucide-react';
 import { useTranslation } from '../../hooks/useTranslation';
 import { SearchInput } from '../../design-system/components/search-input';
 import { Button } from '../../design-system/components/button';
@@ -25,6 +25,7 @@ export function Header({ onToggleSidebar }: HeaderProps) {
   const primaryNavigation = [
     { label: 'لوحة التحكم', path: '/app/dashboard', icon: LayoutDashboard },
     { label: 'نقطة البيع', path: '/app/sales', icon: ShoppingCart },
+    { label: 'الزبائن', path: '/app/customers', icon: Users },
     { label: 'المخزون', path: '/app/inventory', icon: Package },
   ];
 
@@ -141,12 +142,6 @@ export function Header({ onToggleSidebar }: HeaderProps) {
               onClick={() => navigate('/app/customers')}
               icon={<Users style={{ width: '16px', height: '16px' }} />}
               title={t('dashboard.addCustomer')}
-            />
-            <IconButton
-              onClick={() => navigate('/app/debts')}
-              icon={<CreditCard style={{ width: '16px', height: '16px' }} />}
-              title={t('dashboard.recordPayment')}
-              variant="danger"
             />
           </div>
 

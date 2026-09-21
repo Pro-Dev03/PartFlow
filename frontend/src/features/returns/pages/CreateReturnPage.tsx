@@ -172,7 +172,6 @@ export function CreateReturnPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Returns Management"
         title="إنشاء مرتجع جديد"
         description="اختر فاتورة البيع والعنصر المراد إرجاعه"
         actions={<Button variant="secondary" onClick={() => navigate('/app/returns')} className="gap-2"><ArrowRight className="w-4 h-4" /> العودة للمرتجعات</Button>}

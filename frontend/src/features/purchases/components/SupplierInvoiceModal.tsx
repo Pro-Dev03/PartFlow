@@ -57,11 +57,11 @@ export function SupplierInvoiceModal({ isOpen, onClose, purchase, supplier, item
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="فاتورة المورد" size="xl">
+    <Modal isOpen={isOpen} onClose={onClose} title="فاتورة التاجر" size="xl">
       <div className="supplier-invoice-print-root space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">فاتورة المورد</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">فاتورة التاجر</p>
             <h2 className="mt-1 text-xl font-bold text-text-primary">{purchase.invoice_number || '-'}</h2>
           </div>
           <div className="flex flex-wrap gap-2 supplier-invoice-print-button">
@@ -76,7 +76,7 @@ export function SupplierInvoiceModal({ isOpen, onClose, purchase, supplier, item
           </div>
         </div>
 
-        <iframe title="قالب فاتورة المورد" srcDoc={renderInvoiceHtml(invoiceDocument)} className="h-[760px] w-full border-0 bg-white" />
+            <iframe title="قالب فاتورة التاجر" srcDoc={renderInvoiceHtml(invoiceDocument)} className="h-[760px] w-full border-0 bg-white" />
       </div>
     </Modal>
   );

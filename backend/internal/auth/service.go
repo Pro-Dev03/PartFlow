@@ -136,12 +136,8 @@ func NewService(db *sqlx.DB, jwtSecret string, useSupabase bool, supabaseURL, su
 	jwtService := NewJWTService(jwtSecret, 15*time.Minute, 7*24*time.Hour)
 
 	var supabase *SupabaseAuthService
-	var err error
 	if useSupabase {
-		supabase, err = NewSupabaseAuthService(supabaseURL, supabaseKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize Supabase: %w", err)
-		}
+		return nil, errors.New("Supabase authentication is not implemented; set USE_SUPABASE_AUTH=false")
 	}
 
 	var cloud *CloudAuthService
@@ -167,7 +163,10 @@ func (s *Service) ValidateCloudAccess(ctx context.Context, cloudToken string) er
 	if err != nil {
 		return err
 	}
-	if !validation.cloudAccountIsActive() || s.IsSubscriptionExpiredFromCloud(validation.cloudSubscriptionStatus(), validation.cloudSubscriptionExpiresAt()) {
+	// The cloud validate response is authoritative. Do not compare the cloud
+	// expiry timestamp with the local machine clock, because a skewed desktop
+	// clock must not end an otherwise valid subscription.
+	if !validation.cloudAccountIsActive() {
 		return errors.New("cloud account is inactive or subscription is expired")
 	}
 	return nil

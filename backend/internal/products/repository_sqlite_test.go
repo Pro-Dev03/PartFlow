@@ -108,11 +108,15 @@ func TestDeleteProductPermanentlyRemovesInventoryItems(t *testing.T) {
 		PRAGMA foreign_keys = ON;
 		CREATE TABLE products (id TEXT PRIMARY KEY, deleted_at TEXT);
 		CREATE TABLE inventory (id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id));
-		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT NOT NULL);
-		CREATE TABLE sale_items (product_id TEXT);
-		CREATE TABLE purchase_items (product_id TEXT);
-		CREATE TABLE return_items (product_id TEXT);
-		CREATE TABLE supplier_return_items (product_id TEXT);
+		CREATE TABLE sales (id TEXT PRIMARY KEY, total_amount REAL, status TEXT);
+		CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT REFERENCES sales(id), product_id TEXT REFERENCES products(id));
+		CREATE TABLE purchases (id TEXT PRIMARY KEY, total_amount REAL, status TEXT);
+		CREATE TABLE purchase_items (id TEXT PRIMARY KEY, purchase_id TEXT REFERENCES purchases(id), product_id TEXT REFERENCES products(id));
+		CREATE TABLE returns (id TEXT PRIMARY KEY, total_amount REAL, status TEXT);
+		CREATE TABLE supplier_returns (id TEXT PRIMARY KEY, total_amount REAL, status TEXT);
+		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id));
+		CREATE TABLE return_items (id TEXT PRIMARY KEY, return_id TEXT REFERENCES returns(id), product_id TEXT REFERENCES products(id));
+		CREATE TABLE supplier_return_items (id TEXT PRIMARY KEY, supplier_return_id TEXT REFERENCES supplier_returns(id), product_id TEXT REFERENCES products(id), purchase_item_id TEXT, sale_item_id TEXT);
 	`)
 	if err != nil {
 		t.Fatalf("create test schema: %v", err)
@@ -128,12 +132,42 @@ func TestDeleteProductPermanentlyRemovesInventoryItems(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id) VALUES (?, ?)`, uuid.New(), productID); err != nil {
 		t.Fatalf("insert inventory item: %v", err)
 	}
+	saleID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO sales (id, total_amount, status) VALUES (?, ?, ?)`, saleID, 100.0, "completed"); err != nil {
+		t.Fatalf("insert sale: %v", err)
+	}
+	saleItemID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO sale_items (id, sale_id, product_id) VALUES (?, ?, ?)`, saleItemID, saleID, productID); err != nil {
+		t.Fatalf("insert sale item: %v", err)
+	}
+	purchaseID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO purchases (id, total_amount, status) VALUES (?, ?, ?)`, purchaseID, 80.0, "received"); err != nil {
+		t.Fatalf("insert purchase: %v", err)
+	}
+	purchaseItemID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO purchase_items (id, purchase_id, product_id) VALUES (?, ?, ?)`, purchaseItemID, purchaseID, productID); err != nil {
+		t.Fatalf("insert purchase item: %v", err)
+	}
+	returnID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO returns (id, total_amount, status) VALUES (?, ?, ?)`, returnID, 15.0, "completed"); err != nil {
+		t.Fatalf("insert return: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO return_items (id, return_id, product_id) VALUES (?, ?, ?)`, uuid.NewString(), returnID, productID); err != nil {
+		t.Fatalf("insert return item: %v", err)
+	}
+	supplierReturnID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO supplier_returns (id, total_amount, status) VALUES (?, ?, ?)`, supplierReturnID, 10.0, "completed"); err != nil {
+		t.Fatalf("insert supplier return: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO supplier_return_items (id, supplier_return_id, product_id, purchase_item_id, sale_item_id) VALUES (?, ?, ?, ?, ?)`, uuid.NewString(), supplierReturnID, productID, purchaseItemID, saleItemID); err != nil {
+		t.Fatalf("insert supplier return item: %v", err)
+	}
 
 	if err := NewRepository(db).DeleteProduct(context.Background(), productID); err != nil {
 		t.Fatalf("delete product: %v", err)
 	}
 
-	var productCount, inventoryCount, itemCount int
+	var productCount, inventoryCount, itemCount, saleCount, saleItemCount, purchaseCount, purchaseItemCount, returnCount, returnItemCount, supplierReturnCount, supplierReturnItemCount int
 	if err := db.Get(&productCount, `SELECT COUNT(*) FROM products WHERE id = ?`, productID); err != nil {
 		t.Fatal(err)
 	}
@@ -143,8 +177,32 @@ func TestDeleteProductPermanentlyRemovesInventoryItems(t *testing.T) {
 	if err := db.Get(&itemCount, `SELECT COUNT(*) FROM inventory_items WHERE product_id = ?`, productID); err != nil {
 		t.Fatal(err)
 	}
-	if productCount != 0 || inventoryCount != 0 || itemCount != 0 {
-		t.Fatalf("deleted product remains: products=%d inventory=%d inventory_items=%d", productCount, inventoryCount, itemCount)
+	if err := db.Get(&saleItemCount, `SELECT COUNT(*) FROM sale_items WHERE product_id = ?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&purchaseItemCount, `SELECT COUNT(*) FROM purchase_items WHERE product_id = ?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&returnItemCount, `SELECT COUNT(*) FROM return_items WHERE product_id = ?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&supplierReturnItemCount, `SELECT COUNT(*) FROM supplier_return_items WHERE product_id = ?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&saleCount, `SELECT COUNT(*) FROM sales WHERE id = ?`, saleID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&purchaseCount, `SELECT COUNT(*) FROM purchases WHERE id = ?`, purchaseID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&returnCount, `SELECT COUNT(*) FROM returns WHERE id = ?`, returnID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&supplierReturnCount, `SELECT COUNT(*) FROM supplier_returns WHERE id = ?`, supplierReturnID); err != nil {
+		t.Fatal(err)
+	}
+	if productCount != 0 || inventoryCount != 0 || itemCount != 0 || saleCount != 0 || saleItemCount != 0 || purchaseCount != 0 || purchaseItemCount != 0 || returnCount != 0 || returnItemCount != 0 || supplierReturnCount != 0 || supplierReturnItemCount != 0 {
+		t.Fatalf("deleted product remains: products=%d inventory=%d inventory_items=%d sales=%d sale_items=%d purchases=%d purchase_items=%d returns=%d return_items=%d supplier_returns=%d supplier_return_items=%d", productCount, inventoryCount, itemCount, saleCount, saleItemCount, purchaseCount, purchaseItemCount, returnCount, returnItemCount, supplierReturnCount, supplierReturnItemCount)
 	}
 }
 
@@ -190,6 +248,61 @@ func TestCreateCategory_SqliteReturningTimestamps(t *testing.T) {
 	}
 	if category.UpdatedAt.IsZero() {
 		t.Fatal("expected updated_at to be populated")
+	}
+}
+
+func TestCreateProduct_AllowsNilCategory(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE products (
+			id TEXT PRIMARY KEY,
+			sku TEXT NOT NULL UNIQUE,
+			name TEXT NOT NULL,
+			description TEXT,
+			category_id TEXT,
+			brand_id TEXT,
+			preferred_supplier_id TEXT,
+			model TEXT,
+			barcode TEXT,
+			cost_price REAL DEFAULT 0,
+			selling_price REAL DEFAULT 0,
+			track_serial INTEGER NOT NULL DEFAULT 0,
+			track_individual INTEGER NOT NULL DEFAULT 0,
+			min_stock_level INTEGER DEFAULT 0,
+			warranty_days INTEGER DEFAULT 0,
+			is_active INTEGER NOT NULL DEFAULT 1,
+			deleted_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+	`)
+	if err != nil {
+		t.Fatalf("create products table: %v", err)
+	}
+
+	service := NewService(NewRepository(db))
+	product, err := service.CreateProduct(context.Background(), &ProductRequest{
+		Name:         "Used Brake Pad",
+		SKU:          "USED-BRAKE-001",
+		CostPrice:    30,
+		SellingPrice: 60,
+	})
+	if err != nil {
+		t.Fatalf("CreateProduct returned unexpected error for nil category: %v", err)
+	}
+	if product == nil {
+		t.Fatal("expected product to be created")
+	}
+	if product.CategoryID != nil {
+		t.Fatalf("expected category_id to remain nil, got %v", product.CategoryID)
+	}
+	if product.Name != "Used Brake Pad" {
+		t.Fatalf("unexpected product name: %s", product.Name)
 	}
 }
 

@@ -82,8 +82,10 @@ export function useInitialDataSync(
       }
     },
     enabled,
-    retry: 3,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    // apiClient already performs bounded retries with backoff. Keeping a
+    // second React Query retry loop caused repeated 500s and duplicate sync
+    // requests when the backend was unavailable.
+    retry: false,
     staleTime: Infinity, // Don't refetch initial data automatically
     gcTime: Infinity,    // Don't garbage collect this data
   });

@@ -60,7 +60,7 @@ export function SupplierModals({
       <Modal
         isOpen={isOpen}
         onClose={close}
-        title={editingSupplier ? 'تعديل المورد' : 'إضافة مورد جديد'}
+        title={editingSupplier ? 'تعديل التاجر' : 'إضافة تاجر جديد'}
         variant="modern"
         size="lg"
       >
@@ -75,7 +75,7 @@ export function SupplierModals({
       <Modal
         isOpen={isViewModalOpen}
         onClose={() => setIsViewModalOpen(false)}
-        title="تفاصيل المورد"
+        title="تفاصيل التاجر"
         variant="modern"
         size="xl"
       >
@@ -107,15 +107,15 @@ export function SupplierModals({
                 <Input value={`₪${(normalizedViewingSupplier.outstanding || 0).toLocaleString()}`} disabled />
               </div>
               <div>
-                <label className="text-small font-medium text-text mb-sm block">رصيد مرتجعات المورد</label>
+                <label className="text-small font-medium text-text mb-sm block">رصيد مرتجعات التاجر</label>
                 <Input value={`-₪${Number(ledger?.supplier_return_credits || 0).toLocaleString()}`} disabled />
               </div>
               <div>
-                <label className="text-small font-medium text-text mb-sm block">دفعات المورد</label>
+                <label className="text-small font-medium text-text mb-sm block">دفعات التاجر</label>
                 <Input value={`₪${Number(ledger?.supplier_payments || 0).toLocaleString()}`} disabled />
               </div>
             </div>
-            <p className="text-xs text-text-muted">صافي المستحق = المستحق الأصلي - Credits المرتجعات - دفعات المورد.</p>
+            <p className="text-xs text-text-muted">صافي المستحق = المستحق الأصلي - Credits المرتجعات - دفعات التاجر.</p>
             <div className="flex items-end gap-2 border-t border-border pt-4">
               <Input type="number" min="0.01" step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder="مبلغ الدفعة" />
               <Button onClick={() => paymentMutation.mutate()} disabled={paymentMutation.isPending || Number(paymentAmount) <= 0 || Number(paymentAmount) > Number(ledger?.current_balance ?? normalizedViewingSupplier.outstanding ?? 0)}>
@@ -163,7 +163,7 @@ export function SupplierModals({
                   </table>
                 </div>
               ) : (
-                <div className="text-center py-6 text-text-muted">لا توجد حركات لهذا المورد</div>
+                <div className="text-center py-6 text-text-muted">لا توجد حركات لهذا التاجر</div>
               )}
             </div>
 

@@ -35,12 +35,11 @@ export function PurchaseDetailsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Purchase Details"
         title="تفاصيل عملية الشراء"
         description={purchase?.invoice_number || 'معلومات العملية والقطع المرتبطة بها'}
         actions={
           <div className="flex gap-2">
-            <Button variant="primary" onClick={() => setSupplierInvoiceOpen(true)} disabled={!purchase}>عرض فاتورة المورد</Button>
+            <Button variant="primary" onClick={() => setSupplierInvoiceOpen(true)} disabled={!purchase}>عرض فاتورة التاجر</Button>
             <Button variant="secondary" onClick={() => navigate('/app/purchases')}>
               <ArrowRight className="w-4 h-4" />
               رجوع
@@ -54,7 +53,7 @@ export function PurchaseDetailsPage() {
         <Card>
           <CardContent className="p-6 space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div><span className="text-sm text-text-muted">المورد</span><p>{purchase.supplier?.name || purchase.supplier_name || '-'}</p></div>
+              <div><span className="text-sm text-text-muted">التاجر</span><p>{purchase.supplier?.name || purchase.supplier_name || '-'}</p></div>
               <div><span className="text-sm text-text-muted">الحالة</span><p><Badge>{purchase.status}</Badge></p></div>
               <div><span className="text-sm text-text-muted">الإجمالي</span><p>₪{Number(purchase.total_amount || 0).toLocaleString('en-US')}</p></div>
               <div><span className="text-sm text-text-muted">تاريخ فاتورة المورد</span><p>{purchase.purchase_date ? new Date(purchase.purchase_date).toLocaleDateString('en-US') : '-'}</p></div>
@@ -63,12 +62,12 @@ export function PurchaseDetailsPage() {
               <div><span className="text-sm text-text-muted">المتبقي</span><p>₪{Math.max(0, Number(purchase.total_amount || 0) - Number(purchase.paid_amount || 0)).toLocaleString('en-US')}</p></div>
             </div>
             <div className="rounded border border-border bg-surface-muted p-4">
-              <h2 className="font-semibold mb-3">ملخص حساب المورد</h2>
+              <h2 className="font-semibold mb-3">ملخص حساب التاجر</h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div><span className="text-text-muted">المستحق الأصلي لهذه الفاتورة</span><p className="font-semibold">₪{(Number(purchase.total_amount || 0) - Number(purchase.paid_amount || 0)).toLocaleString('en-US')}</p></div>
-                <div><span className="text-text-muted">رصيد مرتجعات المورد</span><p className="font-semibold">-₪{supplierReturnCredits.toLocaleString('en-US')}</p></div>
-                <div><span className="text-text-muted">دفعات المورد</span><p className="font-semibold">₪{supplierPayments.toLocaleString('en-US')}</p></div>
-                <div><span className="text-text-muted">صافي رصيد المورد</span><p className="font-semibold">₪{supplierNetBalance.toLocaleString('en-US')}</p></div>
+                <div><span className="text-text-muted">رصيد مرتجعات التاجر</span><p className="font-semibold">-₪{supplierReturnCredits.toLocaleString('en-US')}</p></div>
+                <div><span className="text-text-muted">دفعات التاجر</span><p className="font-semibold">₪{supplierPayments.toLocaleString('en-US')}</p></div>
+                <div><span className="text-text-muted">صافي رصيد التاجر</span><p className="font-semibold">₪{supplierNetBalance.toLocaleString('en-US')}</p></div>
               </div>
               <p className="mt-3 text-xs text-text-muted">Purchase تاريخية بالقيمة الإجمالية؛ صافي رصيد المورد يحسب المرتجعات والدفعات على مستوى الحساب.</p>
             </div>

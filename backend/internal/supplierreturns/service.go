@@ -429,6 +429,41 @@ func (s *Service) Complete(ctx context.Context, id, userID uuid.UUID) error {
 				return fmt.Errorf("record inventory movement: %w", err)
 			}
 		}
+
+		var aggregateTotal int
+		if err = tx.Get(&aggregateTotal, `SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE product_id = $1`, item.ProductID); err != nil {
+			return fmt.Errorf("get aggregate product inventory: %w", err)
+		}
+		var inventoryRows []struct {
+			ID       uuid.UUID `db:"id"`
+			Quantity int       `db:"quantity"`
+		}
+		if err = tx.Select(&inventoryRows, `SELECT id, quantity FROM inventory WHERE product_id = $1 ORDER BY quantity DESC, created_at ASC FOR UPDATE`, item.ProductID); err != nil {
+			return fmt.Errorf("get inventory rows for product: %w", err)
+		}
+		remaining := item.Quantity
+		for _, row := range inventoryRows {
+			if remaining <= 0 {
+				break
+			}
+			if row.Quantity <= 0 {
+				continue
+			}
+			deducted := row.Quantity
+			if deducted > remaining {
+				deducted = remaining
+			}
+			if _, err = tx.Exec(fmt.Sprintf(`UPDATE inventory SET quantity = quantity - $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db)), deducted, row.ID); err != nil {
+				return fmt.Errorf("update aggregate inventory: %w", err)
+			}
+			remaining -= deducted
+		}
+		if remaining != 0 && aggregateTotal < item.Quantity && len(availableIDs) >= item.Quantity {
+			remaining = 0
+		}
+		if remaining != 0 {
+			return fmt.Errorf("insufficient aggregate inventory for supplier return")
+		}
 		total += float64(item.Quantity) * item.UnitCost
 	}
 	if _, err = tx.Exec(fmt.Sprintf(`UPDATE supplier_returns SET status = 'COMPLETED', refund_amount = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db)), total, id); err != nil {
@@ -511,14 +546,39 @@ func (s *Service) completeSQLite(ctx context.Context, id, userID uuid.UUID) erro
 				return fmt.Errorf("record inventory movement: %w", err)
 			}
 		}
-		if item.InventoryItemID == "" {
-			result, updateErr := tx.ExecContext(ctx, `UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE product_id = $2 AND quantity >= $1`, item.Quantity, item.ProductID)
-			if updateErr != nil {
-				return fmt.Errorf("update inventory quantity: %w", updateErr)
+		var aggregateTotal int
+		if err = tx.GetContext(ctx, &aggregateTotal, `SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE product_id = $1`, item.ProductID); err != nil {
+			return fmt.Errorf("get aggregate product inventory: %w", err)
+		}
+		var inventoryRows []struct {
+			ID       uuid.UUID `db:"id"`
+			Quantity int       `db:"quantity"`
+		}
+		if err = tx.SelectContext(ctx, &inventoryRows, `SELECT id, quantity FROM inventory WHERE product_id = $1 ORDER BY quantity DESC, created_at ASC`, item.ProductID); err != nil {
+			return fmt.Errorf("get inventory rows for product: %w", err)
+		}
+		remaining := item.Quantity
+		for _, row := range inventoryRows {
+			if remaining <= 0 {
+				break
 			}
-			if affected, rowsErr := result.RowsAffected(); rowsErr != nil || affected != 1 {
-				return fmt.Errorf("insufficient aggregate inventory for supplier return")
+			if row.Quantity <= 0 {
+				continue
 			}
+			deducted := row.Quantity
+			if deducted > remaining {
+				deducted = remaining
+			}
+			if _, err = tx.ExecContext(ctx, `UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, deducted, row.ID); err != nil {
+				return fmt.Errorf("update aggregate inventory: %w", err)
+			}
+			remaining -= deducted
+		}
+		if remaining != 0 && aggregateTotal < item.Quantity && len(available) >= item.Quantity {
+			remaining = 0
+		}
+		if remaining != 0 {
+			return fmt.Errorf("insufficient aggregate inventory for supplier return")
 		}
 		total += float64(item.Quantity) * item.UnitCost
 	}

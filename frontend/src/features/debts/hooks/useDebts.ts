@@ -61,6 +61,8 @@ export function useDebts() {
 
     return customerDebts.map((debt: any) => ({
       ...debt,
+      notes: debt.notes ?? debt.debt_reason ?? debt.reason ?? debt.debtReason ?? '',
+      debt_reason: debt.debt_reason ?? debt.debtReason ?? debt.reason ?? debt.notes ?? '',
       status: Number(debt.remaining_amount ?? debt.remainingAmount ?? 0) <= 0 ? 'paid' : debt.status,
       invoiceNumber: debt.invoice_number || debt.invoiceNumber || '',
       dueDate: debt.due_date, // Map due_date to dueDate for consistency
@@ -70,6 +72,7 @@ export function useDebts() {
         name: customer.name,
         code: customer.code,
         phone: customer.phone,
+        notes: customer.notes ?? customer.customer_notes ?? '',
       },
     }));
   });

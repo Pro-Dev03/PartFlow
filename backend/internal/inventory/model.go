@@ -251,6 +251,17 @@ type OpeningStockRequest struct {
 	Notes        *string    `json:"notes"`
 }
 
+type BulkUsedStockRequest struct {
+	ProductID    *uuid.UUID `json:"product_id" binding:"required"`
+	Barcodes     []string   `json:"barcodes" binding:"required,min=1,max=1000"`
+	BusinessDate string     `json:"business_date" binding:"required"`
+	PartTypeID   *uuid.UUID `json:"part_type_id" binding:"required"`
+	Grade        *Grade     `json:"grade"`
+	PurchaseCost float64    `json:"purchase_cost"`
+	SellingPrice float64    `json:"selling_price"`
+	Notes        *string    `json:"notes"`
+}
+
 // TransferRequest represents inventory transfer request
 type TransferRequest struct {
 	ItemID         uuid.UUID `json:"item_id" binding:"required"`

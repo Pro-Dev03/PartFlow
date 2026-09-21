@@ -211,7 +211,6 @@ export function ReportsPage() {
     <div className="report-page-shell">
       {/* Page Header */}
       <PageHeader
-        eyebrow="مركز التحليلات"
         title={t('reports.title')}
         description="تحليلات وتقارير شاملة عن أداء المحل مع رؤى ذكية"
         actions={
@@ -555,7 +554,7 @@ export function ReportsPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المورد</th>
+                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>التاجر</th>
                     <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>إجمالي المشتريات</th>
                     <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المدفوع</th>
                     <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المستحق</th>
@@ -565,14 +564,14 @@ export function ReportsPage() {
                   {Array.isArray((reportPayload as Record<string, unknown>).by_supplier) && ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).length > 0 ? (
                     ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).map((supplier, index) => (
                       <tr key={String(supplier.supplier_id ?? index)} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                        <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(supplier.supplier_name ?? 'مورد غير معروف')}</td>
+                        <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(supplier.supplier_name ?? 'تاجر غير معروف')}</td>
                         <td style={{ padding: '12px', color: 'var(--color-primary)', fontSize: '13px', fontWeight: '600' }}>₪{Number(supplier.total_purchases ?? 0).toLocaleString()}</td>
                         <td style={{ padding: '12px', color: 'var(--color-success)', fontSize: '13px' }}>₪{Number(supplier.total_paid ?? 0).toLocaleString()}</td>
                         <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>₪{Number(supplier.outstanding ?? 0).toLocaleString()}</td>
                       </tr>
                     ))
                   ) : (
-                    <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد مشتريات أو أرصدة موردين</td></tr>
+                    <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد مشتريات أو أرصدة تجار</td></tr>
                   )}
                 </tbody>
               </table>
@@ -614,7 +613,7 @@ export function ReportsPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                      <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المورد</th>
+                      <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>التاجر</th>
                       <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>التكلفة</th>
                       <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الأصناف</th>
                     </tr>
@@ -623,7 +622,7 @@ export function ReportsPage() {
                     {Array.isArray((reportPayload as Record<string, unknown>).by_supplier) && ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).length > 0 ? (
                       ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).map((supplier, index) => (
                         <tr key={String(supplier.supplier_id ?? index)} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                          <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(supplier.supplier_name ?? 'مورد غير معروف')}</td>
+                          <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(supplier.supplier_name ?? 'تاجر غير معروف')}</td>
                           <td style={{ padding: '12px', color: 'var(--color-primary)', fontSize: '13px', fontWeight: '600' }}>₪{Number(supplier.total_cost ?? 0).toLocaleString()}</td>
                           <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>{Number(supplier.item_count ?? 0).toLocaleString()}</td>
                         </tr>

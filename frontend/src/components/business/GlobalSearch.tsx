@@ -96,7 +96,7 @@ export function GlobalSearch() {
       case 'customer':
         return 'عميل';
       case 'supplier':
-        return 'مورد';
+        return 'تاجر';
       default:
         return type;
     }
@@ -115,7 +115,7 @@ export function GlobalSearch() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="بحث عن منتجات، عملاء، موردين، فواتير..."
+              placeholder="بحث عن منتجات، عملاء، تجار، فواتير..."
               className="border-0 focus-visible:ring-0 px-0 text-lg"
               autoFocus
             />

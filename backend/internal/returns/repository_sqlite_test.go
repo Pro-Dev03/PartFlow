@@ -398,6 +398,73 @@ func TestServiceCreateReturnLinksActiveDebtForDebtAdjustment(t *testing.T) {
 	}
 }
 
+func TestServiceReverseReturnKeepsOriginalReturnNumber(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "reverse-return.db"))
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+
+	db := sqlx.NewDb(database.DB, "sqlite")
+	ctx := context.Background()
+	userID := uuid.New()
+	returnRecord := &Return{
+		ID:                       uuid.New(),
+		SaleID:                   uuid.New(),
+		CustomerID:               uuid.New(),
+		ReturnNumber:             "RET-0002",
+		ReferenceNumber:          "REF-0002",
+		ReturnDate:               time.Now().UTC(),
+		ReturnType:               "FULL",
+		Status:                   "COMPLETED",
+		TotalRefundAmount:        120,
+		RefundMethod:             "CASH",
+		Reason:                   "CUSTOMER_CHANGED_MIND",
+		ItemConditionAfterReturn: "SELLABLE",
+		CreatedBy:                &userID,
+		CreatedAt:                time.Now().UTC(),
+		UpdatedAt:                time.Now().UTC(),
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := database.DB.Exec(`INSERT INTO customers (id,code,name,created_at,updated_at) VALUES (?,?,?,?,?)`, returnRecord.CustomerID.String(), "C-REVERSE", "Reverse customer", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.DB.Exec(`INSERT INTO sales (id,sale_number,invoice_number,sale_date,total_amount,paid_amount,remaining_amount,payment_method,payment_status,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, returnRecord.SaleID.String(), "S-REVERSE", "INV-REVERSE", now, 120, 120, 0, "cash", "paid", "completed", now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewRepository(db).CreateReturn(ctx, returnRecord); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(NewRepository(db))
+	_, err = service.ReverseReturn(ctx, returnRecord.ID, userID)
+	if err != nil {
+		t.Fatalf("ReverseReturn() returned error: %v", err)
+	}
+
+	var count int
+	if err := db.GetContext(ctx, &count, `SELECT COUNT(*) FROM returns`); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected original return to remain as single row after reversal, got %d rows", count)
+	}
+
+	updated, err := service.GetReturn(ctx, returnRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Return.Status != "CANCELLED" {
+		t.Fatalf("expected return status CANCELLED after reverse, got %s", updated.Return.Status)
+	}
+	if updated.Return.ReturnNumber != "RET-0002" {
+		t.Fatalf("expected original return number to be preserved, got %s", updated.Return.ReturnNumber)
+	}
+}
+
 func TestSQLiteDebtAdjustmentCapsDebtAndCreatesCustomerCredit(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "returns-credit.db"))
 	database, err := localdb.Open()

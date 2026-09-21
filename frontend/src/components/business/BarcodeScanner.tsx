@@ -41,12 +41,30 @@ export function BarcodeScanner({ isOpen, onClose, onScanComplete, context = Barc
   const [error, setError] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      if (closeTimeoutRef.current) {
+        clearTimeout(closeTimeoutRef.current);
+        closeTimeoutRef.current = null;
+      }
+      setBarcode('');
+      setError('');
+      setScanResult(null);
+      setIsScanning(false);
+    }
+  }, [isOpen]);
+
+  useEffect(() => () => {
+    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+  }, []);
 
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,7 +98,8 @@ export function BarcodeScanner({ isOpen, onClose, onScanComplete, context = Barc
       }
 
       // Auto-close after successful scan
-      setTimeout(() => {
+      closeTimeoutRef.current = setTimeout(() => {
+        closeTimeoutRef.current = null;
         onClose();
         setBarcode('');
         setScanResult(null);
@@ -216,8 +235,8 @@ export function BarcodeScanner({ isOpen, onClose, onScanComplete, context = Barc
 
   return (
     <Dialog open={isOpen} onClose={onClose}>
-      <Card className="w-full max-w-md">
-        <CardContent className="p-6">
+      <Card className="w-full max-w-md overflow-hidden">
+        <CardContent className="p-5 sm:p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <div>

@@ -89,7 +89,6 @@ export function SellerBalancesPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Seller Balances"
         title="رصيد البائعين"
         description="تتبع المدفوعات المستحقة للبائعين"
       />

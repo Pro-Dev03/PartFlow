@@ -12,6 +12,7 @@ import { Badge } from '../../../design-system/components/badge';
 import { StatCard } from '../../../design-system/components/stat-card';
 import { Modal } from '../../../design-system/components/modal';
 import { OpeningStockModal } from '../../inventory/components/OpeningStockModal';
+import { UsedPartsBulkImportModal } from '../components/UsedPartsBulkImportModal';
 import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
 import { PaginationControls } from '../../../design-system/components/pagination-controls';
 import { toast } from 'sonner';
@@ -28,7 +29,8 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
-  Clock
+  Clock,
+  Upload
 } from 'lucide-react';
 
 export function UsedPartsPage() {
@@ -43,6 +45,7 @@ export function UsedPartsPage() {
   // Acquisition modal state
   const [isAcquisitionModalOpen, setIsAcquisitionModalOpen] = useState(false);
     const [isOpeningStockModalOpen, setIsOpeningStockModalOpen] = useState(false);
+    const [isBulkImportModalOpen, setIsBulkImportModalOpen] = useState(false);
   const [isCustomerManual, setIsCustomerManual] = useState(false);
   const [acquisitionCustomer, setAcquisitionCustomer] = useState('');
   const [acquisitionCustomerManual, setAcquisitionCustomerManual] = useState('');
@@ -407,7 +410,6 @@ export function UsedPartsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="مخزون خاص"
         title="القطع المستعملة"
         description="سجّل القطع الموجودة، راقب قيمتها، وبعها من مكان واحد."
         actions={
@@ -420,6 +422,10 @@ export function UsedPartsPage() {
             >
               <Plus className="w-4 h-4" />
               إضافة مخزون مستعمل موجود
+            </Button>
+            <Button variant="secondary" onClick={() => setIsBulkImportModalOpen(true)} className="min-h-11">
+              <Upload className="w-4 h-4" />
+              إضافة سريعة
             </Button>
             <Button variant="secondary" onClick={() => setIsAcquisitionModalOpen(true)} className="min-h-11">
               <ShoppingCart className="w-4 h-4" />
@@ -471,6 +477,15 @@ export function UsedPartsPage() {
           queryClient.invalidateQueries({ queryKey: ['products'] });
         }}
         stockType="used"
+      />
+      <UsedPartsBulkImportModal
+        isOpen={isBulkImportModalOpen}
+        onClose={() => setIsBulkImportModalOpen(false)}
+        onImported={() => {
+          queryClient.invalidateQueries({ queryKey: ['inventory'] });
+          queryClient.invalidateQueries({ queryKey: ['products'] });
+          queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        }}
       />
 
       {/* Search and Filters */}

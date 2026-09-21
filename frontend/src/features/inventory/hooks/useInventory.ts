@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { productsApi, inventoryApi, barcodeApi, categoriesApi } from '../../../services/api/endpoints';
+import { productsApi, inventoryApi, barcodeApi, categoriesApi, suppliersApi } from '../../../services/api/endpoints';
 import { Product, InventoryItem, FilterConfig, SortConfig } from '../types/inventory.types';
 import { useDebounce } from '../../../hooks/useDebounce';
 import { Category } from '../../../types/models';
@@ -46,6 +46,11 @@ export function useInventory() {
   const { data: categoriesData } = useQuery({
     queryKey: ['categories'],
     queryFn: () => categoriesApi.list(),
+  });
+
+  const { data: suppliersData } = useQuery({
+    queryKey: ['suppliers', 'inventory-products'],
+    queryFn: () => suppliersApi.list({ page: 1, per_page: 100, is_active: true }),
   });
 
   const { data: inventoryData, isLoading: inventoryLoading, refetch: refetchInventory } = useQuery({
@@ -118,6 +123,9 @@ export function useInventory() {
   const products = (productsData?.data?.products as Product[]) || [];
   const inventoryItems = (inventoryData?.data?.items as InventoryItem[]) || [];
   const categories = (categoriesData?.data as Category[]) || [];
+  const suppliers = Array.isArray(suppliersData?.data)
+    ? suppliersData.data as Array<{ id: string; name?: string; supplier_name?: string }>
+    : ((suppliersData?.data as any)?.suppliers || (suppliersData as any)?.suppliers || []);
 
   // Create category map for easy lookup
   const categoryMap = useMemo(() => {
@@ -127,6 +135,15 @@ export function useInventory() {
     });
     return map;
   }, [categories]);
+
+  const supplierMap = useMemo(() => {
+    const map = new Map<string, string>();
+    suppliers.forEach((supplier) => {
+      const name = supplier.name || supplier.supplier_name || '';
+      if (supplier.id && name) map.set(String(supplier.id), name);
+    });
+    return map;
+  }, [suppliers]);
 
   // Safe arrays
   const safeProducts = Array.isArray(products) ? products : [];
@@ -149,8 +166,8 @@ export function useInventory() {
       if (existingProduct) {
         productsById.set(productId, {
           ...existingProduct,
-          supplier_id: existingProduct.supplier_id || supplierId,
-          supplier_name: existingProduct.supplier_name || supplierName,
+          supplier_id: existingProduct.supplier_id || (existingProduct as any).preferred_supplier_id || supplierId,
+          supplier_name: existingProduct.supplier_name || supplierName || supplierMap.get(String(existingProduct.supplier_id || (existingProduct as any).preferred_supplier_id || supplierId)) || '',
           condition: existingProduct.condition || itemCondition,
           category_id: existingProduct.category_id || item.category_id,
           category_name: existingProduct.category_name || item.category_name,
@@ -174,12 +191,15 @@ export function useInventory() {
         category_id: item.category_id,
         barcode: item.barcode,
         supplier_id: supplierId,
-        supplier_name: item.supplier_name,
+        supplier_name: supplierName || supplierMap.get(supplierId) || '',
       });
     });
 
-    return Array.from(productsById.values());
-  }, [completeInventoryItems, safeInventoryItems, safeProducts]);
+    return Array.from(productsById.values()).map((product: any) => ({
+      ...product,
+      supplier_name: product.supplier_name || supplierMap.get(String(product.supplier_id || product.preferred_supplier_id || '')) || '',
+    }));
+  }, [completeInventoryItems, safeInventoryItems, safeProducts, supplierMap]);
 
   const isUsedItemCondition = (value: unknown) => {
     const condition = String(value ?? '').trim().toUpperCase();
@@ -281,19 +301,24 @@ export function useInventory() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
       toast.success('تم حذف المنتج بنجاح');
     },
     onError: (error: any) => {
       console.error('Delete product failed:', error);
-      toast.error('فشل حذف المنتج');
+      const message = String(error?.arabicMessage || error?.message || '');
+      toast.error(message || 'فشل حذف المنتج');
     },
   });
 
   const deleteInventoryItemMutation = useMutation({
-    mutationFn: (itemId: string) => inventoryApi.delete(itemId),
+    mutationFn: (itemId: string) => inventoryApi.delete(itemId, { permanent: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      toast.success('تم حذف/أرشفة عنصر المخزون بنجاح');
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
+      toast.success('تم حذف عنصر المخزون نهائيًا');
     },
     onError: (error: any) => {
       console.error('Delete inventory item failed:', error);

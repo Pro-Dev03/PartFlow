@@ -278,7 +278,6 @@ export function ExpensesPage() {
     <div>
       {/* Page Header */}
       <PageHeader
-        eyebrow="إدارة المصروفات"
         title={t('expenses.title')}
         description="إدارة المصروفات والميزانية"
         actions={
@@ -296,47 +295,51 @@ export function ExpensesPage() {
         }
       />
 
-      {/* Stats Cards - Futuristic + Clean */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
+{/* Stats Cards - Futuristic + Clean */}
+      <div className="unified-stats-grid supplier-stats grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
         <StatCard 
           title={t('expenses.thisMonth')} 
           value={`₪${thisMonthTotal.toLocaleString()}`} 
           icon={Calendar}
           variant="featured"
+          size="sm"
         />
         <StatCard 
           title="الإيجار" 
           value={`₪${(categoryTotals.rent || 0).toLocaleString()}`} 
           icon={DollarSign}
           variant="default"
+          size="sm"
         />
         <StatCard 
           title="الرواتب" 
           value={`₪${(categoryTotals.salaries || 0).toLocaleString()}`} 
           icon={DollarSign}
           variant="default"
+          size="sm"
         />
         <StatCard 
-          title="المرافق" 
+          title="الevaluation" 
           value={`₪${(categoryTotals.utilities || 0).toLocaleString()}`} 
           icon={DollarSign}
           variant="default"
+          size="sm"
         />
       </div>
 
       {/* Category Breakdown */}
-      <Card>
-        <CardHeader>
+      <Card className="expense-category-card">
+        <CardHeader className="px-4 py-3">
           <CardTitle>توزيع المصروفات حسب الفئة</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
+        <CardContent className="px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
             {Object.entries(categoryTotals).map(([category, total]) => (
-              <div key={category} className="p-lg bg-surface-2 rounded-sm">
+              <div key={category} className="flex min-w-[180px] flex-1 items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--color-primary-25)] hover:shadow-[0_8px_20px_rgba(15,23,42,0.08)]">
                 <p className="text-small text-text-muted">
                   {getCategoryLabel(category)}
                 </p>
-                <p className="text-metric font-bold text-text mt-1">
+                <p className="text-sm font-bold text-text">
                   ₪{(total as number).toLocaleString()}
                 </p>
               </div>

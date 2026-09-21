@@ -64,6 +64,14 @@ var cloudValidationMu sync.Mutex
 var cloudValidationInFlight = make(map[string]*cloudValidationCall)
 
 func requiresCloudAuth() bool {
+	// Local SQLite sessions still require an active cloud subscription. The
+	// local database is only an operational cache and must not become an auth
+	// bypass when the environment omits the flag.
+	if isLocalDatabaseMode() {
+		value := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")))
+		return value != "false" && value != "0" && value != "no"
+	}
+
 	mode := strings.TrimSpace(strings.ToLower(os.Getenv("SERVER_MODE")))
 	if mode == "" {
 		mode = strings.TrimSpace(strings.ToLower(os.Getenv("APP_ENV")))
@@ -230,9 +238,25 @@ func isLocalDatabaseMode() bool {
 	if mode == "local" || mode == "sqlite" {
 		return true
 	}
+	if mode == "cloud" {
+		return false
+	}
 
 	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
-	return strings.HasPrefix(databaseURL, "sqlite://")
+	if strings.HasPrefix(databaseURL, "sqlite://") {
+		return true
+	}
+	if databaseURL != "" {
+		return false
+	}
+
+	// ResolveDatabaseURL defaults to SQLite when no primary or cloud database
+	// URL is configured. Mirror that decision here so auth policy matches the
+	// actual database selected by the application.
+	if strings.TrimSpace(os.Getenv("DATABASE_URL_CLOUD")) != "" || strings.TrimSpace(os.Getenv("DB_CLOUD_URL")) != "" || strings.TrimSpace(os.Getenv("CLOUD_DATABASE_URL")) != "" {
+		return false
+	}
+	return true
 }
 
 func isLoopbackRequest(c *gin.Context) bool {
@@ -272,7 +296,7 @@ func CORS() gin.HandlerFunc {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			c.Writer.Header().Add("Vary", "Origin")
 		}
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-PartFlow-Cloud-Token, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-PartFlow-Cloud-Token, Idempotency-Key, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
 		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
 

@@ -92,11 +92,11 @@ export function ProductForm({ onSubmit, onCancel, initialData }: ProductFormProp
           />
 
           <Select
-            label="المورد المفضل"
+            label="التاجر المفضل"
             value={formData.preferredSupplierId}
             onChange={(e) => setFormData({ ...formData, preferredSupplierId: e.target.value })}
             options={[
-              { value: '', label: 'اختر المورد...' },
+              { value: '', label: 'اختر التاجر...' },
               ...suppliers.map((supplier: any) => ({
                 value: supplier.id,
                 label: supplier.name,

@@ -33,6 +33,7 @@ export interface Product {
   image_url?: string;
   description?: string;
   category_id?: string;
+  preferred_supplier_id?: string;
   cost_price?: number;
   selling_price?: number;
   stock?: number;
@@ -99,6 +100,8 @@ export interface Customer {
   phone?: string;
   email?: string;
   address?: string;
+  notes?: string;
+  debt_reason?: string;
   balance?: number;
   credit_limit?: number;
   created_at?: string;
@@ -110,6 +113,8 @@ export interface CustomerCreateRequest {
   phone?: string;
   email?: string;
   address?: string;
+  notes?: string;
+  debt_reason?: string;
   credit_limit?: number;
 }
 

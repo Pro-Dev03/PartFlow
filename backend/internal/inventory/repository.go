@@ -24,7 +24,7 @@ func NewRepository(db *sqlx.DB) *Repository {
 func inventoryQuantityExpressions(ctx context.Context, db *sqlx.DB, productRef string) (string, string) {
 	var tableExists int
 	if err := db.GetContext(ctx, &tableExists, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'inventory'`); err == nil && tableExists > 0 {
-		return fmt.Sprintf(`COALESCE((SELECT quantity FROM inventory WHERE product_id = %s), (SELECT COUNT(*) FROM inventory_items ii2 WHERE ii2.product_id = %s))`, productRef, productRef), fmt.Sprintf(`COALESCE((SELECT quantity FROM inventory WHERE product_id = %s), (SELECT COUNT(*) FROM inventory_items ii3 WHERE ii3.product_id = %s AND UPPER(TRIM(COALESCE(ii3.status, ''))) = 'AVAILABLE'))`, productRef, productRef)
+		return fmt.Sprintf(`CASE WHEN EXISTS (SELECT 1 FROM inventory_items ii0 WHERE ii0.product_id = %s) THEN (SELECT COUNT(*) FROM inventory_items ii2 WHERE ii2.product_id = %s) ELSE COALESCE((SELECT quantity FROM inventory WHERE product_id = %s), 0) END`, productRef, productRef, productRef), fmt.Sprintf(`CASE WHEN EXISTS (SELECT 1 FROM inventory_items ii0 WHERE ii0.product_id = %s) THEN (SELECT COUNT(*) FROM inventory_items ii3 WHERE ii3.product_id = %s AND UPPER(TRIM(COALESCE(ii3.status, ''))) = 'AVAILABLE') ELSE MAX(0, COALESCE((SELECT quantity - COALESCE(reserved_quantity, 0) FROM inventory WHERE product_id = %s), 0)) END`, productRef, productRef, productRef)
 	}
 	return fmt.Sprintf(`(SELECT COUNT(*) FROM inventory_items ii2 WHERE ii2.product_id = %s)`, productRef), fmt.Sprintf(`(SELECT COUNT(*) FROM inventory_items ii3 WHERE ii3.product_id = %s AND UPPER(TRIM(COALESCE(ii3.status, ''))) = 'AVAILABLE')`, productRef)
 }
@@ -311,34 +311,74 @@ func (r *Repository) DeleteInventoryItem(ctx context.Context, itemID uuid.UUID) 
 	return nil
 }
 
+func (r *Repository) deleteInventoryItemRelatedRows(ctx context.Context, tx *sqlx.Tx, tableName, columnName string, itemID uuid.UUID) error {
+	query := fmt.Sprintf(`DELETE FROM %s WHERE %s = ?`, tableName, columnName)
+	if _, err := tx.ExecContext(ctx, query, itemID); err != nil {
+		errText := strings.ToLower(err.Error())
+		if dbutil.IsSQLite(r.db) && (strings.Contains(errText, "no such table:") || strings.Contains(errText, "no such column:") || strings.Contains(errText, "duplicate column") || strings.Contains(errText, "undefined column")) {
+			return nil
+		}
+		return fmt.Errorf("failed to delete related rows from %s: %w", tableName, err)
+	}
+	return nil
+}
+
 func (r *Repository) DeleteUsedInventoryItem(ctx context.Context, itemID uuid.UUID) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to start used part deletion: %w", err)
+		return fmt.Errorf("failed to start permanent inventory deletion: %w", err)
 	}
 	defer tx.Rollback()
 
+	var productID *uuid.UUID
+	if err := tx.GetContext(ctx, &productID, `SELECT product_id FROM inventory_items WHERE id = $1`, itemID); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrItemNotFound
+		}
+		return fmt.Errorf("failed to load item before permanent delete: %w", err)
+	}
+
 	if _, err := tx.ExecContext(ctx, `DELETE FROM inventory_movements WHERE item_id = $1`, itemID); err != nil {
-		return fmt.Errorf("failed to remove used part history: %w", err)
+		return fmt.Errorf("failed to remove item history: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM item_history WHERE inventory_item_id = $1`, itemID); err != nil {
-		return fmt.Errorf("failed to remove used part timeline: %w", err)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM reservations WHERE item_id = $1`, itemID); err != nil {
+		return fmt.Errorf("failed to remove item reservations: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM item_repair_costs WHERE inventory_item_id = $1`, itemID); err != nil {
-		return fmt.Errorf("failed to remove used part repair history: %w", err)
+
+	for _, table := range []struct {
+		tableName string
+		column    string
+	}{
+		{tableName: "item_history", column: "inventory_item_id"},
+		{tableName: "item_repair_costs", column: "inventory_item_id"},
+		{tableName: "acquisition_items", column: "inventory_item_id"},
+		{tableName: "trade_ins", column: "inventory_item_id"},
+		{tableName: "barcodes", column: "inventory_item_id"},
+		{tableName: "inspections", column: "inventory_item_id"},
+		{tableName: "sale_items", column: "inventory_item_id"},
+		{tableName: "return_items", column: "inventory_item_id"},
+		{tableName: "supplier_return_items", column: "inventory_item_id"},
+		{tableName: "item_specification_values", column: "inventory_item_id"},
+	} {
+		if err := r.deleteInventoryItemRelatedRows(ctx, tx, table.tableName, table.column, itemID); err != nil {
+			return err
+		}
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM acquisition_items WHERE inventory_item_id = $1`, itemID); err != nil {
-		return fmt.Errorf("failed to unlink used part acquisition: %w", err)
+
+	if productID != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE inventory SET quantity = CASE WHEN COALESCE(quantity, 0) > 0 THEN quantity - 1 ELSE 0 END, reserved_quantity = CASE WHEN COALESCE(reserved_quantity, 0) > 0 THEN reserved_quantity - 1 ELSE 0 END, updated_at = CURRENT_TIMESTAMP WHERE product_id = $1`, productID); err != nil {
+			return fmt.Errorf("failed to update inventory totals after permanent delete: %w", err)
+		}
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM inventory_items WHERE id = $1`, itemID)
 	if err != nil {
-		return fmt.Errorf("failed to permanently delete used part: %w", err)
+		return fmt.Errorf("failed to permanently delete inventory item: %w", err)
 	}
 	if affected, err := result.RowsAffected(); err != nil || affected == 0 {
 		return ErrItemNotFound
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit used part deletion: %w", err)
+		return fmt.Errorf("failed to commit permanent inventory deletion: %w", err)
 	}
 	return nil
 }

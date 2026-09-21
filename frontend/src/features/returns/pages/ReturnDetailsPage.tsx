@@ -239,7 +239,6 @@ export function ReturnDetailsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Return Details"
         title={`تفاصيل المرتجع ${returnRecord.return_number}`}
         description="عرض تفاصيل كاملة للمرتجع والمنتجات المرتجعة"
         actions={

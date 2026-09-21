@@ -24,7 +24,7 @@ export function PurchaseFilters({
           <div className="flex-1 relative">
             <Search className={`absolute inset-y-0 ${searchQuery ? 'end-10' : 'end-3'} w-4 h-4 text-cyan`} />
             <Input
-              placeholder="ابحث برقم الفاتورة أو المورد أو اسم القطعة..."
+              placeholder="ابحث برقم الفاتورة أو التاجر أو اسم القطعة..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pe-10"

@@ -12,6 +12,7 @@ interface StatCardProps {
   trendUp?: boolean | null;
   onClick?: () => void;
   compact?: boolean;
+  size?: 'sm' | 'md' | 'lg';
 }
 
 export function StatCard({
@@ -23,7 +24,8 @@ export function StatCard({
   trend,
   trendUp,
   onClick,
-  compact = false
+  compact = false,
+  size = 'md'
 }: StatCardProps) {
   const accentColor = variant === 'featured' ? 'var(--color-primary)' :
     variant === 'warning' ? 'var(--color-warning)' :
@@ -31,53 +33,67 @@ export function StatCard({
     variant === 'success' ? 'var(--color-success)' :
     variant === 'info' ? 'var(--color-info)' : 'var(--color-primary)';
 
+  const sizes = {
+    sm: { icon: 26, iconInner: 15, title: 11, value: 18, subtitle: 10, padding: '12px 16px', marginTop: '6px', trendMargin: '4px', trendSize: 10 },
+    md: { icon: 30, iconInner: 20, title: 12, value: 22, subtitle: 11, padding: '18px 20px', marginTop: '10px', trendMargin: '6px', trendSize: 11 },
+    lg: { icon: 44, iconInner: 26, title: 14, value: 34, subtitle: 13, padding: '26px 30px', marginTop: '14px', trendMargin: '10px', trendSize: 13 }
+  };
+
+  const s = compact
+    ? { icon: 26, iconInner: 16, title: 11, value: 18, subtitle: 11, padding: '10px 12px', marginTop: '6px', trendMargin: '2px', trendSize: 11 }
+    : sizes[size];
+
+  const iconBg = variant === 'featured' ? 'var(--color-primary-10)' :
+    variant === 'warning' ? 'var(--color-warning-10)' :
+    variant === 'danger' ? 'var(--color-danger-10)' :
+    variant === 'success' ? 'var(--color-success-10)' :
+    variant === 'info' ? 'var(--color-info-10)' :
+    variant === 'ai' ? 'var(--color-primary-10)' :
+    'var(--color-primary-10)';
+
+  const iconColor = variant === 'featured' ? 'var(--color-primary)' :
+    variant === 'warning' ? 'var(--color-warning)' :
+    variant === 'danger' ? 'var(--color-danger)' :
+    variant === 'success' ? 'var(--color-success)' :
+    variant === 'info' ? 'var(--color-info)' :
+    variant === 'ai' ? 'var(--color-primary)' :
+    'var(--color-primary)';
+
   return (
     <Card
       variant={variant}
       hoverable
       onClick={onClick}
-      className={`unified-stat-card ${compact ? 'compact-stat-card' : ''}`}
+      className={`unified-stat-card ${compact ? 'compact-stat-card' : ''} ${size === 'sm' ? 'sm-stat-card' : ''} ${size === 'lg' ? 'lg-stat-card' : ''}`}
       style={{ '--stat-accent': accentColor } as CSSProperties}
     >
-      <CardContent className="unified-stat-card-content" style={compact ? { padding: '10px 12px' } : undefined}>
+      <CardContent className="unified-stat-card-content" style={{ padding: s.padding }}>
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
           color: 'var(--text-secondary)',
-          fontSize: compact ? '11px' : '12px'
+          fontSize: `${s.title}px`
         }}>
           <span>{title}</span>
           <div style={{
-            width: compact ? '26px' : '30px',
-            height: compact ? '26px' : '30px',
-            borderRadius: '6px',
+            width: `${s.icon}px`,
+            height: `${s.icon}px`,
+            borderRadius: '10px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: variant === 'featured' ? 'var(--color-primary-10)' :
-                       variant === 'warning' ? 'var(--color-warning-10)' :
-                       variant === 'danger' ? 'var(--color-danger-10)' :
-                       variant === 'success' ? 'var(--color-success-10)' :
-                       variant === 'info' ? 'var(--color-info-10)' :
-                       variant === 'ai' ? 'var(--color-primary-10)' :
-                       'var(--color-primary-10)'
+            background: iconBg
           }}>
             <Icon style={{
-              width: compact ? '16px' : '20px',
-              height: compact ? '16px' : '20px',
-              color: variant === 'featured' ? 'var(--color-primary)' :
-                     variant === 'warning' ? 'var(--color-warning)' :
-                     variant === 'danger' ? 'var(--color-danger)' :
-                     variant === 'success' ? 'var(--color-success)' :
-                     variant === 'info' ? 'var(--color-info)' :
-                     variant === 'ai' ? 'var(--color-primary)' :
-                     'var(--color-primary)'
+              width: `${s.iconInner}px`,
+              height: `${s.iconInner}px`,
+              color: iconColor
             }} />
           </div>
         </div>
         <div style={{
-          marginTop: compact ? '6px' : '10px',
-          fontSize: compact ? '18px' : '22px',
+          marginTop: s.marginTop,
+          fontSize: `${s.value}px`,
           fontWeight: '600',
           color: 'var(--text-primary)',
           lineHeight: '1.2'
@@ -86,18 +102,18 @@ export function StatCard({
         </div>
         {subtitle && (
           <div style={{
-            marginTop: compact ? '2px' : '4px',
+            marginTop: size === 'lg' ? '6px' : '4px',
             color: 'var(--text-secondary)',
-            fontSize: '11px'
+            fontSize: `${s.subtitle}px`
           }}>
             {subtitle}
           </div>
         )}
         {trend && (
           <div style={{
-            marginTop: '6px',
+            marginTop: s.trendMargin,
             color: trendUp ? 'var(--color-success)' : 'var(--color-danger)',
-            fontSize: '11px',
+            fontSize: `${s.trendSize}px`,
             display: 'flex',
             alignItems: 'center',
             gap: '4px'

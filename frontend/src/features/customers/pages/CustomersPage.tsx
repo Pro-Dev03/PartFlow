@@ -1,11 +1,12 @@
 import { useState, lazy, Suspense } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { PageHeader } from '../../../design-system/components/page-header';
 import { Button } from '../../../design-system/components/button';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { ReportActions } from '../../../design-system/components/report-actions';
-import { Plus } from 'lucide-react';
+import { CreditCard, Plus } from 'lucide-react';
 
 // Custom hooks
 import { useCustomers } from '../hooks/useCustomers';
@@ -25,6 +26,7 @@ import { customersApi } from '../../../services/api/endpoints';
 
 export function CustomersPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -144,21 +146,23 @@ export function CustomersPage() {
     <div>
       {/* Page Header */}
       <PageHeader
-        eyebrow="Customer Hub"
         title={t('customers.title')}
-        description="إدارة العملاء والديون مع تجربة نظيفة ومبتكرة"
+        description="إدارة الزبائن والديون مع تجربة نظيفة ومبتكرة"
         actions={
           <div style={{ display: 'flex', gap: '10px' }}>
             <Button variant="secondary" size={getButtonSize('customers', 'headerActions')} onClick={handleAddCustomer}>
               <Plus style={{ width: '16px', height: '16px', marginRight: '8px' }} />
-              إضافة عميل
+              إضافة زبون
+            </Button>
+            <Button variant="secondary" size={getButtonSize('customers', 'headerActions')} onClick={() => navigate('/app/debts')}>
+              <CreditCard style={{ width: '16px', height: '16px', marginRight: '8px' }} />
+              الديون
             </Button>
             <ReportActions onExportCurrent={handleExport} onPrintCurrent={handlePrint} onExportAll={() => { void handleExportAll(); }} onPrintAll={() => { void handlePrintAll(); }} />
           </div>
         }
       />
 
-      {/* Customer Stats */}
       <Suspense fallback={
         <div style={{ 
           display: 'flex', 
@@ -171,10 +175,9 @@ export function CustomersPage() {
                style={{ width: '32px', height: '32px' }} />
         </div>
       }>
-        <CustomerStats 
-          stats={stats}
-        />
+        <CustomerStats stats={stats} />
       </Suspense>
+
 
       {/* Customer Filters */}
       <CustomerFilters

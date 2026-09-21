@@ -12,6 +12,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	dbutil "github.com/partflow/smart-store/internal/database"
 	"github.com/partflow/smart-store/pkg/errors"
+	"github.com/partflow/smart-store/pkg/middleware"
 	"github.com/partflow/smart-store/pkg/response"
 )
 
@@ -48,6 +49,10 @@ func ensurePosShiftTable(db *sqlx.DB) error {
 }
 
 func currentShift(ctx context.Context, db *sqlx.DB, userID uuid.UUID) (*PosShift, error) {
+	return currentShiftFrom(ctx, db, userID)
+}
+
+func currentShiftFrom(ctx context.Context, exec sqlx.ExtContext, userID uuid.UUID) (*PosShift, error) {
 	var row struct {
 		ID          string  `db:"id"`
 		UserID      string  `db:"user_id"`
@@ -60,7 +65,7 @@ func currentShift(ctx context.Context, db *sqlx.DB, userID uuid.UUID) (*PosShift
 		SaleCount   int     `db:"sale_count"`
 	}
 
-	err := db.GetContext(ctx, &row, `
+	err := sqlx.GetContext(ctx, exec, &row, `
 		SELECT id, user_id, status, opened_at, opening_cash, closed_at, closing_cash, sales_total, sale_count
 		FROM pos_shifts WHERE user_id = $1 AND status = 'open' ORDER BY opened_at DESC LIMIT 1`, userID.String())
 	if err != nil {
@@ -198,7 +203,18 @@ func closeShiftHandler(db *sqlx.DB) gin.HandlerFunc {
 			errors.HandleError(c, errors.NewValidationError("closing cash cannot be negative", nil))
 			return
 		}
-		shift, err := currentShift(c.Request.Context(), db, userID)
+		tx, err := db.BeginTxx(c.Request.Context(), nil)
+		if err != nil {
+			errors.HandleError(c, errors.WrapError(err, "Failed to begin shift close"))
+			return
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+		shift, err := currentShiftFrom(c.Request.Context(), tx, userID)
 		if err != nil {
 			errors.HandleError(c, err)
 			return
@@ -208,14 +224,54 @@ func closeShiftHandler(db *sqlx.DB) gin.HandlerFunc {
 			return
 		}
 		now := time.Now().UTC()
-		_, err = db.ExecContext(c.Request.Context(), `UPDATE pos_shifts SET status = 'closed', closed_at = $1, closing_cash = $2 WHERE id = $3`, now, req.Amount, shift.ID.String())
+		if err = refreshShiftSummary(c.Request.Context(), tx, shift.ID.String(), shift.UserID.String(), shift.OpenedAt, &now); err != nil {
+			errors.HandleError(c, errors.WrapError(err, "Failed to reconcile shift sales"))
+			return
+		}
+		var reconciled struct {
+			SalesTotal float64 `db:"sales_total"`
+			SaleCount  int     `db:"sale_count"`
+		}
+		if err = tx.GetContext(c.Request.Context(), &reconciled, `SELECT sales_total, sale_count FROM pos_shifts WHERE id = $1`, shift.ID.String()); err != nil {
+			errors.HandleError(c, errors.WrapError(err, "Failed to read reconciled shift"))
+			return
+		}
+		result, err := tx.ExecContext(c.Request.Context(), `UPDATE pos_shifts SET status = 'closed', closed_at = $1, closing_cash = $2 WHERE id = $3 AND status = 'open'`, now, req.Amount, shift.ID.String())
 		if err != nil {
 			errors.HandleError(c, errors.WrapError(err, "Failed to close shift"))
 			return
 		}
+		if affected, _ := result.RowsAffected(); affected != 1 {
+			errors.HandleError(c, errors.NewBusinessError("shift is no longer open", nil))
+			return
+		}
+		if err = tx.Commit(); err != nil {
+			errors.HandleError(c, errors.WrapError(err, "Failed to commit shift close"))
+			return
+		}
+		committed = true
 		shift.Status, shift.ClosedAt, shift.ClosingCash = "closed", &now, &req.Amount
+		shift.SalesTotal, shift.SaleCount = reconciled.SalesTotal, reconciled.SaleCount
 		response.OK(c, shift, "Shift closed successfully")
 	}
+}
+
+func refreshShiftSummary(ctx context.Context, exec sqlx.ExtContext, shiftID, userID string, openedAt time.Time, closedAt *time.Time) error {
+	query := `SELECT COALESCE(SUM(total_amount), 0) AS sales_total, COUNT(*) AS sale_count FROM sales WHERE user_id = $1 AND LOWER(COALESCE(status, 'completed')) = 'completed' AND created_at >= $2`
+	args := []interface{}{userID, openedAt.UTC().Format(time.RFC3339Nano)}
+	if closedAt != nil {
+		query += ` AND created_at < $3`
+		args = append(args, closedAt.UTC().Format(time.RFC3339Nano))
+	}
+	var totals struct {
+		SalesTotal float64 `db:"sales_total"`
+		SaleCount  int     `db:"sale_count"`
+	}
+	if err := sqlx.GetContext(ctx, exec, &totals, query, args...); err != nil {
+		return err
+	}
+	_, err := exec.ExecContext(ctx, `UPDATE pos_shifts SET sales_total = $1, sale_count = $2 WHERE id = $3`, totals.SalesTotal, totals.SaleCount, shiftID)
+	return err
 }
 
 func registerShiftRoutes(router *gin.RouterGroup, db *sqlx.DB) error {
@@ -223,6 +279,7 @@ func registerShiftRoutes(router *gin.RouterGroup, db *sqlx.DB) error {
 		return fmt.Errorf("initialize POS shifts: %w", err)
 	}
 	shifts := router.Group("/sales/shifts")
+	shifts.Use(middleware.ShiftManager(db))
 	shifts.GET("/current", getCurrentShiftHandler(db))
 	shifts.POST("/open", openShiftHandler(db))
 	shifts.POST("/close", closeShiftHandler(db))

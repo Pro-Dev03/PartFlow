@@ -193,10 +193,11 @@ export function StockAlertCards({ products, inventoryStockMap, onAlertClick, act
   });
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="inventory-alert-actions">
       <Button
         type="button"
         variant="secondary"
+        size="sm"
         onClick={() => onAlertClick?.('out_of_stock')}
         className="pf-stock-alert-button"
         data-tone="danger"
@@ -208,13 +209,14 @@ export function StockAlertCards({ products, inventoryStockMap, onAlertClick, act
           <span className="pf-stock-alert-icon text-danger">
             <PackageX className="h-4 w-4" />
           </span>
-          <span className="truncate">المنتجات التي نفدت</span>
+          <span className="truncate">نفد المخزون</span>
         </span>
         <span className="pf-stock-alert-count text-danger">{outOfStockProducts.length}</span>
       </Button>
       <Button
         type="button"
         variant="secondary"
+        size="sm"
         onClick={() => onAlertClick?.('low_stock')}
         className="pf-stock-alert-button"
         data-tone="warning"
@@ -226,7 +228,7 @@ export function StockAlertCards({ products, inventoryStockMap, onAlertClick, act
           <span className="pf-stock-alert-icon text-warning">
             <AlertTriangle className="h-4 w-4" />
           </span>
-          <span className="truncate">المنتجات ذات الكمية القليلة</span>
+          <span className="truncate">مخزون منخفض</span>
         </span>
         <span className="pf-stock-alert-count text-warning">{lowStockProducts.length}</span>
       </Button>

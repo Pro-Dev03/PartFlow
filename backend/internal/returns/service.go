@@ -590,11 +590,15 @@ func (s *Service) CompleteReturn(ctx context.Context, id uuid.UUID, approvedBy u
 		return nil, err
 	}
 	for _, item := range items {
-		if item.InventoryItemID == nil || *item.InventoryItemID == uuid.Nil {
-			continue
-		}
-		if err := updateReturnedInventoryTx(ctx, tx, s.repo.db.DriverName(), *item.InventoryItemID, returnInventoryStatus(returnRecord, item)); err != nil {
-			return nil, err
+		status := returnInventoryStatus(returnRecord, item)
+		if item.InventoryItemID != nil && *item.InventoryItemID != uuid.Nil {
+			if err := updateReturnedInventoryTx(ctx, tx, s.repo.db.DriverName(), *item.InventoryItemID, status, returnRecord.ID); err != nil {
+				return nil, err
+			}
+		} else if status == "AVAILABLE" && item.ProductID != nil && *item.ProductID != uuid.Nil {
+			if err := restoreAggregateInventoryTx(ctx, tx, s.repo.db.DriverName(), *item.ProductID, item.QuantityReturned, returnRecord.ID); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := s.createSupplierReturnBridgeTx(ctx, tx, s.repo.db.DriverName(), returnRecord, items); err != nil {
@@ -707,7 +711,7 @@ func updateCompletedReturnTx(ctx context.Context, tx *sqlx.Tx, driver string, re
 	return nil
 }
 
-func updateReturnedInventoryTx(ctx context.Context, tx *sqlx.Tx, driver string, itemID uuid.UUID, status string) error {
+func updateReturnedInventoryTx(ctx context.Context, tx *sqlx.Tx, driver string, itemID uuid.UUID, status string, returnID uuid.UUID) error {
 	var result sql.Result
 	var err error
 	if driver == "sqlite" {
@@ -722,6 +726,19 @@ func updateReturnedInventoryTx(ctx context.Context, tx *sqlx.Tx, driver string, 
 		return fmt.Errorf("inventory item %s was not found", itemID)
 	}
 	if strings.EqualFold(status, "AVAILABLE") {
+		var afterQuantity int
+		if err := tx.GetContext(ctx, &afterQuantity, `SELECT COUNT(*) FROM inventory_items WHERE product_id=(SELECT product_id FROM inventory_items WHERE id=$1) AND UPPER(TRIM(COALESCE(status, ''))) = 'AVAILABLE'`, itemID); err != nil {
+			return fmt.Errorf("failed to read returned item availability: %w", err)
+		}
+		beforeQuantity := afterQuantity - 1
+		if driver == "sqlite" {
+			_, err = tx.ExecContext(ctx, `INSERT INTO inventory_movements (id, item_id, product_id, movement_type, quantity, before_quantity, after_quantity, reference_type, reference_id, reason, created_at) SELECT ?, ?, product_id, 'RETURN', 1, ?, ?, 'return', ?, 'Customer return restock', CURRENT_TIMESTAMP FROM inventory_items WHERE id=?`, uuid.New().String(), itemID.String(), beforeQuantity, afterQuantity, returnID.String(), itemID.String())
+		} else {
+			_, err = tx.ExecContext(ctx, `INSERT INTO inventory_movements (id, item_id, product_id, movement_type, quantity, before_quantity, after_quantity, reference_type, reference_id, reason, created_at) SELECT uuid_generate_v4(), $1, product_id, 'RETURN', 1, $2, $3, 'return', $4, 'Customer return restock', NOW() FROM inventory_items WHERE id=$1`, itemID, beforeQuantity, afterQuantity, returnID)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to record returned item movement: %w", err)
+		}
 		var quantityResult sql.Result
 		if driver == "sqlite" {
 			quantityResult, err = tx.ExecContext(ctx, `UPDATE inventory SET quantity=quantity+1, updated_at=CURRENT_TIMESTAMP WHERE product_id=(SELECT product_id FROM inventory_items WHERE id=?)`, itemID.String())
@@ -741,6 +758,41 @@ func updateReturnedInventoryTx(ctx context.Context, tx *sqlx.Tx, driver string, 
 				return fmt.Errorf("failed to create restored inventory quantity: %w", err)
 			}
 		}
+	}
+	return nil
+}
+
+func restoreAggregateInventoryTx(ctx context.Context, tx *sqlx.Tx, driver string, productID uuid.UUID, quantity int, returnID uuid.UUID) error {
+	if quantity <= 0 {
+		return nil
+	}
+	var result sql.Result
+	var err error
+	if driver == "sqlite" {
+		result, err = tx.ExecContext(ctx, `UPDATE inventory SET quantity=COALESCE(quantity, 0)+?, updated_at=CURRENT_TIMESTAMP WHERE product_id=?`, quantity, productID.String())
+	} else {
+		result, err = tx.ExecContext(ctx, `UPDATE inventory SET quantity=COALESCE(quantity, 0)+$1, updated_at=NOW() WHERE product_id=$2`, quantity, productID)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to restore aggregate inventory quantity: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		if driver == "sqlite" {
+			_, err = tx.ExecContext(ctx, `INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`, uuid.New().String(), productID.String(), quantity)
+		} else {
+			_, err = tx.ExecContext(ctx, `INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (uuid_generate_v4(), $1, $2, NOW(), NOW())`, productID, quantity)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to create restored aggregate inventory: %w", err)
+		}
+	}
+	if driver == "sqlite" {
+		_, err = tx.ExecContext(ctx, `INSERT INTO inventory_movements (id, item_id, product_id, movement_type, quantity, before_quantity, after_quantity, reference_type, reference_id, reason, created_at) SELECT ?, NULL, ?, 'RETURN', ?, quantity-?, quantity, 'return', ?, 'Customer return restock', CURRENT_TIMESTAMP FROM inventory WHERE product_id=?`, uuid.New().String(), productID.String(), quantity, quantity, returnID.String(), productID.String())
+	} else {
+		_, err = tx.ExecContext(ctx, `INSERT INTO inventory_movements (id, item_id, product_id, movement_type, quantity, before_quantity, after_quantity, reference_type, reference_id, reason, created_at) SELECT uuid_generate_v4(), NULL, $1, 'RETURN', $2, quantity-$2, quantity, 'return', $3, 'Customer return restock', NOW() FROM inventory WHERE product_id=$1`, productID, quantity, returnID)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to record aggregate return movement: %w", err)
 	}
 	return nil
 }
@@ -1260,7 +1312,7 @@ func (s *Service) GetReturnSummary(ctx context.Context) ([]map[string]interface{
 	return s.repo.GetReturnSummary(ctx)
 }
 
-// ReverseReturn reverses a return instead of deleting it
+// ReverseReturn cancels the original return instead of creating a new return record.
 func (s *Service) ReverseReturn(ctx context.Context, id uuid.UUID, userID uuid.UUID) (*ReturnResponse, error) {
 	returnRecord, err := s.repo.GetReturnByID(ctx, id)
 	if err != nil {
@@ -1271,53 +1323,12 @@ func (s *Service) ReverseReturn(ctx context.Context, id uuid.UUID, userID uuid.U
 		return nil, ErrInvalidReturnStatus
 	}
 
-	reversalReference := "REV-" + returnRecord.ReturnNumber
-	reversalNumber := generateReturnNumber()
-	reversalExists := false
-	if returnRecord.SaleID != uuid.Nil {
-		existingReturns, err := s.repo.GetReturnsBySaleID(ctx, returnRecord.SaleID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check existing reversal: %w", err)
-		}
-		for _, existing := range existingReturns {
-			if existing.ReferenceNumber == reversalReference {
-				reversalNumber = existing.ReturnNumber
-				reversalExists = true
-				break
-			}
-		}
-	}
-
-	// Create reversal record
-	reversal := &Return{
-		ReturnNumber:             reversalNumber,
-		ReferenceNumber:          reversalReference,
-		SaleID:                   returnRecord.SaleID,
-		CustomerID:               returnRecord.CustomerID,
-		ReturnDate:               time.Now(),
-		ReturnType:               normalizeReversalReturnType(returnRecord.ReturnType),
-		Status:                   "COMPLETED",
-		TotalRefundAmount:        -returnRecord.TotalRefundAmount, // Negative to reverse
-		RefundMethod:             normalizeReversalRefundMethod(returnRecord.RefundMethod),
-		Reason:                   normalizeReversalReason(returnRecord.Reason),
-		ReasonDetail:             "Reversal of return " + returnRecord.ReturnNumber,
-		ItemConditionAfterReturn: normalizeReversalCondition(returnRecord.ItemConditionAfterReturn),
-		CreatedBy:                &userID,
-		Notes:                    "Automatic reversal of return " + returnRecord.ReturnNumber,
-	}
-
-	if !reversalExists {
-		if err := s.repo.CreateReturn(ctx, reversal); err != nil {
-			return nil, fmt.Errorf("failed to create reversal: %w", err)
-		}
-	}
-
-	// Update original return status
 	returnRecord.Status = "CANCELLED"
-	returnRecord.InternalNotes = "Reversed by return " + reversal.ReturnNumber
+	returnRecord.ProcessedBy = &userID
+	returnRecord.InternalNotes = "Cancelled without creating a new return record."
 	returnRecord.UpdatedAt = time.Now()
 	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
-		return nil, fmt.Errorf("failed to update original return: %w", err)
+		return nil, fmt.Errorf("failed to cancel original return: %w", err)
 	}
 	dashboard.InvalidateDashboardCacheWithReason("return_reversed")
 

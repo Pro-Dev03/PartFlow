@@ -52,7 +52,7 @@ func (r *Repository) GetAuditLogByID(ctx context.Context, id uuid.UUID) (*AuditL
 	query := `
 		SELECT id, COALESCE(NULLIF(user_id, ''), '00000000-0000-0000-0000-000000000000') AS user_id, action, entity_type,
 			COALESCE(NULLIF(entity_id, ''), '00000000-0000-0000-0000-000000000000') AS entity_id,
-			COALESCE(ip_address, '') AS ip_address, COALESCE(user_agent, '') AS user_agent, COALESCE(request_id, '') AS request_id, COALESCE(changes, '') AS changes, COALESCE(description, '') AS description, COALESCE(status, 'success') AS status, COALESCE(error_message, '') AS error_message, COALESCE(metadata, '{}') AS metadata, created_at
+			COALESCE(ip_address, '') AS ip_address, COALESCE(user_agent, '') AS user_agent, COALESCE(request_id, '') AS request_id, COALESCE(changes, '') AS changes, COALESCE(new_values, changes, '') AS new_values, COALESCE(description, '') AS description, COALESCE(status, 'success') AS status, COALESCE(error_message, '') AS error_message, COALESCE(metadata, '{}') AS metadata, created_at
 		FROM audit_logs
 		WHERE id = $1
 	`
@@ -76,7 +76,7 @@ func (r *Repository) ListAuditLogs(ctx context.Context, req AuditLogListRequest)
 	baseQuery := `
 		SELECT id, COALESCE(NULLIF(user_id, ''), '00000000-0000-0000-0000-000000000000') AS user_id, action, entity_type,
 			COALESCE(NULLIF(entity_id, ''), '00000000-0000-0000-0000-000000000000') AS entity_id,
-			COALESCE(ip_address, '') AS ip_address, COALESCE(user_agent, '') AS user_agent, COALESCE(request_id, '') AS request_id, COALESCE(changes, '') AS changes, COALESCE(description, '') AS description, COALESCE(status, 'success') AS status, COALESCE(error_message, '') AS error_message, COALESCE(metadata, '{}') AS metadata, created_at
+			COALESCE(ip_address, '') AS ip_address, COALESCE(user_agent, '') AS user_agent, COALESCE(request_id, '') AS request_id, COALESCE(changes, '') AS changes, COALESCE(new_values, changes, '') AS new_values, COALESCE(description, '') AS description, COALESCE(status, 'success') AS status, COALESCE(error_message, '') AS error_message, COALESCE(metadata, '{}') AS metadata, created_at
 		FROM audit_logs
 		WHERE 1=1
 	`
@@ -226,6 +226,7 @@ func auditLogFromRecord(record map[string]any) (AuditLog, error) {
 		UserAgent:    valueString(record["user_agent"]),
 		RequestID:    valueString(record["request_id"]),
 		Changes:      valueString(record["changes"]),
+		NewValues:    valueString(record["new_values"]),
 		Description:  valueString(record["description"]),
 		Status:       valueString(record["status"]),
 		ErrorMessage: valueString(record["error_message"]),

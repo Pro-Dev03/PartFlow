@@ -9,9 +9,11 @@ import (
 )
 
 func requiresCloudAuthForLocalMode() bool {
-	// SQLite is the store's local operational mode. A live cloud check is
-	// opt-in so a temporary cloud outage cannot block the cashier locally.
-	return strings.EqualFold(strings.TrimSpace(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")), "true")
+	// SQLite is the store's local operational mode, but it is not an
+	// authorization boundary. Subscription verification is therefore enabled
+	// by default and can only be disabled explicitly for isolated tests.
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")))
+	return value != "false" && value != "0" && value != "no"
 }
 
 func isLocalDatabaseMode() bool {
@@ -22,9 +24,21 @@ func isLocalDatabaseMode() bool {
 	if mode == "local" || mode == "sqlite" {
 		return true
 	}
+	if mode == "cloud" {
+		return false
+	}
 
 	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
-	return strings.HasPrefix(databaseURL, "sqlite://")
+	if strings.HasPrefix(databaseURL, "sqlite://") {
+		return true
+	}
+	if databaseURL != "" {
+		return false
+	}
+	if strings.TrimSpace(os.Getenv("DATABASE_URL_CLOUD")) != "" || strings.TrimSpace(os.Getenv("DB_CLOUD_URL")) != "" || strings.TrimSpace(os.Getenv("CLOUD_DATABASE_URL")) != "" {
+		return false
+	}
+	return true
 }
 
 // CloudGuard optionally enforces the cloud authority for local API requests.

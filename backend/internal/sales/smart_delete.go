@@ -38,53 +38,20 @@ type DeleteDetails struct {
 	SuggestedAction string `json:"suggested_action"`
 }
 
-// SmartDelete intelligently handles deletion based on sale state
-// Frontend just calls "delete", backend decides what to do
+// SmartDelete performs the explicit delete requested by an authorized user.
 func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, userID uuid.UUID) (*DeleteResult, error) {
-	// Get sale status
-	var status string
-	err := s.db.QueryRowContext(ctx,
-		"SELECT status FROM sales WHERE id = $1",
-		saleID,
-	).Scan(&status)
-
-	if err == sql.ErrNoRows {
+	var exists bool
+	if err := s.db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM sales WHERE id = $1)", saleID).Scan(&exists); err != nil {
+		return nil, fmt.Errorf("failed to check sale: %w", err)
+	}
+	if !exists {
 		return &DeleteResult{
-			Action:     "blocked",
+			Action:     "not_found",
 			Message:    "عملية البيع غير موجودة",
 			CanProceed: false,
 		}, nil
 	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get sale status: %w", err)
-	}
-
-	// Case 1: Draft sales → Simple DELETE
-	if status == "draft" {
-		return s.deleteDraft(ctx, saleID, userID)
-	}
-
-	// Case 2: Check if can be reversed
-	canReverse, err := s.reversalService.CanReverse(ctx, saleID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check if sale can be reversed: %w", err)
-	}
-
-	// Case 3: Completed sales → Delete with inventory adjustment (internally REVERSE)
-	if canReverse {
-		return s.deleteWithInventoryAdjustment(ctx, saleID, userID)
-	}
-
-	// Case 4: Other statuses → Block
-	return &DeleteResult{
-		Action:     "blocked",
-		Message:    "لا يمكن حذف عملية البيع في حالتها الحالية",
-		CanProceed: false,
-		Details: &DeleteDetails{
-			Reason:          fmt.Sprintf("الحالة الحالية: %s", status),
-			SuggestedAction: "يمكنك إلغاء البيع إذا كان في حالة مسودة فقط",
-		},
-	}, nil
+	return s.deleteDraft(ctx, saleID, userID)
 }
 
 // deleteDraft handles simple deletion of draft sales
@@ -95,7 +62,18 @@ func (s *SmartDeleteService) deleteDraft(ctx context.Context, saleID uuid.UUID, 
 	}
 	defer tx.Rollback()
 
-	// Delete sale items first
+	for _, query := range []string{
+		"DELETE FROM customer_ledger WHERE reference_type = 'sale' AND reference_id = $1",
+		"DELETE FROM inventory_movements WHERE reference_type = 'sale' AND reference_id = $1",
+		"DELETE FROM item_history WHERE reference_type = 'sale' AND reference_id = $1",
+	} {
+		if _, err = tx.ExecContext(ctx, query, saleID); err != nil {
+			return nil, fmt.Errorf("failed to delete sale dependent history: %w", err)
+		}
+	}
+
+	// Delete sale items first; sale-linked rows with CASCADE/SET NULL follow
+	// the existing database schema.
 	_, err = tx.ExecContext(ctx,
 		"DELETE FROM sale_items WHERE sale_id = $1",
 		saleID,
@@ -119,7 +97,7 @@ func (s *SmartDeleteService) deleteDraft(ctx context.Context, saleID uuid.UUID, 
 
 	return &DeleteResult{
 		Action:     "deleted",
-		Message:    "تم حذف عملية البيع المسودة بنجاح",
+		Message:    "تم حذف عملية البيع بنجاح",
 		CanProceed: true,
 	}, nil
 }

@@ -1,4 +1,4 @@
-import { getArabicErrorMessage, isRetryableError } from '../../lib/error-messages';
+import { getArabicErrorMessage, isNetworkError, isRetryableError } from '../../lib/error-messages';
 import { appConfig, getActiveApiUrl, getCloudApiUrl, getConnectionMode, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
 import { TokenManager } from '../../lib/token-manager';
 
@@ -12,6 +12,12 @@ interface ApiResponse<T> {
     code: string;
     message: string;
   };
+}
+
+function isExpectedBarcodeMiss(error: any): boolean {
+  if (error?.status !== 404) return false;
+  const message = String(error?.message || error?.response?.error?.message || '').toLowerCase();
+  return error?.code === '404' || message.includes('barcode not found');
 }
 
 const MAX_RETRIES = 3;
@@ -81,6 +87,14 @@ class ApiClient {
     this.authInvalidationDispatched = true;
     this.logout();
     window.dispatchEvent(new CustomEvent('partflow:auth-invalidated', {
+      detail: { reason },
+    }));
+  }
+
+  private notifyCloudVerificationPending(reason: string): void {
+    if (typeof window === 'undefined') return;
+
+    window.dispatchEvent(new CustomEvent('partflow:cloud-verification-pending', {
       detail: { reason },
     }));
   }
@@ -241,6 +255,10 @@ class ApiClient {
       // A failed refresh cannot be fixed by retrying the same request. Let the
       // auth store handle the invalid session instead of creating a request loop.
       if (error?.code === 'AUTH_REFRESH_FAILED' || error?.code === 'INVALID_TOKEN') {
+        throw error;
+      }
+
+      if (error?.code === 'AUTH_REFRESH_PENDING') {
         throw error;
       }
 
@@ -432,7 +450,7 @@ class ApiClient {
             }
 
             if (refreshAttempted && this.refreshFailedForSession) {
-              throw Object.assign(new Error('Session refresh failed. Your session will remain active until you log out manually.'), {
+              throw Object.assign(new Error('Session refresh failed; authentication is required again.'), {
                 status: 401,
                 code: 'AUTH_REFRESH_FAILED',
                 response: data,
@@ -444,12 +462,18 @@ class ApiClient {
             if ((refreshError as any)?.status === 401 || (refreshError as any)?.code === 'INVALID_TOKEN') {
               throw refreshError;
             }
+
+            if (isNetworkError(refreshError) || [408, 429, 500, 502, 503, 504].includes(Number((refreshError as any)?.status))) {
+              throw Object.assign(
+                refreshError instanceof Error ? refreshError : new Error('Cloud session refresh is temporarily unavailable'),
+                { code: 'AUTH_REFRESH_PENDING' },
+              );
+            }
           }
 
-          // Do not automatically log the user out.
-          // Keep the current session alive and let the user continue
-          // until they explicitly choose to log out or log in again.
-          const refreshError: any = new Error('Session refresh failed. Your session will remain active until you log out manually.');
+          // A rejected refresh proves that the local session cannot be trusted.
+          // Invalidate it immediately instead of leaving a stale session active.
+          const refreshError: any = new Error('Session refresh failed; authentication is required again.');
           refreshError.status = 401;
           refreshError.code = 'AUTH_REFRESH_FAILED';
           refreshError.response = data;
@@ -501,9 +525,18 @@ class ApiClient {
     } catch (error: any) {
       clearTimeout(timeoutId);
 
+      if ((error?.status === 401 || error?.code === 'AUTH_REFRESH_FAILED' || error?.code === 'INVALID_TOKEN')
+        && (this.token || this.getCloudAccessToken())) {
+        this.notifyAuthInvalidated('Cloud session expired or could not be refreshed');
+      }
+      if (error?.code === 'AUTH_REFRESH_PENDING') {
+        this.notifyCloudVerificationPending('Cloud session refresh is temporarily unavailable');
+      }
+
       const isExpectedAuthInvalidation = error?.code === 'SUBSCRIPTION_EXPIRED'
-        || error?.code === 'CLOUD_AUTH_REQUIRED';
-      if (!isExpectedAuthInvalidation) {
+        || error?.code === 'CLOUD_AUTH_REQUIRED'
+        || error?.code === 'AUTH_REFRESH_PENDING';
+      if (!isExpectedAuthInvalidation && !isExpectedBarcodeMiss(error)) {
         console.error('API request failed:', error);
       }
 
@@ -546,7 +579,14 @@ class ApiClient {
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
     const refreshData = await refreshResponse.json().catch(() => ({}));
-    if (!refreshResponse.ok) return null;
+    if (!refreshResponse.ok) {
+      if (refreshResponse.status >= 500 || refreshResponse.status === 408 || refreshResponse.status === 429) {
+        const error = new Error('Cloud token refresh is temporarily unavailable') as Error & { status?: number };
+        error.status = refreshResponse.status;
+        throw error;
+      }
+      return null;
+    }
 
     const payload = refreshData?.data && typeof refreshData.data === 'object'
       ? refreshData.data
@@ -597,14 +637,19 @@ class ApiClient {
         }
       }
     } catch {
+      this.notifyCloudVerificationPending('Cloud verification is temporarily unavailable');
       throw new Error('تعذر الاتصال بالخادم للتحقق من الاشتراك. لم تُنفذ العملية.');
     }
 
     if (!response.ok) {
       if (typeof window !== 'undefined') {
-        if (response.status === 403) {
+        if (response.status === 401) {
+          this.notifyAuthInvalidated('Cloud session expired or could not be refreshed');
+        } else if (response.status === 403) {
           this.notifyAuthInvalidated('Cloud subscription or account authorization was rejected');
           window.location.hash = '#/subscription-expired';
+        } else {
+          this.notifyCloudVerificationPending(`Cloud verification returned ${response.status}`);
         }
       }
       throw new Error(response.status === 403
@@ -649,8 +694,12 @@ class ApiClient {
   async post<T = any>(endpoint: string, body: any): Promise<ApiResponse<T>> {
     await this.ensureMutationAllowed(endpoint);
     this.clearCachePattern(endpoint.split('/')[1]); // Clear cache for related endpoints
+    const headers = endpoint === '/sales' ? {
+      'Idempotency-Key': globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+    } : undefined;
     return this.requestWithRetry<T>(endpoint, {
       method: 'POST',
+      ...(headers ? { headers } : {}),
       body: JSON.stringify(body),
     });
   }

@@ -812,12 +812,6 @@ func (s *Service) DeleteInventoryItem(ctx context.Context, itemID, userID uuid.U
 		return err
 	}
 	if permanent {
-		if !strings.EqualFold(item.Condition, string(ConditionUsed)) {
-			return fmt.Errorf("permanent deletion is only allowed for used parts")
-		}
-		if strings.EqualFold(string(item.Status), string(StatusSold)) {
-			return ErrCannotDeleteSoldItem
-		}
 		return s.repo.DeleteUsedInventoryItem(ctx, itemID)
 	}
 	protected, err := s.repo.HasProtectedHistory(ctx, itemID)

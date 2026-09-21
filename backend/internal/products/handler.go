@@ -642,9 +642,9 @@ func (h *Handler) UpdateMinimumStock(c *gin.Context) {
 	response.OK(c, gin.H{"min_stock_level": req.MinStockLevel}, "Minimum stock updated successfully")
 }
 
-// DeleteProduct permanently deletes a product without transaction history.
+// DeleteProduct permanently deletes a product and its linked transaction history.
 // @Summary Delete Product
-// @Description Permanently delete a product that has no transaction history
+// @Description Permanently delete a product and clean its linked transaction history
 // @Tags products
 // @Security Bearer
 // @Param id path string true "Product ID"

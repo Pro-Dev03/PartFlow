@@ -32,11 +32,11 @@ export function InventoryQuickCreateModal({ mode, isOpen, onClose, onCreated }: 
 
   const handleSubmit = async () => {
     if (!name.trim()) {
-      toast.error(mode === 'category' ? 'يرجى إدخال اسم التصنيف' : 'يرجى إدخال اسم المورد');
+      toast.error(mode === 'category' ? 'يرجى إدخال اسم التصنيف' : 'يرجى إدخال اسم التاجر');
       return;
     }
     if (mode === 'supplier' && !phone.trim()) {
-      toast.error('يرجى إدخال رقم هاتف المورد');
+      toast.error('يرجى إدخال رقم هاتف التاجر');
       return;
     }
 
@@ -53,7 +53,7 @@ export function InventoryQuickCreateModal({ mode, isOpen, onClose, onCreated }: 
           } satisfies SupplierFormData);
       const record = response?.data?.category ?? response?.data?.supplier ?? response?.data;
       if (!record?.id) throw new Error('missing created record');
-      toast.success(mode === 'category' ? 'تمت إضافة التصنيف' : 'تمت إضافة المورد');
+      toast.success(mode === 'category' ? 'تمت إضافة التصنيف' : 'تمت إضافة التاجر');
       onCreated({ id: record.id, name: record.name });
       reset();
     } catch (error: any) {
@@ -67,7 +67,7 @@ export function InventoryQuickCreateModal({ mode, isOpen, onClose, onCreated }: 
     <Modal
       isOpen={isOpen}
       onClose={close}
-      title={mode === 'category' ? 'إضافة تصنيف' : 'إضافة مورد'}
+      title={mode === 'category' ? 'إضافة تصنيف' : 'إضافة تاجر'}
       variant="modern"
       size="sm"
       enableEnterNavigation={false}
@@ -83,9 +83,9 @@ export function InventoryQuickCreateModal({ mode, isOpen, onClose, onCreated }: 
         <div className="rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-text-secondary">
           {mode === 'category'
             ? 'أنشئ التصنيف الآن وسيتم اختياره تلقائيًا في نموذج المنتج.'
-            : 'أنشئ المورد الآن وسيتم إعادته تلقائيًا إلى عملية الشراء.'}
+            : 'أنشئ التاجر الآن وسيتم إعادته تلقائيًا إلى عملية الشراء.'}
         </div>
-        <Input autoFocus label={mode === 'category' ? 'اسم التصنيف' : 'اسم المورد'} value={name} onChange={(event) => setName(event.target.value)} />
+        <Input autoFocus label={mode === 'category' ? 'اسم التصنيف' : 'اسم التاجر'} value={name} onChange={(event) => setName(event.target.value)} />
         {mode === 'supplier' && (
           <Input label="رقم الهاتف" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} />
         )}

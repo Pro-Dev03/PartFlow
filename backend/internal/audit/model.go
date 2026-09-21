@@ -17,6 +17,7 @@ type AuditLog struct {
 	UserAgent    string    `json:"user_agent" db:"user_agent"`
 	RequestID    string    `json:"request_id" db:"request_id"`
 	Changes      string    `json:"changes" db:"changes"` // JSON string with before/after values
+	NewValues    string    `json:"new_values" db:"new_values"`
 	Description  string    `json:"description" db:"description"`
 	Status       string    `json:"status" db:"status"` // success, failure
 	ErrorMessage string    `json:"error_message" db:"error_message"`

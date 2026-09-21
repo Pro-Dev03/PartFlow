@@ -1,4 +1,5 @@
-import { forwardRef, type HTMLAttributes } from 'react';
+import { forwardRef, useEffect, type HTMLAttributes } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../../utils/helpers';
 import { X } from 'lucide-react';
 
@@ -11,6 +12,17 @@ export interface DialogProps extends HTMLAttributes<HTMLDivElement> {
 
 const Dialog = forwardRef<HTMLDivElement, DialogProps>(
   ({ className, open, onClose, title, size = 'md', children, ...props }, ref) => {
+    useEffect(() => {
+      if (!open) return undefined;
+
+      const handleKeyDown = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') onClose();
+      };
+
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [open, onClose]);
+
     if (!open) return null;
 
     const sizes = {
@@ -21,15 +33,23 @@ const Dialog = forwardRef<HTMLDivElement, DialogProps>(
       full: 'max-w-full',
     };
 
-    return (
-      <div className="fixed inset-0 z-modal flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[10000] flex items-center justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm"
+        role="presentation"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) onClose();
+        }}
+      >
         <div
           ref={ref}
           className={cn(
-            'bg-surface rounded-xl shadow-card border border-border w-full animate-scale-in',
+            'bg-surface max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl border border-border shadow-card w-full animate-scale-in',
             sizes[size],
             className
           )}
+          role="dialog"
+          aria-modal="true"
           {...props}
         >
           {title && (
@@ -45,7 +65,8 @@ const Dialog = forwardRef<HTMLDivElement, DialogProps>(
           )}
           <div className="p-6">{children}</div>
         </div>
-      </div>
+      </div>,
+      document.body
     );
   }
 );

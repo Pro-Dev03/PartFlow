@@ -180,7 +180,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
 
   const handleCreatePurchase = useCallback(async () => {
     if (!selectedSupplier) {
-      toast.error('يرجى اختيار المورد');
+      toast.error('يرجى اختيار التاجر');
       return;
     }
     if (items.length === 0) {
@@ -271,16 +271,16 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-text mb-2">المورد *</label>
+            <label className="block text-sm font-medium text-text mb-2">التاجر *</label>
             <Select
               value={selectedSupplier}
               onChange={(e) => setSelectedSupplier(e.target.value)}
               loading={suppliersLoading}
               options={[
-                { value: '', label: 'اختر المورد...' },
+                { value: '', label: 'اختر التاجر...' },
                 ...suppliers.map((s) => ({ value: s.id, label: s.name })),
               ]}
-              emptyMessage="لا يوجد موردين"
+                emptyMessage="لا يوجد تجار"
             />
           </div>
           <div>

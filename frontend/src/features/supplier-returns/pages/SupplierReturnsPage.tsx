@@ -1,15 +1,28 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { supplierReturnsApi, purchasesApi } from '../../../services/api/endpoints';
 import { PageHeader } from '../../../design-system/components/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
 import { Button } from '../../../design-system/components/button';
 import { Input } from '../../../design-system/components/input';
 import { Select } from '../../../design-system/components/select';
+import { StatCard } from '../../../design-system/components/stat-card';
 import { toast } from 'sonner';
 import { printHtmlDocument } from '../../../services/documents/print-html';
 import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
-import { Printer, Trash2, XCircle } from 'lucide-react';
+import {
+  Banknote,
+  CheckCircle2,
+  ClipboardList,
+  Clock3,
+  PackageCheck,
+  Printer,
+  Search,
+  Trash2,
+  XCircle,
+  ArrowRight,
+} from 'lucide-react';
 import { formatDateTime } from '../../../utils/format';
 
 const returnReasonLabels: Record<string, string> = {
@@ -35,6 +48,7 @@ const readableReturnReason = (value?: string) => returnReasonLabels[String(value
 const readableStatus = (value?: string) => statusLabels[String(value || '').toUpperCase()] || value || 'غير محدد';
 
 export function SupplierReturnsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [purchaseId, setPurchaseId] = useState('');
   const [purchaseItemId, setPurchaseItemId] = useState('');
@@ -144,41 +158,56 @@ export function SupplierReturnsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Supplier Returns" title="مرتجعات الموردين" description="إرجاع البضاعة إلى المورد دون خلطها بمرتجعات العملاء" />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-text-muted">إجمالي طلبات الإرجاع</p>
-            <p className="mt-2 text-3xl font-bold">{returns.length}</p>
-            <p className="mt-1 text-xs text-text-muted">كل الطلبات المسجلة</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-text-muted">قيد الانتظار</p>
-            <p className="mt-2 text-3xl font-bold text-warning">{pendingReturns}</p>
-            <p className="mt-1 text-xs text-text-muted">تحتاج إلى إكمال الإرجاع</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-text-muted">تمت الإعادة</p>
-            <p className="mt-2 text-3xl font-bold text-success">{completedReturns}</p>
-            <p className="mt-1 text-xs text-text-muted">طلبات مكتملة</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-5">
-            <p className="text-sm text-text-muted">إجمالي المسترد من الموردين</p>
-            <p className="mt-2 text-3xl font-bold">₪{refundTotal.toLocaleString('en-US', { maximumFractionDigits: 2 })}</p>
-            <p className="mt-1 text-xs text-text-muted">للطلبات المكتملة فقط</p>
-          </CardContent>
-        </Card>
+      <PageHeader
+        title="مرتجعات التجار"
+        description="إرجاع البضاعة إلى التاجر دون خلطها بمرتجعات العملاء"
+        actions={
+          <Button variant="secondary" className="gap-2" onClick={() => navigate('/app/returns')}>
+            <ArrowRight className="h-4 w-4" />
+            العودة للمرتجعات
+          </Button>
+        }
+      />
+      <div className="unified-stats-grid supplier-stats grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
+        <StatCard
+          title="إجمالي طلبات الإرجاع"
+          value={returns.length}
+          icon={PackageCheck}
+          variant="featured"
+          size="sm"
+        />
+        <StatCard
+          title="قيد الانتظار"
+          value={pendingReturns}
+          icon={Clock3}
+          variant="default"
+          size="sm"
+        />
+        <StatCard
+          title="تمت الإعادة"
+          value={completedReturns}
+          icon={CheckCircle2}
+          variant="default"
+          size="sm"
+        />
+        <StatCard
+          title="إجمالي المسترد من الموردين"
+          value={`₪${refundTotal.toLocaleString('en-US', { maximumFractionDigits: 2 })}`}
+          icon={Banknote}
+          variant="default"
+          size="sm"
+        />
       </div>
       <Card>
-        <CardHeader><CardTitle>طلب إرجاع جديد</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+        <CardHeader className="border-b border-border px-4 py-3" style={{ marginBottom: 0, padding: '14px 16px' }}>
+            <div>
+              <CardTitle>طلب إرجاع جديد</CardTitle>
+              <p className="mt-1 text-xs text-text-muted">اختر الفاتورة والصنف ثم أدخل تفاصيل الإرجاع.</p>
+            </div>
+            <PackageCheck className="h-5 w-5 text-primary" />
+          </CardHeader>
+          <CardContent className="space-y-4" style={{ padding: '16px' }}>
+            <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
               <label className="text-sm font-medium">1. فاتورة الشراء</label>
               <Select value={purchaseId} onChange={(e) => { setPurchaseId(e.target.value); setPurchaseItemId(''); }} options={[
@@ -213,20 +242,26 @@ export function SupplierReturnsPage() {
               </div>
             </div>
           )}
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-3">
             <Input type="number" min="1" max={availableQuantity || undefined} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="الكمية المراد إرجاعها" />
             <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="سبب الإرجاع (مطلوب)" />
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات (اختياري)" />
           </div>
-          <Button className="w-full md:w-auto" disabled={!purchaseId || !purchaseItemId || !selectedItem || availableQuantity < 1 || Number(quantity) < 1 || Number(quantity) > availableQuantity || !reason || createMutation.isPending} onClick={() => createMutation.mutate()}>
+          <Button size="sm" className="w-full md:w-auto" disabled={!purchaseId || !purchaseItemId || !selectedItem || availableQuantity < 1 || Number(quantity) < 1 || Number(quantity) > availableQuantity || !reason || createMutation.isPending} onClick={() => createMutation.mutate()}>
             إنشاء طلب الإرجاع
           </Button>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle>طلبات إرجاع الموردين</CardTitle></CardHeader>
-        <CardContent>
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          </CardContent>
+        </Card>
+      <Card style={{ padding: 0 }}>
+        <CardHeader className="border-b border-border px-4 py-3" style={{ marginBottom: 0, padding: '14px 16px' }}>
+          <div>
+            <CardTitle>طلبات إرجاع التجار</CardTitle>
+            <p className="mt-1 text-xs text-text-muted">تابع الطلبات النشطة أو راجع الطلبات المكتملة والمؤرشفة.</p>
+          </div>
+          <span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs text-text-muted">{visibleReturns.length} نتيجة</span>
+        </CardHeader>
+        <CardContent style={{ padding: '16px' }}>
+          <div className="mb-4 flex flex-col gap-2 rounded-xl border border-border bg-surface-muted/50 p-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex gap-2">
               <Button size="sm" variant={!showArchive ? 'primary' : 'secondary'} onClick={() => setShowArchive(false)}>
                 الطلبات النشطة
@@ -235,17 +270,20 @@ export function SupplierReturnsPage() {
                 الأرشيف
               </Button>
             </div>
-            <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="بحث برقم المرتجع أو السبب" />
+            <div className="relative w-full sm:max-w-xs">
+              <Search className="pointer-events-none absolute right-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-text-muted" />
+              <Input className="pr-9" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="بحث برقم المرتجع أو السبب" />
+            </div>
           </div>
           {isLoading ? <p>جار التحميل...</p> : visibleReturns.length === 0 ? <p className="text-text-muted">{showArchive ? 'لا توجد طلبات مؤرشفة' : 'لا توجد طلبات نشطة'}</p> : (
-            <div className="space-y-3">{visibleReturns.map((item: any) => (
-              <div key={item.id} className="flex flex-wrap justify-between gap-3 rounded border p-3">
-                <span className="font-medium">رقم الطلب: {item.return_number}</span>
-                <span>السبب: {readableReturnReason(item.reason)}</span>
-                <span>الحالة: {item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'يحتاج بيانات المصدر' : readableStatus(item.status)}</span>
-                <span>₪{Number(item.refund_amount || 0).toLocaleString('en-US')}</span>
+            <div className="space-y-2">{visibleReturns.map((item: any) => (
+              <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-surface-muted/30 p-3">
+                <span className="text-sm font-semibold text-text">رقم الطلب: {item.return_number}</span>
+                <span className="text-xs text-text-muted">السبب: {readableReturnReason(item.reason)}</span>
+                <span className="text-xs text-text-muted">الحالة: {item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'يحتاج بيانات المصدر' : readableStatus(item.status)}</span>
+                <span className="text-sm font-semibold text-info">₪{Number(item.refund_amount || 0).toLocaleString('en-US')}</span>
                 {item.customer_return_id && item.customer_return_id !== '00000000-0000-0000-0000-000000000000' && (
-                  <div className={`basis-full grid gap-2 rounded border p-3 text-xs sm:grid-cols-2 lg:grid-cols-4 ${item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'border-warning/40 bg-warning/10' : 'border-border bg-surface-muted'}`}>
+                  <div className={`basis-full grid gap-2 rounded-lg border p-3 text-xs sm:grid-cols-2 lg:grid-cols-4 ${item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'border-warning/40 bg-warning/10' : 'border-border bg-surface-muted'}`}>
                     <strong className="sm:col-span-2 lg:col-span-4">{item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'مرتجع عميل يحتاج بيانات الشراء أو المورد' : 'مصدر الطلب: مرتجع عميل'}</strong>
                     <span data-testid="unresolved-customer-return-id">معرّف مرتجع العميل: {item.customer_return_id}</span>
                     <span>معرّف البيع: {item.sale_id || '-'}</span>

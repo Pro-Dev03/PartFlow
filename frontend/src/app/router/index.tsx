@@ -20,9 +20,6 @@ const CreateReturnPage = lazy(() => import('../../features/returns/pages/CreateR
 const ReportsPage = lazy(() => import('../../features/reports/pages/ReportsPage').then(m => ({ default: m.ReportsPage })));
 const SettingsPage = lazy(() => import('../../features/settings/pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
-const UsedPartsPage = lazy(() => import('../../features/usedparts/pages/UsedPartsPage').then(m => ({ default: m.UsedPartsPage })));
-const UsedPartsStockPage = lazy(() => import('../../features/usedparts/pages/UsedPartsStockPage').then(m => ({ default: m.UsedPartsStockPage })));
-const PartTypesPage = lazy(() => import('../../features/parttypes/pages/PartTypesPage').then(m => ({ default: m.PartTypesPage })));
 const ReturnDetailsPage = lazy(() => import('../../features/returns/pages/ReturnDetailsPage').then(m => ({ default: m.ReturnDetailsPage })));
 const SupplierReturnsPage = lazy(() => import('../../features/supplier-returns/pages/SupplierReturnsPage').then(m => ({ default: m.SupplierReturnsPage })));
 const CategoriesPage = lazy(() => import('../../features/categories/pages/CategoriesPage').then(m => ({ default: m.CategoriesPage })));
@@ -46,8 +43,6 @@ export const appRoutes = (
     <Route path="activity" element={<ActivityPage />} />
     <Route path="sales" element={<POSPage />} />
     <Route path="inventory" element={<InventoryPage />} />
-    <Route path="usedparts" element={<UsedPartsPage />} />
-    <Route path="usedparts/stock" element={<UsedPartsStockPage />} />
     <Route path="customers" element={<CustomersPage />} />
     <Route path="customers/:customerId/purchases" element={<CustomerPurchasesPage />} />
     <Route path="debts" element={<DebtsPage />} />
@@ -64,7 +59,6 @@ export const appRoutes = (
     <Route path="reports" element={<ReportsPage />} />
     <Route path="settings" element={<SettingsPage />} />
     <Route path="categories" element={<CategoriesPage />} />
-    <Route path="part-types" element={<PartTypesPage />} />
     <Route path="archive" element={<ArchivePage />} />
     {/* Catch all - redirect to dashboard */}
     <Route path="*" element={<DashboardPage />} />

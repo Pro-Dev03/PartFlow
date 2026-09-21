@@ -73,10 +73,10 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       { label: 'غير مصنف', value: Number(report.by_category?.['غير مصنف'] || 0) },
     ].filter(item => Number.isFinite(item.value) && item.value > 0);
     const supplierData = Array.isArray(report.by_supplier)
-      ? report.by_supplier.map((item: any) => ({ label: item.supplier_name || 'مورد', value: Number(item.total_purchases ?? item.total_cost ?? 0) }))
+      ? report.by_supplier.map((item: any) => ({ label: item.supplier_name || 'تاجر', value: Number(item.total_purchases ?? item.total_cost ?? 0) }))
       : [];
     const supplierBalanceData = Array.isArray(report.by_supplier)
-      ? report.by_supplier.map((item: any) => ({ label: item.supplier_name || 'مورد', value: Number(item.outstanding || 0) }))
+      ? report.by_supplier.map((item: any) => ({ label: item.supplier_name || 'تاجر', value: Number(item.outstanding || 0) }))
           .filter((item: { value: number }) => Number.isFinite(item.value) && item.value > 0)
       : [];
     const productData = Array.isArray(report.top_products)
@@ -184,7 +184,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
             : reportType === 'expenses'
               ? 'المصروفات حسب الفئة'
               : reportType === 'suppliers' || reportType === 'purchases'
-                ? 'المشتريات حسب المورد'
+                ? 'المشتريات حسب التاجر'
                 : productData.length > 0 ? 'أفضل المنتجات والمصادر' : 'التوزيع حسب الفئة'}
           data={productData}
           color="#14b8a6"
@@ -195,7 +195,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
         <div style={{ gridColumn: '1 / -1', width: '100%', maxWidth: '1200px', marginInline: 'auto' }}>
           <SimpleLineChart
             title={reportType === 'suppliers'
-              ? 'المستحق حسب المورد'
+              ? 'المستحق حسب التاجر'
               : reportType === 'profit'
                 ? 'اتجاه صافي الربح'
                 : reportType === 'expenses'

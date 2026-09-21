@@ -4,6 +4,7 @@ import { AlertCircle, Archive, CheckCircle2, ChevronLeft, ChevronRight, Clipboar
 import { PageHeader } from '../../../design-system/components/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
 import { Badge } from '../../../design-system/components/badge';
+import { StatCard } from '../../../design-system/components/stat-card';
 import { Button } from '../../../design-system/components/button';
 import { Input } from '../../../design-system/components/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../design-system/components/table';
@@ -65,8 +66,8 @@ const getReturnReason = (reason?: string) => ({
 const getReturnCondition = (condition?: string) => ({
   READY_FOR_SALE: 'جاهز للبيع',
   NOT_FOR_SALE: 'غير قابل للبيع',
-  RETURN_TO_SUPPLIER: 'إرجاع للمورد',
-  SUPPLIER_RETURN: 'إرجاع للمورد',
+  RETURN_TO_SUPPLIER: 'إرجاع للتاجر',
+  SUPPLIER_RETURN: 'إرجاع للتاجر',
   NEEDS_REPAIR: 'يحتاج إصلاح',
   DAMAGED: 'تالف',
   USED: 'مستعمل',
@@ -112,7 +113,7 @@ const translateEntityType = (entityType?: string) => {
     product: 'منتج',
     payment: 'دفعة',
     customer: 'عميل',
-    supplier: 'مورد',
+    supplier: 'تاجر',
   };
   return labels[normalized] || entityType || 'سجل';
 };
@@ -122,7 +123,7 @@ const translateMovementType = (movementType?: string) => {
     PURCHASE: 'شراء',
     SALE: 'بيع',
     RETURN: 'مرتجع',
-    SUPPLIER_RETURN: 'مرتجع مورد',
+    SUPPLIER_RETURN: 'مرتجع تاجر',
     ADJUSTMENT: 'تعديل مخزون',
     TRANSFER: 'نقل مخزون',
     DAMAGE: 'تالف',
@@ -138,7 +139,7 @@ const translateMovementType = (movementType?: string) => {
 
 export function ArchivePage() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [section, setSection] = useState<'all' | 'inventory' | 'purchases' | 'returns' | 'audit'>('all');
+  const [section, setSection] = useState<'inventory' | 'purchases' | 'returns' | 'audit'>('audit');
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [selectedReturn, setSelectedReturn] = useState<any | null>(null);
   const [auditPage, setAuditPage] = useState(1);
@@ -209,7 +210,7 @@ export function ArchivePage() {
       .map((item) => ({ ...item, return_kind: 'مرتجع عميل', display_amount: item.total_refund_amount, display_date: item.return_date || item.created_at, created_by_name: item.created_by_name || getUserName(item.created_by), processed_by_name: item.processed_by_name || getUserName(item.processed_by), approved_by_name: item.approved_by_name || getUserName(item.approved_by) })),
     ...supplierReturns
       .filter((item) => ['COMPLETED', 'REJECTED', 'CANCELLED'].includes(String(item.status || '').toUpperCase()))
-      .map((item) => ({ ...item, return_kind: 'مرتجع مورد', display_amount: item.refund_amount, display_date: item.created_at, created_by_name: item.created_by_name || getUserName(item.created_by), processed_by_name: item.processed_by_name || getUserName(item.processed_by), approved_by_name: item.approved_by_name || getUserName(item.approved_by) })),
+      .map((item) => ({ ...item, return_kind: 'مرتجع تاجر', display_amount: item.refund_amount, display_date: item.created_at, created_by_name: item.created_by_name || getUserName(item.created_by), processed_by_name: item.processed_by_name || getUserName(item.processed_by), approved_by_name: item.approved_by_name || getUserName(item.approved_by) })),
   ];
   const auditLogs = (auditQuery.data?.data || []) as any[];
   const auditTotal = Number(auditQuery.data?.meta?.total || 0);
@@ -253,19 +254,37 @@ export function ArchivePage() {
     const party = sale
       ? `العميل: ${saleCustomer || (saleCustomerId ? 'اسم العميل غير متاح' : 'بيع نقدي')}`
       : purchase
-        ? `المورد: ${purchase.supplier?.name || purchase.supplier_name || 'غير محدد'}`
+        ? `التاجر: ${purchase.supplier?.name || purchase.supplier_name || 'غير محدد'}`
         : '';
     const amount = sale
       ? `الإجمالي: ${formatMoney(sale.total_amount)}`
       : purchase
         ? `الإجمالي: ${formatMoney(purchase.total_amount)} · المدفوع: ${formatMoney(purchase.paid_amount)}`
         : '';
+    let saleDetails = '';
+    if (entityType === 'sale') {
+      try {
+        const payload = JSON.parse(String(log.new_values || log.changes || '{}')) as any;
+        const itemDetails = Array.isArray(payload.items)
+          ? payload.items.map((item: any) => `${item.product_name || item.product_id || 'منتج'} × ${item.quantity} بسعر ${formatMoney(item.unit_price)}`).join('، ')
+          : '';
+        saleDetails = [
+          itemDetails ? `الأصناف: ${itemDetails}` : '',
+          payload.payment_method ? `الدفع: ${payload.payment_method}` : '',
+          payload.discount ? `الخصم: ${formatMoney(payload.discount)}` : '',
+          payload.tax ? `الضريبة: ${formatMoney(payload.tax)}` : '',
+          payload.notes ? `ملاحظات: ${payload.notes}` : '',
+        ].filter(Boolean).join(' · ');
+      } catch {
+        saleDetails = '';
+      }
+    }
     return {
       log,
       label: translateAuditAction(log.action),
       entityType,
-      details: [translateEntityType(log.entity_type), reference, party, amount].filter(Boolean).join(' · '),
-      searchText: [log.action, log.entity_type, log.description, log.user_name, reference, party, amount].join(' ').toLowerCase(),
+      details: [translateEntityType(log.entity_type), reference, party, amount, saleDetails].filter(Boolean).join(' · '),
+      searchText: [log.action, log.entity_type, log.description, log.user_name, reference, party, amount, saleDetails].join(' ').toLowerCase(),
     };
   }), [auditLogs, customers, purchases, sales]);
 
@@ -288,36 +307,64 @@ export function ArchivePage() {
     return <ClipboardList className="h-5 w-5" />;
   };
 
-  const show = (value: typeof section) => section === 'all' || section === value;
-  const isLoading = archivedInventoryQuery.isLoading || purchasesQuery.isLoading || salesQuery.isLoading || customersQuery.isLoading || returnsQuery.isLoading || supplierReturnsQuery.isLoading;
+  const show = (value: typeof section) => section === value;
+  const isLoading = section === 'inventory'
+    ? archivedInventoryQuery.isLoading
+    : section === 'purchases'
+      ? purchasesQuery.isLoading
+      : section === 'returns'
+        ? returnsQuery.isLoading || supplierReturnsQuery.isLoading
+        : auditQuery.isLoading || salesQuery.isLoading || purchasesQuery.isLoading || customersQuery.isLoading || usersQuery.isLoading;
   const totalArchivedValue = archivedInventory.reduce((sum, item) => sum + Number(item.selling_price || 0), 0);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="الأرشيف والتاريخ"
         title="الأرشيف والسجل التاريخي"
         description="مرجع دقيق للعناصر والعمليات التي خرجت من التشغيل دون حذف تاريخها التجاري."
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-xs text-text-muted">عناصر المخزون المؤرشفة</p><p className="mt-1 text-2xl font-bold">{archivedInventory.length}</p></div><Archive className="h-6 w-6 text-text-muted" /></CardContent></Card>
-        <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-xs text-text-muted">العمليات الملغاة أو المعكوسة</p><p className="mt-1 text-2xl font-bold">{archivedPurchases.length}</p></div><ClipboardList className="h-6 w-6 text-text-muted" /></CardContent></Card>
-        <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-xs text-text-muted">قيمة البيع التاريخية للعناصر المؤرشفة</p><p className="mt-1 text-2xl font-bold">{formatMoney(totalArchivedValue)}</p></div><Package className="h-6 w-6 text-text-muted" /></CardContent></Card>
+      <div className="unified-stats-grid supplier-stats grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard
+          title="عناصر المخزون المؤرشفة"
+          value={archivedInventory.length}
+          icon={Archive}
+          subtitle="عناصر محفوظة في السجل التاريخي"
+          variant="featured"
+          size="sm"
+        />
+        <StatCard
+          title="العمليات الملغاة أو المعكوسة"
+          value={archivedPurchases.length}
+          icon={ClipboardList}
+          subtitle="عمليات خرجت من التشغيل"
+          variant="warning"
+          size="sm"
+        />
+        <StatCard
+          title="قيمة البيع التاريخية للعناصر المؤرشفة"
+          value={formatMoney(totalArchivedValue)}
+          icon={Package}
+          subtitle="القيمة المسجلة للعناصر المؤرشفة"
+          variant="success"
+          size="sm"
+        />
       </div>
 
       <Card>
         <CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <p className="text-xs font-bold text-text-primary">استعرض حسب النوع</p>
+            <div className="flex flex-wrap gap-2" role="tablist" aria-label="أقسام الأرشيف">
             {([
-              ['all', 'الكل'],
               ['inventory', 'عناصر المخزون'],
               ['purchases', 'المشتريات'],
               ['returns', 'المرتجعات'],
               ['audit', 'سجل التدقيق'],
             ] as const).map(([value, label]) => (
-              <Button key={value} size="sm" variant={section === value ? 'primary' : 'ghost'} className="gap-sm whitespace-nowrap px-3" onClick={() => setSection(value)}><span className="text-tiny">{label}</span></Button>
+              <Button key={value} size="sm" variant={section === value ? 'primary' : 'ghost'} className="gap-sm whitespace-nowrap px-3" role="tab" aria-selected={section === value} onClick={() => setSection(value)}><span className="text-tiny">{label}</span></Button>
             ))}
+            </div>
           </div>
           <div className="relative w-full md:max-w-xs">
             <Search className="pointer-events-none absolute right-3 top-2.5 h-4 w-4 text-text-muted" />
@@ -333,7 +380,7 @@ export function ArchivePage() {
           <CardHeader><CardTitle className="flex items-center gap-2"><Archive className="h-5 w-5" />عناصر المخزون المؤرشفة</CardTitle></CardHeader>
           <CardContent className="p-0">
             <Table>
-              <TableHeader><TableRow><TableHead>العنصر</TableHead><TableHead>المورد</TableHead><TableHead>التكلفة</TableHead><TableHead>سعر البيع</TableHead><TableHead>تاريخ الشراء</TableHead><TableHead>الحالة</TableHead><TableHead className="min-w-[72px] text-center">التفاصيل</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>العنصر</TableHead><TableHead>التاجر</TableHead><TableHead>التكلفة</TableHead><TableHead>سعر البيع</TableHead><TableHead>تاريخ الشراء</TableHead><TableHead>الحالة</TableHead><TableHead className="min-w-[72px] text-center">التفاصيل</TableHead></TableRow></TableHeader>
               <TableBody>
                 {filteredInventory.map((item) => (
                   <TableRow key={item.id}>
@@ -358,7 +405,7 @@ export function ArchivePage() {
           <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardList className="h-5 w-5" />المشتريات الملغاة والمعكوسة</CardTitle></CardHeader>
           <CardContent className="p-0">
             <Table>
-              <TableHeader><TableRow><TableHead>رقم الفاتورة</TableHead><TableHead>المورد</TableHead><TableHead>التكلفة</TableHead><TableHead>المدفوع</TableHead><TableHead>التاريخ</TableHead><TableHead>الحالة</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>رقم الفاتورة</TableHead><TableHead>التاجر</TableHead><TableHead>التكلفة</TableHead><TableHead>المدفوع</TableHead><TableHead>التاريخ</TableHead><TableHead>الحالة</TableHead></TableRow></TableHeader>
               <TableBody>
                 {filteredPurchases.map((purchase) => (
                   <TableRow key={purchase.id}><TableCell className="font-semibold">{purchase.invoice_number}</TableCell><TableCell>{purchase.supplier?.name || purchase.supplier_name || '-'}</TableCell><TableCell>{formatMoney(purchase.total_amount)}</TableCell><TableCell>{formatMoney(purchase.paid_amount)}</TableCell><TableCell>{formatDate(purchase.purchase_date || purchase.created_at)}</TableCell><TableCell><Badge variant="secondary">{getPurchaseStatus(purchase.status)}</Badge></TableCell></TableRow>
@@ -395,16 +442,16 @@ export function ArchivePage() {
         </Card>
       )}
 
-      {selectedReturn && (
+      {section === 'returns' && selectedReturn && (
         <Card>
           <CardHeader><CardTitle className="flex items-center justify-between gap-3"><span>تفاصيل {selectedReturn.return_kind}: {selectedReturn.return_number || selectedReturn.id}</span><Button variant="ghost" size="icon" onClick={() => setSelectedReturn(null)} aria-label="إغلاق التفاصيل"><X className="h-4 w-4" /></Button></CardTitle></CardHeader>
           <CardContent className="space-y-5">
             <div className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
-              <div><span className="text-text-muted">العميل / المورد</span><p className="font-medium">{selectedReturn.customer_name || selectedReturn.supplier_name || selectedReturn.supplier_id || '-'}</p></div>
+              <div><span className="text-text-muted">العميل / التاجر</span><p className="font-medium">{selectedReturn.customer_name || selectedReturn.supplier_name || selectedReturn.supplier_id || '-'}</p></div>
               <div><span className="text-text-muted">الفاتورة المرتبطة</span><p className="font-medium">{selectedReturn.sale_invoice || selectedReturn.reference_number || selectedReturn.invoice_number || selectedReturn.purchase_id || selectedReturn.sale_id || '-'}</p></div>
               <div><span className="text-text-muted">نوع المرتجع</span><p>{getReturnType(selectedReturn.return_type) || selectedReturn.return_kind}</p></div>
               <div><span className="text-text-muted">الحالة</span><div className="mt-1"><Badge variant="secondary">{getReturnStatus(selectedReturn.status)}</Badge></div></div>
-              <div><span className="text-text-muted">طريقة الاسترداد</span><p>{selectedReturn.refund_method ? getRefundMethod(selectedReturn.refund_method) : 'استرداد مورد'}</p></div>
+              <div><span className="text-text-muted">طريقة الاسترداد</span><p>{selectedReturn.refund_method ? getRefundMethod(selectedReturn.refund_method) : 'استرداد تاجر'}</p></div>
               <div><span className="text-text-muted">تاريخ المرتجع</span><p>{formatDate(selectedReturn.return_date || selectedReturn.display_date)}</p></div>
               <div><span className="text-text-muted">تاريخ الاسترداد</span><p>{formatDate(selectedReturn.refund_date)}</p></div>
               <div><span className="text-text-muted">مرجع الاسترداد</span><p>{selectedReturn.refund_reference || '-'}</p></div>
@@ -436,10 +483,31 @@ export function ArchivePage() {
           <CardContent className="space-y-3">
             {auditQuery.isError && <p className="rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-text-secondary">تعذر تحميل سجل التدقيق من مصدره الحالي. بيانات الأرشيف والمشتريات المعروضة أعلاه ما زالت مقروءة مباشرة من مصادرها الأصلية.</p>}
             {!auditQuery.isError && <>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-border bg-surface-elevated/30 px-4 py-3"><div className="flex items-center gap-2 text-xs text-text-muted"><ClipboardList className="h-4 w-4" />السجلات المعروضة</div><p className="mt-1 text-xl font-bold text-text-primary">{visibleAudit.length}</p></div>
-                <div className="rounded-xl border border-success/20 bg-success/5 px-4 py-3"><div className="flex items-center gap-2 text-xs text-success"><CheckCircle2 className="h-4 w-4" />ناجحة</div><p className="mt-1 text-xl font-bold text-text-primary">{successfulAuditCount}</p></div>
-                <div className="rounded-xl border border-danger/20 bg-danger/5 px-4 py-3"><div className="flex items-center gap-2 text-xs text-danger"><AlertCircle className="h-4 w-4" />فاشلة</div><p className="mt-1 text-xl font-bold text-text-primary">{failedAuditCount}</p></div>
+              <div className="unified-stats-grid supplier-stats grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+                <StatCard
+                  title="السجلات المعروضة"
+                  value={visibleAudit.length}
+                  icon={ClipboardList}
+                  subtitle="السجلات المطابقة للفلاتر"
+                  variant="featured"
+                  size="sm"
+                />
+                <StatCard
+                  title="ناجحة"
+                  value={successfulAuditCount}
+                  icon={CheckCircle2}
+                  subtitle="عمليات اكتملت بنجاح"
+                  variant="success"
+                  size="sm"
+                />
+                <StatCard
+                  title="فاشلة"
+                  value={failedAuditCount}
+                  icon={AlertCircle}
+                  subtitle="عمليات تحتاج مراجعة"
+                  variant="danger"
+                  size="sm"
+                />
               </div>
               <div className="flex flex-wrap gap-2 border-b border-border pb-3">
                 {([['all', 'الكل'], ['sale', 'المبيعات'], ['purchase', 'المشتريات'], ['inventory', 'المخزون']] as const).map(([value, label]) => <Button key={value} size="sm" variant={auditEntityFilter === value ? 'primary' : 'ghost'} className="gap-sm whitespace-nowrap px-3" onClick={() => setAuditEntityFilter(value)}><span className="text-tiny">{label}</span></Button>)}
@@ -481,7 +549,7 @@ export function ArchivePage() {
         </Card>
       )}
 
-      {selectedItem && (
+      {section === 'inventory' && selectedItem && (
         <Card>
           <CardHeader><CardTitle className="flex items-center justify-between gap-3"><span>تفاصيل العنصر: {selectedItem.product_name || 'منتج غير معروف'}</span><Button variant="ghost" size="icon" onClick={() => setSelectedItem(null)} aria-label="إغلاق التفاصيل"><X className="h-4 w-4" /></Button></CardTitle></CardHeader>
           <CardContent>

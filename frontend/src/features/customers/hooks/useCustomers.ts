@@ -12,17 +12,18 @@ export function useCustomers() {
   const pageSize = 10;
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: '', direction: null });
+  const normalizedSearchQuery = debouncedSearchQuery.trim();
 
   // Fetch customers with debounce search for scalability
   const { data: customersData, isLoading } = useQuery({
-    queryKey: ['customers', debouncedSearchQuery],
+    queryKey: ['customers', normalizedSearchQuery, page],
     queryFn: () => {
-      if (debouncedSearchQuery) {
+      if (normalizedSearchQuery) {
         // Search mode - use API search when query exists
         return customersApi.list({
           page,
           per_page: pageSize,
-          search: debouncedSearchQuery
+          search: normalizedSearchQuery
         });
       } else {
         // Initial load - fetch limited results for performance
@@ -36,6 +37,11 @@ export function useCustomers() {
     setPage(1);
   }, [debouncedSearchQuery]);
 
+  const handleSearchQueryChange = (value: string) => {
+    setSearchQuery(value);
+    setPage(1);
+  };
+
   // The backend uses snake_case for persisted fields while the customer UI
   // historically used camelCase summary fields. Normalize both shapes here
   // so cards, sorting, exports and statistics all use the same real values.
@@ -43,6 +49,8 @@ export function useCustomers() {
     const rows = Array.isArray(customersData?.data) ? customersData.data : [];
     return rows.map((row: any) => ({
       ...row,
+      notes: row.notes ?? row.customer_notes ?? '',
+      debt_reason: row.debt_reason ?? row.debtReason ?? row.reason ?? '',
       totalPurchases: Number(row.totalPurchases ?? row.total_purchases ?? 0),
       paidAmount: Number(row.paidAmount ?? row.paid_amount ?? 0),
       outstanding: Number(row.outstanding ?? row.current_balance ?? 0),
@@ -126,13 +134,14 @@ export function useCustomers() {
   // Filter and sort logic
   const filteredCustomers = useMemo(() => {
     let result = [...customers];
+    const normalizedQuery = searchQuery.trim().toLowerCase();
 
     // Search filter
-    if (searchQuery) {
+    if (normalizedQuery) {
       result = result.filter((customer: Customer) =>
-        customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        customer.phone.includes(searchQuery) ||
-        customer.code.toLowerCase().includes(searchQuery.toLowerCase())
+        customer.name.toLowerCase().includes(normalizedQuery) ||
+        customer.phone.includes(normalizedQuery) ||
+        customer.code.toLowerCase().includes(normalizedQuery)
       );
     }
 
@@ -183,7 +192,7 @@ export function useCustomers() {
     
     // State
     searchQuery,
-    setSearchQuery,
+    setSearchQuery: handleSearchQueryChange,
     sortConfig,
     setSortConfig,
     

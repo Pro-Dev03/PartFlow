@@ -107,6 +107,19 @@ func (h *Handler) CreateSale(c *gin.Context) {
 			return
 		}
 
+		if stderrors.Is(err, ErrNoOpenShift) {
+			errors.HandleError(c, errors.NewBusinessError(ErrNoOpenShift.Error(), err))
+			return
+		}
+		if stderrors.Is(err, ErrInvalidPayment) || stderrors.Is(err, ErrInvalidQuantity) || stderrors.Is(err, ErrInvalidPrice) || stderrors.Is(err, ErrInvalidDiscount) {
+			errors.HandleError(c, errors.NewValidationError(err.Error(), err))
+			return
+		}
+		if stderrors.Is(err, ErrProductNotFound) {
+			errors.HandleError(c, errors.NewNotFoundError("Product", err))
+			return
+		}
+
 		switch err {
 		case ErrInsufficientStock:
 			errors.HandleError(c, errors.NewBusinessError("Insufficient stock for one or more products", err))
@@ -114,6 +127,8 @@ func (h *Handler) CreateSale(c *gin.Context) {
 			errors.HandleError(c, errors.NewValidationError("Invalid customer", err))
 		case ErrInvalidPaymentMethod:
 			errors.HandleError(c, errors.NewValidationError("Invalid payment method", err))
+		case ErrProductNotFound:
+			errors.HandleError(c, errors.NewNotFoundError("Product", err))
 		default:
 			errors.HandleError(c, errors.WrapError(err, "Failed to create sale"))
 		}

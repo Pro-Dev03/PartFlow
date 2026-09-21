@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -77,6 +79,184 @@ func TestCreateOpeningStockSQLiteSupportsQuantityAndIndividualWithoutPurchase(t 
 	}
 	if purchaseCount != 0 {
 		t.Fatalf("opening stock created %d purchases", purchaseCount)
+	}
+}
+
+func TestHandleError_RecognizesWrappedDuplicateBarcode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	err := fmt.Errorf("failed to create opening stock item: %w", ErrDuplicateBarcode)
+	handleError(c, err)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusConflict)
+	}
+	if !strings.Contains(w.Body.String(), ErrDuplicateBarcode.Error()) {
+		t.Fatalf("response = %q, want to contain %q", w.Body.String(), ErrDuplicateBarcode.Error())
+	}
+}
+
+func TestDeleteInventoryItemPermanentAllowsLinkedUsedItem(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/permanent-delete-linked-item.db")
+	local, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.DB.Close()
+	db := sqlx.NewDb(local.DB, "sqlite")
+
+	productID := uuid.New()
+	itemID := uuid.New()
+	userID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO products (id, sku, name, cost_price, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, productID, "PERM-DEL-001", "Permanent Delete Product", 30, 80); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))`, uuid.New(), productID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, item_code, barcode, condition, status, purchase_cost, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, itemID, productID, "IT-DEL-001", "BAR-DEL-001", "USED", "SOLD", 30, 80); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO acquisition_items (id, acquisition_id, product_id, inventory_item_id, item_code, condition, grade, unit_cost, total_cost, item_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, uuid.New(), uuid.New(), productID, itemID, "IT-DEL-001", "USED", "GOOD", 30, 30, "sold"); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(NewRepository(db), db)
+	if err := service.DeleteInventoryItem(context.Background(), itemID, userID, true); err != nil {
+		t.Fatalf("DeleteInventoryItem(permanent=true) returned unexpected error: %v", err)
+	}
+
+	var itemCount int
+	if err := db.Get(&itemCount, `SELECT COUNT(*) FROM inventory_items WHERE id = ?`, itemID); err != nil {
+		t.Fatal(err)
+	}
+	if itemCount != 0 {
+		t.Fatalf("inventory item still exists after permanent delete: count=%d", itemCount)
+	}
+
+	var qty int
+	if err := db.Get(&qty, `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = ?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if qty != 0 {
+		t.Fatalf("inventory quantity still present after permanent delete: qty=%d", qty)
+	}
+
+	var acquisitionCount int
+	if err := db.Get(&acquisitionCount, `SELECT COUNT(*) FROM acquisition_items WHERE inventory_item_id = ?`, itemID); err != nil {
+		t.Fatal(err)
+	}
+	if acquisitionCount != 0 {
+		t.Fatalf("acquisition link still exists after permanent delete: count=%d", acquisitionCount)
+	}
+}
+
+func TestDeleteInventoryItemPermanentCleansAllLinkedTables(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/permanent-delete-all-links.db")
+	local, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.DB.Close()
+	db := sqlx.NewDb(local.DB, "sqlite")
+
+	productID := uuid.New()
+	itemID := uuid.New()
+	userID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO products (id, sku, name, cost_price, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, productID, "PERM-DEL-ALL", "Permanent Delete All Links", 20, 60); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))`, uuid.New(), productID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, item_code, barcode, condition, status, purchase_cost, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, itemID, productID, "IT-DEL-ALL", "BAR-DEL-ALL", "USED", "AVAILABLE", 20, 60); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, statement := range []string{
+		`CREATE TABLE IF NOT EXISTS item_history (id TEXT PRIMARY KEY, inventory_item_id TEXT NOT NULL, event_type TEXT NOT NULL, event_date TEXT NOT NULL, reference_type TEXT, reference_id TEXT, description TEXT, metadata TEXT DEFAULT '{}', created_by TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE IF NOT EXISTS item_repair_costs (id TEXT PRIMARY KEY, inventory_item_id TEXT NOT NULL, acquisition_item_id TEXT, repair_date TEXT NOT NULL, repair_type TEXT NOT NULL, cost REAL NOT NULL DEFAULT 0, description TEXT, performed_by TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE IF NOT EXISTS trade_ins (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, inventory_item_id TEXT, purchase_price REAL NOT NULL DEFAULT 0, purchase_date TEXT NOT NULL, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS barcodes (id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, product_id TEXT, inventory_item_id TEXT, type TEXT NOT NULL, is_active INTEGER DEFAULT 1, generated_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS inspections (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, inventory_item_id TEXT, inspector_id TEXT NOT NULL, inspection_date TEXT NOT NULL, result TEXT NOT NULL, condition TEXT, grade TEXT, notes TEXT, images TEXT DEFAULT '[]', test_results TEXT DEFAULT '{}', acquisition_item_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS item_specification_values (id TEXT PRIMARY KEY, inventory_item_id TEXT NOT NULL, specification_id TEXT NOT NULL, value_text TEXT, value_number REAL, value_boolean INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(inventory_item_id, specification_id))`,
+		`CREATE TABLE IF NOT EXISTS sale_items (id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, inventory_item_id TEXT, product_id TEXT NOT NULL, quantity INTEGER NOT NULL, unit_price REAL NOT NULL, item_total REAL NOT NULL, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS return_items (id TEXT PRIMARY KEY, return_id TEXT NOT NULL, product_id TEXT, inventory_item_id TEXT, quantity_returned INTEGER NOT NULL DEFAULT 0, original_quantity INTEGER NOT NULL DEFAULT 0, unit_price REAL NOT NULL DEFAULT 0, total_refund_amount REAL NOT NULL DEFAULT 0, reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS supplier_return_items (id TEXT PRIMARY KEY, supplier_return_id TEXT NOT NULL, purchase_item_id TEXT NOT NULL, product_id TEXT NOT NULL, inventory_item_id TEXT, quantity INTEGER NOT NULL CHECK (quantity > 0), unit_cost REAL NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("create test table for permanent delete regression: %v", err)
+		}
+	}
+
+	saleID := uuid.New()
+	acquisitionID := uuid.New()
+	customerID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO sales (id, sale_number, total_amount, status, created_at, updated_at) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`, saleID, "SALE-DEL-ALL-1", 0, "completed"); err != nil {
+		t.Fatalf("create sale parent row: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO customers (id, code, name, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))`, customerID, "CUST-DEL-ALL", "Delete All Customer"); err != nil {
+		t.Fatalf("create customer parent row: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO acquisitions (id, type, acquisition_date, total_cost, status, created_at, updated_at) VALUES (?, ?, datetime('now'), ?, ?, datetime('now'), datetime('now'))`, acquisitionID, "purchase", 0, "draft"); err != nil {
+		t.Fatalf("create acquisition parent row: %v", err)
+	}
+
+	linkRows := []struct {
+		tableName string
+		insertSQL string
+	}{
+		{tableName: "item_history", insertSQL: `INSERT INTO item_history (id, inventory_item_id, event_type, event_date, description, created_at) VALUES (?, ?, ?, datetime('now'), ?, datetime('now'))`},
+		{tableName: "item_repair_costs", insertSQL: `INSERT INTO item_repair_costs (id, inventory_item_id, repair_date, repair_type, cost, description, created_at) VALUES (?, ?, datetime('now'), ?, ?, ?, datetime('now'))`},
+		{tableName: "acquisition_items", insertSQL: `INSERT INTO acquisition_items (id, acquisition_id, product_id, inventory_item_id, item_code, condition, grade, unit_cost, total_cost, item_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`},
+		{tableName: "trade_ins", insertSQL: `INSERT INTO trade_ins (id, customer_id, inventory_item_id, purchase_price, purchase_date, notes, created_at, updated_at) VALUES (?, ?, ?, ?, datetime('now'), ?, datetime('now'), datetime('now'))`},
+		{tableName: "barcodes", insertSQL: `INSERT INTO barcodes (id, code, product_id, inventory_item_id, type, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`},
+		{tableName: "inspections", insertSQL: `INSERT INTO inspections (id, product_id, inventory_item_id, inspector_id, inspection_date, result, condition, grade, notes, created_at, updated_at) VALUES (?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, datetime('now'), datetime('now'))`},
+		{tableName: "sale_items", insertSQL: `INSERT INTO sale_items (id, sale_id, product_id, inventory_item_id, quantity, unit_price, item_total, created_at) VALUES (?, ?, ?, ?, 1, 60, 60, datetime('now'))`},
+		{tableName: "item_specification_values", insertSQL: `INSERT INTO item_specification_values (id, inventory_item_id, specification_id, value_text, created_at, updated_at) VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`},
+	}
+
+	for _, row := range linkRows {
+		var err error
+		switch row.tableName {
+		case "item_history":
+			_, err = db.Exec(row.insertSQL, uuid.New(), itemID, "TEST_EVENT", "test detail")
+		case "item_repair_costs":
+			_, err = db.Exec(row.insertSQL, uuid.New(), itemID, "repair", 12.5, "test repair")
+		case "acquisition_items":
+			_, err = db.Exec(row.insertSQL, uuid.New(), acquisitionID, productID, itemID, "IT-DEL-ALL", "USED", "GOOD", 20, 20, "sold")
+		case "trade_ins":
+			_, err = db.Exec(row.insertSQL, uuid.New(), customerID, itemID, 25, "trade-in note")
+		case "barcodes":
+			_, err = db.Exec(row.insertSQL, uuid.New(), "BAR-DEL-ALL-2", productID, itemID, "ITEM")
+		case "inspections":
+			_, err = db.Exec(row.insertSQL, uuid.New(), productID, itemID, uuid.New(), "PASS", "GOOD", "A", "works")
+		case "sale_items":
+			_, err = db.Exec(row.insertSQL, uuid.New(), saleID, productID, itemID)
+		case "item_specification_values":
+			_, err = db.Exec(row.insertSQL, uuid.New(), itemID, uuid.New(), "ok")
+		}
+		if err != nil {
+			t.Fatalf("insert %s link row: %v", row.tableName, err)
+		}
+	}
+
+	service := NewService(NewRepository(db), db)
+	if err := service.DeleteInventoryItem(context.Background(), itemID, userID, true); err != nil {
+		t.Fatalf("DeleteInventoryItem(permanent=true) returned unexpected error: %v", err)
+	}
+
+	for _, row := range linkRows {
+		var count int
+		query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE inventory_item_id = ?", row.tableName)
+		if err := db.Get(&count, query, itemID); err != nil {
+			t.Fatalf("count linked rows in %s: %v", row.tableName, err)
+		}
+		if count != 0 {
+			t.Fatalf("linked rows remain in %s after permanent delete: count=%d", row.tableName, count)
+		}
 	}
 }
 

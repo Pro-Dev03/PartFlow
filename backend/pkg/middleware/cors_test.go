@@ -59,8 +59,12 @@ func TestCORSAllowsCloudSessionHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if got := w.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(got, "X-PartFlow-Cloud-Token") {
+	got := w.Header().Get("Access-Control-Allow-Headers")
+	if !strings.Contains(got, "X-PartFlow-Cloud-Token") {
 		t.Fatalf("expected X-PartFlow-Cloud-Token header to be allowed, got %q", got)
+	}
+	if !strings.Contains(got, "Idempotency-Key") {
+		t.Fatalf("expected idempotency header to be allowed, got %q", got)
 	}
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5174" {
 		t.Fatalf("expected allowed origin, got %q", got)

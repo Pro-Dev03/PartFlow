@@ -6,7 +6,7 @@ import { Product } from '../types/inventory.types';
 import { Package, Plus, Sparkles, Tag, DollarSign } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { categoriesApi, settingsApi } from '../../../services/api/endpoints';
+import { categoriesApi, settingsApi, suppliersApi } from '../../../services/api/endpoints';
 import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
 import { formatPrice } from '../../../utils/helpers';
 import { clearBarcodeLookupFields, lookupProductByBarcode } from '../../../lib/productBarcodeLookup';
@@ -49,8 +49,20 @@ export function InventoryModals({
     queryFn: () => settingsApi.getSetting('tax_rate'),
     retry: false,
   });
+  const { data: suppliersData } = useQuery({
+    queryKey: ['suppliers', 'inventory-product-edit'],
+    queryFn: () => suppliersApi.list({ page: 1, per_page: 100, is_active: true }),
+  });
 
   const categories = (categoriesData?.data as unknown) as any[] || [];
+  const suppliersPayload = suppliersData?.data as any;
+  const suppliers = (Array.isArray(suppliersPayload)
+    ? suppliersPayload
+    : suppliersPayload?.suppliers || (suppliersData as any)?.suppliers || [])
+    .map((supplier: any) => ({
+      id: supplier.id,
+      name: supplier.name || supplier.supplier_name || 'تاجر بدون اسم',
+    }));
   const taxRateValue = Number(taxSetting?.data?.value);
   const taxRate = Number.isFinite(taxRateValue) && taxRateValue >= 0 ? taxRateValue : 0;
   const configuredMargin = Number(marginSetting?.data?.value);
@@ -131,7 +143,7 @@ export function InventoryModals({
                 <Input value={selectedProduct.sku || ''} disabled />
               </div>
               <div>
-                <label className="text-small font-medium text-text mb-sm block">المورد</label>
+                <label className="text-small font-medium text-text mb-sm block">التاجر</label>
                 <Input value={selectedProduct.supplier_name || 'غير محدد'} disabled />
               </div>
               <div>
@@ -406,6 +418,26 @@ export function InventoryModals({
                     options={[
                       { value: '', label: 'بدون تصنيف' },
                       ...categories.map((cat: any) => ({ value: cat.id, label: cat.name }))
+                    ]}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>
+                    المورد
+                  </label>
+                  <Select
+                    value={selectedProduct.supplier_id || ''}
+                    onChange={(e) => {
+                      const supplier = suppliers.find((item: any) => String(item.id) === e.target.value);
+                      setSelectedProduct({
+                        ...selectedProduct,
+                        supplier_id: e.target.value,
+                        supplier_name: supplier?.name || '',
+                      });
+                    }}
+                    options={[
+                      { value: '', label: 'بدون مورد' },
+                      ...suppliers.map((supplier: any) => ({ value: supplier.id, label: supplier.name })),
                     ]}
                   />
                 </div>

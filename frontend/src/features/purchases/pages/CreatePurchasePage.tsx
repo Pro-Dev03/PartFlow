@@ -226,6 +226,8 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
       toast.success('تم حذف المنتج بنجاح');
     },
     onError: (error) => {
@@ -421,7 +423,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
 
   const handleCreatePurchase = useCallback(async () => {
     if (!selectedSupplier) {
-      toast.error('يرجى اختيار المورد');
+      toast.error('يرجى اختيار التاجر');
       return;
     }
     if (items.length === 0) {
@@ -567,7 +569,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
   const advanceStep = useCallback(() => {
     if (currentStep === 1) {
       if (!selectedSupplier) {
-        toast.error('يرجى اختيار المورد');
+        toast.error('يرجى اختيار التاجر');
         return;
       }
       setCurrentStep(2);
@@ -637,28 +639,28 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Truck className="w-5 h-5 text-cyan" />
-                اختيار المورد
+                اختيار التاجر
               </CardTitle>
-              <span className="text-xs text-text-muted">اختر المورد المرتبط بعملية الشراء</span>
+              <span className="text-xs text-text-muted">اختر التاجر المرتبط بعملية الشراء</span>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <label className="block text-sm font-medium text-text">المورد *</label>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setQuickCreateMode('supplier')}>+ إضافة مورد</Button>
+                    <label className="block text-sm font-medium text-text">التاجر *</label>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setQuickCreateMode('supplier')}>+ إضافة تاجر</Button>
                   </div>
                   <Select
                       value={selectedSupplier}
                       onChange={(e) => setSelectedSupplier(e.target.value)}
                       loading={suppliersLoading}
                       options={[
-                        { value: '', label: 'اختر المورد...' },
+                        { value: '', label: 'اختر التاجر...' },
                         ...suppliers.map((s) => ({ value: s.id, label: s.name })),
                       ]}
-                      emptyMessage="لا يوجد موردين"
+                        emptyMessage="لا يوجد تجار"
                     />
-                  <p className="mt-1.5 text-xs text-text-muted">يمكنك إضافة مورد من هنا دون مغادرة عملية الشراء.</p>
+                  <p className="mt-1.5 text-xs text-text-muted">يمكنك إضافة تاجر من هنا دون مغادرة عملية الشراء.</p>
                 </div>
               </div>
                 <div className="mt-5 flex justify-end border-t border-border pt-4">
@@ -1410,7 +1412,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
           setProductToDelete(null);
         }}
         title="حذف المنتج"
-        message="هل أنت متأكد من حذف هذا المنتج نهائياً؟ هذا الإجراء لا يمكن التراجع عنه."
+        message="سيُحذف المنتج نهائيًا مع تنظيف المبيعات والمشتريات والمرتجعات المرتبطة به من البطاقات والتقارير. هل تريد المتابعة؟"
         confirmText="حذف المنتج"
         isLoading={deleteProductMutation.isPending}
         variant="danger"

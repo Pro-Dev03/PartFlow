@@ -1,13 +1,10 @@
 import { StatCard } from '../../../design-system/components/stat-card';
-import { Button } from '../../../design-system/components/button';
 import { useQuery } from '@tanstack/react-query';
 import { inventoryApi, productsApi, settingsApi } from '../../../services/api/endpoints';
-import { getButtonSize } from '../../../config/button-sizes';
 import { normalizeCurrencyValue } from '../../../utils';
 import { 
   Package, 
   PackageOpen,
-  TrendingUp, 
   AlertTriangle 
 } from 'lucide-react';
 import { InventoryItem, Product } from '../types/inventory.types';
@@ -17,11 +14,10 @@ interface InventoryStatsProps {
   inventoryItems: InventoryItem[];
   supplierOnly: boolean;
   manualOnly?: boolean;
-  onRecommendationClick: (action: string) => void;
   isMobile: boolean;
 }
 
-export function InventoryStats({ products, inventoryItems, supplierOnly, manualOnly = false, onRecommendationClick, isMobile }: InventoryStatsProps) {
+export function InventoryStats({ products, inventoryItems, supplierOnly, manualOnly = false, isMobile }: InventoryStatsProps) {
   const activeStatuses = new Set(['AVAILABLE']);
   const inactiveStatuses = new Set(['SOLD', 'REVERSED', 'CANCELLED', 'DELETED', 'VOID']);
   const { data: completeInventoryData } = useQuery({
@@ -67,10 +63,6 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, manualO
     const fallbackStock = status === 'AVAILABLE' ? 1 : 0;
     const stock = Number.isFinite(explicitStock) && explicitStock > 0 ? explicitStock : fallbackStock;
 
-    if (stock <= 0) {
-      return acc;
-    }
-
     const nextCondition = String(item.condition || '').toUpperCase();
     const unitPrice = normalizeCurrencyValue((item as any).selling_price ?? item.price ?? (item as any).purchase_cost ?? 0);
 
@@ -92,12 +84,16 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, manualO
       }))
     : statsProducts
       .map((product) => ({
-        stock: Number(product.current_quantity ?? product.stock ?? 0),
+        stock: normalizedItems.get(String(product.id))?.stock ?? Number(product.current_quantity ?? product.stock ?? 0),
         unitPrice: normalizeCurrencyValue(product.sellingPrice ?? (product as any).selling_price ?? 0),
         condition: String(product.condition || '').toUpperCase(),
         minimumStockLevel: Math.max(1, Number(product.min_stock_level) || 3),
       }))
       .filter((item) => item.condition !== 'USED' && item.stock > 0);
+
+  const totalItemCount = supplierOnly
+    ? Array.from(normalizedItems.values()).filter((item) => item.condition !== 'USED').length
+    : statsProducts.filter((product) => String(product.condition || '').toUpperCase() !== 'USED').length;
 
   const lowStockItems = summaryItems.filter((item) => item.stock > 0 && item.stock <= item.minimumStockLevel).length;
   const availablePieceCount = summaryItems.reduce((total, item) => total + item.stock, 0);
@@ -111,34 +107,12 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, manualO
 
   return (
     <>
-      {/* Inventory Insight */}
-      <div className="premium-insight">
-        <div className="premium-insight-icon"><TrendingUp className="h-3.5 w-3.5" /></div>
-        <div className="premium-insight-copy">
-          <p className="premium-insight-title">AI Inventory Insight</p>
-          <p className="premium-insight-text">
-            {lowStockItems > 0
-              ? `يوجد ${lowStockItems} منتج يحتاج إلى إعادة الطلب حسب الحد الأدنى للمخزون.`
-              : 'المخزون مستقر حاليًا ولا توجد منتجات تحت الحد الأدنى.'}
-          </p>
-        </div>
-        <Button
-          variant="secondary"
-          size={getButtonSize('inventory', 'recommendation')}
-          disabled={lowStockItems === 0}
-          onClick={() => onRecommendationClick('low_stock')}
-          className="premium-insight-action"
-        >
-          {lowStockItems > 0 ? 'عرض منخفض المخزون' : 'المخزون مستقر'}
-        </Button>
-      </div>
-
       {/* Stats Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(190px, 1fr))', gap: '10px' }}
            className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard 
           title="إجمالي العناصر" 
-          value={summaryItems.length}
+          value={totalItemCount}
           icon={Package}
           subtitle="إجمالي العناصر"
           variant="featured"

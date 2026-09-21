@@ -12,7 +12,7 @@ func TestCloudGuardAllowsLocalOperationByDefault(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("DB_CONNECTION_MODE", "local")
 	t.Setenv("SERVER_MODE", "debug")
-	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "")
+	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "false")
 
 	router := gin.New()
 	router.Use(CloudGuard(&Service{}))

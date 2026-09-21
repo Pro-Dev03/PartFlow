@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 import { TokenManager } from '../../lib/token-manager';
-import { getActiveApiUrl, getCloudApiUrl, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
+import { getCloudApiUrl, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
 import type {
   ProductCreateRequest,
   ProductUpdateRequest,
@@ -91,53 +91,8 @@ export const authApi = {
     });
   },
   checkAdminAccess: async () => {
-    const localToken = typeof window !== 'undefined'
-      ? (localStorage.getItem('auth_token') || localStorage.getItem('token'))
-      : null;
-    const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
-
-    if (!localToken) {
-      throw new Error('No active local session');
-    }
-
-    const response = await fetch(`${getActiveApiUrl()}/auth/admin-check`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${localToken}`,
-        ...(cloudToken ? { 'X-PartFlow-Cloud-Token': cloudToken } : {}),
-      },
-    });
-
-    const payload = await (async () => {
-      if (typeof response.json === 'function') {
-        try {
-          const data = await response.json();
-          if (data && typeof data === 'object') return data;
-        } catch {
-          // Fall through to text parsing below.
-        }
-      }
-      if (typeof response.text === 'function') {
-        const text = await response.text();
-        if (!text) return {};
-        try {
-          return JSON.parse(text);
-        } catch {
-          return {};
-        }
-      }
-      return {};
-    })();
-
-    if (!response.ok) {
-      const error: any = new Error(payload?.error?.message || payload?.error || 'Access denied');
-      error.status = response.status;
-      error.response = payload;
-      throw error;
-    }
-
-    return payload?.data ?? payload;
+    const response = await apiClient.get<{ is_admin?: boolean }>('/auth/admin-check', undefined, false);
+    return response.data ?? response;
   },
   refreshToken: async () => {
     const refreshToken = TokenManager.getRefreshToken();
@@ -262,6 +217,16 @@ export const inventoryApi = {
   get: (id: string) => apiClient.get(`/inventory/items/${id}`),
   create: (data: InventoryCreateRequest) => apiClient.post('/inventory/items', data),
   createOpeningStock: (data: OpeningStockCreateRequest) => apiClient.post('/inventory/opening-stock', data),
+  createBulkUsedStock: (data: {
+    product_id: string;
+    barcodes: string[];
+    business_date: string;
+    part_type_id: string;
+    grade?: string;
+    purchase_cost: number;
+    selling_price: number;
+    notes?: string;
+  }) => apiClient.post('/inventory/used/bulk', data),
   adjustProductQuantity: (productId: string, newQuantity: number, reason?: string) =>
     apiClient.post(`/inventory/products/${productId}/quantity`, { new_quantity: newQuantity, reason }),
   update: (id: string, data: InventoryUpdateRequest) => apiClient.put(`/inventory/items/${id}`, data),
@@ -553,45 +518,67 @@ export const barcodeApi = {
   // All scanning contexts resolve through the shared product/item/lifecycle lookup.
   // The flattened product fields preserve the existing POS consumer contract.
   scan: async (barcode: string) => {
-    const response = await apiClient.get(`/barcodes/resolve/${encodeURIComponent(barcode)}`);
-    const resolution: any = response.data ?? response;
-    const product = resolution.product ?? {};
-    const item = resolution.inventory_item ?? null;
-    return {
-      ...response,
-      data: {
-        ...product,
-        barcode: item?.barcode ?? product.barcode ?? barcode,
-        status: item?.status,
-        inventory_item: item,
-        resolution,
-        sale_ids: resolution.sale_ids ?? [],
-        purchase_ids: resolution.purchase_ids ?? [],
-        return_ids: resolution.return_ids ?? [],
-      },
-    };
+    try {
+      const response = await apiClient.get(`/barcodes/resolve/${encodeURIComponent(barcode)}`);
+      const resolution: any = response.data ?? response;
+      const product = resolution.product ?? {};
+      const item = resolution.inventory_item ?? null;
+      return {
+        ...response,
+        data: {
+          ...product,
+          barcode: item?.barcode ?? product.barcode ?? barcode,
+          status: item?.status,
+          inventory_item: item,
+          resolution,
+          sale_ids: resolution.sale_ids ?? [],
+          purchase_ids: resolution.purchase_ids ?? [],
+          return_ids: resolution.return_ids ?? [],
+        },
+      };
+    } catch (error: any) {
+      if (error?.status === 404 || String(error?.message || '').toLowerCase().includes('not found')) {
+        return {
+          data: null,
+          success: false,
+          error: { code: '404', message: 'barcode not found' },
+        };
+      }
+      throw error;
+    }
   },
   lookup: (barcode: string) => apiClient.get(`/barcodes/${barcode}`),
   lookupProduct: async (barcode: string) => {
-    const response = await apiClient.get(`/barcodes/resolve/${encodeURIComponent(barcode)}`);
-    const resolution: any = response.data ?? response;
-    const product = resolution.product ?? {};
-    const item = resolution.inventory_item ?? null;
-    return {
-      ...response,
-      data: {
-        ...product,
-        barcode: item?.barcode ?? product.barcode ?? barcode,
-        inventory_item: item,
-        inventory_item_id: item?.id,
-        serial_number: item?.serial_number,
-        supplier_id: item?.supplier_id,
-        purchase_ids: resolution.purchase_ids ?? [],
-        sale_ids: resolution.sale_ids ?? [],
-        return_ids: resolution.return_ids ?? [],
-        resolution,
-      },
-    };
+    try {
+      const response = await apiClient.get(`/barcodes/resolve/${encodeURIComponent(barcode)}`);
+      const resolution: any = response.data ?? response;
+      const product = resolution.product ?? {};
+      const item = resolution.inventory_item ?? null;
+      return {
+        ...response,
+        data: {
+          ...product,
+          barcode: item?.barcode ?? product.barcode ?? barcode,
+          inventory_item: item,
+          inventory_item_id: item?.id,
+          serial_number: item?.serial_number,
+          supplier_id: item?.supplier_id,
+          purchase_ids: resolution.purchase_ids ?? [],
+          sale_ids: resolution.sale_ids ?? [],
+          return_ids: resolution.return_ids ?? [],
+          resolution,
+        },
+      };
+    } catch (error: any) {
+      if (error?.status === 404 || String(error?.message || '').toLowerCase().includes('not found')) {
+        return {
+          data: null,
+          success: false,
+          error: { code: '404', message: 'barcode not found' },
+        };
+      }
+      throw error;
+    }
   },
   lookupBySKU: (sku: string) => apiClient.get(`/barcodes/sku/${sku}`),
   resolve: (barcode: string) => apiClient.get(`/barcodes/resolve/${encodeURIComponent(barcode)}`),

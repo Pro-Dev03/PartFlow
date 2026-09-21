@@ -3,6 +3,7 @@ package parttypes
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -28,11 +29,24 @@ func (s *Service) GetPartTypeWithSpecs(ctx context.Context, id uuid.UUID) (*Part
 	return s.repo.GetPartTypeWithSpecs(ctx, id)
 }
 
+func normalizePartTypeNames(nameAr, nameEn string) (string, string) {
+	nameAr = strings.TrimSpace(nameAr)
+	nameEn = strings.TrimSpace(nameEn)
+	if nameAr == "" {
+		return "", nameEn
+	}
+	if nameEn == "" {
+		return nameAr, nameAr
+	}
+	return nameAr, nameEn
+}
+
 func (s *Service) CreatePartType(ctx context.Context, req *CreatePartTypeRequest) (*PartType, error) {
+	nameAr, nameEn := normalizePartTypeNames(req.NameAr, req.NameEn)
 	partType := &PartType{
 		ID:        uuid.New(),
-		NameAr:    req.NameAr,
-		NameEn:    req.NameEn,
+		NameAr:    nameAr,
+		NameEn:    nameEn,
 		Icon:      req.Icon,
 		Color:     req.Color,
 		SortOrder: req.SortOrder,
@@ -53,10 +67,13 @@ func (s *Service) UpdatePartType(ctx context.Context, id uuid.UUID, req *UpdateP
 	}
 
 	if req.NameAr != nil {
-		partType.NameAr = *req.NameAr
+		partType.NameAr = strings.TrimSpace(*req.NameAr)
 	}
 	if req.NameEn != nil {
-		partType.NameEn = *req.NameEn
+		partType.NameEn = strings.TrimSpace(*req.NameEn)
+		if partType.NameEn == "" {
+			partType.NameEn = partType.NameAr
+		}
 	}
 	if req.Icon != nil {
 		partType.Icon = *req.Icon

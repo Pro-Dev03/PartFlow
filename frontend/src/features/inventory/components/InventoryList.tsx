@@ -312,7 +312,7 @@ export function InventoryList({
                           <TableCell>
                             <div className="space-y-0.5 text-xs text-text-secondary">
                               <div className="truncate">التصنيف: {product.category_name || product.category || product.categoryName || '-'}</div>
-                              <div className="truncate text-text-tertiary">المورد: {product.supplier_name || 'غير محدد'}</div>
+                              <div className="truncate text-text-tertiary">التاجر: {product.supplier_name || 'غير محدد'}</div>
                             </div>
                           </TableCell>
                           <TableCell className="text-end">
@@ -369,7 +369,7 @@ export function InventoryList({
               </div>
 
               <div className={layoutMode === 'cards' ? 'block' : 'hidden'}>
-                <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="product-cards-grid gap-4 p-4">
                   {displayProducts.map((product: Product) => {
                     const stockVal = getStockValue(product);
                     const stockBadge = getStockDisplay(stockVal, product.min_stock_level);
@@ -409,7 +409,7 @@ export function InventoryList({
 
                         <div className="compact-product-meta">
                           <span className="truncate">التصنيف: <strong>{product.category_name || product.category || product.categoryName || '-'}</strong></span>
-                          <span className="truncate">المورد: <strong>{product.supplier_name || 'غير محدد'}</strong></span>
+                          <span className="truncate">التاجر: <strong>{product.supplier_name || 'غير محدد'}</strong></span>
                           <Badge variant={conditionBadge.variant} size="sm">{conditionBadge.label}</Badge>
                         </div>
 
@@ -450,7 +450,7 @@ export function InventoryList({
         <div className="rounded-[12px] border border-border bg-surface shadow-[0_8px_18px_rgba(15,23,42,0.04)]">
           <div className="flex items-center gap-2 border-b border-border px-5 py-4">
             <PackageOpen className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-semibold text-text-primary">{supplierOnly ? 'مشتريات الموردين' : 'عناصر المخزون الفردية'}</h3>
+            <h3 className="text-sm font-semibold text-text-primary">{supplierOnly ? 'مشتريات التجار' : 'عناصر المخزون الفردية'}</h3>
           </div>
 
           <div className="flex flex-wrap gap-2 border-b border-border px-5 py-3" role="tablist" aria-label="أقسام حالات المخزون">
@@ -599,7 +599,7 @@ export function InventoryList({
                 description="الكميات الإجمالية تظهر في تبويب المنتجات. استخدم طريقة القطعة المحددة بالباركود لإظهار كل قطعة هنا."
               />
             ) : (
-              <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="product-cards-grid gap-4 p-4">
                 {visibleInventoryItems.map((item: InventoryItem) => {
                   const condBadge = getConditionBadge(item.condition?.toLowerCase() || '');
                   const itemStatus = getInventoryStatusDisplay(item.status);
@@ -623,7 +623,7 @@ export function InventoryList({
                       </div>
 
                       <div className="compact-product-meta">
-                        <span className="truncate">المورد: <strong>{item.supplier_name || '-'}</strong></span>
+                          <span className="truncate">التاجر: <strong>{item.supplier_name || '-'}</strong></span>
                         <span className="truncate">التصنيف: <strong>{item.category_name || 'بدون تصنيف'}</strong></span>
                         <span className="truncate">الشراء: <strong>{item.purchase_date ? new Date(item.purchase_date).toLocaleDateString('ar-SA') : '-'}</strong></span>
                         <Badge variant={condBadge.variant} size="sm">{condBadge.label}</Badge>

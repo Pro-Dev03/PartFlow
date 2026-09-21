@@ -149,9 +149,6 @@ func (s *Service) CreateProduct(ctx context.Context, req *ProductRequest) (*Prod
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, fmt.Errorf("product name is required")
 	}
-	if req.CategoryID == nil {
-		return nil, fmt.Errorf("category is required")
-	}
 	if req.SKU == "" {
 		req.SKU = generateSKUFromName(req.Name)
 	}
@@ -194,13 +191,11 @@ func (s *Service) CreateProductsBulk(ctx context.Context, requests []ProductRequ
 		request.SKU = strings.TrimSpace(request.SKU)
 		request.Barcode = strings.TrimSpace(request.Barcode)
 
-		if request.CategoryID == nil {
-			failed = append(failed, BulkProductFailure{Index: index, Name: request.Name, SKU: request.SKU, Error: "category is required"})
-			continue
-		}
-		if _, err := s.repo.GetCategoryByID(ctx, *request.CategoryID); err != nil {
-			failed = append(failed, BulkProductFailure{Index: index, Name: request.Name, SKU: request.SKU, Error: fmt.Sprintf("invalid category: %v", err)})
-			continue
+		if request.CategoryID != nil {
+			if _, err := s.repo.GetCategoryByID(ctx, *request.CategoryID); err != nil {
+				failed = append(failed, BulkProductFailure{Index: index, Name: request.Name, SKU: request.SKU, Error: fmt.Sprintf("invalid category: %v", err)})
+				continue
+			}
 		}
 		if request.Name == "" {
 			failed = append(failed, BulkProductFailure{Index: index, Name: request.Name, SKU: request.SKU, Error: "product name is required"})
@@ -356,7 +351,8 @@ func (s *Service) UpdateMinimumStock(ctx context.Context, id uuid.UUID, minStock
 	return nil
 }
 
-// DeleteProduct permanently deletes a product when it has no transaction history.
+// DeleteProduct permanently deletes a product and cleans all transaction
+// history linked to that product so dashboard and report totals stay aligned.
 func (s *Service) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	if err := s.repo.DeleteProduct(ctx, id); err != nil {
 		return err

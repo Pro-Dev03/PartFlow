@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,19 @@ import (
 )
 
 const testOwnerPassword = "TestOwnerPassword123!"
+
+func TestNewServiceRejectsUnsupportedSupabaseAuth(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = NewService(sqlx.NewDb(db, "sqlite"), "test-secret", true, "https://example.supabase.co", "test-key", "")
+	if err == nil || !strings.Contains(err.Error(), "USE_SUPABASE_AUTH=false") {
+		t.Fatalf("expected explicit unsupported Supabase error, got %v", err)
+	}
+}
 
 func TestLoginWorksWithSQLiteUserTimestamps(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")

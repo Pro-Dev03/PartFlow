@@ -40,6 +40,16 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			_ = tx.Rollback()
 		}
 	}()
+	var activeShift *PosShift
+	if userID != uuid.Nil {
+		activeShift, err = currentShiftFrom(ctx, tx, userID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify open shift: %w", err)
+		}
+		if activeShift == nil {
+			return nil, ErrNoOpenShift
+		}
+	}
 	sqlNow := dbutil.NowSQL(s.db)
 	metadataValue := "$4::jsonb"
 	if dbutil.IsSQLite(s.db) {
@@ -73,6 +83,9 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	if !discountsEnabled && (req.DiscountValue > 0 || strings.TrimSpace(req.DiscountType) != "") {
 		return nil, fmt.Errorf("discounts are disabled by store settings")
 	}
+	if req.DiscountValue < 0 {
+		return nil, ErrInvalidDiscount
+	}
 
 	var items []SaleItem
 	productNames := make(map[uuid.UUID]string)
@@ -83,6 +96,12 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	}) // Store available items for each product
 
 	for _, itemReq := range req.Items {
+		if itemReq.Quantity <= 0 {
+			return nil, ErrInvalidQuantity
+		}
+		if itemReq.UnitPrice < 0 {
+			return nil, ErrInvalidPrice
+		}
 		// Check stock availability with row lock (using inventory_items for individual tracking)
 		var availableItems []struct {
 			ID   uuid.UUID `db:"id"`
@@ -115,7 +134,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 		var productName string
 		if err := tx.GetContext(ctx, &productName, `SELECT name FROM products WHERE id = $1`, itemReq.ProductID); err != nil {
-			return nil, fmt.Errorf("failed to get product name: %w", err)
+			return nil, fmt.Errorf("%w: %v", ErrProductNotFound, err)
 		}
 		productNames[itemReq.ProductID] = productName
 
@@ -206,7 +225,18 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 	paymentMethod := ""
 	if req.PaymentMethod != nil {
-		paymentMethod = *req.PaymentMethod
+		paymentMethod = strings.ToLower(strings.TrimSpace(*req.PaymentMethod))
+	}
+	validatePayment := userID != uuid.Nil
+	if validatePayment {
+		if paymentMethod == "transfer" {
+			paymentMethod = "checks"
+		}
+		switch paymentMethod {
+		case "cash", "card", "checks", "debt":
+		default:
+			return nil, ErrInvalidPaymentMethod
+		}
 	}
 	paymentAmount := req.PaymentAmount
 	if req.PaymentTransactionID != nil {
@@ -230,20 +260,23 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			cashReceived = paymentAmount
 		}
 		if cashReceived < paymentAmount {
-			return nil, fmt.Errorf("cash received cannot be less than applied payment")
+			return nil, ErrInvalidPayment
 		}
 		if cashReceived > paymentAmount {
 			paymentAmount = math.Min(cashReceived, totalAmount)
 		}
 	}
 	if paymentAmount < 0 || paymentAmount > totalAmount {
-		return nil, fmt.Errorf("payment amount must be between 0 and the sale total")
+		return nil, ErrInvalidPayment
+	}
+	isDebtSale := paymentMethod == "debt"
+	if validatePayment && !isDebtSale && paymentAmount < totalAmount {
+		return nil, ErrInvalidPayment
 	}
 	changeAmount := 0.0
 	if strings.EqualFold(paymentMethod, "cash") && cashReceived > totalAmount {
 		changeAmount = cashReceived - totalAmount
 	}
-	isDebtSale := paymentMethod == "debt"
 	if isDebtSale && req.CustomerID == nil {
 		return nil, fmt.Errorf("credit sales require a customer")
 	}
@@ -486,13 +519,28 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 				return nil, fmt.Errorf("failed to create inventory movement: %w", err)
 			}
 
+			itemHistoryMetadata, marshalErr := json.Marshal(map[string]interface{}{
+				"sale_id":           sale.ID,
+				"inventory_item_id": itemID,
+				"product_id":        items[i].ProductID,
+				"quantity":          items[i].Quantity,
+				"unit_price":        items[i].UnitPrice,
+				"unit_cost":         items[i].UnitCost,
+				"discount":          items[i].DiscountAmount,
+				"tax":               items[i].TaxAmount,
+				"total":             items[i].TotalAmount,
+				"customer_id":       sale.CustomerID,
+				"invoice_number":    sale.InvoiceNumber,
+			})
+			if marshalErr != nil {
+				return nil, fmt.Errorf("failed to encode item history snapshot: %w", marshalErr)
+			}
 			_, err = tx.ExecContext(ctx, fmt.Sprintf(`
 				INSERT INTO item_history
 					(inventory_item_id, event_type, event_date, reference_type, reference_id,
 					 description, metadata, created_by, created_at)
 				VALUES ($1, 'sold', %s, 'sale', $2, $3, %s, $5, %s)
-			`, sqlNow, metadataValue, sqlNow), itemID, sale.ID, reason,
-				fmt.Sprintf(`{"sale_id":"%s","unit_price":%.2f}`, sale.ID, items[i].UnitPrice), userID)
+			`, sqlNow, metadataValue, sqlNow), itemID, sale.ID, reason, string(itemHistoryMetadata), userID)
 			if err != nil {
 				if !(dbutil.IsSQLite(s.db) && strings.Contains(strings.ToLower(err.Error()), "no such table: item_history")) {
 					return nil, fmt.Errorf("failed to create item history: %w", err)
@@ -680,6 +728,11 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			return nil, fmt.Errorf("link legacy payment to sale: %w", err)
 		}
 	}
+	if activeShift != nil {
+		if err := refreshShiftSummary(ctx, tx, activeShift.ID.String(), activeShift.UserID.String(), activeShift.OpenedAt, nil); err != nil {
+			return nil, fmt.Errorf("failed to update shift summary: %w", err)
+		}
+	}
 
 	// Create warranty records for items if applicable
 	if req.CustomerID != nil {
@@ -703,30 +756,46 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	}
 
 	// Create audit log
-	var auditLogsTable *string
 	var userExists bool
 	if userID != uuid.Nil {
 		_ = tx.GetContext(ctx, &userExists, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, userID)
 	}
 	if userExists {
-		if tableErr := tx.GetContext(ctx, &auditLogsTable, `SELECT to_regclass('public.audit_logs')`); tableErr == nil && auditLogsTable != nil {
-			auditQuery := `
+		auditQuery := `
 			INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
 		`
-			changes, marshalErr := json.Marshal(map[string]interface{}{
-				"invoice_number": invoiceNumber,
-				"item_count":     len(items),
-				"total":          totalAmount,
-			})
-			if marshalErr != nil {
-				return nil, fmt.Errorf("failed to encode audit log: %w", marshalErr)
-			}
-			if _, auditErr := tx.ExecContext(ctx, auditQuery,
-				uuid.New(), userID, "CREATE_SALE", "sale", sale.ID,
-				string(changes), time.Now()); auditErr != nil {
-				return nil, fmt.Errorf("failed to create audit log: %w", auditErr)
-			}
+		if dbutil.IsSQLite(s.db) {
+			auditQuery = `
+				INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)
+				`
+		}
+		changes, marshalErr := json.Marshal(map[string]interface{}{
+			"sale_id":        sale.ID,
+			"invoice_number": invoiceNumber,
+			"customer_id":    sale.CustomerID,
+			"items":          items,
+			"item_count":     len(items),
+			"subtotal":       sale.Subtotal,
+			"discount":       sale.DiscountAmount,
+			"tax":            sale.TaxAmount,
+			"total":          sale.TotalAmount,
+			"paid_amount":    sale.PaidAmount,
+			"cash_received":  sale.CashReceived,
+			"change_amount":  sale.ChangeAmount,
+			"payment_method": sale.PaymentMethod,
+			"payment_status": sale.PaymentStatus,
+			"notes":          sale.Notes,
+			"sale_date":      sale.SaleDate,
+		})
+		if marshalErr != nil {
+			return nil, fmt.Errorf("failed to encode audit log: %w", marshalErr)
+		}
+		if _, auditErr := tx.ExecContext(ctx, auditQuery,
+			uuid.New(), userID, "CREATE_SALE", "sale", sale.ID,
+			string(changes), time.Now()); auditErr != nil {
+			return nil, fmt.Errorf("failed to create audit log: %w", auditErr)
 		}
 	}
 

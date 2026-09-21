@@ -60,51 +60,9 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, purchaseID uuid.UU
 		return nil, fmt.Errorf("failed to get purchase: %w", err)
 	}
 
-	// Check if already reversed
-	if purchase.ReversedAt != nil {
-		return &SmartDeleteResult{
-			Action:     "blocked",
-			Message:    "تم بالفعل إلغاء هذه العملية",
-			CanProceed: false,
-			Details: &SmartDeleteDetails{
-				Reason:          "تم بالفعل عكس العملية",
-				SuggestedAction: "لا حاجة لأي إجراء",
-			},
-		}, nil
-	}
-
-	// Check purchase status and dependencies
-	switch purchase.Status {
-	case "draft", "pending":
-		// Pending purchases can be deleted, including their recorded payments.
-		return s.deleteDraftPurchase(ctx, purchaseID, userID)
-
-	case "received":
-		// Check if items have been used in sales or other operations
-		return s.handleReceivedPurchase(ctx, purchaseID, userID, purchase)
-
-	case "cancelled":
-		return &SmartDeleteResult{
-			Action:     "blocked",
-			Message:    "تم بالفعل إلغاء هذه العملية",
-			CanProceed: false,
-			Details: &SmartDeleteDetails{
-				Reason:          "العملية ملغاة بالفعل",
-				SuggestedAction: "لا حاجة لأي إجراء",
-			},
-		}, nil
-
-	default:
-		return &SmartDeleteResult{
-			Action:     "blocked",
-			Message:    "لا يمكن حذف هذه العملية",
-			CanProceed: false,
-			Details: &SmartDeleteDetails{
-				Reason:          "حالة العملية غير معروفة",
-				SuggestedAction: "تواصل مع الدعم الفني",
-			},
-		}, nil
-	}
+	// Delete is an explicit user action. It does not cancel or reverse the
+	// purchase, regardless of its current status.
+	return s.deleteDraftPurchase(ctx, purchaseID, userID)
 }
 
 // deleteDraftPurchase handles deletion of draft/pending purchases
@@ -120,12 +78,22 @@ func (s *SmartDeleteService) deleteDraftPurchase(ctx context.Context, purchaseID
 		return nil, fmt.Errorf("failed to find purchase supplier: %w", err)
 	}
 
-	// Payments do not cascade on purchase deletion, so remove dependent records explicitly.
+	// Payments and historical source rows do not all cascade on purchase deletion.
 	if _, err = tx.ExecContext(ctx, "DELETE FROM payments WHERE purchase_id = $1", purchaseID); err != nil {
 		return nil, fmt.Errorf("failed to delete purchase payments: %w", err)
 	}
 	if _, err = tx.ExecContext(ctx, "DELETE FROM supplier_ledger WHERE reference_id = $1", purchaseID); err != nil {
 		return nil, fmt.Errorf("failed to delete supplier ledger entries: %w", err)
+	}
+	for _, query := range []string{
+		"DELETE FROM supplier_return_items WHERE supplier_return_id IN (SELECT id FROM supplier_returns WHERE purchase_id = $1)",
+		"DELETE FROM supplier_returns WHERE purchase_id = $1",
+		"DELETE FROM inventory_movements WHERE reference_type = 'purchase' AND reference_id = $1",
+		"DELETE FROM item_history WHERE reference_type = 'purchase' AND reference_id = $1",
+	} {
+		if _, err = tx.ExecContext(ctx, query, purchaseID); err != nil {
+			return nil, fmt.Errorf("failed to delete purchase dependent rows: %w", err)
+		}
 	}
 	if _, err = tx.ExecContext(ctx, "DELETE FROM purchase_items WHERE purchase_id = $1", purchaseID); err != nil {
 		return nil, fmt.Errorf("failed to delete purchase items: %w", err)

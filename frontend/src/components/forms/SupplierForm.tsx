@@ -42,7 +42,7 @@ export function SupplierForm({ onSubmit, onCancel, initialData }: SupplierFormPr
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{initialData ? 'تعديل المورد' : 'إضافة مورد جديد'}</CardTitle>
+        <CardTitle>{initialData ? 'تعديل التاجر' : 'إضافة تاجر جديد'}</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -107,7 +107,7 @@ export function SupplierForm({ onSubmit, onCancel, initialData }: SupplierFormPr
               إلغاء
             </Button>
             <Button type="submit">
-              {initialData ? 'حفظ التغييرات' : 'إضافة المورد'}
+              {initialData ? 'حفظ التغييرات' : 'إضافة التاجر'}
             </Button>
           </div>
         </form>

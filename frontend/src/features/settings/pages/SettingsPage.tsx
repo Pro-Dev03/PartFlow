@@ -89,7 +89,6 @@ export function SettingsPage() {
     <div>
       {/* Page Header */}
       <PageHeader
-        eyebrow="مركز التحكم"
         title={t('settings.title')}
         description="تحكم في حسابك واشتراكك وإعدادات متجرك من مكان واحد"
       />

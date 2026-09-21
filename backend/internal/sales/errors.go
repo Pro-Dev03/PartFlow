@@ -18,6 +18,9 @@ var (
 	ErrInvalidQuantity      = errors.New("invalid quantity")
 	ErrDuplicateInvoice     = errors.New("invoice number already exists")
 	ErrInvalidPaymentMethod = errors.New("invalid payment method")
+	ErrNoOpenShift          = errors.New("cannot create sale without an open shift")
+	ErrInvalidPrice         = errors.New("unit price must be non-negative")
+	ErrInvalidDiscount      = errors.New("discount value cannot be negative")
 )
 
 type InsufficientStockError struct {

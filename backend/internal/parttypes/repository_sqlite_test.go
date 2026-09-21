@@ -46,6 +46,35 @@ func TestSQLitePartTypesAndSpecifications(t *testing.T) {
 	}
 }
 
+func TestServiceCreatePartTypeDefaultsMissingEnglishName(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "parttypes-default-name.db"))
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+
+	repo := NewRepository(sqlx.NewDb(database.DB, "sqlite"))
+	service := NewService(repo)
+	ctx := context.Background()
+
+	created, err := service.CreatePartType(ctx, &CreatePartTypeRequest{NameAr: "بطارية", NameEn: ""})
+	if err != nil {
+		t.Fatalf("CreatePartType returned error: %v", err)
+	}
+	if created.NameEn != "بطارية" {
+		t.Fatalf("NameEn fallback mismatch: got %q, want %q", created.NameEn, "بطارية")
+	}
+
+	stored, err := repo.GetPartType(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetPartType returned error: %v", err)
+	}
+	if stored.NameEn != "بطارية" {
+		t.Fatalf("stored NameEn mismatch: got %q, want %q", stored.NameEn, "بطارية")
+	}
+}
+
 func TestParsePartTypeMapHandlesNumericAndByteValues(t *testing.T) {
 	id := uuid.MustParse("11111111-1111-4111-8111-111111111111")
 	record := map[string]any{

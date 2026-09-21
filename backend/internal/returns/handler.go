@@ -45,6 +45,10 @@ func (h *Handler) CreateReturn(c *gin.Context) {
 
 	response, err := h.service.CreateReturn(c.Request.Context(), userID, &req)
 	if err != nil {
+		if stderrors.Is(err, ErrSaleNotFound) {
+			apperrors.HandleError(c, apperrors.NewNotFoundError("Sale", err))
+			return
+		}
 		if stderrors.Is(err, ErrInsufficientStock) {
 			apperrors.HandleError(c, apperrors.NewConflictError("return quantity exceeds the quantity sold", err))
 			return

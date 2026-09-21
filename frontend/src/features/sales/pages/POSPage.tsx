@@ -54,6 +54,7 @@ import { AdvancedPaymentPanel } from '../components/modern/AdvancedPaymentPanel'
 import { normalizePosPrice, useCart } from '../hooks/useCart';
 import { usePayment } from '../hooks/usePayment';
 import { buildManualProductPayload } from '../utils/manualProductPayload';
+import { createDefaultPosShift, resolvePosShiftState } from '../utils/posShift';
 import { getPartTypeImage } from '../../../services/localPartTypeImages';
 import { getCategoryImage } from '../../../services/localCategoryImages';
 
@@ -96,15 +97,7 @@ function normalizeRemoteShift(value: unknown): PosShiftState | null {
   if (!value || typeof value !== 'object') return null;
   const shift = value as Record<string, unknown>;
   if (shift.status !== 'open' && shift.status !== 'closed') return null;
-  return {
-    status: shift.status,
-    openedAt: String(shift.opened_at || new Date().toISOString()),
-    openingCash: Number(shift.opening_cash) || 0,
-    closedAt: typeof shift.closed_at === 'string' ? shift.closed_at : undefined,
-    closingCash: shift.closing_cash == null ? undefined : Number(shift.closing_cash) || 0,
-    salesTotal: Number(shift.sales_total) || 0,
-    saleCount: Number(shift.sale_count) || 0,
-  };
+  return resolvePosShiftState(value);
 }
 
 export function POSPage() {
@@ -272,7 +265,7 @@ export function POSPage() {
   const [shiftOpeningCash, setShiftOpeningCash] = useState('');
   const [shiftClosingCash, setShiftClosingCash] = useState('');
   const [shift, setShift] = useState<PosShiftState>(() => {
-    if (typeof window === 'undefined') return createDefaultShift();
+    if (typeof window === 'undefined') return createDefaultPosShift();
     try {
       const stored = window.localStorage.getItem(POS_SHIFT_STORAGE_KEY);
       if (stored) {
@@ -282,7 +275,7 @@ export function POSPage() {
     } catch {
       // Use a fresh local shift when stored state is unavailable.
     }
-    return createDefaultShift();
+    return createDefaultPosShift();
   });
   const { checkoutMode, setCheckoutMode } = useUIStore();
   const initialCheckoutMode = useRef(checkoutMode);
@@ -312,17 +305,15 @@ export function POSPage() {
   });
 
   useEffect(() => {
-    const remoteShift = normalizeRemoteShift(currentShiftData?.data);
+    if (!currentShiftData) return;
+
+    const remoteShift = normalizeRemoteShift(currentShiftData.data);
     if (remoteShift) {
       setShift(remoteShift);
       return;
     }
-    if (currentShiftData && currentShiftData.data === null) {
-      setShift({
-        ...createDefaultShift(),
-        status: 'closed',
-      });
-    }
+
+    setShift(createDefaultPosShift());
   }, [currentShiftData]);
   const heldSales = (
     (

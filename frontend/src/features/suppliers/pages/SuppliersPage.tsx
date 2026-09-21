@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useToast } from '../../../hooks/useToast';
 import { useDebounce } from '../../../hooks/useDebounce';
@@ -26,6 +27,7 @@ import {
   Truck,
   Search,
   Plus,
+  ShoppingCart,
   Filter,
   DollarSign,
   RefreshCw
@@ -34,6 +36,7 @@ import {
 
 export function SuppliersPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { success: showSuccess, error: showError } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -105,7 +108,7 @@ export function SuppliersPage() {
   };
 
   const handlePrint = () => {
-    printTable(getSupplierReportRows(filteredSuppliers), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق'], 'تقرير الموردين');
+    printTable(getSupplierReportRows(filteredSuppliers), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق'], 'تقرير التجار');
   };
 
   const loadAllSuppliers = async () => {
@@ -125,23 +128,23 @@ export function SuppliersPage() {
   };
 
   const handlePrintAll = async () => {
-    printTable(getSupplierReportRows(await loadAllSuppliers()), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق'], 'تقرير كل الموردين');
+    printTable(getSupplierReportRows(await loadAllSuppliers()), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق'], 'تقرير كل التجار');
   };
 
   const handleSubmitSupplier = async (data: SupplierFormData) => {
     try {
       if (editingSupplier) {
         await suppliersApi.update(editingSupplier.id, data);
-        showSuccess('تم تحديث المورد بنجاح');
+        showSuccess('تم تحديث التاجر بنجاح');
       } else {
         await suppliersApi.create(data);
-        showSuccess('تمت إضافة المورد بنجاح');
+        showSuccess('تمت إضافة التاجر بنجاح');
       }
       setIsAddModalOpen(false);
       setEditingSupplier(null);
       refetch();
     } catch (err) {
-      showError('حدث خطأ أثناء حفظ المورد');
+      showError('حدث خطأ أثناء حفظ التاجر');
     }
   };
 
@@ -154,12 +157,12 @@ export function SuppliersPage() {
     if (supplierToDelete) {
       try {
         await suppliersApi.delete(supplierToDelete.id);
-        showSuccess('تم إيقاف المورد وإخفاؤه من التعاملات اليومية');
+        showSuccess('تم إيقاف التاجر وإخفاؤه من التعاملات اليومية');
         setDeleteDialogOpen(false);
         setSupplierToDelete(null);
         refetch();
       } catch (err) {
-        showError('تعذر إيقاف المورد');
+        showError('تعذر إيقاف التاجر');
       }
     }
   };
@@ -167,10 +170,10 @@ export function SuppliersPage() {
   const handleRestoreSupplier = async (supplier: any) => {
     try {
       await suppliersApi.update(supplier.id, { ...supplier, is_active: true });
-      showSuccess('تمت إعادة تفعيل المورد بنجاح');
+      showSuccess('تمت إعادة تفعيل التاجر بنجاح');
       refetch();
     } catch (err) {
-      showError('تعذر إعادة تفعيل المورد');
+      showError('تعذر إعادة تفعيل التاجر');
     }
   };
 
@@ -178,14 +181,17 @@ export function SuppliersPage() {
     <div>
       {/* Page Header */}
       <PageHeader
-        eyebrow="Supplier Hub"
         title={t('suppliers.title')}
-        description="إدارة الموردين والمشتريات مع رؤى ذكية"
+        description="إدارة التجار والمشتريات مع رؤى ذكية"
         actions={
           <div style={{ display: 'flex', gap: '10px' }}>
             <Button variant="primary" size={getButtonSize('suppliers', 'headerActions')} onClick={() => setIsAddModalOpen(true)} className="gap-2">
               <Plus className="w-4 h-4" />
               {t('suppliers.addSupplier')}
+            </Button>
+            <Button variant="secondary" size={getButtonSize('suppliers', 'headerActions')} onClick={() => navigate('/app/purchases')} className="gap-2">
+              <ShoppingCart className="w-4 h-4" />
+              المشتريات
             </Button>
             <ReportActions onExportCurrent={handleExport} onPrintCurrent={handlePrint} onExportAll={() => { void handleExportAll(); }} onPrintAll={() => { void handlePrintAll(); }} />
           </div>
@@ -193,13 +199,14 @@ export function SuppliersPage() {
       />
 
       {/* Stats Cards */}
-      <div className="unified-stats-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="unified-stats-grid supplier-stats grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          title="إجمالي الموردين"
+          title="إجمالي التجار"
           value={totalSuppliers}
           icon={Truck}
-          subtitle="مورد نشط"
+          subtitle="تاجر نشط"
           variant="featured"
+          size="sm"
         />
         <StatCard
           title="إجمالي المشتريات"
@@ -207,6 +214,7 @@ export function SuppliersPage() {
           icon={DollarSign}
           subtitle="قيمة المشتريات"
           variant="default"
+          size="sm"
         />
         <StatCard
           title="المدفوع"
@@ -214,6 +222,7 @@ export function SuppliersPage() {
           icon={DollarSign}
           subtitle="تم الدفع"
           variant="success"
+          size="sm"
         />
         <StatCard
           title="صافي المستحق"
@@ -221,6 +230,7 @@ export function SuppliersPage() {
           icon={DollarSign}
           subtitle="المتبقي"
           variant="warning"
+          size="sm"
         />
       </div>
 
@@ -245,7 +255,7 @@ export function SuppliersPage() {
                 onClick={() => setShowOutstandingOnly((current) => !current)}
               >
                 <Filter className="w-4 h-4" />
-                {showOutstandingOnly ? 'عرض كل الموردين' : 'الموردون المستحقون'}
+                {showOutstandingOnly ? 'عرض كل التجار' : 'التجار المستحقون'}
               </Button>
               <Button
                 variant={showInactive ? 'primary' : 'outline'}
@@ -257,15 +267,15 @@ export function SuppliersPage() {
                 }}
               >
                 {showInactive ? <RotateCcw className="w-4 h-4" /> : <RefreshCw className="w-4 h-4" />}
-                {showInactive ? 'عرض الموردين النشطين' : 'الموردون المعطلون'}
+                {showInactive ? 'عرض التجار النشطين' : 'التجار المعطلون'}
               </Button>
-              <div className="flex flex-wrap gap-2" role="group" aria-label="ترتيب الموردين">
+              <div className="flex flex-wrap gap-2" role="group" aria-label="ترتيب التجار">
                 <SortButton
                   label="الأحدث إضافة"
                   active={sortBy === 'recent'}
                   direction={sortBy === 'recent' ? 'desc' : null}
                   onClick={() => setSortBy('recent')}
-                  aria-label="ترتيب الموردين حسب الأحدث إضافة"
+                  aria-label="ترتيب التجار حسب الأحدث إضافة"
                   className="min-w-0 flex-1"
                 />
                 <SortButton
@@ -273,7 +283,7 @@ export function SuppliersPage() {
                   active={sortBy === 'outstanding'}
                   direction={sortBy === 'outstanding' ? 'desc' : null}
                   onClick={() => setSortBy('outstanding')}
-                  aria-label="ترتيب الموردين حسب الأعلى استحقاقًا"
+                  aria-label="ترتيب التجار حسب الأعلى استحقاقًا"
                   className="min-w-0 flex-1"
                 />
                 <SortButton
@@ -281,7 +291,7 @@ export function SuppliersPage() {
                   active={sortBy === 'purchases'}
                   direction={sortBy === 'purchases' ? 'desc' : null}
                   onClick={() => setSortBy('purchases')}
-                  aria-label="ترتيب الموردين حسب الأعلى مشتريات"
+                  aria-label="ترتيب التجار حسب الأعلى مشتريات"
                   className="min-w-0 flex-1"
                 />
               </div>
@@ -299,8 +309,8 @@ export function SuppliersPage() {
                 <Truck className="h-4 w-4" />
               </span>
               <div>
-                <CardTitle className="text-sm font-extrabold text-[var(--text-primary)]">{showInactive ? 'الموردون المعطلون' : 'الموردون النشطون'} ({filteredSuppliers.length})</CardTitle>
-                <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">إدارة بيانات الموردين وحساباتهم المالية</p>
+                <CardTitle className="text-sm font-extrabold text-[var(--text-primary)]">{showInactive ? 'التجار المعطلون' : 'التجار النشطون'} ({filteredSuppliers.length})</CardTitle>
+                  <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">إدارة بيانات التجار وحساباتهم المالية</p>
               </div>
             </div>
             <Button
@@ -322,12 +332,12 @@ export function SuppliersPage() {
           ) : filteredSuppliers.length === 0 ? (
             <EmptyState
               icon={<Truck className="h-5 w-5" />}
-              title={showInactive ? 'لا يوجد موردون معطلون' : 'لا يوجد موردون نشطون'}
-              description={searchQuery ? 'جرّب تعديل عبارة البحث أو إزالة الفلاتر' : 'أضف أول مورد لبدء إدارة المشتريات'}
+                title={showInactive ? 'لا يوجد تجار معطلون' : 'لا يوجد تجار نشطون'}
+                  description={searchQuery ? 'جرّب تعديل عبارة البحث أو إزالة الفلاتر' : 'أضف أول تاجر لبدء إدارة المشتريات'}
               size="sm"
             />
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="supplier-cards-grid gap-4">
               {filteredSuppliers.map((supplier: any) => (
                 <SupplierCard
                   key={supplier.id}
@@ -383,9 +393,9 @@ export function SuppliersPage() {
           setSupplierToDelete(null);
         }}
         onConfirm={handleConfirmDelete}
-        title="إيقاف المورد"
-        message="سيتم إيقاف المورد وإخفاؤه من القوائم اليومية مع الاحتفاظ بسجلاته المالية."
-        confirmText="إيقاف المورد"
+        title="إيقاف التاجر"
+        message="سيتم إيقاف التاجر وإخفاؤه من القوائم اليومية مع الاحتفاظ بسجلاته المالية."
+        confirmText="إيقاف التاجر"
         cancelText="إلغاء"
         variant="danger"
       />
