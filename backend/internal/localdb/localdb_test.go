@@ -145,6 +145,94 @@ func TestOpenInitializesLocalDatabase(t *testing.T) {
 	}
 }
 
+func TestSyncQueueIdempotencyAndRetryLifecycle(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "sync-queue-idempotency.db"))
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer db.Close()
+
+	if err := initializeSchema(db); err != nil {
+		t.Fatalf("initializeSchema() error = %v", err)
+	}
+
+	const (
+		entityID = "sale-9001"
+		key      = "sale:sale-9001:create:duplicate-check"
+	)
+
+	if _, err := db.Exec(`
+		INSERT INTO sync_queue (id, entity_type, entity_id, operation, payload, idempotency_key, created_at, attempts, last_error, next_retry_at, synced_at)
+		VALUES (?, 'sale', ?, 'create', '{"amount": 250}', ?, CURRENT_TIMESTAMP, 0, NULL, CURRENT_TIMESTAMP, NULL)
+	`, entityID, entityID, key); err != nil {
+		t.Fatalf("first insert error = %v", err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO sync_queue (id, entity_type, entity_id, operation, payload, idempotency_key, created_at, attempts, last_error, next_retry_at, synced_at)
+		VALUES (?, 'sale', ?, 'create', '{"amount": 250}', ?, CURRENT_TIMESTAMP, 0, NULL, CURRENT_TIMESTAMP, NULL)
+		ON CONFLICT(idempotency_key) DO NOTHING
+	`, entityID, entityID, key); err != nil {
+		t.Fatalf("duplicate insert error = %v", err)
+	}
+
+	var firstCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sync_queue WHERE entity_id = ? AND idempotency_key = ?`, entityID, key).Scan(&firstCount); err != nil {
+		t.Fatalf("count duplicate rows error = %v", err)
+	}
+	if firstCount != 1 {
+		t.Fatalf("duplicate request created %d rows, want 1", firstCount)
+	}
+
+	if err := MarkSyncOperationFailed(db, entityID, "temporary failure"); err != nil {
+		t.Fatalf("MarkSyncOperationFailed() error = %v", err)
+	}
+
+	var nextRetryAt string
+	if err := db.QueryRow(`SELECT next_retry_at FROM sync_queue WHERE id = ?`, entityID).Scan(&nextRetryAt); err != nil {
+		t.Fatalf("read next_retry_at error = %v", err)
+	}
+	if nextRetryAt == "" {
+		t.Fatal("temporary failure did not leave the operation retryable")
+	}
+
+	if count, err := GetPendingSyncCount(db); err != nil || count != 0 {
+		t.Fatalf("GetPendingSyncCount() = %d, %v; want 0 while retry is scheduled", count, err)
+	}
+
+	if _, err := db.Exec(`
+		INSERT INTO sync_queue (id, entity_type, entity_id, operation, payload, idempotency_key, created_at, attempts, last_error, next_retry_at, synced_at)
+		VALUES (?, 'sale', ?, 'create', '{"amount": 250}', ?, CURRENT_TIMESTAMP, 0, NULL, CURRENT_TIMESTAMP, NULL)
+		ON CONFLICT(idempotency_key) DO NOTHING
+	`, entityID, entityID, key); err != nil {
+		t.Fatalf("retry insert error = %v", err)
+	}
+
+	var finalCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sync_queue WHERE idempotency_key = ?`, key).Scan(&finalCount); err != nil {
+		t.Fatalf("final count lookup error = %v", err)
+	}
+	if finalCount != 1 {
+		t.Fatalf("retry created %d rows, want 1", finalCount)
+	}
+
+	if err := MarkSyncOperationSucceeded(db, entityID); err != nil {
+		t.Fatalf("MarkSyncOperationSucceeded() error = %v", err)
+	}
+
+	var attempts int
+	var syncedAt sql.NullString
+	if err := db.QueryRow(`SELECT attempts, synced_at FROM sync_queue WHERE id = ?`, entityID).Scan(&attempts, &syncedAt); err != nil {
+		t.Fatalf("read final sync row error = %v", err)
+	}
+	if !syncedAt.Valid {
+		t.Fatal("successful retry did not mark the operation as synced")
+	}
+	if attempts < 2 {
+		t.Fatalf("attempts = %d, want >= 2 after failure + success", attempts)
+	}
+}
+
 func TestDeduplicateSupplierReturnItems(t *testing.T) {
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "supplier-return-duplicates.db"))
 	if err != nil {

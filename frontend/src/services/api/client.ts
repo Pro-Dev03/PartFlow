@@ -85,7 +85,6 @@ class ApiClient {
     if (this.authInvalidationDispatched || typeof window === 'undefined') return;
 
     this.authInvalidationDispatched = true;
-    this.logout();
     window.dispatchEvent(new CustomEvent('partflow:auth-invalidated', {
       detail: { reason },
     }));
@@ -152,8 +151,6 @@ class ApiClient {
       return this.refreshInFlight;
     }
 
-    const refreshToken = TokenManager.getRefreshToken();
-
     const refreshPromise = (async () => {
       const baseUrl = typeof window !== 'undefined' && shouldUseLocalApi(window.location.hostname)
         ? getLocalApiUrl()
@@ -165,7 +162,7 @@ class ApiClient {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : '{}',
+        body: '{}',
       });
 
       const refreshData = await refreshResponse.json().catch(() => ({}));
@@ -183,10 +180,6 @@ class ApiClient {
         ? refreshData.data
         : refreshData;
       const newToken = refreshPayload?.access_token || refreshPayload?.token;
-      const newRefreshToken = refreshPayload?.refresh_token
-        || refreshPayload?.refreshToken
-        || refreshToken;
-
       if (!newToken) {
         this.refreshFailedForSession = true;
         return null;
@@ -227,9 +220,6 @@ class ApiClient {
     if (!token) return null;
 
     this.setToken(token);
-    if (data?.refresh_token) {
-      TokenManager.setRefreshToken(data.refresh_token);
-    }
     return token;
   }
 
@@ -564,13 +554,11 @@ class ApiClient {
 
   private async refreshCloudAccessToken(): Promise<string | null> {
     if (typeof window === 'undefined') return null;
-    const refreshToken = localStorage.getItem('cloud_refresh_token');
-    if (!refreshToken) return null;
-
     const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      body: '{}',
     });
     const refreshData = await refreshResponse.json().catch(() => ({}));
     if (!refreshResponse.ok) {
@@ -589,10 +577,6 @@ class ApiClient {
     if (!nextToken) return null;
 
     localStorage.setItem('cloud_token', nextToken);
-    const nextRefresh = payload?.refresh_token || payload?.refreshToken;
-    if (nextRefresh) {
-      localStorage.setItem('cloud_refresh_token', nextRefresh);
-    }
     return nextToken as string;
   }
 

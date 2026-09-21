@@ -196,17 +196,15 @@ async function refreshCloudAccessToken(): Promise<string | null> {
   try {
     const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
     });
     const refreshData = await refreshResponse.json().catch(() => ({}));
     if (!refreshResponse.ok) {
       if (refreshResponse.status === 401) {
-        localStorage.removeItem('cloud_token');
-        localStorage.removeItem('cloud_refresh_token');
         localStorage.setItem(CLOUD_REFRESH_FAILED_KEY, 'true');
-        apiClient.clearCloudToken();
-        useAuthStore.setState({ cloudToken: null });
+        markCloudVerificationPending();
       } else {
         const error = new Error('Cloud token refresh is temporarily unavailable') as Error & { status?: number };
         error.status = refreshResponse.status;
@@ -497,8 +495,6 @@ export const useAuthStore = create<AuthState>()(
           if (!accessToken) {
             throw new Error('Cloud login response did not include an access token');
           }
-          const cloudRefreshToken = data.refresh_token;
-
           if (connectionMode === 'cloud') {
             TokenManager.setToken(accessToken);
             localStorage.setItem('cloud_token', accessToken);
@@ -515,7 +511,7 @@ export const useAuthStore = create<AuthState>()(
               sessionVerified: true,
               user: user || null,
               token: accessToken,
-              refreshTokenValue: cloudRefreshToken || null,
+              refreshTokenValue: null,
               cloudToken: accessToken,
               cloudVerificationPending: false,
               isLoading: false,
@@ -538,8 +534,6 @@ export const useAuthStore = create<AuthState>()(
           if (!localToken) {
             throw new Error('Local session response did not include an access token');
           }
-          const localRefreshToken = localData.refresh_token;
-
           TokenManager.setToken(localToken);
           localStorage.setItem('cloud_token', accessToken);
           apiClient.setCloudToken(accessToken);
@@ -555,7 +549,7 @@ export const useAuthStore = create<AuthState>()(
             sessionVerified: true,
             user: localData.user || user || null,
             token: localToken,
-            refreshTokenValue: localRefreshToken || null,
+            refreshTokenValue: null,
             cloudToken: accessToken,
             cloudVerificationPending: false,
             isLoading: false,
@@ -621,17 +615,18 @@ export const useAuthStore = create<AuthState>()(
       checkAuth: async () => {
         set({ isLoading: true, sessionVerified: false });
 
+        // Migrate credentials created by older builds. Refresh credentials are
+        // now HttpOnly cookies and must never remain readable by JavaScript.
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('cloud_refresh_token');
+
         const persistedState = getPersistedAuthState();
         const currentState = useAuthStore.getState();
         const token = currentState.token || persistedState?.token || TokenManager.getToken();
-        const refreshToken = currentState.refreshTokenValue || persistedState?.refreshTokenValue || TokenManager.getRefreshToken();
         const cloudToken = currentState.cloudToken || persistedState?.cloudToken || (typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null);
 
         if (token && !TokenManager.getToken()) {
           TokenManager.setToken(token);
-        }
-        if (refreshToken && !TokenManager.getRefreshToken()) {
-          TokenManager.setRefreshToken(refreshToken);
         }
         if (cloudToken && !localStorage.getItem('cloud_token')) {
           localStorage.setItem('cloud_token', cloudToken);
@@ -680,7 +675,7 @@ export const useAuthStore = create<AuthState>()(
           const payload = (response && typeof response === 'object' && 'data' in response && response.data)
             ? response.data
             : response;
-          const data = payload as { user?: User; token?: string; access_token?: string; refresh_token?: string };
+          const data = payload as { user?: User; token?: string; access_token?: string };
           const user = data.user;
           const token = data.token || data.access_token;
           if (!user || !token) {
@@ -718,10 +713,11 @@ export const useAuthStore = create<AuthState>()(
 
           const status = Number((error as { status?: number })?.status);
           if (status === 401) {
-            // A rejected refresh token proves that the persisted session is no
-            // longer valid. Clear all credentials instead of leaving the user
-            // inside the app with an unusable authenticated state.
-            forceLogoutToLogin('Session expired');
+            // A rejected refresh credential is not subscription expiry and is
+            // not enough evidence of a network loss. Keep the session visible,
+            // block sensitive work, and retry after the next online check.
+            markCloudVerificationPending();
+            set({ isAuthenticated: true, sessionVerified: true, isLoading: false });
             return;
           }
 

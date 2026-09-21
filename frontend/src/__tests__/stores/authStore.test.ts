@@ -74,7 +74,7 @@ describe('cloud subscription validation', () => {
     expect(window.location.hash).toBe('#/subscription-expired');
   });
 
-  it('logs out and redirects when the refresh token is rejected', async () => {
+  it('keeps the session pending when the refresh token is rejected', async () => {
     localStorage.setItem('auth_token', 'expired-access-token');
     localStorage.setItem('refresh_token', 'expired-refresh-token');
     localStorage.setItem('cloud_token', 'cloud-token');
@@ -89,11 +89,10 @@ describe('cloud subscription validation', () => {
 
     await useAuthStore.getState().refreshToken();
 
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
-    expect(useAuthStore.getState().token).toBeNull();
-    expect(localStorage.getItem('auth_token')).toBeNull();
-    expect(localStorage.getItem('refresh_token')).toBeNull();
-    expect(window.location.hash).toBe('#/login');
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().sessionVerified).toBe(true);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
+    expect(localStorage.getItem('auth_token')).toBe('expired-access-token');
   });
 
   it('retries cloud token refresh when the user presses retry', async () => {

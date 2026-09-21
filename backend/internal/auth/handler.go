@@ -24,7 +24,13 @@ const (
 
 func setRefreshTokenCookie(c *gin.Context, token string, maxAge int) {
 	secure := c.Request.TLS != nil || strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production")
-	c.SetSameSite(http.SameSiteLaxMode)
+	if secure {
+		// The web client may run on a different origin from the cloud API.
+		// SameSite=None is required for credentialed cross-site refresh calls.
+		c.SetSameSite(http.SameSiteNoneMode)
+	} else {
+		c.SetSameSite(http.SameSiteLaxMode)
+	}
 	c.SetCookie(refreshTokenCookieName, token, maxAge, "/api/v1/auth", "", secure, true)
 }
 
@@ -85,10 +91,9 @@ func (h *Handler) Login(c *gin.Context) {
 	// Response format based on worktrack
 	response := gin.H{
 		"data": gin.H{
-			"token":         resp.AccessToken,
-			"access_token":  resp.AccessToken,
-			"refresh_token": resp.RefreshToken,
-			"expires_in":    resp.ExpiresIn,
+			"token":        resp.AccessToken,
+			"access_token": resp.AccessToken,
+			"expires_in":   resp.ExpiresIn,
 			"user": gin.H{
 				"id":                      resp.User.ID.String(),
 				"email":                   resp.User.Email,
@@ -109,8 +114,15 @@ func (h *Handler) Login(c *gin.Context) {
 func (h *Handler) RefreshToken(c *gin.Context) {
 	var req RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+		// The browser intentionally sends an empty JSON body for cookie-based
+		// refreshes. A missing refresh_token in the body is not a protocol error
+		// when the HttpOnly refresh cookie is present and is the canonical source.
+		if strings.Contains(err.Error(), "RefreshToken") {
+			req.RefreshToken, _ = c.Cookie(refreshTokenCookieName)
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 	if strings.TrimSpace(req.RefreshToken) == "" {
 		req.RefreshToken, _ = c.Cookie(refreshTokenCookieName)
@@ -129,10 +141,9 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 
 	response := gin.H{
 		"data": gin.H{
-			"token":         resp.AccessToken,
-			"access_token":  resp.AccessToken,
-			"refresh_token": resp.RefreshToken,
-			"expires_in":    resp.ExpiresIn,
+			"token":        resp.AccessToken,
+			"access_token": resp.AccessToken,
+			"expires_in":   resp.ExpiresIn,
 			"user": gin.H{
 				"id":                      resp.User.ID.String(),
 				"email":                   resp.User.Email,
@@ -214,10 +225,9 @@ func (h *Handler) CloudSession(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"data": gin.H{
-			"token":         resp.AccessToken,
-			"access_token":  resp.AccessToken,
-			"refresh_token": resp.RefreshToken,
-			"expires_in":    resp.ExpiresIn,
+			"token":        resp.AccessToken,
+			"access_token": resp.AccessToken,
+			"expires_in":   resp.ExpiresIn,
 			"user": gin.H{
 				"id":                      resp.User.ID.String(),
 				"email":                   resp.User.Email,

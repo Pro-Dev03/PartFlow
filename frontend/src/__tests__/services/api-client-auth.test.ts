@@ -33,7 +33,7 @@ describe('apiClient auth propagation', () => {
     );
   });
 
-  it('invalidates the session when a 401 cannot be refreshed', async () => {
+  it('keeps the session credentials when a 401 cannot be refreshed', async () => {
     localStorage.setItem('auth_token', 'local-token');
     localStorage.setItem('cloud_token', 'cloud-token');
     apiClient.setToken('local-token');
@@ -57,7 +57,7 @@ describe('apiClient auth propagation', () => {
     });
 
     expect(invalidated).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem('auth_token')).toBeNull();
+    expect(localStorage.getItem('auth_token')).toBe('local-token');
     window.removeEventListener('partflow:auth-invalidated', invalidated);
   });
 

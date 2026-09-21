@@ -143,9 +143,12 @@ type RegisterRequest struct {
 	Phone     string `json:"phone"`
 }
 
-// RefreshTokenRequest represents refresh token request
+// RefreshTokenRequest represents a refresh token request.
+// The refresh token is intentionally supplied by the HttpOnly cookie when the
+// browser does not send a JSON body; a missing body must not be treated as a
+// validation error because the cookie is the canonical source.
 type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 // AuthResponse represents authentication response

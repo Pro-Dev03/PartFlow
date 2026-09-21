@@ -98,8 +98,6 @@ export const authApi = {
     return response.data ?? response;
   },
   refreshToken: async () => {
-    const refreshToken = TokenManager.getRefreshToken();
-
     const baseUrl = typeof window !== 'undefined' && shouldUseLocalApi(window.location.hostname)
       ? getLocalApiUrl()
       : getCloudApiUrl();
@@ -110,7 +108,7 @@ export const authApi = {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : '{}',
+      body: '{}',
     });
 
     const payload = await (async () => {
