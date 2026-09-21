@@ -522,7 +522,10 @@ class ApiClient {
       const isExpectedAuthInvalidation = error?.code === 'SUBSCRIPTION_EXPIRED'
         || error?.code === 'CLOUD_AUTH_REQUIRED'
         || error?.code === 'AUTH_REFRESH_PENDING';
-      if (!isExpectedAuthInvalidation && !isExpectedBarcodeMiss(error)) {
+      const isExpectedLocalLoginFallback = getConnectionMode() === 'local'
+        && endpoint === '/auth/login'
+        && error?.status === 401;
+      if (!isExpectedAuthInvalidation && !isExpectedBarcodeMiss(error) && !isExpectedLocalLoginFallback) {
         console.error('API request failed:', error);
       }
 
