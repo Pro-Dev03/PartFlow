@@ -678,6 +678,14 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 	if !sqliteHasColumn(r.db, "products", "category_id") {
 		categoryExpr = "ii.category_id"
 	}
+	categoryValueExpr := "p.category_id"
+	if dbutil.IsSQLite(r.db) {
+		if sqliteHasColumn(r.db, "products", "category_id") && sqliteHasColumn(r.db, "inventory_items", "category_id") {
+			categoryValueExpr = "COALESCE(ii.category_id, p.category_id)"
+		} else if sqliteHasColumn(r.db, "inventory_items", "category_id") {
+			categoryValueExpr = "ii.category_id"
+		}
+	}
 	// Backfill legacy inventory rows whenever the list is read. This also covers
 	// products imported after SQLite startup, when the startup migration ran too early.
 	if categoryExpr == "p.category_id" {
@@ -702,15 +710,15 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 			%s AS available_quantity,
 			p.name as product_name,
 			p.selling_price as product_selling_price,
-			CAST(COALESCE(ii.category_id, %s) AS TEXT) as category_id,
-			(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(COALESCE(ii.category_id, %s) AS TEXT) LIMIT 1) as category_name,
+			CAST(%s AS TEXT) as category_id,
+			(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(%s AS TEXT) LIMIT 1) as category_name,
 			s.name as supplier_name,
 			s.phone as supplier_phone
 		FROM inventory_items ii
 		LEFT JOIN products p ON ii.product_id = p.id
-			LEFT JOIN categories c ON c.id = COALESCE(ii.category_id, %s)
+			LEFT JOIN categories c ON c.id = %s
 		LEFT JOIN suppliers s ON ii.supplier_id = s.id
-	`, currentQuantityExpr, availableQuantityExpr, categoryExpr, categoryExpr, categoryExpr)
+	`, currentQuantityExpr, availableQuantityExpr, categoryValueExpr, categoryValueExpr, categoryValueExpr)
 	countQuery := `
 		SELECT COUNT(*) FROM inventory_items ii
 	`
@@ -733,13 +741,13 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 				%s AS available_quantity,
 				p.name as product_name,
 				p.selling_price as product_selling_price,
-				CAST(COALESCE(ii.category_id, %s) AS TEXT) as category_id,
-				(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(COALESCE(ii.category_id, %s) AS TEXT) LIMIT 1) as category_name,
+				CAST(%s AS TEXT) as category_id,
+				(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(%s AS TEXT) LIMIT 1) as category_name,
 				s.name as supplier_name,
 				s.phone as supplier_phone
 			FROM inventory_items ii
 			LEFT JOIN products p ON ii.product_id = p.id
-			LEFT JOIN categories c ON c.id = COALESCE(ii.category_id, %s)
+			LEFT JOIN categories c ON c.id = %s
 			LEFT JOIN suppliers s ON ii.supplier_id = s.id
 			WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'
 			AND p.deleted_at IS NULL
@@ -788,7 +796,7 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 				AND im.item_id IS NULL
 				AND UPPER(COALESCE(im.source_type, '')) = 'OPENING_STOCK'
 			)
-		`, currentQuantityExpr, availableQuantityExpr, categoryExpr, categoryExpr, categoryExpr)
+		`, currentQuantityExpr, availableQuantityExpr, categoryValueExpr, categoryValueExpr, categoryValueExpr)
 		baseQuery = `SELECT * FROM (` + unionQuery + `) AS manual_inventory WHERE 1=1`
 		countQuery = `SELECT COUNT(*) FROM (` + unionQuery + `) AS manual_inventory WHERE 1=1`
 	} else if !supplierOnly {
@@ -802,13 +810,13 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 				%s AS available_quantity,
 				p.name as product_name,
 				p.selling_price as product_selling_price,
-				CAST(COALESCE(ii.category_id, %s) AS TEXT) as category_id,
-				(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(COALESCE(ii.category_id, %s) AS TEXT) LIMIT 1) as category_name,
+				CAST(%s AS TEXT) as category_id,
+				(SELECT c2.name FROM categories c2 WHERE CAST(c2.id AS TEXT) = CAST(%s AS TEXT) LIMIT 1) as category_name,
 				s.name as supplier_name,
 				s.phone as supplier_phone
 			FROM inventory_items ii
 			LEFT JOIN products p ON ii.product_id = p.id
-			LEFT JOIN categories c ON c.id = COALESCE(ii.category_id, %s)
+			LEFT JOIN categories c ON c.id = %s
 			LEFT JOIN suppliers s ON ii.supplier_id = s.id
 			WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED'
 			AND p.deleted_at IS NULL
@@ -856,7 +864,7 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 				AND im.item_id IS NULL
 				AND UPPER(COALESCE(im.source_type, '')) = 'OPENING_STOCK'
 			)
-		`, currentQuantityExpr, availableQuantityExpr, categoryExpr, categoryExpr, categoryExpr)
+		`, currentQuantityExpr, availableQuantityExpr, categoryValueExpr, categoryValueExpr, categoryValueExpr)
 		baseQuery = `SELECT * FROM (` + unionQuery + `) AS combined_inventory WHERE 1=1`
 		countQuery = `SELECT COUNT(*) FROM (` + unionQuery + `) AS combined_inventory WHERE 1=1`
 	}

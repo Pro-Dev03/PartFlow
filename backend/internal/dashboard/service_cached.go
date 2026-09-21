@@ -10,6 +10,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/business"
+	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
 type CachedService struct {
@@ -655,7 +656,11 @@ func (s *CachedService) GetActivity(ctx context.Context, page, perPage int, acti
 	}
 	saleDateExpr := "'' AS sale_date"
 	if hasSalesTable && hasColumn(ctx, s.db, "sales", "sale_date") {
-		saleDateExpr = "s.sale_date"
+		if dbutil.IsSQLite(s.db) {
+			saleDateExpr = "COALESCE(date(s.sale_date), '') AS sale_date"
+		} else {
+			saleDateExpr = "COALESCE(TO_CHAR(s.sale_date, 'YYYY-MM-DD'), '') AS sale_date"
+		}
 	}
 	purchaseStatusExpr := "'' AS status"
 	if hasPurchasesTable && hasColumn(ctx, s.db, "purchases", "status") {

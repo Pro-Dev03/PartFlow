@@ -1,4 +1,4 @@
-﻿package reports
+package reports
 
 import (
 	"context"
@@ -430,14 +430,13 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 		report.ProfitMargin = 0
 	}
 
-	rows, err := r.db.QueryContext(ctx,
-		fmt.Sprintf(`SELECT DATE(sale_date) as date, COUNT(*) as sales, COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) as revenue
+	dailySalesQuery := fmt.Sprintf(`SELECT DATE(sale_date) as date, COUNT(*) as sales, COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) as revenue
 		 FROM sales 
 		 WHERE %s >= date(?) AND %s < date(?)
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY DATE(sale_date)
-		 ORDER BY date`, r.salesDateExpression(""), r.salesDateExpression("")),
-		startDateKey, endDateKey)
+		 ORDER BY date`, r.salesDateExpression(""), r.salesDateExpression(""))
+	rows, err := r.db.QueryContext(ctx, r.db.Rebind(dailySalesQuery), startDateKey, endDateKey)
 	if err == nil {
 		defer rows.Close()
 
@@ -454,7 +453,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 	}
 
 	report.TopProducts = []ProductSales{}
-	rows, err = r.db.QueryContext(ctx, fmt.Sprintf(`
+	topProductsQuery := fmt.Sprintf(`
 		SELECT p.id, p.name, COALESCE(SUM(si.quantity), 0),
 			COALESCE(SUM(COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)), 0),
 			COALESCE(SUM((COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) - (si.quantity * COALESCE(si.unit_cost, 0))), 0)
@@ -465,7 +464,8 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 			AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		GROUP BY p.id, p.name
 		ORDER BY SUM((COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) - (si.quantity * COALESCE(si.unit_cost, 0))) DESC
-		LIMIT 10`, r.salesDateExpression("s"), r.salesDateExpression("s")), startDateKey, endDateKey)
+		LIMIT 10`, r.salesDateExpression("s"), r.salesDateExpression("s"))
+	rows, err = r.db.QueryContext(ctx, r.db.Rebind(topProductsQuery), startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve top products: %w", err)
 	}
