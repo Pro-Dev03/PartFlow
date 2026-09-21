@@ -182,6 +182,31 @@ func TestGetActivityReturnsEmptyPageWhenActivityTablesAreMissing(t *testing.T) {
 	}
 }
 
+func TestGetActivitySupportsLegacySchemasWithoutOptionalColumns(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE sales (id TEXT PRIMARY KEY, total_amount REAL, status TEXT, created_at TEXT);
+		CREATE TABLE purchases (id TEXT PRIMARY KEY, total_amount REAL, created_at TEXT);
+		INSERT INTO sales (id, total_amount, status, created_at) VALUES ('legacy-sale', 120, 'completed', '2026-09-21T10:00:00Z');
+		INSERT INTO purchases (id, total_amount, created_at) VALUES ('legacy-purchase', 80, '2026-09-21T09:00:00Z');
+	`); err != nil {
+		t.Fatalf("seed legacy activity schema: %v", err)
+	}
+
+	activityPage, err := (&CachedService{db: sqlx.NewDb(db, "sqlite")}).GetActivity(context.Background(), 1, 10, "")
+	if err != nil {
+		t.Fatalf("get activity from legacy schema: %v", err)
+	}
+	if len(activityPage.Items) != 2 {
+		t.Fatalf("legacy activity count = %d, want 2", len(activityPage.Items))
+	}
+}
+
 func TestSQLiteSalesChartUsesCreatedAtOnlyForLegacyRows(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
