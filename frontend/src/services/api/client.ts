@@ -344,6 +344,7 @@ class ApiClient {
         ...options,
         headers,
         signal: controller.signal,
+        credentials: 'include',
       });
 
       clearTimeout(timeoutId);
@@ -418,6 +419,7 @@ class ApiClient {
               const retryResponse = await fetch(url, {
                 ...options,
                 headers,
+                credentials: 'include',
               });
               const retryData: ApiResponse<T> = await this.parseResponse<T>(retryResponse);
 

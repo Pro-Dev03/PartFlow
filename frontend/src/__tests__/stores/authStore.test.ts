@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { retrySubscriptionVerification, useAuthStore, validateSubscriptionWithCloud } from '../../stores/authStore';
 import { authApi } from '../../services/api/endpoints';
+import { CONNECTION_MODE_KEY } from '../../lib/config/app';
 
 describe('cloud subscription validation', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     localStorage.clear();
+    localStorage.setItem(CONNECTION_MODE_KEY, 'cloud');
     vi.restoreAllMocks();
     Object.defineProperty(window.navigator, 'onLine', {
       configurable: true,
@@ -31,6 +33,34 @@ describe('cloud subscription validation', () => {
   afterEach(() => {
     vi.clearAllTimers();
     vi.useRealTimers();
+  });
+
+  it('uses the local backend for local-mode login', async () => {
+    localStorage.setItem(CONNECTION_MODE_KEY, 'local');
+    const loginSpy = vi.spyOn(authApi, 'login').mockResolvedValue({
+      user: { id: 'u-1', email: 'owner@partflow.com', first_name: 'Admin', last_name: 'Owner', phone: '+970599000000', is_active: true, role: 'owner' },
+      token: 'local-access-token',
+    } as any);
+    const cloudLoginSpy = vi.spyOn(authApi, 'loginWithCloud');
+
+    await useAuthStore.getState().login('owner@partflow.com', 'TestOwnerPassword123!');
+
+    expect(loginSpy).toHaveBeenCalledWith('owner@partflow.com', 'TestOwnerPassword123!');
+    expect(cloudLoginSpy).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().token).toBe('local-access-token');
+    expect(useAuthStore.getState().cloudToken).toBeNull();
+  });
+
+  it('skips cloud validation in local mode', async () => {
+    localStorage.setItem(CONNECTION_MODE_KEY, 'local');
+    useAuthStore.setState({ isAuthenticated: true, sessionVerified: true, token: 'local-token', cloudVerificationPending: false });
+
+    const valid = await validateSubscriptionWithCloud();
+
+    expect(valid).toBe(true);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(false);
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
   });
 
   it('keeps the owner in the app during a temporary cloud outage', async () => {

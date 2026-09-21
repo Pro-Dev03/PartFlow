@@ -105,6 +105,11 @@ function scheduleCloudValidationRetry(): void {
 }
 
 export function markCloudVerificationPending(): void {
+  if (typeof window !== 'undefined' && getConnectionMode() === 'local') {
+    clearCloudVerificationPending();
+    return;
+  }
+
   const state = useAuthStore.getState();
   const hasActiveSession = Boolean(
     state.isAuthenticated
@@ -246,6 +251,19 @@ async function classifyLocalLoginFailure(email: string, password: string): Promi
 
 export async function validateSubscriptionWithCloud(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
+  if (getConnectionMode() === 'local') {
+    clearCloudVerificationPending();
+    const state = useAuthStore.getState();
+    if (state.isAuthenticated || state.token || TokenManager.getToken()) {
+      useAuthStore.setState({
+        isAuthenticated: true,
+        sessionVerified: true,
+        cloudVerificationPending: false,
+      });
+      return true;
+    }
+    return false;
+  }
 
   const sessionToken = localStorage.getItem('cloud_token');
   if (!sessionToken) {
@@ -481,7 +499,40 @@ export const useAuthStore = create<AuthState>()(
         cancelCloudValidationRetry();
         set({ isLoading: true, loginError: null, cloudVerificationPending: false });
         try {
-              const connectionMode = getConnectionMode();
+          const connectionMode = getConnectionMode();
+
+          if (connectionMode === 'local') {
+            const localData = await authApi.login(email, password) as {
+              user: User;
+              token?: string;
+              access_token?: string;
+              refresh_token?: string;
+            };
+            const localToken = localData.token || localData.access_token;
+            if (!localToken) {
+              throw new Error('Local login response did not include an access token');
+            }
+
+            TokenManager.setToken(localToken);
+            apiClient.setToken(localToken);
+            apiClient.clearCloudToken();
+            localStorage.removeItem('cloud_token');
+
+            set({
+              isAuthenticated: true,
+              sessionVerified: true,
+              user: localData.user || null,
+              token: localToken,
+              refreshTokenValue: null,
+              cloudToken: null,
+              cloudVerificationPending: false,
+              isLoading: false,
+            });
+
+            startTokenRefresh();
+            return;
+          }
+
           const data = await authApi.loginWithCloud(email, password) as {
             user: User;
             token?: string;
@@ -495,49 +546,11 @@ export const useAuthStore = create<AuthState>()(
           if (!accessToken) {
             throw new Error('Cloud login response did not include an access token');
           }
-          if (connectionMode === 'cloud') {
-            TokenManager.setToken(accessToken);
-            localStorage.setItem('cloud_token', accessToken);
-            apiClient.setCloudToken(accessToken);
-            apiClient.setToken(accessToken);
 
-            const valid = await validateSubscriptionWithCloud();
-            if (!valid) {
-              throw new Error('Cloud subscription verification failed');
-            }
-
-            set({
-              isAuthenticated: true,
-              sessionVerified: true,
-              user: user || null,
-              token: accessToken,
-              refreshTokenValue: null,
-              cloudToken: accessToken,
-              cloudVerificationPending: false,
-              isLoading: false,
-            });
-
-            startTokenRefresh();
-            return;
-          }
-
-          // Local mode authenticates with the cloud authority, then creates a
-          // separate local SQLite session for business operations.
-          const localSession = await authApi.createLocalSession(accessToken);
-          const localData = localSession as {
-            user: User;
-            token?: string;
-            access_token?: string;
-            refresh_token?: string;
-          };
-          const localToken = localData.token || localData.access_token;
-          if (!localToken) {
-            throw new Error('Local session response did not include an access token');
-          }
-          TokenManager.setToken(localToken);
+          TokenManager.setToken(accessToken);
           localStorage.setItem('cloud_token', accessToken);
           apiClient.setCloudToken(accessToken);
-          apiClient.setToken(localToken);
+          apiClient.setToken(accessToken);
 
           const valid = await validateSubscriptionWithCloud();
           if (!valid) {
@@ -547,8 +560,8 @@ export const useAuthStore = create<AuthState>()(
           set({
             isAuthenticated: true,
             sessionVerified: true,
-            user: localData.user || user || null,
-            token: localToken,
+            user: user || null,
+            token: accessToken,
             refreshTokenValue: null,
             cloudToken: accessToken,
             cloudVerificationPending: false,
@@ -641,6 +654,10 @@ export const useAuthStore = create<AuthState>()(
         }
 
         if (!cloudToken) {
+          if (getConnectionMode() === 'local') {
+            set({ isAuthenticated: true, sessionVerified: true, cloudVerificationPending: false, isLoading: false });
+            return;
+          }
           markCloudVerificationPending();
           set({ isAuthenticated: true, sessionVerified: true, isLoading: false });
           return;

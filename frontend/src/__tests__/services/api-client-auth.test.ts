@@ -25,6 +25,7 @@ describe('apiClient auth propagation', () => {
       expect.stringContaining('/products'),
       expect.objectContaining({
         method: 'GET',
+        credentials: 'include',
         headers: expect.objectContaining({
           Authorization: 'Bearer local-token',
           'X-PartFlow-Cloud-Token': 'cloud-token',
