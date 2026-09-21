@@ -18,7 +18,8 @@ import {
   Printer,
   FileDown,
   MoreHorizontal,
-  ArrowRight
+  ArrowRight,
+  History
 } from 'lucide-react';
 import '../styles/success-modal.css';
 import { printPaymentReceipt } from '../../../lib/export-utils';
@@ -49,6 +50,7 @@ export function DebtsPage() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [lastPayment, setLastPayment] = useState<any>(null);
+  const [debtTab, setDebtTab] = useState<'open' | 'paid' | 'all'>('open');
 
   // Custom hook
   const {
@@ -64,6 +66,11 @@ export function DebtsPage() {
     total,
     setPage,
   } = useDebts();
+
+  const displayedDebts = filteredDebts.filter((debt: any) => {
+    const isPaid = Number(debt.remainingAmount ?? debt.remaining_amount ?? 0) <= 0 || debt.status === 'paid';
+    return debtTab === 'all' || (debtTab === 'paid' ? isPaid : !isPaid);
+  });
 
   // Get current language for receipt
   const { currentLanguage } = useTranslationHook();
@@ -238,26 +245,47 @@ export function DebtsPage() {
             </span>
             <div>
               <h3 className="text-sm font-extrabold text-[var(--text-primary)]">قائمة الديون</h3>
-              <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">الديون المفتوحة والمتأخرة · {filteredDebts.length} سجل</p>
+                    <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">{debtTab === 'open' ? 'الديون المفتوحة والمتأخرة' : debtTab === 'paid' ? 'الديون المسددة' : 'كل سجلات الديون'} · {displayedDebts.length} سجل</p>
             </div>
           </div>
+                <div className="flex flex-wrap gap-2" role="tablist" aria-label="تصفية الديون">
+                  {[
+                    { value: 'open', label: 'مفتوحة' },
+                    { value: 'paid', label: 'مسددة' },
+                    { value: 'all', label: 'الكل' },
+                  ].map((tab) => (
+                    <Button
+                      key={tab.value}
+                      size="sm"
+                      variant={debtTab === tab.value ? 'primary' : 'ghost'}
+                      className="gap-2 whitespace-nowrap"
+                      type="button"
+                      role="tab"
+                      aria-selected={debtTab === tab.value}
+                      onClick={() => setDebtTab(tab.value as 'open' | 'paid' | 'all')}
+                    >
+                      {tab.label}
+                    </Button>
+                  ))}
+                </div>
         </div>
 
         {isLoading ? (
           <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
-        ) : filteredDebts.length === 0 ? (
+        ) : displayedDebts.length === 0 ? (
           <div className="px-4 py-12 text-center">
             <DollarSign className="mx-auto mb-4 h-10 w-10 text-text-secondary" />
-            <p className="text-sm text-text-secondary">لا توجد ديون</p>
-            <p className="mt-1 text-[11px] text-text-tertiary">جميع الديون مدفوعة</p>
+            <p className="text-sm text-text-secondary">{debtTab === 'paid' ? 'لا توجد ديون مسددة' : debtTab === 'all' ? 'لا توجد سجلات ديون' : 'لا توجد ديون مفتوحة'}</p>
+            <p className="mt-1 text-[11px] text-text-tertiary">{debtTab === 'open' ? 'جميع الديون مسددة أو لا توجد ديون حالية' : 'جرّب تغيير نطاق العرض أو البحث'}</p>
           </div>
         ) : (
           <>
           <div className="customer-cards-grid gap-3 p-4">
-            {filteredDebts.map((debt: any) => {
+            {displayedDebts.map((debt: any) => {
               const aging = getDebtAging(debt.dueDate, debt.status);
+              const isPaid = Number(debt.remainingAmount ?? debt.remaining_amount ?? 0) <= 0 || debt.status === 'paid';
               return (
                 <article
                   key={debt.id}
@@ -290,7 +318,11 @@ export function DebtsPage() {
                   </div>
                   <div className="mt-3 flex justify-end gap-1.5 border-t border-[var(--border-subtle)] pt-2.5">
                     <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="عرض الدين" title="عرض الدين"><Eye className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} aria-label="تسجيل دفعة" title="تسجيل دفعة"><DollarSign className="h-4 w-4" /></Button>
+                    {isPaid ? (
+                      <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="سجل الدفعات" title="سجل الدفعات"><History className="h-4 w-4" /></Button>
+                    ) : (
+                      <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} aria-label="تسجيل دفعة" title="تسجيل دفعة"><DollarSign className="h-4 w-4" /></Button>
+                    )}
                   </div>
                 </article>
               );
@@ -313,8 +345,9 @@ export function DebtsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody className="divide-y divide-[var(--border-subtle)]" dir="rtl">
-                {filteredDebts.map((debt: any) => {
+                {displayedDebts.map((debt: any) => {
                   const aging = getDebtAging(debt.dueDate, debt.status);
+                  const isPaid = Number(debt.remainingAmount ?? debt.remaining_amount ?? 0) <= 0 || debt.status === 'paid';
                   return (
                     <TableRow key={debt.id} dir="rtl" className="cursor-pointer transition-all duration-200 hover:bg-[var(--color-primary-05)] [&>td]:h-[60px] [&>td]:py-2" onClick={() => handleViewDebt(debt)}>
                       <TableCell>
@@ -366,9 +399,15 @@ export function DebtsPage() {
                           <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="عرض الدين" title="عرض الدين">
                             <Eye className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} className="text-text-secondary hover:text-text-primary" aria-label="تسجيل دفعة" title="تسجيل دفعة">
-                            <DollarSign className="h-4 w-4" />
-                          </Button>
+                          {isPaid ? (
+                            <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="سجل الدفعات" title="سجل الدفعات">
+                              <History className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} className="text-text-secondary hover:text-text-primary" aria-label="تسجيل دفعة" title="تسجيل دفعة">
+                              <DollarSign className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -379,8 +418,9 @@ export function DebtsPage() {
             <PaginationControls page={page} pageSize={pageSize} total={total} onPageChange={setPage} isLoading={isLoading} />
           </div>
           <div className="debt-mobile-cards space-y-3 p-3">
-            {filteredDebts.map((debt: any) => {
+            {displayedDebts.map((debt: any) => {
               const aging = getDebtAging(debt.dueDate, debt.status);
+              const isPaid = Number(debt.remainingAmount ?? debt.remaining_amount ?? 0) <= 0 || debt.status === 'paid';
               return (
                 <article
                   key={debt.id}
@@ -413,7 +453,11 @@ export function DebtsPage() {
                   </div>
                   <div className="mt-4 flex justify-end gap-2 border-t border-[var(--border-subtle)] pt-3">
                     <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="عرض الدين" title="عرض الدين"><Eye className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} aria-label="تسجيل دفعة" title="تسجيل دفعة"><DollarSign className="h-4 w-4" /></Button>
+                    {isPaid ? (
+                      <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="سجل الدفعات" title="سجل الدفعات"><History className="h-4 w-4" /></Button>
+                    ) : (
+                      <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} aria-label="تسجيل دفعة" title="تسجيل دفعة"><DollarSign className="h-4 w-4" /></Button>
+                    )}
                   </div>
                 </article>
               );

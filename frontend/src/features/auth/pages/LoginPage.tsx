@@ -103,11 +103,24 @@ export function LoginPage() {
   }
 
   return (
-    <div dir="rtl" className="min-h-screen grid place-items-center relative overflow-hidden" style={{ background: 'var(--bg-background)' }}>
-      <LoginBackground isDark={isDark} />
-      
-      {/* Main Container - Split Layout */}
-      <div style={{ position: 'relative', zIndex: 2, width: 'min(920px, calc(100% - 32px))' }}>
+    <>
+      <style>{`
+        @keyframes loginFadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(8px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
+      <div dir="rtl" className="min-h-screen grid place-items-center relative overflow-hidden" style={{ background: 'var(--bg-background)' }}>
+        <LoginBackground isDark={isDark} />
+
+        {/* Main Container - Split Layout */}
+        <div style={{ position: 'relative', zIndex: 2, width: 'min(920px, calc(100% - 32px))', animation: 'loginFadeIn 0.6s ease-out both' }}>
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
@@ -223,7 +236,35 @@ export function LoginPage() {
                           textAlign: 'right',
                         }}
                       >
-                        <Icon style={{ width: '16px', height: '16px', flexShrink: 0 }} />
+                        {mode === 'cloud' ? (
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              width: '10px',
+                              height: '10px',
+                              borderRadius: '50%',
+                              background: 'radial-gradient(circle, #a7f3d0 0%, #22c55e 42%, #15803d 100%)',
+                              boxShadow: '0 0 0 1px rgba(34, 197, 94, 0.28), 0 0 10px rgba(34, 197, 94, 0.8), 0 0 18px rgba(34, 197, 94, 0.5)',
+                              animation: 'pulse 1.6s ease-in-out infinite',
+                              flexShrink: 0,
+                              display: 'inline-block',
+                            }}
+                          />
+                        ) : (
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              width: '10px',
+                              height: '10px',
+                              borderRadius: '50%',
+                              background: 'radial-gradient(circle, #fde68a 0%, #f59e0b 42%, #b45309 100%)',
+                              boxShadow: '0 0 0 1px rgba(245, 158, 11, 0.28), 0 0 10px rgba(245, 158, 11, 0.8), 0 0 18px rgba(245, 158, 11, 0.45)',
+                              animation: 'pulse 1.6s ease-in-out infinite',
+                              flexShrink: 0,
+                              display: 'inline-block',
+                            }}
+                          />
+                        )}
                         <span style={{ minWidth: 0 }}>
                           <span style={{ display: 'block', fontSize: '11px', fontWeight: 750 }}>{label}</span>
                           <span style={{ display: 'block', marginTop: '2px', fontSize: '9px', opacity: 0.78, whiteSpace: 'nowrap' }}>{description}</span>
@@ -246,7 +287,8 @@ export function LoginPage() {
             </div>
           </div>
         </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

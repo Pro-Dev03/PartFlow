@@ -19,6 +19,7 @@ const cloudApiUrl = getEnvValue(
   ['VITE_API_BASE_URL_CLOUD', 'VITE_API_URL_CLOUD'],
   'https://partflow-api.onrender.com/api/v1',
 );
+export const CLOUD_API_URL_OVERRIDE_KEY = 'partflow-cloud-api-url';
 
 export type ConnectionMode = 'local' | 'cloud';
 export const CONNECTION_MODE_KEY = 'partflow-connection-mode';
@@ -50,14 +51,25 @@ export function shouldUseLocalApi(hostname = typeof window !== 'undefined' ? win
 }
 
 export function getActiveApiUrl(): string {
-  return getConnectionMode() === 'cloud' ? cloudApiUrl : localApiUrl;
+  return getConnectionMode() === 'cloud' ? getCloudApiUrl() : localApiUrl;
 }
 
 /**
  * Get the cloud API URL for connecting to Render
  */
 export function getCloudApiUrl(): string {
+  if (typeof window !== 'undefined') {
+    const override = localStorage.getItem(CLOUD_API_URL_OVERRIDE_KEY)?.trim();
+    if (override) return override.replace(/\/+$/, '');
+  }
   return cloudApiUrl;
+}
+
+export function setCloudApiUrl(url: string): void {
+  if (typeof window === 'undefined') return;
+  const normalized = url.trim().replace(/\/+$/, '');
+  localStorage.setItem(CLOUD_API_URL_OVERRIDE_KEY, normalized);
+  window.dispatchEvent(new CustomEvent('partflow:cloud-api-url-changed', { detail: { url: normalized } }));
 }
 
 /**

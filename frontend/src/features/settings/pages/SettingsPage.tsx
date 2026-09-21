@@ -77,11 +77,11 @@ export function SettingsPage() {
     { id: 'financial', label: t('settings.financial'), icon: DollarSign },
     { id: 'appearance', label: t('settings.appearance'), icon: Palette },
     { id: 'audit', label: t('settings.audit'), icon: FileText },
-    ...(isAdmin ? [{ id: 'database', label: 'قاعدة البيانات', icon: Trash2 }] : []),
+    ...(isAdmin && isOwner ? [{ id: 'database', label: 'قاعدة البيانات', icon: Trash2 }] : []),
   ];
 
   useEffect(() => {
-    if (!isAdmin && activeTab === 'database') {
+    if (!(isAdmin && isOwner) && activeTab === 'database') {
       setActiveTab('store');
     }
   }, [activeTab, isAdmin, isOwner]);

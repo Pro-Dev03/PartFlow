@@ -413,7 +413,7 @@ export const reportsApi = {
 
 // Settings endpoints
 const cloudSettingsRequest = async <T>(endpoint: string, options: RequestInit = {}) => {
-  const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
+  const cloudToken = TokenManager.getCloudToken();
   if (!cloudToken) throw new Error('لا توجد جلسة مالك سحابية نشطة.');
 
   const response = await fetch(`${getCloudApiUrl()}${endpoint}`, {
@@ -439,7 +439,7 @@ const cloudSettingsRequest = async <T>(endpoint: string, options: RequestInit = 
 // connected to the cloud. The local API owns the device SQLite database and
 // forwards only authenticated sync operations to the cloud authority.
 const localSyncRequest = async <T>(endpoint: string, options: RequestInit = {}) => {
-  const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
+  const cloudToken = TokenManager.getCloudToken();
   if (!cloudToken) throw new Error('لا توجد جلسة سحابية نشطة للمزامنة.');
 
   let localToken = TokenManager.getToken();
@@ -516,7 +516,7 @@ export const settingsApi = {
   deleteAllData: (confirmation: string) =>
     apiClient.delete('/settings/database', { confirmation_token: confirmation, target: 'offline' }),
   deleteCloudData: async (confirmation: string) => {
-    const cloudToken = typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null;
+    const cloudToken = TokenManager.getCloudToken();
     if (!cloudToken) throw new Error('No active cloud session');
 
     const response = await fetch(

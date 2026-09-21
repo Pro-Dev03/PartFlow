@@ -6,7 +6,7 @@ import { settingsApi } from '../../../services/api/endpoints';
 import { useAuthStore } from '../../../stores/authStore';
 import { RefreshCw, Wifi, Check, X, HardDrive, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getLocalApiUrl } from '../../../lib/config/app';
+import { getCloudApiUrl, getLocalApiUrl, setCloudApiUrl } from '../../../lib/config/app';
 
 const getHealthUrl = (baseUrl: string) => {
   try {
@@ -27,6 +27,36 @@ export function DatabaseSettings() {
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'unknown' | 'testing' | 'connected' | 'failed'>('unknown');
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [cloudUrl, setCloudUrl] = useState(getCloudApiUrl());
+  const [isSavingCloudUrl, setIsSavingCloudUrl] = useState(false);
+
+  const saveCloudUrl = async () => {
+    const normalized = cloudUrl.trim().replace(/\/+$/, '');
+    let parsed: URL;
+    try {
+      parsed = new URL(normalized);
+    } catch {
+      toast.error('رابط الخادم السحابي غير صالح.');
+      return;
+    }
+    if (parsed.protocol !== 'https:') {
+      toast.error('يجب أن يبدأ رابط الخادم السحابي بـ https://');
+      return;
+    }
+
+    setIsSavingCloudUrl(true);
+    try {
+      const response = await fetch(`${normalized}/health`, { headers: { Accept: 'application/json' } });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setCloudApiUrl(normalized);
+      setCloudUrl(normalized);
+      toast.success('تم حفظ رابط الخادم السحابي والتحقق من اتصاله.');
+    } catch (error: any) {
+      toast.error(`تعذر الاتصال بالخادم السحابي: ${error?.message || 'تحقق من الرابط'}`);
+    } finally {
+      setIsSavingCloudUrl(false);
+    }
+  };
 
   const validateSubscriptionMutation = useMutation({
     mutationFn: async () => {
@@ -198,6 +228,29 @@ export function DatabaseSettings() {
             <div className="rounded-lg bg-white p-3 border border-amber-200">
               <div className="text-xs text-gray-500 mb-1">الموقع المحلي</div>
               <div className="font-mono text-sm text-gray-800 break-all">{localApiUrl}</div>
+            </div>
+
+            <div className="rounded-lg bg-white p-3 border border-amber-200 space-y-2">
+              <div className="text-xs text-gray-500">رابط الخادم السحابي</div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={cloudUrl}
+                  onChange={(event) => setCloudUrl(event.target.value)}
+                  className="min-h-10 flex-1 rounded-md border border-gray-300 px-3 text-sm"
+                  dir="ltr"
+                  inputMode="url"
+                  aria-label="رابط الخادم السحابي"
+                />
+                <Button
+                  variant="secondary"
+                  className="min-h-10"
+                  onClick={() => void saveCloudUrl()}
+                  disabled={isSavingCloudUrl}
+                >
+                  {isSavingCloudUrl ? 'جارِ التحقق...' : 'حفظ الرابط'}
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500">يُستخدم هذا الرابط للمصادقة والتحقق والمزامنة السحابية.</p>
             </div>
 
             {connectionStatus !== 'unknown' && (

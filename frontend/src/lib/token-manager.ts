@@ -1,84 +1,100 @@
 /**
- * Token Manager - إدارة موحدة للـ token في جميع أنحاء التطبيق
- * يحل مشكلة التضارب بين مفاتيح localStorage المختلفة
+ * Token Manager - manages session tokens in memory only.
+ * Access and refresh tokens are never written to browser storage because the
+ * backend uses HttpOnly refresh cookies for credential protection.
  */
 
 export class TokenManager {
   private static readonly AUTH_TOKEN_KEY = 'auth_token';
-  private static readonly TOKEN_KEY = 'token'; // For backwards compatibility
+  private static readonly TOKEN_KEY = 'token';
   private static readonly REFRESH_TOKEN_KEY = 'refresh_token';
+  private static accessToken: string | null = null;
+  private static refreshToken: string | null = null;
+  private static cloudAccessToken: string | null = null;
 
-  /**
-   * الحصول على الـ token من أي من المفاتيح
-   */
+  private static clearLegacyBrowserTokenStorage(): void {
+    if (typeof window === 'undefined') return;
+
+    [
+      this.AUTH_TOKEN_KEY,
+      this.TOKEN_KEY,
+      this.REFRESH_TOKEN_KEY,
+      'cloud_token',
+      'cloud_refresh_token',
+      'auth-storage',
+    ].forEach((key) => {
+      localStorage.removeItem(key);
+    });
+  }
+
   static getToken(): string | null {
-    // Check both keys for backwards compatibility
-    return (
-      localStorage.getItem(this.AUTH_TOKEN_KEY) || 
-      localStorage.getItem(this.TOKEN_KEY)
-    );
+    return this.accessToken;
   }
 
   static getRefreshToken(): string | null {
-    return localStorage.getItem(this.REFRESH_TOKEN_KEY);
+    return this.refreshToken;
   }
 
-  /**
-   * حفظ الـ token في كلا المفتاحين للتوافقية
-   */
+  static getCloudToken(): string | null {
+    return this.cloudAccessToken;
+  }
+
   static setToken(token: string): void {
-    localStorage.setItem(this.AUTH_TOKEN_KEY, token);
-    localStorage.setItem(this.TOKEN_KEY, token);
+    this.accessToken = token;
+    this.clearLegacyBrowserTokenStorage();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('partflow:token-change', { detail: { token } }));
+    }
   }
 
   static setRefreshToken(refreshToken: string): void {
-    localStorage.setItem(this.REFRESH_TOKEN_KEY, refreshToken);
+    this.refreshToken = refreshToken;
+    this.clearLegacyBrowserTokenStorage();
   }
 
-  /**
-   * حذف الـ token من كلا المفتاحين
-   */
+  static setCloudToken(cloudToken: string | null): void {
+    this.cloudAccessToken = cloudToken ?? null;
+    this.clearLegacyBrowserTokenStorage();
+  }
+
   static clearToken(): void {
-    localStorage.removeItem(this.AUTH_TOKEN_KEY);
-    localStorage.removeItem(this.TOKEN_KEY);
+    this.accessToken = null;
+    this.clearLegacyBrowserTokenStorage();
   }
 
   static clearRefreshToken(): void {
-    localStorage.removeItem(this.REFRESH_TOKEN_KEY);
+    this.refreshToken = null;
+    this.clearLegacyBrowserTokenStorage();
   }
 
-  /**
-   * التحقق من وجود token صالح
-   */
+  static clearCloudToken(): void {
+    this.cloudAccessToken = null;
+    this.clearLegacyBrowserTokenStorage();
+  }
+
   static hasValidToken(): boolean {
     const token = this.getToken();
     if (!token) return false;
-    
-    // Basic JWT validation - check if it has 3 parts
+
     const parts = token.split('.');
     return parts.length === 3;
   }
 
-  /**
-   * الحصول على header الـ Authorization
-   */
   static getAuthHeader(): { Authorization: string } | {} {
     const token = this.getToken();
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
-  /**
-   * تحديث جميع المكونات عند تغيير الـ token
-   */
   static onTokenChange(callback: (token: string | null) => void): void {
-    // Event listener for storage changes
-    window.addEventListener('storage', (e) => {
-      if (e.key === this.AUTH_TOKEN_KEY || e.key === this.TOKEN_KEY) {
-        callback(this.getToken());
-      }
-    });
+    if (typeof window === 'undefined') return;
+
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ token?: string | null }>).detail;
+      callback(detail?.token ?? this.getToken());
+    };
+
+    window.addEventListener('partflow:token-change', handler);
   }
 }
 
-// Export singleton instance
 export const tokenManager = TokenManager;

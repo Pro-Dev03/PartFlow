@@ -57,6 +57,9 @@ function clearPersistedAuthStorage() {
   localStorage.removeItem('cloud_refresh_token');
   localStorage.removeItem(CLOUD_LAST_VALIDATED_AT_KEY);
   localStorage.removeItem('partflow-user-phone');
+  TokenManager.clearToken();
+  TokenManager.clearRefreshToken();
+  TokenManager.clearCloudToken();
 
   try {
     useAuthStore.persist?.clearStorage();
@@ -111,7 +114,7 @@ export function markCloudVerificationPending(): void {
       || state.token
       || state.cloudToken
       || TokenManager.getToken()
-      || (typeof window !== 'undefined' && localStorage.getItem('cloud_token')),
+      || TokenManager.getCloudToken(),
   );
   if (!hasActiveSession) return;
 
@@ -178,10 +181,8 @@ async function refreshCloudAccessToken(): Promise<string | null> {
   };
 
   if (lockIsActive()) {
-    // Another tab owns the refresh rotation. Its result will be visible in
-    // storage; do not submit the same refresh token a second time.
     await waitForOtherRefresh();
-    return localStorage.getItem('cloud_token');
+    return TokenManager.getCloudToken();
   }
 
   localStorage.setItem(CLOUD_REFRESH_LOCK_KEY, JSON.stringify({
@@ -190,7 +191,7 @@ async function refreshCloudAccessToken(): Promise<string | null> {
   }));
   if (lockIsActive()) {
     await waitForOtherRefresh();
-    return localStorage.getItem('cloud_token');
+    return TokenManager.getCloudToken();
   }
 
   try {
@@ -219,7 +220,7 @@ async function refreshCloudAccessToken(): Promise<string | null> {
     const nextToken = payload?.access_token || payload?.token;
     if (!nextToken) return null;
 
-    localStorage.setItem('cloud_token', nextToken);
+    TokenManager.setCloudToken(nextToken);
     localStorage.removeItem(CLOUD_REFRESH_FAILED_KEY);
     useAuthStore.setState({ cloudToken: nextToken });
     return nextToken as string;
@@ -246,7 +247,7 @@ async function classifyLocalLoginFailure(email: string, password: string): Promi
 
 export async function validateSubscriptionWithCloud(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
-  const sessionToken = localStorage.getItem('cloud_token');
+  const sessionToken = TokenManager.getCloudToken();
   if (!sessionToken) {
     const state = useAuthStore.getState();
     if (state.isAuthenticated || state.token || state.cloudToken) {
@@ -326,7 +327,7 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
       const data = payload?.data ?? payload;
       const nextToken = data?.token || data?.access_token || cloudToken;
       if (nextToken) {
-        localStorage.setItem('cloud_token', nextToken);
+        TokenManager.setCloudToken(nextToken);
         apiClient.setCloudToken(nextToken);
         useAuthStore.setState({ cloudToken: nextToken });
       }
@@ -374,7 +375,7 @@ export async function retrySubscriptionVerification(): Promise<boolean> {
   if (typeof window !== 'undefined') {
     localStorage.removeItem(CLOUD_REFRESH_FAILED_KEY);
   }
-  if (typeof window !== 'undefined' && !localStorage.getItem('cloud_token')) {
+  if (typeof window !== 'undefined' && !TokenManager.getCloudToken()) {
     const refreshedToken = await refreshCloudAccessToken();
     if (refreshedToken) {
       apiClient.setCloudToken(refreshedToken);
@@ -428,7 +429,7 @@ export function forceLogoutToLogin(reason = 'Session expired') {
   apiClient.logout();
   TokenManager.clearToken();
   TokenManager.clearRefreshToken();
-  localStorage.removeItem('cloud_token');
+  TokenManager.clearCloudToken();
   localStorage.removeItem('cloud_refresh_token');
   useAuthStore.setState({
     isAuthenticated: false,
@@ -469,7 +470,7 @@ export const useAuthStore = create<AuthState>()(
       refreshTokenValue: null,
       cloudToken: null,
       loginError: null,
-      isLoading: false,
+      isLoading: true,
         isPostLoginVerifying: false,
         setPostLoginVerifying: (value: boolean) => set({ isPostLoginVerifying: value }),
 
@@ -492,27 +493,25 @@ export const useAuthStore = create<AuthState>()(
             };
 
             try {
-              localData = await authApi.login(email, password) as typeof localData;
-            } catch (localError) {
-              const status = localError && typeof localError === 'object'
-                ? (localError as { status?: number }).status
-                : undefined;
-              if (status !== 401 && status !== 404) {
-                throw localError;
-              }
-
-              // A first local login may need to bootstrap the SQLite user from
-              // the cloud authority. Business requests still use the local API.
               const cloudData = await authApi.loginWithCloud(email, password) as {
                 token?: string;
                 access_token?: string;
               };
               const cloudToken = cloudData.token || cloudData.access_token;
               if (!cloudToken) {
-                throw localError;
+                throw new Error('Cloud login response did not include an access token');
               }
               cloudTokenForLocalSession = cloudToken;
               localData = await authApi.createLocalSession(cloudToken) as typeof localData;
+            } catch (cloudError) {
+              const status = cloudError && typeof cloudError === 'object'
+                ? (cloudError as { status?: number }).status
+                : undefined;
+              if (status !== 401 && status !== 404) {
+                throw cloudError;
+              }
+
+              localData = await authApi.login(email, password) as typeof localData;
             }
             const localToken = localData.token || localData.access_token;
             if (!localToken) {
@@ -566,7 +565,7 @@ export const useAuthStore = create<AuthState>()(
           }
 
           TokenManager.setToken(accessToken);
-          localStorage.setItem('cloud_token', accessToken);
+          TokenManager.setCloudToken(accessToken);
           apiClient.setCloudToken(accessToken);
           apiClient.setToken(accessToken);
 
@@ -601,7 +600,7 @@ export const useAuthStore = create<AuthState>()(
             apiClient.logout();
             TokenManager.clearToken();
             TokenManager.clearRefreshToken();
-            localStorage.removeItem('cloud_token');
+            TokenManager.clearCloudToken();
             localStorage.removeItem('cloud_refresh_token');
           }
           set({ isAuthenticated: false, sessionVerified: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
@@ -618,7 +617,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         const state = useAuthStore.getState();
-        const cloudToken = state.cloudToken || (typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null);
+        const cloudToken = state.cloudToken || TokenManager.getCloudToken();
         if (cloudToken && (typeof navigator === 'undefined' || navigator.onLine)) {
           void authApi.logoutWithCloud(cloudToken).catch(() => undefined);
         }
@@ -626,7 +625,7 @@ export const useAuthStore = create<AuthState>()(
         stopTokenRefresh();
         TokenManager.clearToken();
         TokenManager.clearRefreshToken();
-        localStorage.removeItem('cloud_token');
+        TokenManager.clearCloudToken();
         localStorage.removeItem('cloud_refresh_token');
         apiClient.logout();
         apiClient.clearCloudToken();
@@ -650,23 +649,70 @@ export const useAuthStore = create<AuthState>()(
         // now HttpOnly cookies and must never remain readable by JavaScript.
         localStorage.removeItem('refresh_token');
         localStorage.removeItem('cloud_refresh_token');
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('token');
+        TokenManager.clearCloudToken();
 
         const persistedState = getPersistedAuthState();
         const currentState = useAuthStore.getState();
+
+        if (window.location.hash.includes('/login')
+          && !persistedState?.isAuthenticated
+          && !persistedState?.user
+          && !currentState.token) {
+          set({ isAuthenticated: false, sessionVerified: false, cloudVerificationPending: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
+          return;
+        }
+
         const token = currentState.token || persistedState?.token || TokenManager.getToken();
-        const cloudToken = currentState.cloudToken || persistedState?.cloudToken || (typeof window !== 'undefined' ? localStorage.getItem('cloud_token') : null);
+        const cloudToken = currentState.cloudToken || persistedState?.cloudToken || null;
 
         if (token && !TokenManager.getToken()) {
           TokenManager.setToken(token);
-        }
-        if (cloudToken && !localStorage.getItem('cloud_token')) {
-          localStorage.setItem('cloud_token', cloudToken);
         }
         if (cloudToken) {
           apiClient.setCloudToken(cloudToken);
         }
 
         if (!token) {
+          try {
+            const refreshed = await authApi.refreshToken();
+            const payload = (refreshed && typeof refreshed === 'object' && 'data' in refreshed && refreshed.data)
+              ? refreshed.data
+              : refreshed;
+            const refreshedToken = payload?.token || payload?.access_token;
+            if (refreshedToken) {
+              TokenManager.setToken(refreshedToken);
+              apiClient.setToken(refreshedToken);
+              const refreshedCloudToken = getConnectionMode() === 'local'
+                ? await refreshCloudAccessToken()
+                : refreshedToken;
+              if (refreshedCloudToken) {
+                TokenManager.setCloudToken(refreshedCloudToken);
+                apiClient.setCloudToken(refreshedCloudToken);
+              }
+              set({
+                isAuthenticated: true,
+                sessionVerified: true,
+                token: refreshedToken,
+                cloudToken: refreshedCloudToken,
+                user: payload?.user ?? null,
+                isLoading: false,
+              });
+              if (refreshedCloudToken && await validateSubscriptionWithCloud()) {
+                startTokenRefresh();
+                return;
+              }
+              if (useAuthStore.getState().cloudVerificationPending) {
+                startTokenRefresh();
+                return;
+              }
+            }
+          } catch {
+            // No active browser-readable session exists; rely on HttpOnly cookie
+            // validation and ask the user to sign in again if the refresh cookie is absent.
+          }
+
           set({ isAuthenticated: false, sessionVerified: false, cloudVerificationPending: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
           return;
         }
@@ -740,13 +786,24 @@ export const useAuthStore = create<AuthState>()(
         } catch (error) {
           console.error('Failed to refresh token:', error);
 
+          const currentToken = TokenManager.getToken() || useAuthStore.getState().token;
+          if (currentToken) {
+            TokenManager.setToken(currentToken);
+            apiClient.setToken(currentToken);
+          }
+
           const status = Number((error as { status?: number })?.status);
           if (status === 401) {
             // A rejected refresh credential is not subscription expiry and is
             // not enough evidence of a network loss. Keep the session visible,
             // block sensitive work, and retry after the next online check.
             markCloudVerificationPending();
-            set({ isAuthenticated: true, sessionVerified: true, isLoading: false });
+            set({
+              isAuthenticated: true,
+              sessionVerified: true,
+              token: currentToken ?? null,
+              isLoading: false,
+            });
             return;
           }
 
@@ -765,16 +822,14 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'auth-storage',
       storage: createJSONStorage(() => authStorage),
-      // Persist the authenticated session state so a browser reload can restore
-      // the user's local JWT and cloud token, then immediately re-verify the
-      // cloud subscription authority before allowing protected routes.
+      // Keep only non-sensitive UI state in persistence. Access tokens and cloud
+      // tokens are protected by HttpOnly refresh cookies and must never be kept
+      // in browser storage where JavaScript can read them.
       partialize: (state) => ({
         isAuthenticated: state.isAuthenticated,
         sessionVerified: state.sessionVerified,
         user: state.user,
-        token: state.token,
         refreshTokenValue: state.refreshTokenValue,
-        cloudToken: state.cloudToken,
       }),
     }
   )

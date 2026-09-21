@@ -1,16 +1,40 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '../../services/api/client';
 import { authApi } from '../../services/api/endpoints';
+import { TokenManager } from '../../lib/token-manager';
 
 describe('apiClient auth propagation', () => {
   beforeEach(() => {
     localStorage.clear();
+    TokenManager.clearToken();
+    TokenManager.clearRefreshToken();
+    TokenManager.clearCloudToken();
+    apiClient.logout();
     vi.restoreAllMocks();
   });
 
+  it('keeps auth tokens in memory instead of browser storage', () => {
+    TokenManager.setToken('memory-token');
+    TokenManager.setRefreshToken('memory-refresh-token');
+
+    expect(TokenManager.getToken()).toBe('memory-token');
+    expect(TokenManager.getRefreshToken()).toBe('memory-refresh-token');
+    expect(localStorage.getItem('auth_token')).toBeNull();
+    expect(localStorage.getItem('token')).toBeNull();
+    expect(localStorage.getItem('refresh_token')).toBeNull();
+
+    TokenManager.clearToken();
+    TokenManager.clearRefreshToken();
+
+    expect(TokenManager.getToken()).toBeNull();
+    expect(TokenManager.getRefreshToken()).toBeNull();
+  });
+
   it('adds both local Authorization and cloud token headers to protected requests', async () => {
-    localStorage.setItem('auth_token', 'local-token');
-    localStorage.setItem('cloud_token', 'cloud-token');
+    TokenManager.setToken('local-token');
+    TokenManager.setCloudToken('cloud-token');
+    apiClient.setToken('local-token');
+    apiClient.setCloudToken('cloud-token');
 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ success: true, data: { ok: true } }), {
@@ -35,8 +59,8 @@ describe('apiClient auth propagation', () => {
   });
 
   it('keeps the session credentials when a 401 cannot be refreshed', async () => {
-    localStorage.setItem('auth_token', 'local-token');
-    localStorage.setItem('cloud_token', 'cloud-token');
+    TokenManager.setToken('local-token');
+    TokenManager.setCloudToken('cloud-token');
     apiClient.setToken('local-token');
     apiClient.setCloudToken('cloud-token');
 
@@ -58,7 +82,7 @@ describe('apiClient auth propagation', () => {
     });
 
     expect(invalidated).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem('auth_token')).toBe('local-token');
+    expect(TokenManager.getToken()).toBe('local-token');
     window.removeEventListener('partflow:auth-invalidated', invalidated);
   });
 

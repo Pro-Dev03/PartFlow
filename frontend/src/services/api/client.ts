@@ -52,12 +52,9 @@ class ApiClient {
 
   setCloudToken(cloudToken: string | null) {
     this.cloudToken = cloudToken ?? null;
-    if (typeof window !== 'undefined') {
-      if (cloudToken) {
-        localStorage.setItem('cloud_token', cloudToken);
-      } else {
-        localStorage.removeItem('cloud_token');
-      }
+    TokenManager.setCloudToken(cloudToken ?? null);
+    if (typeof window !== 'undefined' && !cloudToken) {
+      localStorage.removeItem('cloud_token');
     }
   }
 
@@ -544,17 +541,7 @@ class ApiClient {
   }
 
   private getCloudAccessToken(): string | null {
-    if (typeof window === 'undefined') {
-      return this.cloudToken;
-    }
-
-    const storedCloudToken = localStorage.getItem('cloud_token');
-    if (storedCloudToken) {
-      this.cloudToken = storedCloudToken;
-      return storedCloudToken;
-    }
-
-    return this.cloudToken;
+    return this.cloudToken ?? TokenManager.getCloudToken();
   }
 
   private async refreshCloudAccessToken(): Promise<string | null> {
@@ -581,7 +568,8 @@ class ApiClient {
     const nextToken = payload?.access_token || payload?.token;
     if (!nextToken) return null;
 
-    localStorage.setItem('cloud_token', nextToken);
+    TokenManager.setCloudToken(nextToken);
+    this.cloudToken = nextToken;
     return nextToken as string;
   }
 

@@ -2,11 +2,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { retrySubscriptionVerification, useAuthStore, validateSubscriptionWithCloud } from '../../stores/authStore';
 import { authApi } from '../../services/api/endpoints';
 import { CONNECTION_MODE_KEY } from '../../lib/config/app';
+import { TokenManager } from '../../lib/token-manager';
 
 describe('cloud subscription validation', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     localStorage.clear();
+    TokenManager.clearToken();
+    TokenManager.clearRefreshToken();
+    TokenManager.clearCloudToken();
+    useAuthStore.setState({
+      isAuthenticated: false,
+      sessionVerified: false,
+      cloudVerificationPending: false,
+      user: null,
+      token: null,
+      refreshTokenValue: null,
+      cloudToken: null,
+      loginError: null,
+      isLoading: false,
+      isPostLoginVerifying: false,
+    });
     localStorage.setItem(CONNECTION_MODE_KEY, 'cloud');
     vi.restoreAllMocks();
     Object.defineProperty(window.navigator, 'onLine', {
@@ -27,7 +43,7 @@ describe('cloud subscription validation', () => {
       isLoading: false,
       isPostLoginVerifying: false,
     });
-    localStorage.setItem('cloud_token', 'cloud-token');
+    TokenManager.setCloudToken('cloud-token');
   });
 
   afterEach(() => {
@@ -43,14 +59,18 @@ describe('cloud subscription validation', () => {
     } as any);
     const cloudLoginSpy = vi.spyOn(authApi, 'loginWithCloud');
 	cloudLoginSpy.mockResolvedValue({ token: 'cloud-access-token' } as any);
+  vi.spyOn(authApi, 'createLocalSession').mockResolvedValue({
+    user: { id: 'u-1', email: 'owner@partflow.com', first_name: 'Admin', last_name: 'Owner', phone: '+970599000000', is_active: true, role: 'owner' },
+    token: 'local-access-token',
+  } as any);
 	vi.spyOn(globalThis, 'fetch').mockResolvedValue(
 		new Response(JSON.stringify({ success: true, data: { valid: true, user: { id: 'u-1' } } }), { status: 200 })
 	);
 
     await useAuthStore.getState().login('owner@partflow.com', 'TestOwnerPassword123!');
 
-    expect(loginSpy).toHaveBeenCalledWith('owner@partflow.com', 'TestOwnerPassword123!');
     expect(cloudLoginSpy).toHaveBeenCalledWith('owner@partflow.com', 'TestOwnerPassword123!');
+    expect(authApi.createLocalSession).toHaveBeenCalledWith('cloud-access-token');
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
     expect(useAuthStore.getState().token).toBe('local-access-token');
     expect(useAuthStore.getState().cloudToken).toBe('cloud-access-token');
@@ -58,7 +78,7 @@ describe('cloud subscription validation', () => {
 
   it('validates the subscription in local mode', async () => {
     localStorage.setItem(CONNECTION_MODE_KEY, 'local');
-    localStorage.setItem('cloud_token', 'cloud-token');
+    TokenManager.setCloudToken('cloud-token');
     useAuthStore.setState({ isAuthenticated: true, sessionVerified: true, token: 'local-token', cloudVerificationPending: false });
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ success: true, data: { valid: true } }), { status: 200 })
@@ -81,7 +101,7 @@ describe('cloud subscription validation', () => {
     expect(valid).toBe(false);
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
     expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
-    expect(localStorage.getItem('cloud_token')).toBe('cloud-token');
+    expect(TokenManager.getCloudToken()).toBe('cloud-token');
     expect(window.location.hash).toBe('#/app/dashboard');
   });
 
@@ -115,7 +135,7 @@ describe('cloud subscription validation', () => {
   it('keeps the session pending when the refresh token is rejected', async () => {
     localStorage.setItem('auth_token', 'expired-access-token');
     localStorage.setItem('refresh_token', 'expired-refresh-token');
-    localStorage.setItem('cloud_token', 'cloud-token');
+    TokenManager.setCloudToken('cloud-token');
     useAuthStore.setState({
       isAuthenticated: true,
       sessionVerified: true,
@@ -130,10 +150,11 @@ describe('cloud subscription validation', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
     expect(useAuthStore.getState().sessionVerified).toBe(true);
     expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
-    expect(localStorage.getItem('auth_token')).toBe('expired-access-token');
+    expect(TokenManager.getToken()).toBe('expired-access-token');
   });
 
   it('retries cloud token refresh when the user presses retry', async () => {
+    TokenManager.setCloudToken('cloud-token');
     localStorage.setItem('cloud_refresh_token', 'valid-refresh-token');
     localStorage.setItem('partflow-cloud-refresh-failed', 'true');
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
@@ -145,7 +166,7 @@ describe('cloud subscription validation', () => {
 
     expect(valid).toBe(true);
     expect(fetchSpy).toHaveBeenCalledTimes(3);
-    expect(localStorage.getItem('cloud_token')).toBe('fresh-cloud-token');
+    expect(TokenManager.getCloudToken()).toBe('fresh-cloud-token');
     expect(localStorage.getItem('partflow-cloud-refresh-failed')).toBeNull();
     expect(useAuthStore.getState().cloudVerificationPending).toBe(false);
   });

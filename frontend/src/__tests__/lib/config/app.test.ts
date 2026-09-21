@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { getActiveApiUrl, getConnectionMode, setConnectionMode, shouldUseLocalApi } from '../../../lib/config/app';
+import { getActiveApiUrl, getCloudApiUrl, getConnectionMode, setCloudApiUrl, setConnectionMode, shouldUseLocalApi } from '../../../lib/config/app';
 
 describe('app config', () => {
   beforeEach(() => {
@@ -22,6 +22,16 @@ describe('app config', () => {
 
     expect(getConnectionMode()).toBe('cloud');
     expect(getActiveApiUrl()).toBe('https://partflow-api.onrender.com/api/v1');
+    expect(shouldUseLocalApi('localhost')).toBe(false);
+  });
+
+  it('uses a saved cloud API URL override for auth and sync routes', () => {
+    setCloudApiUrl('https://cloud.example.com/api/v1/');
+    setConnectionMode('cloud');
+
+    expect(getCloudApiUrl()).toBe('https://cloud.example.com/api/v1');
+    expect(getActiveApiUrl()).toBe('https://cloud.example.com/api/v1');
+    expect(getConnectionMode()).toBe('cloud');
     expect(shouldUseLocalApi('localhost')).toBe(false);
   });
 
