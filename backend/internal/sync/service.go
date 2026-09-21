@@ -181,6 +181,24 @@ func ApplyCloudOperation(postgresDB *sqlx.DB, entry localdb.SyncQueueEntry) erro
 	return syncOneItem(postgresDB, nil, entry)
 }
 
+// FilterPushPayload keeps local snapshot uploads compatible with the cloud
+// schema while allowing SQLite to carry newer or device-only columns.
+func FilterPushPayload(entityType string, payload map[string]any) map[string]any {
+	tableName, err := tableNameForEntity(entityType)
+	if err != nil {
+		return map[string]any{}
+	}
+	allowed := syncColumns(tableName)
+	filtered := make(map[string]any, len(payload))
+	for key, value := range payload {
+		column := normalizeFieldName(key)
+		if _, ok := allowed[column]; ok {
+			filtered[column] = value
+		}
+	}
+	return filtered
+}
+
 func detectSyncConflict(postgresDB *sqlx.DB, sqliteDB *sql.DB, tableName string, entry localdb.SyncQueueEntry, payload map[string]any) error {
 	localUpdatedAt := extractUpdatedAt(payload)
 	if localUpdatedAt == "" || entry.EntityID == "" {
@@ -372,22 +390,22 @@ func syncColumns(tableName string) map[string]struct{} {
 		"customers":                 "id code name email phone address city country tax_id credit_limit current_balance notes is_active created_at updated_at",
 		"suppliers":                 "id code name email phone address city country tax_id payment_terms credit_limit current_balance notes is_active created_at updated_at",
 		"inventory_items":           "id product_id part_type_id item_code barcode serial_number condition grade purchase_cost selling_price status location_id supplier_id purchase_date sold_at notes created_at updated_at",
-		"sales":                     "id invoice_number customer_id user_id sale_date subtotal tax_amount discount_amount total_amount paid_amount remaining_amount payment_method payment_status status notes created_at updated_at",
+		"sales":                     "id invoice_number customer_id user_id sale_date subtotal tax_amount discount_amount total_amount paid_amount payment_method payment_status status notes created_at updated_at",
 		"purchases":                 "id invoice_number supplier_id user_id purchase_date subtotal tax_amount discount_amount total_amount paid_amount remaining_amount payment_method payment_status status notes created_at updated_at",
 		"payments":                  "id reference_number sale_id purchase_id customer_id supplier_id amount payment_method payment_date notes created_at updated_at",
 		"categories":                "id name description parent_id icon color is_active created_at updated_at",
 		"brands":                    "id name description logo_url created_at updated_at",
-		"sale_items":                "id sale_id inventory_item_id product_id quantity unit_price item_total total_amount unit_cost created_at",
-		"purchase_items":            "id purchase_id product_id quantity unit_price item_total total_amount unit_cost created_at",
-		"expenses":                  "id title category_id reference_number category amount description expense_date payment_method receipt_url created_by currency reference notes status is_recurring recurring_period approved_by created_at updated_at",
+		"sale_items":                "id sale_id inventory_item_id product_id quantity unit_price total_amount unit_cost created_at",
+		"purchase_items":            "id purchase_id product_id quantity unit_price total_amount unit_cost created_at",
+		"expenses":                  "id title category_id reference_number category amount description expense_date payment_method receipt_url created_by currency reference status is_recurring recurring_period approved_by created_at updated_at",
 		"expense_categories":        "id name description color icon budget is_active created_at updated_at",
 		"inventory":                 "id product_id quantity reserved_quantity location warehouse_id current_quantity available_quantity current_cost current_value last_movement_id last_restocked_at created_at updated_at",
 		"inventory_movements":       "id item_id product_id movement_type quantity before_quantity after_quantity reference_type reference_id reason created_by created_at is_reversed reversed_by reversed_at reversal_reason",
 		"locations":                 "id name type parent_id warehouse_id description is_active created_at updated_at",
 		"reservations":              "id item_id customer_id user_id reserved_at expires_at status notes created_at updated_at",
 		"barcodes":                  "id code product_id inventory_item_id type is_active generated_at created_at updated_at",
-		"returns":                   "id return_number reference_number sale_id purchase_id customer_id return_date return_type status total_refund_amount refund_method refund_date refund_reference debt_id debt_adjustment customer_credit reason reason_detail item_condition_after_return is_warranty_claim warranty_id warranty_valid_until created_by processed_by approved_by approved_at notes internal_notes refund_status created_at updated_at",
-		"return_items":              "id return_id sale_item_id product_id inventory_item_id quantity quantity_returned original_quantity serial_number barcode unit_price total_refund_amount reason original_condition returned_condition condition_notes resolution inventory_status inspection_required inspection_date inspection_result inspection_notes original_cost repair_cost created_at updated_at",
+		"returns":                   "id return_number reference_number sale_id purchase_id customer_id return_date return_type status total_refund_amount refund_method refund_date refund_reference debt_id debt_adjustment customer_credit reason reason_detail item_condition_after_return is_warranty_claim warranty_id warranty_valid_until created_by processed_by approved_by approved_at notes internal_notes created_at updated_at",
+		"return_items":              "id return_id sale_item_id product_id inventory_item_id quantity_returned original_quantity serial_number barcode unit_price total_refund_amount reason original_condition returned_condition condition_notes resolution inventory_status inspection_required inspection_date inspection_result inspection_notes original_cost repair_cost created_at updated_at",
 		"acquisitions":              "id type acquisition_date supplier_id customer_id total_cost paid_amount payment_status status notes user_id created_at updated_at reversed_at reversed_by reversal_reason",
 		"acquisition_items":         "id acquisition_id product_id inventory_item_id item_code serial_number condition grade unit_cost total_cost item_status notes created_at updated_at",
 		"trade_ins":                 "id customer_id inventory_item_id purchase_price purchase_date notes created_at updated_at",

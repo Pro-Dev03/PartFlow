@@ -330,7 +330,7 @@ class ApiClient {
     const cloudToken = this.getCloudAccessToken();
     if (cloudToken) {
       headers['X-PartFlow-Cloud-Token'] = cloudToken;
-      if (options.method === 'POST' && endpoint.startsWith('/settings/sync')) {
+      if (getConnectionMode() === 'cloud' || (options.method === 'POST' && endpoint.startsWith('/settings/sync'))) {
         headers['Authorization'] = `Bearer ${cloudToken}`;
       }
     }

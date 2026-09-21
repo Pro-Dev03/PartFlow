@@ -42,19 +42,27 @@ describe('cloud subscription validation', () => {
       token: 'local-access-token',
     } as any);
     const cloudLoginSpy = vi.spyOn(authApi, 'loginWithCloud');
+	cloudLoginSpy.mockResolvedValue({ token: 'cloud-access-token' } as any);
+	vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+		new Response(JSON.stringify({ success: true, data: { valid: true, user: { id: 'u-1' } } }), { status: 200 })
+	);
 
     await useAuthStore.getState().login('owner@partflow.com', 'TestOwnerPassword123!');
 
     expect(loginSpy).toHaveBeenCalledWith('owner@partflow.com', 'TestOwnerPassword123!');
-    expect(cloudLoginSpy).not.toHaveBeenCalled();
+    expect(cloudLoginSpy).toHaveBeenCalledWith('owner@partflow.com', 'TestOwnerPassword123!');
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
     expect(useAuthStore.getState().token).toBe('local-access-token');
-    expect(useAuthStore.getState().cloudToken).toBeNull();
+    expect(useAuthStore.getState().cloudToken).toBe('cloud-access-token');
   });
 
-  it('skips cloud validation in local mode', async () => {
+  it('validates the subscription in local mode', async () => {
     localStorage.setItem(CONNECTION_MODE_KEY, 'local');
+    localStorage.setItem('cloud_token', 'cloud-token');
     useAuthStore.setState({ isAuthenticated: true, sessionVerified: true, token: 'local-token', cloudVerificationPending: false });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { valid: true } }), { status: 200 })
+    );
 
     const valid = await validateSubscriptionWithCloud();
 

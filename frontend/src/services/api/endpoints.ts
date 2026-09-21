@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 import { TokenManager } from '../../lib/token-manager';
-import { getCloudApiUrl, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
+import { getCloudApiUrl, getConnectionMode, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
 import type {
   ProductCreateRequest,
   ProductUpdateRequest,
@@ -447,6 +447,10 @@ const localSyncRequest = async <T>(endpoint: string, options: RequestInit = {}) 
     const session = await authApi.createLocalSession(cloudToken);
     const sessionData = (session as any)?.data ?? session;
     localToken = sessionData?.access_token || sessionData?.token || null;
+    if (localToken) {
+      TokenManager.setToken(localToken);
+      apiClient.setToken(localToken);
+    }
   }
   if (!localToken) throw new Error('تعذر إنشاء جلسة المزامنة المحلية.');
 
@@ -472,9 +476,9 @@ export const settingsApi = {
   updateRegionalSettings: (settings: string | { country_code?: string; timezone?: string }) =>
     apiClient.put('/settings/regional', typeof settings === 'string' ? { country_code: settings } : settings),
   syncCloudData: () =>
-    localSyncRequest('/api/v1/settings/sync', { method: 'POST', body: '{}' }),
+    localSyncRequest('/settings/sync', { method: 'POST', body: '{}' }),
   syncLocalDataToCloud: () =>
-    localSyncRequest('/api/v1/settings/sync/push', { method: 'POST', body: '{}' }),
+    localSyncRequest('/settings/sync/push', { method: 'POST', body: '{}' }),
   getUsers: (params?: { page?: number; per_page?: number }) =>
     apiClient.get('/users', params),
   getSubscribers: (params?: { page?: number; per_page?: number; search?: string; is_active?: boolean }) => {

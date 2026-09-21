@@ -1692,6 +1692,75 @@ func SeedLocalSnapshot(db *sql.DB, snapshot map[string]any) error {
 	return nil
 }
 
+// ExportLocalSnapshot returns the local operational tables in the same shape
+// consumed by SeedLocalSnapshot. Missing optional tables are skipped so older
+// local databases remain compatible with newer sync clients.
+func ExportLocalSnapshot(db *sql.DB) (map[string]any, error) {
+	if db == nil {
+		return nil, fmt.Errorf("local database is nil")
+	}
+
+	tables := []string{
+		"categories", "brands", "suppliers", "customers", "customer_ledger",
+		"supplier_ledger", "ledger_entries", "products", "inventory", "locations",
+		"inventory_items", "sales", "sale_items", "purchases", "purchase_items",
+		"payments", "debts", "expense_categories", "expenses", "seller_payments",
+		"supplier_returns", "supplier_return_items", "inspections", "inspection_items",
+		"part_types", "part_specifications", "type_specifications", "acquisitions",
+		"acquisition_items", "trade_ins", "item_specification_values", "returns",
+		"return_items", "used_parts", "inventory_movements", "reservations", "barcodes",
+		"notifications", "notification_preferences", "reports", "settings", "held_sales",
+	}
+
+	snapshot := make(map[string]any, len(tables))
+	for _, tableName := range tables {
+		rows, err := exportLocalSnapshotTable(db, tableName)
+		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "no such table") {
+				continue
+			}
+			return nil, fmt.Errorf("export %s: %w", tableName, err)
+		}
+		snapshot[tableName] = rows
+	}
+	return snapshot, nil
+}
+
+func exportLocalSnapshotTable(db *sql.DB, tableName string) ([]map[string]any, error) {
+	quotedTable := strings.ReplaceAll(tableName, `"`, `""`)
+	rows, err := db.Query(`SELECT * FROM "` + quotedTable + `" ORDER BY 1 ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]map[string]any, 0)
+	for rows.Next() {
+		values := make([]any, len(columns))
+		destinations := make([]any, len(columns))
+		for index := range values {
+			destinations[index] = &values[index]
+		}
+		if err := rows.Scan(destinations...); err != nil {
+			return nil, err
+		}
+		record := make(map[string]any, len(columns))
+		for index, column := range columns {
+			value := values[index]
+			if bytes, ok := value.([]byte); ok {
+				value = string(bytes)
+			}
+			record[column] = value
+		}
+		result = append(result, record)
+	}
+	return result, rows.Err()
+}
+
 func normalizeSnapshotRows(raw any) ([]map[string]any, error) {
 	switch rows := raw.(type) {
 	case []map[string]any:

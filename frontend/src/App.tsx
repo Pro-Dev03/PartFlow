@@ -18,9 +18,9 @@ import { initializePartTypeImages } from './services/localPartTypeImages';
 import { initializeCategoryImages } from './services/localCategoryImages';
 import { RegionalProfileLoader } from './components/RegionalProfileLoader';
 import { AlertTriangle, LogOut, RefreshCw } from 'lucide-react';
+import { LoginPage } from './features/auth/pages/LoginPage';
 
 // Lazy load auth pages separately
-const LoginPage = lazy(() => import('./features/auth/pages/LoginPage').then(m => ({ default: m.LoginPage })));
 const SubscriptionExpiredPage = lazy(() => import('./features/auth/pages/SubscriptionExpiredPage').then(m => ({ default: m.default })));
 
 // Component to preload critical pages
@@ -147,7 +147,7 @@ function App() {
     const handleOffline = () => {
       const state = useAuthStore.getState();
       if (state.isAuthenticated || state.token || state.cloudToken) {
-        markCloudVerificationPending();
+        forceLogoutToLogin('Internet connection lost');
       }
     };
     const handleAuthInvalidated = (event: Event) => {

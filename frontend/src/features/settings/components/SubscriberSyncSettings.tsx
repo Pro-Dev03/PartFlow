@@ -91,7 +91,7 @@ export function SubscriberSyncSettings() {
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-200 bg-white p-3">
           <div>
-            <div className="text-xs text-slate-500">مصدر العمليات الحالي</div>
+            <div className="text-xs text-slate-500">مصدر البيانات الحالي</div>
             <div className="mt-1 text-sm font-semibold text-slate-800">
               {connectionMode === 'cloud' ? 'السحابة مباشرة' : 'SQLite المحلية'}
             </div>
@@ -114,7 +114,7 @@ export function SubscriberSyncSettings() {
             disabled={isBusy || isOffline}
           >
             <Download className="h-4 w-4" />
-            {downloadMutation.isPending ? 'جارٍ التنزيل...' : 'تنزيل من السحابة'}
+            {downloadMutation.isPending ? 'جارٍ تنزيل البيانات...' : 'تنزيل البيانات'}
           </Button>
           <Button
             variant="secondary"
@@ -123,7 +123,7 @@ export function SubscriberSyncSettings() {
             disabled={isBusy || isOffline}
           >
             <Upload className="h-4 w-4" />
-            {uploadMutation.isPending ? 'جارٍ الرفع...' : 'رفع التغييرات للسحابة'}
+            {uploadMutation.isPending ? 'جارٍ رفع البيانات...' : 'رفع البيانات'}
           </Button>
         </div>
 

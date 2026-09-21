@@ -20,7 +20,7 @@ func TestSyncCloudDataMergesCloudSnapshotIntoSQLite(t *testing.T) {
 			http.Error(w, "unexpected path", http.StatusNotFound)
 			return
 		}
-		if r.Header.Get("Authorization") != "Bearer test-token" {
+		if r.Header.Get("Authorization") != "Bearer cloud-token" {
 			http.Error(w, "missing auth", http.StatusUnauthorized)
 			return
 		}
@@ -73,6 +73,7 @@ func TestSyncCloudDataMergesCloudSnapshotIntoSQLite(t *testing.T) {
 	}
 	ctx.Request = request
 	ctx.Request.Header.Set("Authorization", "Bearer test-token")
+	ctx.Request.Header.Set("X-PartFlow-Cloud-Token", "cloud-token")
 	NewLocalDatabaseHandler().SyncCloudData(ctx)
 
 	if recorder.Code != http.StatusOK {

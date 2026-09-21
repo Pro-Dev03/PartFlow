@@ -77,19 +77,14 @@ export function LoginPage() {
     sessionStorage.removeItem('partflow-login-error');
 
     const isLocalMode = getConnectionMode() === 'local';
-    if (!isLocalMode) {
-      setPostLoginVerifying(true);
-      setIsVerifyingSubscription(true);
-    }
+    setPostLoginVerifying(true);
+    setIsVerifyingSubscription(true);
 
     try {
       await login(email, password);
-      if (isLocalMode) {
-        navigate('/app');
-        return;
-      }
       await new Promise((resolve) => window.setTimeout(resolve, 6000));
       setPostLoginVerifying(false);
+      setIsVerifyingSubscription(false);
       navigate('/app');
     } catch (err) {
       setPostLoginVerifying(false);
