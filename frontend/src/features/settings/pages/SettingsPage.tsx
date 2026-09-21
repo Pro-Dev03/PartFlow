@@ -23,6 +23,7 @@ import { AuditSettings } from '../components/AuditSettings';
 import { DatabaseSettings } from '../components/DatabaseSettings';
 import { SubscriptionManagement } from '../components/SubscriptionManagement';
 import { RegionalSettings } from '../components/RegionalSettings';
+import { SubscriberSyncSettings } from '../components/SubscriberSyncSettings';
 
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -213,6 +214,7 @@ export function SettingsPage() {
             <div className="space-y-5">
               <StoreSettings />
               <RegionalSettings canManageRegionalSettings={isActiveSubscription} />
+              {isActiveSubscription && <SubscriberSyncSettings />}
             </div>
           )}
           {activeTab === 'financial' && <FinancialSettings />}

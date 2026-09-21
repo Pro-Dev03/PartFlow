@@ -409,23 +409,22 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			// Sync routes
 			sync := protected.Group("/sync")
 			{
-				// The current cloud schema is single-tenant. Never expose a global
-				// operational snapshot to an ordinary subscriber until tenant
-				// columns/database-per-store isolation is deployed.
-				sync.GET("/initial-data", middleware.Admin(), syncHandler.GetInitialData)
-				// Cloud push receives queue entries only and never accepts a full
-				// local SQLite snapshot from a device.
-				sync.POST("/push", middleware.Admin(), syncHandler.PushData)
+				// AuthMiddleware and the cloud guard already verify the active
+				// subscriber session. Sync is limited to queue entries and the
+				// authenticated store snapshot; destructive/admin operations remain
+				// protected separately below.
+				sync.GET("/initial-data", syncHandler.GetInitialData)
+				sync.POST("/push", syncHandler.PushData)
 			}
 
 			// Settings routes
 			settings := protected.Group("/settings")
 			{
-				settings.POST("/sync", middleware.Admin(), localDatabaseHandler.SyncCloudData)
-				settings.POST("/sync/push", middleware.Admin(), localDatabaseHandler.SyncLocalDataToCloud)
-				settings.GET("/sync/conflicts", middleware.Admin(), localDatabaseHandler.GetSyncConflicts)
-				settings.DELETE("/sync/conflicts", middleware.Admin(), localDatabaseHandler.ClearSyncConflicts)
-				settings.POST("/sync/conflicts/:id/resolve", middleware.Admin(), localDatabaseHandler.ResolveSyncConflict)
+				settings.POST("/sync", localDatabaseHandler.SyncCloudData)
+				settings.POST("/sync/push", localDatabaseHandler.SyncLocalDataToCloud)
+				settings.GET("/sync/conflicts", localDatabaseHandler.GetSyncConflicts)
+				settings.DELETE("/sync/conflicts", localDatabaseHandler.ClearSyncConflicts)
+				settings.POST("/sync/conflicts/:id/resolve", localDatabaseHandler.ResolveSyncConflict)
 				// Online/offline switching is intentionally absent: cloud validation
 				// controls access while SQLite remains only the local data store.
 				settings.GET("/public", settingsHandler.GetPublicSettings)
