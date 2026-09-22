@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/dashboard"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
@@ -812,14 +813,11 @@ func (s *Service) DeleteInventoryItem(ctx context.Context, itemID, userID uuid.U
 		return err
 	}
 	if permanent {
-		return s.repo.DeleteUsedInventoryItem(ctx, itemID)
-	}
-	protected, err := s.repo.HasProtectedHistory(ctx, itemID)
-	if err != nil {
-		return err
-	}
-	if !protected {
-		return s.repo.DeleteInventoryItem(ctx, itemID)
+		if err := s.repo.DeleteUsedInventoryItem(ctx, itemID); err != nil {
+			return err
+		}
+		dashboard.InvalidateDashboardCacheWithReason("inventory_item_deleted")
+		return nil
 	}
 	if strings.EqualFold(string(item.Status), string(StatusSold)) {
 		return ErrCannotDeleteSoldItem
@@ -863,6 +861,7 @@ func (s *Service) DeleteInventoryItem(ctx context.Context, itemID, userID uuid.U
 		return fmt.Errorf("failed to commit inventory item deletion: %w", err)
 	}
 	committed = true
+	dashboard.InvalidateDashboardCacheWithReason("inventory_item_archived")
 	return nil
 }
 

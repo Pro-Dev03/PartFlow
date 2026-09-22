@@ -146,6 +146,7 @@ type localReturnItemRow struct {
 	ReturnID           sql.NullString  `db:"return_id"`
 	SaleItemID         sql.NullString  `db:"sale_item_id"`
 	ProductID          sql.NullString  `db:"product_id"`
+	ProductName        sql.NullString  `db:"product_name"`
 	InventoryItemID    sql.NullString  `db:"inventory_item_id"`
 	SerialNumber       sql.NullString  `db:"serial_number"`
 	Barcode            sql.NullString  `db:"barcode"`
@@ -169,7 +170,7 @@ type localReturnItemRow struct {
 }
 
 func (row localReturnItemRow) model() ReturnItem {
-	item := ReturnItem{ID: localUUID(row.ID), ReturnID: localUUID(row.ReturnID), SaleItemID: localUUIDPtr(row.SaleItemID), ProductID: localUUIDPtr(row.ProductID), InventoryItemID: localUUIDPtr(row.InventoryItemID), SerialNumber: row.SerialNumber.String, Barcode: row.Barcode.String, QuantityReturned: row.QuantityReturned, UnitPrice: row.UnitPrice, TotalRefundAmount: row.TotalRefundAmount, OriginalCondition: row.OriginalCondition.String, ReturnedCondition: row.ReturnedCondition.String, ConditionNotes: row.ConditionNotes.String, Resolution: row.Resolution.String, InventoryStatus: row.InventoryStatus.String, InspectionRequired: row.InspectionRequired != 0, InspectionDate: localTimePtr(row.InspectionDate), InspectionResult: row.InspectionResult.String, InspectionNotes: row.InspectionNotes.String, RepairCost: row.RepairCost, CreatedAt: localTime(row.CreatedAt), UpdatedAt: localTime(row.UpdatedAt)}
+	item := ReturnItem{ID: localUUID(row.ID), ReturnID: localUUID(row.ReturnID), SaleItemID: localUUIDPtr(row.SaleItemID), ProductID: localUUIDPtr(row.ProductID), ProductName: row.ProductName.String, InventoryItemID: localUUIDPtr(row.InventoryItemID), SerialNumber: row.SerialNumber.String, Barcode: row.Barcode.String, QuantityReturned: row.QuantityReturned, UnitPrice: row.UnitPrice, TotalRefundAmount: row.TotalRefundAmount, OriginalCondition: row.OriginalCondition.String, ReturnedCondition: row.ReturnedCondition.String, ConditionNotes: row.ConditionNotes.String, Resolution: row.Resolution.String, InventoryStatus: row.InventoryStatus.String, InspectionRequired: row.InspectionRequired != 0, InspectionDate: localTimePtr(row.InspectionDate), InspectionResult: row.InspectionResult.String, InspectionNotes: row.InspectionNotes.String, RepairCost: row.RepairCost, CreatedAt: localTime(row.CreatedAt), UpdatedAt: localTime(row.UpdatedAt)}
 	if row.OriginalQuantity.Valid {
 		v := int(row.OriginalQuantity.Int64)
 		item.OriginalQuantity = &v
@@ -538,26 +539,134 @@ func (r *Repository) UpdateReturn(ctx context.Context, returnRecord *Return) err
 	return nil
 }
 
-// DeleteReturn deletes a return
+// DeleteReturn removes the return from active inventory while preserving its history.
 func (r *Repository) DeleteReturn(ctx context.Context, id uuid.UUID) error {
-	query := `DELETE FROM returns WHERE id = $1`
-	arg := interface{}(id)
-	if dbutil.IsSQLite(r.db) {
-		query = `DELETE FROM returns WHERE id = ?`
-		arg = id.String()
-	}
-
-	result, err := r.db.ExecContext(ctx, query, arg)
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to delete return: %w", err)
+		return fmt.Errorf("failed to begin return archive: %w", err)
 	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	returnID := interface{}(id)
+	if dbutil.IsSQLite(r.db) {
+		returnID = id.String()
+	}
+	var returnCount int
+	if err := tx.GetContext(ctx, &returnCount, tx.Rebind(`SELECT COUNT(*) FROM returns WHERE id = ?`), returnID); err != nil {
+		return fmt.Errorf("failed to find return: %w", err)
+	}
+	if returnCount == 0 {
 		return ErrReturnNotFound
 	}
 
+	_, err = tx.ExecContext(ctx, tx.Rebind(`
+		UPDATE inventory_items
+		SET status = 'ARCHIVED', updated_at = CURRENT_TIMESTAMP
+		WHERE id IN (SELECT inventory_item_id FROM return_items WHERE return_id = ? AND inventory_item_id IS NOT NULL)
+	`), returnID)
+	if err != nil {
+		return fmt.Errorf("failed to archive returned inventory items: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit return archive: %w", err)
+	}
+	committed = true
 	return nil
+}
+
+// DeleteReturnPermanently removes a return from active operation while preserving linked history.
+func (r *Repository) DeleteReturnPermanently(ctx context.Context, id uuid.UUID) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin permanent return deletion: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	returnID := interface{}(id)
+	if dbutil.IsSQLite(r.db) {
+		returnID = id.String()
+	}
+	var returnCount int
+	if err := tx.GetContext(ctx, &returnCount, tx.Rebind(`SELECT COUNT(*) FROM returns WHERE id = ?`), returnID); err != nil {
+		return fmt.Errorf("failed to find return: %w", err)
+	}
+	if returnCount == 0 {
+		return ErrReturnNotFound
+	}
+
+	deleteIfPresent := func(table, query string, args ...interface{}) error {
+		exists, err := returnTableExists(tx, dbutil.IsSQLite(r.db), table)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return nil
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(query), args...); err != nil {
+			return fmt.Errorf("failed to clean %s: %w", table, err)
+		}
+		return nil
+	}
+
+	// Keep the physical item out of active stock before removing the return rows.
+	if err := deleteIfPresent("inventory_items", `
+		UPDATE inventory_items SET status = 'ARCHIVED', updated_at = CURRENT_TIMESTAMP
+		WHERE id IN (SELECT inventory_item_id FROM return_items WHERE return_id = ? AND inventory_item_id IS NOT NULL)
+	`, returnID); err != nil {
+		return err
+	}
+	for _, cleanup := range []struct {
+		table string
+		query string
+	}{
+		{"return_payment_refunds", `DELETE FROM return_payment_refunds WHERE return_id = ?`},
+		{"return_refunds", `DELETE FROM return_refunds WHERE return_id = ?`},
+		{"return_inspection", `DELETE FROM return_inspection WHERE return_item_id IN (SELECT id FROM return_items WHERE return_id = ?)`},
+		{"return_audit_log", `DELETE FROM return_audit_log WHERE return_id = ?`},
+		{"supplier_return_items", `DELETE FROM supplier_return_items WHERE customer_return_id = ?`},
+		{"supplier_returns", `DELETE FROM supplier_returns WHERE customer_return_id = ?`},
+		{"inventory_movements", `DELETE FROM inventory_movements WHERE reference_id = ? AND LOWER(COALESCE(reference_type, '')) LIKE '%return%'`},
+		{"item_history", `DELETE FROM item_history WHERE reference_id = ?`},
+		{"ledger_entries", `DELETE FROM ledger_entries WHERE reference_id = ?`},
+		{"customer_ledger", `DELETE FROM customer_ledger WHERE reference_id = ?`},
+		{"audit_logs", `DELETE FROM audit_logs WHERE entity_id = ? AND LOWER(COALESCE(entity_type, '')) IN ('return', 'returns', 'customer_return')`},
+	} {
+		if err := deleteIfPresent(cleanup.table, cleanup.query, returnID); err != nil {
+			return err
+		}
+	}
+	if err := deleteIfPresent("return_items", `DELETE FROM return_items WHERE return_id = ?`, returnID); err != nil {
+		return err
+	}
+	if err := deleteIfPresent("returns", `DELETE FROM returns WHERE id = ?`, returnID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit permanent return deletion: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+func returnTableExists(tx *sqlx.Tx, isSQLite bool, table string) (bool, error) {
+	var count int
+	var err error
+	if isSQLite {
+		err = tx.Get(&count, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table)
+	} else {
+		err = tx.Get(&count, `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1`, table)
+	}
+	return count > 0, err
 }
 
 // CreateReturnItem creates a new return item
@@ -703,7 +812,7 @@ func (r *Repository) AddDebtAdjustmentLedgerEntry(ctx context.Context, returnRec
 func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]ReturnItem, error) {
 	if dbutil.IsSQLite(r.db) {
 		var rows []localReturnItemRow
-		if err := r.db.SelectContext(ctx, &rows, `SELECT ri.id,ri.return_id,ri.sale_item_id,ri.product_id,ri.inventory_item_id,COALESCE(NULLIF(ri.serial_number, ''), ii.serial_number, '') AS serial_number,COALESCE(NULLIF(ri.barcode, ''), ii.barcode, '') AS barcode,ri.quantity_returned,ri.original_quantity,ri.unit_price,ri.total_refund_amount,ri.original_condition,ri.returned_condition,ri.condition_notes,ri.resolution,ri.inventory_status,ri.inspection_required,ri.inspection_date,ri.inspection_result,ri.inspection_notes,ri.original_cost,ri.repair_cost,ri.created_at,ri.updated_at FROM return_items ri LEFT JOIN inventory_items ii ON ii.id = ri.inventory_item_id WHERE ri.return_id = ? ORDER BY ri.created_at`, returnID.String()); err != nil {
+		if err := r.db.SelectContext(ctx, &rows, `SELECT ri.id,ri.return_id,ri.sale_item_id,ri.product_id,COALESCE(NULLIF(p.name, ''),(SELECT p0.name FROM products p0 JOIN inventory_items ii0 ON ii0.product_id = p0.id WHERE ii0.id = ri.inventory_item_id LIMIT 1),(SELECT p1.name FROM products p1 JOIN inventory_items ii1 ON ii1.product_id = p1.id WHERE ii1.barcode = COALESCE(NULLIF(ri.barcode, ''), ii.barcode) LIMIT 1),(SELECT p2.name FROM products p2 WHERE p2.barcode = COALESCE(NULLIF(ri.barcode, ''), ii.barcode) LIMIT 1),(SELECT p3.name FROM sale_items si2 LEFT JOIN products p3 ON p3.id = si2.product_id WHERE si2.id = ri.sale_item_id LIMIT 1),'') AS product_name,ri.inventory_item_id,COALESCE(NULLIF(ri.serial_number, ''), ii.serial_number, '') AS serial_number,COALESCE(NULLIF(ri.barcode, ''), ii.barcode, '') AS barcode,ri.quantity_returned,COALESCE(ri.original_quantity,(SELECT si.quantity FROM sale_items si JOIN returns rr ON rr.sale_id = si.sale_id WHERE rr.id = ri.return_id AND (ri.product_id IS NULL OR si.product_id = ri.product_id) ORDER BY si.created_at LIMIT 1)) AS original_quantity,ri.unit_price,ri.total_refund_amount,ri.original_condition,ri.returned_condition,ri.condition_notes,ri.resolution,ri.inventory_status,ri.inspection_required,ri.inspection_date,ri.inspection_result,ri.inspection_notes,ri.original_cost,ri.repair_cost,ri.created_at,ri.updated_at FROM return_items ri LEFT JOIN inventory_items ii ON ii.id = ri.inventory_item_id LEFT JOIN products p ON p.id = ri.product_id WHERE ri.return_id = ? ORDER BY ri.created_at`, returnID.String()); err != nil {
 			return nil, fmt.Errorf("failed to get return items: %w", err)
 		}
 		items := make([]ReturnItem, 0, len(rows))
@@ -714,10 +823,12 @@ func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]
 	}
 	var items []ReturnItem
 	query := `
-		SELECT ri.id, ri.return_id, ri.sale_item_id, ri.product_id, ri.inventory_item_id,
+		SELECT ri.id, ri.return_id, ri.sale_item_id, ri.product_id,
+			COALESCE(NULLIF(p.name, ''), (SELECT p0.name FROM products p0 JOIN inventory_items ii0 ON ii0.product_id = p0.id WHERE ii0.id = ri.inventory_item_id LIMIT 1), (SELECT p1.name FROM products p1 JOIN inventory_items ii1 ON ii1.product_id = p1.id WHERE ii1.barcode = COALESCE(NULLIF(ri.barcode, ''), ii.barcode) LIMIT 1), (SELECT p2.name FROM products p2 WHERE p2.barcode = COALESCE(NULLIF(ri.barcode, ''), ii.barcode) LIMIT 1), (SELECT p3.name FROM sale_items si2 LEFT JOIN products p3 ON p3.id = si2.product_id WHERE si2.id = ri.sale_item_id LIMIT 1), '') AS product_name,
+			ri.inventory_item_id,
 			COALESCE(NULLIF(ri.serial_number, ''), ii.serial_number, '') AS serial_number,
 			COALESCE(NULLIF(ri.barcode, ''), ii.barcode, '') AS barcode,
-			quantity_returned, original_quantity, unit_price, total_refund_amount,
+			quantity_returned, COALESCE(ri.original_quantity, (SELECT si.quantity FROM sale_items si JOIN returns rr ON rr.sale_id = si.sale_id WHERE rr.id = ri.return_id AND (ri.product_id IS NULL OR si.product_id = ri.product_id) ORDER BY si.created_at LIMIT 1)) AS original_quantity, unit_price, total_refund_amount,
 			COALESCE(original_condition, '') AS original_condition, COALESCE(returned_condition, '') AS returned_condition,
 			COALESCE(condition_notes, '') AS condition_notes, COALESCE(resolution, '') AS resolution,
 			COALESCE(inventory_status, '') AS inventory_status,
@@ -726,6 +837,7 @@ func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]
 			original_cost, repair_cost, created_at, updated_at
 		FROM return_items ri
 		LEFT JOIN inventory_items ii ON ii.id = ri.inventory_item_id
+		LEFT JOIN products p ON p.id = ri.product_id
 		WHERE ri.return_id = $1
 		ORDER BY ri.created_at
 	`

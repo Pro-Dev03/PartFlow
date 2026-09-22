@@ -36,10 +36,10 @@ export function InventoryDistribution({
 
   const getStatusText = (status?: string, itemName?: string) => {
     switch (status) {
-      case 'good': return 'متوفر';
+      case 'good': return 'متاح';
       case 'low': return 'منخفض';
       case 'critical': return 'يحتاج إجراء';
-      case 'attention': return 'يحتاج مراجعة';
+      case 'attention': return itemName?.includes('مرتجع') ? 'مرتجع' : 'يحتاج مراجعة';
       case 'neutral':
         return itemName?.includes('ملغى') ? 'ملغى' : 'تم البيع';
       default: return '—';

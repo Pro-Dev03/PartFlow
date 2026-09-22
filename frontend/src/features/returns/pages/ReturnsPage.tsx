@@ -14,6 +14,8 @@ import { Badge } from '../../../design-system/components/badge';
 import { Modal } from '../../../design-system/components/modal';
 import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
 import { PaginationControls } from '../../../design-system/components/pagination-controls';
+import { CreateReturnPage } from './CreateReturnPage';
+import { ReturnDetailsPage } from './ReturnDetailsPage';
 import { 
   RotateCcw, 
   Plus, 
@@ -26,6 +28,9 @@ import {
   XCircle,
   RefreshCw,
   Truck,
+  PackageCheck,
+  Wrench,
+  Archive,
   Edit,
   Trash2
 } from 'lucide-react';
@@ -66,39 +71,46 @@ export function ReturnsPage() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [returnTypeFilter, setReturnTypeFilter] = useState('');
-  const [refundMethodFilter, setRefundMethodFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [editingReturn, setEditingReturn] = useState<Return | null>(null);
-  const [returnToDelete, setReturnToDelete] = useState<Return | null>(null);
+  const [returnToArchive, setReturnToArchive] = useState<Return | null>(null);
+  const [archivedReturnIds, setArchivedReturnIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('partflow-hidden-return-ids') || '[]');
+    } catch {
+      return [];
+    }
+  });
   const [editReason, setEditReason] = useState('');
   const [editRefundMethod, setEditRefundMethod] = useState('CASH');
   const [editCondition, setEditCondition] = useState('READY_FOR_SALE');
+  const [isCreateReturnModalOpen, setIsCreateReturnModalOpen] = useState(false);
+  const [viewingReturn, setViewingReturn] = useState<Return | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 10;
 
 
   const { data: returnsData, isLoading } = useQuery({
-    queryKey: ['returns', page, pageSize, statusFilter, returnTypeFilter, refundMethodFilter, searchQuery],
+    queryKey: ['returns', page, pageSize, statusFilter, searchQuery],
     queryFn: () => returnsApi.list({ 
       page,
       per_page: pageSize,
       status: statusFilter,
-      return_type: returnTypeFilter,
-      refund_method: refundMethodFilter,
       search: searchQuery
     }),
   });
 
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, statusFilter, returnTypeFilter, refundMethodFilter]);
+  }, [searchQuery, statusFilter, categoryFilter]);
 
   const returns = (returnsData?.data as Return[]) || [];
+  const pageReturns = returns.filter((returnItem) => {
+    const status = String(returnItem.status || '').toUpperCase();
+    return status !== 'ARCHIVED' && !archivedReturnIds.includes(returnItem.id);
+  });
   const totalReturns = Number(returnsData?.meta?.total || returns.length);
-  const activeReturnCount = returns.filter((item) => {
-    const status = String(item.status || '').toUpperCase();
-    return status !== 'CANCELLED' && status !== 'REVERSED';
-  }).length;
+  const returnRecordCount = pageReturns.length;
 
   const { data: salesReturnsAnalysis } = useQuery({
     queryKey: ['sales-returns-analysis'],
@@ -113,8 +125,6 @@ export function ReturnsPage() {
   const handleClearSearch = () => {
     setSearchQuery('');
     setStatusFilter('');
-    setReturnTypeFilter('');
-    setRefundMethodFilter('');
   };
 
   const getStatusBadge = (status: string) => {
@@ -180,8 +190,32 @@ export function ReturnsPage() {
     return labels[condition] || condition;
   };
 
+  const getReturnCategory = (returnItem: Return) => {
+    const condition = String(returnItem.item_condition_after_return || '').toUpperCase();
+    const resolutions = (returnItem.items || []).map((item) => String(item.resolution || '').toUpperCase());
+    const hasSupplierReturn = condition === 'RETURN_TO_SUPPLIER' || condition === 'SUPPLIER_RETURN'
+      || resolutions.some((resolution) => resolution === 'RETURN_TO_SUPPLIER' || resolution === 'SUPPLIER_RETURN');
+    if (hasSupplierReturn) return 'SUPPLIER_RETURN';
+    if (condition === 'READY_FOR_SALE' || condition === 'SELLABLE' || resolutions.includes('RESTOCK')) return 'READY_FOR_SALE';
+    if (condition === 'NEEDS_REPAIR' || resolutions.includes('REPAIR')) return 'REPAIR';
+    if (condition === 'WRITE_OFF' || condition === 'NOT_FOR_SALE' || condition === 'DAMAGED' || resolutions.includes('WRITE_OFF')) return 'WRITE_OFF';
+    if (String(returnItem.status || '').toUpperCase() === 'COMPLETED') return 'COMPLETED';
+    return 'OTHER';
+  };
+
+  const returnCategories = [
+    { value: 'ALL', label: 'كل المرتجعات', icon: RotateCcw },
+    { value: 'READY_FOR_SALE', label: 'جاهز للبيع', icon: PackageCheck },
+    { value: 'REPAIR', label: 'تحتاج إصلاح', icon: Wrench },
+    { value: 'SUPPLIER_RETURN', label: 'إلى التاجر', icon: Truck },
+  ];
+
+  const categorizedReturns = categoryFilter === 'ALL'
+    ? pageReturns
+    : pageReturns.filter((returnItem) => getReturnCategory(returnItem) === categoryFilter);
+
   const handleViewDetails = (returnItem: Return) => {
-    navigate(`/app/returns/${returnItem.id}`);
+    setViewingReturn(returnItem);
   };
 
   const completeReturnMutation = useMutation({
@@ -210,15 +244,24 @@ export function ReturnsPage() {
     onError: () => toast.error('تعذر تعديل المرتجع في حالته الحالية'),
   });
 
-  const deleteReturnMutation = useMutation({
-    mutationFn: () => returnsApi.delete(returnToDelete!.id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['returns'] });
-      setReturnToDelete(null);
-      toast.success('تم حذف المرتجع بنجاح');
-    },
-    onError: () => toast.error('لا يمكن حذف مرتجع تمت معالجته أو اعتماده'),
-  });
+  const archiveReturn = async () => {
+    if (!returnToArchive) return;
+    try {
+      const permanentlyDelete = String(returnToArchive.status || '').toUpperCase() === 'CANCELLED';
+      await returnsApi.delete(returnToArchive.id, { permanent: permanentlyDelete });
+      const nextIds = Array.from(new Set([...archivedReturnIds, returnToArchive.id]));
+      setArchivedReturnIds(nextIds);
+      localStorage.setItem('partflow-hidden-return-ids', JSON.stringify(nextIds));
+      await queryClient.invalidateQueries({ queryKey: ['returns'] });
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      await queryClient.invalidateQueries({ queryKey: ['reports'] });
+      setReturnToArchive(null);
+      toast.success(permanentlyDelete ? 'تم حذف المرتجع الملغي نهائيًا' : 'تمت أرشفة المرتجع وحفظه في السجل التاريخي');
+    } catch (error) {
+      console.error('Failed to archive return:', error);
+      toast.error('تعذر أرشفة المرتجع');
+    }
+  };
 
   const canModifyReturn = (status: string) => ['PENDING', 'REJECTED'].includes(status);
 
@@ -240,7 +283,7 @@ export function ReturnsPage() {
             <Button
               variant="primary"
               className="gap-2"
-              onClick={() => navigate('/app/returns/create')}
+              onClick={() => setIsCreateReturnModalOpen(true)}
             >
               <Plus className="w-4 h-4" />
               مرتجع جديد
@@ -254,33 +297,26 @@ export function ReturnsPage() {
       />
 
       {/* Stats Cards */}
-      <div className="unified-stats-grid supplier-stats grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+      <div className="unified-stats-grid supplier-stats grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <StatCard
-          title="إجمالي المرتجعات"
-          value={activeReturnCount}
+          title="السجلات الظاهرة"
+          value={returnRecordCount}
           icon={RotateCcw}
           variant="featured"
           size="sm"
         />
         <StatCard
           title="قيد الانتظار"
-          value={statistics?.pending_returns || returns.filter((r) => r.status === 'PENDING').length}
+          value={statistics?.pending_returns || pageReturns.filter((r) => r.status === 'PENDING').length}
           icon={AlertTriangle}
           variant="warning"
           size="sm"
         />
         <StatCard
-          title="قيمة المرتجعات"
+          title="المبالغ المستردة فعليًا"
           value={`₪${(statistics?.total_refunded ?? returns.filter((r) => r.status === 'COMPLETED').reduce((sum, r) => sum + r.total_refund_amount, 0)).toLocaleString()}`}
           icon={DollarSign}
           variant="success"
-          size="sm"
-        />
-        <StatCard
-          title="صافي المبيعات"
-          value={`₪${(salesReturnsAnalysis?.data?.[0]?.net_sales || 0).toLocaleString()}`}
-          icon={TrendingDown}
-          variant="default"
           size="sm"
         />
       </div>
@@ -314,18 +350,6 @@ export function ReturnsPage() {
                 ]}
                 className="w-40"
               />
-              <Select
-                value={returnTypeFilter}
-                onChange={(e) => setReturnTypeFilter(e.target.value)}
-                size="sm"
-                options={[
-                  { value: '', label: 'كل الأنواع' },
-                  { value: 'FULL', label: 'مرتجع كامل' },
-                  { value: 'PARTIAL', label: 'مرتجع جزئي' },
-                  { value: 'QUANTITY_PARTIAL', label: 'كمية جزئية' },
-                ]}
-                className="w-40"
-              />
               <Button
                 variant="secondary"
                 size="sm"
@@ -340,21 +364,51 @@ export function ReturnsPage() {
         </CardContent>
       </Card>
 
+      <Card className="mb-4">
+        <CardContent className="p-3">
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label="تصنيف المرتجعات">
+            {returnCategories.map((category) => {
+              const CategoryIcon = category.icon;
+              const count = category.value === 'ALL'
+                ? pageReturns.length
+                : pageReturns.filter((returnItem) => getReturnCategory(returnItem) === category.value).length;
+              const isActive = categoryFilter === category.value;
+              return (
+                <Button
+                  key={category.value}
+                  type="button"
+                  variant={isActive ? 'primary' : 'secondary'}
+                  size="sm"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setCategoryFilter(category.value)}
+                  className="gap-2"
+                >
+                  <CategoryIcon className="w-4 h-4" />
+                  {category.label}
+                  <span className="text-xs opacity-75">({count})</span>
+                </Button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Returns Grid */}
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
-      ) : returns.length === 0 ? (
+      ) : categorizedReturns.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
             <RotateCcw className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-            <p className="text-gray-400">لا توجد مرتجعات</p>
+            <p className="text-gray-400">لا توجد مرتجعات ضمن هذا التصنيف</p>
           </CardContent>
         </Card>
       ) : (
         <div className="product-cards-grid gap-4">
-          {returns.map((returnItem) => {
+          {categorizedReturns.map((returnItem) => {
             const statusBadge = getStatusBadge(returnItem.status);
             const StatusIcon = statusBadge.icon;
             return (
@@ -412,6 +466,15 @@ export function ReturnsPage() {
                     >
                       <Eye className="w-4 h-4" />
                     </Button>
+                    <Button
+                      variant="danger"
+                      size="icon"
+                      onClick={() => setReturnToArchive(returnItem)}
+                      aria-label={`حذف المرتجع من الصفحة ${returnItem.return_number || ''}`}
+                      title="حذف من الصفحة فقط"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                     {returnItem.status === 'APPROVED' && (
                       <Button
                         variant="success"
@@ -424,14 +487,9 @@ export function ReturnsPage() {
                       </Button>
                     )}
                     {canModifyReturn(returnItem.status) && (
-                      <>
-                        <Button variant="outline" size="sm" tableAction onClick={() => openEditReturn(returnItem)} aria-label="تعديل المرتجع" title="تعديل المرتجع">
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="danger" size="sm" tableAction onClick={() => setReturnToDelete(returnItem)} aria-label="حذف المرتجع" title="حذف المرتجع">
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </>
+                      <Button variant="outline" size="sm" tableAction onClick={() => openEditReturn(returnItem)} aria-label="تعديل المرتجع" title="تعديل المرتجع">
+                        <Edit className="w-4 h-4" />
+                      </Button>
                     )}
                   </div>
                 </CardContent>
@@ -453,6 +511,28 @@ export function ReturnsPage() {
         </Card>
       )}
 
+      <Modal
+        isOpen={isCreateReturnModalOpen}
+        onClose={() => setIsCreateReturnModalOpen(false)}
+        title="إضافة مرتجع"
+        size="2xl"
+        className="max-w-[960px]"
+        autoFocus={false}
+      >
+        <CreateReturnPage embedded onClose={() => setIsCreateReturnModalOpen(false)} />
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(viewingReturn)}
+        onClose={() => setViewingReturn(null)}
+        title={viewingReturn ? `تفاصيل المرتجع ${viewingReturn.return_number}` : 'تفاصيل المرتجع'}
+        size="2xl"
+        className="max-w-[980px]"
+        autoFocus={false}
+      >
+        {viewingReturn && <ReturnDetailsPage returnId={viewingReturn.id} embedded onClose={() => setViewingReturn(null)} />}
+      </Modal>
+
       <Modal isOpen={Boolean(editingReturn)} onClose={() => setEditingReturn(null)} title="تعديل المرتجع" size="md">
         <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); updateReturnMutation.mutate(); }}>
           <div><label className="mb-2 block text-sm font-medium text-text-secondary">سبب المرتجع</label><Select value={editReason} onChange={(event) => setEditReason(event.target.value)} options={[{ value: 'DEFECTIVE', label: 'منتج معطل' }, { value: 'WRONG_ITEM', label: 'منتج خاطئ' }, { value: 'CUSTOMER_CHANGED_MIND', label: 'تغيير رأي العميل' }, { value: 'DAMAGED', label: 'تالف' }, { value: 'OTHER', label: 'أخرى' }]} /></div>
@@ -463,13 +543,14 @@ export function ReturnsPage() {
       </Modal>
 
       <ConfirmDialog
-        isOpen={Boolean(returnToDelete)}
-        onClose={() => setReturnToDelete(null)}
-        onConfirm={() => deleteReturnMutation.mutate()}
-        title="حذف المرتجع"
-        message={`هل تريد حذف المرتجع «${returnToDelete?.return_number || ''}»؟ لا يمكن التراجع عن هذا الإجراء.`}
-        confirmText="حذف المرتجع"
-        isLoading={deleteReturnMutation.isPending}
+        isOpen={Boolean(returnToArchive)}
+        onClose={() => setReturnToArchive(null)}
+        onConfirm={archiveReturn}
+        title="حذف المرتجع من الصفحة"
+        message={String(returnToArchive?.status || '').toUpperCase() === 'CANCELLED'
+          ? `سيتم حذف المرتجع الملغي «${returnToArchive?.return_number || ''}» نهائيًا مع إبقاء أثر المخزون مؤرشفًا. هل تريد المتابعة؟`
+          : `سيتم إخفاء المرتجع «${returnToArchive?.return_number || ''}» من هذه الصفحة فقط، ولن تتغير المعاملات المالية أو التقارير. هل تريد المتابعة؟`}
+        confirmText={String(returnToArchive?.status || '').toUpperCase() === 'CANCELLED' ? 'حذف نهائي' : 'حذف من الصفحة'}
       />
     </div>
   );

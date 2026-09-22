@@ -491,7 +491,19 @@ func (s *CachedService) fetchInventoryDistribution(ctx context.Context) *Invento
 		TaxInclusiveValue float64 `db:"tax_inclusive_value"`
 	}
 	if err := s.db.SelectContext(ctx, &rows, query); err != nil {
-		return nil
+		rows = nil
+		fallbackQuery := `
+			SELECT UPPER(COALESCE(status, 'UNKNOWN')) AS status,
+			       UPPER(COALESCE(condition, '')) AS condition,
+			       COUNT(*) AS count,
+			       COALESCE(SUM(selling_price), 0) AS value,
+			       0 AS tax_inclusive_value
+			FROM inventory_items
+			WHERE UPPER(COALESCE(status, 'UNKNOWN')) <> 'ARCHIVED'
+			GROUP BY UPPER(COALESCE(status, 'UNKNOWN')), UPPER(COALESCE(condition, ''))`
+		if fallbackErr := s.db.SelectContext(ctx, &rows, fallbackQuery); fallbackErr != nil {
+			return nil
+		}
 	}
 
 	data := make([]InventoryDistributionItem, 0, len(rows))
@@ -579,6 +591,7 @@ func hasColumn(ctx context.Context, db *sqlx.DB, tableName, columnName string) b
 
 func (s *CachedService) fetchRecentActivity(ctx context.Context) []RecentActivityItem {
 	hasPurchasesTable := hasTable(ctx, s.db, "purchases")
+	hasReturnsTable := hasTable(ctx, s.db, "returns")
 	hasUsersTable := hasTable(ctx, s.db, "users")
 	saleSellerExpr := "'' AS seller_name"
 	if hasUsersTable && (s.db.DriverName() != "sqlite" || sqliteHasColumns(s.db, "sales", "user_id")) {
@@ -598,14 +611,23 @@ func (s *CachedService) fetchRecentActivity(ctx context.Context) []RecentActivit
 		ORDER BY activity_time DESC
 		LIMIT 5
 	`, saleSellerExpr, func() string {
-		if !hasPurchasesTable {
-			return ""
-		}
-		return `UNION ALL
+		parts := make([]string, 0, 2)
+		if hasPurchasesTable {
+			parts = append(parts, `UNION ALL
 			SELECT p.id, 'purchase' AS type, 'شراء' AS title, 'عملية شراء' AS description,
 			       p.total_amount AS amount, datetime(p.created_at) AS activity_time, '' AS sale_date,
 			       '' AS seller_name, p.status
-			FROM purchases p`
+			FROM purchases p`)
+		}
+		if hasReturnsTable {
+			parts = append(parts, `UNION ALL
+			SELECT r.id, 'return' AS type, 'مرتجع' AS title, 'استرداد مرتجع' AS description,
+			       r.total_refund_amount AS amount, datetime(COALESCE(r.return_date, r.created_at)) AS activity_time, '' AS sale_date,
+			       '' AS seller_name, r.status
+			FROM returns r
+			WHERE UPPER(COALESCE(r.status, '')) = 'COMPLETED' AND COALESCE(r.total_refund_amount, 0) >= 0`)
+		}
+		return strings.Join(parts, "\n")
 	}())
 	if s.db.DriverName() != "sqlite" {
 		query = fmt.Sprintf(`
@@ -621,14 +643,23 @@ func (s *CachedService) fetchRecentActivity(ctx context.Context) []RecentActivit
 			ORDER BY activity_time DESC
 			LIMIT 5
 		`, saleSellerExpr, func() string {
-			if !hasPurchasesTable {
-				return ""
-			}
-			return `UNION ALL
+			parts := make([]string, 0, 2)
+			if hasPurchasesTable {
+				parts = append(parts, `UNION ALL
 				SELECT p.id, 'purchase' AS type, 'شراء' AS title, 'عملية شراء' AS description,
 				       p.total_amount AS amount, TO_CHAR(p.created_at, 'YYYY-MM-DD HH24:MI:SS') AS activity_time, '' AS sale_date,
 				       '' AS seller_name, p.status
-				FROM purchases p`
+				FROM purchases p`)
+			}
+			if hasReturnsTable {
+				parts = append(parts, `UNION ALL
+				SELECT r.id, 'return' AS type, 'مرتجع' AS title, 'استرداد مرتجع' AS description,
+				       r.total_refund_amount AS amount, TO_CHAR(COALESCE(r.return_date, r.created_at), 'YYYY-MM-DD HH24:MI:SS') AS activity_time, '' AS sale_date,
+				       '' AS seller_name, r.status
+				FROM returns r
+				WHERE UPPER(COALESCE(r.status, '')) = 'COMPLETED' AND COALESCE(r.total_refund_amount, 0) >= 0`)
+			}
+			return strings.Join(parts, "\n")
 		}())
 	}
 
@@ -649,6 +680,7 @@ func (s *CachedService) GetActivity(ctx context.Context, page, perPage int, acti
 
 	hasPurchasesTable := hasTable(ctx, s.db, "purchases")
 	hasSalesTable := hasTable(ctx, s.db, "sales")
+	hasReturnsTable := hasTable(ctx, s.db, "returns")
 	hasUsersTable := hasTable(ctx, s.db, "users")
 	saleSellerExpr := "'' AS seller_name"
 	if hasSalesTable && hasUsersTable && hasColumn(ctx, s.db, "sales", "user_id") {
@@ -667,7 +699,7 @@ func (s *CachedService) GetActivity(ctx context.Context, page, perPage int, acti
 		purchaseStatusExpr = "p.status"
 	}
 
-	activityParts := make([]string, 0, 2)
+	activityParts := make([]string, 0, 3)
 	if hasSalesTable {
 		activityParts = append(activityParts, fmt.Sprintf(`
 			SELECT s.id, 'sale' AS type, 'بيع' AS title, 'عملية بيع' AS description,
@@ -682,6 +714,16 @@ func (s *CachedService) GetActivity(ctx context.Context, page, perPage int, acti
 		       '' AS seller_name
 		FROM purchases p`, purchaseStatusExpr))
 	}
+	if hasReturnsTable {
+		returnStatusExpr := "r.status"
+		returnTimeExpr := "COALESCE(r.return_date, r.created_at)"
+		activityParts = append(activityParts, fmt.Sprintf(`
+		SELECT r.id, 'return' AS type, 'مرتجع' AS title, 'استرداد مرتجع' AS description,
+		       r.total_refund_amount AS amount, %s AS activity_time, '' AS sale_date, %s,
+		       '' AS seller_name
+		FROM returns r
+		WHERE UPPER(COALESCE(r.status, '')) = 'COMPLETED' AND COALESCE(r.total_refund_amount, 0) >= 0`, returnTimeExpr, returnStatusExpr))
+	}
 	if len(activityParts) == 0 {
 		return &ActivityPage{
 			Items: []RecentActivityItem{}, Page: page, PerPage: perPage,
@@ -690,7 +732,7 @@ func (s *CachedService) GetActivity(ctx context.Context, page, perPage int, acti
 	activityQuery := fmt.Sprintf("(%s) AS activity", strings.Join(activityParts, " UNION ALL "))
 	where := ""
 	args := []interface{}{}
-	if activityType == "sale" || activityType == "purchase" {
+	if activityType == "sale" || activityType == "purchase" || activityType == "return" {
 		where = " WHERE type = ?"
 		args = append(args, activityType)
 	}

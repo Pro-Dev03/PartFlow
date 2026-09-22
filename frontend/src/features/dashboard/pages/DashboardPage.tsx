@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
 import { useIsMobile } from '../../../hooks/useIsMobile';
-import { dashboardApi, debtsApi } from '../../../services/api/endpoints';
+import { dashboardApi, debtsApi, inventoryApi, productsApi } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
 import { Button } from '../../../design-system/components/button';
 import { PageHeader } from '../../../design-system/components/page-header';
@@ -62,6 +62,17 @@ export function DashboardPage() {
     queryKey: ['dashboard'],
     queryFn: () => dashboardApi.getStats(),
     refetchInterval: 120000,
+    staleTime: 60000,
+  });
+
+  const { data: inventoryData } = useQuery({
+    queryKey: ['dashboard-inventory-distribution'],
+    queryFn: () => inventoryApi.listWithSupplier({ page: 1, per_page: 1000, exclude_condition: 'USED' }),
+    staleTime: 60000,
+  });
+  const { data: productsData } = useQuery({
+    queryKey: ['dashboard-inventory-products'],
+    queryFn: () => productsApi.list({ page: 1, per_page: 1000 }),
     staleTime: 60000,
   });
 
@@ -125,6 +136,49 @@ export function DashboardPage() {
   }
 
   const stats = dashboardData?.data as DashboardStats | undefined;
+  const inventoryItems = (inventoryData?.data as any)?.items || [];
+  const availableProductIds = new Set<string>();
+  const fallbackDistribution = Object.values(inventoryItems
+    .filter((item: any) => String(item.status || '').toUpperCase() !== 'ARCHIVED')
+    .reduce((groups: Record<string, { name: string; count: number; value: number; color: string; status: string }>, item: any) => {
+      const status = String(item.status || 'UNKNOWN').toUpperCase();
+      const presentation: Record<string, { name: string; color: string; health: string }> = {
+        AVAILABLE: { name: 'متاح', color: '#10b981', health: 'good' },
+        SOLD: { name: 'قطع مباعة', color: '#64748b', health: 'neutral' },
+        RETURNED: { name: 'قطع مرتجعة', color: '#f59e0b', health: 'attention' },
+        DAMAGED: { name: 'تالف/قيد الإصلاح', color: '#ef4444', health: 'critical' },
+        IN_REPAIR: { name: 'تالف/قيد الإصلاح', color: '#ef4444', health: 'critical' },
+      };
+      const current = presentation[status] || { name: status, color: '#94a3b8', health: 'attention' };
+      const group = groups[current.name] || { name: current.name, count: 0, value: 0, color: current.color, status: current.health };
+      const productId = String(item.product_id || '');
+      if (status === 'AVAILABLE' && productId) {
+        if (availableProductIds.has(productId)) return groups;
+        availableProductIds.add(productId);
+      }
+      const quantity = status === 'AVAILABLE'
+        ? Number(item.available_quantity ?? item.current_quantity ?? item.quantity ?? 1)
+        : 1;
+      group.count += quantity;
+      group.value += quantity * Number(item.selling_price || 0);
+      groups[current.name] = group;
+      return groups;
+    }, {}));
+  const inventoryProducts = (productsData?.data as any)?.products || [];
+  const availableSummary = inventoryProducts.reduce((summary: { count: number; value: number }, product: any) => {
+    if (String(product.condition || '').toUpperCase() === 'USED') return summary;
+    const quantity = Number(product.current_quantity ?? product.stock ?? 0);
+    if (quantity <= 0) return summary;
+    summary.count += quantity;
+    summary.value += quantity * Number(product.selling_price ?? product.sellingPrice ?? 0);
+    return summary;
+  }, { count: 0, value: 0 });
+  const normalizedFallbackDistribution = fallbackDistribution.map((item: any) => item.name === 'متاح' && availableSummary.count > 0
+    ? { ...item, count: availableSummary.count, value: availableSummary.value }
+    : item);
+  const inventoryDistribution = normalizedFallbackDistribution.length
+    ? normalizedFallbackDistribution
+    : (stats?.inventoryDistribution?.data || []);
   const recentActivities = recentActivityData?.data?.items || dashboardData?.data?.recent_activity || [];
   const chartData = buildPerformanceChartData(stats?.salesChart || [], chartRange);
   const activeCustomerCount = Number(stats?.activeCustomers ?? 0);
@@ -310,11 +364,11 @@ export function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {stats?.inventoryDistribution && stats.inventoryDistribution.data?.length > 0 ? (
+              {inventoryDistribution.length > 0 ? (
                 <InventoryDistribution
-                  totalValue={stats.inventoryDistribution.totalValue}
-                  totalItems={stats.inventoryDistribution.totalItems}
-                  data={stats.inventoryDistribution.data}
+                  totalValue={stats?.inventoryDistribution?.totalValue || fallbackDistribution.reduce((total: number, item: any) => total + item.value, 0)}
+                  totalItems={stats?.inventoryDistribution?.totalItems || fallbackDistribution.reduce((total: number, item: any) => total + item.count, 0)}
+                  data={inventoryDistribution as any}
                 />
               ) : (
                 <div style={{ padding: 'var(--spacing-6)', textAlign: 'center' }}>

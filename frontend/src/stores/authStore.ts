@@ -709,8 +709,38 @@ export const useAuthStore = create<AuthState>()(
               }
             }
           } catch {
-            // No active browser-readable session exists; rely on HttpOnly cookie
-            // validation and ask the user to sign in again if the refresh cookie is absent.
+            // A local refresh cookie can become invalid after the local API is
+            // rebuilt. Recreate the local session from the cloud cookie before
+            // treating the browser session as signed out.
+            if (getConnectionMode() === 'local' && navigator.onLine) {
+              try {
+                const refreshedCloudToken = await refreshCloudAccessToken();
+                if (refreshedCloudToken) {
+                  const localSession = await authApi.createLocalSession(refreshedCloudToken) as {
+                    token?: string;
+                    access_token?: string;
+                    user?: User;
+                  };
+                  const localToken = localSession.token || localSession.access_token;
+                  if (localToken) {
+                    TokenManager.setToken(localToken);
+                    apiClient.setToken(localToken);
+                    set({
+                      isAuthenticated: true,
+                      sessionVerified: true,
+                      token: localToken,
+                      cloudToken: refreshedCloudToken,
+                      user: localSession.user ?? null,
+                      isLoading: false,
+                    });
+                    startTokenRefresh();
+                    return;
+                  }
+                }
+              } catch {
+                // Fall through to the normal unauthenticated state.
+              }
+            }
           }
 
           set({ isAuthenticated: false, sessionVerified: false, cloudVerificationPending: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
@@ -725,7 +755,9 @@ export const useAuthStore = create<AuthState>()(
         apiClient.setToken(token);
 
         if (!navigator.onLine) {
-          forceLogoutToLogin('Internet connection lost');
+          markCloudVerificationPending();
+          set({ isAuthenticated: true, sessionVerified: true, isLoading: false });
+          startTokenRefresh();
           return;
         }
 

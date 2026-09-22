@@ -460,6 +460,7 @@ const localSyncRequest = async <T>(endpoint: string, options: RequestInit = {}) 
       'Content-Type': 'application/json',
       Authorization: `Bearer ${localToken}`,
       'X-PartFlow-Cloud-Token': cloudToken,
+      'X-PartFlow-Cloud-API-URL': getCloudApiUrl(),
       ...(options.headers ?? {}),
     },
   });
@@ -639,7 +640,7 @@ export const returnsApi = {
   getWithItems: (id: string) => apiClient.get(`/returns/${id}/with-items`),
   create: (data: any) => apiClient.post('/returns', data),
   update: (id: string, data: any) => apiClient.put(`/returns/${id}`, data),
-  delete: (id: string) => apiClient.delete(`/returns/${id}`),
+  delete: (id: string, options?: { permanent?: boolean }) => apiClient.delete(`/returns/${id}`, options),
   approve: (id: string) => apiClient.post(`/returns/${id}/approve`),
   reject: (id: string) => apiClient.post(`/returns/${id}/reject`),
   processRefund: (id: string) => apiClient.post(`/returns/${id}/refund`),

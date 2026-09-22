@@ -150,6 +150,7 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 	for _, itemReq := range req.Items {
 		// Get sale item info if sale item ID is provided
 		var unitPrice float64
+		var originalQuantity *int
 		if itemReq.SaleItemID != nil && *itemReq.SaleItemID != uuid.Nil {
 			saleItem, err := s.repo.GetSaleItemInfo(ctx, *itemReq.SaleItemID)
 			if err != nil {
@@ -163,6 +164,8 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 			if itemReq.QuantityReturned > saleItem.Quantity {
 				return nil, ErrInsufficientStock
 			}
+			quantity := saleItem.Quantity
+			originalQuantity = &quantity
 			unitPrice = saleItem.UnitPrice
 			if sale.DiscountAmount > 0 {
 				subtotal := sale.Subtotal
@@ -180,6 +183,7 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 		}
 
 		item := CreateReturnItem(returnRecord.ID, itemReq, unitPrice)
+		item.OriginalQuantity = originalQuantity
 		if err := s.repo.CreateReturnItem(ctx, item); err != nil {
 			return nil, fmt.Errorf("failed to create return item: %w", err)
 		}
@@ -331,8 +335,12 @@ func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, req *ReturnUpd
 }
 
 // DeleteReturn deletes a return
-func (s *Service) DeleteReturn(ctx context.Context, id uuid.UUID) error {
-	if err := s.repo.DeleteReturn(ctx, id); err != nil {
+func (s *Service) DeleteReturn(ctx context.Context, id uuid.UUID, permanent bool) error {
+	deleteReturn := s.repo.DeleteReturn
+	if permanent {
+		deleteReturn = s.repo.DeleteReturnPermanently
+	}
+	if err := deleteReturn(ctx, id); err != nil {
 		return err
 	}
 	dashboard.InvalidateDashboardCacheWithReason("return_deleted")
@@ -416,6 +424,7 @@ func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, req Ret
 
 	// Get sale item info if provided
 	var unitPrice float64
+	var originalQuantity *int
 	if req.SaleItemID != nil {
 		saleItem, err := s.repo.GetSaleItemInfo(ctx, *req.SaleItemID)
 		if err != nil {
@@ -426,6 +435,8 @@ func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, req Ret
 		if req.QuantityReturned > saleItem.Quantity {
 			return nil, ErrInsufficientStock
 		}
+		quantity := saleItem.Quantity
+		originalQuantity = &quantity
 
 		unitPrice = saleItem.UnitPrice
 	} else if req.UnitPrice > 0 {
@@ -435,6 +446,7 @@ func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, req Ret
 	}
 
 	item := CreateReturnItem(returnID, req, unitPrice)
+	item.OriginalQuantity = originalQuantity
 	if err := s.repo.CreateReturnItem(ctx, item); err != nil {
 		return nil, err
 	}
