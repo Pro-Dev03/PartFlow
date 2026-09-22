@@ -66,8 +66,15 @@ interface Return {
   approved_at?: string;
 }
 
-export function ReturnDetailsPage() {
-  const { id } = useParams<{ id: string }>();
+interface ReturnDetailsPageProps {
+  returnId?: string;
+  embedded?: boolean;
+  onClose?: () => void;
+}
+
+export function ReturnDetailsPage({ returnId, embedded = false, onClose }: ReturnDetailsPageProps = {}) {
+  const params = useParams<{ id: string }>();
+  const id = returnId || params.id;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: returnData, isLoading } = useQuery({
@@ -120,7 +127,8 @@ export function ReturnDetailsPage() {
       queryClient.invalidateQueries({ queryKey: ['return-with-items', id] });
       queryClient.invalidateQueries({ queryKey: ['returns'] });
       toast.success('تم عكس المرتجع بنجاح!');
-      navigate('/app/returns');
+      if (onClose) onClose();
+      else navigate('/app/returns');
     },
     onError: (error) => {
       console.error('Failed to reverse return:', error);
@@ -147,6 +155,17 @@ export function ReturnDetailsPage() {
       QUANTITY_PARTIAL: 'مرتجع كمية جزئية',
     };
     return labels[type] || type;
+  };
+
+  const getReturnReasonLabel = (reason: string) => {
+    const labels: Record<string, string> = {
+      DEFECTIVE: 'منتج معطل',
+      WRONG_ITEM: 'منتج خاطئ',
+      CUSTOMER_CHANGED_MIND: 'تغيير رأي العميل',
+      DAMAGED: 'منتج تالف',
+      OTHER: 'أخرى',
+    };
+    return labels[reason] || reason;
   };
 
   const getRefundMethodLabel = (method: string) => {
@@ -237,8 +256,57 @@ export function ReturnDetailsPage() {
   const StatusIcon = statusBadge.icon;
 
   return (
-    <div>
-      <PageHeader
+    <div className={embedded ? 'return-details-embedded' : undefined}>
+      {embedded && (
+        <div className="return-details-embedded-actions">
+          {returnRecord.status === 'PENDING' && (
+            <>
+              <Button
+                variant="success"
+                onClick={() => updateReturnStatusMutation.mutate({ action: 'approve', returnId: returnRecord.id })}
+                disabled={updateReturnStatusMutation.isPending}
+              >
+                <CheckCircle className="w-4 h-4" /> اعتماد المرتجع
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => updateReturnStatusMutation.mutate({ action: 'reject', returnId: returnRecord.id })}
+                disabled={updateReturnStatusMutation.isPending}
+              >
+                <XCircle className="w-4 h-4" /> رفض المرتجع
+              </Button>
+            </>
+          )}
+          {returnRecord.status === 'APPROVED' && (
+            <Button
+              variant="info"
+              onClick={() => updateReturnStatusMutation.mutate({ action: 'refund', returnId: returnRecord.id })}
+              disabled={updateReturnStatusMutation.isPending}
+            >
+              <RefreshCw className="w-4 h-4" /> بدء المعالجة
+            </Button>
+          )}
+          {(returnRecord.status === 'APPROVED' || returnRecord.status === 'PROCESSING') && (
+            <Button
+              variant="success"
+              onClick={() => completeReturnMutation.mutate(returnRecord.id)}
+              disabled={completeReturnMutation.isPending}
+            >
+              <CheckCircle className="w-4 h-4" /> إكمال المرتجع
+            </Button>
+          )}
+          {returnRecord.status === 'COMPLETED' && (
+            <Button
+              variant="danger"
+              onClick={() => reverseReturnMutation.mutate(returnRecord.id)}
+              disabled={reverseReturnMutation.isPending}
+            >
+              <RefreshCw className="w-4 h-4" /> عكس المرتجع
+            </Button>
+          )}
+        </div>
+      )}
+      {!embedded && <PageHeader
         title={`تفاصيل المرتجع ${returnRecord.return_number}`}
         description="عرض تفاصيل كاملة للمرتجع والمنتجات المرتجعة"
         actions={
@@ -302,11 +370,11 @@ export function ReturnDetailsPage() {
             )}
           </div>
         }
-      />
+      />}
 
       {/* Return Information */}
-      <Card className="mb-4">
-        <CardHeader>
+      <Card className="return-details-card mb-3">
+        <CardHeader className="return-details-card-header">
           <CardTitle className="flex items-center justify-between">
             <span>معلومات المرتجع</span>
             <Badge variant={statusBadge.variant} className="gap-1">
@@ -316,7 +384,7 @@ export function ReturnDetailsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="return-details-info-grid">
             <div className="space-y-2">
               <p className="text-sm text-gray-400">رقم المرتجع</p>
               <p className="font-semibold">{returnRecord.return_number}</p>
@@ -334,6 +402,10 @@ export function ReturnDetailsPage() {
               <p className="font-semibold">{returnRecord.customer_name || '-'}</p>
             </div>
             <div className="space-y-2">
+              <p className="text-sm text-gray-400">اسم القطعة</p>
+              <p className="font-semibold">{items.map((item) => item.product_name).filter(Boolean).join('، ') || '-'}</p>
+            </div>
+            <div className="space-y-2">
               <p className="text-sm text-gray-400">رقم الفاتورة</p>
               <p className="font-semibold">{returnRecord.sale_invoice || '-'}</p>
             </div>
@@ -343,7 +415,7 @@ export function ReturnDetailsPage() {
             </div>
             <div className="space-y-2">
               <p className="text-sm text-gray-400">السبب</p>
-              <p className="font-semibold">{returnRecord.reason}</p>
+              <p className="font-semibold">{getReturnReasonLabel(returnRecord.reason)}</p>
             </div>
             <div className="space-y-2">
               <p className="text-sm text-gray-400">طريقة الاسترجاع</p>
@@ -365,19 +437,19 @@ export function ReturnDetailsPage() {
             )}
           </div>
           {returnRecord.reason_detail && (
-            <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+            <div className="mt-3 p-3 bg-gray-50 rounded-lg">
               <p className="text-sm text-gray-400 mb-1">تفاصيل السبب</p>
               <p className="text-sm">{returnRecord.reason_detail}</p>
             </div>
           )}
           {returnRecord.notes && (
-            <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+            <div className="mt-3 p-3 bg-gray-50 rounded-lg">
               <p className="text-sm text-gray-400 mb-1">ملاحظات</p>
               <p className="text-sm">{returnRecord.notes}</p>
             </div>
           )}
           {returnRecord.internal_notes && (
-            <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+            <div className="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
               <p className="text-sm text-yellow-700 mb-1">ملاحظات داخلية</p>
               <p className="text-sm text-yellow-800">{returnRecord.internal_notes}</p>
             </div>
@@ -386,8 +458,8 @@ export function ReturnDetailsPage() {
       </Card>
 
       {/* Return Items */}
-      <Card>
-        <CardHeader>
+      <Card className="return-details-card">
+        <CardHeader className="return-details-card-header">
           <CardTitle>المنتجات المرتجعة</CardTitle>
         </CardHeader>
         <CardContent>
@@ -396,10 +468,10 @@ export function ReturnDetailsPage() {
               لا توجد منتجات مرتجعة
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {items.map((item) => (
-                <div key={item.id} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex justify-between items-start mb-3">
+                <div key={item.id} className="return-details-item-card border border-gray-200 rounded-lg p-3">
+                  <div className="flex justify-between items-start mb-2">
                     <div className="flex-1">
                       <h4 className="font-semibold text-lg mb-1">{item.product_name}</h4>
                       <div className="flex gap-4 text-sm text-gray-400">
@@ -416,7 +488,7 @@ export function ReturnDetailsPage() {
                     </Badge>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-3">
+                  <div className="return-details-item-grid mb-2">
                     <div>
                       <p className="text-xs text-gray-400">الكمية في الفاتورة</p>
                       <p className="font-semibold">{item.original_quantity ?? '-'}</p>
@@ -440,13 +512,13 @@ export function ReturnDetailsPage() {
                   </div>
 
                   {item.condition_notes && (
-                    <div className="mb-3 p-2 bg-gray-50 rounded text-sm">
+                    <div className="mb-2 p-2 bg-gray-50 rounded text-sm">
                       <p className="text-gray-400 mb-1">ملاحظات الحالة</p>
                       <p>{item.condition_notes}</p>
                     </div>
                   )}
 
-                  <div className="flex justify-between items-center mb-3">
+                  <div className="flex justify-between items-center mb-2">
                     <div className="flex gap-2">
                       {item.inspection_result && (
                         <Badge variant={item.inspection_result === 'PASSED' ? 'success' : item.inspection_result === 'FAILED' ? 'danger' : 'warning'}>

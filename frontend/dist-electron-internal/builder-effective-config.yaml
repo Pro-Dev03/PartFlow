@@ -12,8 +12,6 @@ files:
 extraResources:
   - from: ../dist/windows-release/partflow-api.exe
     to: backend/partflow-api.exe
-  - from: ../backend/partflow-local.db
-    to: partflow.db
   - from: build/PartFlow-Internal-Code-Signing.cer
     to: PartFlow-Internal-Code-Signing.cer
   - from: public/partflow-logo.png

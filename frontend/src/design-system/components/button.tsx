@@ -23,6 +23,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     disabled = false,
     fullWidth = false,
     tableAction = false,
+    type = 'button',
     children,
     'aria-label': ariaLabel,
     'aria-describedby': ariaDescribedby,
@@ -159,6 +160,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           className
         )}
         disabled={isDisabled}
+        type={type}
         aria-disabled={isDisabled}
         aria-busy={isActuallyLoading}
         aria-label={ariaLabel || (typeof children === 'string' ? children : undefined)}

@@ -157,6 +157,7 @@ func syncOneItem(postgresDB *sqlx.DB, sqliteDB *sql.DB, entry localdb.SyncQueueE
 	if err != nil {
 		return err
 	}
+	payloadMap = NormalizeCloudPayload(tableName, payloadMap)
 	if err := validateSyncPayload(tableName, payloadMap); err != nil {
 		return err
 	}
@@ -319,6 +320,73 @@ func normalizeMap(input map[string]any) map[string]any {
 		out[cleanKey] = value
 	}
 	return out
+}
+
+func NormalizeCloudPayload(tableName string, payload map[string]any) map[string]any {
+	if tableName == "purchases" {
+		if _, ok := payload["invoice_number"]; !ok {
+			if value, ok := payload["purchase_number"]; ok {
+				payload["invoice_number"] = value
+			}
+		}
+		delete(payload, "purchase_number")
+		delete(payload, "remaining_amount")
+	}
+	if tableName == "purchase_items" {
+		if _, ok := payload["total_amount"]; !ok {
+			if value, ok := payload["item_total"]; ok {
+				payload["total_amount"] = value
+			} else if quantity, quantityOK := syncNumber(payload["quantity"]); quantityOK {
+				if unitPrice, unitPriceOK := syncNumber(payload["unit_price"]); unitPriceOK {
+					payload["total_amount"] = quantity * unitPrice
+				}
+			}
+		}
+		delete(payload, "item_total")
+	}
+	if tableName == "payments" {
+		if _, ok := payload["reference_number"]; !ok {
+			if value, ok := payload["transaction_number"]; ok {
+				payload["reference_number"] = value
+			}
+		}
+		delete(payload, "transaction_number")
+	}
+	return payload
+}
+
+func NormalizeCloudPayloadJSON(entityType, raw string) (string, error) {
+	tableName, err := tableNameForEntity(entityType)
+	if err != nil {
+		return "", err
+	}
+	payload, err := parsePayload(raw)
+	if err != nil {
+		return "", err
+	}
+	normalized, err := json.Marshal(NormalizeCloudPayload(tableName, payload))
+	if err != nil {
+		return "", err
+	}
+	return string(normalized), nil
+}
+
+func syncNumber(value any) (float64, bool) {
+	switch number := value.(type) {
+	case float64:
+		return number, true
+	case float32:
+		return float64(number), true
+	case int:
+		return float64(number), true
+	case int64:
+		return float64(number), true
+	case json.Number:
+		parsed, err := number.Float64()
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func normalizeFieldName(field string) string {

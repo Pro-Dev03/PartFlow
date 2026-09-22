@@ -9,11 +9,11 @@ import { Button } from '../../../design-system/components/button';
 import { Input } from '../../../design-system/components/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../design-system/components/table';
 import { auditApi, customersApi, inventoryApi, purchasesApi, returnsApi, salesApi, settingsApi, supplierReturnsApi } from '../../../services/api/endpoints';
+import { formatStoreDateTime } from '../../../utils/store-time';
 
 const formatDate = (value?: string) => {
   if (!value) return '-';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ar-SA');
+  return formatStoreDateTime(value);
 };
 
 const formatMoney = (value?: number) => `₪${Number(value || 0).toLocaleString('en-US')}`;

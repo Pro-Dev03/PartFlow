@@ -3,6 +3,7 @@ package sales
 import (
 	stderrors "errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -207,6 +208,7 @@ func (h *Handler) ListSales(c *gin.Context) {
 	req.CustomerID = c.Query("customer_id")
 	req.StartDate = c.Query("start_date")
 	req.EndDate = c.Query("end_date")
+	availableForReturn := strings.EqualFold(c.Query("available_for_return"), "true")
 
 	filters := make(map[string]interface{})
 	if req.Status != "" {
@@ -222,6 +224,9 @@ func (h *Handler) ListSales(c *gin.Context) {
 	}
 	if req.EndDate != "" {
 		filters["end_date"] = req.EndDate
+	}
+	if availableForReturn {
+		filters["available_for_return"] = true
 	}
 
 	sales, total, err := h.service.ListSales(c.Request.Context(), req.Page, req.PerPage, filters)

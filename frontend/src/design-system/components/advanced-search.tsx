@@ -72,7 +72,11 @@ export function AdvancedSearch({
             placeholder={placeholder}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' || e.isComposing) return;
+              e.preventDefault();
+              handleSearch();
+            }}
             onClear={() => {
               setQuery('');
               onSearch('', activeFilters);

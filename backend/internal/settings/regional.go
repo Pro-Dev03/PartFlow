@@ -18,7 +18,7 @@ type RegionalProfile struct {
 
 var regionalProfiles = []RegionalProfile{
 	{CountryCode: "PS", CountryName: "فلسطين", Timezone: "Asia/Hebron", DateFormat: "DD/MM/YYYY", TimeFormat: "24h", Currency: "ILS", Locale: "ar"},
-	{CountryCode: "IL", CountryName: "إسرائيل", Timezone: "Asia/Jerusalem", DateFormat: "DD/MM/YYYY", TimeFormat: "24h", Currency: "ILS", Locale: "ar"},
+	{CountryCode: "IL", CountryName: "إسرائيل", Timezone: "Asia/Jerusalem", DateFormat: "DD/MM/YYYY", TimeFormat: "12h", Currency: "ILS", Locale: "ar"},
 	{CountryCode: "SA", CountryName: "السعودية", Timezone: "Asia/Riyadh", DateFormat: "DD/MM/YYYY", TimeFormat: "12h", Currency: "SAR", Locale: "ar"},
 	{CountryCode: "AE", CountryName: "الإمارات", Timezone: "Asia/Dubai", DateFormat: "DD/MM/YYYY", TimeFormat: "12h", Currency: "AED", Locale: "ar"},
 	{CountryCode: "JO", CountryName: "الأردن", Timezone: "Asia/Amman", DateFormat: "DD/MM/YYYY", TimeFormat: "24h", Currency: "JOD", Locale: "ar"},

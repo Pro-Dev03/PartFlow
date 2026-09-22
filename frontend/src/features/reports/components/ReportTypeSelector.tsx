@@ -1,5 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
-import { FileText } from 'lucide-react';
+import { Card, CardContent } from '../../../design-system/components/card';
 import { ReportType } from '../types/reports.types';
 
 interface ReportTypeSelectorProps {
@@ -11,12 +10,6 @@ interface ReportTypeSelectorProps {
 export function ReportTypeSelector({ reportTypes, selectedReport, onSelectReport }: ReportTypeSelectorProps) {
   return (
     <Card className="report-selector-card">
-      <CardHeader className="report-selector-header">
-        <CardTitle className="report-selector-title">
-          <FileText className="w-5 h-5 text-cyan-400" />
-          ماذا تريد أن تعرف؟
-        </CardTitle>
-      </CardHeader>
       <CardContent className="report-selector-content">
         {(['period', 'current'] as const).map((group) => {
           const groupReports = reportTypes.filter(report => (report.group || 'period') === group);
@@ -24,12 +17,7 @@ export function ReportTypeSelector({ reportTypes, selectedReport, onSelectReport
             <div key={group} className="report-selector-group">
               <div className="report-selector-heading">
                 <div className="report-selector-heading-main">
-                  {group === 'period' ? 'ماذا حدث؟' : 'ما الوضع الآن؟'}
-                </div>
-                <div className="report-selector-heading-sub">
-                  {group === 'period'
-                    ? 'حركة المتجر خلال الفترة التي تختارها'
-                    : 'أرقام المتجر الحالية الآن'}
+                  {group === 'period' ? 'الأداء المالي' : 'حالة المتجر'}
                 </div>
               </div>
               <div className="report-selector-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">

@@ -118,7 +118,11 @@ export function CustomerModals({
       const response = await salesApi.get(String(sale.id));
       const payload = response?.data ?? response;
       const saleDetails = payload?.sale ?? payload;
-      const items = Array.isArray(payload?.items) ? payload.items : [];
+      const items = Array.isArray(payload?.items)
+        ? payload.items
+        : Array.isArray(saleDetails?.items)
+          ? saleDetails.items
+          : [];
       const total = Number(saleDetails.total_amount ?? sale.total_amount ?? 0);
       const paidAmount = Number(saleDetails.paid_amount ?? sale.paid_amount ?? 0);
 
@@ -129,7 +133,7 @@ export function CustomerModals({
         customerPhone: selectedCustomer?.phone,
         saleDate: saleDetails.sale_date || sale.created_at || new Date().toISOString(),
         items: items.map((item: any) => ({
-          name: item.product_name || item.name || 'منتج',
+          name: item.product_name || item.productName || item.product?.name || item.name || 'منتج',
           sku: item.sku,
           barcode: item.barcode,
           condition: item.condition || 'NEW',

@@ -530,14 +530,14 @@ func (s *Service) GetSupplierInventory(ctx context.Context, supplierID uuid.UUID
 			p.name as product_name,
 			p.sku,
 			COUNT(ii.id) as total_received,
-			COUNT(CASE WHEN ii.status = 'AVAILABLE' THEN 1 END) as available,
-			COUNT(CASE WHEN ii.status = 'SOLD' THEN 1 END) as sold,
-			COUNT(CASE WHEN ii.status = 'RESERVED' THEN 1 END) as reserved,
-			COUNT(CASE WHEN ii.status = 'DAMAGED' THEN 1 END) as damaged,
+			COUNT(CASE WHEN UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' THEN 1 END) as available,
+			COUNT(CASE WHEN UPPER(COALESCE(ii.status, '')) = 'SOLD' THEN 1 END) as sold,
+			COUNT(CASE WHEN UPPER(COALESCE(ii.status, '')) = 'RESERVED' THEN 1 END) as reserved,
+			COALESCE((SELECT SUM(sri.quantity) FROM supplier_return_items sri JOIN supplier_returns sr ON sr.id = sri.supplier_return_id WHERE sri.product_id = p.id AND sr.supplier_id = $1 AND UPPER(COALESCE(sr.status, '')) IN ('PENDING', 'SHIPPED', 'RECEIVED', 'COMPLETED')), 0) as returned,
 			COALESCE(AVG(ii.purchase_cost), 0) as avg_cost,
 			COALESCE(AVG(ii.selling_price), 0) as avg_price,
 			COALESCE(MIN(ii.purchase_date), NOW()) as first_purchase_date,
-			COALESCE(MAX(ii.sold_at), NULL) as last_sale_date
+			NULL as last_sale_date
 		FROM inventory_items ii
 		JOIN products p ON ii.product_id = p.id
 		WHERE ii.supplier_id = $1
@@ -545,7 +545,7 @@ func (s *Service) GetSupplierInventory(ctx context.Context, supplierID uuid.UUID
 		ORDER BY p.name
 	`
 	if dbutil.IsSQLite(s.db) {
-		query = `SELECT p.id AS product_id, p.name AS product_name, p.sku, COUNT(ii.id) AS total_received, COUNT(CASE WHEN ii.status = 'AVAILABLE' THEN 1 END) AS available, COUNT(CASE WHEN ii.status = 'SOLD' THEN 1 END) AS sold, COUNT(CASE WHEN ii.status = 'RESERVED' THEN 1 END) AS reserved, COUNT(CASE WHEN ii.status = 'DAMAGED' THEN 1 END) AS damaged, COALESCE(AVG(ii.purchase_cost), 0) AS avg_cost, COALESCE(AVG(ii.selling_price), 0) AS avg_price, MIN(COALESCE(ii.purchase_date, ii.created_at)) AS first_purchase_date, MAX(ii.sold_at) AS last_sale_date FROM inventory_items ii JOIN products p ON ii.product_id = p.id WHERE ii.supplier_id = $1 GROUP BY p.id, p.name, p.sku ORDER BY p.name`
+		query = `SELECT p.id AS product_id, p.name AS product_name, p.sku, COUNT(ii.id) AS total_received, COUNT(CASE WHEN UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' THEN 1 END) AS available, COUNT(CASE WHEN UPPER(COALESCE(ii.status, '')) = 'SOLD' THEN 1 END) AS sold, COUNT(CASE WHEN UPPER(COALESCE(ii.status, '')) = 'RESERVED' THEN 1 END) AS reserved, COALESCE((SELECT SUM(sri.quantity) FROM supplier_return_items sri JOIN supplier_returns sr ON sr.id = sri.supplier_return_id WHERE sri.product_id = p.id AND sr.supplier_id = $1 AND UPPER(COALESCE(sr.status, '')) IN ('PENDING', 'SHIPPED', 'RECEIVED', 'COMPLETED')), 0) AS returned, COALESCE(AVG(ii.purchase_cost), 0) AS avg_cost, COALESCE(AVG(ii.selling_price), 0) AS avg_price, MIN(COALESCE(ii.purchase_date, ii.created_at)) AS first_purchase_date, NULL AS last_sale_date FROM inventory_items ii JOIN products p ON ii.product_id = p.id WHERE ii.supplier_id = $1 GROUP BY p.id, p.name, p.sku ORDER BY p.name`
 	}
 
 	var items []SupplierInventoryItem
@@ -557,10 +557,18 @@ func (s *Service) GetSupplierInventory(ctx context.Context, supplierID uuid.UUID
 		defer rows.Close()
 		for rows.Next() {
 			var row struct {
-				ProductID, ProductName, SKU                       string
-				TotalReceived, Available, Sold, Reserved, Damaged int
-				AvgCost, AvgPrice                                 float64
-				FirstPurchaseDate, LastSaleDate                   sql.NullString
+				ProductID         string         `db:"product_id"`
+				ProductName       string         `db:"product_name"`
+				SKU               string         `db:"sku"`
+				TotalReceived     int            `db:"total_received"`
+				Available         int            `db:"available"`
+				Sold              int            `db:"sold"`
+				Reserved          int            `db:"reserved"`
+				Returned          int            `db:"returned"`
+				AvgCost           float64        `db:"avg_cost"`
+				AvgPrice          float64        `db:"avg_price"`
+				FirstPurchaseDate sql.NullString `db:"first_purchase_date"`
+				LastSaleDate      sql.NullString `db:"last_sale_date"`
 			}
 			if err := rows.StructScan(&row); err != nil {
 				return nil, err
@@ -573,7 +581,7 @@ func (s *Service) GetSupplierInventory(ctx context.Context, supplierID uuid.UUID
 			if err != nil {
 				return nil, err
 			}
-			item := SupplierInventoryItem{ProductID: productID, ProductName: row.ProductName, SKU: row.SKU, TotalReceived: row.TotalReceived, Available: row.Available, Sold: row.Sold, Reserved: row.Reserved, Damaged: row.Damaged, AvgCost: row.AvgCost, AvgPrice: row.AvgPrice, FirstPurchaseDate: first}
+			item := SupplierInventoryItem{ProductID: productID, ProductName: row.ProductName, SKU: row.SKU, TotalReceived: row.TotalReceived, Available: row.Available, Sold: row.Sold, Reserved: row.Reserved, Returned: row.Returned, AvgCost: row.AvgCost, AvgPrice: row.AvgPrice, FirstPurchaseDate: first}
 			if row.LastSaleDate.Valid && row.LastSaleDate.String != "" {
 				parsed, e := dbutil.ParseTimestamp(row.LastSaleDate.String)
 				if e == nil {
@@ -604,7 +612,7 @@ type SupplierInventoryItem struct {
 	Available         int        `json:"available" db:"available"`
 	Sold              int        `json:"sold" db:"sold"`
 	Reserved          int        `json:"reserved" db:"reserved"`
-	Damaged           int        `json:"damaged" db:"damaged"`
+	Returned          int        `json:"returned" db:"returned"`
 	AvgCost           float64    `json:"avg_cost" db:"avg_cost"`
 	AvgPrice          float64    `json:"avg_price" db:"avg_price"`
 	FirstPurchaseDate time.Time  `json:"first_purchase_date" db:"first_purchase_date"`

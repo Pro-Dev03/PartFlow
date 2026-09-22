@@ -14,7 +14,12 @@ import { toast } from 'sonner';
 
 const getPayload = (response: any) => response?.data ?? response;
 
-export function CreateReturnPage() {
+interface CreateReturnPageProps {
+  embedded?: boolean;
+  onClose?: () => void;
+}
+
+export function CreateReturnPage({ embedded = false, onClose }: CreateReturnPageProps = {}) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const customerId = searchParams.get('customer_id') || '';
@@ -51,10 +56,38 @@ export function CreateReturnPage() {
   const customersPayload = getPayload(customersData);
   const customers = Array.isArray(customersPayload) ? customersPayload : Array.isArray(customersPayload?.data) ? customersPayload.data : [];
   const customerNames = new Map(customers.map((customer: any) => [String(customer.id), customer.name]));
-  const filteredSales = sales.filter((item: any) => {
-    const customerName = item.customer_name || item.customerName || customerNames.get(String(item.customer_id || item.customerId)) || '';
+  const getSaleCustomerName = (item: any) => item.customer_name
+    || item.customerName
+    || item.customer?.name
+    || item.customer?.full_name
+    || customerNames.get(String(item.customer_id || item.customerId))
+    || '';
+  const availableSales = Array.from(new Map(
+    sales
+      .filter((item: any) => Number(item.available_for_return ?? 1) > 0)
+      .map((sale: any) => [String(sale.invoice_number || sale.invoiceNumber || sale.id), sale]),
+  ).values()).sort((first: any, second: any) => {
+    const getSaleTimestamp = (sale: any) => {
+      const invoiceNumber = String(sale.invoice_number || sale.invoiceNumber || '');
+      const invoiceTimestamp = invoiceNumber.match(/^INV-(\d{14})-/)?.[1];
+      if (invoiceTimestamp) {
+        const parsedInvoiceDate = new Date(
+          `${invoiceTimestamp.slice(0, 4)}-${invoiceTimestamp.slice(4, 6)}-${invoiceTimestamp.slice(6, 8)}T${invoiceTimestamp.slice(8, 10)}:${invoiceTimestamp.slice(10, 12)}:${invoiceTimestamp.slice(12, 14)}`,
+        ).getTime();
+        if (Number.isFinite(parsedInvoiceDate)) return parsedInvoiceDate;
+      }
+      const saleDate = String(sale.sale_date || sale.saleDate || '');
+      const createdAt = sale.created_at || sale.createdAt || '';
+      return new Date(saleDate.length > 10 ? saleDate : createdAt || saleDate || 0).getTime();
+    };
+    const firstDate = getSaleTimestamp(first);
+    const secondDate = getSaleTimestamp(second);
+    return secondDate - firstDate;
+  });
+  const filteredSales = availableSales.filter((item: any) => {
+    const customerName = getSaleCustomerName(item);
     const search = saleSearch.trim().toLowerCase();
-    return !search || `${item.invoice_number || item.invoiceNumber || item.id} ${customerName}`.toLowerCase().includes(search);
+    return !search || `${item.invoice_number || item.invoiceNumber || item.id} ${customerName} ${item.customer_phone || item.customerPhone || item.customer?.phone || ''}`.toLowerCase().includes(search);
   });
   const sale = getPayload(saleData);
   const saleCustomerId = sale?.customer_id || sale?.customerId || selectedSale?.customer_id || selectedSale?.customerId || '';
@@ -101,7 +134,7 @@ export function CreateReturnPage() {
   const inventorySourceLabel = inventorySource === 'supplier_purchase'
     ? `تم شراؤه من المورد${selectedItem?.supplier_name ? `: ${selectedItem.supplier_name}` : ''}`
     : inventorySource === 'manual_inventory'
-      ? 'مضاف مباشرة إلى المخزون'
+      ? 'أُضيف يدويًا للمخزون، وليس من فاتورة مورد'
       : 'مصدر المخزون غير محدد';
   const originalQuantity = Number(selectedItem?.quantity ?? selectedItem?.original_quantity ?? selectedItem?.originalQuantity ?? 0);
   const returnedQuantity = Number(selectedItem?.returned_quantity ?? selectedItem?.returnedQuantity ?? 0);
@@ -113,6 +146,17 @@ export function CreateReturnPage() {
     : items.length === 1
       ? 'FULL'
       : 'PARTIAL';
+  const returnedCondition = reason === 'DEFECTIVE' || reason === 'DAMAGED'
+    ? 'DEFECTIVE'
+    : 'NEW';
+  const canReturnToSupplier = inventorySource === 'supplier_purchase'
+    && Boolean(selectedItem?.supplier_id || selectedItem?.supplierId);
+
+  useEffect(() => {
+    if (!canReturnToSupplier && condition === 'RETURN_TO_SUPPLIER') {
+      setCondition('READY_FOR_SALE');
+    }
+  }, [canReturnToSupplier, condition]);
 
   useEffect(() => {
     if (!invoiceDebtLoading && refundMethod === 'DEBT_ADJUSTMENT' && invoiceDebtRemaining <= 0) {
@@ -151,7 +195,7 @@ export function CreateReturnPage() {
         quantity_returned: returnQuantity,
         unit_price: netUnitPrice,
         total_refund_amount: netUnitPrice * returnQuantity,
-        returned_condition: condition === 'READY_FOR_SALE' ? 'NEW' : 'DEFECTIVE',
+        returned_condition: returnedCondition,
         resolution: condition === 'READY_FOR_SALE' ? 'RESTOCK' : condition === 'RETURN_TO_SUPPLIER' ? 'SUPPLIER_RETURN' : condition === 'NOT_FOR_SALE' ? 'WRITE_OFF' : 'REPAIR',
       }],
     }),
@@ -160,7 +204,11 @@ export function CreateReturnPage() {
       queryClient.invalidateQueries({ queryKey: ['returns-statistics'] });
       queryClient.invalidateQueries({ queryKey: ['sales-returns-analysis'] });
       toast.success('تم إنشاء المرتجع بنجاح');
-      navigate('/app/returns');
+      if (onClose) {
+        onClose();
+      } else {
+        navigate('/app/returns');
+      }
     },
     onError: (error: any) => toast.error(String(error?.message || '').toLowerCase().includes('quantity') || String(error?.message || '').includes('الكمية')
       ? 'لا يمكن إنشاء المرتجع: تم إرجاع هذه الكمية سابقًا أو لا توجد كمية متاحة للإرجاع.'
@@ -171,45 +219,55 @@ export function CreateReturnPage() {
 
   return (
     <div>
-      <PageHeader
-        title="إنشاء مرتجع جديد"
-        description="اختر فاتورة البيع والعنصر المراد إرجاعه"
-        actions={<Button variant="secondary" onClick={() => navigate('/app/returns')} className="gap-2"><ArrowRight className="w-4 h-4" /> العودة للمرتجعات</Button>}
-      />
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><RotateCcw className="w-5 h-5" /> بيانات المرتجع</CardTitle></CardHeader>
-        <CardContent>
-          <form className="return-form-grid grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); if (canSubmit) createMutation.mutate(); }}>
-            <div>
+      {!embedded && (
+        <PageHeader
+          title="إنشاء مرتجع جديد"
+          description="اختر فاتورة البيع والعنصر المراد إرجاعه"
+          actions={<Button variant="secondary" onClick={() => navigate('/app/returns')} className="gap-2"><ArrowRight className="w-4 h-4" /> العودة للمرتجعات</Button>}
+        />
+      )}
+      <Card className={`${embedded ? 'border-0 shadow-none ' : ''}return-form-card`}>
+        <CardHeader className="return-form-card-header"><CardTitle className="return-form-card-title flex items-center gap-2"><RotateCcw className="w-5 h-5" /> بيانات المرتجع</CardTitle></CardHeader>
+        <CardContent className="return-form-card-content">
+          <form className="return-form-grid return-form-grid-compact grid grid-cols-1 gap-3" onSubmit={(event) => { event.preventDefault(); if (canSubmit) createMutation.mutate(); }}>
+            <div className="return-sale-search-field">
               <label className="mb-2 block text-sm font-medium text-text-secondary">فاتورة البيع</label>
               <SearchInput placeholder="ابحث برقم الفاتورة أو اسم العميل..." value={saleSearch} onChange={(event) => setSaleSearch(event.target.value)} onClear={() => setSaleSearch('')} size="sm" className="mb-2" />
-              <Select value={saleId} onChange={(event) => { setSaleId(event.target.value); setSaleItemId(''); }} options={[{ value: '', label: salesLoading ? 'جاري تحميل الفواتير...' : 'اختر الفاتورة' }, ...filteredSales.map((item: any) => { const customerName = item.customer_name || item.customerName || customerNames.get(String(item.customer_id || item.customerId)); return { value: String(item.id), label: `${item.invoice_number || item.invoiceNumber || item.id}${customerName ? ` - ${customerName}` : ''} - ₪${Number(item.total_amount ?? item.total ?? 0).toLocaleString()}` }; })]} disabled={salesLoading} required />
-              {saleId && <>
-                <p className="mt-2 text-sm text-text-secondary">العميل: <strong className="text-text-primary">{saleCustomerName || 'عميل عام'}</strong></p>
-                <div className="mt-3 rounded-lg border border-border bg-surface-muted p-3 text-sm">
-                  <p className="text-text-secondary">إجمالي العناصر قبل الخصم: <strong className="text-text-primary">₪{Number(sale?.subtotal ?? selectedSale?.subtotal ?? sale?.total_amount ?? selectedSale?.total_amount ?? 0).toLocaleString()}</strong></p>
-                  {invoiceDiscount > 0 && <p className="mt-1 text-text-secondary">الخصم: <strong className="text-success">-₪{invoiceDiscount.toLocaleString()}</strong></p>}
-                  <p className="mt-1 text-text-secondary">إجمالي الفاتورة: <strong className="text-text-primary">₪{Number(sale?.total_amount ?? sale?.total ?? selectedSale?.total_amount ?? selectedSale?.total ?? 0).toLocaleString()}</strong></p>
-                  <p className="mt-1 text-text-secondary">الدين على الفاتورة: <strong className={isGeneralCustomer ? 'text-text-secondary' : 'text-danger'}>{isGeneralCustomer ? 'لا يوجد دين مرتبط بهذه الفاتورة' : invoiceDebtLoading ? 'جاري التحميل...' : invoiceDebtError ? 'غير متاح' : `₪${invoiceDebtRemaining.toLocaleString()}`}</strong></p>
-                  {!isGeneralCustomer && !invoiceDebtLoading && invoiceDebtError && <p className="mt-1 text-xs text-danger">تعذر التحقق من مديونية الفاتورة حاليًا. لا يمكن استخدام تعديل الدين حتى ينجح التحقق.</p>}
-                  {!isGeneralCustomer && !invoiceDebtLoading && !invoiceDebtError && !invoiceDebt && <p className="mt-1 text-xs text-text-tertiary">لا يوجد دين مرتبط بهذه الفاتورة.</p>}
+            </div>
+            <div className="return-selection-row">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-text-secondary">اختر الفاتورة</label>
+              <Select value={saleId} onChange={(event) => { setSaleId(event.target.value); setSaleItemId(''); }} options={[{ value: '', label: salesLoading ? 'جاري تحميل الفواتير...' : saleSearch.trim() && filteredSales.length === 0 ? 'لا توجد فواتير مطابقة' : 'اختر الفاتورة' }, ...filteredSales.map((item: any) => { const customerName = getSaleCustomerName(item); return { value: String(item.id), label: `${item.invoice_number || item.invoiceNumber || item.id}${customerName ? ` - ${customerName}` : ''} - ₪${Number(item.total_amount ?? item.total ?? 0).toLocaleString()}` }; })]} disabled={salesLoading} required />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-text-secondary">العنصر</label>
+                <Select value={saleItemId} onChange={(event) => setSaleItemId(event.target.value)} options={[{ value: '', label: saleLoading ? 'جاري تحميل العناصر...' : 'اختر العنصر' }, ...items.map((item: any) => ({ value: String(item.id || item.sale_item_id), label: `${item.product_name || item.productName || 'منتج'} - ₪${Number(item.unit_price ?? item.unitPrice ?? item.price ?? 0).toLocaleString()}` }))]} disabled={!saleId || saleLoading} required />
+              </div>
+            </div>
+            <div className="return-context-row">
+              {saleId && (
+                <div className="return-sale-summary rounded-lg border border-border bg-surface-muted p-3 text-sm">
+                  <p className="text-sm text-text-secondary">العميل: <strong className="text-text-primary">{saleCustomerName || 'عميل عام'}</strong></p>
+                  <div className="mt-2 grid gap-1">
+                    <p className="text-text-secondary">إجمالي العناصر قبل الخصم: <strong className="text-text-primary">₪{Number(sale?.subtotal ?? selectedSale?.subtotal ?? sale?.total_amount ?? selectedSale?.total_amount ?? 0).toLocaleString()}</strong></p>
+                    {invoiceDiscount > 0 && <p className="text-text-secondary">الخصم: <strong className="text-success">-₪{invoiceDiscount.toLocaleString()}</strong></p>}
+                    <p className="text-text-secondary">إجمالي الفاتورة: <strong className="text-text-primary">₪{Number(sale?.total_amount ?? sale?.total ?? selectedSale?.total_amount ?? selectedSale?.total ?? 0).toLocaleString()}</strong></p>
+                    <p className="text-text-secondary">الدين على الفاتورة: <strong className={isGeneralCustomer ? 'text-text-secondary' : 'text-danger'}>{isGeneralCustomer ? 'لا يوجد دين مرتبط بهذه الفاتورة' : invoiceDebtLoading ? 'جاري التحميل...' : invoiceDebtError ? 'غير متاح' : `₪${invoiceDebtRemaining.toLocaleString()}`}</strong></p>
+                    {!isGeneralCustomer && !invoiceDebtLoading && invoiceDebtError && <p className="text-xs text-danger">تعذر التحقق من مديونية الفاتورة حاليًا. لا يمكن استخدام تعديل الدين حتى ينجح التحقق.</p>}
+                    {!isGeneralCustomer && !invoiceDebtLoading && !invoiceDebtError && !invoiceDebt && <p className="text-xs text-text-tertiary">لا يوجد دين مرتبط بهذه الفاتورة.</p>}
+                  </div>
                 </div>
-              </>}
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-text-secondary">العنصر</label>
-              <Select value={saleItemId} onChange={(event) => setSaleItemId(event.target.value)} options={[{ value: '', label: saleLoading ? 'جاري تحميل العناصر...' : 'اختر العنصر' }, ...items.map((item: any) => ({ value: String(item.id || item.sale_item_id), label: `${item.product_name || item.productName || 'منتج'} - ₪${Number(item.unit_price ?? item.unitPrice ?? item.price ?? 0).toLocaleString()}` }))]} disabled={!saleId || saleLoading} required />
-            </div>
-            {selectedItem && (
-              <div className="md:col-span-2 rounded-xl border border-border bg-surface-muted p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-text-secondary">تفاصيل العنصر</p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              )}
+              {selectedItem && (
+                <div className="return-item-details rounded-xl border border-border bg-surface-muted p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-text-secondary">تفاصيل العنصر</p>
+                  <div className="return-item-details-grid mt-2 grid gap-2">
                   <div>
                     <p className="text-xs text-text-secondary">المنتج</p>
                     <p className="text-sm font-semibold text-text-primary">{selectedItem.product_name || selectedItem.productName || 'منتج غير مسمى'}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-text-secondary">مصدر العنصر</p>
+                    <p className="text-xs text-text-secondary">طريقة إضافة المنتج</p>
                     <p className="text-sm font-semibold text-text-primary">{inventorySourceLabel}</p>
                   </div>
                   <div>
@@ -232,16 +290,17 @@ export function CreateReturnPage() {
                     <p className="text-xs text-text-secondary">إجمالي العنصر</p>
                     <p className="text-sm font-semibold text-text-primary">₪{(netUnitPrice * Number(selectedItem.quantity ?? selectedItem.remaining_quantity ?? 1)).toLocaleString()}</p>
                   </div>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
             <div><label className="mb-2 block text-sm font-medium text-text-secondary">الكمية</label><Input type="number" min="1" max={availableQuantity || undefined} value={quantity} onChange={(event) => setQuantity(event.target.value)} required /></div>
             <div><label className="mb-2 block text-sm font-medium text-text-secondary">تاريخ المرتجع</label><Input type="date" lang="en-CA" dir="ltr" value={returnDate} onChange={(event) => setReturnDate(event.target.value)} required /></div>
             <div><label className="mb-2 block text-sm font-medium text-text-secondary">سبب المرتجع</label><Select value={reason} onChange={(event) => setReason(event.target.value)} options={[{ value: 'DEFECTIVE', label: 'منتج معطل' }, { value: 'WRONG_ITEM', label: 'منتج خاطئ' }, { value: 'CUSTOMER_CHANGED_MIND', label: 'تغيير رأي العميل' }, { value: 'DAMAGED', label: 'تالف' }, { value: 'OTHER', label: 'أخرى' }]} /></div>
-            <div><label className="mb-2 block text-sm font-medium text-text-secondary">ماذا يحدث للمنتج بعد الإرجاع؟</label><Select value={condition} onChange={(event) => setCondition(event.target.value)} options={[{ value: 'READY_FOR_SALE', label: 'إعادته للمخزون وبيعه مرة أخرى' }, { value: 'NOT_FOR_SALE', label: 'إخراجه من المخزون وعدم بيعه' }, { value: 'RETURN_TO_SUPPLIER', label: 'إرساله إلى المورد' }, { value: 'NEEDS_REPAIR', label: 'إرساله للإصلاح' }]} /></div>
+            <div><label className="mb-2 block text-sm font-medium text-text-secondary">ماذا يحدث للمنتج بعد الإرجاع؟</label><Select value={condition} onChange={(event) => setCondition(event.target.value)} options={[{ value: 'READY_FOR_SALE', label: 'إعادته للمخزون وبيعه مرة أخرى' }, { value: 'NOT_FOR_SALE', label: 'إخراجه من المخزون وعدم بيعه' }, ...(canReturnToSupplier ? [{ value: 'RETURN_TO_SUPPLIER', label: 'إرساله إلى المورد' }] : []), { value: 'NEEDS_REPAIR', label: 'إرساله للإصلاح' }]} />{!canReturnToSupplier && <p className="mt-1 text-xs text-text-muted">إرجاع المنتج للمورد متاح فقط للأصناف المرتبطة بفاتورة شراء ومورد.</p>}</div>
             <div><label className="mb-2 block text-sm font-medium text-text-secondary">طريقة رد المبلغ</label><Select value={refundMethod} onChange={(event) => setRefundMethod(event.target.value)} options={[{ value: 'CASH', label: 'نقدي' }, ...(invoiceDebtRemaining > 0 ? [{ value: 'DEBT_ADJUSTMENT', label: `تعديل الدين (₪${invoiceDebtRemaining.toLocaleString()})` }] : [])]} /></div>
             <div><label className="mb-2 block text-sm font-medium text-text-secondary">ملاحظات</label><Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات اختيارية" /></div>
-            <div className="md:col-span-2 flex items-center justify-between gap-4 border-t border-border pt-4"><p className="text-sm text-text-secondary">قيمة استرجاع العنصر ({selectedItem?.product_name || 'العنصر'} × {Number(quantity || 0)} بعد الخصم): <strong className="text-text-primary">₪{(netUnitPrice * Number(quantity || 0)).toLocaleString()}</strong></p><Button type="submit" variant="primary" disabled={!canSubmit || createMutation.isPending}>{createMutation.isPending ? 'جاري الحفظ...' : 'حفظ المرتجع'}</Button></div>
+            <div className="return-form-submit flex items-center justify-between gap-4 border-t border-border pt-4"><p className="text-sm text-text-secondary">قيمة استرجاع العنصر ({selectedItem?.product_name || 'العنصر'} × {Number(quantity || 0)} بعد الخصم): <strong className="text-text-primary">₪{(netUnitPrice * Number(quantity || 0)).toLocaleString()}</strong></p><Button type="submit" variant="primary" disabled={!canSubmit || createMutation.isPending}>{createMutation.isPending ? 'جاري الحفظ...' : 'حفظ المرتجع'}</Button></div>
           </form>
         </CardContent>
       </Card>

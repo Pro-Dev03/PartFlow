@@ -73,6 +73,7 @@ type ReturnItem struct {
 	// Item identification
 	SaleItemID      *uuid.UUID `json:"sale_item_id" db:"sale_item_id"`
 	ProductID       *uuid.UUID `json:"product_id" db:"product_id"`
+	ProductName     string     `json:"product_name" db:"product_name"`
 	InventoryItemID *uuid.UUID `json:"inventory_item_id" db:"inventory_item_id"`
 	SerialNumber    string     `json:"serial_number" db:"serial_number"`
 	Barcode         string     `json:"barcode" db:"barcode"`

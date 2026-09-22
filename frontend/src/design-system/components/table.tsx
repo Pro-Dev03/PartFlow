@@ -8,19 +8,19 @@ interface TableProps {
 const Table = ({ className, children }: TableProps) => (
   <div
     className={cn(
-      'pf-data-table w-full overflow-x-auto rounded-2xl border border-[var(--table-border)] bg-[var(--card-bg)] shadow-[0_8px_24px_rgba(15,23,42,0.05)]'
+      'pf-data-table w-full overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]'
     )}
     role="region"
     aria-label="جدول البيانات"
   >
-    <table className={cn('w-full min-w-full caption-bottom border-collapse text-sm', className)}>{children}</table>
+    <table className={cn('w-full min-w-full border-collapse text-sm', className)}>{children}</table>
   </div>
 );
 
 const TableHeader = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
   <thead
     className={cn(
-      'pf-data-table-header bg-[var(--bg-surface-elevated)]',
+      'pf-data-table-header bg-[var(--bg-surface-muted)]',
       className
     )}
     {...props}
@@ -28,18 +28,18 @@ const TableHeader = ({ className, ...props }: React.HTMLAttributes<HTMLTableSect
 );
 
 const TableBody = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
-  <tbody className={cn('bg-[var(--card-bg)]', className)} {...props} />
+  <tbody className={cn('bg-[var(--bg-surface)]', className)} {...props} />
 );
 
 const TableFooter = ({ className, ...props }: React.HTMLAttributes<HTMLTableSectionElement>) => (
-  <tfoot className={cn('border-t border-[var(--table-border)] bg-[rgba(148,163,184,0.03)] font-medium', className)} {...props} />
+  <tfoot className={cn('border-t border-[var(--border-subtle)] bg-[var(--bg-surface-muted)] font-medium', className)} {...props} />
 );
 
 const TableRow = ({ className, ...props }: React.HTMLAttributes<HTMLTableRowElement>) => (
   <tr
     className={cn(
-      'border-b border-[var(--border-subtle)] transition-colors duration-150',
-      'pf-data-table-row hover:bg-[var(--bg-surface-elevated)]',
+      'border-b border-[var(--border-subtle)] last:border-b-0 transition-colors duration-150',
+      'pf-data-table-row hover:bg-[var(--bg-surface-muted)]',
       className
     )}
     {...props}
@@ -49,7 +49,7 @@ const TableRow = ({ className, ...props }: React.HTMLAttributes<HTMLTableRowElem
 const TableHead = ({ className, ...props }: React.HTMLAttributes<HTMLTableCellElement>) => (
   <th
     className={cn(
-      'h-12 px-4 text-start align-middle text-xs font-semibold text-[var(--text-secondary)]',
+      'h-11 px-3 text-start align-middle text-[11px] font-semibold tracking-[0.02em] text-[var(--text-secondary)]',
       'transition-colors duration-150',
       '[&:has([role=checkbox])]:pr-0',
       className
@@ -62,7 +62,7 @@ const TableHead = ({ className, ...props }: React.HTMLAttributes<HTMLTableCellEl
 const TableCell = ({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) => (
   <td
     className={cn(
-      'px-4 py-3 align-middle text-[13px] text-[var(--text-primary)] transition-colors duration-150',
+      'px-3 py-2.5 align-middle text-[13px] text-[var(--text-primary)] transition-colors duration-150',
       '[&:has([role=checkbox])]:pr-0',
       className
     )}
@@ -71,7 +71,7 @@ const TableCell = ({ className, ...props }: React.TdHTMLAttributes<HTMLTableCell
 );
 
 const TableCaption = ({ className, ...props }: React.HTMLAttributes<HTMLTableCaptionElement>) => (
-  <caption className={cn('mt-4 text-xs text-[var(--text-muted)]', className)} {...props} />
+  <caption className={cn('mt-3 text-xs text-[var(--text-muted)]', className)} {...props} />
 );
 
 export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption };

@@ -234,8 +234,9 @@ export interface SaleItem {
 export interface SaleCreateRequest {
   customer_id?: string;
   items: SaleItem[];
-  payment_method: 'cash' | 'card' | 'transfer' | 'debt';
+  payment_method: 'cash' | 'card' | 'transfer' | 'debt' | 'installment';
   payment_amount: number;
+  installment_months?: number;
   cash_received?: number;
   total_amount: number;
   tax_exempt?: boolean;

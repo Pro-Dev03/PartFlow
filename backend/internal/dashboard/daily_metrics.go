@@ -79,6 +79,12 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 		if !sqliteHasColumns(db, "products", "cost_price") {
 			productCostRef = "p.purchase_price"
 		}
+		returnQuantityColumn := ""
+		if sqliteHasColumns(db, "return_items", "quantity_returned") {
+			returnQuantityColumn = "ri.quantity_returned"
+		} else if sqliteHasColumns(db, "return_items", "quantity") {
+			returnQuantityColumn = "ri.quantity"
+		}
 		productJoin := "LEFT JOIN products p ON p.id = ri.product_id"
 		if !sqliteHasColumns(db, "return_items", "product_id") {
 			productJoin = "LEFT JOIN products p ON p.id = si.product_id"
@@ -101,7 +107,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 				FROM sale_costs
 			), expenses_total AS (SELECT 0 AS amount), returns_total AS (
 				SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded,
-				       COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost
+				       COALESCE(SUM(%s * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost
 				FROM returns r
 				JOIN return_items ri ON ri.return_id = r.id
 				LEFT JOIN sale_items si ON si.id = ri.sale_item_id
@@ -112,12 +118,12 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			SELECT totals.revenue - returns_total.refunded AS today_sales,
 			       totals.revenue - totals.cost - expenses_total.amount - returns_total.refunded + returns_total.returned_cost AS today_profit
 			FROM totals, expenses_total, returns_total
-		`, productJoin)
+		`, returnQuantityColumn, productJoin)
 		args = []any{date, date, date}
 		// Older local databases (and lightweight unit-test schemas) may not
 		// have the returns tables yet. Keep the dashboard usable there while
 		// using the return-aware calculation on the current schema.
-		if !sqliteHasColumns(db, "returns", "total_refund_amount", "return_date", "status") || !sqliteHasColumns(db, "return_items", "quantity_returned", "sale_item_id", "original_cost") {
+		if returnQuantityColumn == "" || !sqliteHasColumns(db, "returns", "total_refund_amount", "return_date", "status") || !sqliteHasColumns(db, "return_items", "sale_item_id", "original_cost") {
 			query = fmt.Sprintf(`
 				WITH sale_costs AS (
 					SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
@@ -156,7 +162,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 	}
 	if isSQLiteDriver(db.DriverName()) {
 		if sqliteHasColumns(db, "returns", "refund_date", "updated_at") {
-			query = strings.ReplaceAll(query, "date(r.return_date) = ?", "date(COALESCE(r.refund_date, r.updated_at, r.return_date)) = ?")
+			query = strings.ReplaceAll(query, "date(r.return_date) = ?", "date(substr(COALESCE(r.refund_date, r.return_date, r.updated_at, r.created_at), 1, 10)) = ?")
 		}
 	} else {
 		query = strings.ReplaceAll(query, "r.return_date::date = $1::date", "COALESCE(r.refund_date::date, r.updated_at::date, r.return_date::date) = $1::date")

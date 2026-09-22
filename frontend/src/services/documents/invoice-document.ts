@@ -1,6 +1,7 @@
 import { printHtmlDocument } from './print-html';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { getRegionalProfile } from '../../utils/store-time';
 
 export interface InvoiceDocumentItem {
   name: string;
@@ -30,6 +31,8 @@ export interface InvoiceDocument {
   tax: number;
   total: number;
   paid: number;
+  cashReceived?: number;
+  changeAmount?: number;
   remaining: number;
   notes?: string;
   storeName?: string;
@@ -54,6 +57,13 @@ const paymentStatusLabel = (value: unknown, remaining: number, paid: number) => 
   pending: 'غير مدفوعة',
 }[String(value || '').toLowerCase()] || (remaining <= 0 ? 'مدفوعة' : paid > 0 ? 'مدفوعة جزئيًا' : 'غير مدفوعة'));
 
+const resolveSaleDate = (saleData: any) => {
+  const saleDate = String(saleData?.saleDate || saleData?.sale_date || '').trim();
+  const createdAt = saleData?.createdAt || saleData?.created_at;
+  const hasTime = /T\d{2}:\d{2}|\s\d{2}:\d{2}/.test(saleDate);
+  return (!hasTime && createdAt) ? createdAt : saleDate || createdAt || new Date().toISOString();
+};
+
 export function invoiceDocumentFromSale(saleData: any, storeInfo?: Partial<InvoiceDocument>): InvoiceDocument {
   const total = Number(saleData?.total ?? saleData?.total_amount ?? 0);
   const paid = Number(saleData?.paidAmount ?? saleData?.paid_amount ?? 0);
@@ -61,7 +71,7 @@ export function invoiceDocumentFromSale(saleData: any, storeInfo?: Partial<Invoi
   const status = paymentStatusLabel(saleData?.paymentStatus || saleData?.payment_status, remaining, paid);
   return {
     kind: 'sale', title: 'فاتورة بيع', invoiceNumber: String(saleData?.invoiceNumber || saleData?.invoice_number || saleData?.id || '-'),
-    transactionId: saleData?.id, date: saleData?.saleDate || saleData?.sale_date || saleData?.created_at || new Date().toISOString(),
+    transactionId: saleData?.id, date: resolveSaleDate(saleData),
     partyLabel: 'العميل', partyName: saleData?.customerName || saleData?.customer_name || 'عميل نقدي', partyPhone: saleData?.customerPhone || saleData?.customer_phone,
     status, paymentMethod: paymentMethodLabel(saleData?.paymentMethod || saleData?.payment_method),
     items: Array.isArray(saleData?.items) ? saleData.items.map((item: any) => ({
@@ -69,7 +79,10 @@ export function invoiceDocumentFromSale(saleData: any, storeInfo?: Partial<Invoi
       quantity: Number(item.quantity || 0), unitPrice: Number(item.sellingPrice ?? item.unit_price ?? 0), discount: Number(item.discountAmount ?? item.discount_amount ?? 0),
       tax: Number(item.taxAmount ?? item.tax_amount ?? 0), total: Number(item.total ?? item.total_amount ?? 0),
     })) : [],
-    subtotal: Number(saleData?.subtotal ?? 0), discount: Number(saleData?.discountAmount ?? saleData?.discount_amount ?? 0), tax: Number(saleData?.taxAmount ?? saleData?.tax_amount ?? 0), total, paid, remaining, notes: saleData?.notes,
+    subtotal: Number(saleData?.subtotal ?? 0), discount: Number(saleData?.discountAmount ?? saleData?.discount_amount ?? Math.max(0, Number(saleData?.subtotal ?? 0) - total)), tax: Number(saleData?.taxAmount ?? saleData?.tax_amount ?? 0), total, paid,
+    cashReceived: Number(saleData?.cashReceived ?? saleData?.cash_received ?? paid),
+    changeAmount: Number(saleData?.changeAmount ?? saleData?.change_amount ?? 0),
+    remaining, notes: saleData?.notes,
     storeName: storeInfo?.storeName || saleData?.storeName || saleData?.store_name, storePhone: storeInfo?.storePhone || saleData?.storePhone || saleData?.store_phone,
     storeAddress: storeInfo?.storeAddress || saleData?.storeAddress || saleData?.store_address, storeWebsite: storeInfo?.storeWebsite || saleData?.storeWebsite || saleData?.store_website,
   };
@@ -90,17 +103,50 @@ export function invoiceDocumentFromPurchase({ purchase, supplier, items, storeIn
   };
 }
 
-export function renderInvoiceHtml(document: InvoiceDocument): string {
+function renderInvoiceHtmlBase(document: InvoiceDocument): string {
   const date = new Date(document.date);
-  const dateText = Number.isNaN(date.valueOf()) ? '-' : `${date.toLocaleDateString('ar-SA').replace(/\s*\/\s*/g, ' \u00a0/\u00a0 ')}\u00a0\u00a0`;
-  const timeText = Number.isNaN(date.valueOf()) ? '-' : `\u00a0\u00a0${date.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}`;
-  const rows = document.items.map((item) => `<tr><td class="product"><strong>${escapeHtml(formatInvoiceProductName(item.name))}</strong>${item.sku ? `<small>SKU ${bidi(item.sku, 'ltr')}</small>` : ''}${item.barcode ? `<small>Barcode ${bidi(item.barcode, 'ltr')}</small>` : ''}</td><td class="center">${bidi(formatAmount(item.quantity), 'ltr')}</td><td class="numeric">₪${bidi(formatAmount(item.unitPrice), 'ltr')}</td><td class="numeric">${item.discount ? `-₪${bidi(formatAmount(item.discount), 'ltr')}` : '-'}</td><td class="numeric">${item.tax ? `₪${bidi(formatAmount(item.tax), 'ltr')}` : '-'}</td><td class="numeric strong">₪${bidi(formatAmount(item.total), 'ltr')}</td></tr>`).join('');
+  const regionalProfile = getRegionalProfile();
+  const dateText = Number.isNaN(date.valueOf()) ? '-' : `${new Intl.DateTimeFormat('ar-SA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: regionalProfile.timezone,
+  }).format(date).replace(/\s*\/\s*/g, ' \u00a0/\u00a0 ')}\u00a0\u00a0`;
+  const timeText = Number.isNaN(date.valueOf()) ? '-' : `\u00a0\u00a0${new Intl.DateTimeFormat('ar-SA', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: regionalProfile.time_format === '12h',
+    timeZone: regionalProfile.timezone,
+  }).format(date)}`;
+  const itemTotal = document.items.reduce((sum, item) => sum + Math.max(0, Number(item.total || 0)), 0);
+  const rows = document.items.map((item) => {
+    const itemValue = Math.max(0, Number(item.total || 0));
+    const allocatedDiscount = Number(item.discount || 0) || (document.discount && itemTotal ? document.discount * itemValue / itemTotal : 0);
+    const itemTax = Number(item.tax || 0);
+    return `<tr><td class="product"><strong>${escapeHtml(formatInvoiceProductName(item.name))}</strong>${item.sku ? `<small>SKU ${bidi(item.sku, 'ltr')}</small>` : ''}${item.barcode ? `<small>Barcode ${bidi(item.barcode, 'ltr')}</small>` : ''}</td><td class="center">${bidi(formatAmount(item.quantity), 'ltr')}</td><td class="numeric">₪${bidi(formatAmount(item.unitPrice), 'ltr')}</td><td class="numeric">-₪${bidi(formatAmount(allocatedDiscount), 'ltr')}</td><td class="numeric">₪${bidi(formatAmount(itemTax), 'ltr')}</td><td class="numeric strong">₪${bidi(formatAmount(item.total), 'ltr')}</td></tr>`;
+  }).join('');
   const storeName = document.storeName || 'PartFlow';
   const storeDetails = [document.storePhone, document.storeAddress, document.storeWebsite].filter(Boolean).map(escapeHtml).join(' · ');
   const discountRow = document.discount ? `<div class="amount-row"><span>الخصم</span><strong>-₪${bidi(formatAmount(document.discount), 'ltr')}</strong></div>` : '';
-  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(document.invoiceNumber)}</title><style>
+    return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(document.invoiceNumber)}</title><style>
 @font-face{font-family:InvoiceArabic;src:url('/fonts/NotoNaskhArabic.ttf') format('truetype');font-weight:400;font-display:swap}@page{size:A4;margin:12mm}*{box-sizing:border-box}html,body{margin:0;background:#f3f5f7;color:#17212b;font-family:InvoiceArabic,"Noto Naskh Arabic",serif;font-size:12px;line-height:1.55;direction:rtl}body{padding:20px}.invoice{width:186mm;margin:auto;background:#fff;padding:15mm 14mm;box-shadow:0 1px 10px #17212b18}.header{display:flex;justify-content:space-between;gap:24px;border-bottom:2px solid #17212b;padding-bottom:14px}.brand{font-family:"Segoe UI",Arial,sans-serif;font-size:23px;font-weight:700;direction:ltr;text-align:right}.brand small{display:block;font-family:InvoiceArabic,serif;font-size:12px;font-weight:400;color:#536170;direction:rtl}.title{text-align:left}.title h1{margin:0;font-size:24px;line-height:1.2}.title p{margin:3px 0 0;color:#536170}.meta{display:grid;grid-template-columns:1.25fr 1fr 1fr;margin:18px 0 20px;border:1px solid #cbd3da}.meta-cell{min-height:57px;padding:9px 11px;border-left:1px solid #cbd3da}.meta-cell:last-child{border-left:0}.label{display:block;color:#536170;font-size:10px;margin-bottom:2px}.value{font-weight:700}.section-title{margin:0 0 7px;font-size:14px;border-right:3px solid #17212b;padding-right:8px}table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}th{padding:8px 7px;background:#e9edf0;border-top:1px solid #9eabb6;border-bottom:1px solid #9eabb6;text-align:right;font-weight:700}td{padding:8px 7px;border-bottom:1px solid #d7dde2;vertical-align:top}th:nth-child(1){width:34%}th:nth-child(2){width:9%}th:nth-child(3){width:14%}th:nth-child(4),th:nth-child(5){width:12%}th:nth-child(6){width:19%}.product strong{display:block;font-size:12px}.product small{display:block;color:#536170;font-family:"Segoe UI",Arial,sans-serif;font-size:9px;direction:ltr;text-align:right;unicode-bidi:isolate}.center{text-align:center}.numeric{text-align:left;direction:ltr;unicode-bidi:isolate;white-space:nowrap}.strong{font-weight:700}.bottom{display:flex;justify-content:space-between;gap:22px;align-items:flex-start;margin-top:21px;break-inside:avoid}.summary{width:88mm;border-top:2px solid #17212b}.payment{width:67mm;border:1px solid #cbd3da;padding:10px 12px}.payment h3{margin:0 0 5px;font-size:12px}.amount-row{display:flex;justify-content:space-between;gap:14px;padding:6px 0;border-bottom:1px solid #d7dde2}.amount-row strong{direction:ltr;unicode-bidi:isolate;display:inline-block;white-space:nowrap}.amount-row:last-child{border-bottom:0}.final{font-size:16px;padding:9px 0;border-bottom:2px solid #17212b}.footer{margin-top:30px;padding-top:9px;border-top:1px solid #cbd3da;color:#536170;text-align:center;font-size:11px}.notes{margin-top:17px;color:#536170;font-size:10px;white-space:pre-wrap}@media print{html,body{background:#fff}body{padding:0}.invoice{width:auto;padding:0;box-shadow:none}.no-print{display:none!important}}
 }</style></head><body><main class="invoice"><header class="header"><div class="brand">${escapeHtml(storeName)}<small>نظام إدارة المتجر</small>${storeDetails ? `<small>${storeDetails}</small>` : ''}</div><div class="title"><h1>${escapeHtml(document.title)}</h1><p>رقم الفاتورة: ${bidi(document.invoiceNumber, 'ltr')}</p><p>${escapeHtml(dateText)} · ${escapeHtml(timeText)}</p></div></header><section class="meta"><div class="meta-cell"><span class="label">بيانات ${escapeHtml(document.partyLabel)}</span><span class="value">${escapeHtml(document.partyName)}${document.partyPhone ? ` · ${bidi(document.partyPhone, 'ltr')}` : ''}</span></div><div class="meta-cell"><span class="label">طريقة الدفع</span><span class="value">${escapeHtml(document.paymentMethod || '-')}</span></div><div class="meta-cell"><span class="label">حالة الدفع</span><span class="value">${escapeHtml(document.status)}</span></div></section><h2 class="section-title">تفاصيل المنتجات</h2><table><thead><tr><th>المنتج</th><th>الكمية</th><th>سعر الوحدة</th><th>الخصم</th><th>الضريبة</th><th>الإجمالي</th></tr></thead><tbody>${rows || '<tr><td colspan="6">لا توجد منتجات</td></tr>'}</tbody></table><section class="bottom"><section class="summary"><div class="amount-row"><span>الإجمالي قبل الضريبة</span><strong>₪${bidi(formatAmount(document.subtotal), 'ltr')}</strong></div>${discountRow}<div class="amount-row"><span>الضريبة</span><strong>₪${bidi(formatAmount(document.tax), 'ltr')}</strong></div><div class="amount-row final"><span>الإجمالي النهائي</span><strong>₪${bidi(formatAmount(document.total), 'ltr')}</strong></div></section><section class="payment"><h3>ملخص الدفع</h3><div class="amount-row"><span>المدفوع</span><strong>₪${bidi(formatAmount(document.paid), 'ltr')}</strong></div><div class="amount-row"><span>المتبقي</span><strong>₪${bidi(formatAmount(document.remaining), 'ltr')}</strong></div><div class="amount-row"><span>الحالة</span><strong>${escapeHtml(document.status)}</strong></div></section></section>${document.notes ? `<div class="notes">${escapeHtml(document.notes)}</div>` : ''}<footer class="footer">شكرًا لتعاملكم معنا</footer></main></body></html>`;
+}
+
+export function renderInvoiceHtml(document: InvoiceDocument): string {
+  const html = renderInvoiceHtmlBase(document).replace(
+    '</style>',
+    '.invoice table{direction:rtl}.invoice th{border-left:1px solid #d0d7dd;text-align:center;white-space:nowrap}.invoice th:first-child{text-align:right}.invoice th:last-child,.invoice td:last-child{border-left:0}.invoice td{border-left:1px solid #edf0f2;text-align:center;vertical-align:middle;white-space:nowrap}.invoice td:first-child{text-align:right;white-space:normal}.invoice .numeric{text-align:center}</style>',
+  );
+  const cashReceived = Number(document.cashReceived ?? document.paid);
+  const changeAmount = Math.max(0, Number(document.changeAmount ?? cashReceived - document.paid));
+  if (changeAmount <= 0) return html;
+
+  const cashRows = `<div class="amount-row"><span>المبلغ المستلم</span><strong>₪${bidi(formatAmount(cashReceived), 'ltr')}</strong></div><div class="amount-row"><span>المردود</span><strong>₪${bidi(formatAmount(changeAmount), 'ltr')}</strong></div>`;
+  return html.replace(
+    '<section class="payment"><h3>ملخص الدفع</h3>',
+    `<section class="payment"><h3>ملخص الدفع</h3>${cashRows}`,
+  );
 }
 
 const fileNameFor = (document: InvoiceDocument) => `${document.kind === 'sale' ? 'فاتورة-بيع' : 'فاتورة-مورد'}-${document.invoiceNumber.replace(/[<>:"/\\|?*]/g, '-')}.pdf`;

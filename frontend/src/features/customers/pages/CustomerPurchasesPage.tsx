@@ -64,7 +64,11 @@ export function CustomerPurchasesPage() {
   const customer = customerQuery.data?.data ?? customerQuery.data;
   const saleDetailsPayload = saleDetailsQuery.data?.data ?? saleDetailsQuery.data;
   const saleDetails = saleDetailsPayload?.sale ?? saleDetailsPayload;
-  const saleItems = Array.isArray(saleDetailsPayload?.items) ? saleDetailsPayload.items : [];
+  const saleItems = Array.isArray(saleDetailsPayload?.items)
+    ? saleDetailsPayload.items
+    : Array.isArray(saleDetails?.items)
+      ? saleDetails.items
+      : [];
   const invoiceData = saleDetails ? {
     id: saleDetails.id,
     invoiceNumber: saleDetails.invoice_number,
@@ -72,7 +76,7 @@ export function CustomerPurchasesPage() {
     customerPhone: customer?.phone,
     saleDate: saleDetails.sale_date || saleDetails.created_at,
     items: saleItems.map((item: any) => ({
-      name: item.product_name || item.name || 'منتج',
+      name: item.product_name || item.productName || item.product?.name || item.name || 'منتج',
       sku: item.sku,
       barcode: item.barcode,
       condition: item.condition || 'NEW',

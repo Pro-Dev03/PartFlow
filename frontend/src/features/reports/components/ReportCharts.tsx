@@ -29,28 +29,32 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       ? report.by_day.map((item: any) => ({
           dateKey: item.date ? String(item.date).slice(0, 10) : '',
           label: item.date ? formatStoreDate(item.date, 'ar-SA') : 'غير محدد',
-          value: Number(item.revenue ?? item.net_revenue ?? 0),
+            value: Number(reportType === 'profit' ? item.net_profit ?? 0 : item.revenue ?? item.net_revenue ?? 0),
+            secondaryValue: reportType === 'sales-profit' ? Number(item.net_profit ?? 0) : undefined,
         })).filter((item: { value: number }) => Number.isFinite(item.value))
       : [];
-    let dailyItems = reportType === 'profit' ? [] : rawDailyItems;
+      let dailyItems = rawDailyItems;
     const rangeStart = report.start_date ? new Date(String(report.start_date)) : null;
     const rangeEnd = report.end_date ? new Date(String(report.end_date)) : null;
-    if (reportType !== 'profit' && rawDailyItems.length > 0 && rangeStart && rangeEnd && !Number.isNaN(rangeStart.getTime()) && !Number.isNaN(rangeEnd.getTime())) {
+    if (rawDailyItems.length > 0 && rangeStart && rangeEnd && !Number.isNaN(rangeStart.getTime()) && !Number.isNaN(rangeEnd.getTime())) {
       const dayCount = Math.ceil((rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24));
       if (dayCount > 0 && dayCount <= 366) {
         const valuesByDate = new Map(rawDailyItems.map((item: any) => [item.dateKey, item.value]));
+        const secondaryValuesByDate = new Map(rawDailyItems.map((item: any) => [item.dateKey, item.secondaryValue]));
         dailyItems = Array.from({ length: dayCount }, (_, index) => {
           const date = new Date(rangeStart.getTime() + index * 24 * 60 * 60 * 1000);
           const dateKey = date.toISOString().slice(0, 10);
           return {
             label: formatStoreDate(date, 'ar-SA'),
             value: Number(valuesByDate.get(dateKey) ?? 0),
+            secondaryValue: secondaryValuesByDate.has(dateKey) ? Number(secondaryValuesByDate.get(dateKey) ?? 0) : 0,
           };
         });
       }
     }
     const paymentItems = Object.entries(report.by_payment_method || {})
       .map(([label, value]) => ({ label, value: Number(value) }))
+      .filter(item => ['cash', 'card', 'checks', 'check', 'cheque', 'transfer', 'bank_transfer'].includes(item.label.toLowerCase()))
       .filter(item => Number.isFinite(item.value) && item.value > 0);
     const monthlyItems = Array.isArray(report.by_month)
       ? report.by_month.map((item: any) => ({
@@ -103,16 +107,29 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
 
     // Trend data by date (if items have date field)
     const dateMap = new Map<string, number>();
+    const secondaryDateMap = new Map<string, number>();
     items.forEach((item: any) => {
       const date = item.date ? formatStoreDate(item.date, 'ar-SA') : item.label || 'غير محدد';
       const value = Number(item.value ?? item.amount ?? item.revenue ?? 0);
       dateMap.set(date, (dateMap.get(date) || 0) + value);
+      if (item.secondaryValue !== undefined) {
+        secondaryDateMap.set(date, (secondaryDateMap.get(date) || 0) + Number(item.secondaryValue || 0));
+      }
     });
 
     const trendData = Array.from(dateMap.entries()).map(([label, value]) => ({
       label,
       value,
+      ...(secondaryDateMap.has(label) ? { secondaryValue: secondaryDateMap.get(label) } : {}),
     }));
+    const reportedNetProfit = Number(report.net_profit);
+    const trendTotal = trendData.reduce((sum, item) => sum + item.value, 0);
+    const hasReliableNetProfit = Number.isFinite(reportedNetProfit)
+      && (reportedNetProfit !== 0 || trendData.length > 0);
+    const profitTrendData = reportType === 'profit' && hasReliableNetProfit
+      && (trendData.length === 0 || Math.abs(trendTotal - reportedNetProfit) > 0.01)
+      ? [{ label: 'إجمالي الفترة', value: reportedNetProfit }]
+      : trendData;
 
     // Source distribution (if items have payment_method or status field)
     const paymentLabels: Record<string, string> = {
@@ -123,6 +140,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       checks: 'شيكات',
       cheque: 'شيكات',
       check: 'شيكات',
+      bitcoin: 'بيتكوين',
       transfer: 'تحويل بنكي',
       bank_transfer: 'تحويل بنكي',
     };
@@ -137,13 +155,15 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
     ].filter(item => Number.isFinite(item.value) && item.value > 0);
     return {
       categoryData,
-      trendData: reportType === 'suppliers' ? supplierBalanceData : trendData,
-      sourceData: reportType === 'suppliers' ? supplierSourceData : sourceData,
+      trendData: reportType === 'suppliers' || reportType === 'purchases-suppliers'
+        ? supplierBalanceData
+        : profitTrendData,
+      sourceData: reportType === 'suppliers' || reportType === 'purchases-suppliers' ? supplierSourceData : sourceData,
       productData: reportType === 'products'
         ? categoryData
         : reportType === 'net-sales'
           ? netSalesProductData.length > 0 ? netSalesProductData : categoryData
-        : reportType === 'suppliers'
+        : reportType === 'suppliers' || reportType === 'purchases-suppliers'
           ? supplierData
           : reportType === 'inventory'
             ? inventoryProductData.length > 0 ? inventoryProductData : distributionData
@@ -175,7 +195,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '14px' }}
          className="grid-cols-1 lg:grid-cols-2">
-      {(reportType !== 'returns' && reportType !== 'used-items' && reportType !== 'debts') || (reportType === 'returns' && hasReturnedProductData) ? (
+      {(reportType === 'profit' ? false : (reportType !== 'returns' && reportType !== 'used-items' && reportType !== 'debts') || (reportType === 'returns' && hasReturnedProductData)) ? (
         <SimpleBarChart
           title={reportType === 'products'
             ? 'يحتاج انتباهك'
@@ -183,7 +203,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
               ? 'صافي المبيعات حسب المنتج'
             : reportType === 'expenses'
               ? 'المصروفات حسب الفئة'
-              : reportType === 'suppliers' || reportType === 'purchases'
+              : reportType === 'suppliers' || reportType === 'purchases-suppliers'
                 ? 'المشتريات حسب التاجر'
                 : productData.length > 0 ? 'أفضل المنتجات والمصادر' : 'التوزيع حسب الفئة'}
           data={productData}
@@ -191,38 +211,47 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
           loading={loading}
         />
       ) : null}
+      {sourceData.length > 0 && (
+        <SimplePieChart
+          title={reportType === 'suppliers' || reportType === 'purchases-suppliers'
+            ? 'المدفوع مقابل المستحق'
+            : reportType === 'expenses' ? 'المصروفات حسب طريقة الدفع' : 'توزيع المدفوعات حسب الطريقة'}
+          data={sourceData}
+          loading={loading}
+        />
+      )}
       {reportType !== 'inventory' && reportType !== 'debts' && reportType !== 'used-items' && reportType !== 'returns' && !(reportType === 'purchases' && trendData.length <= 1) && (
         <div style={{ gridColumn: '1 / -1', width: '100%', maxWidth: '1200px', marginInline: 'auto' }}>
           <SimpleLineChart
-            title={reportType === 'suppliers'
+            title={reportType === 'suppliers' || reportType === 'purchases-suppliers'
               ? 'المستحق حسب التاجر'
+              : reportType === 'sales-profit'
+                ? 'اتجاه المبيعات والأرباح'
               : reportType === 'profit'
                 ? 'اتجاه صافي الربح'
                 : reportType === 'expenses'
                   ? 'اتجاه المصروفات'
                   : reportType === 'purchases' ? 'اتجاه المشتريات الشهري' : 'اتجاه المبيعات قبل الضريبة'}
-            valueLabel={reportType === 'suppliers'
+            valueLabel={reportType === 'suppliers' || reportType === 'purchases-suppliers'
               ? 'إجمالي المستحق'
+              : reportType === 'sales-profit'
+                ? 'إجمالي المبيعات قبل الضريبة'
               : reportType === 'profit'
                 ? 'إجمالي صافي الربح'
                 : reportType === 'expenses'
                   ? 'إجمالي المصروفات'
                   : reportType === 'purchases' ? 'إجمالي المشتريات' : 'إجمالي المبيعات قبل الضريبة'}
-            peakLabel={reportType === 'profit' || reportType === 'purchases' ? 'أعلى شهر' : 'أعلى يوم'}
+            peakLabel={reportType === 'profit' ? 'أعلى فترة' : reportType === 'purchases' ? 'أعلى شهر' : 'أعلى يوم'}
+            summaryValue={reportType === 'sales-profit' ? Number(report?.total_revenue ?? 0) : reportType === 'profit' ? Number(report?.net_profit ?? 0) : undefined}
+            secondaryLabel={reportType === 'sales-profit' ? 'صافي الربح' : undefined}
+            secondarySummaryValue={reportType === 'sales-profit' ? Number(report?.net_profit ?? 0) : undefined}
+            secondaryPeakLabel={reportType === 'sales-profit' ? 'أعلى صافي ربح' : undefined}
+            secondaryColor="#2563eb"
             data={trendData}
             color="#10b981"
             loading={loading}
           />
         </div>
-      )}
-      {sourceData.length > 0 && (
-        <SimplePieChart
-          title={reportType === 'suppliers'
-            ? 'المدفوع مقابل المستحق'
-            : reportType === 'expenses' ? 'المصروفات حسب طريقة الدفع' : 'توزيع المبيعات حسب طريقة الدفع'}
-          data={sourceData}
-          loading={loading}
-        />
       )}
     </div>
   );

@@ -13,7 +13,7 @@ export const DEFAULT_REGIONAL_PROFILE: RegionalProfile = {
   country_name: 'إسرائيل',
   timezone: 'Asia/Jerusalem',
   date_format: 'DD/MM/YYYY',
-  time_format: '24h',
+  time_format: '12h',
   currency: 'ILS',
   locale: 'ar',
 };

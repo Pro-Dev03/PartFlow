@@ -1,4 +1,4 @@
-import { Info, Package, Plus } from 'lucide-react';
+import { Package, Plus } from 'lucide-react';
 import { cn } from '../../../../utils';
 import type { ProductCardProps } from '../../../../design-system/components/product-card';
 import { getLocalProductImage } from '../../../../services/localProductImages';
@@ -23,7 +23,6 @@ interface ModernProductGridProps {
   taxRate?: number;
   taxExempt?: boolean;
   showDetails: boolean;
-  onToggleDetails: () => void;
   onAddProduct?: () => void;
   hasSearch?: boolean;
 }
@@ -40,7 +39,6 @@ export function ModernProductGrid({
   taxRate = 0,
   taxExempt = false,
   showDetails,
-  onToggleDetails,
   onAddProduct,
   hasSearch = false,
 }: ModernProductGridProps) {
@@ -78,18 +76,6 @@ export function ModernProductGrid({
 
   return (
     <>
-      <div className="pos-product-view-toolbar">
-        <button
-          type="button"
-          className={`pos-product-details-toggle ${showDetails ? 'active' : ''}`}
-          onClick={onToggleDetails}
-          aria-pressed={showDetails}
-          title={showDetails ? 'إخفاء تفاصيل المنتج' : 'عرض تفاصيل المنتج'}
-        >
-          <Info className="h-4 w-4" aria-hidden="true" />
-          <span>{showDetails ? 'إخفاء التفاصيل' : 'عرض التفاصيل'}</span>
-        </button>
-      </div>
       <div className={viewMode === 'list' ? 'pos-modern-products-list' : 'pos-modern-products-grid'}>
         {products.map((product) => (
           viewMode === 'list' ? (

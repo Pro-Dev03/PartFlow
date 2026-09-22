@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Header } from '../../components/navigation/header';
 import { Sidebar } from '../../components/navigation/sidebar';
 import { ScrollIndicator, ScrollProgress } from '../../design-system/components/scroll-indicator';
@@ -16,6 +17,9 @@ export function AppLayout({ children }: AppLayoutProps) {
   const { direction } = useTranslation();
   const { sidebarCollapsed, checkoutMode, toggleSidebar, theme } = useUIStore();
   const { fullWidth } = useLayout();
+  const location = useLocation();
+  const isCheckoutRoute = location.pathname === '/app/sales' || location.pathname.startsWith('/app/sales/');
+  const hideNavigation = checkoutMode && isCheckoutRoute;
   const [showScrollTop, setShowScrollTop] = useState(false);
   const mainRef = useRef<HTMLDivElement | null>(null);
 
@@ -60,9 +64,9 @@ export function AppLayout({ children }: AppLayoutProps) {
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        {!checkoutMode && <Header onToggleSidebar={toggleSidebar} />}
+        {!hideNavigation && <Header onToggleSidebar={toggleSidebar} />}
         <div style={{ display: 'flex', flex: 1, minWidth: 0, alignItems: 'stretch' }}>
-          {!checkoutMode && (
+          {!hideNavigation && (
             <Sidebar
               isCollapsed={sidebarCollapsed}
             />
@@ -73,12 +77,12 @@ export function AppLayout({ children }: AppLayoutProps) {
             style={{
               flex: 1,
               minWidth: 0,
-              maxWidth: checkoutMode ? '100%' : (fullWidth ? '100%' : '1500px'),
-              margin: checkoutMode ? '0' : (fullWidth ? '0' : '0 auto'),
+              maxWidth: hideNavigation ? '100%' : (fullWidth ? '100%' : '1500px'),
+              margin: hideNavigation ? '0' : (fullWidth ? '0' : '0 auto'),
               width: '100%',
-              padding: checkoutMode ? '0' : '20px 24px'
+              padding: hideNavigation ? '0' : '20px 24px'
             }}
-            className={cn('px-4 md:px-8 lg:px-8', checkoutMode && 'checkout-mode')}
+            className={cn('px-4 md:px-8 lg:px-8', hideNavigation && 'checkout-mode')}
           >
             {children}
           </main>

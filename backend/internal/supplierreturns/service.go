@@ -21,6 +21,7 @@ type SupplierReturn struct {
 	PurchaseID            uuid.UUID `json:"purchase_id" db:"purchase_id"`
 	SupplierID            uuid.UUID `json:"supplier_id" db:"supplier_id"`
 	SupplierName          string    `json:"supplier_name" db:"supplier_name"`
+	ProductName           string    `json:"product_name" db:"product_name"`
 	InventoryItemID       uuid.UUID `json:"inventory_item_id" db:"inventory_item_id"`
 	Barcode               string    `json:"barcode" db:"barcode"`
 	SerialNumber          string    `json:"serial_number" db:"serial_number"`
@@ -49,7 +50,7 @@ type AddItemRequest struct {
 	Quantity       int       `json:"quantity" binding:"required,min=1"`
 }
 
-func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
+func (s *Service) Delete(ctx context.Context, id uuid.UUID, force bool) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin delete supplier return: %w", err)
@@ -64,7 +65,7 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	if err = tx.GetContext(ctx, &customerReturnID, customerReturnQuery, id); err != nil {
 		return fmt.Errorf("get supplier return source: %w", err)
 	}
-	if strings.TrimSpace(customerReturnID) != "" && customerReturnID != uuid.Nil.String() {
+	if !force && strings.TrimSpace(customerReturnID) != "" && customerReturnID != uuid.Nil.String() {
 		return fmt.Errorf("only an empty, unprocessed supplier return can be deleted")
 	}
 
@@ -76,8 +77,11 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("delete supplier return items: %w", err)
 	}
 
-	result, err := tx.ExecContext(ctx, `DELETE FROM supplier_returns
-		WHERE id = $1 AND status IN ('DRAFT', 'PENDING')`, id)
+	deleteQuery := `DELETE FROM supplier_returns WHERE id = $1 AND status IN ('DRAFT', 'PENDING')`
+	if force {
+		deleteQuery = `DELETE FROM supplier_returns WHERE id = $1`
+	}
+	result, err := tx.ExecContext(ctx, deleteQuery, id)
 	if err != nil {
 		return fmt.Errorf("delete supplier return: %w", err)
 	}
@@ -114,6 +118,7 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 		PurchaseID       string  `db:"purchase_id"`
 		SupplierID       string  `db:"supplier_id"`
 		SupplierName     string  `db:"supplier_name"`
+		ProductName      string  `db:"product_name"`
 		InventoryItemID  string  `db:"inventory_item_id"`
 		Barcode          string  `db:"barcode"`
 		SerialNumber     string  `db:"serial_number"`
@@ -132,6 +137,12 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 	query := `SELECT sr.id, COALESCE(sr.customer_return_id, '') AS customer_return_id,
 		COALESCE(sr.sale_id, '') AS sale_id, COALESCE(sr.purchase_id, '') AS purchase_id, COALESCE(sr.supplier_id, '') AS supplier_id,
 		COALESCE(s.name, '') AS supplier_name,
+		COALESCE((SELECT p0.name FROM supplier_return_items sri0 JOIN products p0 ON p0.id = sri0.product_id WHERE sri0.supplier_return_id = sr.id ORDER BY sri0.created_at LIMIT 1),
+			(SELECT p1.name FROM supplier_return_items sri1 JOIN purchase_items pi1 ON pi1.id = sri1.purchase_item_id JOIN products p1 ON p1.id = pi1.product_id WHERE sri1.supplier_return_id = sr.id ORDER BY sri1.created_at LIMIT 1),
+			(SELECT p2.name FROM return_items ri2 JOIN products p2 ON p2.id = ri2.product_id WHERE ri2.return_id = sr.customer_return_id ORDER BY ri2.created_at LIMIT 1),
+			(SELECT p3.name FROM return_items ri3 JOIN inventory_items ii3 ON ii3.id = ri3.inventory_item_id JOIN products p3 ON p3.id = ii3.product_id WHERE ri3.return_id = sr.customer_return_id ORDER BY ri3.created_at LIMIT 1),
+			(SELECT p4.name FROM return_items ri4 JOIN inventory_items ii4 ON ii4.barcode = ri4.barcode JOIN products p4 ON p4.id = ii4.product_id WHERE ri4.return_id = sr.customer_return_id ORDER BY ri4.created_at LIMIT 1),
+			(SELECT p5.name FROM return_items ri5 JOIN products p5 ON p5.barcode = ri5.barcode WHERE ri5.return_id = sr.customer_return_id ORDER BY ri5.created_at LIMIT 1), '') AS product_name,
 		COALESCE((SELECT sri.inventory_item_id FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.inventory_item_id FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), '') AS inventory_item_id,
 		COALESCE((SELECT sri.barcode FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.barcode FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), '') AS barcode,
 		COALESCE((SELECT sri.serial_number FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.serial_number FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), '') AS serial_number,
@@ -143,7 +154,7 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 	if strings.EqualFold(s.db.DriverName(), "sqlite") && (!sqliteTableExists(ctx, s.db, "suppliers") || !sqliteTableExists(ctx, s.db, "returns") || !sqliteColumnExists(ctx, s.db, "supplier_returns", "source_status")) {
 		query = `SELECT sr.id, COALESCE(sr.customer_return_id, '') AS customer_return_id,
 			COALESCE(sr.sale_id, '') AS sale_id, COALESCE(sr.purchase_id, '') AS purchase_id, COALESCE(sr.supplier_id, '') AS supplier_id,
-			'' AS supplier_name, COALESCE((SELECT sri.inventory_item_id FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS inventory_item_id,
+			'' AS supplier_name, '' AS product_name, COALESCE((SELECT sri.inventory_item_id FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS inventory_item_id,
 			COALESCE((SELECT sri.barcode FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS barcode,
 			COALESCE((SELECT sri.serial_number FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS serial_number,
 			sr.return_number, sr.status, '' AS source_status, sr.reason, sr.refund_amount, COALESCE(sr.notes, '') AS notes,
@@ -206,7 +217,7 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 		}
 		out = append(out, SupplierReturn{
 			ID: id, CustomerReturnID: customerReturnID, SaleID: saleID, PurchaseID: purchaseID,
-			SupplierID: supplierID, SupplierName: row.SupplierName, InventoryItemID: inventoryItemID, Barcode: row.Barcode,
+			SupplierID: supplierID, SupplierName: row.SupplierName, ProductName: row.ProductName, InventoryItemID: inventoryItemID, Barcode: row.Barcode,
 			SerialNumber: row.SerialNumber, Quantity: row.Quantity, PurchaseCost: row.PurchaseCost, ReturnReason: row.ReturnReason, ReturnDate: returnDate,
 			ReturnNumber: row.ReturnNumber, Status: row.Status, SourceStatus: row.SourceStatus, NeedsSourceResolution: row.SourceStatus == "NEEDS_SOURCE_DATA" || row.Status == "NEEDS_SOURCE_DATA",
 			Source: func() string {

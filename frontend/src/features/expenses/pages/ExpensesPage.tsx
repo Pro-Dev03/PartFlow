@@ -304,27 +304,6 @@ export function ExpensesPage() {
           variant="featured"
           size="sm"
         />
-        <StatCard 
-          title="الإيجار" 
-          value={`₪${(categoryTotals.rent || 0).toLocaleString()}`} 
-          icon={DollarSign}
-          variant="default"
-          size="sm"
-        />
-        <StatCard 
-          title="الرواتب" 
-          value={`₪${(categoryTotals.salaries || 0).toLocaleString()}`} 
-          icon={DollarSign}
-          variant="default"
-          size="sm"
-        />
-        <StatCard 
-          title="الevaluation" 
-          value={`₪${(categoryTotals.utilities || 0).toLocaleString()}`} 
-          icon={DollarSign}
-          variant="default"
-          size="sm"
-        />
       </div>
 
       {/* Category Breakdown */}

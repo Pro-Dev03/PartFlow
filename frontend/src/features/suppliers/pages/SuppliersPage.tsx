@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useToast } from '../../../hooks/useToast';
@@ -12,6 +12,7 @@ import { PageHeader } from '../../../design-system/components/page-header';
 import { EmptyState } from '../../../design-system/components/empty-state';
 import { LoadingSpinner } from '../../../design-system/components/loading-spinner';
 import { SupplierCard } from '../../../design-system/components/supplier-card';
+import { Modal } from '../../../design-system/components/modal';
 import { SupplierModals } from '../components/SupplierModals';
 import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
 import { PaginationControls } from '../../../design-system/components/pagination-controls';
@@ -23,24 +24,17 @@ import { ReportActions } from '../../../design-system/components/report-actions'
 import { StatCard } from '../../../design-system/components/stat-card';
 import { getButtonSize } from '../../../config/button-sizes';
 import { normalizeSupplier } from '../utils/supplier-normalization';
-import {
-  Truck,
-  Search,
-  Plus,
-  ShoppingCart,
-  Filter,
-  DollarSign,
-  RefreshCw
-  , RotateCcw
-} from 'lucide-react';
+import { Truck, Search, Plus, ShoppingCart, Filter, DollarSign, RefreshCw, RotateCcw } from 'lucide-react';
 
 export function SuppliersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { success: showSuccess, error: showError } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [expandedSupplierId, setExpandedSupplierId] = useState<string | null>(null);
+  const [productsSupplier, setProductsSupplier] = useState<any | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<any | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -72,7 +66,17 @@ export function SuppliersPage() {
     queryKey: ['supplier-inventory', expandedSupplierId],
     queryFn: () => suppliersApi.getSupplierInventory(expandedSupplierId!),
     enabled: !!expandedSupplierId,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
+
+  const handleViewProducts = (supplier: any) => {
+    const supplierId = String(supplier.id);
+    setExpandedSupplierId(supplierId);
+    void queryClient.invalidateQueries({ queryKey: ['supplier-inventory', supplierId], exact: true });
+    setProductsSupplier(supplier);
+  };
 
   const suppliers = Array.isArray(suppliersData?.data)
     ? (suppliersData.data as any[]).map((supplier) => normalizeSupplier(supplier))
@@ -342,20 +346,12 @@ export function SuppliersPage() {
                 <SupplierCard
                   key={supplier.id}
                   supplier={supplier}
-                  expanded={expandedSupplierId === supplier.id}
-                  inventory={expandedSupplierId === supplier.id ? supplierInventory : undefined}
-                  inventoryLoading={inventoryLoading && expandedSupplierId === supplier.id}
-                  onToggle={(id) =>
-                    setExpandedSupplierId(expandedSupplierId === id ? null : (id as string))
-                  }
-                  onEdit={(s) => {
-                    setEditingSupplier(s);
-                    setIsAddModalOpen(true);
+                  onToggle={(id) => {
+                    const supplier = filteredSuppliers.find((item: any) => String(item.id) === String(id));
+                    if (supplier) handleViewProducts(supplier);
                   }}
-                  onView={(s) => {
-                    setViewingSupplier(s);
-                    setIsViewModalOpen(true);
-                  }}
+                  onEdit={(item) => { setEditingSupplier(item); setIsAddModalOpen(true); }}
+                  onView={(item) => { setViewingSupplier(item); setIsViewModalOpen(true); }}
                   onDelete={handleDeleteSupplier}
                   onRestore={showInactive ? handleRestoreSupplier : undefined}
                 />
@@ -384,6 +380,48 @@ export function SuppliersPage() {
         setIsViewModalOpen={setIsViewModalOpen}
         viewingSupplier={viewingSupplier}
       />
+
+      <Modal
+        isOpen={Boolean(productsSupplier)}
+        onClose={() => {
+          setProductsSupplier(null);
+          setExpandedSupplierId(null);
+        }}
+        title={productsSupplier ? `منتجات مشتراة من ${productsSupplier.name}` : 'منتجات التاجر'}
+        size="2xl"
+        variant="modern"
+      >
+        {productsSupplier && (
+          <SupplierCard
+            supplier={productsSupplier}
+            expanded
+            showActions={false}
+            inventory={supplierInventory}
+            inventoryLoading={inventoryLoading}
+            onView={(supplier) => {
+              setProductsSupplier(null);
+              setExpandedSupplierId(null);
+              setViewingSupplier(supplier);
+              setIsViewModalOpen(true);
+            }}
+            onEdit={(supplier) => {
+              setProductsSupplier(null);
+              setExpandedSupplierId(null);
+              setEditingSupplier(supplier);
+              setIsAddModalOpen(true);
+            }}
+            onDelete={(supplier) => {
+              setProductsSupplier(null);
+              setExpandedSupplierId(null);
+              void handleDeleteSupplier(supplier);
+            }}
+            onToggle={() => {
+              setProductsSupplier(null);
+              setExpandedSupplierId(null);
+            }}
+          />
+        )}
+      </Modal>
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog

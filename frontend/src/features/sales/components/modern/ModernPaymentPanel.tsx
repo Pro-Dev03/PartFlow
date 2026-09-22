@@ -149,7 +149,7 @@ export function ModernPaymentPanel({
             className="quick-amount-btn exact"
             onClick={() => setPaidAmount(total.toFixed(2))}
           >
-            بالضبط
+            دفع المبلغ كاملًا
           </button>
         </div>
       )}

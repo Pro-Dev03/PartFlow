@@ -179,9 +179,9 @@ export function AdvancedSearch({ onSearch, customers = [] }: AdvancedSearchProps
                 setTimeout(() => setShowSuggestions(false), 200);
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  handleSearch();
-                }
+                if (e.key !== 'Enter' || e.isComposing) return;
+                e.preventDefault();
+                handleSearch();
               }}
               size="sm"
             />

@@ -95,7 +95,7 @@ func TestSQLiteReturnRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].ProductID == nil || *items[0].ProductID != productID {
+	if len(items) != 1 || items[0].ProductID == nil || *items[0].ProductID != productID || items[0].ProductName != "Return product" {
 		t.Fatalf("items mismatch: %#v", items)
 	}
 	listed, count, err := repo.ListReturns(ctx, ReturnListRequest{Page: 1, PerPage: 20, Search: "R-RETURN"})

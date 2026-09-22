@@ -18,6 +18,8 @@ export function FinancialSettings() {
     profitMargin: DEFAULT_PROFIT_MARGIN,
     discountEnabled: true,
     maxDiscount: 15,
+    installmentWhatsAppNumber: '',
+    installmentWhatsAppMessage: '',
   });
   const { data: taxSetting } = useQuery({
     queryKey: ['settings', 'tax_rate'],
@@ -44,6 +46,16 @@ export function FinancialSettings() {
     queryFn: () => settingsApi.getSetting('discounts_enabled'),
     retry: false,
   });
+  const { data: installmentWhatsAppSetting } = useQuery({
+    queryKey: ['settings', 'installment_whatsapp_number'],
+    queryFn: () => settingsApi.getSetting('installment_whatsapp_number'),
+    retry: false,
+  });
+  const { data: installmentWhatsAppMessageSetting } = useQuery({
+    queryKey: ['settings', 'installment_whatsapp_message'],
+    queryFn: () => settingsApi.getSetting('installment_whatsapp_message'),
+    retry: false,
+  });
   const updateSetting = async (key: string, value: string, label: string) => {
     try {
       return await settingsApi.updateSetting(key, value);
@@ -67,10 +79,27 @@ export function FinancialSettings() {
       queryClient.invalidateQueries({ queryKey: ['settings', 'default_profit_margin'] });
       queryClient.invalidateQueries({ queryKey: ['settings', 'currency'] });
       queryClient.invalidateQueries({ queryKey: ['settings', 'discounts_enabled'] });
+      queryClient.invalidateQueries({ queryKey: ['settings', 'installment_whatsapp_number'] });
       localStorage.setItem('partflow-currency', financialSettings.currency);
       toast.success('تم حفظ إعدادات المالية بنجاح');
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'تعذر حفظ الإعدادات المالية'),
+  });
+  const installmentWhatsAppMessageMutation = useMutation({
+    mutationFn: () => updateSetting('installment_whatsapp_message', financialSettings.installmentWhatsAppMessage, 'قالب رسالة واتساب للتقسيط'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'installment_whatsapp_message'] });
+      toast.success('تم حفظ قالب رسالة التقسيط');
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'تعذر حفظ قالب رسالة التقسيط'),
+  });
+  const installmentWhatsAppMutation = useMutation({
+    mutationFn: () => updateSetting('installment_whatsapp_number', financialSettings.installmentWhatsAppNumber.trim(), 'رقم واتساب وكيل التقسيط'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'installment_whatsapp_number'] });
+      toast.success('تم حفظ رقم واتساب وكيل التقسيط');
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'تعذر حفظ رقم واتساب وكيل التقسيط'),
   });
 
   useEffect(() => {
@@ -79,6 +108,8 @@ export function FinancialSettings() {
     const value = Number(marginSetting?.data?.value);
     const currency = currencySetting?.data?.value;
     const discountsEnabled = discountsEnabledSetting?.data?.value;
+    const installmentWhatsAppNumber = installmentWhatsAppSetting?.data?.value;
+    const installmentWhatsAppMessage = installmentWhatsAppMessageSetting?.data?.value;
     setFinancialSettings((current) => ({
       ...current,
       ...(currency === 'ILS' || currency === 'USD' || currency === 'EUR' ? { currency } : {}),
@@ -86,8 +117,10 @@ export function FinancialSettings() {
       ...(Number.isFinite(taxRate) && taxRate >= 0 && taxRate <= 100 ? { taxRate } : {}),
       ...(Number.isFinite(maxDiscount) && maxDiscount >= 0 && maxDiscount <= 100 ? { maxDiscount } : {}),
       ...(Number.isFinite(value) && value >= 0 && value < 100 ? { profitMargin: value } : {}),
+      ...(typeof installmentWhatsAppNumber === 'string' ? { installmentWhatsAppNumber } : {}),
+      ...(typeof installmentWhatsAppMessage === 'string' ? { installmentWhatsAppMessage: installmentWhatsAppMessage.replace(/\\+n/g, '\n') } : {}),
     }));
-  }, [currencySetting, discountsEnabledSetting, discountSetting, marginSetting, taxSetting]);
+  }, [currencySetting, discountsEnabledSetting, discountSetting, installmentWhatsAppMessageSetting, installmentWhatsAppSetting, marginSetting, taxSetting]);
 
   return (
     <div className="space-y-6">
@@ -128,6 +161,45 @@ export function FinancialSettings() {
           value={financialSettings.profitMargin}
           onChange={(e) => setFinancialSettings({ ...financialSettings, profitMargin: Number(e.target.value) })}
         />
+        <div className="space-y-2 rounded-lg border border-border p-4">
+          <Input
+            label="رقم واتساب وكيل التقسيط"
+            type="tel"
+            value={financialSettings.installmentWhatsAppNumber}
+            onChange={(e) => setFinancialSettings({ ...financialSettings, installmentWhatsAppNumber: e.target.value })}
+            helperText="يُستخدم زر واتساب لإرسال تفاصيل التقسيط إلى هذا الرقم، وليس إلى العميل."
+            placeholder="مثال: 970599000000"
+          />
+          <Button
+            variant="secondary"
+            className="gap-2"
+            onClick={() => installmentWhatsAppMutation.mutate()}
+            disabled={installmentWhatsAppMutation.isPending || !financialSettings.installmentWhatsAppNumber.trim()}
+          >
+            <Save className="w-4 h-4" />
+            حفظ رقم الوكيل
+          </Button>
+        </div>
+        <div className="space-y-2 rounded-lg border border-border p-4">
+          <label htmlFor="installment-whatsapp-message" className="block text-sm font-medium text-text-primary">قالب رسالة واتساب للتقسيط</label>
+          <textarea
+            id="installment-whatsapp-message"
+            value={financialSettings.installmentWhatsAppMessage}
+            onChange={(e) => setFinancialSettings({ ...financialSettings, installmentWhatsAppMessage: e.target.value })}
+            rows={9}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+          <p className="text-xs leading-5 text-text-secondary">المتغيرات المتاحة: {'{store_name}'}، {'{customer_name}'}، {'{total}'}، {'{months}'}، {'{installment}'}</p>
+          <Button
+            variant="secondary"
+            className="gap-2"
+            onClick={() => installmentWhatsAppMessageMutation.mutate()}
+            disabled={installmentWhatsAppMessageMutation.isPending || !financialSettings.installmentWhatsAppMessage.trim()}
+          >
+            <Save className="w-4 h-4" />
+            حفظ قالب الرسالة
+          </Button>
+        </div>
         <div className="flex items-center justify-between p-4 border border-border rounded-lg">
           <div>
             <h4 className="font-medium text-text-primary">السماح بالخصومات</h4>

@@ -666,7 +666,7 @@ export const supplierReturnsApi = {
     apiClient.post('/supplier-returns', data),
   addItem: (id: string, data: { purchase_item_id: string; quantity: number }) =>
     apiClient.post(`/supplier-returns/${id}/items`, data),
-  delete: (id: string) => apiClient.delete(`/supplier-returns/${id}`),
+  delete: (id: string, force = false) => apiClient.delete(`/supplier-returns/${id}${force ? '?force=true' : ''}`),
   reject: (id: string) => apiClient.post(`/supplier-returns/${id}/reject`, {}),
   complete: (id: string) => apiClient.post(`/supplier-returns/${id}/complete`),
 };

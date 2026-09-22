@@ -25,7 +25,7 @@ type localSaleRow struct {
 	TaxAmount      float64        `db:"tax_amount"`
 	DiscountAmount float64        `db:"discount_amount"`
 	TotalAmount    float64        `db:"total_amount"`
-	CostAmount     float64        `db:"cost_amount"`
+	CostAmount     sql.NullFloat64 `db:"cost_amount"`
 	GrossProfit    float64        `db:"gross_profit"`
 	NetProfit      float64        `db:"net_profit"`
 	PaidAmount     float64        `db:"paid_amount"`
@@ -66,7 +66,11 @@ func (r localSaleRow) sale() (Sale, error) {
 	if err != nil {
 		return Sale{}, fmt.Errorf("parse sale id %q: %w", r.ID, err)
 	}
-	sale := Sale{ID: id, InvoiceNumber: r.InvoiceNumber, SaleDate: time.Time{}, Subtotal: r.Subtotal, TaxAmount: r.TaxAmount, DiscountAmount: r.DiscountAmount, TotalAmount: r.TotalAmount, CostAmount: r.CostAmount, GrossProfit: r.GrossProfit, NetProfit: r.NetProfit, PaidAmount: r.PaidAmount, PaymentMethod: r.PaymentMethod, PaymentStatus: r.PaymentStatus, Status: r.Status, Notes: r.Notes}
+	costAmount := 0.0
+	if r.CostAmount.Valid {
+		costAmount = r.CostAmount.Float64
+	}
+	sale := Sale{ID: id, InvoiceNumber: r.InvoiceNumber, SaleDate: time.Time{}, Subtotal: r.Subtotal, TaxAmount: r.TaxAmount, DiscountAmount: r.DiscountAmount, TotalAmount: r.TotalAmount, CostAmount: costAmount, GrossProfit: r.GrossProfit, NetProfit: r.NetProfit, PaidAmount: r.PaidAmount, PaymentMethod: r.PaymentMethod, PaymentStatus: r.PaymentStatus, Status: r.Status, Notes: r.Notes}
 	if r.CustomerID.Valid {
 		if customerID, parseErr := uuid.Parse(strings.TrimSpace(r.CustomerID.String)); parseErr == nil {
 			sale.CustomerID = &customerID
@@ -147,8 +151,11 @@ func (r *Repository) CreateSale(ctx context.Context, sale *Sale) error {
 func (r *Repository) GetSaleByID(ctx context.Context, id uuid.UUID) (*Sale, error) {
 	query := `
 		SELECT id, sale_date, customer_id, invoice_number, 
-			subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit,
-			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at
+			COALESCE(subtotal, 0) AS subtotal, COALESCE(tax_amount, 0) AS tax_amount,
+			COALESCE(discount_amount, 0) AS discount_amount, COALESCE(total_amount, 0) AS total_amount,
+			COALESCE(cost_amount, 0) AS cost_amount, COALESCE(gross_profit, 0) AS gross_profit,
+			COALESCE(net_profit, 0) AS net_profit, COALESCE(paid_amount, 0) AS paid_amount,
+			payment_method, payment_status, status, notes, created_at, updated_at
 		FROM sales WHERE id = $1
 	`
 	if dbutil.IsSQLite(r.db) {
@@ -246,7 +253,23 @@ func (r *Repository) ListSales(ctx context.Context, page, perPage int, filters m
 		args = append(args, endDate)
 	}
 
-	baseQuery += fmt.Sprintf(" ORDER BY sale_date DESC, id DESC LIMIT $%d OFFSET $%d", argCount+1, argCount+2)
+	if availableForReturn, ok := filters["available_for_return"].(bool); ok && availableForReturn {
+		availableCondition := `EXISTS (
+			SELECT 1 FROM sale_items available_items
+			WHERE available_items.sale_id = sales.id
+			  AND available_items.quantity > COALESCE((
+				SELECT SUM(ri.quantity_returned)
+				FROM return_items ri
+				JOIN returns r ON r.id = ri.return_id
+				WHERE ri.sale_item_id = available_items.id
+				  AND LOWER(COALESCE(r.status, 'completed')) NOT IN ('rejected', 'cancelled', 'canceled')
+			), 0)
+		)`
+		baseQuery += " AND " + availableCondition
+		countQuery += " AND " + availableCondition
+	}
+
+	baseQuery += fmt.Sprintf(" ORDER BY created_at DESC, sale_date DESC, id DESC LIMIT $%d OFFSET $%d", argCount+1, argCount+2)
 	args = append(args, perPage, offset)
 
 	var rows []localSaleRow

@@ -30,7 +30,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
     showCloseButton = true,
     headerStyle,
     autoFocus = true,
-    enableEnterNavigation = true,
+    enableEnterNavigation = false,
     'aria-label': ariaLabel,
     'aria-describedby': ariaDescribedby,
     children, 
@@ -70,6 +70,8 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
       if (!isOpen) return;
 
       const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.defaultPrevented || e.isComposing) return;
+
         if (e.key === 'Escape') {
           onCloseRef.current();
         }
@@ -100,8 +102,8 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
         // Enter key navigation for inputs
         if (enableEnterNavigation && e.key === 'Enter' && !e.shiftKey) {
           const activeElement = document.activeElement;
-          if (activeElement && (
-            activeElement.tagName === 'INPUT' || 
+          if (activeElement && modalRef.current?.contains(activeElement) && (
+            activeElement.tagName === 'INPUT' ||
             activeElement.tagName === 'SELECT' ||
             activeElement.tagName === 'TEXTAREA'
           )) {

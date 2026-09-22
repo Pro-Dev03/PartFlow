@@ -13,10 +13,12 @@ import {
   Receipt,
   Trash2,
   Zap,
-  Plus
+  Plus,
+  MessageCircle
 } from 'lucide-react'
 import { cn } from '../../../../utils'
 import { PaymentAllocation, PaymentMethod } from '../../types/pos.types'
+import { Modal } from '../../../../design-system/components/modal'
 
 interface SplitPayment {
   id: string
@@ -42,6 +44,12 @@ interface AdvancedPaymentPanelProps {
   customerBalance?: number
   customerCreditLimit?: number
   onQuickCustomerCreate?: () => void
+  selectedCustomerName?: string
+  storeName?: string
+  installmentWhatsAppNumber?: string
+  installmentWhatsAppMessage?: string
+  installmentMonths: number
+  setInstallmentMonths: (months: number) => void
 }
 
 const PAYMENT_METHODS: Array<{
@@ -54,6 +62,7 @@ const PAYMENT_METHODS: Array<{
   { id: 'card', label: 'بطاقة', icon: CreditCard, color: '#3b82f6' },
   { id: 'checks', label: 'شيكات', icon: Wallet, color: '#8b5cf6' },
   { id: 'credit', label: 'دين', icon: User, color: '#f59e0b' },
+  { id: 'installment', label: 'تقسيط', icon: Calendar, color: '#0ea5e9' },
 ]
 
 const ELECTRONIC_METHODS: Array<{
@@ -81,12 +90,20 @@ export function AdvancedPaymentPanel({
   customerBalance = 0,
   customerCreditLimit,
   onQuickCustomerCreate,
+  selectedCustomerName,
+  storeName = 'PartFlow',
+  installmentWhatsAppNumber,
+  installmentWhatsAppMessage,
+  installmentMonths,
+  setInstallmentMonths,
 }: AdvancedPaymentPanelProps) {
   const [paid, setPaid] = useState(parseFloat(paidAmount) || 0)
   const [splitPayments, setSplitPayments] = useState<SplitPayment[]>([])
+  const [isPaymentMethodModalOpen, setIsPaymentMethodModalOpen] = useState(false)
   const [isSplitMode, setIsSplitMode] = useState(false)
   const [selectedElectronic, setSelectedElectronic] = useState<string | null>(null)
   const [installments, setInstallments] = useState(1)
+  const [customInstallments, setCustomInstallments] = useState('')
   const [deferredDate, setDeferredDate] = useState('')
   const [checkNumber, setCheckNumber] = useState('')
   const [checkBank, setCheckBank] = useState('')
@@ -94,8 +111,30 @@ export function AdvancedPaymentPanel({
 
   const remaining = total - paid
   const isCreditSale = paymentMethod === 'credit'
-  const isCreditSaleWithoutCustomer = isCreditSale && !selectedCustomer
+  const isInstallmentSale = paymentMethod === 'installment'
+  const isCreditSaleWithoutCustomer = (isCreditSale || isInstallmentSale) && !selectedCustomer
   const isCreditAdvanceMissing = isCreditSale && paidAmount.trim() === ''
+  const selectedPaymentLabel = PAYMENT_METHODS.find((method) => method.id === paymentMethod)?.label ?? 'اختر طريقة الدفع'
+  const normalizedAgentPhone = (installmentWhatsAppNumber || '').replace(/[^0-9]/g, '')
+  const canSendInstallmentWhatsApp = isInstallmentSale && Boolean(selectedCustomer && normalizedAgentPhone)
+
+  const sendInstallmentWhatsApp = () => {
+    if (!canSendInstallmentWhatsApp) return
+    const defaultMessage = `*طلب تقسيط جديد - {store_name}*\n\nالسلام عليكم،\nنرجو متابعة طلب التقسيط التالي:\n\n*اسم العميل:* {customer_name}\n*إجمالي الفاتورة:* ₪{total}\n*مدة التقسيط:* {months} أشهر\n*قيمة القسط التقريبية:* ₪{installment}\n\nيرجى تأكيد تسجيل الطلب ومتابعته.\n\nمع التحية،\n{store_name}`
+    const messageTemplate = (installmentWhatsAppMessage?.trim() || defaultMessage)
+      .replace(/\\+n/g, '\n')
+      .replace(/[\u{1F000}-\u{1FAFF}\u{2300}-\u{27BF}\uFE0F]/gu, '')
+      .replace(/�/gu, '')
+    const message = messageTemplate
+      .replaceAll('{store_name}', storeName)
+      .replaceAll('{customer_name}', selectedCustomerName || 'غير محدد')
+      .replaceAll('{total}', total.toFixed(2))
+      .replaceAll('{months}', String(installmentMonths))
+      .replaceAll('{installment}', (total / installmentMonths).toFixed(2))
+    const whatsappUrl = new URL(`https://wa.me/${normalizedAgentPhone}`)
+    whatsappUrl.searchParams.set('text', message)
+    window.open(whatsappUrl.toString(), '_blank', 'noopener,noreferrer')
+  }
 
   useEffect(() => {
     setPaid(parseFloat(paidAmount) || 0)
@@ -173,32 +212,51 @@ export function AdvancedPaymentPanel({
     <div className="pos-advanced-payment-panel">
       {/* Payment Method Selection */}
       <div className="payment-section">
-        <label className="section-label">طريقة الدفع</label>
-        <div className="payment-methods-grid">
-          {PAYMENT_METHODS.map(({ id, label, icon: Icon, color }) => (
-            <button
-              key={id}
-              className={cn('payment-method-btn', paymentMethod === id && 'active')}
-              onClick={() => {
-                setPaymentMethod(id)
-                if (id !== 'credit') {
-                  setPaidAmount(total.toFixed(2))
-                  setPaid(total)
-                } else {
-                  setPaidAmount('')
-                  setPaid(0)
-                }
-              }}
-              style={{
-                '--method-color': color,
-              } as React.CSSProperties}
-            >
-              <Icon className="w-4 h-4 method-icon" />
-              <span>{label}</span>
-            </button>
-          ))}
+        <div className="payment-method-summary">
+          <div>
+            <label className="section-label">طريقة الدفع</label>
+            <strong>{selectedPaymentLabel}</strong>
+          </div>
+          <button className="payment-method-open-btn" onClick={() => setIsPaymentMethodModalOpen(true)}>
+            تغيير الطريقة
+          </button>
         </div>
       </div>
+
+      <Modal
+        isOpen={isPaymentMethodModalOpen}
+        onClose={() => setIsPaymentMethodModalOpen(false)}
+        title="اختيار طريقة الدفع"
+        size="md"
+        variant="modern"
+      >
+        <div className="payment-method-modal-body">
+          <p className="payment-method-modal-hint">اختر الطريقة المناسبة، وستظهر تفاصيلها مباشرة بعد الاختيار.</p>
+          <div className="payment-methods-grid">
+            {PAYMENT_METHODS.map(({ id, label, icon: Icon, color }) => (
+              <button
+                key={id}
+                className={cn('payment-method-btn', paymentMethod === id && 'active')}
+                onClick={() => {
+                  setPaymentMethod(id)
+                  setIsPaymentMethodModalOpen(false)
+                  if (id !== 'credit' && id !== 'installment') {
+                    setPaidAmount(total.toFixed(2))
+                    setPaid(total)
+                  } else {
+                    setPaidAmount('')
+                    setPaid(0)
+                  }
+                }}
+                style={{ '--method-color': color } as React.CSSProperties}
+              >
+                <Icon className="w-4 h-4 method-icon" />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </Modal>
 
       {/* Electronic Payments */}
       {(paymentMethod === 'card' && electronicPaymentsEnabled && enabledElectronicMethods.length > 0) && (
@@ -332,25 +390,54 @@ export function AdvancedPaymentPanel({
         </div>
       )}
 
-      {/* Installments (for card) */}
-      {paymentMethod === 'card' && (
+      {/* Installment payment */}
+      {isInstallmentSale && (
         <div className="payment-section">
-          <label className="section-label">الأقساط</label>
+          <label className="section-label">مدة التقسيط</label>
           <div className="installments-selector">
-            {[1, 3, 6, 12].map((num) => (
+            {[3, 6, 12].map((num) => (
               <button
                 key={num}
                 className={cn('installment-btn', installments === num && 'active')}
-                onClick={() => setInstallments(num)}
+                onClick={() => {
+                  setInstallments(num)
+                  setCustomInstallments('')
+                  setInstallmentMonths(num)
+                }}
               >
-                {num === 1 ? 'دفعة واحدة' : `${num} أقساط`}
+                {num} أشهر
               </button>
             ))}
+            <button
+              className={cn('installment-btn', customInstallments !== '' && 'active')}
+              onClick={() => {
+                setInstallments(0)
+                setCustomInstallments(String(installmentMonths))
+              }}
+            >
+              مدة مخصصة
+            </button>
           </div>
-          {installments > 1 && (
+          {customInstallments !== '' || installments === 0 ? (
+            <input
+              type="number"
+              min={1}
+              max={120}
+              value={customInstallments}
+              placeholder="عدد الأشهر"
+              onChange={(event) => {
+                const value = event.target.value
+                setCustomInstallments(value)
+                const months = Number(value)
+                if (months >= 1 && months <= 120) setInstallmentMonths(months)
+              }}
+              className="deferred-date-input"
+            />
+          ) : null}
+          {installmentMonths > 0 && (
             <div className="installment-info">
               <Calendar className="w-4 h-4" />
-              <span>كل قسط: ₪{(total / installments).toFixed(2)}</span>
+              <span>{installmentMonths} أشهر - كل قسط تقريبًا: ₪{(total / installmentMonths).toFixed(2)}</span>
             </div>
           )}
         </div>
@@ -379,7 +466,7 @@ export function AdvancedPaymentPanel({
       {isCreditSaleWithoutCustomer && (
         <div className="payment-warning error">
           <AlertTriangle className="w-4 h-4" />
-          <span>البيع بالدين يتطلب تحديد العميل</span>
+          <span>{isInstallmentSale ? 'التقسيط يتطلب تحديد العميل' : 'البيع بالدين يتطلب تحديد العميل'}</span>
         </div>
       )}
 
@@ -434,7 +521,7 @@ export function AdvancedPaymentPanel({
                   setPaid(total)
                 }}
               >
-                بالضبط
+                دفع المبلغ كاملًا
               </button>
             </div>
           )}
@@ -473,6 +560,18 @@ export function AdvancedPaymentPanel({
           </>
         )}
       </button>
+      {isInstallmentSale && (
+        <button
+          type="button"
+          className="installment-whatsapp-btn"
+          onClick={sendInstallmentWhatsApp}
+          disabled={!canSendInstallmentWhatsApp}
+          title={!selectedCustomer ? 'اختر العميل أولًا' : !normalizedAgentPhone ? 'اضبط رقم واتساب وكيل التقسيط من الإعدادات' : 'إرسال تفاصيل التقسيط إلى الوكيل عبر واتساب'}
+        >
+          <MessageCircle className="w-5 h-5" />
+          <span>إرسال تفاصيل التقسيط عبر واتساب</span>
+        </button>
+      )}
     </div>
   )
 }

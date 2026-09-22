@@ -66,7 +66,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 	// Tax and percentage discount limits are system settings, not sale inputs.
 	var taxRate, maxDiscountRate float64
-	if err := tx.GetContext(ctx, &taxRate, `SELECT COALESCE(CAST(value AS DOUBLE PRECISION), 0) FROM settings WHERE key = 'tax_rate'`); err != nil || taxRate < 0 || taxRate > 100 {
+	if err := tx.GetContext(ctx, &taxRate, `SELECT COALESCE(CAST(value AS FLOAT), 0) FROM settings WHERE key = 'tax_rate'`); err != nil || taxRate < 0 || taxRate > 100 {
 		taxRate = 0
 	}
 	if req.TaxExempt {
@@ -233,9 +233,21 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			paymentMethod = "checks"
 		}
 		switch paymentMethod {
-		case "cash", "card", "checks", "debt":
+		case "cash", "card", "checks", "debt", "installment":
 		default:
 			return nil, ErrInvalidPaymentMethod
+		}
+	}
+	if paymentMethod == "installment" {
+		if req.InstallmentMonths < 1 || req.InstallmentMonths > 120 {
+			return nil, fmt.Errorf("installment duration must be between 1 and 120 months")
+		}
+		installmentNote := fmt.Sprintf("تقسيط لمدة %d شهر", req.InstallmentMonths)
+		if req.Notes == nil || strings.TrimSpace(*req.Notes) == "" {
+			req.Notes = &installmentNote
+		} else {
+			note := strings.TrimSpace(*req.Notes) + " - " + installmentNote
+			req.Notes = &note
 		}
 	}
 	paymentAmount := req.PaymentAmount
@@ -269,7 +281,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	if paymentAmount < 0 || paymentAmount > totalAmount {
 		return nil, ErrInvalidPayment
 	}
-	isDebtSale := paymentMethod == "debt"
+	isDebtSale := paymentMethod == "debt" || paymentMethod == "installment"
 	if validatePayment && !isDebtSale && paymentAmount < totalAmount {
 		return nil, ErrInvalidPayment
 	}
@@ -834,10 +846,17 @@ func calculateSaleAmounts(subtotal, totalCost, taxRate, maxDiscountRate float64,
 	taxableSubtotal := subtotal - discountAmount
 	totalTax = addedTax(taxableSubtotal, taxRate)
 	totalAmount = taxableSubtotal + totalTax
+	discountAmount = roundMoney(discountAmount)
+	totalTax = roundMoney(totalTax)
+	totalAmount = roundMoney(totalAmount)
 	netRevenue := taxableSubtotal
 	grossProfit = netRevenue - totalCost
 	netProfit = grossProfit
 	return
+}
+
+func roundMoney(value float64) float64 {
+	return math.Round(value*100) / 100
 }
 
 func addedTax(netAmount, taxRate float64) float64 {

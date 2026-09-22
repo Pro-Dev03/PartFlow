@@ -139,6 +139,64 @@ func TestSupplierLedgerPaymentLifecycleSQLite(t *testing.T) {
 	}
 }
 
+func TestSupplierInventoryCountsSQLiteStatusesCaseInsensitively(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "supplier-inventory-case.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	xdb := sqlx.NewDb(db, "sqlite")
+	for _, statement := range []string{
+		`CREATE TABLE suppliers (id TEXT PRIMARY KEY, code TEXT, name TEXT, email TEXT, phone TEXT, address TEXT, city TEXT, country TEXT, tax_id TEXT, payment_terms TEXT, credit_limit REAL DEFAULT 0, current_balance REAL DEFAULT 0, notes TEXT, is_active INTEGER DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE products (id TEXT PRIMARY KEY, sku TEXT, name TEXT, cost_price REAL DEFAULT 0, selling_price REAL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE purchases (id TEXT PRIMARY KEY, purchase_number TEXT, supplier_id TEXT, total_amount REAL, paid_amount REAL, status TEXT, created_at TEXT, updated_at TEXT)`,
+		`CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT, item_code TEXT, barcode TEXT, condition TEXT, purchase_cost REAL, selling_price REAL, status TEXT, supplier_id TEXT, purchase_date TEXT, created_at TEXT, updated_at TEXT)`,
+		`CREATE TABLE supplier_returns (id TEXT PRIMARY KEY, purchase_id TEXT, supplier_id TEXT, return_number TEXT UNIQUE, reason TEXT, notes TEXT, refund_amount REAL DEFAULT 0, status TEXT, created_by TEXT, created_at TEXT, updated_at TEXT)`,
+		`CREATE TABLE supplier_return_items (id TEXT PRIMARY KEY, supplier_return_id TEXT, purchase_item_id TEXT, product_id TEXT, inventory_item_id TEXT, quantity INTEGER, unit_cost REAL, created_at TEXT)`,
+		`CREATE TABLE supplier_ledger (id TEXT PRIMARY KEY, supplier_id TEXT, type TEXT, transaction_type TEXT, amount REAL, balance REAL, description TEXT, reference_id TEXT, created_at TEXT)`,
+	} {
+		if _, err := xdb.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	supplierID := uuid.New()
+	productID := uuid.New()
+	inventoryItemID := uuid.New()
+	returnID := uuid.New()
+	if _, err := xdb.Exec(`INSERT INTO suppliers (id, code, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, supplierID, "SUP-CASE", "Case Supplier", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO products (id, sku, name, cost_price, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, productID, "CASE-001", "Case Product", 100, 150, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO inventory_items (id, product_id, item_code, barcode, condition, purchase_cost, selling_price, status, supplier_id, purchase_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, inventoryItemID, productID, "ITM-CASE-001", "BAR-CASE-001", "NEW", 100, 150, "available", supplierID, now, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO supplier_returns (id, purchase_id, supplier_id, return_number, reason, refund_amount, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, returnID, uuid.New(), supplierID, "SRET-CASE-001", "bad item", 2.0, "completed", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xdb.Exec(`INSERT INTO supplier_return_items (id, supplier_return_id, purchase_item_id, product_id, inventory_item_id, quantity, unit_cost, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, uuid.New(), returnID, uuid.New(), productID, inventoryItemID, 2, 100, now); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(NewRepository(xdb), xdb)
+	items, err := service.GetSupplierInventory(context.Background(), supplierID)
+	if err != nil {
+		t.Fatalf("GetSupplierInventory returned error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if items[0].Available != 1 {
+		t.Fatalf("available = %d, want 1", items[0].Available)
+	}
+	if items[0].Returned != 2 {
+		t.Fatalf("returned = %d, want 2", items[0].Returned)
+	}
+}
+
 func assertSupplierBalance(t *testing.T, db *sqlx.DB, supplierID uuid.UUID, want float64) {
 	t.Helper()
 	var balance float64

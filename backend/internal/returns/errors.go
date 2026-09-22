@@ -48,6 +48,9 @@ var (
 	// ErrInsufficientStock is returned when trying to return more than sold
 	ErrInsufficientStock = errors.New("insufficient stock for return")
 
+	// ErrSupplierSourceUnavailable prevents supplier returns without a real purchase source.
+	ErrSupplierSourceUnavailable = errors.New("supplier return requires a linked supplier purchase and inventory item")
+
 	// ErrRefundAlreadyProcessed is returned when refund is already processed
 	ErrRefundAlreadyProcessed = errors.New("refund already processed")
 )

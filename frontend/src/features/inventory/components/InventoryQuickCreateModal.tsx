@@ -75,7 +75,7 @@ export function InventoryQuickCreateModal({ mode, isOpen, onClose, onCreated }: 
       <div
         className="space-y-4"
         onKeyDown={(event) => {
-          if (event.key !== 'Enter' || event.shiftKey) return;
+          if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
           event.preventDefault();
           void handleSubmit();
         }}

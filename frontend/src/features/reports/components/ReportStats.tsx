@@ -44,10 +44,14 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
           ['المستحق للتجار', value(report.total_outstanding), DollarSign, 'الرصيد المفتوح', 'warning'],
         ];
       case 'purchases':
+      case 'purchases-suppliers':
         return [
           ['إجمالي المشتريات', value(report.total_cost), DollarSign, 'قبل خصم مرتجعات التجار', 'featured'],
           ['مرتجعات التجار', value(report.supplier_return_credits), RotateCcw, 'قيمة المرتجعات المكتملة', 'warning'],
           ['صافي المشتريات', value(report.net_purchases ?? Number(report.total_cost || 0) - Number(report.supplier_return_credits || 0)), DollarSign, 'بعد مرتجعات التجار', 'success'],
+          ['المدفوع للتجار', value(report.total_paid), DollarSign, 'دفعات مسجلة', 'info'],
+          ['المستحق للتجار', value(report.total_outstanding), DollarSign, 'الرصيد المفتوح', 'warning'],
+          ['عدد التجار', count(report.total_suppliers), Database, 'تجار مرتبطون بالمشتريات', 'default'],
         ];
       case 'expenses':
         return [
@@ -64,10 +68,11 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
         ];
       case 'tax':
         return [
-          ['المبيعات الخاضعة للضريبة', value(report.taxable_sales), DollarSign, 'قبل إضافة الضريبة', 'featured'],
-          ['الضريبة المستحقة على المبيعات', value(report.tax_collected), DollarSign, 'الضريبة المحسوبة على الفواتير', 'warning'],
-          ['المرتجعات', value(report.returns_total), RotateCcw, 'مبالغ مستردة', 'danger'],
-          ['صافي المبيعات شامل الضريبة', value(report.net_sales_total), DollarSign, 'بعد خصم المرتجعات', 'success'],
+          ['المبيعات الخاضعة للضريبة', value(report.net_taxable_sales ?? report.taxable_sales), DollarSign, 'المبيعات التي تُحسب عليها الضريبة فقط', 'featured'],
+          ['المبيعات المعفاة من الضريبة', value(report.exempt_sales), DollarSign, 'مبيعات لا تحتوي على ضريبة مسجلة', 'info'],
+          ['الضريبة المستحقة على المبيعات', value(report.net_tax_collected ?? report.tax_collected), DollarSign, 'الضريبة المسجلة على المبيعات الخاضعة فقط', 'warning'],
+          ['إجمالي المرتجعات', value(report.returns_total), RotateCcw, 'يُخصم من إجمالي المبيعات للوصول إلى الصافي', 'danger'],
+          ['صافي المبيعات بعد المرتجعات', value(report.net_sales_total), DollarSign, 'إجمالي المبيعات ناقص إجمالي المرتجعات', 'success'],
         ];
       case 'used-items': {
         const items = Array.isArray(report.items) ? report.items : [];
@@ -90,15 +95,31 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
           ['صافي المبيعات', value(report.net_revenue), DollarSign, 'بعد خصم المرتجعات وقبل الضريبة', 'featured'],
           ['صافي عمليات البيع', count(report.net_sales), Database, 'عدد المبيعات بعد خصم المرتجعات', 'success'],
           ['إجمالي المبيعات', value(report.gross_revenue), DollarSign, 'قبل خصم المرتجعات والضريبة', 'info'],
+          ['المدفوع المسجل على الفواتير', value(report.total_paid), DollarSign, 'ما سجله النظام كمدفوع من العملاء', 'success'],
+          ['النقد المستلم', value(report.cash_received), DollarSign, 'ما أدخله الكاشير قبل احتساب المردود', 'info'],
+          ['المردود النقدي', value(report.change_amount), RotateCcw, 'عاد إلى العملاء ولا يدخل في المبيعات', 'warning'],
           ['نسبة المرتجعات', loading ? '...' : `${Number(report.return_rate || 0).toFixed(1)}%`, RotateCcw, 'من إجمالي العمليات', 'warning'],
+        ];
+      case 'sales-profit':
+        return [
+          ['إجمالي المبيعات', value(report.total_revenue), DollarSign, 'بعد خصم المرتجعات وقبل الضريبة', 'featured'],
+          ['المرتجعات', value(report.total_refunded), RotateCcw, 'إجمالي المبالغ المستردة', 'warning'],
+          ['صافي الربح', value(report.net_profit), TrendingUp, 'بعد التكلفة والمصروفات', 'featured'],
+          ['تكلفة شراء البضاعة', value(report.total_cogs), DollarSign, 'تكلفة المنتجات التي تم بيعها', 'warning'],
+          ['ما دفعه الزبائن', value(report.total_paid), DollarSign, 'مجموع المدفوعات على الفواتير خلال الفترة', 'success'],
+          ['النقد الذي استلمه الصندوق', value(report.cash_received), DollarSign, 'المبلغ الذي دفعه الزبائن نقدًا', 'info'],
+          ['الباقي للزبائن', value(report.change_amount), RotateCcw, 'المبلغ الذي أُعيد للزبائن', 'warning'],
+          ['مصاريف المحل', value(report.total_expenses), DollarSign, 'خلال الفترة المحددة', 'danger'],
+          ['عدد المبيعات', count(report.total_sales), Database, 'عمليات البيع المكتملة', 'info'],
+          ['نسبة الربح', loading ? '...' : `${Number(report.profit_margin || 0).toFixed(1)}%`, TrendingUp, 'نسبة الربح من المبيعات', 'success'],
         ];
       case 'profit':
         return [
-          ['صافي الربح', value(report.net_profit), TrendingUp, 'بعد خصم تكلفة البضاعة والمصاريف وقبل الضريبة', 'featured'],
-          ['صافي المبيعات قبل الضريبة', value(report.total_revenue), DollarSign, 'المبيعات بعد استبعاد الضريبة', 'info'],
-          ['تكلفة البضاعة المباعة', value(report.total_cogs), DollarSign, 'تكلفة المنتجات التي تم بيعها', 'warning'],
-          ['المصاريف التشغيلية', value(report.total_expenses), DollarSign, 'مصروفات الفترة', 'danger'],
-          ['نسبة الربح من المبيعات', loading ? '...' : `${Number(report.profit_margin || 0).toFixed(1)}%`, TrendingUp, 'صافي الربح ÷ صافي المبيعات', 'success'],
+          ['صافي الربح', value(report.net_profit), TrendingUp, 'الربح الصافي', 'featured'],
+          ['صافي المبيعات قبل الضريبة', value(report.total_revenue), DollarSign, 'المبيعات', 'info'],
+          ['تكلفة البضاعة المباعة', value(report.total_cogs), DollarSign, 'التكلفة', 'warning'],
+          ['المصاريف التشغيلية', value(report.total_expenses), DollarSign, 'المصروفات', 'danger'],
+          ['نسبة الربح من المبيعات', loading ? '...' : `${Number(report.profit_margin || 0).toFixed(1)}%`, TrendingUp, 'الربح', 'success'],
         ];
       default:
         return [
@@ -111,10 +132,18 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
   })();
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '14px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
       {cards.map(([title, cardValue, icon, subtitle, variant]) => (
-        <StatCard key={String(title)} title={String(title)} value={cardValue as string}
-          icon={icon as any} subtitle={String(subtitle)} variant={variant as any} />
+        <StatCard
+          key={String(title)}
+          title={String(title)}
+          value={cardValue as string}
+          icon={icon as any}
+          subtitle={String(subtitle)}
+          variant={variant as any}
+          compact
+          size="sm"
+        />
       ))}
     </div>
   );

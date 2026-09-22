@@ -519,7 +519,10 @@ export function SubscriptionManagement() {
                 value={passwordConfirmation}
                 onChange={(event) => setPasswordConfirmation(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') submitPasswordChange();
+                  if (event.key !== 'Enter' || event.isComposing) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void submitPasswordChange();
                 }}
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 outline-none"
               />

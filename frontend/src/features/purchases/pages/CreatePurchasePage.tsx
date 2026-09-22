@@ -28,6 +28,7 @@ import {
   ChevronRight,
   ImagePlus,
   Upload,
+  Minus,
   X,
 } from 'lucide-react';
 import { suppliersApi, productsApi, categoriesApi, purchasesApi } from '../../../services/api/endpoints';
@@ -615,6 +616,12 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
         onKeyDown={(event) => {
           if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
           const target = event.target as HTMLElement;
+          if (currentStep === 3 && items.length > 0 && target.tagName !== 'BUTTON' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) {
+            event.preventDefault();
+            event.stopPropagation();
+            advanceStep();
+            return;
+          }
           if (!['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) || target.tagName === 'TEXTAREA') return;
           event.preventDefault();
           event.stopPropagation();
@@ -635,15 +642,15 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
         {/* Left Column - Main Form */}
         <div className="space-y-6">
           {/* Supplier and Invoice Info */}
-          {currentStep === 1 && <Card className="border-primary/15">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+          {currentStep === 1 && <Card className="purchase-supplier-card border-primary/15">
+            <CardHeader className="purchase-supplier-card-header">
+              <CardTitle className="purchase-supplier-card-title flex items-center gap-2">
                 <Truck className="w-5 h-5 text-cyan" />
                 اختيار التاجر
               </CardTitle>
               <span className="text-xs text-text-muted">اختر التاجر المرتبط بعملية الشراء</span>
             </CardHeader>
-            <CardContent>
+            <CardContent className="purchase-supplier-card-content">
               <div className="space-y-4">
                 <div>
                   <div className="mb-2 flex items-center justify-between gap-2">
@@ -669,16 +676,16 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
             </CardContent>
           </Card>}
 
-          {currentStep === 2 && <Card className="border-primary/15">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+          {currentStep === 2 && <Card className="purchase-invoice-card border-primary/15">
+            <CardHeader className="purchase-invoice-card-header">
+              <CardTitle className="purchase-invoice-card-title flex items-center gap-2">
                 <FileText className="w-5 h-5 text-cyan" />
                 معلومات الفاتورة
               </CardTitle>
               <span className="text-xs text-text-muted">بيانات فاتورة المورد وتواريخها</span>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 gap-4">
+            <CardContent className="purchase-invoice-card-content">
+              <div className="purchase-invoice-fields-grid grid gap-3">
                 <div>
                   <label className="block text-sm font-medium text-text mb-2">رقم فاتورة المورد</label>
                   <Input
@@ -705,7 +712,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
                   />
                 </div>
               </div>
-              <div className="mt-5 flex justify-end border-t border-border pt-4">
+              <div className="purchase-invoice-actions flex justify-end border-t border-border pt-3">
                 <Button type="button" variant="primary" onClick={() => advanceStep()}>متابعة إلى المنتجات</Button>
               </div>
             </CardContent>
@@ -744,6 +751,10 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
                     if (event.key !== 'Enter') return;
                     event.preventDefault();
                     event.stopPropagation();
+                    if (!productSearchQuery.trim() && items.length > 0) {
+                      advanceStep();
+                      return;
+                    }
                     void handleQuickProductSearch();
                   }}
                   className="h-11 pr-10"
@@ -839,7 +850,30 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
                           <div className="truncate font-semibold text-text-primary">{item.product_name}</div>
                         </div>
                         <div className="flex items-center gap-1 text-sm text-text-secondary">
-                          <span>×{item.quantity}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 border border-border"
+                            onClick={() => handleUpdateQuantity(item.key, item.quantity - 1)}
+                            disabled={item.quantity <= 1}
+                            aria-label={`تقليل كمية ${item.product_name}`}
+                            title="تقليل الكمية"
+                          >
+                            <Minus className="h-3.5 w-3.5" />
+                          </Button>
+                          <span className="min-w-8 text-center font-semibold">×{item.quantity}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 border border-border"
+                            onClick={() => handleUpdateQuantity(item.key, item.quantity + 1)}
+                            aria-label={`زيادة كمية ${item.product_name}`}
+                            title="زيادة الكمية"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </Button>
                           <span className="text-text-muted">شراء ₪{Number(item.unit_cost).toFixed(2)}</span>
                         </div>
                         <span className="text-sm font-semibold text-text-primary">الإجمالي ₪{(item.quantity * item.unit_cost).toFixed(2)}</span>
@@ -1106,7 +1140,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
             paddingBottom: '12px',
             borderBottom: '1px solid var(--border-subtle)'
           }}>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)]">
+            <div className="manual-product-basic-grid grid gap-2">
               <div>
                 <label style={{ 
                   fontSize: '12px', 
@@ -1267,7 +1301,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
           </div>}
 
           <div className="border-t border-border pt-3">
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+            <div className="manual-product-pricing-grid grid gap-2">
               <div>
                 <label style={{ 
                   fontSize: '12px', 

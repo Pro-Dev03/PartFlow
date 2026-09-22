@@ -33,6 +33,7 @@ type localSupplierRow struct {
 	TotalPurchases float64        `db:"total_purchases"`
 	PaidAmount     float64        `db:"paid_amount"`
 	Outstanding    float64        `db:"outstanding"`
+	LastPurchase   sql.NullString `db:"last_purchase"`
 	Notes          sql.NullString `db:"notes"`
 	IsActive       int            `db:"is_active"`
 	CreatedAt      string         `db:"created_at"`
@@ -52,7 +53,15 @@ func localSupplierFromRow(row localSupplierRow) (Supplier, error) {
 	if err != nil {
 		return Supplier{}, err
 	}
-	s := Supplier{ID: id, Code: row.Code, Name: row.Name, CreditLimit: row.CreditLimit, CurrentBalance: row.CurrentBalance, TotalPurchases: row.TotalPurchases, PaidAmount: row.PaidAmount, Outstanding: row.Outstanding, IsActive: row.IsActive != 0, CreatedAt: created, UpdatedAt: updated}
+	var lastPurchase *time.Time
+	if row.LastPurchase.Valid && row.LastPurchase.String != "" {
+		parsed, parseErr := dbutil.ParseTimestamp(row.LastPurchase.String)
+		if parseErr != nil {
+			return Supplier{}, parseErr
+		}
+		lastPurchase = &parsed
+	}
+	s := Supplier{ID: id, Code: row.Code, Name: row.Name, CreditLimit: row.CreditLimit, CurrentBalance: row.CurrentBalance, TotalPurchases: row.TotalPurchases, PaidAmount: row.PaidAmount, Outstanding: row.Outstanding, LastPurchase: lastPurchase, IsActive: row.IsActive != 0, CreatedAt: created, UpdatedAt: updated}
 	for value, target := range map[*sql.NullString]**string{&row.Email: &s.Email, &row.Phone: &s.Phone, &row.Address: &s.Address, &row.City: &s.City, &row.Country: &s.Country, &row.TaxID: &s.TaxID, &row.PaymentTerms: &s.PaymentTerms, &row.Notes: &s.Notes} {
 		if value.Valid && value.String != "" {
 			v := value.String
@@ -63,7 +72,7 @@ func localSupplierFromRow(row localSupplierRow) (Supplier, error) {
 }
 
 func localSupplierQuery() string {
-	return `SELECT s.id, s.code, s.name, s.email, s.phone, s.address, s.city, s.country, s.tax_id, s.payment_terms, s.credit_limit, s.current_balance, COALESCE((SELECT SUM(total_amount) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) AS total_purchases, COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) AS paid_amount, COALESCE((SELECT SUM(total_amount) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = s.id AND sr.status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) AS outstanding, s.notes, s.is_active, s.created_at, s.updated_at FROM suppliers s`
+	return `SELECT s.id, s.code, s.name, s.email, s.phone, s.address, s.city, s.country, s.tax_id, s.payment_terms, s.credit_limit, s.current_balance, COALESCE((SELECT SUM(total_amount) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) AS total_purchases, COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) AS paid_amount, COALESCE((SELECT SUM(total_amount) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = s.id AND sr.status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) AS outstanding, (SELECT MAX(p.created_at) FROM purchases p WHERE p.supplier_id = s.id AND p.status NOT IN ('cancelled','reversed')) AS last_purchase, s.notes, s.is_active, s.created_at, s.updated_at FROM suppliers s`
 }
 
 // NewRepository creates a new supplier repository
@@ -74,11 +83,12 @@ func NewRepository(db *sqlx.DB) *Repository {
 func scanSupplier(row interface{ Scan(...any) error }) (Supplier, error) {
 	var supplier Supplier
 	var email, phone, address, city, country, taxID, paymentTerms, notes sql.NullString
+	var lastPurchase sql.NullTime
 	var createdAt, updatedAt string
 	if err := row.Scan(
 		&supplier.ID, &supplier.Code, &supplier.Name, &email, &phone, &address, &city,
 		&country, &taxID, &paymentTerms, &supplier.CreditLimit, &supplier.CurrentBalance,
-		&supplier.TotalPurchases, &supplier.PaidAmount, &supplier.Outstanding, &notes,
+		&supplier.TotalPurchases, &supplier.PaidAmount, &supplier.Outstanding, &lastPurchase, &notes,
 		&supplier.IsActive, &createdAt, &updatedAt,
 	); err != nil {
 		return Supplier{}, err
@@ -101,6 +111,9 @@ func scanSupplier(row interface{ Scan(...any) error }) (Supplier, error) {
 	supplier.UpdatedAt, err = parseSQLiteTimestamp(updatedAt)
 	if err != nil {
 		return Supplier{}, fmt.Errorf("parse updated_at: %w", err)
+	}
+	if lastPurchase.Valid {
+		supplier.LastPurchase = &lastPurchase.Time
 	}
 	return supplier, nil
 }
@@ -155,6 +168,7 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Supplier, erro
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
 			COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS paid_amount,
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE supplier_id = suppliers.id AND status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS outstanding,
+			(SELECT MAX(COALESCE(p.purchase_date, p.created_at)) FROM purchases p WHERE p.supplier_id = suppliers.id AND p.status NOT IN ('cancelled', 'reversed')) AS last_purchase,
 			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE id = $1
@@ -186,6 +200,7 @@ func (r *Repository) GetByCode(ctx context.Context, code string) (*Supplier, err
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
 			COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS paid_amount,
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE supplier_id = suppliers.id AND status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS outstanding,
+			(SELECT MAX(COALESCE(p.purchase_date, p.created_at)) FROM purchases p WHERE p.supplier_id = suppliers.id AND p.status NOT IN ('cancelled', 'reversed')) AS last_purchase,
 			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE code = $1
@@ -256,6 +271,7 @@ func (r *Repository) List(ctx context.Context, page, perPage int, search string,
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) AS total_purchases,
 			COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS paid_amount,
 			COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = suppliers.id AND status NOT IN ('cancelled', 'reversed')), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE supplier_id = suppliers.id AND status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE supplier_id = suppliers.id AND type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS outstanding,
+			(SELECT MAX(COALESCE(p.purchase_date, p.created_at)) FROM purchases p WHERE p.supplier_id = suppliers.id AND p.status NOT IN ('cancelled', 'reversed')) AS last_purchase,
 			notes, is_active, created_at, updated_at
 		FROM suppliers
 		WHERE 1=1

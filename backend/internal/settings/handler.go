@@ -29,7 +29,7 @@ type Setting struct {
 }
 
 type UpdateSettingRequest struct {
-	Value string `json:"value" binding:"required"`
+	Value *string `json:"value"`
 }
 
 var settingMetadata = map[string]struct {
@@ -59,6 +59,8 @@ var settingMetadata = map[string]struct {
 	"payment_webhook_url":         {"", "string", "payments", "عنوان Webhook للدفع", false},
 	"payment_webhook_secret":      {"", "string", "payments", "سر توقيع Webhook", false},
 	"payment_methods":             {"[\"card\"]", "json", "payments", "طرق الدفع الإلكتروني المفعلة", false},
+	"installment_whatsapp_number": {"", "string", "payments", "رقم واتساب وكيل التقسيط", false},
+	"installment_whatsapp_message": {"*طلب تقسيط جديد - {store_name}*\n\nالسلام عليكم،\nنرجو متابعة طلب التقسيط التالي:\n\n*اسم العميل:* {customer_name}\n*إجمالي الفاتورة:* ₪{total}\n*مدة التقسيط:* {months} أشهر\n*قيمة القسط التقريبية:* ₪{installment}\n\nيرجى تأكيد تسجيل الطلب ومتابعته.\n\nمع التحية،\n{store_name}", "string", "payments", "قالب رسالة واتساب للتقسيط", false},
 }
 
 func isSensitiveSetting(key string) bool {
@@ -290,12 +292,13 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 	key := c.Param("key")
 
 	var req UpdateSettingRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil || req.Value == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
+	value := *req.Value
 	if key == "country_code" {
-		profile, err := RegionalProfileForCountry(req.Value)
+		profile, err := RegionalProfileForCountry(value)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -306,22 +309,22 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 		}
 	}
 	if key == "store_timezone" {
-		if _, err := time.LoadLocation(strings.TrimSpace(req.Value)); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid IANA timezone %q", req.Value)})
+		if _, err := time.LoadLocation(strings.TrimSpace(value)); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid IANA timezone %q", value)})
 			return
 		}
-		if err := accounting.ConfigureStoreTimezone(strings.TrimSpace(req.Value)); err != nil {
+		if err := accounting.ConfigureStoreTimezone(strings.TrimSpace(value)); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 	}
-	if isSensitiveSetting(key) && strings.TrimSpace(req.Value) == "********" {
-		_ = h.db.QueryRow(`SELECT value FROM settings WHERE key = $1`, key).Scan(&req.Value)
+	if isSensitiveSetting(key) && strings.TrimSpace(value) == "********" {
+		_ = h.db.QueryRow(`SELECT value FROM settings WHERE key = $1`, key).Scan(&value)
 	}
-	storedValue := req.Value
+	storedValue := value
 	if isSensitiveSetting(key) {
 		var encryptErr error
-		storedValue, encryptErr = secrets.Encrypt(req.Value)
+		storedValue, encryptErr = secrets.Encrypt(value)
 		if encryptErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": encryptErr.Error()})
 			return

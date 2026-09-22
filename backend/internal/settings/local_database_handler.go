@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	stdsync "sync"
@@ -71,6 +72,20 @@ type bidirectionalSyncOperation struct {
 	IdempotencyKey string `json:"idempotency_key"`
 }
 
+func cloudSyncBaseURL(c *gin.Context) string {
+	configured := strings.TrimRight(strings.TrimSpace(c.GetHeader("X-PartFlow-Cloud-API-URL")), "/")
+	if configured != "" {
+		if parsed, err := url.Parse(configured); err == nil && parsed.Scheme == "https" && parsed.Host != "" {
+			return configured
+		}
+	}
+	configured = strings.TrimRight(strings.TrimSpace(os.Getenv("PARTFLOW_CLOUD_API_URL")), "/")
+	if configured == "" {
+		return "https://partflow-api.onrender.com/api/v1"
+	}
+	return configured
+}
+
 type OfflineSessionRequest struct {
 	UserID       string `json:"user_id"`
 	Email        string `json:"email"`
@@ -98,10 +113,7 @@ func (h *LocalDatabaseHandler) SyncCloudData(c *gin.Context) {
 		return
 	}
 
-	cloudBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PARTFLOW_CLOUD_API_URL")), "/")
-	if cloudBaseURL == "" {
-		cloudBaseURL = "https://partflow-api.onrender.com/api/v1"
-	}
+	cloudBaseURL := cloudSyncBaseURL(c)
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, cloudBaseURL+"/sync/initial-data", nil)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "تعذر تجهيز طلب المزامنة السحابية", "details": err.Error()})
@@ -211,9 +223,14 @@ func (h *LocalDatabaseHandler) SyncLocalDataToCloud(c *gin.Context) {
 	// must never use its PostgreSQL connection as an implicit sync channel.
 	operations := make([]sync.PushOperation, 0, len(entries))
 	for _, entry := range entries {
+		payload, normalizeErr := sync.NormalizeCloudPayloadJSON(entry.EntityType, entry.Payload)
+		if normalizeErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تجهيز عملية المزامنة المحلية", "details": normalizeErr.Error()})
+			return
+		}
 		operations = append(operations, sync.PushOperation{
 			ID: entry.ID, EntityType: entry.EntityType, EntityID: entry.EntityID,
-			Operation: entry.Operation, Payload: entry.Payload, IdempotencyKey: entry.Idempotency,
+			Operation: entry.Operation, Payload: string(payload), IdempotencyKey: entry.Idempotency,
 		})
 	}
 	payload, err := json.Marshal(sync.PushRequest{Operations: operations})
@@ -221,10 +238,7 @@ func (h *LocalDatabaseHandler) SyncLocalDataToCloud(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تجهيز طابور المزامنة", "details": err.Error()})
 		return
 	}
-	cloudBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PARTFLOW_CLOUD_API_URL")), "/")
-	if cloudBaseURL == "" {
-		cloudBaseURL = "https://partflow-api.onrender.com/api/v1"
-	}
+	cloudBaseURL := cloudSyncBaseURL(c)
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, cloudBaseURL+"/sync/push", strings.NewReader(string(payload)))
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "تعذر تجهيز طلب رفع المزامنة", "details": err.Error()})
@@ -332,10 +346,7 @@ func reconcileLocalAndCloud(c *gin.Context, sqliteDB *sql.DB, cloudToken string)
 	if cloudToken == "" {
 		return nil, fmt.Errorf("رمز السحابة غير موجود")
 	}
-	cloudBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PARTFLOW_CLOUD_API_URL")), "/")
-	if cloudBaseURL == "" {
-		cloudBaseURL = "https://partflow-api.onrender.com/api/v1"
-	}
+	cloudBaseURL := cloudSyncBaseURL(c)
 	cloudSnapshot, err := fetchCloudSnapshot(c, cloudBaseURL, cloudToken)
 	if err != nil {
 		return nil, err
@@ -456,15 +467,15 @@ func pushSnapshotOperations(c *gin.Context, cloudBaseURL, cloudToken string, ope
 		}
 		var result struct {
 			Success bool `json:"success"`
-			Data struct {
+			Data    struct {
 				AcceptedIDs []string `json:"accepted_ids"`
-				Rejected []struct {
+				Rejected    []struct {
 					ID       string `json:"id"`
 					Error    string `json:"error"`
 					Conflict bool   `json:"conflict"`
 				} `json:"rejected"`
 				Processed int `json:"processed"`
-				Failed int `json:"failed"`
+				Failed    int `json:"failed"`
 			} `json:"data"`
 		}
 		decodeErr := json.NewDecoder(response.Body).Decode(&result)
@@ -582,7 +593,7 @@ func normalizeOutboundSnapshotRow(table string, row map[string]any) map[string]a
 	}
 	delete(result, "sale_number")
 	delete(result, "purchase_number")
-	return sync.FilterPushPayload(table, result)
+	return sync.NormalizeCloudPayload(table, sync.FilterPushPayload(table, result))
 }
 
 func normalizeOutboundSnapshotValue(value any) any {
@@ -756,10 +767,7 @@ func (h *LocalDatabaseHandler) applyCloudSnapshot(c *gin.Context, sqliteDB *sql.
 	if authorization == "" {
 		return fmt.Errorf("missing authorization")
 	}
-	cloudBaseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("PARTFLOW_CLOUD_API_URL")), "/")
-	if cloudBaseURL == "" {
-		cloudBaseURL = "https://partflow-api.onrender.com/api/v1"
-	}
+	cloudBaseURL := cloudSyncBaseURL(c)
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, cloudBaseURL+"/sync/initial-data", nil)
 	if err != nil {
 		return err

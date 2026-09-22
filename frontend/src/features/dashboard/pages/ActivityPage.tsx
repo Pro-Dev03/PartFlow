@@ -61,7 +61,7 @@ export function ActivityPage() {
     <div>
       <PageHeader
         title="كل النشاط"
-        description="سجل المبيعات والمشتريات مرتبًا من الأحدث إلى الأقدم"
+        description="سجل المبيعات والمشتريات والمرتجعات مرتبًا من الأحدث إلى الأقدم"
         actions={(
           <Button type="button" variant="secondary" onClick={() => navigate(-1)} className="gap-2">
             <ArrowRight className="w-4 h-4" />
@@ -93,6 +93,7 @@ export function ActivityPage() {
               <option value="">كل العمليات</option>
               <option value="sale">المبيعات</option>
               <option value="purchase">المشتريات</option>
+              <option value="return">المرتجعات</option>
             </select>
           </div>
         </CardHeader>

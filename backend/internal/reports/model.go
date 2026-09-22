@@ -35,6 +35,9 @@ type SalesReport struct {
 	TotalItemsSold  int                `json:"total_items_sold"`
 	CashRevenue     float64            `json:"cash_revenue"`
 	CreditRevenue   float64            `json:"credit_revenue"`
+	TotalPaid       float64            `json:"total_paid"`
+	CashReceived    float64            `json:"cash_received"`
+	ChangeAmount    float64            `json:"change_amount"`
 	ByDay           []DailySales       `json:"by_day"`
 	TopProducts     []ProductSales     `json:"top_products"`
 	ByPaymentMethod map[string]float64 `json:"by_payment_method"`
@@ -154,8 +157,18 @@ type ProfitsReport struct {
 	TotalExpenses float64            `json:"total_expenses"`
 	NetProfit     float64            `json:"net_profit"`
 	ProfitMargin  float64            `json:"profit_margin"`
+	ByDay         []DailyProfit      `json:"by_day"`
 	ByMonth       []MonthlyProfit    `json:"by_month"`
 	ByCategory    map[string]float64 `json:"by_category"`
+}
+
+// DailyProfit represents the net profit for one store day.
+type DailyProfit struct {
+	Date      time.Time `json:"date"`
+	Revenue   float64   `json:"revenue"`
+	COGS      float64   `json:"cogs"`
+	Expenses  float64   `json:"expenses"`
+	NetProfit float64   `json:"net_profit"`
 }
 
 // MonthlyProfit represents monthly profit data
@@ -192,10 +205,13 @@ type CustomerDebt struct {
 
 // PaymentRecord represents payment record
 type PaymentRecord struct {
-	Date         time.Time `json:"date"`
-	CustomerID   uuid.UUID `json:"customer_id"`
-	CustomerName string    `json:"customer_name"`
-	Amount       float64   `json:"amount"`
+	Date            time.Time `json:"date"`
+	CustomerID      uuid.UUID `json:"customer_id"`
+	CustomerName    string    `json:"customer_name"`
+	Amount          float64   `json:"amount"`
+	PaymentMethod   string    `json:"payment_method"`
+	ReferenceNumber string    `json:"reference_number"`
+	Notes           string    `json:"notes"`
 }
 
 // PurchasesReport represents purchases report data
@@ -296,6 +312,10 @@ type TaxReport struct {
 	Discounts     float64   `json:"discounts"`
 	TaxableSales  float64   `json:"taxable_sales"`
 	TaxCollected  float64   `json:"tax_collected"`
+	ExemptSales   float64   `json:"exempt_sales"`
+	ReturnedTax   float64   `json:"returned_tax"`
+	NetTaxableSales float64 `json:"net_taxable_sales"`
+	NetTaxCollected float64 `json:"net_tax_collected"`
 	SalesTotal    float64   `json:"sales_total"`
 	ReturnsTotal  float64   `json:"returns_total"`
 	NetSalesTotal float64   `json:"net_sales_total"`

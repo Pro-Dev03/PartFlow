@@ -8,6 +8,7 @@ type CreateSaleRequest struct {
 	Items                []SaleItemRequest          `json:"items" binding:"required"`
 	PaymentMethod        *string                    `json:"payment_method,omitempty"`
 	PaymentAmount        float64                    `json:"payment_amount,omitempty"`
+	InstallmentMonths    int                        `json:"installment_months,omitempty"`
 	CashReceived         float64                    `json:"cash_received,omitempty"`
 	Notes                *string                    `json:"notes,omitempty"`
 	TaxRate              float64                    `json:"tax_rate"` // Made optional - will default to 0 if not provided

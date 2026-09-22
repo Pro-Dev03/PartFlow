@@ -72,16 +72,16 @@ export function ModernCartPanel({
               <span>₪{subtotal.toLocaleString()}</span>
             </div>
           )}
-          {tax > 0 && (
-            <div className="cart-panel-subtotal">
-              <span>الضريبة</span>
-              <span>₪{tax.toLocaleString()}</span>
-            </div>
-          )}
           {discount > 0 && (
             <div className="cart-panel-subtotal cart-panel-discount">
               <span>الخصم</span>
               <span>-₪{discount.toLocaleString()}</span>
+            </div>
+          )}
+          {tax > 0 && (
+            <div className="cart-panel-subtotal">
+              <span>الضريبة</span>
+              <span>₪{tax.toLocaleString()}</span>
             </div>
           )}
           <div className="cart-panel-total">

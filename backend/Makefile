@@ -7,7 +7,7 @@ help: ## Show this help message
 	@echo ''
 
 dev: ## Run the API with automatic restart on Go file changes
-	@air -c .air.toml
+	@go run github.com/air-verse/air@v1.67.4 -c .air.toml
 
 setup-owner: ## Create or update owner account
 	@echo "🔧 Setting up owner account..."

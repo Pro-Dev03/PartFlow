@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Globe2, Save, ShieldAlert } from 'lucide-react';
+import { Clock3, Globe2, Save, ShieldAlert } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../../../design-system/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
@@ -17,6 +17,7 @@ export function RegionalSettings({ canManageRegionalSettings = false }: Regional
   const queryClient = useQueryClient();
   const [selectedCountry, setSelectedCountry] = useState('IL');
   const [timezone, setTimezone] = useState('');
+  const [currentStoreDateTime, setCurrentStoreDateTime] = useState('');
   const { data, isLoading } = useQuery({
     queryKey: ['settings', 'regional'],
     queryFn: () => settingsApi.getRegionalSettings(),
@@ -31,6 +32,24 @@ export function RegionalSettings({ canManageRegionalSettings = false }: Regional
       setRegionalProfile(profile);
     }
   }, [profile]);
+
+  useEffect(() => {
+    const updateCurrentStoreDateTime = () => {
+      const activeTimezone = timezone || getDeviceTimezone();
+      const locale = profile?.locale || 'ar-SA';
+      const formatted = new Intl.DateTimeFormat(locale, {
+        dateStyle: 'full',
+        timeStyle: 'medium',
+        hour12: profile?.time_format === '12h',
+        timeZone: activeTimezone,
+      }).format(new Date());
+      setCurrentStoreDateTime(formatted);
+    };
+
+    updateCurrentStoreDateTime();
+    const intervalId = window.setInterval(updateCurrentStoreDateTime, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [profile?.locale, profile?.time_format, timezone]);
 
   const updateMutation = useMutation({
     mutationFn: () => settingsApi.updateRegionalSettings({ country_code: selectedCountry, timezone }),
@@ -74,6 +93,13 @@ export function RegionalSettings({ canManageRegionalSettings = false }: Regional
               <strong className="mt-1 block text-sm font-semibold text-text-primary" dir="ltr">{timezone || getDeviceTimezone()}</strong>
             </div>
             <Globe2 className="h-5 w-5 shrink-0 text-emerald-600" />
+          </div>
+          <div className="mt-3 flex flex-col gap-2 rounded-xl border border-sky-500/20 bg-sky-500/[0.04] p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs text-text-secondary">التاريخ والوقت الحاليان للمتجر</p>
+              <strong className="mt-1 block text-sm font-semibold text-text-primary">{currentStoreDateTime}</strong>
+            </div>
+            <Clock3 className="h-5 w-5 shrink-0 text-sky-600" />
           </div>
           {profile && (
             <div className="mt-3 grid gap-2 sm:grid-cols-2">

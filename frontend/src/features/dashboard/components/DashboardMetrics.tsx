@@ -60,7 +60,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
             subtitle="بعد خصم مرتجعات العملاء"
             variant="featured"
             compact
-            onClick={() => navigate('/app/reports?report=net-sales')}
+            onClick={() => navigate('/app/reports?report=net-sales&range=today')}
           />
           <StatCard
             title="صافي ربح اليوم"
@@ -72,7 +72,7 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
               ? `المبيعات - التكلفة - المصروفات - المرتجعات | هامش الربح: ${profitMargin}%`
               : 'المبيعات - تكلفة المنتجات - المصروفات - المرتجعات + تكلفة المرتجعات'}
             compact
-            onClick={() => navigate('/app/reports?report=profit')}
+            onClick={() => navigate('/app/reports?report=profit&range=today')}
           />
           <StatCard
             title="الديون المستحقة"

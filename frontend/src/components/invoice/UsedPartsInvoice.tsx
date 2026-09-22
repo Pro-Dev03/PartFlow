@@ -26,6 +26,7 @@ interface UsedPartsInvoiceProps {
       warranty?: string;
     }>;
     subtotal: number;
+    discountAmount?: number;
     total: number;
     paidAmount: number;
     cashReceived?: number;

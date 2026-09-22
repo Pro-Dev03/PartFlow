@@ -38,7 +38,6 @@ import {
   Trash2,
   UserRound,
   ChevronDown,
-  Info,
   FilePlus2,
   Wallet,
   LockKeyhole,
@@ -146,6 +145,21 @@ export function POSPage() {
     queryFn: () => settingsApi.getSetting('payment_provider'),
     retry: false,
   });
+  const { data: installmentWhatsAppSetting } = useQuery({
+    queryKey: ['settings', 'installment_whatsapp_number'],
+    queryFn: () => settingsApi.getSetting('installment_whatsapp_number'),
+    retry: false,
+  });
+  const { data: storeNameSetting } = useQuery({
+    queryKey: ['settings', 'store_name'],
+    queryFn: () => settingsApi.getSetting('store_name'),
+    retry: false,
+  });
+  const { data: installmentWhatsAppMessageSetting } = useQuery({
+    queryKey: ['settings', 'installment_whatsapp_message'],
+    queryFn: () => settingsApi.getSetting('installment_whatsapp_message'),
+    retry: false,
+  });
   const systemTaxRate = Number(taxSetting?.data?.value);
   const configuredMaxDiscount = Number(discountSetting?.data?.value);
   const maxDiscountRate = Number.isFinite(configuredMaxDiscount) && configuredMaxDiscount >= 0 && configuredMaxDiscount <= 100
@@ -155,6 +169,9 @@ export function POSPage() {
   const discountsEnabled = !['false', '0', 'off', 'disabled'].includes(discountsEnabledValue);
   const electronicPaymentsEnabled = electronicPaymentsEnabledSetting?.data?.value === 'true';
   const electronicPaymentProvider = String(electronicPaymentProviderSetting?.data?.value ?? 'manual');
+  const installmentWhatsAppNumber = String(installmentWhatsAppSetting?.data?.value ?? '');
+  const storeName = String(storeNameSetting?.data?.value ?? '').trim() || 'PartFlow';
+  const installmentWhatsAppMessage = String(installmentWhatsAppMessageSetting?.data?.value ?? '');
   let enabledElectronicMethods: string[] = [];
   try {
     const configuredMethods = JSON.parse(String(electronicPaymentMethodsSetting?.data?.value ?? '[]'));
@@ -183,12 +200,15 @@ export function POSPage() {
     price: taxExempt ? item.price : priceWithTax(item.price),
     total: (taxExempt ? item.price : priceWithTax(item.price)) * item.quantity,
   }));
-  const displaySubtotal = displayCart.reduce((sum, item) => sum + item.total, 0);
+  const displaySubtotal = Math.round(subtotal * 100) / 100;
   const appliedDiscountRate = discountsEnabled
     ? Math.min(Math.max(Number(discountRate) || 0, 0), maxDiscountRate)
     : 0;
   const displayDiscount = Math.round(displaySubtotal * appliedDiscountRate) / 100;
-  const displayTotal = Math.max(0, Math.round((displaySubtotal - displayDiscount) * 100) / 100);
+  const displayTax = taxExempt
+    ? 0
+    : Math.round((displaySubtotal - displayDiscount) * effectiveTaxRate) / 100;
+  const displayTotal = Math.max(0, Math.round((displaySubtotal - displayDiscount + displayTax) * 100) / 100);
   const {
     paymentMethod,
     setPaymentMethod,
@@ -198,6 +218,7 @@ export function POSPage() {
     setProcessing,
     resetPayment,
   } = usePayment();
+  const [installmentMonths, setInstallmentMonths] = useState(3);
 
   // Handle used part from navigation
   const processedUsedPartNavigation = useRef<string | null>(null);
@@ -234,6 +255,7 @@ export function POSPage() {
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [lastSaleData, setLastSaleData] = useState<InvoiceData | null>(null);
   const lastSaleDataRef = useRef<InvoiceData | null>(null);
+  const [isLoadingLastInvoice, setIsLoadingLastInvoice] = useState(false);
   const pendingExternalPaymentRef = useRef<string | null>(null);
   const [isQuickCustomerModalOpen, setIsQuickCustomerModalOpen] =
     useState(false);
@@ -862,6 +884,68 @@ export function POSPage() {
     },
   });
 
+  const handlePrintLastInvoice = async () => {
+    if (isLoadingLastInvoice) return;
+
+    setIsLoadingLastInvoice(true);
+    try {
+      const listResponse = await salesApi.list({ page: 1, per_page: 1 });
+      const listPayload = listResponse?.data ?? listResponse;
+      const sales = Array.isArray(listPayload) ? listPayload : listPayload?.sales ?? listPayload?.data ?? [];
+      const latestSale = sales[0];
+
+      if (!latestSale?.id) {
+        toast.error('لا توجد فاتورة مبيعات للطباعة.', 'لا توجد فاتورة', 4000);
+        return;
+      }
+
+      const detailsResponse = await salesApi.get(String(latestSale.id));
+      const detailsPayload = detailsResponse?.data ?? detailsResponse;
+      const sale = detailsPayload?.sale ?? detailsPayload;
+      const items = Array.isArray(detailsPayload?.items) ? detailsPayload.items : [];
+      const totalAmount = Number(sale?.total_amount ?? latestSale.total_amount ?? 0);
+      const paidAmount = Number(sale?.paid_amount ?? latestSale.paid_amount ?? 0);
+      const subtotalAmount = Number(sale?.subtotal ?? latestSale.subtotal ?? totalAmount);
+      const discountAmount = Number(
+        sale?.discount_amount ?? latestSale.discount_amount ?? Math.max(0, subtotalAmount - totalAmount),
+      );
+
+      const invoiceData: InvoiceData = {
+        id: String(sale?.id ?? latestSale.id),
+        customerName: sale?.customer?.name ?? sale?.customer_name ?? latestSale.customer_name ?? 'عميل عام',
+        customerPhone: sale?.customer?.phone ?? sale?.customer_phone ?? latestSale.customer_phone,
+        saleDate: sale?.created_at ?? latestSale.created_at ?? sale?.sale_date ?? latestSale.sale_date ?? new Date().toISOString(),
+        items: items.map((item: any) => ({
+          name: item.product_name ?? item.name ?? 'منتج',
+          partType: item.part_type ?? item.partType,
+          partTypeColor: item.part_type_color ?? item.partTypeColor,
+          condition: item.condition ?? 'NEW',
+          grade: item.grade,
+          sellingPrice: Number(item.unit_price ?? item.selling_price ?? 0),
+          quantity: Number(item.quantity ?? 1),
+          total: Number(item.total_amount ?? item.total ?? 0),
+        })),
+        subtotal: subtotalAmount,
+        discountAmount,
+        total: totalAmount,
+        paidAmount,
+        cashReceived: Number(sale?.cash_received ?? 0),
+        changeAmount: Number(sale?.change_amount ?? 0),
+        remaining: Math.max(totalAmount - paidAmount, 0),
+        paymentMethod: sale?.payment_method === 'debt' ? 'credit' : sale?.payment_method === 'transfer' ? 'checks' : sale?.payment_method ?? 'cash',
+      };
+
+      setLastSaleData(invoiceData);
+      lastSaleDataRef.current = invoiceData;
+      setIsInvoiceModalOpen(true);
+    } catch (error) {
+      console.error('Failed to load latest sale invoice:', error);
+      toast.error('تعذر تحميل آخر فاتورة. تحقق من الاتصال وحاول مرة أخرى.', 'فشل تحميل الفاتورة', 5000);
+    } finally {
+      setIsLoadingLastInvoice(false);
+    }
+  };
+
   // Handlers
   const handleClearSearch = () => setSearchQuery('');
 
@@ -1138,7 +1222,8 @@ export function POSPage() {
       })),
       payment_method: paymentMethod === 'credit' ? 'debt' : paymentMethod === 'checks' ? 'transfer' : paymentMethod,
       payment_amount: appliedPaymentAmount,
-      ...(paymentAllocations.length > 0 ? { payment_allocations: paymentAllocations } : {}),
+      ...(paymentMethod === 'installment' ? { installment_months: installmentMonths } : {}),
+      ...(paymentAllocations.length > 0 && paymentMethod !== 'cash' ? { payment_allocations: paymentAllocations } : {}),
       ...(paymentTransactionID ? { payment_transaction_id: paymentTransactionID } : {}),
       ...(paymentMethod === 'cash' ? { cash_received: receivedAmount } : {}),
       total_amount: displayTotal,
@@ -1169,6 +1254,7 @@ export function POSPage() {
         total: item.total,
       })),
       subtotal: displaySubtotal,
+      discountAmount: displayDiscount,
       total: displayTotal,
       paidAmount: appliedPaymentAmount,
       cashReceived: paymentMethod === 'cash' ? receivedAmount : undefined,
@@ -1185,6 +1271,7 @@ export function POSPage() {
     cart,
     selectedCustomer,
     paymentMethod,
+    installmentMonths,
     paidAmount,
     total,
     subtotal,
@@ -1281,6 +1368,7 @@ export function POSPage() {
         total: item.total,
       })),
       subtotal: displaySubtotal,
+      discountAmount: displayDiscount,
       total: displayTotal,
       paidAmount: displayTotal,
       remaining: 0,
@@ -1487,12 +1575,13 @@ export function POSPage() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => lastSaleData && setIsInvoiceModalOpen(true)}
-              disabled={!lastSaleData}
+              onClick={handlePrintLastInvoice}
+              disabled={isLoadingLastInvoice}
               className="gap-2"
+              title="طباعة آخر فاتورة مباعة"
             >
               <Printer className="w-4 h-4" />
-              <span>طباعة</span>
+              <span>{isLoadingLastInvoice ? 'جاري التحميل...' : 'طباعة آخر فاتورة'}</span>
             </Button>
           </div>
         </div>
@@ -1502,29 +1591,6 @@ export function POSPage() {
       <div className="pos-modern-body">
         {/* Products Section */}
         <main className="pos-products-area">
-          <div className="flex gap-2 mb-3" role="tablist" aria-label="نوع المنتجات">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={posSection === 'products'}
-              className={`category-chip ${posSection === 'products' ? 'active' : ''}`}
-              onClick={() => setPosSection('products')}
-            >
-              <Package className="w-3.5 h-3.5" />
-              <span>المنتجات الجديدة</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={posSection === 'used'}
-              className={`category-chip ${posSection === 'used' ? 'active' : ''}`}
-              onClick={() => setPosSection('used')}
-            >
-              <ShoppingCart className="w-3.5 h-3.5" />
-              <span>القطع المستعملة</span>
-            </button>
-          </div>
-
           {/* Search & Barcode */}
           <form onSubmit={handleBarcodeScan} className="pos-search-bar">
             <div className="pos-barcode-form">
@@ -1573,14 +1639,12 @@ export function POSPage() {
           )}
 
           {/* Products Grid */}
-          {posSection === 'products' ? (
-            <ModernProductGrid
+          <ModernProductGrid
               products={visibleProducts}
               onProductClick={handleProductSelect}
               taxRate={effectiveTaxRate}
               taxExempt={taxExempt}
-              showDetails={showProductDetails}
-              onToggleDetails={() => setShowProductDetails((visible) => !visible)}
+              showDetails={false}
               currentPage={productPage}
               totalPages={Math.max(1, Math.ceil(productTotal / productsPerPage))}
               viewMode={productViewMode}
@@ -1590,7 +1654,7 @@ export function POSPage() {
               hasSearch={Boolean(debouncedSearchQuery.trim())}
               onAddProduct={() => navigate('/app/inventory')}
             />
-          ) : (
+          {false && (
             <>
               <div className="pos-product-view-toolbar">
                 <button
@@ -1842,7 +1906,7 @@ export function POSPage() {
             cart={displayCart}
             subtotal={displaySubtotal}
             discount={displayDiscount}
-            tax={Math.max(0, displaySubtotal - subtotal)}
+            tax={displayTax}
             total={displayTotal}
             onUpdateQuantity={updateQuantity}
             onRemoveFromCart={removeFromCart}
@@ -1869,6 +1933,12 @@ export function POSPage() {
             customerBalance={customerBalance}
             customerCreditLimit={customerCreditLimit}
             onQuickCustomerCreate={handleQuickCustomerCreate}
+            selectedCustomerName={customers.find((customer) => String(customer.id) === String(selectedCustomer))?.name ?? selectedCustomerOption?.name}
+            storeName={storeName}
+            installmentWhatsAppNumber={installmentWhatsAppNumber}
+            installmentWhatsAppMessage={installmentWhatsAppMessage}
+            installmentMonths={installmentMonths}
+            setInstallmentMonths={setInstallmentMonths}
           />
         </aside>
       </div>

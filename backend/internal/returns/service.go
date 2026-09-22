@@ -103,6 +103,8 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 		return nil, ErrSaleNotFound
 	}
 
+	requiresSupplierSource := strings.EqualFold(req.ItemConditionAfterReturn, "RETURN_TO_SUPPLIER")
+
 	// Reject duplicate or over-quantity returns before creating the parent
 	// record. The database trigger remains a final safety net.
 	for _, itemReq := range req.Items {
@@ -120,6 +122,24 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 		}
 		if returnedQty+itemReq.QuantityReturned > saleItem.Quantity {
 			return nil, ErrInsufficientStock
+		}
+		if requiresSupplierSource {
+			inventoryItemID := itemReq.InventoryItemID
+			if inventoryItemID == nil {
+				inventoryItemID = saleItem.InventoryItemID
+			}
+			productID := itemReq.ProductID
+			if productID == nil {
+				productID = &saleItem.ProductID
+			}
+			candidate := ReturnItem{SaleItemID: itemReq.SaleItemID, InventoryItemID: inventoryItemID, ProductID: productID}
+			purchaseItemID, purchaseID, supplierID, sourceErr := s.findPurchaseItemForReturnItem(ctx, candidate)
+			if sourceErr != nil {
+				return nil, sourceErr
+			}
+			if purchaseItemID == uuid.Nil || purchaseID == uuid.Nil || supplierID == uuid.Nil {
+				return nil, ErrSupplierSourceUnavailable
+			}
 		}
 	}
 
@@ -925,7 +945,7 @@ func (s *Service) createSupplierReturnBridgeTx(ctx context.Context, tx *sqlx.Tx,
 		args := []interface{}{item.InventoryItemID, item.SaleItemID, item.ProductID}
 		if driver == "sqlite" {
 			query = strings.Replace(query, "pi.purchase_id::text", "pi.purchase_id", 1)
-			args = []interface{}{item.InventoryItemID.String(), item.SaleItemID.String(), item.ProductID.String()}
+			args = []interface{}{nullableUUIDPtrArg(item.InventoryItemID), nullableUUIDPtrArg(item.SaleItemID), item.ProductID.String()}
 		}
 		err := tx.QueryRowContext(ctx, query, args...).Scan(&purchaseItemID, &purchaseID, &supplierID, &purchaseCost)
 		resolved := err == nil

@@ -84,7 +84,7 @@ export function ActionMenu({ items, label = 'خيارات', widthClassName = 'w-
           ref={menuRef}
           role="menu"
           className={cn(
-            'pf-action-menu z-[100]',
+            'pf-action-menu z-[10000]',
             'animate-in fade-in-0 zoom-in-95 duration-150',
             normalizedWidthClass
           )}

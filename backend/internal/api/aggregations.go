@@ -903,6 +903,16 @@ func (h *AggregationHandler) refreshSQLiteMonth(ctx context.Context, month time.
 			SELECT ?, ?, totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost, totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost - expenses_total.amount, totals.revenue - returns_total.refunded, totals.cost - returns_total.returned_cost, CASE WHEN totals.revenue - returns_total.refunded = 0 THEN 0 ELSE ((totals.revenue - totals.cost - returns_total.refunded + returns_total.returned_cost - expenses_total.amount) / (totals.revenue - returns_total.refunded)) * 100 END, CURRENT_TIMESTAMP FROM totals, expenses_total, returns_total
 			`, []any{start, end, start, end, start, end, year, monthNumber}},
 	}
+	if h.sqliteHasColumns(ctx, "returns", "total_refund_amount", "return_date", "status") && h.sqliteHasColumns(ctx, "return_items", "quantity_returned", "original_cost") {
+		queries = append(queries, struct {
+			query string
+			args  []any
+		}{`UPDATE monthly_sales_summary
+			SET total_revenue = MAX(0, total_revenue - COALESCE((SELECT SUM(total_refund_amount) FROM returns WHERE upper(COALESCE(status, '')) = 'COMPLETED' AND date(COALESCE(return_date, created_at)) >= ? AND date(COALESCE(return_date, created_at)) < ?), 0)),
+				total_profit = total_profit - COALESCE((SELECT SUM(total_refund_amount) FROM returns WHERE upper(COALESCE(status, '')) = 'COMPLETED' AND date(COALESCE(return_date, created_at)) >= ? AND date(COALESCE(return_date, created_at)) < ?), 0) + COALESCE((SELECT SUM(COALESCE(ri.quantity_returned, 0) * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)) FROM returns r JOIN return_items ri ON ri.return_id = r.id LEFT JOIN sale_items si ON si.id = ri.sale_item_id LEFT JOIN products p ON p.id = ri.product_id WHERE upper(COALESCE(r.status, '')) = 'COMPLETED' AND date(COALESCE(r.return_date, r.created_at)) >= ? AND date(COALESCE(r.return_date, r.created_at)) < ?), 0)
+			WHERE year = ? AND month = ?
+			`, []any{start, end, start, end, start, end, year, monthNumber}})
+	}
 	saleDateExpr := h.sqliteSaleDateExpression(ctx)
 	saleTaxExpr := h.sqliteSaleTaxExpression(ctx)
 	if !h.sqliteReturnProfitAvailable(ctx) {

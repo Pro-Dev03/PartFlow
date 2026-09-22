@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -68,5 +69,26 @@ func TestCORSAllowsCloudSessionHeader(t *testing.T) {
 	}
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:5174" {
 		t.Fatalf("expected allowed origin, got %q", got)
+	}
+}
+
+func TestCORSAllowsCloudAPIURLHeader(t *testing.T) {
+	t.Setenv("CORS_ALLOWED_ORIGINS", "http://localhost:5174")
+	router := gin.New()
+	router.Use(CORS())
+	router.POST("/sync", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	req := httptest.NewRequest(http.MethodOptions, "/sync", nil)
+	req.Header.Set("Origin", "http://localhost:5174")
+	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	req.Header.Set("Access-Control-Request-Headers", "x-partflow-cloud-api-url")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, req)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected successful preflight, got %d", response.Code)
+	}
+	if !strings.Contains(strings.ToLower(response.Header().Get("Access-Control-Allow-Headers")), "x-partflow-cloud-api-url") {
+		t.Fatalf("expected cloud API URL header to be allowed, got %q", response.Header().Get("Access-Control-Allow-Headers"))
 	}
 }

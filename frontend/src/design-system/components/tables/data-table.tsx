@@ -53,6 +53,7 @@ export interface DataTableProps<T> {
   onExport?: (data: T[]) => void;
   refreshable?: boolean;
   onRefresh?: () => void;
+  showColumnMenu?: boolean;
   expandable?: boolean;
   renderExpanded?: (row: T) => React.ReactNode;
 }
@@ -70,6 +71,7 @@ export function DataTable<T extends Record<string, any>>({
   onExport,
   refreshable = false,
   onRefresh,
+  showColumnMenu = true,
   expandable = false,
   renderExpanded,
 }: DataTableProps<T>) {
@@ -81,7 +83,7 @@ export function DataTable<T extends Record<string, any>>({
   const [columnVisibility, setColumnVisibility] = useState<Set<string>>(
     new Set(columns.map(col => col.key))
   );
-  const [showColumnMenu, setShowColumnMenu] = useState(false);
+  const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
 
   const visibleColumns = useMemo(() => 
     columns.filter(col => columnVisibility.has(col.key)),
@@ -269,35 +271,37 @@ export function DataTable<T extends Record<string, any>>({
             </Button>
           )}
 
-          <div className="relative">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowColumnMenu(!showColumnMenu)}
-              className="text-text-secondary hover:text-text-primary"
-            >
-              <MoreHorizontal className="w-3.5 h-3.5" />
-            </Button>
-            
-            {showColumnMenu && (
-              <div className="absolute top-full right-0 mt-2 bg-surface border border-border rounded-lg shadow-lg p-2 min-w-[150px] z-10">
-                {columns.map((column) => (
-                  <div
-                    key={column.key}
-                    className="flex items-center gap-2 px-3 py-2 hover:bg-surface-elevated rounded cursor-pointer text-sm"
-                    onClick={() => handleColumnToggle(column.key)}
-                  >
-                    {columnVisibility.has(column.key) ? (
-                      <Eye className="w-4 h-4 text-text-tertiary" />
-                    ) : (
-                      <EyeOff className="w-4 h-4 text-text-tertiary" />
-                    )}
-                    <span className="text-text-primary">{column.title}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {showColumnMenu && (
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsColumnMenuOpen(!isColumnMenuOpen)}
+                className="text-text-secondary hover:text-text-primary"
+              >
+                <MoreHorizontal className="w-3.5 h-3.5" />
+              </Button>
+
+              {isColumnMenuOpen && (
+                <div className="absolute top-full right-0 mt-2 bg-surface border border-border rounded-lg shadow-lg p-2 min-w-[150px] z-10">
+                  {columns.map((column) => (
+                    <div
+                      key={column.key}
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-surface-elevated rounded cursor-pointer text-sm"
+                      onClick={() => handleColumnToggle(column.key)}
+                    >
+                      {columnVisibility.has(column.key) ? (
+                        <Eye className="w-4 h-4 text-text-tertiary" />
+                      ) : (
+                        <EyeOff className="w-4 h-4 text-text-tertiary" />
+                      )}
+                      <span className="text-text-primary">{column.title}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

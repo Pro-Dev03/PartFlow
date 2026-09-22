@@ -16,7 +16,7 @@ export interface CartItem {
   grade?: string;
 }
 
-export type PaymentMethod = 'cash' | 'card' | 'credit' | 'checks';
+export type PaymentMethod = 'cash' | 'card' | 'credit' | 'checks' | 'installment';
 
 export interface PaymentAllocation {
   amount: number;
@@ -35,6 +35,7 @@ export interface InvoiceData {
   saleDate: string;
   items: InvoiceItem[];
   subtotal: number;
+  discountAmount?: number;
   total: number;
   paidAmount: number;
   cashReceived?: number;
@@ -75,6 +76,7 @@ export interface SaleRequest {
   customer_id?: string;
   items: SaleItemRequest[];
   payment_method: string;
+  installment_months?: number;
   payment_amount?: number;
   notes?: string;
   tax_rate?: number;

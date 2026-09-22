@@ -313,12 +313,12 @@ export function useInventory() {
   });
 
   const deleteInventoryItemMutation = useMutation({
-    mutationFn: (itemId: string) => inventoryApi.delete(itemId, { permanent: true }),
+    mutationFn: (itemId: string) => inventoryApi.delete(itemId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['reports'] });
-      toast.success('تم حذف عنصر المخزون نهائيًا');
+      toast.success('تمت إزالة عنصر المخزون من القائمة وحفظه في السجل');
     },
     onError: (error: any) => {
       console.error('Delete inventory item failed:', error);
