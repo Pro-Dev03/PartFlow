@@ -51,7 +51,7 @@ export function shouldUseLocalApi(hostname = typeof window !== 'undefined' ? win
 }
 
 export function getActiveApiUrl(): string {
-  return getConnectionMode() === 'cloud' ? getCloudApiUrl() : localApiUrl;
+  return getConnectionMode() === 'cloud' ? getCloudApiUrl() : getLocalApiUrl();
 }
 
 /**
@@ -62,7 +62,7 @@ export function getCloudApiUrl(): string {
     const override = localStorage.getItem(CLOUD_API_URL_OVERRIDE_KEY)?.trim();
     if (override) return override.replace(/\/+$/, '');
   }
-  return cloudApiUrl;
+  return cloudApiUrl.replace(/\/+$/, '');
 }
 
 export function setCloudApiUrl(url: string): void {
@@ -76,7 +76,7 @@ export function setCloudApiUrl(url: string): void {
  * Get the local API URL for business operations
  */
 export function getLocalApiUrl(): string {
-  return localApiUrl;
+  return localApiUrl.replace(/\/+$/, '');
 }
 
 export const appConfig = {
