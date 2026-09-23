@@ -36,6 +36,7 @@ import {
   Wifi,
   ShoppingCart,
   Trash2,
+  RefreshCcw,
   UserRound,
   ChevronDown,
   FilePlus2,
@@ -1572,6 +1573,16 @@ export function POSPage() {
                 <Trash2 className="w-4 h-4" />
               </Button>
             )}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => window.location.reload()}
+              className="gap-2"
+              title="تحديث الصفحة"
+            >
+              <RefreshCcw className="w-4 h-4" />
+              <span>تحديث</span>
+            </Button>
             <Button
               variant="secondary"
               size="sm"

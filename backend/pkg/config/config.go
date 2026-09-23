@@ -48,8 +48,9 @@ type Config struct {
 	RedisDB       int
 
 	// Logging
-	LogLevel  string
-	LogFormat string // json, text
+	LogLevel              string
+	LogFormat             string // json, text
+	RequestLoggingEnabled bool
 
 	// CORS
 	CORSAllowedOrigins []string
@@ -84,6 +85,18 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	serverMode := strings.TrimSpace(strings.ToLower(getEnv("SERVER_MODE", getEnv("APP_ENV", "debug"))))
+	isReleaseMode := serverMode == "release" || serverMode == "production"
+	logLevel := getEnv("LOG_LEVEL", "")
+	if logLevel == "" {
+		if isReleaseMode {
+			logLevel = "warn"
+		} else {
+			logLevel = "info"
+		}
+	}
+	requestLoggingEnabled := getBoolEnv("REQUEST_LOGGING_ENABLED", !isReleaseMode)
 
 	cfg := &Config{
 		// Server
@@ -121,8 +134,9 @@ func Load() (*Config, error) {
 		RedisDB:       getIntEnv("REDIS_DB", 0),
 
 		// Logging
-		LogLevel:  getEnv("LOG_LEVEL", "info"),
-		LogFormat: getEnv("LOG_FORMAT", "json"),
+		LogLevel:              logLevel,
+		LogFormat:             getEnv("LOG_FORMAT", "json"),
+		RequestLoggingEnabled: requestLoggingEnabled,
 
 		// CORS
 		CORSAllowedOrigins: []string{getEnv("CORS_ALLOWED_ORIGINS", "*")},

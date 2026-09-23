@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -9,9 +11,31 @@ import (
 	"github.com/partflow/smart-store/pkg/logger"
 )
 
+func RequestLoggingEnabled() bool {
+	mode := strings.TrimSpace(strings.ToLower(os.Getenv("SERVER_MODE")))
+	if mode == "" {
+		mode = strings.TrimSpace(strings.ToLower(os.Getenv("APP_ENV")))
+	}
+
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("REQUEST_LOGGING_ENABLED")))
+	if value == "0" || value == "false" || value == "no" {
+		return false
+	}
+	if value == "1" || value == "true" || value == "yes" {
+		return true
+	}
+
+	return !(mode == "release" || mode == "production")
+}
+
 // LoggingMiddleware provides structured logging for HTTP requests
 func LoggingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !RequestLoggingEnabled() {
+			c.Next()
+			return
+		}
+
 		start := time.Now()
 		path := c.Request.URL.Path
 		method := c.Request.Method
@@ -75,6 +99,10 @@ func LoggingMiddleware() gin.HandlerFunc {
 // ErrorLoggingMiddleware logs errors with detailed context
 func ErrorLoggingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !RequestLoggingEnabled() {
+			c.Next()
+			return
+		}
 		c.Next()
 
 		// Check for errors
@@ -99,6 +127,10 @@ func ErrorLoggingMiddleware() gin.HandlerFunc {
 // PerformanceLoggingMiddleware logs performance metrics
 func PerformanceLoggingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !RequestLoggingEnabled() {
+			c.Next()
+			return
+		}
 		start := time.Now()
 
 		c.Next()
@@ -126,6 +158,10 @@ func PerformanceLoggingMiddleware() gin.HandlerFunc {
 // SecurityLoggingMiddleware logs security-related events
 func SecurityLoggingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !RequestLoggingEnabled() {
+			c.Next()
+			return
+		}
 		// Log authentication failures
 		if c.Writer.Status() == 401 {
 			requestID := GetRequestID(c)

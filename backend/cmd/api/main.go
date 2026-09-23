@@ -36,10 +36,13 @@ func main() {
 	// Initialize structured logger
 	logConfig := logger.DefaultConfig()
 	logConfig.Level = cfg.LogLevel
-	logConfig.EnableConsole = true
+	logConfig.EnableConsole = cfg.RequestLoggingEnabled
 	logConfig.EnableFile = true
 	logConfig.EnableCaller = true
 	logConfig.TimeFormat = time.RFC3339
+	if cfg.ServerMode == "release" || cfg.ServerMode == "production" {
+		logConfig.EnableConsole = false
+	}
 	if err := logger.Initialize(logConfig); err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}

@@ -42,6 +42,26 @@ func TestLoad_RejectsDisabledAuthInReleaseMode(t *testing.T) {
 	}
 }
 
+func TestLoad_UsesProductionLoggingDefaultsInReleaseMode(t *testing.T) {
+	t.Setenv("SERVER_MODE", "release")
+	t.Setenv("DATABASE_URL", "sqlite://test.db")
+	t.Setenv("JWT_SECRET", "production-secret")
+	t.Setenv("DISABLE_AUTH", "false")
+	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "true")
+	t.Setenv("PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error in release mode: %v", err)
+	}
+	if cfg.LogLevel != "warn" {
+		t.Fatalf("LogLevel = %q, want warn in release mode", cfg.LogLevel)
+	}
+	if cfg.RequestLoggingEnabled {
+		t.Fatal("RequestLoggingEnabled = true in release mode, want false")
+	}
+}
+
 func TestLoad_RejectsCloudAuthDisabledInReleaseMode(t *testing.T) {
 	t.Setenv("SERVER_MODE", "release")
 	t.Setenv("DATABASE_URL", "sqlite://test.db")
