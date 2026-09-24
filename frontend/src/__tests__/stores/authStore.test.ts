@@ -53,10 +53,6 @@ describe('cloud subscription validation', () => {
 
   it('uses the local backend for local-mode login', async () => {
     localStorage.setItem(CONNECTION_MODE_KEY, 'local');
-    const loginSpy = vi.spyOn(authApi, 'login').mockResolvedValue({
-      user: { id: 'u-1', email: 'owner@partflow.com', first_name: 'Admin', last_name: 'Owner', phone: '+970599000000', is_active: true, role: 'owner' },
-      token: 'local-access-token',
-    } as any);
     const cloudLoginSpy = vi.spyOn(authApi, 'loginWithCloud');
 	cloudLoginSpy.mockResolvedValue({ token: 'cloud-access-token' } as any);
   vi.spyOn(authApi, 'createLocalSession').mockResolvedValue({

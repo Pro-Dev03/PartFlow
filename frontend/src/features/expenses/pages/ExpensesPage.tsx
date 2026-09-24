@@ -17,7 +17,6 @@ import { Modal } from '../../../design-system/components/modal';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { ReportActions } from '../../../design-system/components/report-actions';
 import { 
-  DollarSign, 
   Search, 
   Plus, 
   Filter,
@@ -184,12 +183,13 @@ export function ExpensesPage() {
     },
   });
 
+  const nestedExpenseRows = (expensesData?.data as { data?: unknown } | undefined)?.data;
   const expenseRows = Array.isArray(expensesData)
     ? expensesData
     : Array.isArray(expensesData?.data)
     ? expensesData.data
-    : Array.isArray((expensesData?.data as { data?: unknown } | undefined)?.data)
-      ? (expensesData?.data as { data: any[] }).data
+    : Array.isArray(nestedExpenseRows)
+      ? nestedExpenseRows
       : [];
   const expenses = expenseRows.map(normalizeExpenseForDisplay);
 

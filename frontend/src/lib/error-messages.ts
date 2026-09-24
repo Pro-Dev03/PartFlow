@@ -142,11 +142,17 @@ export function isNetworkError(error: any): boolean {
   if (!error) return false;
 
   if (typeof navigator !== 'undefined' && !navigator.onLine) return true;
-  if (error.name === 'AbortError' || error.status === 0) return true;
+  if (error.name === 'AbortError' || error.status === 0 || error.status === 408 || error.status >= 500) return true;
   if (['NETWORK_ERROR', 'TIMEOUT', 'TIMEOUT_ERROR', 'CONNECTION_FAILED'].includes(error.code)) return true;
+
+  const causeCode = String(error.code || error.cause?.code || '').toUpperCase();
+  if (['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT'].includes(causeCode)) {
+    return true;
+  }
 
   const message = String(error.message || '').toLowerCase();
   return message.includes('failed to fetch')
+    || message.includes('fetch failed')
     || message.includes('networkerror')
     || message.includes('network error')
     || message.includes('connection refused')

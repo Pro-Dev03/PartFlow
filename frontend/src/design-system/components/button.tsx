@@ -11,7 +11,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   tableAction?: boolean;
 }
 
-const DEFAULT_SIZE: 'md' = 'md';
+const DEFAULT_SIZE = 'md' as const;
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({

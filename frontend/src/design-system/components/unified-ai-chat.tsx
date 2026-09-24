@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, ArrowUpRight, Check, CheckCheck, Send } from 'lucide-react';
+import { X, Check, CheckCheck, Send } from 'lucide-react';
 import { generateAssistantReply } from '../../lib/assistant-response';
 import type { AssistantContext } from '../../lib/assistant-response';
 import NeonAIBot from './neon-ai-bot';
@@ -60,14 +60,6 @@ export default function UnifiedAIChat({
     { id: 'debts', icon: '💰', label: 'متابعة الديون والتحصيل', action: 'هل توجد ديون متأخرة؟' },
     { id: 'sales', icon: '📊', label: 'تحليل المبيعات والأرباح', action: 'أعطني ملخص المبيعات' },
     { id: 'suggestions', icon: '⚡', label: 'الحصول على اقتراحات عملية', action: 'ما هي أولويات اليوم؟' },
-  ];
-
-  const suggestedQuestions = [
-    'ما الذي يحدث الآن؟',
-    'ما هي أولويات اليوم؟',
-    'هل توجد ديون متأخرة؟',
-    'أظهر لي المخزون',
-    'أعطني ملخص المبيعات',
   ];
 
   const scrollToBottom = () => {

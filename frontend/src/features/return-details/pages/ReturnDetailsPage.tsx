@@ -17,7 +17,8 @@ import {
   DollarSign,
   RefreshCw,
   History,
-  Calculator
+  Calculator,
+  ClipboardCheck,
 } from 'lucide-react';
 
 interface ReturnItem {

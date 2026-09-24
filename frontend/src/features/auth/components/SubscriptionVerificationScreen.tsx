@@ -1,4 +1,4 @@
-import { CloudCog, LockKeyhole, ShieldCheck } from 'lucide-react';
+import { CloudCog, LockKeyhole } from 'lucide-react';
 import { PartFlowLogo } from '../../../components/branding/PartFlowLogo';
 
 export function SubscriptionVerificationScreen() {

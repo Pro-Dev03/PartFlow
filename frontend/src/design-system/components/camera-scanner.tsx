@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Camera, X, RefreshCw, Check } from 'lucide-react';
 
 interface CameraScannerProps {
@@ -13,15 +13,48 @@ export function CameraScanner({ onScan, onClose, onError }: CameraScannerProps) 
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const detectionIntervalRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    startCamera();
-    return () => {
-      stopCamera();
-    };
+  const stopCamera = useCallback(() => {
+    if (detectionIntervalRef.current !== null) {
+      window.clearInterval(detectionIntervalRef.current);
+      detectionIntervalRef.current = null;
+    }
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setIsScanning(false);
   }, []);
 
-  const startCamera = async () => {
+  const startBarcodeDetection = useCallback(() => {
+    if (detectionIntervalRef.current !== null) {
+      window.clearInterval(detectionIntervalRef.current);
+    }
+    detectionIntervalRef.current = window.setInterval(() => {
+      if (!videoRef.current || !canvasRef.current) {
+        if (detectionIntervalRef.current !== null) {
+          window.clearInterval(detectionIntervalRef.current);
+          detectionIntervalRef.current = null;
+        }
+        return;
+      }
+
+      const canvas = canvasRef.current;
+      const video = videoRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0);
+        // A barcode decoder can process the captured frame here.
+      }
+    }, 100);
+  }, []);
+
+  const startCamera = useCallback(async () => {
     try {
       setIsScanning(true);
       setError(null);
@@ -33,52 +66,23 @@ export function CameraScanner({ onScan, onClose, onError }: CameraScannerProps) 
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        await videoRef.current.play();
       }
       
       // Start barcode detection (simplified version)
       startBarcodeDetection();
-    } catch (err) {
+    } catch  {
       const errorMessage = 'تعذر الوصول للكاميرا. يرجى التأكد من الإذن.';
       setError(errorMessage);
       setIsScanning(false);
       onError?.(errorMessage);
     }
-  };
+  }, [onError, startBarcodeDetection]);
 
-  const stopCamera = () => {
-    if (videoRef.current?.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-      videoRef.current.srcObject = null;
-    }
-    setIsScanning(false);
-  };
-
-  const startBarcodeDetection = () => {
-    // Simplified barcode detection logic
-    // In production, you would use a library like zxing or quagga
-    const detectionInterval = setInterval(() => {
-      if (!isScanning || !videoRef.current || !canvasRef.current) {
-        clearInterval(detectionInterval);
-        return;
-      }
-
-      // Capture frame
-      const canvas = canvasRef.current;
-      const video = videoRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(video, 0, 0);
-        
-        // Here you would implement actual barcode detection
-        // For now, this is a placeholder
-      }
-    }, 100);
-  };
+  useEffect(() => {
+    void startCamera();
+    return stopCamera;
+  }, [startCamera, stopCamera]);
 
   const handleManualScan = (barcode: string) => {
     if (barcode && !scannedBarcodes.includes(barcode)) {

@@ -72,10 +72,6 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
           value: Math.max(1, Number(item.min_stock ?? item.current_stock ?? item.stock ?? 1)),
         }))
       : [];
-    const attentionData = [
-      { label: 'منخفض المخزون', value: Number(report.low_stock_count || (Array.isArray(report.low_stock_items) ? report.low_stock_items.length : 0)) },
-      { label: 'غير مصنف', value: Number(report.by_category?.['غير مصنف'] || 0) },
-    ].filter(item => Number.isFinite(item.value) && item.value > 0);
     const supplierData = Array.isArray(report.by_supplier)
       ? report.by_supplier.map((item: any) => ({ label: item.supplier_name || 'تاجر', value: Number(item.total_purchases ?? item.total_cost ?? 0) }))
       : [];
@@ -154,7 +150,6 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       { label: 'المستحق', value: Number(report.total_outstanding || 0), color: '#f59e0b' },
     ].filter(item => Number.isFinite(item.value) && item.value > 0);
     return {
-      categoryData,
       trendData: reportType === 'suppliers' || reportType === 'purchases-suppliers'
         ? supplierBalanceData
         : profitTrendData,
@@ -171,7 +166,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
     };
   };
 
-  const { categoryData, trendData, sourceData, productData } = processChartData();
+  const { trendData, sourceData, productData } = processChartData();
   const report = data?.data ?? data;
   const hasReturnedProductData = Array.isArray(report?.by_product) && report.by_product.length > 0;
 
@@ -195,7 +190,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '14px' }}
          className="grid-cols-1 lg:grid-cols-2">
-      {(reportType === 'profit' ? false : (reportType !== 'returns' && reportType !== 'used-items' && reportType !== 'debts') || (reportType === 'returns' && hasReturnedProductData)) ? (
+      {(reportType === 'profit' ? false : (reportType !== 'returns' && reportType !== 'debts') || (reportType === 'returns' && hasReturnedProductData)) ? (
         <SimpleBarChart
           title={reportType === 'products'
             ? 'يحتاج انتباهك'
@@ -220,7 +215,7 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
           loading={loading}
         />
       )}
-      {reportType !== 'inventory' && reportType !== 'debts' && reportType !== 'used-items' && reportType !== 'returns' && !(reportType === 'purchases' && trendData.length <= 1) && (
+      {reportType !== 'inventory' && reportType !== 'debts' && reportType !== 'returns' && !(reportType === 'purchases' && trendData.length <= 1) && (
         <div style={{ gridColumn: '1 / -1', width: '100%', maxWidth: '1200px', marginInline: 'auto' }}>
           <SimpleLineChart
             title={reportType === 'suppliers' || reportType === 'purchases-suppliers'

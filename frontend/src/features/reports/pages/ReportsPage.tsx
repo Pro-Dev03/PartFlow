@@ -12,7 +12,6 @@ import {
   BarChart3,
   Banknote,
   ReceiptText,
-  Sparkles,
   Target,
   Zap,
   RotateCcw
@@ -143,7 +142,7 @@ export function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const reportFromUrl = searchParams.get('report');
   const rangeFromUrl = searchParams.get('range');
-  const normalizedReportFromUrl = reportFromUrl === 'sales' || reportFromUrl === 'profit' || reportFromUrl === 'net-sales' || reportFromUrl === 'used-items' ? 'sales-profit' : reportFromUrl === 'suppliers' || reportFromUrl === 'purchases' ? 'purchases-suppliers' : reportFromUrl;
+  const normalizedReportFromUrl = reportFromUrl === 'sales' || reportFromUrl === 'profit' || reportFromUrl === 'net-sales' ? 'sales-profit' : reportFromUrl === 'suppliers' || reportFromUrl === 'purchases' ? 'purchases-suppliers' : reportFromUrl;
   const initialReport = ['sales-profit', 'tax', 'purchases-suppliers', 'expenses', 'returns', 'inventory', 'debts'].includes(normalizedReportFromUrl || '')
     ? normalizedReportFromUrl as string
     : 'sales';
@@ -299,7 +298,7 @@ export function ReportsPage() {
         return {
           title: 'ملخص المبيعات والأرباح',
           text: salesCount > 0
-            ? `تم تنفيذ ${salesCount} عملية بإيراد ${money(salesRevenue)} وربح إجمالي ${money(salesProfit)} وصافي ربح ${money(profitNet)}${topProductName ? `. المنتج الأعلى ربحًا: ${topProductName}.` : '.'}`
+            ? `تم تنفيذ ${salesCount} عملية بإيراد ${money(profitRevenue)} وتكلفة مبيعات ${money(profitCogs)} وربح إجمالي ${money(salesProfit)} وصافي ربح ${money(profitNet)} بهامش ${profitMargin.toLocaleString(undefined, { maximumFractionDigits: 2 })}%${topProductName ? `. المنتج الأعلى ربحًا: ${topProductName}.` : '.'}`
             : 'لا توجد مبيعات في الفترة المحددة.',
         };
       case 'tax':
@@ -369,11 +368,6 @@ export function ReportsPage() {
               <p className="premium-insight-text">
                 {reportInsight.text}
               </p>
-              {selectedReport === 'sales-profit' && salesCount > 0 && (
-                <p className="premium-insight-text">
-                  هامش الربح المحقق: {salesRevenue > 0 ? ((salesProfit / salesRevenue) * 100).toFixed(1) : '0.0'}%
-                </p>
-              )}
             </div>
       </div>
 
@@ -656,65 +650,6 @@ export function ReportsPage() {
               </table>
                 );
               })()}
-            </div>
-          ) : selectedReport === 'used-items' ? (
-            // تقرير القطع المستعملة - عرض خاص
-            <div className="horizontal-scroll">
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المنتج</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>اشتريت من</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>اشتريت بـ</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>بعت بـ</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الربح</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الكمية المباعة</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الحالة</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportRows.length > 0 ? (
-                    reportRows.map((item: any, index: number) => {
-                      const purchaseCost = Number(item.purchase_cost || 0);
-                      const sellingPrice = Number(item.selling_price || 0);
-                      const profit = sellingPrice - purchaseCost;
-                      return (
-                        <tr key={index} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                          <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>
-                            {item.product_name || item.name || '-'}
-                          </td>
-                          <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
-                            {item.seller_name || 'غير محدد'}
-                          </td>
-                          <td style={{ padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
-                            ₪{purchaseCost.toFixed(2)}
-                          </td>
-                          <td style={{ padding: '12px', color: 'var(--color-success)', fontSize: '13px', fontWeight: '600' }}>
-                            ₪{sellingPrice.toFixed(2)}
-                          </td>
-                          <td style={{ padding: '12px', color: profit > 0 ? 'var(--color-success)' : 'var(--color-error)', fontSize: '13px', fontWeight: '600' }}>
-                            ₪{profit.toFixed(2)}
-                          </td>
-                          <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>
-                            {item.status === 'SOLD' ? '1' : '0'}
-                          </td>
-                          <td style={{ padding: '12px' }}>
-                            <Badge variant={item.status === 'AVAILABLE' ? 'success' : item.status === 'SOLD' ? 'default' : 'warning'}>
-                              {item.status === 'AVAILABLE' ? 'متاحة' : item.status === 'SOLD' ? 'مباعة' : item.status}
-                            </Badge>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                        لا توجد قطع مستعملة
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
             </div>
           ) : selectedReport === 'debts' && reportPayload && typeof reportPayload === 'object' ? (
             <div className="horizontal-scroll">

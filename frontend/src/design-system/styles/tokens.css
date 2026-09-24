@@ -1,32 +1,30 @@
 /**
- * PartFlow Design Tokens - Single Source of Truth
- * 
- * نظام متكامل للقيم البصرية الأساسية
- * مستوحى من demo-logim.html - Futuristic Professional Design System
- * 
- * Architecture: Primitive → Semantic → Tailwind → Components → Pages
+ * PartFlow Design Tokens - Single Source of Truth v2
+ * Professional Modern Design System
  */
 
 /* ============================================================================
-   PRIMITIVE TOKENS - الألوان الأساسية
+   PRIMITIVE TOKENS
    ============================================================================ */
 
 :root {
-  /* Primitive Colors - لا تعتمد على متغيرات أخرى */
+  /* Primitive Colors */
   --cyan: #14b8a6;
   --blue: #0ea5e9;
   --green: #10b981;
   --yellow: #f59e0b;
   --red: #ef4444;
-  
-  /* Backgrounds */
-  --bg-background: #070a12;
-  --bg-surface: #0c111c;
-  --bg-surface-elevated: #111827;
-  --bg-surface-3: #151e2d;
-  
+
+  /* Backgrounds - Refined dark surfaces */
+  --bg-background: #0a0d14;
+  --bg-surface: #0f141e;
+  --bg-surface-elevated: #161d29;
+  --bg-surface-3: #1c2532;
+  --bg-surface-muted: rgba(20, 28, 41, 0.5);
+
   /* Borders */
-  --border-default: rgba(148, 163, 184, 0.13);
+  --border-default: rgba(148, 163, 184, 0.10);
+  --border-subtle: rgba(148, 163, 184, 0.06);
   --border-primary: rgba(37, 99, 235, 0.35);
   --border-width-thin: 1px;
   --border-width-medium: 2px;
@@ -34,14 +32,15 @@
   --border-style-solid: solid;
   --border-style-dashed: dashed;
   --border-style-dotted: dotted;
-  
+
   /* Text */
   --text-primary: #f1f7ff;
   --text-secondary: #94a3b8;
   --text-tertiary: #64748b;
   --text-muted: #475569;
   --text-disabled: #334155;
-  
+  --text-on-primary: #ffffff;
+
   /* Spacing */
   --spacing-xs: 4px;
   --spacing-sm: 8px;
@@ -51,8 +50,8 @@
   --spacing-2xl: 32px;
   --spacing-3xl: 48px;
   --spacing-4xl: 64px;
-  
-  /* Spacing Numeric (للاستخدام في component-specific tokens) */
+
+  /* Spacing Numeric */
   --spacing-1: 4px;
   --spacing-2: 8px;
   --spacing-3: 12px;
@@ -63,23 +62,26 @@
   --spacing-10: 40px;
   --spacing-12: 48px;
   --spacing-16: 64px;
-  
+
   /* Radius */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 20px;
+  --radius-2xl: 24px;
   --radius-full: 9999px;
-  
+
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
   --shadow-glow: 0 0 25px rgba(37, 99, 235, 0.07);
   --shadow-glow-strong: 0 0 30px rgba(37, 99, 235, 0.10);
   --shadow-glow-soft: 0 0 20px rgba(37, 99, 235, 0.08);
-  --shadow-card: 0 15px 50px rgba(0, 0, 0, 0.20);
+  --shadow-card: 0 15px 50px rgba(0, 0, 0, 0.30);
+  --shadow-inner: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 20px 40px rgba(0, 0, 0, 0.15);
 
   /* Component Colors - Dark Theme */
   --color-primary: var(--primary);
@@ -87,54 +89,57 @@
   --color-primary-active: var(--primary-active);
   --color-primary-05: rgba(37, 99, 235, 0.05);
   --color-primary-08: rgba(37, 99, 235, 0.08);
-  --color-primary-10: rgba(37, 99, 235, 0.1);
+  --color-primary-10: rgba(37, 99, 235, 0.10);
   --color-primary-12: rgba(37, 99, 235, 0.12);
   --color-primary-15: rgba(37, 99, 235, 0.15);
-  --color-primary-20: rgba(37, 99, 235, 0.2);
+  --color-primary-20: rgba(37, 99, 235, 0.20);
   --color-primary-25: rgba(37, 99, 235, 0.25);
-  --color-primary-30: rgba(37, 99, 235, 0.3);
-  --color-primary-40: rgba(37, 99, 235, 0.4);
-  --color-primary-50: rgba(37, 99, 235, 0.5);
+  --color-primary-30: rgba(37, 99, 235, 0.30);
+  --color-primary-40: rgba(37, 99, 235, 0.40);
+  --color-primary-50: rgba(37, 99, 235, 0.50);
   --color-primary-85: rgba(37, 99, 235, 0.85);
-  --color-primary-90: rgba(37, 99, 235, 0.9);
+  --color-primary-90: rgba(37, 99, 235, 0.90);
 
   --color-success: var(--success);
   --color-success-hover: var(--success-hover);
-  --color-success-10: rgba(16, 185, 129, 0.1);
-  --color-success-20: rgba(16, 185, 129, 0.2);
-  --color-success-30: rgba(16, 185, 129, 0.3);
+  --color-success-10: rgba(16, 185, 129, 0.10);
+  --color-success-20: rgba(16, 185, 129, 0.20);
+  --color-success-30: rgba(16, 185, 129, 0.30);
 
   --color-danger: var(--danger);
   --color-danger-hover: var(--danger-hover);
-  --color-danger-10: rgba(239, 68, 68, 0.1);
-  --color-danger-20: rgba(239, 68, 68, 0.2);
-  --color-danger-30: rgba(239, 68, 68, 0.3);
+  --color-danger-10: rgba(239, 68, 68, 0.10);
+  --color-danger-20: rgba(239, 68, 68, 0.20);
+  --color-danger-30: rgba(239, 68, 68, 0.30);
 
   --color-warning: var(--warning);
   --color-warning-hover: var(--warning-hover);
-  --color-warning-10: rgba(245, 158, 11, 0.1);
-  --color-warning-20: rgba(245, 158, 11, 0.2);
-  --color-warning-30: rgba(245, 158, 11, 0.3);
+  --color-warning-10: rgba(245, 158, 11, 0.10);
+  --color-warning-20: rgba(245, 158, 11, 0.20);
+  --color-warning-30: rgba(245, 158, 11, 0.30);
 
   --color-info: var(--info);
   --color-info-hover: var(--info-hover);
   --color-info-08: rgba(14, 165, 233, 0.08);
-  --color-info-10: rgba(14, 165, 233, 0.1);
-  --color-info-20: rgba(14, 165, 233, 0.2);
-  --color-info-30: rgba(14, 165, 233, 0.3);
+  --color-info-10: rgba(14, 165, 233, 0.10);
+  --color-info-20: rgba(14, 165, 233, 0.20);
+  --color-info-30: rgba(14, 165, 233, 0.30);
+
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
 }
 
 /* ============================================================================
-   SEMANTIC TOKENS - تعتمد على Primitive Tokens
+   SEMANTIC TOKENS
    ============================================================================ */
 
 :root {
-  /* Primary/Accent */
+  /* Primary */
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
   --primary-active: #1e40af;
-  
-  /* Status - تعتمد على Primitive Colors */
+
+  /* Status */
   --success: var(--green);
   --success-hover: #10b981;
   --warning: var(--yellow);
@@ -143,79 +148,74 @@
   --danger-hover: #dc2626;
   --info: var(--blue);
   --info-hover: #0ea5e9;
-  
-  /* Light Theme - الوضع النهاري (للاستخدام المستقبلي) */
-  --light-bg-background: #F7F9FC;
-  --light-bg-surface: #FFFFFF;
-  --light-bg-surface-elevated: #FFFFFF;
-  --light-bg-border: #E2E8F0;
-  
-  --light-primary: #2563EB;
-  --light-primary-hover: #1D4ED8;
-  --light-primary-active: #1E40AF;
-  
-  --light-success: #16A34A;
-  --light-success-hover: #15803D;
-  --light-warning: #D97706;
-  --light-warning-hover: #B45309;
-  --light-danger: #DC2626;
-  --light-danger-hover: #B91C1C;
-  --light-info: #0ea5e9;
-  --light-info-hover: #0284c7;
-  
-  --light-text-primary: #111827;
-  --light-text-secondary: #475569;
-  --light-text-tertiary: #64748b;
-  --light-text-disabled: #94a3b8;
 }
 
 /* ============================================================================
-   TYPOGRAPHY - نظام الخطوط
+   TYPOGRAPHY
    ============================================================================ */
 
 :root {
-  /* Font Families - عائلات الخطوط */
+  /* Font Families */
   --font-family-arabic: 'Cairo', 'Tajawal', system-ui, -apple-system, sans-serif;
   --font-family-latin: 'Inter', system-ui, -apple-system, sans-serif;
-  
-  /* Font Sizes - أحجام الخطوط */
+  --font-family-base: var(--font-family-arabic);
+  --font-family-monospace: ui-monospace, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace';
+
+  /* Font Sizes - Modern scale */
+  --font-size-display: 40px;
   --font-size-page-title: 32px;
-  --font-size-section-title: 28px;
-  --font-size-card-title: 24px;
-  --font-size-body: 16px;
+  --font-size-section-title: 24px;
+  --font-size-card-title: 18px;
+  --font-size-h1: 30px;
+  --font-size-h2: 22px;
+  --font-size-h3: 17px;
+  --font-size-body: 15px;
   --font-size-secondary: 14px;
   --font-size-caption: 12px;
-  
-  /* Font Weights - وزن الخطوط */
+  --font-size-small: 13px;
+  --font-size-tiny: 11px;
+  --font-size-metric: 32px;
+  --font-size-eyebrow: 10px;
+
+  /* Font Weights */
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
-  
-  /* Line Heights - ارتفاع السطر */
-  --line-height-tight: 1.25;
+  --font-weight-extrabold: 800;
+
+  /* Line Heights */
+  --line-height-tight: 1.2;
   --line-height-normal: 1.5;
-  --line-height-relaxed: 1.75;
-  
-  /* Letter Spacing - المسافة بين الحروف */
-  --letter-spacing-tight: -0.025em;
+  --line-height-relaxed: 1.7;
+
+  /* Letter Spacing */
+  --letter-spacing-tight: -0.5px;
   --letter-spacing-normal: 0;
-  --letter-spacing-wide: 0.025em;
+  --letter-spacing-wide: 0.5px;
+  --letter-spacing-wider: 1.4px;
+  --letter-spacing-widest: 2px;
+
+  /* Easing - FIXED: was missing */
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ============================================================================
-   TRANSITIONS - نظام الانتقالات
+   TRANSITIONS
    ============================================================================ */
 
 :root {
   --transition-fast: 150ms;
   --transition-normal: 200ms;
   --transition-slow: 300ms;
-  
+  --transition-slower: 250ms;
+
   --transition-timing-default: cubic-bezier(0.4, 0, 0.2, 1);
   --transition-timing-in: cubic-bezier(0.4, 0, 1, 1);
   --transition-timing-out: cubic-bezier(0, 0, 0.2, 1);
-  
+
   --transition-color: color var(--transition-normal) var(--transition-timing-default);
   --transition-background: background-color var(--transition-normal) var(--transition-timing-default);
   --transition-border: border-color var(--transition-normal) var(--transition-timing-default);
@@ -224,7 +224,7 @@
 }
 
 /* ============================================================================
-   Z-INDEX - نظام الطبقات
+   Z-INDEX
    ============================================================================ */
 
 :root {
@@ -238,7 +238,7 @@
 }
 
 /* ============================================================================
-   BREAKPOINTS - نقاط التوقف
+   BREAKPOINTS
    ============================================================================ */
 
 :root {
@@ -251,37 +251,31 @@
 }
 
 /* ============================================================================
-   RESPONSIVE ENHANCEMENTS - تحسينات الاستجابة (مستوحاة من worktrack)
+   RESPONSIVE ENHANCEMENTS
    ============================================================================ */
 
-/* Mobile-specific enhancements */
 @media (max-width: 768px) {
   :root {
-    /* Reduced spacing for mobile */
     --spacing-md: 12px;
     --spacing-lg: 16px;
     --spacing-xl: 20px;
-    
-    /* Touch-friendly sizing */
+
     --button-height-sm: 40px;
     --button-height-md: 44px;
     --button-height-lg: 48px;
-    
+
     --input-height-sm: 40px;
     --input-height-md: 44px;
     --input-height-lg: 48px;
-    
-    /* Compact cards */
+
     --card-padding-sm: var(--spacing-3);
     --card-padding-md: var(--spacing-4);
     --card-padding-lg: var(--spacing-5);
   }
 }
 
-/* Small mobile devices */
 @media (max-width: 375px) {
   :root {
-    /* Further reduced spacing */
     --spacing-md: 10px;
     --spacing-lg: 14px;
     --spacing-xl: 18px;
@@ -289,13 +283,14 @@
 }
 
 /* ============================================================================
-   RTL/LTR - دعم الاتجاهات
+   RTL/LTR
    ============================================================================ */
 
-[dir="rtl"] {
+:root {
   --font-family-base: var(--font-family-arabic);
   --direction-start: right;
   --direction-end: left;
+  --bg-surface-muted: rgba(20, 28, 41, 0.5);
 }
 
 [dir="ltr"] {
@@ -305,14 +300,14 @@
 }
 
 /* ============================================================================
-   COMPONENT-SPECIFIC TOKENS - مقاييس المكونات
+   COMPONENT TOKENS
    ============================================================================ */
 
 :root {
-  /* Button Component */
+  /* Button */
   --button-height-xs: 28px;
-  --button-height-sm: 32px;
-  --button-height-md: 40px;
+  --button-height-sm: 34px;
+  --button-height-md: 42px;
   --button-height-lg: 48px;
   --button-height-xl: 56px;
   --button-padding-xs: var(--spacing-2) var(--spacing-3);
@@ -320,19 +315,19 @@
   --button-padding-md: var(--spacing-3) var(--spacing-5);
   --button-padding-lg: var(--spacing-4) var(--spacing-6);
   --button-padding-xl: var(--spacing-5) var(--spacing-8);
-  --button-font-size-xs: var(--font-size-caption);
-  --button-font-size-sm: var(--font-size-secondary);
-  --button-font-size-md: var(--font-size-body);
-  --button-font-size-lg: var(--font-size-body);
+  --button-font-size-xs: var(--font-size-tiny);
+  --button-font-size-sm: var(--font-size-caption);
+  --button-font-size-md: var(--font-size-secondary);
+  --button-font-size-lg: var(--font-size-small);
   --button-font-size-xl: var(--font-size-section-title);
   --button-border-radius-sm: var(--radius-sm);
   --button-border-radius-md: var(--radius-md);
   --button-border-radius-lg: var(--radius-lg);
-  
-  /* Input Component */
+
+  /* Input */
   --input-height-xs: 28px;
-  --input-height-sm: 32px;
-  --input-height-md: 40px;
+  --input-height-sm: 34px;
+  --input-height-md: 42px;
   --input-height-lg: 48px;
   --input-height-xl: 56px;
   --input-padding-xs: var(--spacing-2) var(--spacing-3);
@@ -340,14 +335,14 @@
   --input-padding-md: var(--spacing-3) var(--spacing-4);
   --input-padding-lg: var(--spacing-4) var(--spacing-5);
   --input-padding-xl: var(--spacing-5) var(--spacing-6);
-  --input-font-size-xs: var(--font-size-caption);
-  --input-font-size-sm: var(--font-size-secondary);
-  --input-font-size-md: var(--font-size-body);
-  --input-font-size-lg: var(--font-size-body);
+  --input-font-size-xs: var(--font-size-tiny);
+  --input-font-size-sm: var(--font-size-caption);
+  --input-font-size-md: var(--font-size-secondary);
+  --input-font-size-lg: var(--font-size-small);
   --input-font-size-xl: var(--font-size-section-title);
   --input-border-radius: var(--radius-md);
-  
-  /* Card Component */
+
+  /* Card */
   --card-padding-xs: var(--spacing-3);
   --card-padding-sm: var(--spacing-4);
   --card-padding-md: var(--spacing-6);
@@ -357,8 +352,8 @@
   --card-header-padding: var(--spacing-5) var(--spacing-6);
   --card-body-padding: var(--spacing-6);
   --card-footer-padding: var(--spacing-4) var(--spacing-6);
-  
-  /* Table Component */
+
+  /* Table */
   --table-row-height: 48px;
   --table-row-height-compact: 40px;
   --table-row-height-comfortable: 56px;
@@ -368,8 +363,8 @@
   --table-header-height: 48px;
   --table-border-radius: var(--radius-md);
   --table-stripe-bg: var(--bg-surface-3);
-  
-  /* Badge Component */
+
+  /* Badge */
   --badge-padding-xs: 2px 7px;
   --badge-padding-sm: 3px 9px;
   --badge-padding-md: 4px 10px;
@@ -379,76 +374,76 @@
   --badge-font-size-md: 11px;
   --badge-font-size-lg: 12px;
   --badge-border-radius: var(--radius-full);
-  
-  /* Dialog/Modal Component */
+
+  /* Dialog/Modal */
   --modal-padding-sm: var(--spacing-4);
   --modal-padding-md: var(--spacing-6);
   --modal-padding-lg: var(--spacing-8);
-  --modal-border-radius: var(--radius-lg);
+  --modal-border-radius: var(--radius-xl);
   --modal-max-width-sm: 400px;
-  --modal-max-width-md: 600px;
-  --modal-max-width-lg: 800px;
-  --modal-max-width-xl: 1000px;
+  --modal-max-width-md: 500px;
+  --modal-max-width-lg: 600px;
+  --modal-max-width-xl: 800px;
   --modal-backdrop-blur: 8px;
-  
-  /* Sidebar Component */
+
+  /* Sidebar */
   --sidebar-width-expanded: 260px;
-  --sidebar-width-collapsed: 80px;
+  --sidebar-width-collapsed: 72px;
   --sidebar-width-mobile: 60px;
   --sidebar-item-height: 44px;
   --sidebar-item-padding: var(--spacing-3) var(--spacing-4);
   --sidebar-border-radius: 0;
-  
-  /* Topbar Component */
+
+  /* Topbar */
   --topbar-height: 60px;
   --topbar-height-mobile: 56px;
   --topbar-padding: var(--spacing-4) var(--spacing-6);
-  
-  /* Layout Component */
+
+  /* Layout */
   --content-padding-desktop: 24px 28px;
   --content-padding-mobile: 16px;
   --content-max-width: 1400px;
   --content-max-width-narrow: 1000px;
-  
-  /* Icon Component */
+
+  /* Icon */
   --icon-size-xs: 12px;
   --icon-size-sm: 16px;
   --icon-size-md: 20px;
   --icon-size-lg: 24px;
   --icon-size-xl: 32px;
   --icon-size-2xl: 48px;
-  
-  /* Dropdown Component */
+
+  /* Dropdown */
   --dropdown-min-width: 180px;
   --dropdown-max-width: 300px;
   --dropdown-item-height: 40px;
   --dropdown-item-padding: var(--spacing-3) var(--spacing-4);
   --dropdown-border-radius: var(--radius-md);
-  
-  /* Tabs Component */
+
+  /* Tabs */
   --tab-height: 44px;
   --tab-padding: var(--spacing-3) var(--spacing-5);
   --tab-font-size: var(--font-size-secondary);
   --tab-border-radius: var(--radius-md) var(--radius-md) 0 0;
-  
-  /* Toast Component */
+
+  /* Toast */
   --toast-min-width: 300px;
   --toast-max-width: 500px;
   --toast-padding: var(--spacing-4) var(--spacing-5);
   --toast-border-radius: var(--radius-lg);
-  
-  /* Pagination Component */
+
+  /* Pagination */
   --pagination-height: 36px;
   --pagination-min-width: 36px;
   --pagination-padding: var(--spacing-2) var(--spacing-3);
   --pagination-border-radius: var(--radius-md);
-  
-  /* Tooltip Component */
+
+  /* Tooltip */
   --tooltip-padding: var(--spacing-2) var(--spacing-3);
   --tooltip-font-size: var(--font-size-caption);
   --tooltip-border-radius: var(--radius-sm);
   --tooltip-max-width: 250px;
-  
+
   /* Form States */
   --form-label-color: var(--text-secondary);
   --form-label-font-size: var(--font-size-secondary);
@@ -458,56 +453,50 @@
   --form-error-color: var(--color-danger);
   --form-error-font-size: var(--font-size-caption);
   --form-success-color: var(--color-success);
-  
+
   /* Focus States */
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
   --focus-ring-color: var(--color-primary);
   --focus-ring-blur: 4px;
-  
+
   /* Disabled States */
   --disabled-opacity: 0.5;
   --disabled-cursor: not-allowed;
   --disabled-bg: var(--bg-surface-3);
   --disabled-text: var(--text-disabled);
-  
+
   /* Loading States */
   --loading-overlay-color: rgba(0, 0, 0, 0.5);
   --loading-spinner-size: 24px;
   --loading-spinner-border-width: 2px;
-  
+
   /* Empty States */
   --empty-state-min-height: 200px;
   --empty-state-icon-size: 48px;
   --empty-state-padding: var(--spacing-8);
-  
+
   /* Error States */
   --error-state-min-height: 200px;
   --error-state-icon-size: 48px;
   --error-state-padding: var(--spacing-8);
 }
+
 /* ============================================================================
-   COMPONENT SEMANTIC VARIABLES - الوضع الداكن (الافتراضي)
-   هذه المتغيرات كانت معرّفة سابقاً في .light فقط، مما كان يكسر المظهر
-   في الوضع الداكن. نعرّفها هنا لتكون المصدر الوحيد للحقيقة.
+   DARK THEME COMPONENT SEMANTICS
    ============================================================================ */
 
 :root {
-  /* Border default (used globally by globals.css) */
   --bg-border: var(--border-default);
-  --border-subtle: rgba(148, 163, 184, 0.08);
 
-  /* Card */
   --card-bg: var(--bg-surface);
   --card-border: var(--border-default);
   --card-shadow: var(--shadow-card);
 
-  /* Input */
   --input-bg: var(--bg-surface);
   --input-border: var(--border-default);
   --input-placeholder: var(--text-tertiary);
 
-  /* Primary gradient & button */
   --gradient-primary: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
   --button-primary-bg: #2563eb;
   --button-primary-text: #ffffff;
@@ -516,60 +505,50 @@
   --button-secondary-text: var(--text-primary);
   --button-secondary-border: var(--border-default);
 
-  /* Table */
   --table-header-bg: var(--bg-surface);
   --table-row-bg: var(--bg-surface);
   --table-row-hover: var(--bg-surface-elevated);
   --table-border: var(--border-default);
 
-  /* Sidebar */
   --sidebar-bg: var(--bg-surface);
   --sidebar-border: var(--border-default);
   --sidebar-item-hover: var(--bg-surface-elevated);
   --sidebar-item-active: var(--color-primary-10);
 
-  /* Topbar */
-  --topbar-bg: rgba(7, 10, 18, 0.9);
+  --topbar-bg: rgba(7, 10, 18, 0.8);
   --topbar-border: var(--border-default);
 
-  /* Text on primary */
   --text-on-primary: #ffffff;
 
-  /* Background gradient (dark default) */
   --bg-gradient-light: var(--bg-background);
 }
 
 /* ============================================================================
-   LIGHT THEME - الوضع النهاري
+   LIGHT THEME
    ============================================================================ */
 
 .light {
-  /* Background Colors - 60% */
-  --bg-background: #f1f5f9;
+  --bg-background: #f0f2f5;
   --bg-surface: #ffffff;
-  --bg-surface-elevated: #ffffff;
+  --bg-surface-elevated: #f8fafc;
   --bg-surface-3: #e2e8f0;
-  --bg-border: #cbd5e1;
+  --bg-surface-muted: rgba(226, 232, 240, 0.5);
 
-  /* Text Colors - 30% */
   --text-primary: #0f172a;
-  --text-secondary: #334155;
-  --text-tertiary: #475569;
-  --text-muted: #64748b;
-  --text-disabled: #94a3b8;
+  --text-secondary: #475569;
+  --text-tertiary: #64748b;
+  --text-muted: #94a3b8;
+  --text-disabled: #cbd5e1;
   --text-on-primary: #ffffff;
 
-  /* Border Colors */
-  --border-default: #e2e8f0;
-  --border-subtle: #f1f5f9;
+  --border-default: #d1d5db;
+  --border-subtle: #e2e8f0;
   --border-primary: rgba(37, 99, 235, 0.35);
-  
-  /* Primary/Accent */
+
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
   --primary-active: #1e40af;
-  
-  /* Status Colors */
+
   --success: #059669;
   --success-hover: #047857;
   --warning: #d97706;
@@ -578,8 +557,7 @@
   --danger-hover: #b91c1c;
   --info: #2563eb;
   --info-hover: #1d4ed8;
-  
-  /* Shadows */
+
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
@@ -588,82 +566,79 @@
   --shadow-glow-strong: 0 0 30px rgba(37, 99, 235, 0.10);
   --shadow-glow-soft: 0 0 20px rgba(37, 99, 235, 0.08);
   --shadow-card: 0 15px 50px rgba(0, 0, 0, 0.08);
-  
-  /* Component Colors */
+  --shadow-elevated: 0 20px 40px rgba(0, 0, 0, 0.10);
+
   --card-bg: #ffffff;
-  --card-border: #e2e8f0;
+  --card-border: #d1d5db;
   --card-shadow: var(--shadow-md);
-  
+
   --input-bg: #ffffff;
   --input-border: #cbd5e1;
   --input-placeholder: #94a3b8;
-  
+
   --gradient-primary: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  
+
   --button-primary-bg: #2563eb;
   --button-primary-text: #ffffff;
   --button-primary-hover: #1d4ed8;
-  
+
   --button-secondary-bg: #f1f5f9;
   --button-secondary-text: #0f172a;
   --button-secondary-border: #cbd5e1;
-  
+
   --table-header-bg: #f8fafc;
   --table-row-bg: #f8fafc;
   --table-row-hover: #f1f5f9;
-  --table-border: #e2e8f0;
-  
+  --table-border: #d1d5db;
+
   --sidebar-bg: #f8fafc;
-  --sidebar-border: #e2e8f0;
+  --sidebar-border: #d1d5db;
   --sidebar-item-hover: #f1f5f9;
   --sidebar-item-active: rgba(37, 99, 235, 0.08);
-  
-  --topbar-bg: rgba(248, 250, 252, 0.9);
-  --topbar-border: #e2e8f0;
-  
-  /* Primary Color - used in components */
+
+  --topbar-bg: rgba(248, 250, 252, 0.8);
+  --topbar-border: #d1d5db;
+
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-active: var(--primary-active);
   --color-primary-05: rgba(37, 99, 235, 0.05);
   --color-primary-08: rgba(37, 99, 235, 0.08);
-  --color-primary-10: rgba(37, 99, 235, 0.1);
+  --color-primary-10: rgba(37, 99, 235, 0.10);
   --color-primary-12: rgba(37, 99, 235, 0.12);
   --color-primary-15: rgba(37, 99, 235, 0.15);
-  --color-primary-20: rgba(37, 99, 235, 0.2);
+  --color-primary-20: rgba(37, 99, 235, 0.20);
   --color-primary-25: rgba(37, 99, 235, 0.25);
-  --color-primary-30: rgba(37, 99, 235, 0.3);
-  --color-primary-40: rgba(37, 99, 235, 0.4);
-  --color-primary-50: rgba(37, 99, 235, 0.5);
+  --color-primary-30: rgba(37, 99, 235, 0.30);
+  --color-primary-40: rgba(37, 99, 235, 0.40);
+  --color-primary-50: rgba(37, 99, 235, 0.50);
   --color-primary-85: rgba(37, 99, 235, 0.85);
-  --color-primary-90: rgba(37, 99, 235, 0.9);
-  
-  /* Status Colors with Opacity */
+  --color-primary-90: rgba(37, 99, 235, 0.90);
+
   --color-success: var(--success);
   --color-success-hover: var(--success-hover);
-  --color-success-10: rgba(5, 150, 105, 0.1);
-  --color-success-20: rgba(5, 150, 105, 0.2);
-  --color-success-30: rgba(5, 150, 105, 0.3);
-  
+  --color-success-10: rgba(5, 150, 105, 0.10);
+  --color-success-20: rgba(5, 150, 105, 0.20);
+  --color-success-30: rgba(5, 150, 105, 0.30);
+
   --color-danger: var(--danger);
   --color-danger-hover: var(--danger-hover);
-  --color-danger-10: rgba(220, 38, 38, 0.1);
-  --color-danger-20: rgba(220, 38, 38, 0.2);
-  --color-danger-30: rgba(220, 38, 38, 0.3);
-  
+  --color-danger-10: rgba(220, 38, 38, 0.10);
+  --color-danger-20: rgba(220, 38, 38, 0.20);
+  --color-danger-30: rgba(220, 38, 38, 0.30);
+
   --color-warning: var(--warning);
   --color-warning-hover: var(--warning-hover);
-  --color-warning-10: rgba(217, 119, 6, 0.1);
-  --color-warning-20: rgba(217, 119, 6, 0.2);
-  --color-warning-30: rgba(217, 119, 6, 0.3);
-  
+  --color-warning-10: rgba(217, 119, 6, 0.10);
+  --color-warning-20: rgba(217, 119, 6, 0.20);
+  --color-warning-30: rgba(217, 119, 6, 0.30);
+
   --color-info: var(--info);
   --color-info-hover: var(--info-hover);
   --color-info-08: rgba(37, 99, 235, 0.08);
-  --color-info-10: rgba(37, 99, 235, 0.1);
-  --color-info-20: rgba(37, 99, 235, 0.2);
-  --color-info-30: rgba(37, 99, 235, 0.3);
-  
-  /* Gradients */
+  --color-info-10: rgba(37, 99, 235, 0.10);
+  --color-info-20: rgba(37, 99, 235, 0.20);
+  --color-info-30: rgba(37, 99, 235, 0.30);
+
   --bg-gradient-light: #f8fafc;
 }

@@ -1,5 +1,5 @@
 import type { SelectHTMLAttributes } from 'react';
-import { forwardRef, useRef } from 'react';
+import { forwardRef, useId, useRef } from 'react';
 import { cn } from '../../utils';
 import { ChevronDown } from 'lucide-react';
 
@@ -30,7 +30,8 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
     children,
     ...props 
   }, ref) => {
-    const selectId = id || `select-${Math.random().toString(36).substr(2, 9)}`;
+    const generatedId = useId().replace(/:/g, '');
+    const selectId = id || `select-${generatedId}`;
     const arrowRef = useRef<SVGSVGElement>(null);
     
     const hasError = !!error;
@@ -50,7 +51,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
         {label && (
           <label
             htmlFor={selectId}
-            className="block text-xs font-semibold mb-2 transition-colors duration-200"
+            className="mb-1.5 block text-sm font-semibold transition-colors duration-200"
             style={{ color: 'var(--text-primary)', letterSpacing: '0.3px' }}
           >
             {label}
@@ -63,15 +64,14 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
             className={cn(
               'pf-select-control',
               'select-custom',
-              'flex w-full rounded-xl border appearance-none cursor-pointer',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:border-transparent',
-              'transition-all duration-300',
-              'disabled:cursor-not-allowed disabled:opacity-50',
-              'placeholder:text-text-muted/40',
-              'hover:border-cyan/30 hover:shadow-sm',
+              'flex w-full appearance-none rounded-xl border bg-[var(--input-bg)] text-[var(--text-primary)] cursor-pointer',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-30)] focus-visible:border-[var(--primary)]',
+              'transition-[border-color,box-shadow,background-color] duration-150',
+              'disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-[var(--bg-surface-3)]',
+              'hover:border-[var(--primary)]',
               sizes[size].className,
-              hasError && 'border-red-500 focus-visible:ring-red-500/50',
-              !hasError && 'focus-visible:ring-cyan/30 focus-visible:border-cyan/50 focus-visible:shadow-lg',
+              hasError && 'border-[var(--danger)] focus-visible:ring-[var(--color-danger-30)] focus-visible:border-[var(--danger)]',
+              !hasError && 'border-[var(--input-border)]',
               'pe-10',
               className
             )}
@@ -118,11 +118,11 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
             )}
           </select>
           {/* Chevron Down Arrow */}
-          <div className="select-control-arrow absolute inset-y-0 end-0 flex items-center pe-4 pointer-events-none">
+          <div className="select-control-arrow absolute inset-y-0 end-0 flex items-center justify-center pointer-events-none">
              <ChevronDown 
                ref={arrowRef}
                className={cn(
-                 'transition-all duration-300 text-text-muted/50',
+                 'transition-transform duration-150 text-[var(--text-tertiary)]',
                  size === 'sm' ? 'w-4 h-4' : size === 'md' ? 'w-5 h-5' : 'w-6 h-6'
                )}
              />

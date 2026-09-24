@@ -3,11 +3,10 @@ import { Badge } from '../../../design-system/components/badge';
 import { EmptyState } from '../../../design-system/components/empty-state';
 import { Button } from '../../../design-system/components/button';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../../../design-system/components/table';
-import { Archive, Package, PackageOpen, Eye, Edit, SlidersHorizontal, Trash2, Inbox, RefreshCw, FileText, Plus, ArrowUpRight, Trash, Copy, PencilLine } from 'lucide-react';
+import { Archive, Package, PackageOpen, Eye, SlidersHorizontal, Inbox, FileText, Plus, Trash, PencilLine } from 'lucide-react';
 import { ActionMenu } from '../../../design-system/components/action-menu';
 import { Product, InventoryItem, ViewMode } from '../types/inventory.types';
 import { formatPrice, normalizeCurrencyValue } from '../../../utils';
-import { cn } from '../../../utils';
 import { PaginationControls } from '../../../design-system/components/pagination-controls';
 import { getLocalProductImage } from '../../../services/localProductImages';
 import { getCategoryImage } from '../../../services/localCategoryImages';
@@ -28,38 +27,10 @@ interface InventoryListProps {
   onArchiveProduct?: (productId: string) => void;
   onDeleteInventoryItem?: (itemId: string) => void;
   onClearSearch: () => void;
-  onReorderFromSupplier?: (supplierId: string, productName: string) => void;
-  onViewInvoice?: (invoiceNumber: string) => void;
   onViewInventoryLedger?: (productId: string) => void;
   pagination?: { page: number; pageSize: number; total: number; onPageChange: (page: number) => void };
   layoutMode: 'cards' | 'table';
   supplierOnly?: boolean;
-}
-
-interface ActionButtonProps {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  variant?: 'default' | 'danger';
-}
-
-function ActionButton({ icon, label, onClick, variant = 'default' }: ActionButtonProps) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      onClick={onClick}
-      className={cn(
-        'text-text-secondary hover:text-text-primary',
-        variant === 'danger' && 'hover:text-danger hover:bg-danger/8'
-      )}
-      aria-label={label}
-      title={label}
-    >
-      {icon}
-    </Button>
-  );
 }
 
 function RowActionMenu({
@@ -164,8 +135,6 @@ export function InventoryList({
   onArchiveProduct,
   onDeleteInventoryItem,
   onClearSearch,
-  onReorderFromSupplier,
-  onViewInvoice,
   onViewInventoryLedger,
   pagination,
   layoutMode,

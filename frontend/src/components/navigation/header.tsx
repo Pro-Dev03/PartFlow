@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Bell, Moon, Sun, Globe, User, LogOut, Menu, ShoppingCart, Plus, Users, LayoutDashboard, Package, Wifi, HardDrive } from 'lucide-react';
+import { Moon, Sun, Globe, LogOut, Menu, ShoppingCart, Plus, Users, LayoutDashboard, Package } from 'lucide-react';
 import { useTranslation } from '../../hooks/useTranslation';
 import { SearchInput } from '../../design-system/components/search-input';
 import { Button } from '../../design-system/components/button';
@@ -93,7 +93,7 @@ export function Header({ onToggleSidebar }: HeaderProps) {
 
   return (
     <>
-      <header className="h-16 flex items-center justify-between px-lg" style={{
+      <header className="pf-app-header h-16 flex items-center justify-between px-lg" style={{
         background: 'var(--topbar-bg)', // Updated to use design system variable
         borderBottom: '1px solid var(--topbar-border)', // Updated to use design system variable
         boxShadow: 'var(--shadow-sm)' // Added subtle shadow from design system
@@ -236,7 +236,7 @@ export function Header({ onToggleSidebar }: HeaderProps) {
                variant="danger"
              />
              <div
-               className="flex items-center gap-2 rounded-full border px-2.5 py-1.5 transition-all duration-300"
+               className="pf-connection-status flex items-center gap-2 rounded-full border px-2.5 py-1.5 transition-all duration-300"
                style={{
                  background: 'rgba(16, 185, 129, 0.14)',
                  borderColor: 'rgba(16, 185, 129, 0.38)',

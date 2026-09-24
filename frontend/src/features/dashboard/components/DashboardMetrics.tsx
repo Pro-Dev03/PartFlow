@@ -113,7 +113,16 @@ export function DashboardMetrics({ stats }: DashboardMetricsProps) {
           العمليات المالية اليوم
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}
-             className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+             className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+          <StatCard
+            title="المحصل من المبيعات اليوم"
+            value={<span className="numeric-metric">₪{formatCurrency(todayCollected)}</span>}
+            icon={ShoppingCart}
+            subtitle="المدفوعات المسجلة من فواتير اليوم"
+            variant="featured"
+            compact
+            onClick={() => navigate('/app/reports?report=net-sales&range=today')}
+          />
           <StatCard
             title="تحصيل ديون العملاء اليوم"
             value={<span className="numeric-metric">₪{formatCurrency(todayDebtCollected)}</span>}

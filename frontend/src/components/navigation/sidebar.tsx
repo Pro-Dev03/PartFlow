@@ -6,11 +6,9 @@ import {
   LayoutDashboard,
   ShoppingCart,
   Package,
-  PackageMinus,
   Users,
   DollarSign,
   Truck,
-  CreditCard,
   RotateCcw,
   Settings,
   Scan,
@@ -119,7 +117,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'flex flex-col sidebar',
+        'pf-sidebar flex flex-col sidebar',
         'border-l border-[var(--border-default)]',
         'backdrop-blur-xl',
         'transition-all duration-[var(--transition-normal)] ease-[var(--ease-out)]',
@@ -130,7 +128,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
       )}
     >
       {/* Logo */}
-      <div className="flex items-center justify-center border-b border-[var(--border-default)] bg-[var(--bg-surface-elevated)] px-[var(--spacing-4)] py-[var(--spacing-5)]">
+      <div className="pf-sidebar-brand flex items-center justify-center border-b border-[var(--border-default)] bg-[var(--bg-surface-elevated)] px-[var(--spacing-4)] py-[var(--spacing-5)]">
         {!isCollapsed && (
           <div className="flex items-center gap-[var(--spacing-3)]">
             <div
@@ -172,7 +170,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-[var(--spacing-3)] py-[var(--spacing-4)] space-y-[var(--spacing-4)] overflow-hidden">
+      <nav className="pf-sidebar-nav flex-1 px-[var(--spacing-3)] py-[var(--spacing-4)] space-y-[var(--spacing-4)] overflow-hidden">
         {menuGroups.map((group) => {
           if (group.items.length === 0) return null;
 
@@ -224,7 +222,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
       </nav>
 
       {/* Quick Scan Button */}
-      <div className="border-t border-[var(--border-default)] bg-[var(--bg-surface-elevated)] p-[var(--spacing-4)]">
+      <div className="pf-sidebar-footer border-t border-[var(--border-default)] bg-[var(--bg-surface-elevated)] p-[var(--spacing-4)]">
         <button
           className={cn(
             'sidebar-scan-button w-full flex items-center gap-[var(--spacing-3)] rounded-[var(--radius-lg)] border border-[var(--border-default)] px-[var(--spacing-4)] py-[var(--spacing-3)] text-sm font-medium shadow-[var(--shadow-glow)] transition-all duration-[var(--transition-normal)]',

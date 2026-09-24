@@ -30,12 +30,16 @@ export type ItemInputMethodType = 'barcode' | 'camera' | 'manual';
 
 export interface InvoiceData {
   id: string;
+  invoiceNumber?: string;
   customerName: string;
   customerPhone?: string;
   saleDate: string;
   items: InvoiceItem[];
   subtotal: number;
   discountAmount?: number;
+  taxAmount?: number;
+  paymentStatus?: string;
+  notes?: string;
   total: number;
   paidAmount: number;
   cashReceived?: number;

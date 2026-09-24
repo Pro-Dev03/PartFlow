@@ -1,5 +1,4 @@
 import { StatCard } from '../../../design-system/components/stat-card';
-import { useNavigate } from 'react-router-dom';
 import { Users, UserPlus, DollarSign, Shield } from 'lucide-react';
 import { CustomerStats } from '../types/customers.types';
 
@@ -8,8 +7,6 @@ interface CustomerStatsProps {
 }
 
 export function CustomerStats({ stats }: CustomerStatsProps) {
-  const navigate = useNavigate();
-
   return (
     <>
       {/* Stats Cards */}

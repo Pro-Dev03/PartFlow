@@ -28,7 +28,6 @@ export function useReports(selectedReport: string, dateRange: string, customStar
   // Calculate date range based on selection
   const getSelectedDateRangeParams = () => {
     if (dateRange !== 'custom') return getDateRangeParams(dateRange);
-    const storeDate = (date: Date) => getStoreDateKey(date) || '';
     const shiftStoreDate = (date: string, days: number) => addStoreDays(date, days);
     switch (dateRange) {
       case 'custom':
@@ -113,68 +112,6 @@ export function useReports(selectedReport: string, dateRange: string, customStar
           return reportsApi.returns(dateParams);
         case 'returns-analysis':
           return reportsApi.returnsAnalysis();
-        case 'used-items': {
-          const collectPages = async (
-            fetchPage: (page: number) => Promise<any>,
-            collectionKey: string,
-          ) => {
-            const rows: any[] = [];
-            let firstResponse: any;
-            for (let page = 1; page <= 100; page += 1) {
-              const response = await fetchPage(page);
-              firstResponse ??= response;
-              const payload = response?.data;
-              const pageRows = Array.isArray(payload) ? payload : (payload?.[collectionKey] || []);
-              rows.push(...pageRows);
-              const metadata = response?.meta || payload?.meta;
-              if (pageRows.length === 0 || pageRows.length < 100 || (metadata?.total_pages && page >= metadata.total_pages)) {
-                break;
-              }
-            }
-            return { response: firstResponse, rows };
-          };
-          const [inventoryResult, productsResult, acquisitionsResult, customersResult] = await Promise.all([
-            collectPages((page) => inventoryApi.list({ condition: 'USED', page, per_page: 100 }), 'items'),
-            collectPages((page) => productsApi.list({ page, per_page: 100 }), 'products'),
-            collectPages((page) => acquisitionsApi.list({ type: 'CUSTOMER', page, per_page: 100 }), 'acquisitions'),
-            collectPages((page) => customersApi.list({ page, per_page: 100 }), 'customers'),
-          ]);
-          const inventoryResponse = inventoryResult.response;
-          const products = Array.from(new Map(
-            productsResult.rows.map((product: { id: string; name: string }) => [product.id, product]),
-          ).values()) as Array<{ id: string; name: string }>;
-          const productNames = new Map(products.map(product => [product.id, product.name]));
-          const customers = Array.from(new Map(
-            customersResult.rows.map((customer: any) => [customer.id, customer]),
-          ).values());
-          const customerNames = new Map(customers.map((customer: any) => [customer.id, customer.name]));
-          const sellerByInventoryItemId = new Map<string, string>();
-          const acquisitions = acquisitionsResult.rows;
-          acquisitions.forEach((acquisition: any) => {
-            const sellerName = customerNames.get(acquisition.customer_id) || 'بائع غير معروف';
-            (acquisition.items || []).forEach((acquisitionItem: any) => {
-              if (acquisitionItem.inventory_item_id) {
-                sellerByInventoryItemId.set(acquisitionItem.inventory_item_id, sellerName);
-              }
-            });
-          });
-          const items = Array.from(new Map(
-            inventoryResult.rows
-              .filter(item => String(item.status || '').toUpperCase() !== 'ARCHIVED')
-              .map(item => [item.id, item]),
-          ).values());
-          return {
-            ...inventoryResponse,
-            data: {
-              ...inventoryResponse.data,
-              items: items.map(item => ({
-                ...item,
-                product_name: productNames.get(item.product_id) || 'منتج غير معروف',
-                seller_name: sellerByInventoryItemId.get(item.id) || 'غير محدد',
-              })),
-            },
-          };
-        }
         default:
           return reportsApi.sales(dateParams);
       }
@@ -189,4 +126,3 @@ export function useReports(selectedReport: string, dateRange: string, customStar
     refetch,
   };
 }
-

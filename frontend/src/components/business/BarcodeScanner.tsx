@@ -14,7 +14,6 @@ import { Card, CardContent } from '../../design-system/components/card';
 import { 
   Scan, 
   X, 
-  Keyboard,
   CheckCircle,
   AlertCircle,
   Package,

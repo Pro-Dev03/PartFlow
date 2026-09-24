@@ -162,10 +162,10 @@ export default function AIAssistantWrapper() {
         ? (customersData as { data?: unknown[] }).data!.length
         : offlineSnapshot?.totalCustomers ?? 0);
 
-    const topSellingProducts = Array.isArray(
-      (dailySalesData?.data as Record<string, unknown> | undefined)?.top_products
-    )
-      ? ((dailySalesData?.data as Record<string, unknown>).top_products as Array<Record<string, unknown>>).map((product) => ({
+    const dailySales = dailySalesData?.data as Record<string, unknown> | undefined;
+    const dailyTopProducts = dailySales?.top_products;
+    const topSellingProducts = Array.isArray(dailyTopProducts)
+      ? dailyTopProducts.map((product: Record<string, unknown>) => ({
           name: String(product.name ?? product.product_name ?? product.product?.name ?? 'منتج'),
           quantity: Number(product.quantity ?? product.sold_quantity ?? product.count ?? 0),
           revenue: Number(product.revenue ?? product.total_revenue ?? product.sales ?? 0),

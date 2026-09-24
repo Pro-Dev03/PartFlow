@@ -1,4 +1,4 @@
-import { forwardRef } from 'react';
+import { forwardRef, useId } from 'react';
 import { cn } from '../../utils';
 
 export interface FormGroupProps {
@@ -21,7 +21,8 @@ const FormGroup = forwardRef<HTMLDivElement, FormGroupProps>(
     children,
     className
   }, ref) => {
-    const groupId = `form-group-${Math.random().toString(36).substr(2, 9)}`;
+    const generatedId = useId().replace(/:/g, '');
+    const groupId = `form-group-${generatedId}`;
     
     return (
       <div ref={ref} className={cn('w-full', className)}>

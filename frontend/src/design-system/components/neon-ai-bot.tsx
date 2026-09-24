@@ -3,6 +3,17 @@ import { useEffect, useId, useMemo, useState } from 'react'
 type FaceState = 'idle' | 'sleepy' | 'hello' | 'thinking' | 'surprise' | 'focus' | 'joy' | 'confidence' | 'creativity' | 'energy'
 type AvatarState = 'idle' | 'greeting' | 'listening' | 'thinking' | 'speaking' | 'attention' | 'error' | 'offline'
 
+const faceStateByAvatarState: Record<AvatarState, FaceState> = {
+  idle: 'idle',
+  greeting: 'hello',
+  listening: 'focus',
+  thinking: 'thinking',
+  speaking: 'joy',
+  attention: 'surprise',
+  error: 'surprise',
+  offline: 'sleepy',
+};
+
 export default function NeonAIBot({ size = 64, state = 'idle' }: { size?: number; state?: AvatarState }) {
   const gradientId = useId().replace(/:/g, '')
   const botBgId = `bot-bg-${gradientId}`
@@ -10,47 +21,22 @@ export default function NeonAIBot({ size = 64, state = 'idle' }: { size?: number
   
   // Animation states
   const [blink, setBlink] = useState(false)
-  const [pulse, setPulse] = useState(false)
-  const [float, setFloat] = useState(false)
-  const [wave, setWave] = useState(false)
-  const [showSparkle, setShowSparkle] = useState(false)
-  
-  // Face expression states
-  const [faceState, setFaceState] = useState<FaceState>('idle')
-  const [isSleepy, setIsSleepy] = useState(false)
-  const [isWaving, setIsWaving] = useState(false)
-  const [showBubble, setShowBubble] = useState(false)
-  const [bubbleText, setBubbleText] = useState('')
-  const [bubbleEmoji, setBubbleEmoji] = useState('')
-
-  useEffect(() => {
-    const nextFaceState: Record<AvatarState, FaceState> = {
-      idle: 'idle',
-      greeting: 'hello',
-      listening: 'focus',
-      thinking: 'thinking',
-      speaking: 'joy',
-      attention: 'surprise',
-      error: 'surprise',
-      offline: 'sleepy',
-    };
-    setFaceState(nextFaceState[state]);
-    setIsSleepy(state === 'offline');
-    setIsWaving(state === 'greeting');
-    setPulse(state === 'thinking' || state === 'attention' || state === 'error');
-    setFloat(state === 'greeting' || state === 'speaking');
-    setWave(state === 'greeting');
-  }, [state]);
+  const faceState = faceStateByAvatarState[state];
+  const isSleepy = state === 'offline';
+  const isWaving = state === 'greeting';
+  const pulse = state === 'thinking' || state === 'attention' || state === 'error';
+  const float = state === 'greeting' || state === 'speaking';
+  const wave = state === 'greeting';
 
   // Particle positions
   const particles = useMemo(() => 
     Array.from({ length: 8 }).map((_, i) => ({
       id: i,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      size: Math.random() * 3 + 1,
-      delay: Math.random() * 5,
-      duration: Math.random() * 3 + 4,
+      x: (i * 37 + 11) % 100,
+      y: (i * 61 + 23) % 100,
+      size: (i % 3) + 1,
+      delay: (i * 1.3) % 5,
+      duration: (i % 3) + 4,
     })), []
   )
 
@@ -306,35 +292,6 @@ export default function NeonAIBot({ size = 64, state = 'idle' }: { size?: number
           }}
         />
       ))}
-
-      {/* Speech Bubble */}
-      {showBubble && (
-        <div
-          className="absolute pointer-events-none"
-          style={{
-            top: -35,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            animation: 'bubble-pop 2s ease-out forwards',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <div
-            style={{
-              background: 'rgba(15, 23, 42, 0.9)',
-              border: '1px solid rgba(103, 232, 249, 0.4)',
-              borderRadius: 12,
-              padding: '4px 10px',
-              fontSize: size * 0.13,
-              color: '#67e8f9',
-              fontWeight: 600,
-              boxShadow: '0 4px 15px rgba(103, 232, 249, 0.2)',
-            }}
-          >
-            {bubbleText} {bubbleEmoji}
-          </div>
-        </div>
-      )}
 
       {/* SVG Bot */}
       <svg viewBox="0 0 100 100" className="relative z-10 h-full w-full drop-shadow-[0_8px_18px_rgba(14,165,233,0.18)]">

@@ -7,7 +7,6 @@ import { Input } from '../../../design-system/components/input';
 import { Select } from '../../../design-system/components/select';
 import { PageHeader } from '../../../design-system/components/page-header';
 import { Modal } from '../../../design-system/components/modal';
-import { Badge } from '../../../design-system/components/badge';
 import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
 import { getButtonSize } from '../../../config/button-sizes';
 import { useLayout } from '../../../contexts/LayoutContext';

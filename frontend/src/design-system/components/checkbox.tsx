@@ -1,5 +1,5 @@
 import type { InputHTMLAttributes } from 'react';
-import { forwardRef } from 'react';
+import { forwardRef, useId } from 'react';
 import { cn } from '../../utils';
 
 export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
@@ -22,7 +22,8 @@ const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
     disabled = false,
     ...props 
   }, ref) => {
-    const checkboxId = id || `checkbox-${Math.random().toString(36).substr(2, 9)}`;
+    const generatedId = useId().replace(/:/g, '');
+    const checkboxId = id || `checkbox-${generatedId}`;
     
     const hasError = !!error;
     
@@ -42,7 +43,7 @@ const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
     
     return (
       <div className={cn('flex flex-col gap-1', containerClass)}>
-        <label className="flex items-center gap-md cursor-pointer group">
+        <label className={cn('group flex items-center gap-3 rounded-lg py-1', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}>
           <div className="relative">
             <input
               ref={ref}
@@ -60,17 +61,17 @@ const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
             />
             <div className={cn(
               'flex items-center justify-center border-2 rounded-md transition-all duration-normal',
-              'bg-surface border-border',
-              'peer-hover:border-cyan/50',
-              'peer-focus-visible:ring-2 peer-focus-visible:ring-cyan peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-bg',
-              'peer-checked:bg-cyan/20 peer-checked:border-cyan',
+                'bg-[var(--input-bg)] border-[var(--input-border)]',
+                'peer-hover:border-[var(--primary)]',
+                'peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--color-primary-30)] peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-[var(--bg-background)]',
+                'peer-checked:bg-[var(--primary)] peer-checked:border-[var(--primary)]',
               'peer-disabled:opacity-50 peer-disabled:cursor-not-allowed',
               hasError && 'border-red peer-focus-visible:ring-red',
               sizes[size]
             )}>
               <svg 
                 className={cn(
-                  'w-3/4 h-3/4 text-cyan opacity-0 transition-opacity duration-normal',
+                  'w-3/4 h-3/4 text-white opacity-0 transition-opacity duration-normal',
                   'peer-checked:opacity-100',
                   hasError && 'text-red'
                 )}
@@ -86,7 +87,7 @@ const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           {label && (
             <span className={cn(
               'font-medium transition-colors duration-normal',
-              'text-text-secondary group-hover:text-text',
+              'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]',
               'peer-disabled:text-text-disabled',
               labelSizes[size]
             )}>

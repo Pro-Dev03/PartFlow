@@ -17,7 +17,6 @@ import {
   UserRound,
   Printer,
   FileDown,
-  MoreHorizontal,
   ArrowRight,
   History
 } from 'lucide-react';

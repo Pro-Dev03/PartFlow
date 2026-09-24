@@ -100,7 +100,7 @@ async function cacheFirst(request: Request): Promise<Response> {
       cache.put(request, networkResponse.clone());
     }
     return networkResponse;
-  } catch (error) {
+  } catch  {
     return new Response('Image not available', { status: 404 });
   }
 }

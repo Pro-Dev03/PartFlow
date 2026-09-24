@@ -18,7 +18,6 @@ import {
   ArrowRight,
   Volume2,
   VolumeX,
-  AlertTriangle,
   Info,
   CheckCircle as CheckCircleIcon,
   BellOff

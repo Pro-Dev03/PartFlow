@@ -107,13 +107,6 @@ export const ButtonSizeBySection = {
     modalAction: ButtonSizes.sm
   },
 
-  // قسم القطع المستعملة
-  usedparts: {
-    headerActions: ButtonSizes.sm,
-    tableAction: ButtonSizes.sm,
-    modalAction: ButtonSizes.sm
-  },
-
   // قسم أنواع القطع
   parttypes: {
     headerActions: ButtonSizes.sm,

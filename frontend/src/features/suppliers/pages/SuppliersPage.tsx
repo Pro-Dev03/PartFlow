@@ -18,7 +18,7 @@ import { ConfirmDialog } from '../../../design-system/components/confirm-dialog'
 import { PaginationControls } from '../../../design-system/components/pagination-controls';
 import { SortButton } from '../../../design-system/components/sort-button';
 import type { SupplierFormData } from '../../../components/forms/SupplierForm';
-import { Supplier } from '../../../types/models';
+
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { ReportActions } from '../../../design-system/components/report-actions';
 import { StatCard } from '../../../design-system/components/stat-card';
@@ -147,7 +147,7 @@ export function SuppliersPage() {
       setIsAddModalOpen(false);
       setEditingSupplier(null);
       refetch();
-    } catch (err) {
+    } catch  {
       showError('حدث خطأ أثناء حفظ التاجر');
     }
   };
@@ -165,7 +165,7 @@ export function SuppliersPage() {
         setDeleteDialogOpen(false);
         setSupplierToDelete(null);
         refetch();
-      } catch (err) {
+      } catch  {
         showError('تعذر إيقاف التاجر');
       }
     }
@@ -176,7 +176,7 @@ export function SuppliersPage() {
       await suppliersApi.update(supplier.id, { ...supplier, is_active: true });
       showSuccess('تمت إعادة تفعيل التاجر بنجاح');
       refetch();
-    } catch (err) {
+    } catch  {
       showError('تعذر إعادة تفعيل التاجر');
     }
   };

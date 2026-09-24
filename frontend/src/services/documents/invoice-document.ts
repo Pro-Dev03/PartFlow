@@ -1,6 +1,4 @@
 import { printHtmlDocument } from './print-html';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import { getRegionalProfile } from '../../utils/store-time';
 
 export interface InvoiceDocumentItem {
@@ -152,6 +150,10 @@ export function renderInvoiceHtml(document: InvoiceDocument): string {
 const fileNameFor = (document: InvoiceDocument) => `${document.kind === 'sale' ? 'فاتورة-بيع' : 'فاتورة-مورد'}-${document.invoiceNumber.replace(/[<>:"/\\|?*]/g, '-')}.pdf`;
 
 const saveBrowserPdf = async (document: InvoiceDocument, fileName: string): Promise<void> => {
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import('html2canvas'),
+    import('jspdf'),
+  ]);
   const frame = window.document.createElement('iframe');
   frame.setAttribute('aria-hidden', 'true');
   frame.style.position = 'fixed';

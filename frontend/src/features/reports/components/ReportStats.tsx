@@ -1,5 +1,5 @@
 import { StatCard } from '../../../design-system/components/stat-card';
-import { DollarSign, TrendingUp, Database, Target, AlertTriangle, Package, RotateCcw } from 'lucide-react';
+import { DollarSign, TrendingUp, Database, AlertTriangle, Package, RotateCcw } from 'lucide-react';
 
 interface ReportStatsProps {
   data?: any;
@@ -74,22 +74,6 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
           ['إجمالي المرتجعات', value(report.returns_total), RotateCcw, 'يُخصم من إجمالي المبيعات للوصول إلى الصافي', 'danger'],
           ['صافي المبيعات بعد المرتجعات', value(report.net_sales_total), DollarSign, 'إجمالي المبيعات ناقص إجمالي المرتجعات', 'success'],
         ];
-      case 'used-items': {
-        const items = Array.isArray(report.items) ? report.items : [];
-        const getStatus = (item: any) => String(item.status || '').trim().toUpperCase();
-        const availableItems = items.filter((item: any) => getStatus(item) === 'AVAILABLE');
-        const soldItems = items.filter((item: any) => getStatus(item) === 'SOLD');
-        const availableCost = availableItems.reduce((sum: number, item: any) => sum + Number(item.purchase_cost || 0), 0);
-        const availableRetail = availableItems.reduce((sum: number, item: any) => sum + Number(item.selling_price || 0), 0);
-        return [
-          ['إجمالي القطع', count(items.length), Package, 'قطع مستعملة مسجلة', 'featured'],
-          ['المتاحة', count(availableItems.length), Package, 'جاهزة للبيع', 'success'],
-          ['المباعة', count(soldItems.length), TrendingUp, 'قطع تم بيعها', 'info'],
-          ['قيمة التكلفة', value(availableCost), DollarSign, 'للقطع المتاحة فقط', 'warning'],
-          ['قيمة البيع', value(availableRetail), DollarSign, 'المتوقع من المتاح', 'success'],
-          ['الربح المحتمل', value(availableRetail - availableCost), TrendingUp, 'للقطع المتاحة فقط', 'default'],
-        ];
-      }
       case 'net-sales':
         return [
           ['صافي المبيعات', value(report.net_revenue), DollarSign, 'بعد خصم المرتجعات وقبل الضريبة', 'featured'],

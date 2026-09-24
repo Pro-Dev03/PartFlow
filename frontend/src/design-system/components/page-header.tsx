@@ -15,8 +15,7 @@ const PageHeader = forwardRef<HTMLDivElement, PageHeaderProps>(
     return (
       <header 
         ref={ref} 
-        className={cn('mb-xl', className)}
-        style={{ marginBottom: '18px' }}
+        className={cn('pf-page-header mb-xl', className)}
         {...props}
       >
         {breadcrumbs && (

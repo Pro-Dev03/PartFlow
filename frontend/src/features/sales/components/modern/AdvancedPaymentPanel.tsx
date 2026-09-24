@@ -10,9 +10,7 @@ import {
   Smartphone,
   QrCode,
   Calendar,
-  Receipt,
   Trash2,
-  Zap,
   Plus,
   MessageCircle
 } from 'lucide-react'
@@ -37,6 +35,7 @@ interface AdvancedPaymentPanelProps {
   total: number
   isProcessing: boolean
   onCheckout: () => void
+  checkoutBlockedReason?: string
   onPaymentAllocationsChange?: (allocations: PaymentAllocation[]) => void
   electronicPaymentsEnabled?: boolean
   enabledElectronicMethods?: string[]
@@ -75,6 +74,16 @@ const ELECTRONIC_METHODS: Array<{
   { id: 'qr_code', label: 'رمز QR', icon: QrCode },
 ]
 
+let splitPaymentSequence = 0
+
+const createSplitPaymentId = () => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
+  }
+  splitPaymentSequence += 1
+  return `split-${Date.now()}-${splitPaymentSequence}`
+}
+
 export function AdvancedPaymentPanel({
   paymentMethod,
   setPaymentMethod,
@@ -83,6 +92,7 @@ export function AdvancedPaymentPanel({
   total,
   isProcessing,
   onCheckout,
+  checkoutBlockedReason,
   onPaymentAllocationsChange,
   electronicPaymentsEnabled = false,
   enabledElectronicMethods = [],
@@ -112,6 +122,10 @@ export function AdvancedPaymentPanel({
   const remaining = total - paid
   const isCreditSale = paymentMethod === 'credit'
   const isInstallmentSale = paymentMethod === 'installment'
+  const projectedDebt = customerBalance + Math.max(0, remaining)
+  const willExceedCreditLimit = isCreditSale && Boolean(selectedCustomer)
+    && Number(customerCreditLimit) > 0
+    && projectedDebt > Number(customerCreditLimit)
   const isCreditSaleWithoutCustomer = (isCreditSale || isInstallmentSale) && !selectedCustomer
   const isCreditAdvanceMissing = isCreditSale && paidAmount.trim() === ''
   const selectedPaymentLabel = PAYMENT_METHODS.find((method) => method.id === paymentMethod)?.label ?? 'اختر طريقة الدفع'
@@ -123,7 +137,8 @@ export function AdvancedPaymentPanel({
     const defaultMessage = `*طلب تقسيط جديد - {store_name}*\n\nالسلام عليكم،\nنرجو متابعة طلب التقسيط التالي:\n\n*اسم العميل:* {customer_name}\n*إجمالي الفاتورة:* ₪{total}\n*مدة التقسيط:* {months} أشهر\n*قيمة القسط التقريبية:* ₪{installment}\n\nيرجى تأكيد تسجيل الطلب ومتابعته.\n\nمع التحية،\n{store_name}`
     const messageTemplate = (installmentWhatsAppMessage?.trim() || defaultMessage)
       .replace(/\\+n/g, '\n')
-      .replace(/[\u{1F000}-\u{1FAFF}\u{2300}-\u{27BF}\uFE0F]/gu, '')
+      .replace(/[\u{1F000}-\u{1FAFF}\u{2300}-\u{27BF}]/gu, '')
+      .replace(/\uFE0F/gu, '')
       .replace(/�/gu, '')
     const message = messageTemplate
       .replaceAll('{store_name}', storeName)
@@ -168,14 +183,16 @@ export function AdvancedPaymentPanel({
   }, [paymentMethod, setPaidAmount, total])
 
   const addSplitPayment = () => {
-    const remainingForSplit = total - splitPayments.reduce((sum, p) => sum + p.amount, 0)
-    if (remainingForSplit <= 0) return
-    
-    setSplitPayments([...splitPayments, {
-      id: Date.now().toString(),
-      method: 'cash',
-      amount: remainingForSplit,
-    }])
+    setSplitPayments((current) => {
+      const remainingForSplit = total - current.reduce((sum, payment) => sum + payment.amount, 0)
+      if (remainingForSplit <= 0) return current
+
+      return [...current, {
+        id: createSplitPaymentId(),
+        method: 'cash',
+        amount: remainingForSplit,
+      }]
+    })
   }
 
   const removeSplitPayment = (id: string) => {
@@ -197,16 +214,20 @@ export function AdvancedPaymentPanel({
 
   const hasIncompleteCheck = (paymentMethod === 'checks' && !isSplitMode && !checkNumber.trim()) ||
     (isSplitMode && splitPayments.some((payment) => payment.method === 'checks' && !payment.checkNumber?.trim()))
-  const isCheckoutDisabled =
-    isProcessing ||
-    total === 0 ||
-    (['cash', 'card', 'checks'].includes(paymentMethod) && 
-     !isSplitMode && 
-     paid < total) ||
-    (isSplitMode && splitPayments.reduce((sum, p) => sum + p.amount, 0) < total) ||
-    hasIncompleteCheck ||
-    isCreditSaleWithoutCustomer ||
-    isCreditAdvanceMissing
+  const amountInCents = Math.round(total * 100)
+  const paidInCents = Math.round(paid * 100)
+  const splitPaidInCents = Math.round(splitPayments.reduce((sum, payment) => sum + payment.amount, 0) * 100)
+  const checkoutDisabledReason = checkoutBlockedReason || (
+    total <= 0 ? 'أضف منتجًا إلى السلة قبل إتمام البيع.' :
+    isCreditSaleWithoutCustomer ? 'اختر عميلًا لإتمام البيع بالدين أو بالتقسيط.' :
+    isCreditAdvanceMissing ? 'أدخل مبلغ الدفعة المقدمة.' :
+    hasIncompleteCheck ? 'أدخل رقم الشيك قبل إتمام البيع.' :
+    isSplitMode && splitPaidInCents < amountInCents ? 'أكمل توزيع مبلغ الفاتورة على طرق الدفع.' :
+    !isSplitMode && ['cash', 'card', 'checks'].includes(paymentMethod) && paidInCents < amountInCents
+      ? 'المبلغ المدفوع أقل من إجمالي الفاتورة.'
+      : undefined
+  )
+  const isCheckoutDisabled = isProcessing || Boolean(checkoutDisabledReason)
 
   return (
     <div className="pos-advanced-payment-panel">
@@ -470,6 +491,13 @@ export function AdvancedPaymentPanel({
         </div>
       )}
 
+      {willExceedCreditLimit && (
+        <div className="payment-warning warning" role="alert">
+          <AlertTriangle className="w-4 h-4" />
+          <span>تنبيه: هذا البيع سيتجاوز حد الدين المحدد</span>
+        </div>
+      )}
+
       {/* Quick Customer for Credit */}
       {isCreditSale && !selectedCustomer && onQuickCustomerCreate && (
         <button className="payment-quick-customer" onClick={onQuickCustomerCreate}>
@@ -543,9 +571,12 @@ export function AdvancedPaymentPanel({
 
       {/* Checkout Button */}
       <button
+        type="button"
         className={cn('checkout-btn', isCheckoutDisabled && 'disabled')}
         onClick={onCheckout}
         disabled={isCheckoutDisabled}
+        aria-describedby={checkoutDisabledReason ? 'checkout-disabled-reason' : undefined}
+        title={checkoutDisabledReason}
       >
         {isProcessing ? (
           <>
@@ -560,6 +591,12 @@ export function AdvancedPaymentPanel({
           </>
         )}
       </button>
+      {checkoutDisabledReason && !isProcessing && (
+        <p id="checkout-disabled-reason" className="payment-checkout-hint" role="status">
+          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>{checkoutDisabledReason}</span>
+        </p>
+      )}
       {isInstallmentSale && (
         <button
           type="button"

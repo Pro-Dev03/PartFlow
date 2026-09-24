@@ -71,6 +71,22 @@ export function InventoryModals({
     : DEFAULT_PROFIT_MARGIN;
   const [productStep, setProductStep] = useState<1 | 2 | 3 | 4>(1);
 
+  const goToNextStep = () => {
+    setProductStep((currentStep) => {
+      if (currentStep === 1) return 2;
+      if (currentStep === 2) return 3;
+      if (currentStep === 3) return 4;
+      return currentStep;
+    });
+  };
+
+  const canAdvanceToNextStep = () => {
+    if (productStep === 1) return Boolean(selectedProduct?.category_id);
+    if (productStep === 2) return Boolean(selectedProduct?.name?.trim() && (selectedProduct.costPrice ?? 0) > 0);
+    if (productStep === 3) return Boolean((selectedProduct?.sellingPrice ?? 0) > 0);
+    return Boolean(selectedProduct);
+  };
+
   useEffect(() => {
     if (!isEditModalOpen || !isCreatingProduct) return;
     setProductStep(1);
@@ -544,16 +560,24 @@ export function InventoryModals({
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || event.shiftKey) return;
               const target = event.target as HTMLElement;
-              if (target.tagName !== 'INPUT' && target.tagName !== 'SELECT') return;
+              const isTextField = ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName);
+              if (!isTextField) return;
+
+              const isSubmitTrigger = target instanceof HTMLButtonElement || target.type === 'submit';
+              if (isSubmitTrigger) return;
+
               event.preventDefault();
               event.stopPropagation();
+
               if (productStep === 1) {
                 if (!selectedProduct?.category_id) return;
-                setProductStep(2);
+                goToNextStep();
               } else if (productStep === 2) {
-                setProductStep(3);
+                if (!selectedProduct?.name?.trim() || (selectedProduct.costPrice ?? 0) <= 0) return;
+                goToNextStep();
               } else if (productStep === 3) {
-                setProductStep(4);
+                if ((selectedProduct?.sellingPrice ?? 0) <= 0) return;
+                goToNextStep();
               } else if (selectedProduct) {
                 onSaveProduct(selectedProduct);
               }
@@ -777,12 +801,26 @@ export function InventoryModals({
                 variant="primary"
                 size="sm"
                 disabled={!selectedProduct?.category_id}
-                onClick={() => setProductStep(2)}
+                onClick={goToNextStep}
               >
-                متابعة إلى بيانات المنتج
+                التالي
               </Button>
             </div>
             </>)}
+
+            {productStep === 2 && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' }}>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  disabled={!canAdvanceToNextStep()}
+                  onClick={goToNextStep}
+                >
+                  التالي
+                </Button>
+              </div>
+            )}
 
             {productStep === 3 && (<>
             {/* Pricing & Inventory Section */}
@@ -909,6 +947,20 @@ export function InventoryModals({
               </div>
             </div>
             </>)}
+
+            {productStep === 3 && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' }}>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  disabled={!canAdvanceToNextStep()}
+                  onClick={goToNextStep}
+                >
+                  التالي
+                </Button>
+              </div>
+            )}
 
             {productStep === 4 && (<>
             {/* Action Buttons */}

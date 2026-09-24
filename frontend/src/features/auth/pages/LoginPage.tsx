@@ -18,7 +18,7 @@ export function LoginPage() {
   const { login, isLoading, loginError: authLoginError, setPostLoginVerifying } = useAuthStore();
   const [isVerifyingSubscription, setIsVerifyingSubscription] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') === 'dark');
   const [language, setLanguage] = useState('ar');
   const [connectionMode, setSelectedConnectionMode] = useState<ConnectionMode>(getConnectionMode);
 
@@ -27,9 +27,14 @@ export function LoginPage() {
     sessionStorage.removeItem('partflow-login-error');
 
     const checkTheme = () => {
-      setIsDark(!document.documentElement.classList.contains('light'));
+      setIsDark(document.documentElement.classList.contains('dark') || localStorage.getItem('theme') === 'dark');
     };
     
+    const storedTheme = localStorage.getItem('theme');
+    document.documentElement.classList.toggle('dark', storedTheme === 'dark');
+    document.documentElement.classList.toggle('light', storedTheme !== 'dark');
+    document.body.classList.toggle('dark', storedTheme === 'dark');
+    document.body.classList.toggle('light', storedTheme !== 'dark');
     checkTheme();
     
     const observer = new MutationObserver(checkTheme);
@@ -46,10 +51,15 @@ export function LoginPage() {
     if (isDark) {
       html.classList.add('light');
       html.classList.remove('dark');
+      document.body.classList.add('light');
+      document.body.classList.remove('dark');
     } else {
       html.classList.add('dark');
       html.classList.remove('light');
+      document.body.classList.add('dark');
+      document.body.classList.remove('light');
     }
+    localStorage.setItem('theme', isDark ? 'light' : 'dark');
     setIsDark(!isDark);
   };
 
@@ -76,7 +86,6 @@ export function LoginPage() {
     setLoginError('');
     sessionStorage.removeItem('partflow-login-error');
 
-    const isLocalMode = getConnectionMode() === 'local';
     setPostLoginVerifying(true);
     setIsVerifyingSubscription(true);
 
@@ -116,12 +125,12 @@ export function LoginPage() {
           }
         }
       `}</style>
-      <div dir="rtl" className="min-h-screen grid place-items-center relative overflow-hidden" style={{ background: 'var(--bg-background)' }}>
+      <div dir="rtl" className="pf-login-page min-h-screen grid place-items-center relative overflow-hidden" style={{ background: 'var(--bg-background)' }}>
         <LoginBackground isDark={isDark} />
 
         {/* Main Container - Split Layout */}
-        <div style={{ position: 'relative', zIndex: 2, width: 'min(920px, calc(100% - 32px))', animation: 'loginFadeIn 0.6s ease-out both' }}>
-        <div style={{
+        <div className="pf-login-card" style={{ position: 'relative', zIndex: 2, width: 'min(920px, calc(100% - 32px))', animation: 'loginFadeIn 0.6s ease-out both' }}>
+        <div className="pf-login-surface" style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
           border: isDark ? '1px solid rgba(148, 163, 184, 0.13)' : '1px solid rgba(0, 0, 0, 0.08)',
@@ -133,7 +142,7 @@ export function LoginPage() {
           <BrandPanel isDark={isDark} />
           
           {/* LOGIN PANEL */}
-          <div style={{ position: 'relative', padding: '92px 46px 46px', display: 'flex', alignItems: 'center' }} className="md:p-[30px]">
+          <div style={{ position: 'relative', padding: '92px 46px 46px', display: 'flex', alignItems: 'center' }} className="pf-login-form-panel md:p-[30px]">
             {/* Theme and Language Toggles */}
             <div
               style={{
@@ -265,6 +274,7 @@ export function LoginPage() {
                             }}
                           />
                         )}
+                        <Icon aria-hidden="true" style={{ width: '15px', height: '15px', flexShrink: 0 }} />
                         <span style={{ minWidth: 0 }}>
                           <span style={{ display: 'block', fontSize: '11px', fontWeight: 750 }}>{label}</span>
                           <span style={{ display: 'block', marginTop: '2px', fontSize: '9px', opacity: 0.78, whiteSpace: 'nowrap' }}>{description}</span>

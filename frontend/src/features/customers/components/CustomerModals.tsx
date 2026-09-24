@@ -7,7 +7,7 @@ import { Customer } from '../types/customers.types';
 import { User, DollarSign, ShoppingCart, Calendar, CreditCard, FileText, History, AlertTriangle, RotateCcw } from 'lucide-react';
 import { LedgerEntry } from '../../../design-system/components/financial-timeline';
 import { customersApi, salesApi } from '../../../services/api/endpoints';
-import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
+import { SalesInvoice } from '../../../components/invoice/SalesInvoice';
 import { useNavigate } from 'react-router-dom';
 
 // Lazy load heavy FinancialTimeline component
@@ -438,11 +438,11 @@ export function CustomerModals({
               </div>
 
               {/* Quick Actions (SALES-PHILOSOPHY.md) */}
-              <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px', marginTop: '16px' }}>
                 <Button
                   variant="primary"
                   size={getButtonSize('customers', 'modalAction')}
-                  style={{ flex: 1 }}
+                  style={{ minWidth: 0 }}
                   onClick={() => navigate(`/app/debts?customer_id=${encodeURIComponent(selectedCustomer.id)}`)}
                 >
                   <DollarSign className="w-4 h-4 mr-2" />
@@ -451,7 +451,16 @@ export function CustomerModals({
                 <Button
                   variant="secondary"
                   size={getButtonSize('customers', 'modalAction')}
-                  style={{ flex: 1 }}
+                  style={{ minWidth: 0 }}
+                  onClick={() => { void loadCustomerSales(); }}
+                >
+                  <History className="w-4 h-4 mr-2" />
+                  سجل المبيعات
+                </Button>
+                <Button
+                  variant="secondary"
+                  size={getButtonSize('customers', 'modalAction')}
+                  style={{ minWidth: 0 }}
                   onClick={() => navigate(`/app/customers/${selectedCustomer.id}/purchases`)}
                 >
                   <FileText className="w-4 h-4 mr-2" />
@@ -460,7 +469,7 @@ export function CustomerModals({
                 <Button
                   variant="secondary"
                   size={getButtonSize('customers', 'modalAction')}
-                  style={{ flex: 1 }}
+                  style={{ minWidth: 0 }}
                   onClick={() => navigate(`/app/returns/create?customer_id=${encodeURIComponent(selectedCustomer.id)}`)}
                 >
                   <RotateCcw className="w-4 h-4 mr-2" />
@@ -595,7 +604,7 @@ export function CustomerModals({
         size="xl"
       >
         {invoiceData && (
-          <UsedPartsInvoice
+          <SalesInvoice
             saleData={invoiceData}
             onClose={() => setIsInvoiceOpen(false)}
           />

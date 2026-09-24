@@ -23,7 +23,6 @@ import type {
   ExpenseCreateRequest,
   PartTypeCreateRequest,
   PartTypeUpdateRequest,
-  BarcodeLookupResponse,
 } from './types';
 
 // Auth endpoints
@@ -362,7 +361,6 @@ export const purchasesApi = {
   cancel: (id: string) => apiClient.post(`/purchases/${id}/cancel`, {}),
   reverse: (id: string, reason: string) => apiClient.post(`/purchases/${id}/reverse`, { reason }),
   // Get used items info for blocked deletion
-  getUsedItemsInfo: (id: string) => apiClient.get(`/purchases/${id}/used-items`),
 };
 
 // Expenses endpoints
@@ -412,7 +410,7 @@ export const reportsApi = {
 };
 
 // Settings endpoints
-const cloudSettingsRequest = async <T>(endpoint: string, options: RequestInit = {}) => {
+const cloudSettingsRequest = async (endpoint: string, options: RequestInit = {}) => {
   const cloudToken = TokenManager.getCloudToken();
   if (!cloudToken) throw new Error('لا توجد جلسة مالك سحابية نشطة.');
 

@@ -23,14 +23,12 @@ import {
   AlertTriangle,
   CheckCircle,
   DollarSign,
-  TrendingDown,
   Filter,
   XCircle,
   RefreshCw,
   Truck,
   PackageCheck,
   Wrench,
-  Archive,
   Edit,
   Trash2
 } from 'lucide-react';
@@ -111,11 +109,6 @@ export function ReturnsPage() {
   });
   const totalReturns = Number(returnsData?.meta?.total || returns.length);
   const returnRecordCount = pageReturns.length;
-
-  const { data: salesReturnsAnalysis } = useQuery({
-    queryKey: ['sales-returns-analysis'],
-    queryFn: () => returnsApi.getSalesReturnsAnalysis(),
-  });
 
   const { data: statistics } = useQuery({
     queryKey: ['returns-statistics'],

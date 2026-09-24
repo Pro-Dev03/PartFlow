@@ -1,5 +1,5 @@
 import type { InputHTMLAttributes } from 'react';
-import { forwardRef } from 'react';
+import { forwardRef, useId } from 'react';
 import { cn } from '../../utils';
 
 export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
@@ -29,7 +29,8 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     placeholder,
     ...props 
   }, ref) => {
-    const inputId = id || `input-${Math.random().toString(36).substr(2, 9)}`;
+    const generatedId = useId().replace(/:/g, '');
+    const inputId = id || `input-${generatedId}`;
     const errorId = `${inputId}-error`;
     const successId = `${inputId}-success`;
     const helperId = `${inputId}-helper`;
@@ -54,15 +55,13 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="block mb-2 transition-colors duration-200"
+            className="mb-1.5 block text-sm font-semibold transition-colors duration-200"
             style={{ 
-              color: 'var(--form-label-color)', 
-              fontSize: 'var(--form-label-font-size)',
-              fontWeight: 'var(--form-label-font-weight)'
+              color: 'var(--text-primary)'
             }}
           >
             {label}
-            {required && <span style={{ color: 'var(--color-danger)' }}>*</span>}
+            {required && <span aria-hidden="true" className="ms-1" style={{ color: 'var(--color-danger)' }}>*</span>}
           </label>
         )}
         <div className="relative group">
@@ -71,16 +70,16 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             type={type}
             id={inputId}
             className={cn(
-              'flex box-border w-full min-w-0 rounded-[var(--input-border-radius)] border',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:border-transparent',
-              'transition-all duration-200',
-              'disabled:cursor-not-allowed disabled:opacity-50',
+              'flex box-border w-full min-w-0 rounded-xl border bg-[var(--input-bg)] text-[var(--text-primary)]',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary-30)] focus-visible:border-[var(--primary)]',
+              'transition-[border-color,box-shadow,background-color] duration-150',
+              'disabled:cursor-not-allowed disabled:opacity-60 disabled:bg-[var(--bg-surface-3)]',
               'read-only:cursor-default',
-              'placeholder:text-text-muted/70',
+              'placeholder:text-[var(--input-placeholder)]',
               sizeClasses[size] || sizeClasses.md,
-              hasError && 'border-danger focus-visible:ring-danger',
-              hasSuccess && 'border-success focus-visible:ring-success',
-              !hasError && !hasSuccess && 'border-border focus-visible:ring-primary',
+              hasError && 'border-[var(--danger)] focus-visible:ring-[var(--color-danger-30)] focus-visible:border-[var(--danger)]',
+              hasSuccess && 'border-[var(--success)] focus-visible:ring-[var(--color-success-30)] focus-visible:border-[var(--success)]',
+              !hasError && !hasSuccess && 'border-[var(--input-border)]',
               className
             )}
             disabled={disabled}

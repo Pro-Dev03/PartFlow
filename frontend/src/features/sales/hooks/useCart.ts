@@ -54,7 +54,7 @@ function loadPersistedCart(): CartItem[] {
   }
 }
 
-export function useCart(soundEnabled: boolean = true, taxRate: number = 0) {
+export function useCart(soundEnabled: boolean = true, _taxRate: number = 0) {
   const [cart, setCart] = useState<CartItem[]>(loadPersistedCart);
 
   useEffect(() => {

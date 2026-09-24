@@ -58,7 +58,7 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
         localStorage.setItem(SAVED_EMAILS_KEY, JSON.stringify(nextEmails));
         setSavedEmails(nextEmails);
       }
-    } catch (err) {
+    } catch  {
       setError(t('auth.invalidCredentials'));
     }
   };

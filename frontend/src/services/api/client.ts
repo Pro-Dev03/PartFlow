@@ -98,7 +98,7 @@ class ApiClient {
   private getBaseURL(): string {
     const nextBaseUrl = getActiveApiUrl() || this.baseURL;
     this.baseURL = nextBaseUrl;
-    return nextBaseUrl.replace(/\/+$/, '');
+    return nextBaseUrl;
   }
 
   private getCacheKey(endpoint: string, options: RequestInit): string {

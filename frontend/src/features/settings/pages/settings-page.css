@@ -1,0 +1,815 @@
+.settings-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.settings-account-overview {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.45fr) repeat(3, minmax(145px, 1fr));
+  align-items: stretch;
+  margin-bottom: 22px;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+}
+
+.settings-account-identity,
+.settings-account-detail,
+.settings-account-remaining {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px;
+}
+
+.settings-account-detail,
+.settings-account-remaining {
+  border-inline-start: 1px solid var(--border-subtle);
+}
+
+.settings-account-avatar,
+.settings-detail-icon,
+.settings-nav-icon,
+.settings-panel-icon,
+.settings-nav-footnote-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+}
+
+.settings-account-avatar {
+  width: 46px;
+  height: 46px;
+  border: 1px solid color-mix(in srgb, var(--primary) 16%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--primary) 10%, var(--card-bg));
+  color: var(--primary);
+}
+
+.settings-account-avatar svg {
+  width: 22px;
+  height: 22px;
+}
+
+.settings-account-copy,
+.settings-expiry-copy,
+.settings-account-detail > div,
+.settings-account-remaining > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.settings-overline,
+.settings-detail-label {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.settings-account-copy h2 {
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-account-copy p {
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-detail-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
+}
+
+.settings-detail-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.settings-detail-icon-status {
+  background: color-mix(in srgb, var(--color-success) 10%, var(--card-bg));
+  color: var(--color-success);
+}
+
+.settings-status-pill {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings-status-pill > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+
+.settings-status-pill.is-active > span {
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 13%, transparent);
+}
+
+.settings-status-pill.is-inactive {
+  color: var(--text-secondary);
+}
+
+.settings-account-detail strong,
+.settings-account-remaining strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.settings-account-remaining {
+  justify-content: space-between;
+}
+
+.settings-remaining-mark {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.settings-workspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 264px) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.settings-section-nav {
+  position: sticky;
+  top: 16px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+}
+
+.settings-nav-heading {
+  padding: 7px 8px 13px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-nav-heading > span {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.settings-nav-heading p {
+  margin: 5px 0 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.settings-nav-items {
+  display: grid;
+  gap: 5px;
+  padding-top: 9px;
+}
+
+.settings-nav-item {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: right;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.settings-nav-item:hover {
+  border-color: var(--border-subtle);
+  background: var(--bg-surface-2);
+}
+
+.settings-nav-item.is-selected {
+  border-color: color-mix(in srgb, var(--primary) 19%, var(--border-default));
+  background: color-mix(in srgb, var(--primary) 8%, var(--card-bg));
+}
+
+.settings-nav-icon {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+
+.settings-nav-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.settings-nav-item.is-selected .settings-nav-icon {
+  border-color: transparent;
+  background: var(--primary);
+  color: var(--text-on-primary, #fff);
+}
+
+.settings-nav-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 3px;
+}
+
+.settings-nav-copy strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-nav-copy small {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-nav-chevron {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+}
+
+.settings-nav-item.is-selected .settings-nav-chevron {
+  color: var(--primary);
+}
+
+.settings-nav-footnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 12px 8px 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-nav-footnote-icon {
+  width: 25px;
+  height: 25px;
+  border-radius: 8px;
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
+}
+
+.settings-nav-footnote-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.settings-nav-footnote p {
+  margin: 1px 0 0;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.settings-panel {
+  min-width: 0;
+}
+
+.settings-panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 2px 2px 17px;
+}
+
+.settings-panel-icon {
+  width: 46px;
+  height: 46px;
+  border: 1px solid color-mix(in srgb, var(--primary) 15%, var(--border-subtle));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--primary) 8%, var(--card-bg));
+  color: var(--primary);
+}
+
+.settings-panel-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.settings-panel-heading > div {
+  min-width: 0;
+}
+
+.settings-panel-heading h2 {
+  margin: 3px 0 2px;
+  color: var(--text-primary);
+  font-size: 19px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.settings-panel-heading p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.settings-panel-content,
+.settings-card-stack {
+  min-width: 0;
+}
+
+.settings-card-stack {
+  display: grid;
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .settings-account-overview {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .settings-account-identity {
+    grid-column: 1 / -1;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .settings-account-detail:nth-child(2) {
+    border-inline-start: 0;
+  }
+}
+
+@media (max-width: 820px) {
+  .settings-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+
+  .settings-section-nav {
+    position: static;
+  }
+
+  .settings-nav-items {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-nav-footnote {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .settings-account-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-radius: 14px;
+  }
+
+  .settings-account-identity {
+    padding: 15px;
+  }
+
+  .settings-account-detail,
+  .settings-account-remaining {
+    padding: 13px 14px;
+  }
+
+  .settings-account-detail:nth-child(2) {
+    border-inline-start: 0;
+  }
+
+  .settings-account-detail:nth-child(3),
+  .settings-account-remaining {
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .settings-nav-items {
+    display: flex;
+    overflow-x: auto;
+    gap: 7px;
+    padding: 10px 1px 2px;
+    scrollbar-width: thin;
+  }
+
+  .settings-nav-item {
+    width: auto;
+    min-width: 174px;
+    flex: 0 0 auto;
+    padding: 8px;
+  }
+
+  .settings-nav-copy small {
+    display: none;
+  }
+
+  .settings-panel-heading {
+    gap: 11px;
+    margin-bottom: 14px;
+  }
+
+  .settings-panel-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+  }
+
+  .settings-panel-heading h2 {
+    font-size: 17px;
+  }
+
+  .settings-panel-heading p {
+    font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-nav-item,
+  .settings-nav-icon {
+    transition: none;
+  }
+}
+
+/* A consistent visual language for every settings section and its nested forms. */
+.settings-panel-content .pf-card {
+  overflow: hidden;
+  border: 1px solid var(--border-default) !important;
+  border-radius: 16px !important;
+  background: var(--card-bg) !important;
+  box-shadow: var(--card-shadow) !important;
+  color: var(--text-primary);
+}
+
+.settings-panel-content .pf-card-header {
+  display: flex !important;
+  min-width: 0;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 14px !important;
+  margin: 0 !important;
+  padding: 17px 20px !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
+  background: linear-gradient(105deg, color-mix(in srgb, var(--primary) 6%, var(--card-bg)), var(--card-bg) 72%) !important;
+}
+
+.settings-panel-content .pf-card-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: var(--text-primary) !important;
+  font-size: 15px !important;
+  font-weight: 750 !important;
+  line-height: 1.5;
+}
+
+.settings-panel-content .pf-card-header h3 svg {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  color: var(--primary) !important;
+}
+
+.settings-panel-content .pf-card-header p:not(h3) {
+  color: var(--text-secondary);
+}
+
+.settings-panel-content .pf-card-content {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px !important;
+  color: var(--text-primary);
+}
+
+.settings-panel-content .pf-card-content > :not([hidden]) ~ :not([hidden]) {
+  margin-block-start: 0 !important;
+}
+
+.settings-panel-content .pf-card-content [class*="rounded-xl"][class*="border"],
+.settings-panel-content .pf-card-content [class*="rounded-lg"][class*="border"] {
+  border-color: var(--border-default) !important;
+  border-radius: 13px !important;
+  background-color: var(--bg-surface-2) !important;
+}
+
+.settings-panel-content .pf-card-content input:not([type="checkbox"]):not([type="radio"]),
+.settings-panel-content .pf-card-content textarea,
+.settings-panel-content .pf-card-content select {
+  border-color: var(--input-border) !important;
+  border-radius: 10px !important;
+  background-color: var(--input-bg) !important;
+  color: var(--text-primary) !important;
+  font: inherit;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.settings-panel-content .pf-card-content textarea {
+  min-height: 132px;
+  padding: 11px 13px !important;
+  line-height: 1.7;
+}
+
+.settings-panel-content .pf-card-content input:not([type="checkbox"]):not([type="radio"]):focus,
+.settings-panel-content .pf-card-content textarea:focus,
+.settings-panel-content .pf-card-content select:focus {
+  border-color: var(--primary) !important;
+  outline: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 13%, transparent) !important;
+}
+
+.settings-panel-content .pf-card-content label {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.6;
+}
+
+.settings-panel-content .pf-card-content p {
+  line-height: 1.7;
+}
+
+.settings-panel-content .pf-card-content .bg-white {
+  background-color: var(--card-bg) !important;
+}
+
+.settings-panel-content .pf-card-content [class*="text-gray-"],
+.settings-panel-content .pf-card-content [class*="text-slate-"] {
+  color: var(--text-secondary) !important;
+}
+
+.settings-panel-content .pf-card-content [class*="bg-amber-"],
+.settings-panel-content .pf-card-content [class*="bg-yellow-"] {
+  background-color: color-mix(in srgb, var(--color-warning) 8%, var(--card-bg)) !important;
+}
+
+.settings-panel-content .pf-card-content [class*="border-amber-"],
+.settings-panel-content .pf-card-content [class*="border-yellow-"] {
+  border-color: color-mix(in srgb, var(--color-warning) 28%, var(--border-default)) !important;
+}
+
+.settings-panel-content .pf-card-content [class*="bg-red-"],
+.settings-panel-content .pf-card-content [class*="bg-rose-"] {
+  background-color: color-mix(in srgb, var(--color-danger) 7%, var(--card-bg)) !important;
+}
+
+.settings-panel-content .pf-card-content [class*="border-red-"],
+.settings-panel-content .pf-card-content [class*="border-rose-"] {
+  border-color: color-mix(in srgb, var(--color-danger) 25%, var(--border-default)) !important;
+}
+
+.settings-panel-content .pf-card-content button {
+  min-height: 40px;
+  font-weight: 650;
+}
+
+.settings-panel-content .pf-card-content button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary) 28%, transparent);
+  outline-offset: 2px;
+}
+
+.settings-panel-content .pf-card-content table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--text-primary);
+}
+
+.settings-panel-content .pf-card-content thead {
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
+}
+
+.settings-panel-content .pf-card-content th,
+.settings-panel-content .pf-card-content td {
+  border-color: var(--border-subtle) !important;
+  vertical-align: middle;
+}
+
+.settings-panel-content .pf-card-content tbody tr {
+  transition: background-color 120ms ease;
+}
+
+.settings-panel-content .pf-card-content tbody tr:hover {
+  background: color-mix(in srgb, var(--primary) 4%, var(--card-bg));
+}
+
+.settings-panel-content--store .settings-card-stack > .pf-card:first-child .pf-card-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 18px;
+}
+
+.settings-panel-content--store .settings-card-stack > .pf-card:first-child .pf-card-content > button {
+  min-width: 160px;
+}
+
+.settings-panel-content--store .settings-card-stack > .pf-card:nth-child(2) .pf-card-content > .rounded-xl {
+  background: color-mix(in srgb, var(--primary) 4%, var(--card-bg)) !important;
+}
+
+.settings-panel-content--store .settings-card-stack > .pf-card:nth-child(3) .pf-card-content > div:first-child {
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-surface-2);
+}
+
+.settings-panel-content--financial > div.space-y-6 > .pf-card:first-child .pf-card-content {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 18px 16px;
+}
+
+.settings-panel-content--financial > div.space-y-6 > .pf-card:first-child .pf-card-content > div:nth-child(n + 4),
+.settings-panel-content--financial > div.space-y-6 > .pf-card:first-child .pf-card-content > button:last-child {
+  grid-column: 1 / -1;
+}
+
+.settings-panel-content--financial > div.space-y-6 > .pf-card:first-child .pf-card-content > div:has(textarea),
+.settings-panel-content--financial > div.space-y-6 > .pf-card:first-child .pf-card-content > div:has(input[type="tel"]),
+.settings-panel-content--financial > div.space-y-6 > .pf-card:first-child .pf-card-content > div:has(h4) {
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 13px;
+  background: var(--bg-surface-2);
+}
+
+.settings-panel-content--financial > div.space-y-6 > .pf-card:first-child .pf-card-content > div:has(h4) {
+  align-items: center;
+}
+
+.settings-panel-content--financial > div.space-y-6 > .pf-card:first-child .pf-card-content > div:has(textarea) textarea {
+  background: var(--input-bg) !important;
+}
+
+.settings-panel-content--financial > div.space-y-6 > .pf-card:first-child .pf-card-content > button:last-child {
+  justify-self: start;
+  min-width: 180px;
+}
+
+.settings-panel-content--financial > div.space-y-6 > .pf-card:nth-child(2) .pf-card-content > div.rounded-xl,
+.settings-panel-content--financial > div.space-y-6 > .pf-card:nth-child(2) .pf-card-content > div.rounded-lg {
+  border-color: var(--border-subtle) !important;
+  background: var(--bg-surface-2) !important;
+}
+
+.settings-panel-content--financial > div.space-y-6 > .pf-card:nth-child(2) .pf-card-content > div[class*="amber"] {
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--card-bg)) !important;
+}
+
+.settings-panel-content--appearance .pf-card-content > div[class*="rounded-xl"],
+.settings-panel-content--appearance .pf-card-content > div[class*="rounded-lg"] {
+  border-color: var(--border-subtle) !important;
+  background: var(--bg-surface-2) !important;
+}
+
+.settings-panel-content--appearance .pf-card-content > div > div[class*="bg-surface"] {
+  border-color: var(--border-default) !important;
+  background: var(--card-bg) !important;
+}
+
+.settings-panel-content--appearance .pf-card-content [class*="bg-violet-"] {
+  background-color: color-mix(in srgb, var(--primary) 11%, var(--card-bg)) !important;
+  color: var(--primary) !important;
+}
+
+.settings-panel-content--audit .pf-card-content {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.settings-panel-content--audit .pf-card-content > :first-child,
+.settings-panel-content--audit .pf-card-content > :last-child {
+  grid-column: 1 / -1;
+}
+
+.settings-panel-content--audit .pf-card-content > div:nth-child(n + 2):nth-child(-n + 4) {
+  min-height: 76px;
+  padding: 14px 16px !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 12px !important;
+  background: var(--bg-surface-2);
+}
+
+.settings-panel-content--audit .pf-card-content > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.settings-panel-content--database .pf-card-content > .grid[class*="md:grid-cols-4"] .pf-card {
+  min-height: 98px;
+  border-radius: 13px !important;
+  box-shadow: none !important;
+}
+
+.settings-panel-content--database .pf-card-content .overflow-x-auto {
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.settings-panel-content--database .pf-card-content table th {
+  padding-block: 12px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.settings-panel-content--database .pf-card-content table td {
+  padding-block: 13px;
+}
+
+.settings-panel-content--database .pf-card-content details {
+  border-color: var(--border-default);
+  border-radius: 12px;
+  background: var(--bg-surface-2);
+}
+
+.settings-panel-content--database .pf-card-content summary {
+  min-height: 38px;
+  font-weight: 700;
+}
+
+.settings-panel-content--database [role="dialog"] {
+  border: 1px solid var(--border-default);
+  border-radius: 18px;
+  background: var(--card-bg);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.2);
+}
+
+@media (max-width: 900px) {
+  .settings-panel-content--financial > div.space-y-6 > .pf-card:first-child .pf-card-content {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-panel-content--financial > div.space-y-6 > .pf-card:first-child .pf-card-content > * {
+    grid-column: 1;
+  }
+}
+
+@media (max-width: 600px) {
+  .settings-panel-content .pf-card-header {
+    align-items: flex-start !important;
+    padding: 15px 16px !important;
+  }
+
+  .settings-panel-content .pf-card-content {
+    padding: 16px !important;
+  }
+
+  .settings-panel-content--store .settings-card-stack > .pf-card:first-child .pf-card-content,
+  .settings-panel-content--audit .pf-card-content {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-panel-content--store .settings-card-stack > .pf-card:first-child .pf-card-content > *,
+  .settings-panel-content--audit .pf-card-content > * {
+    grid-column: 1;
+  }
+
+  .settings-panel-content--store .settings-card-stack > .pf-card:first-child .pf-card-content > button {
+    width: 100%;
+  }
+}

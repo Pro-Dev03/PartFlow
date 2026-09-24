@@ -14,11 +14,11 @@ import { useCustomers } from '../hooks/useCustomers';
 // Components
 import { CustomerFilters } from '../components/CustomerFilters';
 import { CustomerList } from '../components/CustomerList';
-import { CustomerModals } from '../components/CustomerModals';
 import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
 
 // Lazy load heavy components
 const CustomerStats = lazy(() => import('../components/CustomerStats').then(m => ({ default: m.CustomerStats })));
+const CustomerModals = lazy(() => import('../components/CustomerModals').then(m => ({ default: m.CustomerModals })));
 
 // Types
 import { Customer, CustomerFormData } from '../types/customers.types';
@@ -201,17 +201,21 @@ export function CustomersPage() {
       />
 
       {/* Customer Modals */}
-      <CustomerModals
-        isModalOpen={isModalOpen}
-        setIsModalOpen={setIsModalOpen}
-        isViewModalOpen={isViewModalOpen}
-        setIsViewModalOpen={setIsViewModalOpen}
-        editingCustomer={editingCustomer}
-        setEditingCustomer={setEditingCustomer}
-        selectedCustomer={selectedCustomer}
-        setSelectedCustomer={setSelectedCustomer}
-        onSubmit={handleSubmit}
-      />
+      {(isModalOpen || isViewModalOpen) && (
+        <Suspense fallback={null}>
+          <CustomerModals
+            isModalOpen={isModalOpen}
+            setIsModalOpen={setIsModalOpen}
+            isViewModalOpen={isViewModalOpen}
+            setIsViewModalOpen={setIsViewModalOpen}
+            editingCustomer={editingCustomer}
+            setEditingCustomer={setEditingCustomer}
+            selectedCustomer={selectedCustomer}
+            setSelectedCustomer={setSelectedCustomer}
+            onSubmit={handleSubmit}
+          />
+        </Suspense>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog

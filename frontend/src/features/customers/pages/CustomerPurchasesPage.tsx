@@ -12,7 +12,7 @@ import { Modal } from '../../../design-system/components/modal';
 import { PaginationControls } from '../../../design-system/components/pagination-controls';
 import { salesApi, customersApi, debtsApi } from '../../../services/api/endpoints';
 import { useDebounce } from '../../../hooks/useDebounce';
-import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
+import { SalesInvoice } from '../../../components/invoice/SalesInvoice';
 
 const formatMoney = (value: unknown) => `₪${Number(value || 0).toLocaleString('en-US')}`;
 
@@ -241,7 +241,7 @@ export function CustomerPurchasesPage() {
         ) : saleDetailsQuery.isError || !invoiceData ? (
           <div className="p-10 text-center text-red-600">تعذر تحميل تفاصيل الفاتورة</div>
         ) : (
-          <UsedPartsInvoice saleData={invoiceData} onClose={() => setSelectedSaleId(null)} />
+          <SalesInvoice saleData={invoiceData} onClose={() => setSelectedSaleId(null)} />
         )}
       </Modal>
     </div>

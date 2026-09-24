@@ -1,21 +1,23 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { PageHeader } from '../../../design-system/components/page-header';
-import { Button } from '../../../design-system/components/button';
 import { useAuthStore } from '../../../stores/authStore';
 import { authApi } from '../../../services/api/endpoints';
 import {
-  Store,
+  BadgeCheck,
+  CalendarClock,
+  ChevronLeft,
+  Database,
+  FileClock,
   Palette,
-  FileText,
-  DollarSign,
-  Trash2,
-  User,
   ShieldCheck,
-  CalendarClock
+  Store,
+  UserRound,
+  WalletCards,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import './settings-page.css';
 
-// Components
 import { StoreSettings } from '../components/StoreSettings';
 import { AppearanceSettings } from '../components/AppearanceSettings';
 import { FinancialSettings } from '../components/FinancialSettings';
@@ -25,15 +27,22 @@ import { SubscriptionManagement } from '../components/SubscriptionManagement';
 import { RegionalSettings } from '../components/RegionalSettings';
 import { SubscriberSyncSettings } from '../components/SubscriberSyncSettings';
 
+interface SettingsSection {
+  id: string;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+}
+
 export function SettingsPage() {
   const { t } = useTranslation();
   const user = useAuthStore((state) => state.user);
   const [activeTab, setActiveTab] = useState('store');
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -58,7 +67,6 @@ export function SettingsPage() {
   const remainingText = remainingMs === null ? 'غير محدد' : `${remainingDays} يوم`;
   const displayName = user?.first_name || user?.name || 'مستخدم';
   const displayEmail = user?.email || 'غير متوفر';
-  const displayPhone = user?.phone || 'غير متوفر';
   const isOwner = user?.email?.trim().toLowerCase() === 'owner@partflow.com';
   const subscriptionStatus = (user?.subscription_status || 'active').toLowerCase();
   const isActiveSubscription = subscriptionStatus === 'active' || subscriptionStatus === 'trial';
@@ -72,12 +80,37 @@ export function SettingsPage() {
           ? 'موقوف'
           : subscriptionStatus;
 
-  const tabs = [
-    { id: 'store', label: t('settings.store'), icon: Store },
-    { id: 'financial', label: t('settings.financial'), icon: DollarSign },
-    { id: 'appearance', label: t('settings.appearance'), icon: Palette },
-    { id: 'audit', label: t('settings.audit'), icon: FileText },
-    ...(isAdmin && isOwner ? [{ id: 'database', label: 'قاعدة البيانات', icon: Trash2 }] : []),
+  const tabs: SettingsSection[] = [
+    {
+      id: 'store',
+      label: t('settings.store'),
+      description: 'بيانات المتجر والمنطقة والمزامنة',
+      icon: Store,
+    },
+    {
+      id: 'financial',
+      label: t('settings.financial'),
+      description: 'العملة والضرائب والخصومات',
+      icon: WalletCards,
+    },
+    {
+      id: 'appearance',
+      label: t('settings.appearance'),
+      description: 'المظهر وطريقة عرض النظام',
+      icon: Palette,
+    },
+    {
+      id: 'audit',
+      label: t('settings.audit'),
+      description: 'سجل الإجراءات والاحتفاظ به',
+      icon: FileClock,
+    },
+    ...(isAdmin && isOwner ? [{
+      id: 'database',
+      label: 'البيانات والاشتراك',
+      description: 'إدارة الاتصال وقاعدة البيانات',
+      icon: Database,
+    }] : []),
   ];
 
   useEffect(() => {
@@ -86,147 +119,134 @@ export function SettingsPage() {
     }
   }, [activeTab, isAdmin, isOwner]);
 
+  const activeSection = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
+  const ActiveSectionIcon = activeSection.icon;
+
   return (
-    <div>
-      {/* Page Header */}
+    <div className="settings-page" dir="rtl">
       <PageHeader
         title={t('settings.title')}
-        description="تحكم في حسابك واشتراكك وإعدادات متجرك من مكان واحد"
+        description="إدارة حسابك واشتراكك وتفضيلات المتجر من مكان واحد"
       />
 
-      <div
-        className="mb-6 grid gap-4"
-        dir="rtl"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}
-      >
-        <div
-          className="settings-summary-card user min-w-0 p-5"
-          style={{
-            borderColor: 'color-mix(in srgb, var(--primary) 18%, var(--border-default))',
-          }}
+      <section className="settings-account-overview" aria-label="ملخص الحساب">
+        <div className="settings-account-identity">
+          <div className="settings-account-avatar" aria-hidden="true">
+            <UserRound />
+          </div>
+          <div className="settings-account-copy">
+            <span className="settings-overline">حساب المتجر</span>
+            <h2 title={displayName}>{displayName}</h2>
+            <p dir="ltr" title={displayEmail}>{displayEmail}</p>
+          </div>
+        </div>
+
+        <div className="settings-account-detail">
+          <span className="settings-detail-icon settings-detail-icon-status">
+            <ShieldCheck aria-hidden="true" />
+          </span>
+          <div>
+            <span className="settings-detail-label">حالة الاشتراك</span>
+            <span className={`settings-status-pill ${isActiveSubscription ? 'is-active' : 'is-inactive'}`}>
+              <span aria-hidden="true" />
+              {subscriptionStatusLabel}
+            </span>
+          </div>
+        </div>
+
+        <div className="settings-account-detail">
+          <span className="settings-detail-icon">
+            <CalendarClock aria-hidden="true" />
+          </span>
+          <div className="settings-expiry-copy">
+            <span className="settings-detail-label">تاريخ الانتهاء</span>
+            <strong>
+              {expiryDate
+                ? new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium', timeZone: 'UTC' }).format(expiryDate)
+                : 'غير محدد'}
+            </strong>
+          </div>
+        </div>
+
+        <div className="settings-account-remaining">
+          <div>
+            <span className="settings-detail-label">الوقت المتبقي</span>
+            <strong>{remainingText}</strong>
+          </div>
+          <BadgeCheck className="settings-remaining-mark" aria-hidden="true" />
+        </div>
+      </section>
+
+      <div className="settings-workspace">
+        <nav className="settings-section-nav" aria-label="أقسام الإعدادات">
+          <div className="settings-nav-heading">
+            <span>الإعدادات</span>
+            <p>اختر القسم الذي تريد تعديله</p>
+          </div>
+          <div className="settings-nav-items">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isSelected = activeTab === tab.id;
+
+              return (
+                <button
+                  key={tab.id}
+                  id={`settings-nav-${tab.id}`}
+                  type="button"
+                  className={`settings-nav-item${isSelected ? ' is-selected' : ''}`}
+                  aria-current={isSelected ? 'page' : undefined}
+                  aria-controls="settings-active-panel"
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  <span className="settings-nav-icon"><Icon aria-hidden="true" /></span>
+                  <span className="settings-nav-copy">
+                    <strong>{tab.label}</strong>
+                    <small>{tab.description}</small>
+                  </span>
+                  <ChevronLeft className="settings-nav-chevron" aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+          <div className="settings-nav-footnote">
+            <span className="settings-nav-footnote-icon"><ShieldCheck aria-hidden="true" /></span>
+            <p>تُحفظ التغييرات في إعدادات المتجر وفق صلاحيات حسابك.</p>
+          </div>
+        </nav>
+
+        <section
+          id="settings-active-panel"
+          className="settings-panel"
+          aria-labelledby={`settings-panel-title-${activeTab}`}
         >
-          <div className="mb-5 flex items-center gap-3">
-            <div className="settings-summary-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <User className="h-5 w-5" />
-            </div>
+          <div className="settings-panel-heading">
+            <span className="settings-panel-icon"><ActiveSectionIcon aria-hidden="true" /></span>
             <div>
-              <p className="text-xs font-medium text-muted-foreground">بيانات المستخدم</p>
-              <h3 className="mt-1 text-lg font-bold text-foreground">{displayName}</h3>
+              <span className="settings-overline">إدارة التفضيلات</span>
+              <h2 id={`settings-panel-title-${activeTab}`}>{activeSection.label}</h2>
+              <p>{activeSection.description}</p>
             </div>
           </div>
 
-          <div className="space-y-3 text-sm">
-            <div className="border-t border-border/60 pt-3">
-              <span className="block text-xs text-muted-foreground">البريد الإلكتروني</span>
-              <span dir="ltr" className="mt-1 block min-w-0 truncate text-right font-semibold text-foreground">{displayEmail}</span>
-            </div>
-            <div className="border-t border-border/60 pt-3">
-              <span className="text-muted-foreground">الهاتف</span>
-              <span dir="ltr" className="mt-1 block truncate text-right font-semibold text-foreground">{displayPhone}</span>
-            </div>
+          <div className={`settings-panel-content settings-panel-content--${activeTab}`}>
+            {activeTab === 'store' && (
+              <div className="settings-card-stack">
+                <StoreSettings />
+                <RegionalSettings canManageRegionalSettings={isActiveSubscription} />
+                {isActiveSubscription && <SubscriberSyncSettings />}
+              </div>
+            )}
+            {activeTab === 'financial' && <FinancialSettings />}
+            {activeTab === 'appearance' && <AppearanceSettings />}
+            {activeTab === 'audit' && <AuditSettings />}
+            {activeTab === 'database' && isAdmin && isOwner && (
+              <div className="settings-card-stack">
+                <DatabaseSettings />
+                <SubscriptionManagement />
+              </div>
+            )}
           </div>
-        </div>
-
-        <div
-          className="settings-summary-card subscription min-w-0 p-5"
-          style={{
-            borderColor: 'rgba(16, 185, 129, 0.2)',
-          }}
-        >
-          <div className="mb-5 flex items-center gap-3">
-            <div className="settings-summary-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">حالة الاشتراك</p>
-              <h3 className="mt-1 text-lg font-bold text-foreground">{isActiveSubscription ? 'نشط' : 'منتهي'}</h3>
-            </div>
-          </div>
-
-          <div className="space-y-3 text-sm">
-            <div className="border-t border-border/60 pt-3">
-              <span className="block text-xs text-muted-foreground">الحالة الحالية</span>
-              <span className="mt-1 inline-flex rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-700">{subscriptionStatusLabel}</span>
-            </div>
-            <div className="border-t border-border/60 pt-3">
-              <span className="block text-xs text-muted-foreground">تاريخ الانتهاء</span>
-              <span className="mt-1 block truncate font-semibold text-foreground">{expiryDate ? new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium', timeZone: 'UTC' }).format(expiryDate) : 'غير محدد'}</span>
-            </div>
-          </div>
-        </div>
-
-        <div
-          className="settings-summary-card time min-w-0 p-5"
-          style={{
-            borderColor: 'rgba(245, 158, 11, 0.24)',
-          }}
-        >
-          <div className="mb-5 flex items-center gap-3">
-            <div className="settings-summary-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
-              <CalendarClock className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">الوقت المتبقي</p>
-              <h3 className="mt-1 text-2xl font-bold text-foreground">{remainingText}</h3>
-            </div>
-          </div>
-
-          <div className="space-y-3 text-sm">
-            <div className="border-t border-border/60 pt-3">
-              <span className="block text-xs text-muted-foreground">حالة التحديث</span>
-              <span className="mt-1 block font-semibold text-foreground">{isActiveSubscription ? 'يتم التحديث تلقائياً' : 'الاشتراك منتهي'}</span>
-            </div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className={`h-full rounded-full ${isActiveSubscription ? 'bg-emerald-500' : 'bg-red-500'}`}
-                style={{ width: `${expiryDate && remainingMs !== null ? Math.max(0, Math.min(100, (remainingMs / (expiryDate.getTime() - Date.now() + remainingMs + 1)) * 100)) : 100}%` }}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div
-        className="grid gap-5"
-        style={{ gridTemplateColumns: 'minmax(180px, 220px) minmax(0, 1fr)', gap: '20px' }}
-      >
-        {/* Sidebar Tabs - Futuristic + Minimal */}
-        <div className="space-y-sm">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <Button
-                key={tab.id}
-                variant={activeTab === tab.id ? 'primary' : 'ghost'}
-                className="w-full justify-start gap-sm"
-                onClick={() => setActiveTab(tab.id)}
-              >
-                <Icon className="w-4 h-4" />
-                <span className="text-tiny">{tab.label}</span>
-              </Button>
-            );
-          })}
-        </div>
-
-        {/* Content Area - Futuristic + Minimal */}
-        <div className="min-w-0">
-          {activeTab === 'store' && (
-            <div className="space-y-5">
-              <StoreSettings />
-              <RegionalSettings canManageRegionalSettings={isActiveSubscription} />
-              {isActiveSubscription && <SubscriberSyncSettings />}
-            </div>
-          )}
-          {activeTab === 'financial' && <FinancialSettings />}
-          {activeTab === 'appearance' && <AppearanceSettings />}
-          {activeTab === 'audit' && <AuditSettings />}
-          {activeTab === 'database' && isAdmin && (
-            <div className="space-y-6">
-              <DatabaseSettings />
-              {isAdmin && <SubscriptionManagement />}
-            </div>
-          )}
-        </div>
+        </section>
       </div>
     </div>
   );

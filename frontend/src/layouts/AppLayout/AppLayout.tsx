@@ -57,13 +57,13 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div
       dir={direction}
-      className={theme === 'light' ? 'light' : ''}
+      className={cn('pf-app-shell', theme === 'light' && 'light')}
       style={{
         minHeight: '100vh',
         background: theme !== 'light' ? 'var(--bg-background)' : 'var(--bg-gradient-light), var(--bg-background)'
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <div className="pf-app-frame" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
         {!hideNavigation && <Header onToggleSidebar={toggleSidebar} />}
         <div style={{ display: 'flex', flex: 1, minWidth: 0, alignItems: 'stretch' }}>
           {!hideNavigation && (
@@ -83,6 +83,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               padding: hideNavigation ? '0' : '20px 24px'
             }}
             className={cn('px-4 md:px-8 lg:px-8', hideNavigation && 'checkout-mode')}
+            data-app-main="true"
           >
             {children}
           </main>

@@ -461,7 +461,7 @@ export function forceLogoutToLogin(reason = 'Session expired') {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       isAuthenticated: false,
       sessionVerified: false,
       cloudVerificationPending: false,

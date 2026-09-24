@@ -7,7 +7,8 @@ import { Input } from '../../../design-system/components/input';
 import { Select } from '../../../design-system/components/select';
 import { Badge } from '../../../design-system/components/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
-import { PageHeader } from '../../../design-system/components/page-header';
+import { PaginationControls } from '../../../design-system/components/pagination-controls';
+
 import { Modal } from '../../../design-system/components/modal';
 import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
 import { Product, Supplier, Category } from '../../../types/models';
@@ -21,10 +22,8 @@ import {
   Package,
   FileText,
   Sparkles,
-  DollarSign,
   Box,
   MoreHorizontal,
-  ChevronLeft,
   ChevronRight,
   ImagePlus,
   Upload,
@@ -38,7 +37,7 @@ import { toast } from 'sonner';
 import { settingsApi } from '../../../services/api/endpoints';
 import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
 import { generateSku } from '../../../utils/sku';
-import { compressProductImage, getLocalProductImage, setLocalProductImage } from '../../../services/localProductImages';
+import { compressProductImage, setLocalProductImage } from '../../../services/localProductImages';
 
 interface LineItem extends PurchaseItem {
   key: string;
@@ -124,11 +123,11 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
 
   const { data: suppliersData, isLoading: suppliersLoading } = useQuery({
     queryKey: ['suppliers'],
-    queryFn: () => suppliersApi.list({ page: 1, per_page: 10 }),
+    queryFn: () => suppliersApi.list({ page: 1, per_page: 100 }),
   });
 
-  const { data: productsData } = useQuery({
-    queryKey: ['products', productSearchQuery],
+  const { data: productsData, isLoading: productsLoading } = useQuery({
+    queryKey: ['products', productSearchQuery, productPage],
     queryFn: () => productsApi.list({ search: productSearchQuery, page: productPage, per_page: 10 }),
   });
 
@@ -261,20 +260,26 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
   }, []);
 
   useEffect(() => {
-    const product = (location.state as { product?: { id: string; name: string; cost_price?: number } } | null)?.product;
-    if (!product || items.length > 0) return;
+    const purchaseState = location.state as {
+      supplierId?: string;
+      product?: { id: string; name: string; cost_price?: number };
+    } | null;
+    const { product, supplierId } = purchaseState || {};
 
-    setItems([{
-      key: `${product.id}-${Date.now()}`,
-      product_id: product.id,
-      product_name: product.name,
-      quantity: 1,
-      unit_cost: Number(product.cost_price) || 0,
-      selling_price: Number((product as any).selling_price) || 0,
-      category_id: (product as any).category_id || '',
-      condition: 'new',
-    }]);
-    navigate(location.pathname, { replace: true, state: null });
+    if (supplierId) setSelectedSupplier(supplierId);
+    if (product && items.length === 0) {
+      setItems([{
+        key: `${product.id}-${Date.now()}`,
+        product_id: product.id,
+        product_name: product.name,
+        quantity: 1,
+        unit_cost: Number(product.cost_price) || 0,
+        selling_price: Number((product as any).selling_price) || 0,
+        category_id: (product as any).category_id || '',
+        condition: 'new',
+      }]);
+    }
+    if (product || supplierId) navigate(location.pathname, { replace: true, state: null });
   }, [items.length, location.pathname, location.state, navigate]);
 
   const handleManualAdd = useCallback((product: any) => {
@@ -799,6 +804,15 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
                       </span>
                     </button>
                   ))}
+                  {productTotalPages > 1 && (
+                    <PaginationControls
+                      page={productPage}
+                      pageSize={10}
+                      total={productTotal}
+                      onPageChange={setProductPage}
+                      isLoading={productsLoading}
+                    />
+                  )}
                 </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center text-sm text-text-muted">

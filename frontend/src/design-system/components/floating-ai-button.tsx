@@ -16,7 +16,6 @@ const DRAG_THRESHOLD = 10
 export default function FloatingAIButton({ onClick, assistantState = 'idle', interaction }: FloatingAIButtonProps) {
   const [position, setPosition] = useState({ x: -1, y: -1 })
   const [isDragging, setIsDragging] = useState(false)
-  const [isHovered, setIsHovered] = useState(false)
   const pointerIdRef = useRef<number | null>(null)
   const startPointRef = useRef({ x: 0, y: 0 })
   const dragOffsetRef = useRef({ x: 0, y: 0 })
@@ -143,11 +142,9 @@ export default function FloatingAIButton({ onClick, assistantState = 'idle', int
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={(e) => {
-        setIsHovered(false)
         handlePointerLeave(e)
       }}
       onPointerCancel={handlePointerLeave}
-      onPointerEnter={() => setIsHovered(true)}
       onClick={handleClick}
     >
       <div className="relative bot-hover-effect" style={{ width: '80px', height: '80px' }}>

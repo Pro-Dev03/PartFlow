@@ -19,7 +19,7 @@ export function BrandPanel({ isDark }: BrandPanelProps) {
           ? 'linear-gradient(145deg, rgba(34, 211, 238, 0.055), transparent 45%)'
           : 'linear-gradient(145deg, rgba(37, 99, 235, 0.03), transparent 45%)',
       }}
-      className="md:block hidden"
+      className="pf-login-brand-panel md:block hidden"
     >
       {/* Brand */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '13px' }}>

@@ -1,7 +1,7 @@
 import { forwardRef, type CSSProperties, type HTMLAttributes, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../utils';
-import { X, Sparkles } from 'lucide-react';
+import { X } from 'lucide-react';
 
 export interface ModalProps extends HTMLAttributes<HTMLDivElement> {
   isOpen: boolean;
@@ -184,23 +184,22 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
       default: {
         background: 'var(--bg-surface)',
         border: '1px solid var(--border-default)',
-        shadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
+        shadow: 'var(--shadow-xl)',
       },
       elegant: {
-        background: 'linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%)',
-        border: '1px solid rgba(99, 102, 241, 0.3)',
-        shadow: '0 25px 50px -12px rgba(99, 102, 241, 0.25), 0 0 0 1px rgba(99, 102, 241, 0.1) inset, 0 0 40px rgba(99, 102, 241, 0.15)',
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border-default)',
+        shadow: 'var(--shadow-xl)',
       },
       modern: {
         background: 'var(--bg-surface)',
-        border: '1px solid var(--border-primary)',
-        shadow: 'rgba(0, 0, 0, 0.3) 0px 20px 60px, rgba(255, 255, 255, 0.1) 0px 0px 0px 1px inset, rgba(99, 102, 241, 0.1) 0px 0px 40px',
+        border: '1px solid var(--border-default)',
+        shadow: 'var(--shadow-xl)',
       },
       glass: {
-        background: 'rgba(255, 255, 255, 0.7)',
-        backdropFilter: 'blur(20px)',
-        border: '1px solid rgba(255, 255, 255, 0.3)',
-        shadow: '0 25px 50px -12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.2) inset',
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border-default)',
+        shadow: 'var(--shadow-xl)',
       },
     };
 
@@ -208,7 +207,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
 
     const modalContent = (
       <div 
-        className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+        className="pf-modal-overlay fixed inset-0 z-[9999] flex items-center justify-center p-4"
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? 'modal-title' : undefined}
@@ -235,7 +234,7 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
             }
           }}
           className={cn(
-            'relative w-full rounded-2xl overflow-hidden',
+            'pf-modal-surface relative w-full rounded-2xl overflow-hidden',
             'max-h-[calc(100vh-2rem)]',
             sizes[size],
             className
@@ -278,16 +277,6 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
               }}
             >
               <div className="flex items-center gap-3">
-                {variant === 'modern' && (
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99, 102, 241, 0.15)' }}>
-                    <Sparkles className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />
-                  </div>
-                )}
-                {variant === 'elegant' && (
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99, 102, 241, 0.2)' }}>
-                    <Sparkles className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />
-                  </div>
-                )}
                 <h3 
                   id="modal-title" 
                   className="text-lg font-semibold"
@@ -335,14 +324,6 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
             {children}
           </div>
 
-          {variant === 'modern' && (
-            <div 
-              className="absolute bottom-0 left-0 right-0 h-1"
-              style={{
-                background: 'linear-gradient(90deg, var(--color-primary) 0%, var(--color-info) 50%, var(--color-success) 100%)',
-              }}
-            />
-          )}
         </div>
       </div>
     );

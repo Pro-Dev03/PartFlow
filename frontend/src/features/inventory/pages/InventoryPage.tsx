@@ -921,14 +921,6 @@ export function InventoryPage() {
         onArchiveProduct={(productId) => archiveProductMutation.mutate(productId)}
         onDeleteInventoryItem={(itemId) => { setInventoryItemToDelete(itemId); setDeleteDialogOpen(true); }}
         onClearSearch={handleClearSearch}
-        onReorderFromSupplier={(supplierId, productName) => {
-          // Navigate to purchases page with pre-filled supplier
-          navigate('/app/purchases', { state: { supplierId, productName } });
-        }}
-        onViewInvoice={(supplierId) => {
-          // Navigate to purchases page filtered by supplier
-          navigate('/app/purchases', { state: { supplierId } });
-        }}
         onViewInventoryLedger={handleViewInventoryLedger}
         pagination={viewMode === 'products'
           ? { page: productPage, pageSize, total: productTotal, onPageChange: setProductPage }

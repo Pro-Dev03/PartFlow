@@ -4,7 +4,7 @@ import { SearchInput } from '../../../design-system/components/search-input';
 import { Select } from '../../../design-system/components/select';
 import { Input } from '../../../design-system/components/input';
 import { SortButton } from '../../../design-system/components/sort-button';
-import { getButtonSize } from '../../../config/button-sizes';
+
 import { cn } from '../../../utils';
 import { Filter, RefreshCw } from 'lucide-react';
 import { FilterConfig, SortConfig } from '../types/inventory.types';

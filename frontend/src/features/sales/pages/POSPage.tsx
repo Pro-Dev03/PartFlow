@@ -8,6 +8,7 @@ import { Modal } from '../../../design-system/components/modal';
 import { Button } from '../../../design-system/components/button';
 import { Input } from '../../../design-system/components/input';
 import { PartFlowLogo } from '../../../components/branding/PartFlowLogo';
+import { SalesInvoice } from '../../../components/invoice/SalesInvoice';
 import {
   productsApi,
   salesApi,
@@ -20,7 +21,6 @@ import {
   paymentTransactionsApi,
   posShiftsApi,
 } from '../../../services/api/endpoints';
-import { UsedPartsInvoice } from '../../../components/invoice/UsedPartsInvoice';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
 import { useDebounce } from '../../../hooks/useDebounce';
 import {
@@ -33,16 +33,15 @@ import {
   Zap,
   X,
   ArrowRight,
-  Wifi,
   ShoppingCart,
   Trash2,
-  RefreshCcw,
   UserRound,
   ChevronDown,
   FilePlus2,
   Wallet,
   LockKeyhole,
   UnlockKeyhole,
+  Info,
 } from 'lucide-react';
 
 // Modern Components
@@ -82,16 +81,6 @@ interface PosShiftState {
 }
 
 const POS_SHIFT_STORAGE_KEY = 'partflow-pos-shift';
-
-function createDefaultShift(): PosShiftState {
-  return {
-    status: 'open',
-    openedAt: new Date().toISOString(),
-    openingCash: 0,
-    salesTotal: 0,
-    saleCount: 0,
-  };
-}
 
 function normalizeRemoteShift(value: unknown): PosShiftState | null {
   if (!value || typeof value !== 'object') return null;
@@ -241,8 +230,7 @@ export function POSPage() {
   const barcodeScanValueRef = useRef('');
   const barcodeScanTimerRef = useRef<number | null>(null);
   const processBarcodeValueRef = useRef<(value: string) => Promise<void>>(async () => undefined);
-  const [posSection, setPosSection] = useState<'products' | 'used'>('products');
-  const [soldUsedPartIds, setSoldUsedPartIds] = useState<Set<string>>(() => new Set());
+  const [posSection, setPosSection] = useState<'products'>('products');
   const [optimisticSoldQuantities, setOptimisticSoldQuantities] = useState<Record<string, number>>({});
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState('');
@@ -268,7 +256,6 @@ export function POSPage() {
   const [quickCustomerName, setQuickCustomerName] = useState('');
   const [quickCustomerPhone, setQuickCustomerPhone] = useState('');
   const [productPage, setProductPage] = useState(1);
-  const [usedPartPage, setUsedPartPage] = useState(1);
   const configuredProductsPerPage = Number(posProductsPerPageSetting?.data?.value);
   const productsPerPage = Number.isInteger(configuredProductsPerPage) && configuredProductsPerPage >= 4 && configuredProductsPerPage <= 48
     ? configuredProductsPerPage
@@ -362,37 +349,7 @@ export function POSPage() {
 
   useEffect(() => {
     setProductPage(1);
-    setUsedPartPage(1);
   }, [debouncedSearchQuery, selectedCategory, productsPerPage]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'F4') {
-        event.preventDefault();
-        handleHoldSale();
-      } else if (event.key === 'F2') {
-        event.preventDefault();
-        document
-          .querySelector<HTMLInputElement>('.pos-barcode-input')
-          ?.focus();
-      } else if (event.key === 'F8') {
-        event.preventDefault();
-        document
-          .querySelector<HTMLButtonElement>('.checkout-btn:not(:disabled)')
-          ?.click();
-      } else if (event.key === 'Escape') {
-        setUnknownBarcode('');
-        setIsManualProductOpen(false);
-      } else if (event.key === 'Delete' && cart.length > 0) {
-        if (
-          !(event.target as HTMLElement).matches('input, textarea, select')
-        ) {
-          removeFromCart(cart[cart.length - 1].barcode);
-        }
-      }
-    };
-  }, [cart, removeFromCart]);
 
   // Products query
   const { data: productsData, isLoading: productsLoading } = useQuery({
@@ -502,20 +459,6 @@ export function POSPage() {
     return Array.from(productsById.values());
   }, [debouncedSearchQuery, inventoryItems, products, selectedCategory]);
 
-  const availableUsedParts = useMemo(() => {
-    const query = debouncedSearchQuery.trim().toLowerCase();
-    return inventoryItems.filter((item: any) => {
-      if (String(item.condition || '').toUpperCase() !== 'USED') return false;
-      if (String(item.status || '').toUpperCase() !== 'AVAILABLE') return false;
-      if (soldUsedPartIds.has(String(item.id))) return false;
-      if (!query) return true;
-      const name = String(item.product_name || item.product?.name || '').toLowerCase();
-      const serialNumber = String(item.serial_number || '').toLowerCase();
-      const barcode = String(item.barcode || '').toLowerCase();
-      return name.includes(query) || serialNumber.includes(query) || barcode.includes(query);
-    });
-  }, [debouncedSearchQuery, inventoryItems, soldUsedPartIds]);
-
   const cartQuantities = useMemo(() => {
     return cart.reduce<Record<string, number>>((quantities, item) => {
       const productId = String(item.id);
@@ -523,37 +466,6 @@ export function POSPage() {
       return quantities;
     }, {});
   }, [cart]);
-
-  const usedPartTotalPages = Math.max(1, Math.ceil(availableUsedParts.length / productsPerPage));
-  const visibleUsedParts = availableUsedParts.slice(
-    (usedPartPage - 1) * productsPerPage,
-    usedPartPage * productsPerPage,
-  );
-
-  useEffect(() => {
-    if (usedPartPage > usedPartTotalPages) setUsedPartPage(usedPartTotalPages);
-  }, [usedPartPage, usedPartTotalPages]);
-
-  const handleUsedPartSelect = useCallback((item: any) => {
-    const productId = String(item.product_id || item.product?.id || '');
-    if (!productId) {
-      toast.error('هذه القطعة غير مرتبطة بمنتج صالح', 'تعذر إضافة القطعة', 4000);
-      return;
-    }
-    addToCart({
-      id: productId,
-      inventoryItemId: String(item.id),
-      name: item.product_name || item.product?.name || 'قطعة مستعملة',
-      barcode: item.barcode || item.serial_number || item.id,
-      price: normalizePosPrice(item.selling_price, item.price),
-      stock: 1,
-      isTradeIn: true,
-      purchaseCost: normalizePosPrice(item.purchase_cost),
-      condition: item.condition,
-      grade: item.grade,
-      serialNumber: item.serial_number,
-    });
-  }, [addToCart, toast]);
 
   const productsWithStock = useMemo(() => {
     const stockMap = new Map<string, number>();
@@ -803,7 +715,6 @@ export function POSPage() {
         .filter((item) => item.inventoryItemId)
         .map((item) => String(item.inventoryItemId));
       if (soldInventoryIds.length > 0) {
-        setSoldUsedPartIds((current) => new Set([...current, ...soldInventoryIds]));
       }
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -819,6 +730,13 @@ export function POSPage() {
         setLastSaleData({
           ...lastSaleDataRef.current,
           id: sale?.id || response?.id || lastSaleDataRef.current.id,
+          invoiceNumber: sale?.invoice_number || response?.invoice_number || lastSaleDataRef.current.invoiceNumber,
+          subtotal: Number(sale?.subtotal ?? lastSaleDataRef.current.subtotal),
+          discountAmount: Number(sale?.discount_amount ?? lastSaleDataRef.current.discountAmount ?? 0),
+          taxAmount: Number(sale?.tax_amount ?? lastSaleDataRef.current.taxAmount ?? 0),
+          paidAmount: Number(sale?.paid_amount ?? lastSaleDataRef.current.paidAmount),
+          remaining: Number(sale?.remaining_amount ?? lastSaleDataRef.current.remaining),
+          paymentStatus: sale?.payment_status || lastSaleDataRef.current.paymentStatus,
           cashReceived: Number(sale?.cash_received ?? lastSaleDataRef.current.cashReceived ?? 0),
           changeAmount: Number(sale?.change_amount ?? lastSaleDataRef.current.changeAmount ?? 0),
           ...(Array.isArray(persistedAllocations) ? { paymentAllocations: persistedAllocations } : {}),
@@ -928,8 +846,12 @@ export function POSPage() {
         })),
         subtotal: subtotalAmount,
         discountAmount,
+        taxAmount: Number(sale?.tax_amount ?? latestSale.tax_amount ?? 0),
         total: totalAmount,
         paidAmount,
+        invoiceNumber: sale?.invoice_number ?? latestSale.invoice_number,
+        paymentStatus: sale?.payment_status ?? latestSale.payment_status,
+        notes: sale?.notes ?? latestSale.notes,
         cashReceived: Number(sale?.cash_received ?? 0),
         changeAmount: Number(sale?.change_amount ?? 0),
         remaining: Math.max(totalAmount - paidAmount, 0),
@@ -958,6 +880,31 @@ export function POSPage() {
     holdSaleMutation.mutate();
   };
 
+  // Register cashier shortcuts after handleHoldSale is initialized.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'F4') {
+        event.preventDefault();
+        handleHoldSale();
+      } else if (event.key === 'F2') {
+        event.preventDefault();
+        document.querySelector<HTMLInputElement>('.pos-barcode-input')?.focus();
+      } else if (event.key === 'F8') {
+        event.preventDefault();
+        document.querySelector<HTMLButtonElement>('.checkout-btn:not(:disabled)')?.click();
+      } else if (event.key === 'Escape') {
+        setUnknownBarcode('');
+        setIsManualProductOpen(false);
+      } else if (event.key === 'Delete' && cart.length > 0) {
+        if (!(event.target as HTMLElement).matches('input, textarea, select')) {
+          removeFromCart(cart[cart.length - 1].barcode);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [cart, handleHoldSale, removeFromCart]);
+
   const handleResumeSale = (held: HeldSale) => {
     if (!held) return;
     clearCart();
@@ -969,24 +916,6 @@ export function POSPage() {
   const processBarcodeValue = async (barcodeValue: string) => {
     const normalizedBarcode = barcodeValue.trim();
     if (!normalizedBarcode) return;
-
-    if (posSection === 'used') {
-      const scannedValue = normalizedBarcode.toLowerCase();
-      const usedPart = inventoryItems.find((item: any) =>
-        String(item.status || '').toUpperCase() === 'AVAILABLE' &&
-        String(item.condition || '').toUpperCase() === 'USED' &&
-        [item.barcode, item.serial_number, item.id].some(
-          (value) => String(value || '').toLowerCase() === scannedValue
-        )
-      );
-      if (usedPart) {
-        handleUsedPartSelect(usedPart);
-      } else {
-        toast.error('لم يتم العثور على قطعة مستعملة بهذا الباركود', 'قطعة غير موجودة', 4000);
-      }
-      setSearchQuery('');
-      return;
-    }
 
     try {
       const response = await barcodeApi.lookupProduct(normalizedBarcode);
@@ -1116,14 +1045,18 @@ export function POSPage() {
     }
     if (paymentMethod === 'credit' && paidAmount.trim() === '') return;
 
-    let latestInventoryItems = inventoryItems;
+    setProcessing(true);
+    let latestInventoryItems = Array.isArray(inventoryItems) ? inventoryItems : [];
     try {
       const latestInventory = await queryClient.fetchQuery({
         queryKey: ['inventory'],
         queryFn: () => inventoryApi.listWithSupplier({ page: 1, per_page: 1000 }),
         staleTime: 0,
       });
-      latestInventoryItems = ((latestInventory?.data?.items as unknown) as InventoryItem[]) || [];
+      const freshInventoryItems = latestInventory?.data?.items;
+      if (Array.isArray(freshInventoryItems)) {
+        latestInventoryItems = freshInventoryItems as InventoryItem[];
+      }
     } catch {
     }
 
@@ -1161,6 +1094,7 @@ export function POSPage() {
     }, [] as string[]);
 
     if (exhaustedItems.length > 0) {
+      setProcessing(false);
       const uniqueItems = [...new Set(exhaustedItems)];
       const message =
         uniqueItems.length > 1
@@ -1170,11 +1104,11 @@ export function POSPage() {
       return;
     }
 
-    setProcessing(true);
-
     let paymentTransactionID: string | undefined;
     if (paymentMethod === 'card' && electronicPaymentsEnabled && electronicPaymentProvider !== 'manual') {
-      const orderID = crypto.randomUUID();
+      const orderID = typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `pos-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       try {
         const createdResponse = await paymentTransactionsApi.create({
           order_id: orderID,
@@ -1256,6 +1190,7 @@ export function POSPage() {
       })),
       subtotal: displaySubtotal,
       discountAmount: displayDiscount,
+      taxAmount: displayTax,
       total: displayTotal,
       paidAmount: appliedPaymentAmount,
       cashReceived: paymentMethod === 'cash' ? receivedAmount : undefined,
@@ -1278,6 +1213,7 @@ export function POSPage() {
     subtotal,
     displayCart,
     displaySubtotal,
+    displayTax,
     displayTotal,
     appliedDiscountRate,
     taxExempt,
@@ -1370,6 +1306,7 @@ export function POSPage() {
       })),
       subtotal: displaySubtotal,
       discountAmount: displayDiscount,
+      taxAmount: displayTax,
       total: displayTotal,
       paidAmount: displayTotal,
       remaining: 0,
@@ -1386,6 +1323,7 @@ export function POSPage() {
     subtotal,
     displayCart,
     displaySubtotal,
+    displayTax,
     displayTotal,
     appliedDiscountRate,
     taxExempt,
@@ -1576,16 +1514,6 @@ export function POSPage() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => window.location.reload()}
-              className="gap-2"
-              title="تحديث الصفحة"
-            >
-              <RefreshCcw className="w-4 h-4" />
-              <span>تحديث</span>
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
               onClick={handlePrintLastInvoice}
               disabled={isLoadingLastInvoice}
               className="gap-2"
@@ -1602,6 +1530,18 @@ export function POSPage() {
       <div className="pos-modern-body">
         {/* Products Section */}
         <main className="pos-products-area">
+          <div className="pos-category-bar" role="group" aria-label="قسم البيع">
+            <button
+              type="button"
+              aria-pressed={posSection === 'products'}
+              className={`category-chip ${posSection === 'products' ? 'active' : ''}`}
+              onClick={() => setPosSection('products')}
+            >
+              <Package className="w-3.5 h-3.5" />
+              <span>المنتجات</span>
+            </button>
+          </div>
+
           {/* Search & Barcode */}
           <form onSubmit={handleBarcodeScan} className="pos-search-bar">
             <div className="pos-barcode-form">
@@ -1650,7 +1590,7 @@ export function POSPage() {
           )}
 
           {/* Products Grid */}
-          <ModernProductGrid
+          {posSection === 'products' && <ModernProductGrid
               products={visibleProducts}
               onProductClick={handleProductSelect}
               taxRate={effectiveTaxRate}
@@ -1664,132 +1604,7 @@ export function POSPage() {
               isLoading={productsLoading}
               hasSearch={Boolean(debouncedSearchQuery.trim())}
               onAddProduct={() => navigate('/app/inventory')}
-            />
-          {false && (
-            <>
-              <div className="pos-product-view-toolbar">
-                <button
-                  type="button"
-                  className={`pos-product-details-toggle ${showProductDetails ? 'active' : ''}`}
-                  onClick={() => setShowProductDetails((visible) => !visible)}
-                  aria-pressed={showProductDetails}
-                  title={showProductDetails ? 'إخفاء تفاصيل القطعة' : 'عرض تفاصيل القطعة'}
-                >
-                  <Info className="h-4 w-4" aria-hidden="true" />
-                  <span>{showProductDetails ? 'إخفاء التفاصيل' : 'عرض التفاصيل'}</span>
-                </button>
-              </div>
-              <div className={productViewMode === 'list' ? 'pos-modern-products-list' : 'pos-modern-products-grid'}>
-              {availableUsedParts.length === 0 ? (
-                <div className="pos-modern-products-empty">
-                  <ShoppingCart className="empty-icon" />
-                  <p className="empty-title">لا توجد قطع مستعملة</p>
-                  <p className="empty-subtitle">ابدأ بالبحث أو امسح باركود القطعة</p>
-                </div>
-              ) : availableUsedParts.map((item: any) => {
-                const partType = partTypes.find((type) => type.id === item.part_type_id);
-                const partName = item.product_name || item.product?.name || 'قطعة مستعملة';
-                const price = Number(item.selling_price || 0);
-                const partImage = getPartTypeImage(String(item.part_type_id));
-                const partTypeLabel = partType
-                  ? [partType.name_ar || partType.name, partType.name_en].filter(Boolean).join(' · ')
-                  : 'نوع غير محدد';
-                if (productViewMode === 'list') {
-                  return (
-                    <button
-                      type="button"
-                      key={item.id}
-                      className="pos-modern-product-list-item"
-                      onClick={() => handleUsedPartSelect(item)}
-                    >
-                      <span className="pos-modern-product-list-main min-w-0">
-                        <span className="pos-modern-product-list-thumb">
-                          {partImage ? <img src={partImage} alt="" /> : <ShoppingCart className="h-4 w-4" aria-hidden="true" />}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="pos-modern-product-list-name block">{partName}</span>
-                          <span className="pos-modern-product-list-category block">
-                            {partTypeLabel}
-                          </span>
-                          {showProductDetails && (item.serial_number || item.grade) && (
-                            <span className="pos-modern-product-list-identifiers">
-                              {item.serial_number && <span>تسلسلي: {item.serial_number}</span>}
-                              {item.grade && <span>التقييم: {item.grade}</span>}
-                            </span>
-                          )}
-                        </span>
-                      </span>
-                      <span className="pos-modern-product-list-stock">مستعمل · متوفر</span>
-                      <span className="pos-modern-product-list-price">₪{price.toLocaleString()}</span>
-                      <Plus className="h-4 w-4" aria-hidden="true" />
-                    </button>
-                  );
-                }
-                return (
-                  <button
-                    type="button"
-                    key={item.id}
-                    className="pos-modern-product-card"
-                    onClick={() => handleUsedPartSelect(item)}
-                  >
-                    <div className="product-card-image">
-                      {getPartTypeImage(String(item.part_type_id)) ? (
-                        <img src={getPartTypeImage(String(item.part_type_id))} alt={partName} />
-                      ) : (
-                        <div className="product-card-placeholder"><ShoppingCart /></div>
-                      )}
-                      <div className="product-card-add">
-                        <Plus className="w-5 h-5" />
-                      </div>
-                    </div>
-                    <div className="product-card-info">
-                      <h3 className="product-card-name">{partName}</h3>
-                      <div className="product-card-meta">
-                        <span className="product-card-condition used">مستعمل</span>
-                        <span className="product-card-stock">متوفر</span>
-                        {partType && <span className="product-card-status success">{partTypeLabel}</span>}
-                      </div>
-                      {showProductDetails && (item.serial_number || item.grade) && (
-                        <div className="product-card-identifiers">
-                          {item.serial_number && <span>تسلسلي: {item.serial_number}</span>}
-                          {item.grade && <span>التقييم: {item.grade}</span>}
-                        </div>
-                      )}
-                      <div className="product-card-price">
-                        <span className="price-value">₪{price.toLocaleString()}</span>
-                      </div>
-                    </div>
-                  </button>
-                );
-                })}
-              </div>
-              {availableUsedParts.length > 0 && (
-                <div className="pos-modern-pagination" dir="rtl" aria-label="التنقل بين صفحات القطع المستعملة">
-                  <button
-                    type="button"
-                    className="pos-modern-pagination-btn"
-                    onClick={() => setUsedPartPage((page) => Math.max(1, page - 1))}
-                    disabled={usedPartPage <= 1}
-                    aria-label="الصفحة السابقة للقطع المستعملة"
-                  >
-                    السابق
-                  </button>
-                  <span className="pos-modern-pagination-status" aria-live="polite">
-                    صفحة {usedPartPage} من {usedPartTotalPages}
-                  </span>
-                  <button
-                    type="button"
-                    className="pos-modern-pagination-btn"
-                    onClick={() => setUsedPartPage((page) => Math.min(usedPartTotalPages, page + 1))}
-                    disabled={usedPartPage >= usedPartTotalPages}
-                    aria-label="الصفحة التالية للقطع المستعملة"
-                  >
-                    التالي
-                  </button>
-                </div>
-              )}
-            </>
-          )}
+            />}
         </main>
 
         {/* Cart & Payment Sidebar */}
@@ -1936,7 +1751,7 @@ export function POSPage() {
             total={displayTotal}
             isProcessing={isProcessing}
             onCheckout={handleCheckout}
-            onPaymentAllocationsChange={setPaymentAllocations}
+            checkoutBlockedReason={shift.status === 'open' ? undefined : 'افتح الوردية أولًا قبل إتمام البيع.'}
             onPaymentAllocationsChange={setPaymentAllocations}
             electronicPaymentsEnabled={electronicPaymentsEnabled}
             enabledElectronicMethods={enabledElectronicMethods}
@@ -2196,22 +2011,6 @@ export function POSPage() {
         </div>
       </Modal>
 
-      {/* Invoice Modal */}
-      <Modal
-        isOpen={isInvoiceModalOpen}
-        onClose={() => setIsInvoiceModalOpen(false)}
-        title="فاتورة البيع"
-        variant="modern"
-        size="xl"
-      >
-        {lastSaleData && (
-          <UsedPartsInvoice
-            saleData={lastSaleData}
-            onClose={() => setIsInvoiceModalOpen(false)}
-          />
-        )}
-      </Modal>
-
       {/* Quick Customer Creation Modal */}
       <Modal
         isOpen={isQuickCustomerModalOpen}
@@ -2274,6 +2073,21 @@ export function POSPage() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={isInvoiceModalOpen && Boolean(lastSaleData)}
+        onClose={() => setIsInvoiceModalOpen(false)}
+        title="فاتورة البيع"
+        variant="modern"
+        size="xl"
+      >
+        {lastSaleData && (
+          <SalesInvoice
+            saleData={lastSaleData}
+            onClose={() => setIsInvoiceModalOpen(false)}
+          />
+        )}
       </Modal>
     </div>
   );

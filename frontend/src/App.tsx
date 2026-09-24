@@ -150,7 +150,7 @@ function App() {
         forceLogoutToLogin('Internet connection lost');
       }
     };
-    const handleAuthInvalidated = (event: Event) => {
+    const handleAuthInvalidated = () => {
       // A rejected/expired access token is recoverable through refresh or a
       // later online validation. Subscription expiry is handled only by the
       // explicit SUBSCRIPTION_EXPIRED response in validateSubscriptionWithCloud.

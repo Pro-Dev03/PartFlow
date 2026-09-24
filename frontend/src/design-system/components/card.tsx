@@ -26,11 +26,10 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
     const getVariantStyle = () => {
   const baseStyle: Record<string, string> = {
     border: '1px solid var(--card-border)',
-    borderRadius: 'var(--card-border-radius)',
+    borderRadius: '16px',
     background: 'var(--card-bg)',
-    boxShadow: 'none',
-    transition: 'border-color 160ms ease, background-color 160ms ease',
-    padding: 'var(--card-padding-md)'
+    boxShadow: 'var(--shadow-sm)',
+    transition: 'transform 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease'
   };
 
       const variantStyles: Record<string, Record<string, string>> = {
@@ -44,17 +43,16 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
         },
         default: {
           ...baseStyle,
-          boxShadow: 'none'
+          boxShadow: 'var(--shadow-sm)'
         },
         interactive: {
           ...baseStyle,
-          cursor: 'pointer',
-          boxShadow: 'none'
+          cursor: 'pointer'
         },
         featured: {
           ...baseStyle,
           borderColor: 'var(--color-primary-30)',
-          boxShadow: 'none'
+          boxShadow: 'var(--shadow-sm)'
         },
         warning: {
           ...baseStyle,
@@ -66,25 +64,25 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
           ...baseStyle,
           borderColor: 'var(--color-primary-20)',
           background: 'var(--card-bg)',
-          boxShadow: 'none'
+          boxShadow: 'var(--shadow-sm)'
         },
         danger: {
           ...baseStyle,
           borderColor: 'var(--color-danger-30)',
           background: 'var(--color-danger-05)',
-          boxShadow: 'none'
+          boxShadow: 'var(--shadow-sm)'
         },
         success: {
           ...baseStyle,
           borderColor: 'var(--color-success-30)',
           background: 'var(--color-success-05)',
-          boxShadow: 'none'
+          boxShadow: 'var(--shadow-sm)'
         },
         info: {
           ...baseStyle,
           borderColor: 'var(--color-info-30)',
           background: 'var(--color-info-05)',
-          boxShadow: 'none'
+          boxShadow: 'var(--shadow-sm)'
         }
       };
 
@@ -122,20 +120,13 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
         style={getVariantStyle()}
         className={cn(
           responsive,
+          'pf-card',
+          `pf-card-${variant}`,
+          noPadding && 'p-0',
           isInteractive && 'cursor-pointer',
+          isInteractive && 'pf-card-interactive',
           className
         )}
-        onMouseEnter={(e) => {
-          if (isInteractive) {
-            e.currentTarget.style.borderColor = 'rgba(148, 163, 184, 0.22)';
-            e.currentTarget.style.backgroundColor = 'var(--bg-surface-elevated)';
-          }
-        }}
-        onMouseLeave={(e) => {
-          const currentStyle = getVariantStyle();
-          e.currentTarget.style.borderColor = currentStyle.borderColor;
-          e.currentTarget.style.backgroundColor = currentStyle.background || 'var(--card-bg)';
-        }}
         onClick={onClick}
         onKeyDown={handleKeyDown}
         tabIndex={isInteractive ? 0 : undefined}
@@ -155,11 +146,7 @@ const CardHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('flex justify-between items-center', className)}
-      style={{ 
-        marginBottom: 'var(--spacing-4)',
-        padding: 'var(--card-header-padding)'
-      }}
+      className={cn('pf-card-header flex justify-between items-center', className)}
       {...props}
     />
   )
@@ -197,8 +184,7 @@ const CardContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement> & 
   ({ className, noPadding, ...props }, ref) => (
     <div 
       ref={ref} 
-      className={cn('', className)} 
-      style={{ padding: noPadding ? '0' : 'var(--card-body-padding)' }} 
+      className={cn('pf-card-content', noPadding && 'p-0', className)}
       {...props} 
     />
   )
@@ -210,12 +196,7 @@ const CardFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('flex items-center border-t border-border', className)}
-      style={{ 
-        paddingTop: 'var(--spacing-4)',
-        marginTop: 'var(--spacing-4)',
-        padding: 'var(--card-footer-padding)'
-      }}
+      className={cn('pf-card-footer flex items-center border-t border-border', className)}
       {...props}
     />
   )

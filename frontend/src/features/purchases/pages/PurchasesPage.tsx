@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
+
 import { Button } from '../../../design-system/components/button';
 import { Input } from '../../../design-system/components/input';
 import { PageHeader } from '../../../design-system/components/page-header';
@@ -13,7 +13,6 @@ import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { ReportActions } from '../../../design-system/components/report-actions';
 import { getButtonSize } from '../../../config/button-sizes';
 import {
-  Plus,
   ShoppingCart,
   Eye,
   Check,
@@ -53,7 +52,6 @@ export function PurchasesPage() {
 
   // Custom hook
   const {
-    purchases,
     filteredPurchases,
     stats,
     isLoading,

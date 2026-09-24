@@ -14,7 +14,6 @@ import { ConfirmDialog } from '../../../design-system/components/confirm-dialog'
 import {
   Banknote,
   CheckCircle2,
-  ClipboardList,
   Clock3,
   PackageCheck,
   Printer,
