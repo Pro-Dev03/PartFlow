@@ -9,7 +9,7 @@ func TestIsSubscriptionExpired(t *testing.T) {
 	now := time.Now()
 	service := &Service{}
 
-	for _, status := range []string{"expired", "EXPIRED", " expired ", "cancelled", "CANCELED"} {
+	for _, status := range []string{"expired", "EXPIRED", " expired ", "cancelled", "CANCELED", "suspended", "deleted", "pending"} {
 		if !service.IsSubscriptionExpired(status, &now) {
 			t.Fatalf("status %q should be treated as expired", status)
 		}
@@ -31,5 +31,8 @@ func TestIsSubscriptionExpired(t *testing.T) {
 
 	if service.IsSubscriptionExpired("ACTIVE ", nil) {
 		t.Fatal("active status with no expiry should remain valid")
+	}
+	if service.IsSubscriptionExpired("trial", nil) {
+		t.Fatal("trial status with no expiry should remain valid")
 	}
 }

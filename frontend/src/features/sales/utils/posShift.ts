@@ -10,7 +10,7 @@ export interface PosShiftState {
 
 export function createDefaultPosShift(): PosShiftState {
   return {
-    status: 'open',
+    status: 'closed',
     openedAt: new Date().toISOString(),
     openingCash: 0,
     salesTotal: 0,

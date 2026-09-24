@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/api"
 	"github.com/partflow/smart-store/internal/auth"
 	"github.com/partflow/smart-store/internal/inventory"
@@ -27,10 +28,16 @@ import (
 )
 
 func main() {
+	// Persisted timestamps and API timestamps use UTC on every host.
+	time.Local = time.UTC
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
+	}
+	if err := accounting.ConfigureStoreTimezone(cfg.DefaultTimezone); err != nil {
+		log.Fatalf("Invalid store timezone configuration: %v", err)
 	}
 
 	// Initialize structured logger

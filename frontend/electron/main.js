@@ -91,6 +91,16 @@ function getBackendLogPath() {
   return path.join(app.getPath('userData'), 'logs', 'backend.log');
 }
 
+function getOfflineGrantPublicKey() {
+  const fromEnvironment = String(process.env.PARTFLOW_OFFLINE_GRANT_PUBLIC_KEY || '').trim();
+  if (fromEnvironment) return fromEnvironment;
+  try {
+    return fs.readFileSync(path.join(app.getPath('userData'), 'offline-grant-public-key.txt'), 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
 function appendBackendLog(message) {
   try {
     const logPath = getBackendLogPath();
@@ -256,6 +266,35 @@ function formatInvoiceAmount(value) {
   return Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
+function parseStoreTimestamp(value) {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  let normalized = raw
+    .replace(/\s+m=[+-]?\d+(?:\.\d+)?$/, '')
+    .replace(/\s+[A-Z]{2,5}$/, '')
+    .replace(/\s([+-]\d{2}:?\d{2})$/, '$1')
+    .replace(' ', 'T')
+    .replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    normalized += 'T12:00:00Z';
+  } else if (/^\d{4}-\d{2}-\d{2}T/.test(normalized) && !/(?:Z|[+-]\d{2}:\d{2})$/i.test(normalized)) {
+    // Legacy timestamp strings without an offset are UTC by the storage contract.
+    normalized += 'Z';
+  }
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatStoreDate(value) {
+  const parsed = parseStoreTimestamp(value);
+  if (!parsed) return '-';
+  return new Intl.DateTimeFormat('ar-SA', {
+    dateStyle: 'short',
+    timeZone: 'Asia/Jerusalem',
+  }).format(parsed);
+}
+
 function buildSupplierInvoiceHtml(payload) {
   const purchase = payload?.purchase || {};
   const supplier = payload?.supplier || {};
@@ -266,9 +305,7 @@ function buildSupplierInvoiceHtml(payload) {
   const paymentStatus = remaining <= 0 ? 'مدفوعة' : paid > 0 ? 'مدفوعة جزئيًا' : 'غير مدفوعة';
   const invoiceNumber = formatInvoiceNumber(purchase.invoice_number || purchase.purchase_number);
   const purchaseId = formatInvoiceNumber(purchase.id);
-  const purchaseDate = purchase.purchase_date
-    ? new Date(purchase.purchase_date).toLocaleDateString('ar-SA')
-    : '-';
+  const purchaseDate = formatStoreDate(purchase.purchase_date);
   const rows = items.map((item) => {
     const quantity = Number(item.quantity || 0);
     const unitCost = Number(item.unit_cost || 0);
@@ -388,7 +425,7 @@ function buildInvoiceHtml(document) {
     <td>₪${formatInvoiceAmount(item.unitPrice)}</td>
     <td>₪${formatInvoiceAmount(item.total)}</td>
   </tr>`).join('');
-  const date = invoice.date ? new Date(invoice.date).toLocaleDateString('ar-SA') : '-';
+  const date = formatStoreDate(invoice.date);
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${escapeInvoiceHtml(invoice.invoiceNumber)}</title>
 <style>@page{size:A4;margin:14mm}*{box-sizing:border-box}body{margin:0;color:#172033;font-family:"Segoe UI",Tahoma,Arial,sans-serif;font-size:12px;direction:rtl}.header{display:flex;justify-content:space-between;gap:24px;border-bottom:2px solid #172033;padding-bottom:16px}h1{margin:0 0 6px;font-size:24px}h2{margin:0;font-size:16px}.muted{color:#5d687a}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}.meta div{border:1px solid #d8dee8;padding:10px;border-radius:6px}.label{display:block;color:#5d687a;font-size:10px;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #cbd3df;padding:9px 10px;text-align:right}th{background:#eef2f7;font-weight:700}td small{display:block;color:#5d687a;margin-top:3px;direction:ltr;text-align:right}.totals{width:310px;margin-inline-start:auto;margin-top:20px}.total-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #e1e6ee}.total-row.final{font-size:15px;font-weight:700;border-bottom:2px solid #172033}.footer{margin-top:36px;color:#5d687a;border-top:1px solid #d8dee8;padding-top:10px}</style></head>
 <body><header class="header"><div><h1>PartFlow</h1><div class="muted">${escapeInvoiceHtml(invoice.title || 'فاتورة')}</div></div><div><h2>رقم الفاتورة: ${escapeInvoiceHtml(invoice.invoiceNumber)}</h2><div class="muted">رقم العملية: ${escapeInvoiceHtml(invoice.transactionId || '-')}</div></div></header>
@@ -478,12 +515,14 @@ async function startBackend() {
 
     const backendEnv = {
       ...process.env,
+      TZ: 'UTC',
       SERVER_PORT: String(backendPort),
       // The embedded backend always serves the local SQLite database. The
       // cloud is used for authentication, subscription checks, and sync.
       DB_CONNECTION_MODE: 'local',
       PARTFLOW_REQUIRE_CLOUD_AUTH: 'true',
       PARTFLOW_CLOUD_API_URL: 'https://partflow-api.onrender.com/api/v1',
+      PARTFLOW_OFFLINE_GRANT_PUBLIC_KEY: getOfflineGrantPublicKey(),
       PARTFLOW_LOCAL_DB_PATH: getLocalDatabasePath(),
     };
     delete backendEnv.DATABASE_URL;

@@ -86,31 +86,50 @@ func TestStoreDateUsesAsiaJerusalemBoundaries(t *testing.T) {
 	}
 }
 
-func TestStoreDateUsesConfiguredTimezoneForSameInstant(t *testing.T) {
-	instant := time.Date(2026, 9, 16, 23, 30, 0, 0, time.UTC)
-	original := CurrentStoreTimezone()
-	defer ConfigureStoreTimezone(original)
-
-	if err := ConfigureStoreTimezone("Asia/Jerusalem"); err != nil {
-		t.Fatal(err)
-	}
-	jerusalemDate, err := StoreDate(instant)
+func TestStoreDayBoundsFollowJerusalemDST(t *testing.T) {
+	location, err := StoreLocation()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ConfigureStoreTimezone("America/New_York"); err != nil {
-		t.Fatal(err)
-	}
-	newYorkDate, err := StoreDate(instant)
+	startOfDSTDay := time.Date(2026, time.March, 27, 12, 0, 0, 0, location)
+	start, end, err := StoreDayBounds(startOfDSTDay)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if jerusalemDate == newYorkDate {
-		t.Fatalf("same instant should be interpreted by each configured timezone: both were %s", jerusalemDate)
+	if duration := end.Sub(start); duration != 23*time.Hour {
+		t.Fatalf("DST start day duration = %s, want 23h from the Israel clock change", duration)
+	}
+	fallBackDay := time.Date(2026, time.October, 25, 12, 0, 0, 0, location)
+	start, end, err = StoreDayBounds(fallBackDay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duration := end.Sub(start); duration != 25*time.Hour {
+		t.Fatalf("DST end day duration = %s, want 25h from the Israel clock change", duration)
 	}
 }
 
-func TestLoadStoreTimezoneUsesPersistedIANAValue(t *testing.T) {
+func TestStoreDateUsesFixedJerusalemTimezone(t *testing.T) {
+	instant := time.Date(2026, 9, 16, 23, 30, 0, 0, time.UTC)
+	if err := ConfigureStoreTimezone("Asia/Jerusalem"); err != nil {
+		t.Fatal(err)
+	}
+	date, err := StoreDate(instant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if date != "2026-09-17" {
+		t.Fatalf("StoreDate() = %s, want Jerusalem date 2026-09-17", date)
+	}
+	if err := ConfigureStoreTimezone("America/New_York"); err == nil {
+		t.Fatal("expected non-Jerusalem timezone to be rejected")
+	}
+	if got := CurrentStoreTimezone(); got != DefaultStoreTimezone {
+		t.Fatalf("timezone = %s, want %s", got, DefaultStoreTimezone)
+	}
+}
+
+func TestLoadStoreTimezoneNormalizesLegacyValue(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -125,11 +144,18 @@ func TestLoadStoreTimezoneUsesPersistedIANAValue(t *testing.T) {
 	if err := LoadStoreTimezone(context.Background(), sqlx.NewDb(db, "sqlite")); err != nil {
 		t.Fatal(err)
 	}
+	var stored string
+	if err := db.QueryRow(`SELECT value FROM settings WHERE key='store_timezone'`).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != DefaultStoreTimezone {
+		t.Fatalf("stored timezone = %s, want %s", stored, DefaultStoreTimezone)
+	}
 	date, err := StoreDate(time.Date(2026, 9, 16, 1, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if date != "2026-09-15" {
-		t.Fatalf("StoreDate() = %s, want 2026-09-15", date)
+	if date != "2026-09-16" {
+		t.Fatalf("StoreDate() = %s, want 2026-09-16", date)
 	}
 }

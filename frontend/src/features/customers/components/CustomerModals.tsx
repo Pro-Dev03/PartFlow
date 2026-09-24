@@ -9,6 +9,7 @@ import { LedgerEntry } from '../../../design-system/components/financial-timelin
 import { customersApi, salesApi } from '../../../services/api/endpoints';
 import { SalesInvoice } from '../../../components/invoice/SalesInvoice';
 import { useNavigate } from 'react-router-dom';
+import { formatStoreDate } from '../../../utils/store-time';
 
 // Lazy load heavy FinancialTimeline component
 const FinancialTimeline = lazy(() => import('../../../design-system/components/financial-timeline').then(m => ({ default: m.FinancialTimeline })));
@@ -321,7 +322,7 @@ export function CustomerModals({
                     <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>آخر شراء</span>
                   </div>
                   <div style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                    {selectedCustomer.lastPurchase ? new Date(selectedCustomer.lastPurchase).toLocaleDateString('ar-SA') : 'لا يوجد'}
+                    {selectedCustomer.lastPurchase ? formatStoreDate(selectedCustomer.lastPurchase, 'ar-SA') : 'لا يوجد'}
                   </div>
                 </div>
 
@@ -419,7 +420,7 @@ export function CustomerModals({
                     </div>
                     <div style={{ marginTop: '5px', color: 'var(--text-secondary)', fontSize: '11px' }}>
                       {lastLedgerEntry?.created_at
-                        ? `آخر حركة: ${new Date(lastLedgerEntry.created_at).toLocaleDateString('ar-SA')}`
+                        ? `آخر حركة: ${formatStoreDate(lastLedgerEntry.created_at, 'ar-SA')}`
                         : 'لا توجد حركات محمّلة'}
                     </div>
                   </div>
@@ -576,7 +577,7 @@ export function CustomerModals({
                   <span className="min-w-0">
                     <span className="block font-semibold text-text-primary">{sale.invoice_number || sale.id}</span>
                     <span className="mt-1 block text-sm text-text-secondary">
-                      {sale.sale_date ? new Date(sale.sale_date).toLocaleDateString('ar-SA') : 'بدون تاريخ'}
+                      {sale.sale_date ? formatStoreDate(sale.sale_date, 'ar-SA') : 'بدون تاريخ'}
                     </span>
                   </span>
                   <span className="text-left">

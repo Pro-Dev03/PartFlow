@@ -480,6 +480,7 @@ func (h *Handler) GetProductByBarcode(c *gin.Context) {
 // @Param track_individual query bool false "Filter by track_individual"
 // @Param sort_by query string false "Sort field" default(name)
 // @Param sort_order query string false "Sort order" default(ASC)
+// @Param in_stock_only query bool false "Return products with saleable stock only"
 // @Success 200 {object} response.Response{data=[]Product}
 // @Router /api/v1/products [get]
 func (h *Handler) ListProducts(c *gin.Context) {
@@ -491,7 +492,7 @@ func (h *Handler) ListProducts(c *gin.Context) {
 	brandID := c.Query("brand_id")
 
 	// Only cache default first page without filters
-	if page == 1 && perPage == 20 && search == "" && categoryID == "" && brandID == "" {
+	if page == 1 && perPage == 20 && search == "" && categoryID == "" && brandID == "" && c.Query("in_stock_only") == "" {
 		if cached, found := h.cache.get(); found {
 			c.JSON(http.StatusOK, cached)
 			return
@@ -533,6 +534,11 @@ func (h *Handler) ListProducts(c *gin.Context) {
 	if trackIndividual := c.Query("track_individual"); trackIndividual != "" {
 		if val, err := strconv.ParseBool(trackIndividual); err == nil {
 			req.TrackIndividual = &val
+		}
+	}
+	if inStockOnly := c.Query("in_stock_only"); inStockOnly != "" {
+		if val, err := strconv.ParseBool(inStockOnly); err == nil {
+			req.InStockOnly = &val
 		}
 	}
 
@@ -665,60 +671,6 @@ func (h *Handler) DeleteProduct(c *gin.Context) {
 	}
 
 	response.OK(c, gin.H{"message": "product deleted successfully"}, "Operation successful")
-}
-
-// RestoreProduct restores a soft-deleted product
-// @Summary Restore Product
-// @Description Restore a soft-deleted product
-// @Tags products
-// @Security Bearer
-// @Param id path string true "Product ID"
-// @Success 200 {object} response.Response
-// @Failure 400 {object} response.Response
-// @Failure 404 {object} response.Response
-// @Router /api/v1/products/{id}/restore [post]
-func (h *Handler) RestoreProduct(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.BadRequest(c, "invalid product id")
-		return
-	}
-
-	if err := h.service.RestoreProduct(c.Request.Context(), id); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	response.OK(c, gin.H{"message": "product restored successfully"}, "Operation successful")
-}
-
-// ArchiveProduct archives a product (soft delete)
-// @Summary Archive Product
-// @Description Archive a product (soft delete)
-// @Tags products
-// @Security Bearer
-// @Param id path string true "Product ID"
-// @Success 200 {object} response.Response
-// @Failure 400 {object} response.Response
-// @Failure 404 {object} response.Response
-// @Router /api/v1/products/{id}/archive [post]
-func (h *Handler) ArchiveProduct(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.BadRequest(c, "invalid product id")
-		return
-	}
-
-	if err := h.service.ArchiveProduct(c.Request.Context(), id); err != nil {
-		if err == ErrProductNotFound {
-			response.NotFound(c, "product not found")
-			return
-		}
-		response.InternalError(c, err.Error())
-		return
-	}
-
-	response.OK(c, gin.H{"message": "product archived successfully"}, "Operation successful")
 }
 
 // GenerateBarcode generates a new barcode for a product

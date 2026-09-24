@@ -86,7 +86,11 @@ func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
 func (s *Service) IsSubscriptionExpired(subscriptionStatus string, expiresAt *time.Time) bool {
 	normalizedStatus := strings.ToLower(strings.TrimSpace(subscriptionStatus))
 	switch normalizedStatus {
-	case "canceled", "cancelled", "expired", "deleted":
+	case "suspended", "canceled", "cancelled", "expired", "deleted":
+		return true
+	case "active", "trial":
+		// These are the only statuses that can authorize a session.
+	default:
 		return true
 	}
 
@@ -100,11 +104,17 @@ func (s *Service) IsSubscriptionExpired(subscriptionStatus string, expiresAt *ti
 // checkSubscriptionStatus checks if user's subscription is valid (from worktrack)
 func (s *Service) checkSubscriptionStatus(subscriptionStatus string, expiresAt *time.Time) error {
 	normalizedStatus := strings.ToLower(strings.TrimSpace(subscriptionStatus))
+	if normalizedStatus == "suspended" {
+		return ErrSubscriptionSuspended
+	}
+	if normalizedStatus == "deleted" {
+		return ErrAccountDeleted
+	}
 	if s.IsSubscriptionExpired(normalizedStatus, expiresAt) {
-		if normalizedStatus == "canceled" || normalizedStatus == "cancelled" || normalizedStatus == "deleted" {
+		if normalizedStatus == "canceled" || normalizedStatus == "cancelled" {
 			return errors.New("subscription canceled")
 		}
-		return errors.New("subscription expired")
+		return ErrSubscriptionExpired
 	}
 
 	return nil
@@ -173,7 +183,8 @@ func (s *Service) ValidateCloudAccess(ctx context.Context, cloudToken string) er
 }
 
 func (s *Service) IsSubscriptionExpiredFromCloud(status, expiresAt string) bool {
-	if strings.EqualFold(strings.TrimSpace(status), "canceled") || strings.EqualFold(strings.TrimSpace(status), "cancelled") || strings.EqualFold(strings.TrimSpace(status), "expired") {
+	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+	if normalizedStatus != "active" && normalizedStatus != "trial" {
 		return true
 	}
 	if expiresAt == "" {
@@ -262,7 +273,7 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 		SELECT id, email, password_hash, first_name, last_name,
 		       phone, is_active, last_login_at, created_at, updated_at,
 		       subscription_status, subscription_expires_at
-		FROM users WHERE email = $1 AND is_active = TRUE
+		FROM users WHERE email = $1
 	`
 
 	var row userRow
@@ -281,7 +292,10 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 		&row.SubscriptionExpiresAt,
 	)
 	if err != nil {
-		return nil, ErrUserNotFound
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("load user for login: %w", err)
 	}
 
 	user, err := userFromRow(row)
@@ -301,7 +315,8 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 
 	// Check subscription status (from worktrack)
 	if err := s.checkSubscriptionStatus(user.SubscriptionStatus, user.SubscriptionExpiresAt); err != nil {
-		return nil, ErrSubscriptionExpired
+		_ = s.Logout(ctx, user.ID)
+		return nil, err
 	}
 
 	// Update last login
@@ -376,7 +391,10 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 		&row.SubscriptionExpiresAt,
 	)
 	if err != nil {
-		return nil, ErrUserNotFound
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("load user for refresh: %w", err)
 	}
 
 	user, err := userFromRow(row)
@@ -385,10 +403,12 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 	}
 
 	if err := s.checkSubscriptionStatus(user.SubscriptionStatus, user.SubscriptionExpiresAt); err != nil {
-		return nil, ErrUnauthorized
+		_ = s.Logout(ctx, user.ID)
+		return nil, err
 	}
 
 	if !user.IsActive {
+		_ = s.Logout(ctx, user.ID)
 		return nil, ErrInactiveUser
 	}
 
@@ -449,12 +469,15 @@ func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (*User, err
 
 	err := s.db.GetContext(ctx, &row, query, userID.String())
 	if err != nil {
-		return nil, ErrUserNotFound
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("load user by ID: %w", err)
 	}
 
 	user, err := userFromRow(row)
 	if err != nil {
-		return nil, ErrUserNotFound
+		return nil, fmt.Errorf("read user profile: %w", err)
 	}
 	return &user, nil
 }

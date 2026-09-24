@@ -3,6 +3,7 @@ package barcodes
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -118,15 +119,62 @@ func (s *Service) GenerateBarcode(ctx context.Context, req *BarcodeGenerationReq
 	return barcode, nil
 }
 
+// CreateBarcode associates a real barcode with exactly one product or stock
+// item so products can be resolved by multiple operational codes.
+func (s *Service) CreateBarcode(ctx context.Context, req *BarcodeCreateRequest) (*Barcode, error) {
+	if req == nil {
+		return nil, fmt.Errorf("barcode request is required")
+	}
+	code := strings.TrimSpace(req.Code)
+	if code == "" || len(code) > 100 {
+		return nil, fmt.Errorf("barcode must contain between 1 and 100 characters")
+	}
+	if (req.ProductID == nil) == (req.InventoryItemID == nil) {
+		return nil, fmt.Errorf("exactly one product_id or inventory_item_id is required")
+	}
+	barcodeType := req.Type
+	if barcodeType == "" {
+		barcodeType = BarcodeTypeExternal
+	}
+	if barcodeType != BarcodeTypeExternal && barcodeType != BarcodeTypeInternal {
+		return nil, fmt.Errorf("operational barcode type must be EXTERNAL or INTERNAL")
+	}
+	if req.InventoryItemID != nil {
+		productID, err := s.repo.GetInventoryItemProductID(ctx, *req.InventoryItemID)
+		if err != nil {
+			return nil, fmt.Errorf("inventory item not found: %w", err)
+		}
+		req.ProductID = &productID
+	}
+	barcode := &Barcode{
+		ID:              uuid.New(),
+		Code:            code,
+		Type:            barcodeType,
+		ProductID:       req.ProductID,
+		InventoryItemID: req.InventoryItemID,
+		IsActive:        true,
+		CreatedAt:       time.Now().UTC(),
+		UpdatedAt:       time.Now().UTC(),
+	}
+	if err := s.repo.CreateBarcode(ctx, barcode); err != nil {
+		return nil, fmt.Errorf("failed to create barcode: %w", err)
+	}
+	return barcode, nil
+}
+
 // ListBarcodes lists all barcodes
 func (s *Service) ListBarcodes(ctx context.Context, page, perPage int) ([]*Barcode, int64, error) {
 	offset := (page - 1) * perPage
 	return s.repo.ListBarcodes(ctx, perPage, offset)
 }
 
+func (s *Service) ListBarcodesByProduct(ctx context.Context, productID uuid.UUID) ([]*Barcode, error) {
+	return s.repo.ListBarcodesByProduct(ctx, productID)
+}
+
 // DeleteBarcode deletes a barcode
-func (s *Service) DeleteBarcode(ctx context.Context, id uuid.UUID) error {
-	return s.repo.DeleteBarcode(ctx, id)
+func (s *Service) DeleteBarcode(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
+	return s.repo.DeleteBarcode(ctx, id, userID)
 }
 
 // GenerateLabels generates printable labels for barcodes

@@ -193,11 +193,6 @@ function ModernProductCard({ product, taxRate, taxExempt, showDetails = false, o
       <div className="product-card-info">
         <h3 className="product-card-name">{product.name}</h3>
         <div className="product-card-meta">
-          {product.condition && (
-            <span className={cn('product-card-condition', product.condition)}>
-              {product.condition === 'new' ? 'جديد' : 'مستعمل'}
-            </span>
-          )}
           {stock > 0 && (
             <span
               className={cn(

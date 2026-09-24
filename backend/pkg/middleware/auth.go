@@ -1,8 +1,11 @@
 package middleware
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -52,16 +55,28 @@ func AuthMiddleware(jwtService *auth.JWTService, db *sqlx.DB) gin.HandlerFunc {
 		// disable/delete takes effect without waiting for a token to expire.
 		var userActive bool
 		var subscriptionStatus string
+		var subscriptionExpiresAtRaw interface{}
 		err = db.QueryRowContext(c.Request.Context(),
-			"SELECT is_active, COALESCE(subscription_status, 'active') FROM users WHERE id = $1", userID).Scan(&userActive, &subscriptionStatus)
+			"SELECT is_active, COALESCE(subscription_status, 'active'), subscription_expires_at FROM users WHERE id = $1", userID).Scan(&userActive, &subscriptionStatus, &subscriptionExpiresAtRaw)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+			if errors.Is(err, sql.ErrNoRows) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found", "code": "ACCOUNT_DELETED"})
+			} else {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "unable to verify account", "code": "AUTH_SERVICE_UNAVAILABLE"})
+			}
 			c.Abort()
 			return
 		}
 		status := strings.ToLower(strings.TrimSpace(subscriptionStatus))
-		if !userActive || status == "expired" || status == "canceled" || status == "cancelled" || status == "deleted" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "subscription expired or account disabled", "code": "SUBSCRIPTION_EXPIRED"})
+		expiresAt, expiryErr := parseSubscriptionExpiry(subscriptionExpiresAtRaw)
+		if expiryErr != nil || !userActive || (status != "active" && status != "trial") || (expiresAt != nil && !time.Now().Before(*expiresAt)) {
+			code := "SUBSCRIPTION_EXPIRED"
+			if status == "suspended" || !userActive {
+				code = "SUBSCRIPTION_SUSPENDED"
+			} else if status == "deleted" {
+				code = "ACCOUNT_DELETED"
+			}
+			c.JSON(http.StatusForbidden, gin.H{"error": "subscription expired or account disabled", "code": code})
 			c.Abort()
 			return
 		}

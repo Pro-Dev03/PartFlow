@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        var isDark = false;
+        try {
+          var storedTheme = localStorage.getItem('theme');
+          isDark = storedTheme === 'dark' || storedTheme === 'system';
+        } catch (_) {}
+        var root = document.documentElement;
+        root.classList.toggle('dark', isDark);
+        root.classList.toggle('light', !isDark);
+        root.style.colorScheme = isDark ? 'dark' : 'light';
+      })();
+    </script>
     <meta name="description" content="PartFlow - Smart Computer Store Management System" />
     <title>PartFlow - إدارة محلك بطريقة أذكى</title>
     
@@ -12,10 +25,12 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-      /* Fallback fonts for file:// protocol when Google Fonts fail to load */
       html { font-family: 'IBM Plex Sans Arabic', 'Cairo', Tahoma, Arial, sans-serif !important; }
-      body { color: #e2e8f0; background: #0f172a; }
+      html, body { background: #f7f5f0; color: #16233f; }
+      html.dark, html.dark body { background: #111721; color: #edf2f8; }
       #root { opacity: 1 !important; visibility: visible !important; }
+      #loading-overlay { background: #f7f5f0 !important; color: #9a692c !important; }
+      html.dark #loading-overlay { background: #0f172a !important; color: #22d3ee !important; }
     </style>
   </head>
   <body>

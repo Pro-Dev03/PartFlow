@@ -12,6 +12,70 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestPurchaseDateStoragePreservesJerusalemCalendarDate(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value time.Time
+		want  string
+	}{
+		{name: "winter midnight", value: time.Date(2026, time.January, 14, 22, 0, 0, 0, time.UTC), want: "2026-01-15"},
+		{name: "summer midnight", value: time.Date(2026, time.June, 14, 21, 0, 0, 0, time.UTC), want: "2026-06-15"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := purchaseDateForStorage(test.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("purchaseDateForStorage() = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
+func TestSQLitePurchaseCreationStoresJerusalemBusinessDate(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "purchase-create-business-date.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	xdb := sqlx.NewDb(db, "sqlite")
+	_, err = db.Exec(`CREATE TABLE purchases (
+		id TEXT PRIMARY KEY, purchase_number TEXT, supplier_id TEXT, purchase_date TEXT,
+		tax_amount REAL, total_amount REAL, paid_amount REAL, remaining_amount REAL,
+		status TEXT, notes TEXT, created_at TEXT, updated_at TEXT
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	purchase := &Purchase{
+		ID:            uuid.New(),
+		SupplierID:    uuid.New(),
+		InvoiceNumber: "TZ-2026-001",
+		PurchaseDate:  time.Date(2026, time.January, 14, 22, 0, 0, 0, time.UTC),
+		CreatedAt:     time.Date(2026, time.January, 14, 22, 0, 0, 0, time.UTC),
+		UpdatedAt:     time.Date(2026, time.January, 14, 22, 0, 0, 0, time.UTC),
+	}
+	tx, err := xdb.Beginx()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := createPurchaseSQLite(context.Background(), tx, purchase); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var storedDate string
+	if err := db.QueryRow(`SELECT purchase_date FROM purchases WHERE id = ?`, purchase.ID).Scan(&storedDate); err != nil {
+		t.Fatal(err)
+	}
+	if storedDate != "2026-01-15" {
+		t.Fatalf("stored purchase_date = %q, want 2026-01-15", storedDate)
+	}
+}
+
 func TestSQLitePurchaseReadsUseOfficialBusinessDate(t *testing.T) {
 	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "purchase-business-date.sqlite"))
 	if err != nil {

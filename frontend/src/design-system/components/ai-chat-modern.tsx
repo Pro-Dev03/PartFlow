@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Send, Loader2 } from 'lucide-react';
 import { assistantApi } from '../../services/api/endpoints';
+import { formatStoreTime } from '../../utils/store-time';
 import type { AssistantContext } from '../../lib/assistant-response';
 import { getAssistantInteraction, getAssistantNavigationPath, getSystemInteraction, inferAssistantIntent, type AssistantInteraction } from '../../lib/assistant-interaction';
 import NeonAIBot from './neon-ai-bot';
@@ -331,10 +332,7 @@ export default function AIChatModern({
             opacity: 0.7,
             margin: 0
           }}>
-            {message.timestamp.toLocaleTimeString('ar-IL', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
+            {formatStoreTime(message.timestamp, 'ar-IL')}
           </p>
         </div>
       </div>

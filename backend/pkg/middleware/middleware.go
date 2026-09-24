@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/partflow/smart-store/pkg/logger"
+	"github.com/partflow/smart-store/pkg/offlinegrant"
 )
 
 var jwtSecret = []byte("your-secret-key-change-in-production")
@@ -50,6 +51,7 @@ var cloudValidationSlots = make(chan struct{}, 1)
 
 type cloudAuthError struct {
 	status int
+	code   string
 	err    error
 }
 
@@ -154,13 +156,25 @@ func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString strin
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			status = resp.StatusCode
 		}
-		return uuid.Nil, "", &cloudAuthError{status: status, err: fmt.Errorf("cloud validation returned HTTP %d", resp.StatusCode)}
+		var rejection struct {
+			Code  string `json:"code"`
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&rejection)
+		code := rejection.Code
+		if code == "" {
+			code = rejection.Error.Code
+		}
+		return uuid.Nil, "", &cloudAuthError{status: status, code: code, err: fmt.Errorf("cloud validation returned HTTP %d", resp.StatusCode)}
 	}
 
 	var envelope struct {
 		Data struct {
-			Valid bool `json:"valid"`
-			User  struct {
+			Valid        bool   `json:"valid"`
+			OfflineGrant string `json:"offline_grant"`
+			User         struct {
 				ID    string `json:"id"`
 				Email string `json:"email"`
 			} `json:"user"`
@@ -176,7 +190,55 @@ func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString strin
 	if err != nil {
 		return uuid.Nil, "", &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("cloud response did not contain a valid user id")}
 	}
+	if envelope.Data.OfflineGrant != "" {
+		claims, verifyErr := offlinegrant.Verify(envelope.Data.OfflineGrant, time.Now().UTC())
+		if verifyErr == nil && claims.UserID == userID.String() {
+			persistOfflineGrant(ctx, userID, envelope.Data.OfflineGrant)
+		}
+	}
 	return userID, strings.TrimSpace(envelope.Data.User.Email), nil
+}
+
+func persistOfflineGrant(ctx context.Context, userID uuid.UUID, grant string) {
+	if db == nil || !isLocalDatabaseMode() || strings.TrimSpace(grant) == "" {
+		return
+	}
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS cloud_auth_grants (
+		user_id TEXT PRIMARY KEY,
+		grant_token TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`)
+	if err != nil {
+		return
+	}
+	_, _ = db.ExecContext(ctx, `
+		INSERT INTO cloud_auth_grants (user_id, grant_token, updated_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id) DO UPDATE SET grant_token = excluded.grant_token, updated_at = excluded.updated_at
+	`, userID.String(), grant, time.Now().UTC().Format(time.RFC3339Nano))
+}
+
+func clearOfflineGrant(ctx context.Context, userID uuid.UUID) {
+	if db == nil || !isLocalDatabaseMode() {
+		return
+	}
+	_, _ = db.ExecContext(ctx, `DELETE FROM cloud_auth_grants WHERE user_id = $1`, userID.String())
+}
+
+func hasValidOfflineGrant(ctx context.Context, userID uuid.UUID) bool {
+	if db == nil || !isLocalDatabaseMode() {
+		return false
+	}
+	var token string
+	if err := db.QueryRowContext(ctx, `SELECT grant_token FROM cloud_auth_grants WHERE user_id = $1`, userID.String()).Scan(&token); err != nil {
+		return false
+	}
+	claims, err := offlinegrant.Verify(token, time.Now().UTC())
+	if err != nil || claims.UserID != userID.String() {
+		clearOfflineGrant(ctx, userID)
+		return false
+	}
+	return true
 }
 
 func parseSubscriptionExpiry(value interface{}) (*time.Time, error) {
@@ -386,24 +448,50 @@ func Auth() gin.HandlerFunc {
 		cloudToken := strings.TrimSpace(c.GetHeader("X-PartFlow-Cloud-Token"))
 
 		if requiresCloudAuth() && isLocalDatabaseMode() {
+			localUserID, localTokenValid := localJWTUserID(tokenString)
 			if cloudToken == "" {
-				c.JSON(http.StatusUnauthorized, gin.H{
-					"error": "يلزم توكن الجلسة السحابية للتحقق من الاشتراك",
-					"code":  "CLOUD_AUTH_REQUIRED",
+				if localTokenValid && hasValidOfflineGrant(c.Request.Context(), localUserID) {
+					c.Set("user_id", localUserID)
+					c.Set("user_id_string", localUserID.String())
+					c.Set("offline_grace", true)
+					c.Next()
+					return
+				}
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"error": "يلزم الاتصال بالخدمة السحابية للتحقق من الاشتراك",
+					"code":  "OFFLINE_GRACE_EXPIRED",
 				})
 				c.Abort()
 				return
 			}
 			userUUID, cloudEmail, cloudErr := validateWithCloud(c.Request.Context(), cloudToken)
 			if cloudErr != nil {
+				if cloudErr.status == http.StatusServiceUnavailable && localTokenValid && hasValidOfflineGrant(c.Request.Context(), localUserID) {
+					c.Set("user_id", localUserID)
+					c.Set("user_id_string", localUserID.String())
+					c.Set("offline_grace", true)
+					c.Next()
+					return
+				}
+				if cloudErr.status == http.StatusUnauthorized || cloudErr.status == http.StatusForbidden {
+					clearOfflineGrant(c.Request.Context(), localUserID)
+				}
 				message := "تعذر التحقق من الحساب عبر الخادم السحابي"
+				code := "CLOUD_AUTH_REQUIRED"
 				switch cloudErr.status {
 				case http.StatusUnauthorized:
 					message = "جلسة الدخول غير صالحة"
+					code = "INVALID_TOKEN"
 				case http.StatusForbidden:
-					message = "الحساب غير نشط أو أن الاشتراك منتهٍ"
+					message = "الحساب غير نشط أو أن الاشتراك غير صالح"
+					code = cloudErr.code
+					if code == "" {
+						code = "SUBSCRIPTION_EXPIRED"
+					}
+				case http.StatusServiceUnavailable:
+					code = "OFFLINE_GRACE_EXPIRED"
 				}
-				c.JSON(cloudErr.status, gin.H{"error": message, "code": "CLOUD_AUTH_REQUIRED"})
+				c.JSON(cloudErr.status, gin.H{"error": message, "code": code})
 				c.Abort()
 				return
 			}
@@ -466,38 +554,46 @@ func Auth() gin.HandlerFunc {
 
 			allowsUser, err := ensureUserAuthorized(c.Request.Context(), userUUID)
 			if err != nil {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify account", "code": "AUTH_SERVICE_UNAVAILABLE"})
 				c.Abort()
 				return
 			}
 			if !allowsUser && !isLocalDatabaseMode() {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Account not found", "code": "ACCOUNT_DELETED"})
 				c.Abort()
 				return
 			}
 
 			if !isLocalDatabaseMode() && db != nil {
+				var isActive bool
 				var subscriptionStatus string
 				var subscriptionExpiresAtRaw interface{}
 				err = db.QueryRowContext(c.Request.Context(),
-					"SELECT subscription_status, subscription_expires_at FROM users WHERE id = $1", userUUID).
-					Scan(&subscriptionStatus, &subscriptionExpiresAtRaw)
+					"SELECT is_active, subscription_status, subscription_expires_at FROM users WHERE id = $1", userUUID).
+					Scan(&isActive, &subscriptionStatus, &subscriptionExpiresAtRaw)
 				if err != nil {
-					c.JSON(http.StatusUnauthorized, gin.H{"error": "Unable to verify subscription status"})
+					c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify subscription status", "code": "AUTH_SERVICE_UNAVAILABLE"})
 					c.Abort()
 					return
 				}
 				subscriptionExpiresAt, err := parseSubscriptionExpiry(subscriptionExpiresAtRaw)
 				if err != nil {
-					c.JSON(http.StatusUnauthorized, gin.H{"error": "Unable to verify subscription status"})
+					c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify subscription status", "code": "AUTH_SERVICE_UNAVAILABLE"})
 					c.Abort()
 					return
 				}
 
 				normalizedStatus := strings.ToLower(strings.TrimSpace(subscriptionStatus))
-				if normalizedStatus == "canceled" || normalizedStatus == "cancelled" || normalizedStatus == "expired" || normalizedStatus == "deleted" || (subscriptionExpiresAt != nil && time.Now().After(*subscriptionExpiresAt)) {
+				if !isActive || (normalizedStatus != "active" && normalizedStatus != "trial") || (subscriptionExpiresAt != nil && !time.Now().Before(*subscriptionExpiresAt)) {
+					code := "SUBSCRIPTION_EXPIRED"
+					if normalizedStatus == "suspended" || !isActive {
+						code = "SUBSCRIPTION_SUSPENDED"
+					} else if normalizedStatus == "deleted" {
+						code = "ACCOUNT_DELETED"
+					}
 					c.JSON(http.StatusForbidden, gin.H{
 						"error": "اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة.",
+						"code":  code,
 					})
 					c.Abort()
 					return
@@ -511,6 +607,28 @@ func Auth() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func localJWTUserID(tokenString string) (uuid.UUID, bool) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if token.Method != jwt.SigningMethodHS256 {
+			return nil, fmt.Errorf("unexpected signing method: %s", token.Method.Alg())
+		}
+		return jwtSecret, nil
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
+	if err != nil || token == nil || !token.Valid {
+		return uuid.Nil, false
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return uuid.Nil, false
+	}
+	userID, _ := claims["user_id"].(string)
+	if userID == "" {
+		userID, _ = claims["sub"].(string)
+	}
+	parsed, err := uuid.Parse(userID)
+	return parsed, err == nil
 }
 
 // Logger middleware with structured logging

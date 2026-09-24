@@ -151,6 +151,11 @@ export function useInventory() {
   const completeInventoryItems = Array.isArray(completeInventoryData?.data?.items)
     ? completeInventoryData.data.items as InventoryItem[]
     : safeInventoryItems;
+  const completeInventoryProductCount = useMemo(() => new Set(
+    completeInventoryItems
+      .map((item: any) => String(item.product_id || item.product?.id || item.productId || '').trim())
+      .filter(Boolean)
+  ).size, [completeInventoryItems]);
 
   const productsWithInventoryFallback = useMemo(() => {
     const productsById = new Map(safeProducts.map((product) => [String(product.id), product]));
@@ -175,6 +180,12 @@ export function useInventory() {
         return;
       }
 
+      // The products endpoint is paginated. Inventory rows fetched for totals
+      // must not append every product to the current page and render the full
+      // catalogue. Use inventory as a product fallback only when that endpoint
+      // has no products to display.
+      if (safeProducts.length > 0) return;
+
       const productName = String(item.product_name || item.product?.name || '').trim();
       if (!productName) return;
 
@@ -182,7 +193,7 @@ export function useInventory() {
       productsById.set(productId, {
         id: productId,
         name: productName,
-        sku: String(item.item_code || item.barcode || productId),
+        sku: String(item.item_code || productId),
         sellingPrice: Number(item.product_selling_price ?? item.selling_price ?? item.price ?? 0),
         costPrice: Number(item.purchase_cost ?? 0),
         stock: Number.isFinite(stock) ? stock : 0,
@@ -323,19 +334,6 @@ export function useInventory() {
     onError: (error: any) => {
       console.error('Delete inventory item failed:', error);
       toast.error(error?.message || 'تعذر حذف عنصر المخزون');
-    },
-  });
-
-  const archiveProductMutation = useMutation({
-    mutationFn: (productId: string) => productsApi.archive(productId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      toast.success('تم أرشفة المنتج بنجاح');
-    },
-    onError: (error) => {
-      console.error('Archive product failed:', error);
-      toast.error('فشل أرشفة المنتج');
     },
   });
 
@@ -508,7 +506,6 @@ export function useInventory() {
       console.error('Barcode lookup failed:', error);
       // Fallback to local search
       const product = safeProducts.find((p: Product) => 
-        p.sku === barcode || 
         p.barcode === barcode
       );
       return product || null;
@@ -539,7 +536,6 @@ export function useInventory() {
     // Mutations
     deleteProductMutation,
     deleteInventoryItemMutation,
-    archiveProductMutation,
     createProductMutation,
     updateProductMutation,
     updateMinimumStockMutation,
@@ -549,7 +545,7 @@ export function useInventory() {
     productPage,
     inventoryPage,
     pageSize,
-    productTotal: Math.max(Number(productsData?.meta?.total || 0), productsWithInventoryFallback.length),
+    productTotal: Math.max(Number(productsData?.meta?.total || 0), completeInventoryProductCount, productsWithInventoryFallback.length),
     inventoryTotal: Number(inventoryData?.meta?.total || safeInventoryItems.length),
     setProductPage,
     setInventoryPage,

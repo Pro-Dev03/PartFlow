@@ -3,6 +3,7 @@
  */
 
 import { printHtmlDocument } from '../services/documents/print-html';
+import { formatStoreDate } from '../utils/store-time';
 
 // تصدير البيانات إلى CSV
 export const exportToCSV = (data: any[], filename: string, headers?: string[]) => {
@@ -157,7 +158,7 @@ export const printTable = (data: any[], headers: string[], title: string) => {
       </tbody>
     </table>
     <p style="text-align: center; margin-top: 20px; font-size: 12px;">
-      تم التوليد بواسطة PartFlow - ${new Date().toLocaleDateString('ar-SA')}
+      تم التوليد بواسطة PartFlow - ${formatStoreDate(new Date(), 'ar-SA')}
     </p>
   `;
 

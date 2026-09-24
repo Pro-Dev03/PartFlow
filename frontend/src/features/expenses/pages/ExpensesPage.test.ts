@@ -14,7 +14,7 @@ describe('formatExpenseDate', () => {
 describe('isExpenseInCurrentMonth', () => {
   it('matches the calendar month from the date value', () => {
     expect(isExpenseInCurrentMonth('2026-09-01T00:00:00Z', new Date(2026, 8, 2))).toBe(true);
-    expect(isExpenseInCurrentMonth('2026-08-31T23:00:00Z', new Date(2026, 8, 2))).toBe(false);
+    expect(isExpenseInCurrentMonth('2026-08-31T23:00:00Z', new Date(2026, 8, 2))).toBe(true);
   });
 });
 

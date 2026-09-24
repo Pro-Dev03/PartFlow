@@ -97,7 +97,7 @@ function InitialSyncController() {
 
 function App() {
   const checkAuth = useAuthStore((state) => state.checkAuth);
-  const { isAuthenticated, sessionVerified, cloudVerificationPending, isLoading, isPostLoginVerifying } = useAuthStore();
+  const { isAuthenticated, sessionVerified, sessionRestorePending, cloudVerificationPending, isLoading, isPostLoginVerifying } = useAuthStore();
   const [isRetryingCloudVerification, setIsRetryingCloudVerification] = useState(false);
 
   useEffect(() => {
@@ -140,21 +140,37 @@ function App() {
   // response is the actual authority.
   useEffect(() => {
     const validate = () => {
-      void validateSubscriptionWithCloud().then((valid) => {
-        if (!valid) return;
-      });
+      const state = useAuthStore.getState();
+      if (state.sessionRestorePending || (!state.token && !state.isAuthenticated)) {
+        void checkAuth();
+        return;
+      }
+      if (state.isAuthenticated && !state.cloudToken) {
+        void retrySubscriptionVerification();
+        return;
+      }
+      void validateSubscriptionWithCloud();
     };
     const handleOffline = () => {
       const state = useAuthStore.getState();
       if (state.isAuthenticated || state.token || state.cloudToken) {
-        forceLogoutToLogin('Internet connection lost');
+        markCloudVerificationPending();
       }
     };
-    const handleAuthInvalidated = () => {
-      // A rejected/expired access token is recoverable through refresh or a
-      // later online validation. Subscription expiry is handled only by the
-      // explicit SUBSCRIPTION_EXPIRED response in validateSubscriptionWithCloud.
-      markCloudVerificationPending();
+    const handleAuthInvalidated = (event: Event) => {
+      const detail = (event as CustomEvent<{ definitive?: boolean; code?: string }>).detail;
+      if (detail?.code && [
+        'SUBSCRIPTION_EXPIRED',
+        'SUBSCRIPTION_SUSPENDED',
+        'ACCOUNT_SUSPENDED',
+        'ACCOUNT_DELETED',
+      ].includes(detail.code)) {
+        void validateSubscriptionWithCloud();
+      } else if (detail?.definitive) {
+        forceLogoutToLogin('Session expired');
+      } else {
+        markCloudVerificationPending();
+      }
     };
     const handleCloudVerificationPending = () => {
       markCloudVerificationPending();
@@ -167,6 +183,10 @@ function App() {
     // protected route stops new operations until it returns.
     const interval = window.setInterval(() => {
       const state = useAuthStore.getState();
+      if (state.sessionRestorePending && navigator.onLine) {
+        void checkAuth();
+        return;
+      }
       if (!state.isAuthenticated || !state.token) return;
       if (navigator.onLine) validate();
     }, 5 * 60 * 1000);
@@ -178,7 +198,7 @@ function App() {
       window.removeEventListener('partflow:cloud-verification-pending', handleCloudVerificationPending);
       window.clearInterval(interval);
     };
-  }, []);
+  }, [checkAuth]);
 
   if (isPostLoginVerifying) {
     return (
@@ -206,36 +226,36 @@ function App() {
         <InitialSyncController />
         {isAuthenticated && sessionVerified && <RegionalProfileLoader />}
         {isAuthenticated && sessionVerified && cloudVerificationPending && typeof document !== 'undefined' && createPortal(
-          <div
-            role="status"
-            className="fixed inset-0 z-[100] flex min-h-screen items-center justify-center bg-slate-950/20 px-4 py-6 backdrop-blur-[2px]"
-            style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0, width: '100vw', height: '100vh' }}
-          >
-            <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-white p-6 text-center shadow-2xl" dir="rtl">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-amber-700">
-                <AlertTriangle className="h-7 w-7" aria-hidden="true" />
+          <div role="status" className="fixed inset-x-0 top-0 z-[100] px-3 pt-3" dir="rtl">
+            <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 shadow-lg">
+              <div className="flex min-w-0 items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
+                <div>
+                  <p className="text-sm font-bold">تعذر الاتصال بخدمة الاشتراكات</p>
+                  <p className="mt-1 text-xs leading-5 text-amber-900">
+                    بقيت جلسة الدخول محفوظة. يتحقق الخادم المحلي من مهلة السماح الموقعة، ويمنع العمليات عند انتهائها أو عند استلام إيقاف من السحابة.
+                  </p>
+                </div>
               </div>
-              <h2 className="mt-4 text-lg font-bold text-slate-900">تعذر التحقق من الاشتراك</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                تعذر الاتصال بخدمة الاشتراك في الوقت الحالي. أوقفنا عمليات الحفظ مؤقتًا لحماية بياناتك، وسيُعاد التحقق تلقائيًا عند عودة الاتصال.
-              </p>
-              <button
-                type="button"
-                className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-amber-600 px-5 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => void retryCloudVerification()}
-                disabled={isRetryingCloudVerification}
-              >
-                <RefreshCw className={`h-4 w-4 ${isRetryingCloudVerification ? 'animate-spin' : ''}`} aria-hidden="true" />
-                {isRetryingCloudVerification ? 'جارٍ التحقق...' : 'إعادة التحقق الآن'}
-              </button>
-              <button
-                type="button"
-                className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
-                onClick={() => forceLogoutToLogin('Session expired')}
-              >
-                <LogOut className="h-4 w-4" aria-hidden="true" />
-                تسجيل الخروج
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-amber-700 px-4 text-xs font-bold text-white transition hover:bg-amber-800 disabled:opacity-60"
+                  onClick={() => void retryCloudVerification()}
+                  disabled={isRetryingCloudVerification}
+                >
+                  <RefreshCw className={`h-4 w-4 ${isRetryingCloudVerification ? 'animate-spin' : ''}`} aria-hidden="true" />
+                  إعادة التحقق
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-amber-300 px-3 text-xs font-semibold text-amber-950 transition hover:bg-amber-100"
+                  onClick={() => forceLogoutToLogin('Session expired')}
+                >
+                  <LogOut className="h-4 w-4" aria-hidden="true" />
+                  خروج
+                </button>
+              </div>
             </div>
           </div>,
           document.body,
@@ -247,7 +267,9 @@ function App() {
             <Route
               path="/login"
               element={
-                !isAuthenticated || !sessionVerified ? (
+                sessionRestorePending ? (
+                  <SubscriptionVerificationScreen offline />
+                ) : !isAuthenticated || !sessionVerified ? (
                   <AuthLayout>
                     <Suspense fallback={<PageLoader />}>
                       <LoginPage />

@@ -62,6 +62,9 @@ func SeedLocalDatabaseFromOnline(postgresDB *sqlx.DB, sqliteDB *sql.DB) error {
 		{key: "item_specification_values", query: `SELECT * FROM item_specification_values ORDER BY created_at ASC`},
 		{key: "returns", query: `SELECT * FROM returns ORDER BY created_at ASC`},
 		{key: "return_items", query: `SELECT * FROM return_items ORDER BY created_at ASC`},
+		{key: "return_effects", query: `SELECT * FROM return_effects ORDER BY created_at ASC`},
+		{key: "return_effect_items", query: `SELECT * FROM return_effect_items ORDER BY created_at ASC`},
+		{key: "return_effect_refunds", query: `SELECT * FROM return_effect_refunds ORDER BY created_at ASC`},
 		{key: "supplier_returns", query: `SELECT * FROM supplier_returns ORDER BY created_at ASC`},
 		{key: "supplier_return_items", query: `SELECT * FROM supplier_return_items ORDER BY created_at ASC`},
 		{key: "notifications", query: `SELECT * FROM notifications ORDER BY created_at ASC`},
@@ -99,6 +102,7 @@ func fetchRowsAsMaps(postgresDB *sqlx.DB, query string) ([]map[string]any, error
 		if err := rows.MapScan(record); err != nil {
 			return nil, err
 		}
+		normalizeTimestampFields(record)
 		out = append(out, record)
 	}
 	if err := rows.Err(); err != nil {
@@ -275,17 +279,13 @@ func parseTimestamp(value string) (time.Time, error) {
 	if strings.TrimSpace(value) == "" {
 		return time.Time{}, fmt.Errorf("empty timestamp")
 	}
-	if ts, err := time.Parse(time.RFC3339, value); err == nil {
-		return ts, nil
-	}
-	if ts, err := time.Parse("2006-01-02 15:04:05", value); err == nil {
-		return ts, nil
-	}
-	if ts, err := time.Parse("2006-01-02T15:04:05", value); err == nil {
-		return ts, nil
-	}
-	if ts, err := time.Parse("2006-01-02", value); err == nil {
-		return ts, nil
+	if normalized, ok := normalizeSyncTimestamp(value); ok {
+		if ts, err := time.Parse(time.RFC3339Nano, normalized); err == nil {
+			return ts.UTC(), nil
+		}
+		if ts, err := time.Parse("2006-01-02", normalized); err == nil {
+			return ts.UTC(), nil
+		}
 	}
 	return time.Time{}, fmt.Errorf("unsupported timestamp format: %s", value)
 }
@@ -323,6 +323,7 @@ func normalizeMap(input map[string]any) map[string]any {
 }
 
 func NormalizeCloudPayload(tableName string, payload map[string]any) map[string]any {
+	normalizeTimestampFields(payload)
 	if tableName == "purchases" {
 		if _, ok := payload["invoice_number"]; !ok {
 			if value, ok := payload["purchase_number"]; ok {
@@ -353,6 +354,63 @@ func NormalizeCloudPayload(tableName string, payload map[string]any) map[string]
 		delete(payload, "transaction_number")
 	}
 	return payload
+}
+
+func normalizeTimestampFields(payload map[string]any) {
+	for key, value := range payload {
+		field := normalizeFieldName(key)
+		if field != "date" && field != "timestamp" &&
+			!strings.HasSuffix(field, "_at") && !strings.HasSuffix(field, "_date") &&
+			!strings.HasSuffix(field, "_until") && !strings.HasSuffix(field, "_on") {
+			continue
+		}
+		if normalized, ok := normalizeSyncTimestamp(value); ok {
+			payload[key] = normalized
+		}
+	}
+}
+
+func normalizeSyncTimestamp(value any) (string, bool) {
+	if timestamp, ok := value.(time.Time); ok {
+		return timestamp.UTC().Format(time.RFC3339Nano), true
+	}
+	raw, ok := value.(string)
+	if !ok {
+		if bytesValue, bytesOK := value.([]byte); bytesOK {
+			raw = string(bytesValue)
+			ok = true
+		}
+	}
+	if !ok {
+		return "", false
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) == len("2006-01-02") && raw[4] == '-' && raw[7] == '-' {
+		// Date-only business values are calendar dates, not instants.
+		return raw, true
+	}
+	if monotonicIndex := strings.Index(raw, " m="); monotonicIndex >= 0 {
+		raw = strings.TrimSpace(raw[:monotonicIndex])
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05.9999999 -0700 MST",
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05.999999999 -0700",
+		"2006-01-02 15:04:05 -0700",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05.999999",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+	}
+	for _, layout := range layouts {
+		parsed, err := time.Parse(layout, raw)
+		if err == nil {
+			return parsed.UTC().Format(time.RFC3339Nano), true
+		}
+	}
+	return raw, false
 }
 
 func NormalizeCloudPayloadJSON(entityType, raw string) (string, error) {
@@ -475,6 +533,9 @@ func syncColumns(tableName string) map[string]struct{} {
 		"barcodes":                  "id code product_id inventory_item_id type is_active generated_at created_at updated_at",
 		"returns":                   "id return_number reference_number sale_id purchase_id customer_id return_date return_type status total_refund_amount refund_method refund_date refund_reference debt_id debt_adjustment customer_credit reason reason_detail item_condition_after_return is_warranty_claim warranty_id warranty_valid_until created_by processed_by approved_by approved_at notes internal_notes created_at updated_at",
 		"return_items":              "id return_id sale_item_id product_id inventory_item_id quantity_returned original_quantity serial_number barcode unit_price total_refund_amount reason original_condition returned_condition condition_notes resolution inventory_status inspection_required inspection_date inspection_result inspection_notes original_cost repair_cost created_at updated_at",
+		"return_effects":            "id return_number reference_number sale_id purchase_id customer_id total_refund_amount refund_status status return_date refund_date reason refund_method debt_id debt_adjustment customer_credit created_at updated_at",
+		"return_effect_items":       "id return_effect_id source_return_item_id sale_item_id product_id inventory_item_id serial_number barcode quantity_returned original_quantity unit_price total_refund_amount original_cost resolution inventory_status created_at",
+		"return_effect_refunds":     "id return_effect_id source_refund_id refund_type amount refund_date payment_method transaction_reference debt_id debt_reduction_amount created_at",
 		"acquisitions":              "id type acquisition_date supplier_id customer_id total_cost paid_amount payment_status status notes user_id created_at updated_at reversed_at reversed_by reversal_reason",
 		"acquisition_items":         "id acquisition_id product_id inventory_item_id item_code serial_number condition grade unit_cost total_cost item_status notes created_at updated_at",
 		"trade_ins":                 "id customer_id inventory_item_id purchase_price purchase_date notes created_at updated_at",
@@ -571,6 +632,12 @@ func tableNameForEntity(entityType string) (string, error) {
 		return "returns", nil
 	case "return_item", "return_items":
 		return "return_items", nil
+	case "return_effect", "return_effects":
+		return "return_effects", nil
+	case "return_effect_item", "return_effect_items":
+		return "return_effect_items", nil
+	case "return_effect_refund", "return_effect_refunds":
+		return "return_effect_refunds", nil
 	case "acquisition", "acquisitions":
 		return "acquisitions", nil
 	case "acquisition_item", "acquisition_items":

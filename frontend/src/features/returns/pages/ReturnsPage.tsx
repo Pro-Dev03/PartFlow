@@ -71,14 +71,8 @@ export function ReturnsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [editingReturn, setEditingReturn] = useState<Return | null>(null);
-  const [returnToArchive, setReturnToArchive] = useState<Return | null>(null);
-  const [archivedReturnIds, setArchivedReturnIds] = useState<string[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('partflow-hidden-return-ids') || '[]');
-    } catch {
-      return [];
-    }
-  });
+  const [returnToDelete, setReturnToDelete] = useState<Return | null>(null);
+  const [isDeletingReturn, setIsDeletingReturn] = useState(false);
   const [editReason, setEditReason] = useState('');
   const [editRefundMethod, setEditRefundMethod] = useState('CASH');
   const [editCondition, setEditCondition] = useState('READY_FOR_SALE');
@@ -103,10 +97,7 @@ export function ReturnsPage() {
   }, [searchQuery, statusFilter, categoryFilter]);
 
   const returns = (returnsData?.data as Return[]) || [];
-  const pageReturns = returns.filter((returnItem) => {
-    const status = String(returnItem.status || '').toUpperCase();
-    return status !== 'ARCHIVED' && !archivedReturnIds.includes(returnItem.id);
-  });
+  const pageReturns = returns;
   const totalReturns = Number(returnsData?.meta?.total || returns.length);
   const returnRecordCount = pageReturns.length;
 
@@ -237,22 +228,25 @@ export function ReturnsPage() {
     onError: () => toast.error('تعذر تعديل المرتجع في حالته الحالية'),
   });
 
-  const archiveReturn = async () => {
-    if (!returnToArchive) return;
+  const deleteReturn = async () => {
+    if (!returnToDelete || isDeletingReturn) return;
+    setIsDeletingReturn(true);
     try {
-      const permanentlyDelete = String(returnToArchive.status || '').toUpperCase() === 'CANCELLED';
-      await returnsApi.delete(returnToArchive.id, { permanent: permanentlyDelete });
-      const nextIds = Array.from(new Set([...archivedReturnIds, returnToArchive.id]));
-      setArchivedReturnIds(nextIds);
-      localStorage.setItem('partflow-hidden-return-ids', JSON.stringify(nextIds));
+      await returnsApi.delete(returnToDelete.id);
       await queryClient.invalidateQueries({ queryKey: ['returns'] });
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       await queryClient.invalidateQueries({ queryKey: ['reports'] });
-      setReturnToArchive(null);
-      toast.success(permanentlyDelete ? 'تم حذف المرتجع الملغي نهائيًا' : 'تمت أرشفة المرتجع وحفظه في السجل التاريخي');
+      await queryClient.invalidateQueries({ queryKey: ['sales'] });
+      await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      await queryClient.invalidateQueries({ queryKey: ['customers'] });
+      await queryClient.invalidateQueries({ queryKey: ['debts'] });
+      setReturnToDelete(null);
+      toast.success('تم حذف المرتجع نهائياً');
     } catch (error) {
-      console.error('Failed to archive return:', error);
-      toast.error('تعذر أرشفة المرتجع');
+      console.error('Failed to delete return:', error);
+      toast.error((error as Error)?.message || 'تعذر حذف سجل المرتجع');
+    } finally {
+      setIsDeletingReturn(false);
     }
   };
 
@@ -462,9 +456,9 @@ export function ReturnsPage() {
                     <Button
                       variant="danger"
                       size="icon"
-                      onClick={() => setReturnToArchive(returnItem)}
-                      aria-label={`حذف المرتجع من الصفحة ${returnItem.return_number || ''}`}
-                      title="حذف من الصفحة فقط"
+                      onClick={() => setReturnToDelete(returnItem)}
+                      aria-label={`حذف المرتجع ${returnItem.return_number || ''}`}
+                      title="حذف سجل المرتجع نهائياً"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -536,14 +530,15 @@ export function ReturnsPage() {
       </Modal>
 
       <ConfirmDialog
-        isOpen={Boolean(returnToArchive)}
-        onClose={() => setReturnToArchive(null)}
-        onConfirm={archiveReturn}
-        title="حذف المرتجع من الصفحة"
-        message={String(returnToArchive?.status || '').toUpperCase() === 'CANCELLED'
-          ? `سيتم حذف المرتجع الملغي «${returnToArchive?.return_number || ''}» نهائيًا مع إبقاء أثر المخزون مؤرشفًا. هل تريد المتابعة؟`
-          : `سيتم إخفاء المرتجع «${returnToArchive?.return_number || ''}» من هذه الصفحة فقط، ولن تتغير المعاملات المالية أو التقارير. هل تريد المتابعة؟`}
-        confirmText={String(returnToArchive?.status || '').toUpperCase() === 'CANCELLED' ? 'حذف نهائي' : 'حذف من الصفحة'}
+        isOpen={Boolean(returnToDelete)}
+        onClose={() => setReturnToDelete(null)}
+        onConfirm={deleteReturn}
+        title="حذف المرتجع نهائياً"
+        message={String(returnToDelete?.status || '').toUpperCase() === 'COMPLETED'
+          ? `سيُحذف سجل المرتجع «${returnToDelete?.return_number || ''}» وتفاصيله الإدارية نهائياً. سيبقى أثره المالي والمخزني المعتمد كما هو في التقارير والأرصدة.`
+          : `سيُحذف سجل المرتجع «${returnToDelete?.return_number || ''}» وسجلاته التشغيلية، مع معالجة أي أثر غير مكتمل ضمن معاملة واحدة.`}
+        confirmText="حذف المرتجع"
+        isLoading={isDeletingReturn}
       />
     </div>
   );

@@ -362,6 +362,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
     sale_id TEXT NOT NULL,
     inventory_item_id TEXT,
     product_id TEXT NOT NULL,
+    barcode TEXT,
     quantity INTEGER NOT NULL,
     unit_price REAL NOT NULL,
     item_total REAL NOT NULL,
@@ -822,6 +823,9 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 	if err := ensureReturnItemsProductNullable(db); err != nil {
 		return fmt.Errorf("migrate return-items schema: %w", err)
 	}
+	if err := ensureCompletedReturnEffectLedger(db); err != nil {
+		return fmt.Errorf("initialize completed return accounting ledger: %w", err)
+	}
 
 	if _, err := db.Exec(`INSERT OR IGNORE INTO settings (id, key, value, value_type, category, description, is_public, created_at, updated_at)
 		VALUES ('setting-tax-rate', 'tax_rate', '0', 'number', 'financial', 'Tax rate', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
@@ -1195,6 +1199,7 @@ func migrateLegacySchema(db *sql.DB) error {
 		{tableName: "sale_items", columnName: "discount_amount", columnDef: "discount_amount REAL DEFAULT 0"},
 		{tableName: "sale_items", columnName: "tax_amount", columnDef: "tax_amount REAL DEFAULT 0"},
 		{tableName: "sale_items", columnName: "supplier_id", columnDef: "supplier_id TEXT"},
+		{tableName: "sale_items", columnName: "barcode", columnDef: "barcode TEXT"},
 		{tableName: "payments", columnName: "sale_id", columnDef: "sale_id TEXT"},
 		{tableName: "payments", columnName: "purchase_id", columnDef: "purchase_id TEXT"},
 		{tableName: "payments", columnName: "payment_status", columnDef: "payment_status TEXT DEFAULT 'completed'"},
@@ -1323,6 +1328,118 @@ func migrateLegacySchema(db *sql.DB) error {
 			if !strings.Contains(err.Error(), "already exists") {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// ensureCompletedReturnEffectLedger creates the immutable accounting facts
+// that remain reportable after a completed return's operational record is
+// physically deleted. The views unify active returns with those posted facts.
+func ensureCompletedReturnEffectLedger(db *sql.DB) error {
+	for _, statement := range []string{
+		`DROP VIEW IF EXISTS monthly_returns_analysis`,
+		`DROP VIEW IF EXISTS sales_returns_analysis`,
+		`CREATE TABLE IF NOT EXISTS return_effects (
+			id TEXT PRIMARY KEY, sale_id TEXT, purchase_id TEXT, customer_id TEXT,
+			total_refund_amount REAL NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'COMPLETED', return_date TEXT, refund_date TEXT,
+			refund_method TEXT, debt_id TEXT,
+			debt_adjustment REAL NOT NULL DEFAULT 0, customer_credit REAL NOT NULL DEFAULT 0,
+			is_reversal INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_return_effects_date ON return_effects(return_date)`,
+		`CREATE TABLE IF NOT EXISTS return_effect_items (
+			id TEXT PRIMARY KEY, return_effect_id TEXT NOT NULL,
+			sale_item_id TEXT, product_id TEXT, inventory_item_id TEXT,
+			serial_number TEXT, barcode TEXT, quantity_returned INTEGER NOT NULL DEFAULT 0,
+			original_quantity INTEGER, unit_price REAL NOT NULL DEFAULT 0,
+			total_refund_amount REAL NOT NULL DEFAULT 0, original_cost REAL NOT NULL DEFAULT 0,
+			resolution TEXT, inventory_status TEXT, created_at TEXT NOT NULL,
+			FOREIGN KEY(return_effect_id) REFERENCES return_effects(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_return_effect_items_effect ON return_effect_items(return_effect_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_return_effect_items_sale_item ON return_effect_items(sale_item_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_return_effect_items_product ON return_effect_items(product_id)`,
+		`CREATE TABLE IF NOT EXISTS return_effect_refunds (
+			id TEXT PRIMARY KEY, return_effect_id TEXT NOT NULL,
+			refund_type TEXT, amount REAL NOT NULL DEFAULT 0, refund_date TEXT,
+			payment_method TEXT, transaction_reference TEXT, debt_id TEXT,
+			debt_reduction_amount REAL, created_at TEXT,
+			FOREIGN KEY(return_effect_id) REFERENCES return_effects(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_return_effect_refunds_effect ON return_effect_refunds(return_effect_id)`,
+		`DROP VIEW IF EXISTS accounting_return_items`,
+		`DROP VIEW IF EXISTS accounting_returns`,
+		`CREATE VIEW accounting_returns AS
+			SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id,
+				total_refund_amount, refund_status, status, return_date, refund_date, reason,
+				refund_method, debt_id, debt_adjustment, customer_credit, created_at, updated_at,
+				return_type, is_warranty_claim, item_condition_after_return FROM returns
+			UNION ALL
+			SELECT id, NULL AS return_number, CASE WHEN is_reversal <> 0 THEN 'REV-POSTED' ELSE NULL END AS reference_number,
+				sale_id, purchase_id, customer_id, total_refund_amount, 'refunded' AS refund_status,
+				status, return_date, refund_date, NULL AS reason, refund_method,
+				debt_id, debt_adjustment, customer_credit, created_at, updated_at,
+				CASE WHEN EXISTS (SELECT 1 FROM return_effect_items ri WHERE ri.return_effect_id = return_effects.id)
+					AND (SELECT COALESCE(SUM(ri.quantity_returned), 0) FROM return_effect_items ri WHERE ri.return_effect_id = return_effects.id)
+						>= (SELECT COALESCE(SUM(COALESCE(ri.original_quantity, ri.quantity_returned)), 0) FROM return_effect_items ri WHERE ri.return_effect_id = return_effects.id)
+					THEN 'FULL'
+					WHEN EXISTS (SELECT 1 FROM return_effect_items ri WHERE ri.return_effect_id = return_effects.id)
+					THEN 'QUANTITY_PARTIAL' ELSE NULL END AS return_type,
+				0 AS is_warranty_claim, NULL AS item_condition_after_return FROM return_effects`,
+		`CREATE VIEW accounting_return_items AS
+			SELECT id, return_id, sale_item_id, product_id, inventory_item_id,
+				serial_number, barcode, quantity_returned, original_quantity, unit_price,
+				total_refund_amount, original_cost, resolution, inventory_status, created_at FROM return_items
+			UNION ALL
+			SELECT id, return_effect_id AS return_id, sale_item_id, product_id, inventory_item_id,
+				serial_number, barcode, quantity_returned, original_quantity, unit_price,
+				total_refund_amount, original_cost, resolution, inventory_status, created_at FROM return_effect_items`,
+		`CREATE VIEW monthly_returns_analysis AS
+			SELECT date(r.return_date, 'start of month') AS month,
+				COUNT(DISTINCT r.id) AS total_returns,
+				COUNT(DISTINCT r.customer_id) AS unique_customers,
+				COALESCE(SUM(r.total_refund_amount), 0) AS total_refund_amount,
+				COALESCE(AVG(r.total_refund_amount), 0) AS avg_refund_amount,
+				COUNT(CASE WHEN UPPER(COALESCE(r.return_type, '')) = 'FULL' THEN 1 END) AS full_returns,
+				COUNT(CASE WHEN UPPER(COALESCE(r.return_type, '')) = 'PARTIAL' THEN 1 END) AS partial_returns,
+				COUNT(CASE WHEN UPPER(COALESCE(r.return_type, '')) = 'QUANTITY_PARTIAL' THEN 1 END) AS quantity_partial_returns,
+				COUNT(CASE WHEN UPPER(COALESCE(r.reason, '')) = 'DEFECTIVE' THEN 1 END) AS defective_returns,
+				COUNT(CASE WHEN UPPER(COALESCE(r.reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_returns,
+				COUNT(CASE WHEN r.is_warranty_claim <> 0 THEN 1 END) AS warranty_claims,
+				SUM(CASE WHEN r.item_condition_after_return = 'SELLABLE' THEN 1 ELSE 0 END) AS sellable_items,
+				SUM(CASE WHEN r.item_condition_after_return = 'NEEDS_REPAIR' THEN 1 ELSE 0 END) AS repair_needed,
+				SUM(CASE WHEN r.item_condition_after_return = 'WRITE_OFF' THEN 1 ELSE 0 END) AS written_off
+			FROM accounting_returns r
+			WHERE UPPER(COALESCE(r.status, '')) = 'COMPLETED'
+			GROUP BY date(r.return_date, 'start of month')
+			ORDER BY month DESC`,
+		`CREATE VIEW sales_returns_analysis AS
+			WITH returns_by_sale_month AS (
+				SELECT sale_id, date(return_date, 'start of month') AS month,
+					SUM(total_refund_amount) AS returns_amount, COUNT(*) AS return_count
+				FROM accounting_returns
+				WHERE UPPER(COALESCE(status, '')) = 'COMPLETED' AND sale_id IS NOT NULL
+				GROUP BY sale_id, date(return_date, 'start of month')
+			)
+			SELECT date(s.sale_date, 'start of month') AS month,
+				COUNT(DISTINCT s.id) AS total_sales,
+				COALESCE(SUM(s.total_amount), 0) AS gross_sales,
+				COALESCE(SUM(s.cost_amount), 0) AS total_cost,
+				COALESCE(SUM(s.gross_profit), 0) AS gross_profit,
+				COALESCE(SUM(r.returns_amount), 0) AS returns_amount,
+				COALESCE(SUM(r.return_count), 0) AS return_count,
+				COALESCE(SUM(s.total_amount), 0) - COALESCE(SUM(r.returns_amount), 0) AS net_sales
+			FROM sales s
+			LEFT JOIN returns_by_sale_month r ON r.sale_id = s.id AND r.month = date(s.sale_date, 'start of month')
+			WHERE s.status = 'completed'
+			GROUP BY date(s.sale_date, 'start of month')
+			ORDER BY month DESC`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1657,6 +1774,9 @@ func SeedLocalSnapshot(db *sql.DB, snapshot map[string]any) error {
 		{key: "item_specification_values", table: "item_specification_values"},
 		{key: "returns", table: "returns"},
 		{key: "return_items", table: "return_items"},
+		{key: "return_effects", table: "return_effects"},
+		{key: "return_effect_items", table: "return_effect_items"},
+		{key: "return_effect_refunds", table: "return_effect_refunds"},
 		{key: "used_parts", table: "used_parts"},
 		{key: "inventory_movements", table: "inventory_movements"},
 		{key: "reservations", table: "reservations"},
@@ -1708,7 +1828,7 @@ func ExportLocalSnapshot(db *sql.DB) (map[string]any, error) {
 		"supplier_returns", "supplier_return_items", "inspections", "inspection_items",
 		"part_types", "part_specifications", "type_specifications", "acquisitions",
 		"acquisition_items", "trade_ins", "item_specification_values", "returns",
-		"return_items", "used_parts", "inventory_movements", "reservations", "barcodes",
+		"return_items", "return_effects", "return_effect_items", "return_effect_refunds", "used_parts", "inventory_movements", "reservations", "barcodes",
 		"notifications", "notification_preferences", "reports", "settings", "held_sales",
 	}
 

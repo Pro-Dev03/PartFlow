@@ -16,6 +16,7 @@ import { EmptyState } from '../../../design-system/components/empty-state';
 import { Modal } from '../../../design-system/components/modal';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { ReportActions } from '../../../design-system/components/report-actions';
+import { formatStoreDate, getStoreDateKey, getStoreToday } from '../../../utils/store-time';
 import { 
   Search, 
   Plus, 
@@ -49,16 +50,14 @@ export function normalizeExpenseForDisplay(expense: any) {
 }
 
 export function formatExpenseDate(value: string) {
-  const datePart = value?.slice(0, 10);
-  if (!datePart || !/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return '-';
-  const [year, month, day] = datePart.split('-');
-  return `${day}/${month}/${year}`;
+  const dateKey = getStoreDateKey(value);
+  return dateKey ? formatStoreDate(dateKey, 'en-GB') : '-';
 }
 
 export function isExpenseInCurrentMonth(value: string, referenceDate = new Date()) {
-  const datePart = value?.slice(0, 7);
-  if (!datePart || !/^\d{4}-\d{2}$/.test(datePart)) return false;
-  const currentMonth = `${referenceDate.getFullYear()}-${String(referenceDate.getMonth() + 1).padStart(2, '0')}`;
+  const datePart = getStoreDateKey(value)?.slice(0, 7);
+  if (!datePart) return false;
+  const currentMonth = getStoreDateKey(referenceDate)?.slice(0, 7) || '';
   return datePart === currentMonth;
 }
 
@@ -86,7 +85,7 @@ export function ExpensesPage() {
     description: '',
     amount: '',
     category: '',
-    date: new Date().toISOString().split('T')[0],
+    date: getStoreToday(),
     recurring: false,
     recurringPeriod: 'monthly',
   });
@@ -141,7 +140,7 @@ export function ExpensesPage() {
       void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setIsAddModalOpen(false);
       setEditingExpenseId(null);
-      setNewExpense({ description: '', amount: '', category: '', date: new Date().toISOString().split('T')[0], recurring: false, recurringPeriod: 'monthly' });
+      setNewExpense({ description: '', amount: '', category: '', date: getStoreToday(), recurring: false, recurringPeriod: 'monthly' });
     },
   });
 
@@ -236,7 +235,7 @@ export function ExpensesPage() {
     }));
 
   const handleExport = () => {
-    exportToCSV(getExpenseReportRows(filteredExpenses), `expenses-${new Date().toISOString().split('T')[0]}`);
+    exportToCSV(getExpenseReportRows(filteredExpenses), `expenses-${getStoreToday()}`);
   };
 
   const handlePrint = () => {
@@ -250,7 +249,7 @@ export function ExpensesPage() {
   };
 
   const handleExportAll = async () => {
-    exportToCSV(getExpenseReportRows(await loadAllExpenses()), `expenses-all-${new Date().toISOString().split('T')[0]}`);
+    exportToCSV(getExpenseReportRows(await loadAllExpenses()), `expenses-all-${getStoreToday()}`);
   };
 
   const handlePrintAll = async () => {
@@ -263,7 +262,7 @@ export function ExpensesPage() {
       description: expense.description || '',
       amount: String(expense.amount ?? ''),
       category: expense.category_id || '',
-      date: expense.date?.slice(0, 10) || new Date().toISOString().split('T')[0],
+      date: getStoreDateKey(expense.date) || getStoreToday(),
       recurring: Boolean(expense.recurring),
       recurringPeriod: expense.recurringPeriod || 'monthly',
     });
@@ -284,7 +283,7 @@ export function ExpensesPage() {
           <div style={{ display: 'flex', gap: '10px' }}>
             <Button variant="primary" className="gap-2" onClick={() => {
               setEditingExpenseId(null);
-              setNewExpense({ description: '', amount: '', category: expenseCategories[0]?.id || '', date: new Date().toISOString().split('T')[0], recurring: false, recurringPeriod: 'monthly' });
+              setNewExpense({ description: '', amount: '', category: expenseCategories[0]?.id || '', date: getStoreToday(), recurring: false, recurringPeriod: 'monthly' });
               setIsAddModalOpen(true);
             }}>
               <Plus className="w-4 h-4" />

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { CartItem } from '../types/pos.types';
 import { playScanSound } from '../../../hooks/useBarcodeContext';
 
@@ -15,7 +15,7 @@ export interface PosCartProduct {
   costPrice?: number;
   cost_price?: number;
   stock?: number;
-  isTradeIn?: boolean;
+  current_quantity?: number;
   condition?: string;
   partType?: string;
   partTypeColor?: string;
@@ -34,7 +34,7 @@ export function normalizePosPrice(...values: unknown[]): number {
 }
 
 function getCartItemKey(item: PosCartProduct): string {
-  return String(item.inventoryItemId || item.barcode || item.sku || item.id);
+	return String(item.inventoryItemId || item.barcode || `product:${item.id}`);
 }
 
 const POS_CART_STORAGE_KEY = 'partflow-pos-cart';
@@ -86,11 +86,11 @@ export function useCart(soundEnabled: boolean = true, _taxRate: number = 0) {
         serialNumber: item.serialNumber,
         name: item.name,
         barcode: itemKey,
+        operationalBarcode: item.barcode?.trim() || undefined,
         price,
         quantity: quantityToAdd,
         total: quantityToAdd * price,
         stock: item.stock,
-        isTradeIn: item.isTradeIn || item.condition === 'USED' || false,
         purchaseCost,
         partType: item.partType,
         partTypeColor: item.partTypeColor,
@@ -122,7 +122,7 @@ export function useCart(soundEnabled: boolean = true, _taxRate: number = 0) {
   }, []);
 
   // Product prices are stored before tax. POS applies tax to the customer total.
-  const subtotal = cart.reduce((sum, item) => sum + item.total, 0);
+  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.total, 0), [cart]);
   const total = subtotal;
 
   return {

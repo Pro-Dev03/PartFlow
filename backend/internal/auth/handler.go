@@ -3,13 +3,16 @@ package auth
 import (
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/pkg/offlinegrant"
 )
 
 type Handler struct {
@@ -23,7 +26,11 @@ const (
 )
 
 func setRefreshTokenCookie(c *gin.Context, token string, maxAge int) {
-	secure := c.Request.TLS != nil || strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production")
+	forwardedProto := strings.TrimSpace(strings.Split(c.GetHeader("X-Forwarded-Proto"), ",")[0])
+	secure := c.Request.TLS != nil ||
+		strings.EqualFold(forwardedProto, "https") ||
+		strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") ||
+		isLoopbackAuthHost(c.Request.Host)
 	if secure {
 		// The web client may run on a different origin from the cloud API.
 		// SameSite=None is required for credentialed cross-site refresh calls.
@@ -32,6 +39,19 @@ func setRefreshTokenCookie(c *gin.Context, token string, maxAge int) {
 		c.SetSameSite(http.SameSiteLaxMode)
 	}
 	c.SetCookie(refreshTokenCookieName, token, maxAge, "/api/v1/auth", "", secure, true)
+}
+
+func isLoopbackAuthHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func clearRefreshTokenCookie(c *gin.Context) {
@@ -128,12 +148,16 @@ func (h *Handler) RefreshToken(c *gin.Context) {
 		req.RefreshToken, _ = c.Cookie(refreshTokenCookieName)
 	}
 	if strings.TrimSpace(req.RefreshToken) == "" {
+		clearRefreshTokenCookie(c)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token required"})
 		return
 	}
 
 	resp, err := h.service.RefreshToken(c.Request.Context(), req.RefreshToken)
 	if err != nil {
+		if errors.Is(err, ErrInvalidToken) || errors.Is(err, ErrTokenExpired) || errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrInactiveUser) || errors.Is(err, ErrSubscriptionExpired) || errors.Is(err, ErrSubscriptionSuspended) || errors.Is(err, ErrAccountDeleted) || errors.Is(err, ErrUserNotFound) {
+			clearRefreshTokenCookie(c)
+		}
 		handleAuthError(c, err)
 		return
 	}
@@ -270,9 +294,16 @@ func (h *Handler) ValidateSubscription(c *gin.Context) {
 
 	user, err := h.service.GetUserByID(c.Request.Context(), userID)
 	if err != nil {
+		if !errors.Is(err, ErrUserNotFound) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "Authentication service temporarily unavailable",
+				"code":  "AUTH_SERVICE_UNAVAILABLE",
+			})
+			return
+		}
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": "User not found",
-			"code":  "USER_NOT_FOUND",
+			"code":  "ACCOUNT_DELETED",
 		})
 		return
 	}
@@ -281,18 +312,28 @@ func (h *Handler) ValidateSubscription(c *gin.Context) {
 	if !user.IsActive {
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "الحساب غير نشط أو أن الاشتراك منتهٍ",
-			"code":  "SUBSCRIPTION_EXPIRED",
+			"code":  "ACCOUNT_SUSPENDED",
 		})
 		return
 	}
 
 	if h.service.IsSubscriptionExpired(user.SubscriptionStatus, user.SubscriptionExpiresAt) {
+		code := "SUBSCRIPTION_EXPIRED"
+		if strings.EqualFold(strings.TrimSpace(user.SubscriptionStatus), "suspended") {
+			code = "SUBSCRIPTION_SUSPENDED"
+		} else if strings.EqualFold(strings.TrimSpace(user.SubscriptionStatus), "deleted") {
+			code = "ACCOUNT_DELETED"
+		}
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "الحساب غير نشط أو أن الاشتراك منتهٍ",
-			"code":  "SUBSCRIPTION_EXPIRED",
+			"code":  code,
 		})
 		return
 	}
+
+	// The cloud can issue a short, signed offline grant for a local desktop.
+	// It is bounded by both the grace period and the subscription expiry.
+	offlineGrant, _ := offlinegrant.Issue(user.ID.String(), user.SubscriptionExpiresAt, time.Now().UTC())
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -310,6 +351,7 @@ func (h *Handler) ValidateSubscription(c *gin.Context) {
 			},
 			"subscription_status":     user.SubscriptionStatus,
 			"subscription_expires_at": user.SubscriptionExpiresAt,
+			"offline_grant":           offlineGrant,
 		},
 	})
 }
@@ -331,26 +373,41 @@ func getUserIDFromContext(c *gin.Context) uuid.UUID {
 func handleAuthError(c *gin.Context, err error) {
 	status := http.StatusInternalServerError
 	message := "internal server error"
+	code := "INTERNAL_ERROR"
 
 	switch {
 	case errors.Is(err, ErrSubscriptionExpired):
 		status = http.StatusForbidden
 		message = "اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة."
+		code = "SUBSCRIPTION_EXPIRED"
+	case errors.Is(err, ErrSubscriptionSuspended):
+		status = http.StatusForbidden
+		message = "تم إيقاف الاشتراك من الإدارة."
+		code = "SUBSCRIPTION_SUSPENDED"
+	case errors.Is(err, ErrAccountDeleted):
+		status = http.StatusUnauthorized
+		message = "الحساب محذوف ولم يعد صالحًا للدخول."
+		code = "ACCOUNT_DELETED"
 	case errors.Is(err, ErrUserNotFound):
-		status = http.StatusNotFound
+		status = http.StatusUnauthorized
 		message = err.Error()
+		code = "ACCOUNT_DELETED"
+	case errors.Is(err, ErrInactiveUser):
+		status = http.StatusForbidden
+		message = "الحساب موقوف من الإدارة."
+		code = "ACCOUNT_SUSPENDED"
 	case errors.Is(err, ErrInvalidCredentials),
 		errors.Is(err, ErrInvalidPassword),
-		errors.Is(err, ErrInactiveUser),
 		errors.Is(err, ErrUnauthorized),
 		errors.Is(err, ErrInvalidToken),
 		errors.Is(err, ErrTokenExpired):
 		status = http.StatusUnauthorized
 		message = err.Error()
+		code = "INVALID_TOKEN"
 	case errors.Is(err, ErrUserExists):
 		status = http.StatusConflict
 		message = err.Error()
 	}
 
-	c.JSON(status, gin.H{"error": message})
+	c.JSON(status, gin.H{"error": message, "code": code})
 }

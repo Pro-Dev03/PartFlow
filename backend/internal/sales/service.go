@@ -26,6 +26,14 @@ func NewService(repo *Repository, db *sqlx.DB) *Service {
 	return &Service{repo: repo, db: db}
 }
 
+func nullableBarcode(code string) *string {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil
+	}
+	return &code
+}
+
 // CreateSale creates a new sale with complete business logic automation
 // This is an atomic transaction that ensures data consistency
 func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateSaleRequest) (*Sale, error) {
@@ -197,6 +205,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		item := SaleItem{
 			ID:              uuid.New(),
 			ProductID:       itemReq.ProductID,
+			Barcode:         nullableBarcode(itemReq.Barcode),
 			InventoryItemID: inventoryItemID,
 			Quantity:        itemReq.Quantity,
 			UnitPrice:       itemReq.UnitPrice,
@@ -328,7 +337,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		userIDPtr = &userID
 	}
 
-	eventTime := time.Now()
+	eventTime := accounting.StoreNow()
 	storeDate, err := accounting.StoreDate(eventTime)
 	if err != nil {
 		return nil, fmt.Errorf("calculate sale store date: %w", err)
@@ -442,13 +451,13 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 		// Local snapshots use item_total, while the cloud schema uses total_amount.
 		itemQuery := `
-			INSERT INTO sale_items (id, sale_id, product_id, inventory_item_id, quantity, unit_price, unit_cost,
-				tax_amount, total_amount, supplier_id, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			INSERT INTO sale_items (id, sale_id, product_id, inventory_item_id, barcode, quantity, unit_price, unit_cost,
+				discount_amount, tax_amount, total_amount, supplier_id, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		`
 		itemArgs := []interface{}{
-			items[i].ID, items[i].SaleID, items[i].ProductID, items[i].InventoryItemID, items[i].Quantity,
-			items[i].UnitPrice, items[i].UnitCost, items[i].TaxAmount, items[i].TotalAmount,
+			items[i].ID, items[i].SaleID, items[i].ProductID, items[i].InventoryItemID, items[i].Barcode, items[i].Quantity,
+			items[i].UnitPrice, items[i].UnitCost, items[i].DiscountAmount, items[i].TaxAmount, items[i].TotalAmount,
 			supplierID, items[i].CreatedAt,
 		}
 		if dbutil.IsSQLite(s.db) {
@@ -456,16 +465,22 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			if err := tx.GetContext(ctx, &itemTotalColumns, `SELECT COUNT(*) FROM pragma_table_info('sale_items') WHERE name = 'item_total'`); err != nil {
 				return nil, fmt.Errorf("failed to inspect sale item schema: %w", err)
 			}
-			if itemTotalColumns > 0 {
-				itemQuery = `
-					INSERT INTO sale_items (id, sale_id, product_id, inventory_item_id, quantity, unit_price, item_total, unit_cost, discount_amount, tax_amount, total_amount, supplier_id, created_at)
-					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-				`
-				itemArgs = []interface{}{
-					items[i].ID, items[i].SaleID, items[i].ProductID, items[i].InventoryItemID, items[i].Quantity,
-					items[i].UnitPrice, items[i].TotalAmount, items[i].UnitCost, items[i].DiscountAmount,
-					items[i].TaxAmount, items[i].TotalAmount, supplierID, items[i].CreatedAt,
-				}
+			var hasBarcode bool
+			if err := tx.GetContext(ctx, &hasBarcode, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('sale_items') WHERE name = 'barcode')`); err != nil {
+				return nil, fmt.Errorf("failed to inspect sale item barcode schema: %w", err)
+			}
+			if itemTotalColumns > 0 && hasBarcode {
+				itemQuery = `INSERT INTO sale_items (id,sale_id,product_id,inventory_item_id,barcode,quantity,unit_price,item_total,unit_cost,discount_amount,tax_amount,total_amount,supplier_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`
+				itemArgs = []interface{}{items[i].ID, items[i].SaleID, items[i].ProductID, items[i].InventoryItemID, items[i].Barcode, items[i].Quantity, items[i].UnitPrice, items[i].TotalAmount, items[i].UnitCost, items[i].DiscountAmount, items[i].TaxAmount, items[i].TotalAmount, supplierID, items[i].CreatedAt}
+			} else if itemTotalColumns > 0 {
+				itemQuery = `INSERT INTO sale_items (id,sale_id,product_id,inventory_item_id,quantity,unit_price,item_total,unit_cost,discount_amount,tax_amount,total_amount,supplier_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`
+				itemArgs = []interface{}{items[i].ID, items[i].SaleID, items[i].ProductID, items[i].InventoryItemID, items[i].Quantity, items[i].UnitPrice, items[i].TotalAmount, items[i].UnitCost, items[i].DiscountAmount, items[i].TaxAmount, items[i].TotalAmount, supplierID, items[i].CreatedAt}
+			} else if hasBarcode {
+				itemQuery = `INSERT INTO sale_items (id,sale_id,product_id,inventory_item_id,barcode,quantity,unit_price,unit_cost,discount_amount,tax_amount,total_amount,supplier_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`
+				itemArgs = []interface{}{items[i].ID, items[i].SaleID, items[i].ProductID, items[i].InventoryItemID, items[i].Barcode, items[i].Quantity, items[i].UnitPrice, items[i].UnitCost, items[i].DiscountAmount, items[i].TaxAmount, items[i].TotalAmount, supplierID, items[i].CreatedAt}
+			} else {
+				itemQuery = `INSERT INTO sale_items (id,sale_id,product_id,inventory_item_id,quantity,unit_price,unit_cost,discount_amount,tax_amount,total_amount,supplier_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`
+				itemArgs = []interface{}{items[i].ID, items[i].SaleID, items[i].ProductID, items[i].InventoryItemID, items[i].Quantity, items[i].UnitPrice, items[i].UnitCost, items[i].DiscountAmount, items[i].TaxAmount, items[i].TotalAmount, supplierID, items[i].CreatedAt}
 			}
 			if dbutil.IsSQLite(s.db) {
 				itemArgs[len(itemArgs)-1] = items[i].CreatedAt.UTC().Format(time.RFC3339Nano)
@@ -1092,7 +1107,11 @@ func (s *Service) GetTopSellingProducts(ctx context.Context, limit int) ([]TopSe
 
 // generateInvoiceNumber generates a unique invoice number with a short suffix.
 func (s *Service) generateInvoiceNumber() string {
-	timestamp := time.Now().Format("20060102150405")
+	storeLocation, err := accounting.StoreLocation()
+	if err != nil {
+		storeLocation = time.UTC
+	}
+	timestamp := accounting.StoreNow().In(storeLocation).Format("20060102150405")
 	suffix := 0
 	var buf [2]byte
 	if _, err := rand.Read(buf[:]); err == nil {

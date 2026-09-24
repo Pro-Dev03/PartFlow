@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { Badge } from './badge';
 import { Modal } from './modal';
+import { formatStoreDateTime } from '../../utils/store-time';
 
 export interface InventoryMovement {
   id: string;
@@ -48,12 +49,8 @@ export function InventoryLedger({
   };
 
   const formatMovementDate = (value: string) => {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString('ar-SA', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
+    const formatted = formatStoreDateTime(value, 'ar-SA');
+    return formatted === 'غير محدد' ? value : formatted;
   };
 
   const getMovementIcon = (type: InventoryMovement['type']) => {

@@ -3,6 +3,7 @@ package barcodes
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -72,9 +73,10 @@ func (r *Repository) GetBarcodeByCode(ctx context.Context, code string) (*Barcod
 		return row.model()
 	}
 	query := `
-		SELECT id, code, product_id, type, generated_at, created_at, updated_at
+		SELECT id, code, product_id, inventory_item_id, type, is_active,
+			created_at AS generated_at, created_at, updated_at
 		FROM barcodes
-		WHERE code = $1
+		WHERE code = $1 AND is_active = true
 	`
 
 	var barcode Barcode
@@ -88,6 +90,21 @@ func (r *Repository) GetBarcodeByCode(ctx context.Context, code string) (*Barcod
 
 // GetProductByBarcode retrieves product information by barcode code
 func (r *Repository) GetProductByBarcode(ctx context.Context, code string) (*ProductInfo, error) {
+	query := `
+		SELECT p.id, p.name, p.sku, $1 AS barcode, p.selling_price, p.cost_price,
+			COALESCE((SELECT COUNT(*) FROM inventory_items ii
+				WHERE ii.product_id = p.id AND UPPER(TRIM(COALESCE(ii.status, ''))) = 'AVAILABLE'), 0) AS stock,
+			'' AS condition, COALESCE(c.name, '') AS category
+		FROM products p
+	LEFT JOIN categories c ON c.id = p.category_id
+		WHERE p.barcode = $1
+		OR EXISTS (SELECT 1 FROM barcodes b
+			LEFT JOIN inventory_items bi ON bi.id = b.inventory_item_id
+			WHERE (b.product_id = p.id OR bi.product_id = p.id) AND b.code = $1 AND b.is_active = true AND UPPER(b.type) IN ('EXTERNAL', 'INTERNAL'))
+			OR EXISTS (SELECT 1 FROM inventory_items ii WHERE ii.product_id = p.id AND ii.barcode = $1)
+		ORDER BY CASE WHEN p.barcode = $1 THEN 0 ELSE 1 END
+		LIMIT 1
+	`
 	if dbutil.IsSQLite(r.db) {
 		var row struct {
 			ID           string  `db:"id"`
@@ -100,19 +117,12 @@ func (r *Repository) GetProductByBarcode(ctx context.Context, code string) (*Pro
 			Condition    string  `db:"condition"`
 			Category     string  `db:"category"`
 		}
-		if err := r.db.GetContext(ctx, &row, `SELECT p.id,p.name,p.sku,COALESCE(p.barcode,'') AS barcode,p.selling_price,p.cost_price,COALESCE((SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id=p.id AND UPPER(ii.status)='AVAILABLE'),0) AS stock,'' AS condition,COALESCE(c.name,'') AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.barcode = ? OR p.sku = ? LIMIT 1`, code, code); err != nil {
+		if err := r.db.GetContext(ctx, &row, r.db.Rebind(query), code); err != nil {
 			return nil, fmt.Errorf("failed to get product by barcode: %w", err)
 		}
 		id, _ := uuid.Parse(row.ID)
 		return &ProductInfo{ID: id, Name: row.Name, SKU: row.SKU, Barcode: row.Barcode, SellingPrice: row.SellingPrice, CostPrice: row.CostPrice, Stock: row.Stock, Condition: row.Condition, Category: row.Category}, nil
 	}
-	query := `
-		SELECT id, name, sku, barcode, selling_price, cost_price, stock, condition, category
-		FROM products
-		WHERE barcode = $1 OR sku = $1
-		LIMIT 1
-	`
-
 	var product ProductInfo
 	err := r.db.GetContext(ctx, &product, query, code)
 	if err != nil {
@@ -124,6 +134,14 @@ func (r *Repository) GetProductByBarcode(ctx context.Context, code string) (*Pro
 
 // GetProductBySKU retrieves product information by SKU
 func (r *Repository) GetProductBySKU(ctx context.Context, sku string) (*ProductInfo, error) {
+	query := `
+		SELECT p.id, p.name, p.sku, COALESCE(p.barcode, '') AS barcode, p.selling_price, p.cost_price,
+			COALESCE((SELECT COUNT(*) FROM inventory_items ii
+				WHERE ii.product_id = p.id AND UPPER(TRIM(COALESCE(ii.status, ''))) = 'AVAILABLE'), 0) AS stock,
+			'' AS condition, COALESCE(c.name, '') AS category
+		FROM products p LEFT JOIN categories c ON c.id = p.category_id
+		WHERE p.sku = $1 LIMIT 1
+	`
 	if dbutil.IsSQLite(r.db) {
 		var row struct {
 			ID           string  `db:"id"`
@@ -142,13 +160,6 @@ func (r *Repository) GetProductBySKU(ctx context.Context, sku string) (*ProductI
 		id, _ := uuid.Parse(row.ID)
 		return &ProductInfo{ID: id, Name: row.Name, SKU: row.SKU, Barcode: row.Barcode, SellingPrice: row.SellingPrice, CostPrice: row.CostPrice, Stock: row.Stock, Condition: row.Condition, Category: row.Category}, nil
 	}
-	query := `
-		SELECT id, name, sku, barcode, selling_price, cost_price, stock, condition, category
-		FROM products
-		WHERE sku = $1
-		LIMIT 1
-	`
-
 	var product ProductInfo
 	err := r.db.GetContext(ctx, &product, query, sku)
 	if err != nil {
@@ -177,14 +188,23 @@ func (r *Repository) ResolveBarcode(ctx context.Context, code string) (*BarcodeR
 		SellingPrice float64 `db:"selling_price"`
 		Status       string  `db:"status"`
 	}
-	itemQuery := r.db.Rebind(`SELECT id, product_id, barcode, serial_number, condition, status FROM inventory_items WHERE barcode = ? LIMIT 1`)
-	if err := r.db.GetContext(ctx, &item, itemQuery, code); err == nil {
+	itemQuery := r.db.Rebind(`SELECT ii.id, ii.product_id, ii.barcode, ii.serial_number, ii.condition, ii.status
+		FROM inventory_items ii
+		WHERE ii.barcode = ? OR EXISTS (
+			SELECT 1 FROM barcodes b WHERE b.inventory_item_id = ii.id AND b.code = ? AND b.is_active = 1 AND UPPER(b.type) IN ('EXTERNAL', 'INTERNAL')
+		)
+		LIMIT 1`)
+	if err := r.db.GetContext(ctx, &item, itemQuery, code, code); err == nil {
 		itemID, parseItemErr := uuid.Parse(item.ID)
 		productID, parseProductErr := uuid.Parse(item.ProductID)
 		if parseItemErr != nil || parseProductErr != nil {
 			return nil, fmt.Errorf("invalid barcode identity: item_id=%q product_id=%q item_error=%v product_error=%v", item.ID, item.ProductID, parseItemErr, parseProductErr)
 		}
-		resolved := &InventoryItemInfo{ID: itemID, ProductID: productID, Barcode: item.Barcode, SerialNumber: item.SerialNumber, Condition: item.Condition, PurchaseCost: item.PurchaseCost, SellingPrice: item.SellingPrice, Status: item.Status}
+		itemBarcode := item.Barcode
+		if strings.TrimSpace(itemBarcode) == "" {
+			itemBarcode = code
+		}
+		resolved := &InventoryItemInfo{ID: itemID, ProductID: productID, Barcode: itemBarcode, SerialNumber: item.SerialNumber, Condition: item.Condition, PurchaseCost: item.PurchaseCost, SellingPrice: item.SellingPrice, Status: item.Status}
 		if item.SupplierID != nil && strings.TrimSpace(*item.SupplierID) != "" {
 			if supplierID, parseErr := uuid.Parse(*item.SupplierID); parseErr == nil {
 				resolved.SupplierID = &supplierID
@@ -332,7 +352,7 @@ func (r *Repository) getProductByID(ctx context.Context, productID uuid.UUID) (*
 		Condition    string  `db:"condition"`
 		Category     string  `db:"category"`
 	}
-	if err := r.db.GetContext(ctx, &row, r.db.Rebind(`SELECT p.id,p.name,p.sku,COALESCE(p.barcode,'') AS barcode,p.selling_price,p.cost_price,COALESCE((SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id=p.id AND UPPER(ii.status)='AVAILABLE'),0) AS stock,'' AS condition,COALESCE(c.name,'') AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id = ? LIMIT 1`), productID.String()); err != nil {
+	if err := r.db.GetContext(ctx, &row, r.db.Rebind(`SELECT p.id,p.name,p.sku,COALESCE(p.barcode,'') AS barcode,p.selling_price,p.cost_price,COALESCE((SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id=p.id AND UPPER(TRIM(COALESCE(ii.status,'')))='AVAILABLE'),0) AS stock,'' AS condition,COALESCE(c.name,'') AS category FROM products p LEFT JOIN categories c ON c.id=p.category_id WHERE p.id = ? LIMIT 1`), productID.String()); err != nil {
 		return nil, fmt.Errorf("failed to get product by id: %w", err)
 	}
 	id, err := uuid.Parse(row.ID)
@@ -382,7 +402,8 @@ func (r *Repository) GetBarcodeByID(ctx context.Context, id uuid.UUID) (*Barcode
 		return row.model()
 	}
 	query := `
-		SELECT id, code, product_id, type, generated_at, created_at, updated_at
+		SELECT id, code, product_id, inventory_item_id, type, is_active,
+			created_at AS generated_at, created_at, updated_at
 		FROM barcodes
 		WHERE id = $1
 	`
@@ -416,18 +437,30 @@ func (r *Repository) CreateBarcode(ctx context.Context, barcode *Barcode) error 
 		return nil
 	}
 	query := `
-		INSERT INTO barcodes (id, code, product_id, inventory_item_id, type, is_active, generated_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO barcodes (id, code, product_id, inventory_item_id, type, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
 	_, err := r.db.ExecContext(ctx, query,
 		barcode.ID, barcode.Code, barcode.ProductID, barcode.InventoryItemID, barcode.Type, barcode.IsActive,
-		barcode.GeneratedAt, barcode.CreatedAt, barcode.UpdatedAt)
+		barcode.CreatedAt, barcode.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to create barcode: %w", err)
 	}
 
 	return nil
+}
+
+func (r *Repository) GetInventoryItemProductID(ctx context.Context, inventoryItemID uuid.UUID) (uuid.UUID, error) {
+	var rawProductID string
+	if err := r.db.GetContext(ctx, &rawProductID, r.db.Rebind(`SELECT product_id FROM inventory_items WHERE id = ?`), inventoryItemID.String()); err != nil {
+		return uuid.Nil, err
+	}
+	productID, err := uuid.Parse(rawProductID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid inventory product id %q: %w", rawProductID, err)
+	}
+	return productID, nil
 }
 
 // ListBarcodes lists barcodes
@@ -452,8 +485,9 @@ func (r *Repository) ListBarcodes(ctx context.Context, limit, offset int) ([]*Ba
 		return result, total, nil
 	}
 	query := `
-		SELECT id, code, product_id, inventory_item_id, type, is_active, generated_at, created_at, updated_at
-		FROM barcodes
+		SELECT id, code, product_id, inventory_item_id, type, is_active,
+			created_at AS generated_at, created_at, updated_at
+		FROM barcodes WHERE is_active = true
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
 	`
@@ -466,7 +500,7 @@ func (r *Repository) ListBarcodes(ctx context.Context, limit, offset int) ([]*Ba
 
 	// Get total count
 	var total int64
-	countQuery := `SELECT COUNT(*) FROM barcodes`
+	countQuery := `SELECT COUNT(*) FROM barcodes WHERE is_active = true`
 	err = r.db.GetContext(ctx, &total, countQuery)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count barcodes: %w", err)
@@ -475,24 +509,87 @@ func (r *Repository) ListBarcodes(ctx context.Context, limit, offset int) ([]*Ba
 	return barcodes, total, nil
 }
 
-// DeleteBarcode soft deletes a barcode
-func (r *Repository) DeleteBarcode(ctx context.Context, id uuid.UUID) error {
+func (r *Repository) ListBarcodesByProduct(ctx context.Context, productID uuid.UUID) ([]*Barcode, error) {
 	if dbutil.IsSQLite(r.db) {
-		if _, err := r.db.ExecContext(ctx, `UPDATE barcodes SET is_active = 0, updated_at = ? WHERE id = ?`, time.Now().UTC().Format(time.RFC3339Nano), id.String()); err != nil {
-			return fmt.Errorf("failed to delete barcode: %w", err)
+		var rows []localBarcodeRow
+		if err := r.db.SelectContext(ctx, &rows, `SELECT id,code,COALESCE(product_id,'') AS product_id,COALESCE(inventory_item_id,'') AS inventory_item_id,type,is_active,COALESCE(generated_at,'') AS generated_at,created_at,updated_at FROM barcodes WHERE (product_id=? OR inventory_item_id IN (SELECT id FROM inventory_items WHERE product_id=?)) AND is_active=1 AND UPPER(type) IN ('EXTERNAL','INTERNAL') ORDER BY created_at`, productID.String(), productID.String()); err != nil {
+			return nil, fmt.Errorf("list product barcodes: %w", err)
 		}
-		return nil
+		result := make([]*Barcode, 0, len(rows))
+		for _, row := range rows {
+			barcode, err := row.model()
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, barcode)
+		}
+		return result, nil
 	}
-	query := fmt.Sprintf(`
-		UPDATE barcodes
-		SET is_active = false, updated_at = %s
-		WHERE id = $1
-	`, dbutil.NowSQL(r.db))
+	var barcodes []*Barcode
+	if err := r.db.SelectContext(ctx, &barcodes, `SELECT id,code,product_id,inventory_item_id,type,is_active,created_at AS generated_at,created_at,updated_at FROM barcodes WHERE (product_id=$1 OR inventory_item_id IN (SELECT id FROM inventory_items WHERE product_id=$1)) AND is_active=true AND UPPER(type) IN ('EXTERNAL','INTERNAL') ORDER BY created_at`, productID); err != nil {
+		return nil, fmt.Errorf("list product barcodes: %w", err)
+	}
+	return barcodes, nil
+}
 
-	_, err := r.db.ExecContext(ctx, query, id)
+// DeleteBarcode physically removes the current barcode identity, unlinks any
+// matching scalar value, removes older barcode audit entries, and keeps one
+// audit record describing this deletion, all atomically.
+func (r *Repository) DeleteBarcode(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to delete barcode: %w", err)
+		return fmt.Errorf("begin barcode deletion: %w", err)
 	}
-
+	defer tx.Rollback()
+	var row struct {
+		Code            string         `db:"code"`
+		ProductID       sql.NullString `db:"product_id"`
+		InventoryItemID sql.NullString `db:"inventory_item_id"`
+	}
+	lock := ""
+	if !dbutil.IsSQLite(r.db) {
+		lock = " FOR UPDATE"
+	}
+	if err := tx.GetContext(ctx, &row, r.db.Rebind(`SELECT code, product_id, inventory_item_id FROM barcodes WHERE id = ?`)+lock, id.String()); err != nil {
+		return fmt.Errorf("barcode not found: %w", err)
+	}
+	if row.ProductID.Valid {
+		if _, err := tx.ExecContext(ctx, r.db.Rebind(`UPDATE products SET barcode = NULL WHERE id = ? AND barcode = ?`), row.ProductID.String, row.Code); err != nil {
+			return fmt.Errorf("unlink product barcode: %w", err)
+		}
+	}
+	if row.InventoryItemID.Valid {
+		if _, err := tx.ExecContext(ctx, r.db.Rebind(`UPDATE inventory_items SET barcode = NULL WHERE id = ? AND barcode = ?`), row.InventoryItemID.String, row.Code); err != nil {
+			return fmt.Errorf("unlink inventory barcode: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, r.db.Rebind(`DELETE FROM barcodes WHERE id = ?`), id.String()); err != nil {
+		return fmt.Errorf("delete barcode: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, r.db.Rebind(`DELETE FROM audit_logs WHERE entity_id = ? AND LOWER(entity_type) IN ('barcode', 'barcodes')`), id.String()); err != nil {
+		return fmt.Errorf("remove old barcode audit records: %w", err)
+	}
+	values, err := json.Marshal(map[string]interface{}{
+		"code":              row.Code,
+		"product_id":        row.ProductID.String,
+		"inventory_item_id": row.InventoryItemID.String,
+	})
+	if err != nil {
+		return fmt.Errorf("encode barcode deletion audit: %w", err)
+	}
+	auditInsert := `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at) VALUES (?, ?, 'DELETE', 'barcode', ?, ?, ?)`
+	if !dbutil.IsSQLite(r.db) {
+		auditInsert = `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at) VALUES (?, ?, 'DELETE', 'barcode', ?, ?::jsonb, ?)`
+	}
+	userArg := interface{}(userID.String())
+	if userID == uuid.Nil {
+		userArg = nil
+	}
+	if _, err := tx.ExecContext(ctx, r.db.Rebind(auditInsert), uuid.New().String(), userArg, id.String(), string(values), time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("record barcode deletion audit: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit barcode deletion: %w", err)
+	}
 	return nil
 }

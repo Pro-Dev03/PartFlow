@@ -11,15 +11,35 @@ import { getConnectionMode } from '../../lib/config/app';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
+  sidebarOpen?: boolean;
 }
 
-export function Header({ onToggleSidebar }: HeaderProps) {
+const sectionNames: Array<[string, string]> = [
+  ['/app/dashboard', 'لوحة التحكم'],
+  ['/app/activity', 'النشاط'],
+  ['/app/sales', 'نقطة البيع'],
+  ['/app/inventory', 'المخزون'],
+  ['/app/customers', 'الزبائن'],
+  ['/app/debts', 'الديون'],
+  ['/app/suppliers', 'التجار'],
+  ['/app/purchases', 'المشتريات'],
+  ['/app/expenses', 'المصروفات'],
+  ['/app/returns', 'المرتجعات'],
+  ['/app/supplier-returns', 'مرتجعات التجار'],
+  ['/app/reports', 'التقارير'],
+  ['/app/categories', 'التصنيفات'],
+  ['/app/audit', 'سجل النظام'],
+  ['/app/settings', 'الإعدادات'],
+];
+
+export function Header({ onToggleSidebar, sidebarOpen = false }: HeaderProps) {
   const { t, languages, changeLanguage } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
-  const { theme, setTheme } = useUIStore();
+  const theme = useUIStore((state) => state.theme);
+  const setTheme = useUIStore((state) => state.setTheme);
   const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
   const langDropdownRef = useRef<HTMLDivElement>(null);
   const [headerSearchQuery, setHeaderSearchQuery] = useState('');
@@ -35,26 +55,9 @@ export function Header({ onToggleSidebar }: HeaderProps) {
     setHeaderSearchQuery('');
   };
 
-  // Initialize theme from store
-  useEffect(() => {
-    const isDark = theme !== 'light';
-    if (isDark) {
-      document.documentElement.classList.remove('light');
-      document.body.classList.remove('light');
-      document.documentElement.classList.add('dark');
-      document.body.classList.add('dark');
-    } else {
-      document.documentElement.classList.add('light');
-      document.body.classList.add('light');
-      document.documentElement.classList.remove('dark');
-      document.body.classList.remove('dark');
-    }
-  }, [theme]);
-
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
   };
 
   const handleLogout = () => {
@@ -89,7 +92,13 @@ export function Header({ onToggleSidebar }: HeaderProps) {
   }, []);
 
   const isCloudConnection = connectionMode === 'cloud';
-  const isLightTheme = theme === 'light';
+  const currentSection = sectionNames.find(([path]) => location.pathname === path || location.pathname.startsWith(`${path}/`))?.[1] || 'لوحة التحكم';
+
+  const handleHeaderSearch = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = headerSearchQuery.trim();
+    if (query) navigate(`/app/inventory?search=${encodeURIComponent(query)}`);
+  };
 
   return (
     <>
@@ -104,7 +113,9 @@ export function Header({ onToggleSidebar }: HeaderProps) {
             variant="ghost"
             size="icon"
             onClick={onToggleSidebar}
-            aria-label="Toggle sidebar"
+            aria-label="فتح أو إغلاق القائمة"
+            aria-controls="app-sidebar"
+            aria-expanded={sidebarOpen}
           >
             <Menu className="w-4 h-4 flip-rtl" />
           </Button>
@@ -129,17 +140,22 @@ export function Header({ onToggleSidebar }: HeaderProps) {
             })}
           </nav>
 
+          <span className="pf-header-location" aria-label={`القسم الحالي: ${currentSection}`}>
+            <span>مساحة العمل</span>
+            <strong>{currentSection}</strong>
+          </span>
+
           {/* Search */}
-          <div className="hidden xl:block">
+          <form className="pf-header-search" role="search" onSubmit={handleHeaderSearch}>
             <SearchInput
-              placeholder={t('common.search') || "بحث المنتجات، العملاء، الفواتير..."}
+              placeholder="بحث في المخزون..."
               value={headerSearchQuery}
               onChange={(e) => setHeaderSearchQuery(e.target.value)}
               onClear={handleClearHeaderSearch}
-              className="w-80 lg:w-[480px]"
+              className="w-full"
               size="sm"
             />
-          </div>
+          </form>
         </div>
 
         {/* Right side */}
@@ -237,51 +253,10 @@ export function Header({ onToggleSidebar }: HeaderProps) {
              />
              <div
                className="pf-connection-status flex items-center gap-2 rounded-full border px-2.5 py-1.5 transition-all duration-300"
-               style={{
-                 background: 'rgba(16, 185, 129, 0.14)',
-                 borderColor: 'rgba(16, 185, 129, 0.38)',
-                 boxShadow: '0 0 0 1px rgba(16,185,129,0.15), 0 0 18px rgba(16,185,129,0.6), 0 0 30px rgba(16,185,129,0.42)'
-               }}
+               title={isCloudConnection ? 'الوضع السحابي' : 'الوضع المحلي'}
              >
-               <span
-                 className="relative flex items-center justify-center rounded-full"
-                 style={{
-                   width: '26px',
-                   height: '26px',
-                   background: 'radial-gradient(circle, rgba(52,211,153,1) 0%, rgba(16,185,129,1) 42%, rgba(5,150,105,1) 100%)',
-                   boxShadow: '0 0 12px rgba(52,211,153,0.9), 0 0 22px rgba(16,185,129,0.8), inset 0 0 10px rgba(255,255,255,0.4)',
-                   animation: 'pulse 1.8s ease-in-out infinite',
-                 }}
-               >
-                 <svg
-                   xmlns="http://www.w3.org/2000/svg"
-                   width="24"
-                   height="24"
-                   viewBox="0 0 24 24"
-                   fill="none"
-                   stroke="currentColor"
-                   strokeWidth="2"
-                   strokeLinecap="round"
-                   strokeLinejoin="round"
-                   className="relative h-3.5 w-3.5"
-                   style={{ color: '#ecfdf5' }}
-                   aria-hidden="true"
-                 >
-                   <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                   <circle cx="12" cy="7" r="4" />
-                 </svg>
-               </span>
-               <span
-                 className="text-[11px] font-bold tracking-[0.08em]"
-                 style={{
-                   color: isLightTheme ? '#0f172a' : '#ffffff',
-                   textShadow: isLightTheme ? 'none' : '0 0 10px rgba(255,255,255,0.65)',
-                   whiteSpace: 'nowrap',
-                   opacity: 1,
-                 }}
-               >
-                 {isCloudConnection ? 'سحابي' : 'محلي'}
-               </span>
+               <span className="pf-connection-dot" aria-hidden="true" />
+               <span>{isCloudConnection ? 'سحابي' : 'محلي'}</span>
              </div>
            </div>
         </div>

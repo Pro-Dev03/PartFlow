@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -39,27 +38,27 @@ var settingMetadata = map[string]struct {
 	description  string
 	isPublic     bool
 }{
-	"currency":                    {"ILS", "string", "general", "العملة الافتراضية", true},
-	"store_name":                  {"PartFlow Store", "string", "general", "اسم المتجر", true},
-	"discounts_enabled":           {"true", "boolean", "financial", "السماح بالخصومات", false},
-	"tax_rate":                    {"0", "number", "financial", "نسبة الضريبة المئوية", true},
-	"max_discount_rate":           {"15", "number", "financial", "الحد الأقصى للخصم المئوي", false},
-	"default_profit_margin":       {"30", "number", "financial", "نسبة الربح المقترحة عند إضافة منتج", false},
-	"country_code":                {"IL", "string", "regional", "الدولة الافتراضية للمتجر", true},
-	"store_timezone":              {accounting.DefaultStoreTimezone, "string", "regional", "المنطقة الزمنية الثابتة للمتجر", true},
-	"pos_products_per_page":       {"12", "number", "appearance", "عدد منتجات نقطة البيع في الصفحة", false},
-	"pos_product_view_mode":       {"cards", "string", "appearance", "طريقة عرض منتجات نقطة البيع", false},
-	"electronic_payments_enabled": {"false", "boolean", "payments", "تفعيل الدفع الإلكتروني", false},
-	"payment_provider":            {"manual", "string", "payments", "مزود الدفع الإلكتروني", false},
-	"payment_environment":         {"test", "string", "payments", "بيئة الدفع الإلكتروني", false},
-	"payment_public_key":          {"", "string", "payments", "المفتاح العام لمزود الدفع", false},
-	"payment_secret_key":          {"", "string", "payments", "المفتاح السري لمزود الدفع", false},
-	"payment_merchant_id":         {"", "string", "payments", "معرف التاجر لدى مزود الدفع", false},
-	"payment_terminal_id":         {"", "string", "payments", "معرف جهاز الدفع", false},
-	"payment_webhook_url":         {"", "string", "payments", "عنوان Webhook للدفع", false},
-	"payment_webhook_secret":      {"", "string", "payments", "سر توقيع Webhook", false},
-	"payment_methods":             {"[\"card\"]", "json", "payments", "طرق الدفع الإلكتروني المفعلة", false},
-	"installment_whatsapp_number": {"", "string", "payments", "رقم واتساب وكيل التقسيط", false},
+	"currency":                     {"ILS", "string", "general", "العملة الافتراضية", true},
+	"store_name":                   {"PartFlow Store", "string", "general", "اسم المتجر", true},
+	"discounts_enabled":            {"true", "boolean", "financial", "السماح بالخصومات", false},
+	"tax_rate":                     {"0", "number", "financial", "نسبة الضريبة المئوية", true},
+	"max_discount_rate":            {"15", "number", "financial", "الحد الأقصى للخصم المئوي", false},
+	"default_profit_margin":        {"30", "number", "financial", "نسبة الربح المقترحة عند إضافة منتج", false},
+	"country_code":                 {"IL", "string", "regional", "الدولة الافتراضية للمتجر", true},
+	"store_timezone":               {accounting.DefaultStoreTimezone, "string", "regional", "المنطقة الزمنية الثابتة للمتجر", true},
+	"pos_products_per_page":        {"12", "number", "appearance", "عدد منتجات نقطة البيع في الصفحة", false},
+	"pos_product_view_mode":        {"cards", "string", "appearance", "طريقة عرض منتجات نقطة البيع", false},
+	"electronic_payments_enabled":  {"false", "boolean", "payments", "تفعيل الدفع الإلكتروني", false},
+	"payment_provider":             {"manual", "string", "payments", "مزود الدفع الإلكتروني", false},
+	"payment_environment":          {"test", "string", "payments", "بيئة الدفع الإلكتروني", false},
+	"payment_public_key":           {"", "string", "payments", "المفتاح العام لمزود الدفع", false},
+	"payment_secret_key":           {"", "string", "payments", "المفتاح السري لمزود الدفع", false},
+	"payment_merchant_id":          {"", "string", "payments", "معرف التاجر لدى مزود الدفع", false},
+	"payment_terminal_id":          {"", "string", "payments", "معرف جهاز الدفع", false},
+	"payment_webhook_url":          {"", "string", "payments", "عنوان Webhook للدفع", false},
+	"payment_webhook_secret":       {"", "string", "payments", "سر توقيع Webhook", false},
+	"payment_methods":              {"[\"card\"]", "json", "payments", "طرق الدفع الإلكتروني المفعلة", false},
+	"installment_whatsapp_number":  {"", "string", "payments", "رقم واتساب وكيل التقسيط", false},
 	"installment_whatsapp_message": {"*طلب تقسيط جديد - {store_name}*\n\nالسلام عليكم،\nنرجو متابعة طلب التقسيط التالي:\n\n*اسم العميل:* {customer_name}\n*إجمالي الفاتورة:* ₪{total}\n*مدة التقسيط:* {months} أشهر\n*قيمة القسط التقريبية:* ₪{installment}\n\nيرجى تأكيد تسجيل الطلب ومتابعته.\n\nمع التحية،\n{store_name}", "string", "payments", "قالب رسالة واتساب للتقسيط", false},
 }
 
@@ -146,10 +145,7 @@ func (h *Handler) GetRegionalSettings(c *gin.Context) {
 	storeTimezone := ""
 	timezonePersisted := false
 	if err := h.db.QueryRow(`SELECT value FROM settings WHERE key = 'store_timezone'`).Scan(&storeTimezone); err == nil {
-		if _, loadErr := time.LoadLocation(storeTimezone); loadErr == nil {
-			profile.Timezone = storeTimezone
-			timezonePersisted = true
-		}
+		timezonePersisted = strings.TrimSpace(storeTimezone) == accounting.DefaultStoreTimezone
 	}
 	var countryCode string
 	if !timezonePersisted && h.db.QueryRow(`SELECT value FROM settings WHERE key = 'country_code'`).Scan(&countryCode) == nil {
@@ -157,6 +153,7 @@ func (h *Handler) GetRegionalSettings(c *gin.Context) {
 			profile = selected
 		}
 	}
+	profile.Timezone = accounting.DefaultStoreTimezone
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
 		"profile":            profile,
 		"countries":          RegionalProfiles(),
@@ -175,27 +172,20 @@ func (h *Handler) UpdateRegionalSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "country_code is required"})
 		return
 	}
+	if timezone := strings.TrimSpace(request.Timezone); timezone != "" && timezone != accounting.DefaultStoreTimezone {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("PartFlow store timezone is fixed to %s", accounting.DefaultStoreTimezone)})
+		return
+	}
 	profile := DefaultRegionalProfile()
-	if strings.TrimSpace(request.Timezone) != "" {
-		profile.Timezone = strings.TrimSpace(request.Timezone)
-		if _, err := time.LoadLocation(profile.Timezone); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid IANA timezone %q", profile.Timezone)})
-			return
-		}
-		for _, candidate := range RegionalProfiles() {
-			if candidate.Timezone == profile.Timezone {
-				profile = candidate
-				break
-			}
-		}
-	} else {
+	if strings.TrimSpace(request.CountryCode) != "" {
 		var err error
-		profile, err = RegionalProfileForCountry(request.CountryCode)
+		profile, err = RegionalProfileForCountry(strings.TrimSpace(request.CountryCode))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 	}
+	profile.Timezone = accounting.DefaultStoreTimezone
 	if profile.CountryCode != "" {
 		if _, err := h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ($1, $2, 'string', 'regional', $3, true) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`, "country_code", profile.CountryCode, "الدولة الافتراضية للمتجر"); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update regional settings"})
@@ -224,11 +214,7 @@ func (h *Handler) InitializeRegionalSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "timezone is required"})
 		return
 	}
-	timezone := strings.TrimSpace(request.Timezone)
-	if _, err := time.LoadLocation(timezone); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid IANA timezone %q", timezone)})
-		return
-	}
+	timezone := accounting.DefaultStoreTimezone
 
 	var existing string
 	if err := h.db.QueryRow(`SELECT value FROM settings WHERE key = 'store_timezone'`).Scan(&existing); err == nil && strings.TrimSpace(existing) != "" {
@@ -309,11 +295,11 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 		}
 	}
 	if key == "store_timezone" {
-		if _, err := time.LoadLocation(strings.TrimSpace(value)); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid IANA timezone %q", value)})
+		if strings.TrimSpace(value) != accounting.DefaultStoreTimezone {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("PartFlow store timezone is fixed to %s", accounting.DefaultStoreTimezone)})
 			return
 		}
-		if err := accounting.ConfigureStoreTimezone(strings.TrimSpace(value)); err != nil {
+		if err := accounting.ConfigureStoreTimezone(accounting.DefaultStoreTimezone); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}

@@ -63,7 +63,7 @@ export function RegionalSettings({ canManageRegionalSettings = false }: Regional
   });
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="settings-regional-card overflow-hidden">
       <CardHeader className="relative mb-0 flex-col items-stretch gap-4 border-b border-border/70 bg-gradient-to-l from-emerald-500/[0.08] via-surface to-surface px-5 py-5 sm:px-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-start gap-3">

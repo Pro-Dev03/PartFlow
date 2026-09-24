@@ -45,6 +45,43 @@ func TestRefreshTokenCookieUsesCrossSitePolicyForTLS(t *testing.T) {
 	}
 }
 
+func TestRefreshTokenCookieUsesCrossSitePolicyBehindTLSProxy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("APP_ENV", "development")
+	router := gin.New()
+	router.GET("/cookie", func(c *gin.Context) {
+		setRefreshTokenCookie(c, "refresh", refreshTokenCookieAge)
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "http://api.example.test/cookie", nil)
+	request.Header.Set("X-Forwarded-Proto", "https")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	cookie := response.Header().Get("Set-Cookie")
+	if !strings.Contains(cookie, "HttpOnly") || !strings.Contains(cookie, "Secure") || !strings.Contains(cookie, "SameSite=None") {
+		t.Fatalf("proxied refresh cookie = %q, want HttpOnly, Secure, SameSite=None", cookie)
+	}
+}
+
+func TestRefreshTokenCookieSupportsElectronLocalhostOrigin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("APP_ENV", "development")
+	router := gin.New()
+	router.GET("/cookie", func(c *gin.Context) {
+		setRefreshTokenCookie(c, "refresh", refreshTokenCookieAge)
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "http://localhost:8080/cookie", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	cookie := response.Header().Get("Set-Cookie")
+	if !strings.Contains(cookie, "HttpOnly") || !strings.Contains(cookie, "Secure") || !strings.Contains(cookie, "SameSite=None") {
+		t.Fatalf("localhost refresh cookie = %q, want HttpOnly, Secure, SameSite=None", cookie)
+	}
+}
+
 func TestRefreshTokenUsesCookieFallbackWhenBodyIsEmpty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service, _, _ := newRefreshTokenTestService(t)

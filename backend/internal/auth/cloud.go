@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/pkg/offlinegrant"
 )
 
 // CloudAuthService handles cloud token validation and local session creation
@@ -36,6 +37,7 @@ type CloudValidateResponse struct {
 	Success bool `json:"success"`
 	Data    struct {
 		Valid                 bool   `json:"valid"`
+		OfflineGrant          string `json:"offline_grant"`
 		UserID                string `json:"user_id"`
 		Email                 string `json:"email"`
 		FirstName             string `json:"first_name"`
@@ -80,10 +82,12 @@ func (r *CloudValidateResponse) cloudSubscriptionExpiresAt() string {
 func (r *CloudValidateResponse) cloudAccountIsActive() bool {
 	// The current validate response carries account activity under data.user.
 	// Fall back to the top-level field for older cloud responses.
+	active := r.Data.IsActive
 	if strings.TrimSpace(r.Data.User.ID) != "" {
-		return r.Data.User.IsActive
+		active = r.Data.User.IsActive
 	}
-	return r.Data.IsActive
+	status := strings.ToLower(r.cloudSubscriptionStatus())
+	return active && (status == "active" || status == "trial")
 }
 
 // CloudSessionRequest represents a cloud session creation request
@@ -147,6 +151,7 @@ func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *J
 	if err != nil {
 		return nil, fmt.Errorf("invalid user ID from cloud: %w", err)
 	}
+	persistCloudOfflineGrant(ctx, db, userID, validation.Data.OfflineGrant)
 
 	type sessionUserRow struct {
 		ID                    string         `db:"id"`
@@ -324,6 +329,28 @@ func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *J
 		ExpiresIn:    int64(15 * time.Minute / time.Second),
 		User:         user,
 	}, nil
+}
+
+func persistCloudOfflineGrant(ctx context.Context, db *sqlx.DB, userID uuid.UUID, grant string) {
+	if db == nil || strings.TrimSpace(grant) == "" {
+		return
+	}
+	claims, err := offlinegrant.Verify(grant, time.Now().UTC())
+	if err != nil || claims.UserID != userID.String() {
+		return
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS cloud_auth_grants (
+		user_id TEXT PRIMARY KEY,
+		grant_token TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`); err != nil {
+		return
+	}
+	_, _ = db.ExecContext(ctx, `
+		INSERT INTO cloud_auth_grants (user_id, grant_token, updated_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id) DO UPDATE SET grant_token = excluded.grant_token, updated_at = excluded.updated_at
+	`, userID.String(), grant, time.Now().UTC().Format(time.RFC3339Nano))
 }
 
 func persistCloudRefreshToken(ctx context.Context, db *sqlx.DB, userID uuid.UUID, token string, lifetime time.Duration) (bool, error) {

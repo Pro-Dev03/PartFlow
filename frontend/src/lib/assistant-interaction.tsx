@@ -73,7 +73,7 @@ export function inferAssistantIntent(message: string): AssistantIntent {
   if (/تمام|ممتاز|ماشي|حسنا|حسنًا|اوكي|أوكي|كيفك|شو\s*الأخبار|شو\s*الاخبار|كيف\s*حالك/.test(text)) return 'SMALL_TALK';
   if (/تنبيه|تنبيهات|يحتاج\s*انتباه|شو\s*في\s*مشاكل|في\s*مشكلة|تحذير/.test(text)) return 'ALERTS';
   if (/نصيحة|نصائح|اقتراح|اقتراحات|شو\s*(أعمل|اعمل|لازم|بتنصح)|ماذا\s*أفعل|كيف\s*أحسن|أولوياتي/.test(text)) return 'ADVICE';
-  if (/(افتح|فتح|اذهب|روح|خذني|انتقل|اعرض).*(نقطة\s*البيع|المبيعات|POS|البيع|المخزون|الديون|التقارير|المشتريات|المصروفات|العملاء|الموردين|الأرشيف)/.test(text)) return 'NAVIGATION';
+  if (/(افتح|فتح|اذهب|روح|خذني|انتقل|اعرض).*(نقطة\s*البيع|المبيعات|POS|البيع|المخزون|الديون|التقارير|المشتريات|المصروفات|العملاء|الموردين|الأرشيف|سجل النظام)/.test(text)) return 'NAVIGATION';
   if (/مرحبا|اهلا|أهلا|السلام|هلا|صباح|مساء/.test(text)) return 'GREETING';
   if (/هذا الشهر|هالشهر|الشهر/.test(text)) return 'MONTHLY_SUMMARY';
   if (/مخزون|منتج|منتجات|بضاعة|قطعة/.test(text)) return /منخفض|ناقصة|تخلص|قربت/.test(text) ? 'LOW_STOCK' : 'INVENTORY';
@@ -108,7 +108,7 @@ export function getAssistantNavigationPath(message: string): string | null {
   if (/مصروفات/.test(text)) return '/app/expenses';
   if (/عملاء/.test(text)) return '/app/customers';
   if (/موردين|موردون/.test(text)) return '/app/suppliers';
-  if (/أرشيف/.test(text)) return '/app/archive';
+  if (/أرشيف|سجل النظام/.test(text)) return '/app/audit';
   return null;
 }
 

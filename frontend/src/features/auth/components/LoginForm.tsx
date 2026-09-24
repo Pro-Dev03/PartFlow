@@ -70,13 +70,13 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
     paddingRight: '13px',
     paddingBottom: '12px',
     paddingLeft: '13px',
-    color: isDark ? '#f1f7ff' : '#111827',
-    border: isDark ? '1px solid rgba(148, 163, 184, 0.13)' : '1px solid rgba(0, 0, 0, 0.08)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--input-border)',
     borderRadius: '10px',
     outline: 'none',
-    background: isDark ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.8)',
+    background: 'var(--input-bg)',
     transition: 'border-color 180ms ease, box-shadow 180ms ease, background 180ms ease',
-    fontSize: '13px',
+    fontSize: '14px',
   };
 
   const passwordInputStyle = {
@@ -85,16 +85,14 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
   };
 
   const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-    e.currentTarget.style.borderColor = isDark ? 'rgba(34, 211, 238, 0.45)' : 'rgba(37, 99, 235, 0.5)';
-    e.currentTarget.style.background = isDark ? 'rgba(17, 24, 39, 0.95)' : 'rgba(255, 255, 255, 0.95)';
-    e.currentTarget.style.boxShadow = isDark
-      ? '0 0 0 3px rgba(34, 211, 238, 0.07), 0 0 25px rgba(34, 211, 238, 0.05)'
-      : '0 0 0 3px rgba(37, 99, 235, 0.1), 0 0 25px rgba(37, 99, 235, 0.08)';
+    e.currentTarget.style.borderColor = 'var(--primary)';
+    e.currentTarget.style.background = 'var(--input-bg)';
+    e.currentTarget.style.boxShadow = '0 0 0 3px var(--color-primary-10)';
   };
 
   const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    e.currentTarget.style.borderColor = isDark ? 'rgba(148, 163, 184, 0.13)' : '1px solid rgba(0, 0, 0, 0.08)';
-    e.currentTarget.style.background = isDark ? 'rgba(17, 24, 39, 0.72)' : 'rgba(255, 255, 255, 0.8)';
+    e.currentTarget.style.borderColor = 'var(--input-border)';
+    e.currentTarget.style.background = 'var(--input-bg)';
     e.currentTarget.style.boxShadow = 'none';
   };
 

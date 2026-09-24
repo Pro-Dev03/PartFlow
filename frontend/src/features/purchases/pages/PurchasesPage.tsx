@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { ReportActions } from '../../../design-system/components/report-actions';
 import { getButtonSize } from '../../../config/button-sizes';
+import { formatStoreDate, getStoreToday } from '../../../utils/store-time';
 import {
   ShoppingCart,
   Eye,
@@ -189,7 +190,7 @@ export function PurchasesPage() {
     }));
 
   const handleExport = () => {
-    exportToCSV(getPurchaseReportRows(filteredPurchases), `purchases-${new Date().toISOString().split('T')[0]}`);
+    exportToCSV(getPurchaseReportRows(filteredPurchases), `purchases-${getStoreToday()}`);
   };
 
   const handlePrint = () => {
@@ -209,7 +210,7 @@ export function PurchasesPage() {
   };
 
   const handleExportAll = async () => {
-    exportToCSV(getPurchaseReportRows(await loadAllPurchases()), `purchases-all-${new Date().toISOString().split('T')[0]}`);
+    exportToCSV(getPurchaseReportRows(await loadAllPurchases()), `purchases-all-${getStoreToday()}`);
   };
 
   const handlePrintAll = async () => {
@@ -256,8 +257,8 @@ export function PurchasesPage() {
                 ? 'المشتريات الحالية'
                 : viewFilter === 'received'
                   ? 'المشتريات المستلمة'
-                  : viewFilter === 'archived'
-                    ? 'أرشيف المشتريات'
+                  : viewFilter === 'closed'
+                    ? 'المشتريات الملغاة والمعكوسة'
                     : 'كل المشتريات'}
             </h3>
             <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">{filteredPurchases.length} عملية شراء مطابقة</p>
@@ -265,19 +266,19 @@ export function PurchasesPage() {
           </div>
 
           <div className="flex flex-wrap gap-2" role="tablist" aria-label="عرض المشتريات">
-            {['active', 'received', 'archived', 'all'].map((tab) => (
+            {['active', 'received', 'closed', 'all'].map((tab) => (
               <Button
                 key={tab}
                 variant={viewFilter === tab ? 'primary' : 'secondary'}
                 size="sm"
                 onClick={() => {
-                  setViewFilter(tab as 'active' | 'received' | 'archived' | 'all');
+                  setViewFilter(tab as 'active' | 'received' | 'closed' | 'all');
                   setStatusFilter('');
                 }}
                 role="tab"
                 aria-selected={viewFilter === tab}
               >
-                {tab === 'active' ? 'الحالية' : tab === 'received' ? 'تم الاستلام' : tab === 'archived' ? 'الأرشيف' : 'الكل'}
+                {tab === 'active' ? 'الحالية' : tab === 'received' ? 'تم الاستلام' : tab === 'closed' ? 'الملغاة والمعكوسة' : 'الكل'}
               </Button>
             ))}
           </div>
@@ -335,7 +336,7 @@ export function PurchasesPage() {
                       <TableCell className="text-center font-black text-[var(--text-primary)]">₪{purchase.total_amount?.toLocaleString() || '0'}</TableCell>
                       <TableCell className="text-center font-black text-[var(--color-success)]">₪{purchase.paid_amount?.toLocaleString() || '0'}</TableCell>
                       <TableCell className="text-center"><Badge variant={Number(purchase.remaining || 0) > 0 ? 'warning' : 'success'} size="sm" className="min-w-[82px] justify-center rounded-full">₪{purchase.remaining?.toLocaleString() || '0'}</Badge></TableCell>
-                      <TableCell className="font-semibold text-[var(--text-secondary)]">{purchase.expected_delivery_date ? new Date(purchase.expected_delivery_date).toLocaleDateString('en-US') : '-'}</TableCell>
+                      <TableCell className="font-semibold text-[var(--text-secondary)]">{purchase.expected_delivery_date ? formatStoreDate(purchase.expected_delivery_date, 'en-US') : '-'}</TableCell>
                       <TableCell><Badge variant={statusBadge.variant} size="sm" className="whitespace-nowrap rounded-full">{statusBadge.label}</Badge></TableCell>
                       <TableCell className="text-end">
                         <div className="flex items-center justify-end gap-1">
@@ -482,7 +483,7 @@ export function PurchasesPage() {
               <div><span className="text-sm text-text-muted">رقم فاتورة المورد</span><p>{purchaseDetails.invoice_number || '-'}</p></div>
               <div><span className="text-sm text-text-muted">المورد</span><p>{purchaseDetailsSupplier?.name || purchaseDetails?.supplier_name || '-'}</p></div>
               <div><span className="text-sm text-text-muted">الحالة</span><p><Badge>{purchaseDetails.status}</Badge></p></div>
-              <div><span className="text-sm text-text-muted">تاريخ الفاتورة</span><p>{purchaseDetails.purchase_date ? new Date(purchaseDetails.purchase_date).toLocaleDateString('en-US') : '-'}</p></div>
+              <div><span className="text-sm text-text-muted">تاريخ الفاتورة</span><p>{purchaseDetails.purchase_date ? formatStoreDate(purchaseDetails.purchase_date, 'en-US') : '-'}</p></div>
               <div><span className="text-sm text-text-muted">الضريبة</span><p>{Number(purchaseDetails.tax_amount || 0) > 0 ? `₪${Number(purchaseDetails.tax_amount).toLocaleString('en-US')}` : 'بدون ضريبة'}</p></div>
               <div><span className="text-sm text-text-muted">الإجمالي</span><p>₪{Number(purchaseDetails.total_amount || 0).toLocaleString('en-US')}</p></div>
               <div><span className="text-sm text-text-muted">المدفوع</span><p>₪{Number(purchaseDetails.paid_amount || 0).toLocaleString('en-US')}</p></div>

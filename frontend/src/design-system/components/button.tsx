@@ -137,7 +137,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       md: 'h-[var(--button-height-md)] px-[var(--button-padding-md)] text-[var(--button-font-size-md)]',
       lg: 'h-[var(--button-height-lg)] px-[var(--button-padding-lg)] text-[var(--button-font-size-lg)]',
       xl: 'h-[var(--button-height-xl)] px-[var(--button-padding-xl)] text-[var(--button-font-size-xl)]',
-      icon: 'h-5 w-5 min-h-5 min-w-5 p-0 gap-0 text-[0.7rem] leading-none',
+      icon: 'h-9 w-9 min-h-9 min-w-9 p-0 gap-0 text-[0.7rem] leading-none',
     };
 
     const isAutoTableAction = size === 'icon' && !tableAction;

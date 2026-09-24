@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Check, CheckCheck, Send } from 'lucide-react';
 import { generateAssistantReply } from '../../lib/assistant-response';
+import { formatStoreTime } from '../../utils/store-time';
 import type { AssistantContext } from '../../lib/assistant-response';
 import NeonAIBot from './neon-ai-bot';
 
@@ -175,10 +176,7 @@ export default function UnifiedAIChat({
         >
           <p className="text-sm whitespace-pre-line leading-relaxed font-normal">{message.text}</p>
           <div className={`mt-2 flex items-center justify-end gap-2 text-[11px] ${isUser ? 'text-slate-300' : 'text-slate-400 dark:text-slate-500'}`}>
-            {message.timestamp.toLocaleTimeString('ar-IL', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
+            {formatStoreTime(message.timestamp, 'ar-IL')}
             {isUser && <MessageStatus status={message.status} />}
           </div>
         </div>

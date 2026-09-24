@@ -124,8 +124,8 @@ func TestDeleteInventoryItemPermanentAllowsLinkedUsedItem(t *testing.T) {
 	}
 
 	service := NewService(NewRepository(db), db)
-	if err := service.DeleteInventoryItem(context.Background(), itemID, userID, true); err != nil {
-		t.Fatalf("DeleteInventoryItem(permanent=true) returned unexpected error: %v", err)
+	if err := service.DeleteInventoryItem(context.Background(), itemID, userID); err != nil {
+		t.Fatalf("DeleteInventoryItem returned unexpected error: %v", err)
 	}
 
 	var itemCount int
@@ -244,8 +244,8 @@ func TestDeleteInventoryItemPermanentCleansAllLinkedTables(t *testing.T) {
 	}
 
 	service := NewService(NewRepository(db), db)
-	if err := service.DeleteInventoryItem(context.Background(), itemID, userID, true); err != nil {
-		t.Fatalf("DeleteInventoryItem(permanent=true) returned unexpected error: %v", err)
+	if err := service.DeleteInventoryItem(context.Background(), itemID, userID); err != nil {
+		t.Fatalf("DeleteInventoryItem returned unexpected error: %v", err)
 	}
 
 	for _, row := range linkRows {

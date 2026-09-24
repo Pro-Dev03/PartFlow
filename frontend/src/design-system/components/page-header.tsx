@@ -15,34 +15,34 @@ const PageHeader = forwardRef<HTMLDivElement, PageHeaderProps>(
     return (
       <header 
         ref={ref} 
-        className={cn('pf-page-header mb-xl', className)}
+        className={cn('pf-page-header', className)}
         {...props}
       >
         {breadcrumbs && (
-          <nav className="mb-md" aria-label="Breadcrumb">
+          <nav className="mb-md" aria-label="مسار التنقل">
             {breadcrumbs}
           </nav>
         )}
         
-        <div className="flex items-start justify-between gap-md mb-sm">
-          <div className="flex-1">
+        <div className="pf-page-header-main">
+          <div className="pf-page-header-copy">
             {eyebrow && (
-              <div className="text-eyebrow text-text-muted mb-1" aria-hidden="true" style={{ fontSize: '11px' }}>
+              <div className="text-eyebrow text-text-muted mb-1">
                 {eyebrow}
               </div>
             )}
-            <h1 className="text-h1 font-bold text-text tracking-tight mb-1" style={{ fontSize: '20px' }}>
+            <h1 className="text-h1 font-bold text-text tracking-tight mb-1">
               {title}
             </h1>
             {description && (
-              <p className="text-small text-text-muted" style={{ fontSize: '13px' }}>
+              <p className="text-small text-text-muted">
                 {description}
               </p>
             )}
           </div>
           
           {actions && (
-            <div className="flex items-center gap-sm">
+            <div className="pf-page-header-actions">
               {actions}
             </div>
           )}

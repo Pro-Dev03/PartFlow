@@ -20,6 +20,13 @@ function isExpectedBarcodeMiss(error: any): boolean {
   return error?.code === '404' || message.includes('barcode not found');
 }
 
+const SUBSCRIPTION_BLOCK_CODES = new Set([
+  'SUBSCRIPTION_EXPIRED',
+  'SUBSCRIPTION_SUSPENDED',
+  'ACCOUNT_SUSPENDED',
+  'ACCOUNT_DELETED',
+]);
+
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -78,12 +85,12 @@ class ApiClient {
     this.clearCache();
   }
 
-  private notifyAuthInvalidated(reason: string): void {
+  private notifyAuthInvalidated(reason: string, definitive = false, code?: string): void {
     if (this.authInvalidationDispatched || typeof window === 'undefined') return;
 
     this.authInvalidationDispatched = true;
     window.dispatchEvent(new CustomEvent('partflow:auth-invalidated', {
-      detail: { reason },
+      detail: { reason, definitive, code },
     }));
   }
 
@@ -164,11 +171,12 @@ class ApiClient {
 
       const refreshData = await refreshResponse.json().catch(() => ({}));
       if (!refreshResponse.ok) {
-        this.refreshFailedForSession = true;
+        this.refreshFailedForSession = refreshResponse.status === 401 || refreshResponse.status === 403;
         const error: any = new Error(
           refreshData?.error?.message || refreshData?.error || 'Session refresh failed'
         );
         error.status = refreshResponse.status;
+        error.code = refreshData?.code || refreshData?.error?.code;
         error.response = refreshData;
         throw error;
       }
@@ -178,7 +186,7 @@ class ApiClient {
         : refreshData;
       const newToken = refreshPayload?.access_token || refreshPayload?.token;
       if (!newToken) {
-        this.refreshFailedForSession = true;
+        this.refreshFailedForSession = false;
         return null;
       }
 
@@ -191,7 +199,8 @@ class ApiClient {
     try {
       return await refreshPromise;
     } catch (error) {
-      this.refreshFailedForSession = true;
+      const status = Number((error as { status?: number })?.status);
+      this.refreshFailedForSession = status === 401 || status === 403;
       throw error;
     } finally {
       if (this.refreshInFlight === refreshPromise) {
@@ -210,7 +219,19 @@ class ApiClient {
       body: JSON.stringify({ cloud_token: cloudToken }),
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) return null;
+    if (!response.ok) {
+      const code = payload?.code || payload?.error?.code;
+      const isBlockedAccount = SUBSCRIPTION_BLOCK_CODES.has(String(code || ''))
+        && (response.status === 401 || response.status === 403);
+      if (!isBlockedAccount) {
+        return null;
+      }
+      const error: any = new Error(payload?.error?.message || payload?.error || 'Failed to create local session');
+      error.status = response.status;
+      error.code = code;
+      error.response = payload;
+      throw error;
+    }
 
     const data = payload?.data ?? payload;
     const token = data?.access_token || data?.token;
@@ -421,9 +442,9 @@ class ApiClient {
               const retryData: ApiResponse<T> = await this.parseResponse<T>(retryResponse);
 
               if (!retryResponse.ok) {
-                const error: any = new Error(retryData.error?.message || 'An error occurred');
+                const error: any = new Error(typeof retryData.error === 'string' ? retryData.error : retryData.error?.message || 'An error occurred');
                 error.status = retryResponse.status;
-                error.code = retryData.error?.code;
+                error.code = retryData.error?.code || (retryData as any).code;
                 error.response = retryData;
                 error.arabicMessage = getArabicErrorMessage(error);
                 throw error;
@@ -441,6 +462,15 @@ class ApiClient {
             }
           } catch (refreshError) {
             console.error('Token refresh failed:', refreshError);
+
+            if ((Number((refreshError as any)?.status) === 401 || Number((refreshError as any)?.status) === 403)
+              && SUBSCRIPTION_BLOCK_CODES.has(String((refreshError as any)?.code || ''))) {
+              this.notifyAuthInvalidated('Cloud subscription or account authorization was rejected', true, (refreshError as any)?.code);
+              if (typeof window !== 'undefined' && !window.location.hash.includes('/subscription-expired')) {
+                window.location.hash = '#/subscription-expired';
+              }
+              throw refreshError;
+            }
 
             if ((refreshError as any)?.status === 401 || (refreshError as any)?.code === 'INVALID_TOKEN') {
               throw refreshError;
@@ -470,7 +500,7 @@ class ApiClient {
           : responseError?.message || 'An error occurred';
         const error: any = new Error(errorMessage);
         error.status = response.status;
-        error.code = data.error?.code;
+        error.code = data.error?.code || (data as any).code;
         error.response = data;
 
         // A 403 is not always a subscription expiry (for example, the
@@ -478,10 +508,8 @@ class ApiClient {
         // ADMIN_REQUIRED). Redirect only for an explicit subscription/cloud
         // authorization decision and leave ordinary permission errors to the
         // caller.
-        if (response.status === 403 && (
-          data.error?.code === 'SUBSCRIPTION_EXPIRED'
-        )) {
-          this.notifyAuthInvalidated('Cloud subscription or account authorization was rejected');
+        if (response.status === 403 && SUBSCRIPTION_BLOCK_CODES.has(error.code)) {
+          this.notifyAuthInvalidated('Cloud subscription or account authorization was rejected', true, error.code);
           if (typeof window !== 'undefined' && !window.location.hash.includes('/subscription-expired')) {
             try {
               window.location.hash = '#/subscription-expired';
@@ -492,8 +520,11 @@ class ApiClient {
               window.location.href = currentUrl.toString();
             }
           }
-          error.message = 'اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة.';
-          error.code = 'SUBSCRIPTION_EXPIRED';
+          error.message = error.code === 'SUBSCRIPTION_SUSPENDED' || error.code === 'ACCOUNT_SUSPENDED'
+            ? 'تم إيقاف الحساب، يرجى التواصل مع الإدارة لإعادة تفعيله.'
+            : error.code === 'ACCOUNT_DELETED'
+              ? 'هذا الحساب محذوف ولم يعد مسموحًا له بالدخول.'
+              : 'اشتراكك منتهي، يرجى التواصل مع الإدارة لتجديد الخدمة.';
           error.arabicMessage = error.message;
           throw error;
         }
@@ -510,14 +541,26 @@ class ApiClient {
 
       if ((error?.status === 401 || error?.code === 'AUTH_REFRESH_FAILED' || error?.code === 'INVALID_TOKEN')
         && (this.token || this.getCloudAccessToken())) {
-        this.notifyAuthInvalidated('Cloud session expired or could not be refreshed');
+        this.notifyAuthInvalidated('Cloud session expired or was revoked', true, error?.code);
       }
       if (error?.code === 'AUTH_REFRESH_PENDING') {
         this.notifyCloudVerificationPending('Cloud session refresh is temporarily unavailable');
       }
+      if (error?.code === 'OFFLINE_GRACE_EXPIRED' || error?.code === 'CLOUD_AUTH_REQUIRED') {
+        this.notifyCloudVerificationPending('Cloud authorization is unavailable or the offline grace period has ended');
+      }
+      if (error?.code === 'AUTH_SERVICE_UNAVAILABLE'
+        || [408, 429, 500, 502, 503, 504].includes(Number(error?.status))) {
+        this.notifyCloudVerificationPending('Authentication service is temporarily unavailable');
+      }
 
       const isExpectedAuthInvalidation = error?.code === 'SUBSCRIPTION_EXPIRED'
+        || error?.code === 'SUBSCRIPTION_SUSPENDED'
+        || error?.code === 'ACCOUNT_SUSPENDED'
+        || error?.code === 'ACCOUNT_DELETED'
         || error?.code === 'CLOUD_AUTH_REQUIRED'
+        || error?.code === 'OFFLINE_GRACE_EXPIRED'
+        || error?.code === 'AUTH_SERVICE_UNAVAILABLE'
         || error?.code === 'AUTH_REFRESH_PENDING';
       const isExpectedLocalLoginFallback = getConnectionMode() === 'local'
         && endpoint === '/auth/login'
@@ -557,6 +600,14 @@ class ApiClient {
       if (refreshResponse.status >= 500 || refreshResponse.status === 408 || refreshResponse.status === 429) {
         const error = new Error('Cloud token refresh is temporarily unavailable') as Error & { status?: number };
         error.status = refreshResponse.status;
+        (error as Error & { code?: string }).code = refreshData?.code || refreshData?.error?.code;
+        throw error;
+      }
+      if (refreshResponse.status === 403) {
+        const error: any = new Error(refreshData?.error?.message || refreshData?.error || 'Cloud account is not authorized');
+        error.status = refreshResponse.status;
+        error.code = refreshData?.code || refreshData?.error?.code;
+        error.response = refreshData;
         throw error;
       }
       return null;
@@ -574,59 +625,10 @@ class ApiClient {
   }
 
   private async ensureMutationAllowed(endpoint: string): Promise<void> {
-    // Business data may be written to the local API/SQLite database, but the
-    // cloud remains the authority for whether the account may use the app.
-    if (endpoint.startsWith('/auth/')) return;
-
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      throw new Error('يلزم اتصال بالإنترنت للتحقق من الاشتراك قبل تنفيذ العملية.');
-    }
-
-    let cloudToken = this.getCloudAccessToken();
-    if (!cloudToken) {
-      throw new Error('يلزم تسجيل الدخول قبل تنفيذ العملية.');
-    }
-
-    const validate = (token: string) => fetch(`${getCloudApiUrl()}/auth/validate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        'X-PartFlow-Cloud-Token': token,
-      },
-      body: '{}',
-    });
-
-    let response: Response;
-    try {
-      response = await validate(cloudToken);
-      if (response.status === 401) {
-        const refreshed = await this.refreshCloudAccessToken();
-        if (refreshed) {
-          cloudToken = refreshed;
-          response = await validate(cloudToken);
-        }
-      }
-    } catch {
-      this.notifyCloudVerificationPending('Cloud verification is temporarily unavailable');
-      throw new Error('تعذر الاتصال بالخادم للتحقق من الاشتراك. لم تُنفذ العملية.');
-    }
-
-    if (!response.ok) {
-      if (typeof window !== 'undefined') {
-        if (response.status === 401) {
-          this.notifyAuthInvalidated('Cloud session expired or could not be refreshed');
-        } else if (response.status === 403) {
-          this.notifyAuthInvalidated('Cloud subscription or account authorization was rejected');
-          window.location.hash = '#/subscription-expired';
-        } else {
-          this.notifyCloudVerificationPending(`Cloud verification returned ${response.status}`);
-        }
-      }
-      throw new Error(response.status === 403
-        ? 'الحساب غير نشط أو أن الاشتراك منتهٍ. لم تُنفذ العملية.'
-        : 'تعذر التحقق من الجلسة حاليًا. لم تُنفذ العملية.');
-    }
+    // Every protected API request is checked by the backend. The local API
+    // applies the signed, bounded offline grant when the cloud is unreachable;
+    // a frontend preflight would reject those valid grace-period requests.
+    void endpoint;
   }
 
   async get<T = any>(endpoint: string, params?: any, useCache: boolean = true): Promise<ApiResponse<T>> {
@@ -662,11 +664,11 @@ class ApiClient {
     return result;
   }
 
-  async post<T = any>(endpoint: string, body: any): Promise<ApiResponse<T>> {
+  async post<T = any>(endpoint: string, body: any, idempotencyKey?: string): Promise<ApiResponse<T>> {
     await this.ensureMutationAllowed(endpoint);
     this.clearCachePattern(endpoint.split('/')[1]); // Clear cache for related endpoints
     const headers = endpoint === '/sales' ? {
-      'Idempotency-Key': globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      'Idempotency-Key': idempotencyKey || globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
     } : undefined;
     return this.requestWithRetry<T>(endpoint, {
       method: 'POST',

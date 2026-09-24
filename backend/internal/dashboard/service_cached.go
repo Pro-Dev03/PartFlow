@@ -21,6 +21,9 @@ type CachedService struct {
 var globalCacheService *CachedService
 
 func NewCachedService(db *sqlx.DB) *CachedService {
+	if db != nil && db.DriverName() == "sqlite" {
+		ensureSQLiteAccountingReturnViews(db.DB)
+	}
 	service := &CachedService{
 		db:    db,
 		cache: NewCache(5 * time.Minute), // 5 minute cache
@@ -163,7 +166,7 @@ func (s *CachedService) fetchFromDatabaseAt(ctx context.Context, now time.Time) 
 		SELECT COUNT(*) AS total_returns,
 		       COALESCE(SUM(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED'`+returnReferenceFilter+` THEN total_refund_amount ELSE 0 END), 0) AS refunded
 		       ,(SELECT COUNT(*) FROM sales WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) AS gross_sales
-		FROM returns`); err == nil {
+		FROM accounting_returns`); err == nil {
 		stats.TotalReturns = float64(returnSummary.TotalReturns)
 		stats.TotalRefunded = returnSummary.Refunded
 		// Both fields are monetary amounts; the return count is exposed by
@@ -202,10 +205,10 @@ func (s *CachedService) fetchFromDatabaseAt(ctx context.Context, now time.Time) 
 		grossProfitQuery = strings.ReplaceAll(grossProfitQuery, "COALESCE(si.tax_amount, 0)", "0")
 	}
 	if err := s.db.GetContext(ctx, &grossProfit, grossProfitQuery); err == nil {
-		_ = s.db.GetContext(ctx, &refunded, `SELECT COALESCE(SUM(total_refund_amount), 0) FROM returns WHERE UPPER(COALESCE(status, '')) = 'COMPLETED'`+returnReferenceFilter)
+		_ = s.db.GetContext(ctx, &refunded, `SELECT COALESCE(SUM(total_refund_amount), 0) FROM accounting_returns WHERE UPPER(COALESCE(status, '')) = 'COMPLETED'`+returnReferenceFilter)
 		_ = s.db.GetContext(ctx, &returnedCost, `
 			SELECT COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0)
-			FROM return_items ri JOIN returns r ON r.id = ri.return_id
+			FROM accounting_return_items ri JOIN accounting_returns r ON r.id = ri.return_id
 			LEFT JOIN sale_items si ON si.id = ri.sale_item_id
 			LEFT JOIN products p ON p.id = ri.product_id
 			WHERE UPPER(COALESCE(r.status, '')) = 'COMPLETED'`+strings.ReplaceAll(returnReferenceFilter, "reference_number", "r.reference_number"))

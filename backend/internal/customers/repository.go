@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	"github.com/partflow/smart-store/internal/accounting"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
@@ -354,19 +355,25 @@ func (r *Repository) List(ctx context.Context, req *CustomerListRequest) ([]Cust
 
 	// Advanced filtering: is overdue
 	if req.IsOverdue != nil && *req.IsOverdue {
+		storeDate, err := accounting.StoreDate(accounting.StoreNow())
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to calculate overdue filter date: %w", err)
+		}
+		dueDateParam := len(args) + 1
 		query += ` AND id IN (
 			SELECT DISTINCT customer_id FROM debts
 			WHERE remaining_amount > 0
-				AND due_date < date('now')
+				AND due_date < $` + fmt.Sprint(dueDateParam) + `
 			AND status = 'pending'
 		)`
 		countQuery += ` AND EXISTS (
 			SELECT 1 FROM debts d
 			WHERE d.customer_id = customers.id
 			AND d.remaining_amount > 0
-				AND d.due_date < date('now')
+				AND d.due_date < $` + fmt.Sprint(dueDateParam) + `
 			AND d.status = 'pending'
 		)`
+		args = append(args, storeDate)
 	}
 
 	var total int

@@ -2,6 +2,7 @@ package sales
 
 import (
 	stderrors "errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -69,6 +70,30 @@ func (h *Handler) DeleteHeldSale(c *gin.Context) {
 		return
 	}
 	response.OK(c, nil, "Held sale deleted successfully")
+}
+
+func (h *Handler) DeleteSale(c *gin.Context) {
+	saleID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("invalid sale id", err))
+		return
+	}
+	var userID uuid.UUID
+	if value, exists := c.Get("user_id"); exists {
+		if parsed, ok := value.(uuid.UUID); ok {
+			userID = parsed
+		}
+	}
+	result, err := h.service.DeleteSale(c.Request.Context(), saleID, userID)
+	if err != nil {
+		errors.HandleError(c, errors.WrapError(err, "Failed to delete sale"))
+		return
+	}
+	if result.Action == "blocked" {
+		c.JSON(http.StatusConflict, gin.H{"data": result, "message": result.Message})
+		return
+	}
+	response.OK(c, result, result.Message)
 }
 
 // CreateSale creates a new sale

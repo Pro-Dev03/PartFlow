@@ -54,7 +54,7 @@ export function SupplierReturnsPage() {
   const [quantity, setQuantity] = useState('1');
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
-  const [showArchive, setShowArchive] = useState(false);
+  const [showClosed, setShowClosed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmAction, setConfirmAction] = useState<{ type: 'delete' | 'reject'; id: string } | null>(null);
   const { data: returnsData, isLoading } = useQuery({
@@ -118,7 +118,7 @@ export function SupplierReturnsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['supplier-returns'] });
       setConfirmAction(null);
-      toast.success('تم رفض طلب الإرجاع وحفظه في الأرشيف');
+      toast.success('تم رفض طلب الإرجاع');
     },
     onError: () => toast.error('لا يمكن رفض هذا الطلب في حالته الحالية'),
   });
@@ -134,8 +134,8 @@ export function SupplierReturnsPage() {
     .filter((item: any) => item.status === 'COMPLETED')
     .reduce((total: number, item: any) => total + Number(item.refund_amount || 0), 0);
   const visibleReturns = returns.filter((item: any) => {
-    const isArchived = ['COMPLETED', 'REJECTED', 'CANCELLED'].includes(item.status);
-    const matchesView = showArchive ? isArchived : !isArchived;
+    const isClosed = ['COMPLETED', 'REJECTED', 'CANCELLED'].includes(item.status);
+    const matchesView = showClosed ? isClosed : !isClosed;
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || [item.return_number, item.reason, item.purchase_id, item.supplier_id]
       .some((value) => String(value || '').toLowerCase().includes(query));
@@ -233,7 +233,8 @@ export function SupplierReturnsPage() {
           {selectedItem && (
             <div className="supplier-return-selected-item grid gap-3 rounded border border-border bg-surface-muted p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
               <div><span className="text-text-muted">الصنف</span><p className="font-medium">{selectedItem.product_name || selectedItem.product?.name || 'الصنف المحدد'}</p></div>
-              <div><span className="text-text-muted">SKU/الباركود</span><p>{selectedItem.sku || selectedItem.barcode || '-'}</p></div>
+              <div><span className="text-text-muted">الباركود</span><p>{selectedItem.barcode || '-'}</p></div>
+              <div><span className="text-text-muted">SKU داخلي</span><p>{selectedItem.sku || '-'}</p></div>
               <div><span className="text-text-muted">الكمية المشتراة</span><p>{selectedItem.quantity || 0}</p></div>
               <div><span className="text-text-muted">الكمية المستلمة</span><p>{selectedItem.received_quantity || 0}</p></div>
               <div><span className="text-text-muted">الكمية المرتجعة</span><p>{selectedItem.returned_quantity || 0}</p></div>
@@ -263,18 +264,18 @@ export function SupplierReturnsPage() {
         <CardHeader className="border-b border-border px-4 py-3" style={{ marginBottom: 0, padding: '14px 16px' }}>
           <div>
             <CardTitle>طلبات إرجاع التجار</CardTitle>
-            <p className="mt-1 text-xs text-text-muted">تابع الطلبات النشطة أو راجع الطلبات المكتملة والمؤرشفة.</p>
+            <p className="mt-1 text-xs text-text-muted">تابع الطلبات المفتوحة أو راجع الطلبات المنتهية.</p>
           </div>
           <span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs text-text-muted">{visibleReturns.length} نتيجة</span>
         </CardHeader>
         <CardContent style={{ padding: '16px' }}>
           <div className="mb-4 flex flex-col gap-2 rounded-xl border border-border bg-surface-muted/50 p-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex gap-2">
-              <Button size="sm" variant={!showArchive ? 'primary' : 'secondary'} onClick={() => setShowArchive(false)}>
+              <Button size="sm" variant={!showClosed ? 'primary' : 'secondary'} onClick={() => setShowClosed(false)}>
                 الطلبات النشطة
               </Button>
-              <Button size="sm" variant={showArchive ? 'primary' : 'secondary'} onClick={() => setShowArchive(true)}>
-                الأرشيف
+              <Button size="sm" variant={showClosed ? 'primary' : 'secondary'} onClick={() => setShowClosed(true)}>
+                الطلبات المنتهية
               </Button>
             </div>
             <div className="relative w-full sm:max-w-xs">
@@ -282,7 +283,7 @@ export function SupplierReturnsPage() {
               <Input className="pr-9" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="بحث برقم المرتجع أو السبب" />
             </div>
           </div>
-          {isLoading ? <p>جار التحميل...</p> : visibleReturns.length === 0 ? <p className="text-text-muted">{showArchive ? 'لا توجد طلبات مؤرشفة' : 'لا توجد طلبات نشطة'}</p> : (
+          {isLoading ? <p>جار التحميل...</p> : visibleReturns.length === 0 ? <p className="text-text-muted">{showClosed ? 'لا توجد طلبات منتهية' : 'لا توجد طلبات نشطة'}</p> : (
             <div className="space-y-2">{visibleReturns.map((item: any) => (
               <div key={item.id} className="supplier-return-list-row rounded-xl border border-border bg-surface-muted/30 p-3">
                 <span className="supplier-return-number text-sm font-semibold text-text">رقم الطلب: {item.return_number}</span>
@@ -327,7 +328,7 @@ export function SupplierReturnsPage() {
                       <Button
                         size="sm"
                         variant="danger"
-                        title="يرفض الطلب ويحفظه في الأرشيف بعد بدء الشحن أو الاستلام"
+                        title="يرفض الطلب مع حفظ حالته في سجل المرتجعات"
                         onClick={() => setConfirmAction({ type: 'reject', id: item.id })}
                       >
                         <XCircle className="h-4 w-4" /> رفض الطلب
@@ -362,7 +363,7 @@ export function SupplierReturnsPage() {
         title={confirmAction?.type === 'delete' ? 'حذف طلب الإرجاع' : 'رفض طلب الإرجاع'}
         message={confirmAction?.type === 'delete'
           ? 'سيُحذف الطلب نهائياً لأنه لم يُعالج بعد. لا تستخدم هذا الخيار إذا أُرسلت البضاعة للمورد.'
-          : 'سيُحفظ الطلب في الأرشيف بحالة مرفوض بدلاً من حذفه، حتى يبقى تاريخه واضحاً.'}
+          : 'سيتم تغيير حالة الطلب إلى مرفوض مع إبقاء سجل العملية للرجوع إليه.'}
         confirmText={confirmAction?.type === 'delete' ? 'حذف الطلب' : 'رفض الطلب'}
         variant="danger"
         isLoading={deleteMutation.isPending || rejectMutation.isPending}

@@ -1,5 +1,5 @@
 import { SimpleBarChart, SimpleLineChart, SimplePieChart } from '../../../design-system/components/charts';
-import { formatStoreDate } from '../../../utils/store-time';
+import { addStoreDays, formatStoreDate, getStoreDateKey } from '../../../utils/store-time';
 
 interface ReportChartsProps {
   data?: any;
@@ -34,18 +34,19 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
         })).filter((item: { value: number }) => Number.isFinite(item.value))
       : [];
       let dailyItems = rawDailyItems;
-    const rangeStart = report.start_date ? new Date(String(report.start_date)) : null;
-    const rangeEnd = report.end_date ? new Date(String(report.end_date)) : null;
-    if (rawDailyItems.length > 0 && rangeStart && rangeEnd && !Number.isNaN(rangeStart.getTime()) && !Number.isNaN(rangeEnd.getTime())) {
-      const dayCount = Math.ceil((rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24));
+    const rangeStart = report.start_date ? getStoreDateKey(String(report.start_date)) : null;
+    const rangeEnd = report.end_date ? getStoreDateKey(String(report.end_date)) : null;
+    if (rawDailyItems.length > 0 && rangeStart && rangeEnd) {
+      const startParts = rangeStart.split('-').map(Number);
+      const endParts = rangeEnd.split('-').map(Number);
+      const dayCount = Math.ceil((Date.UTC(endParts[0], endParts[1] - 1, endParts[2]) - Date.UTC(startParts[0], startParts[1] - 1, startParts[2])) / (24 * 60 * 60 * 1000));
       if (dayCount > 0 && dayCount <= 366) {
         const valuesByDate = new Map(rawDailyItems.map((item: any) => [item.dateKey, item.value]));
         const secondaryValuesByDate = new Map(rawDailyItems.map((item: any) => [item.dateKey, item.secondaryValue]));
         dailyItems = Array.from({ length: dayCount }, (_, index) => {
-          const date = new Date(rangeStart.getTime() + index * 24 * 60 * 60 * 1000);
-          const dateKey = date.toISOString().slice(0, 10);
+          const dateKey = addStoreDays(rangeStart, index);
           return {
-            label: formatStoreDate(date, 'ar-SA'),
+            label: formatStoreDate(dateKey, 'ar-SA'),
             value: Number(valuesByDate.get(dateKey) ?? 0),
             secondaryValue: secondaryValuesByDate.has(dateKey) ? Number(secondaryValuesByDate.get(dateKey) ?? 0) : 0,
           };

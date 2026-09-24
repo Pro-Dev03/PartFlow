@@ -1,4 +1,11 @@
 .dashboard-s-flow { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-6); align-items: start; }
+input[readonly],
+textarea[readonly] {
+  color: var(--text-primary) !important;
+  -webkit-text-fill-color: var(--text-primary) !important;
+  opacity: 1;
+  cursor: default;
+}
 .inventory-product-edit-modal .p-6 { padding: 12px !important; }
 .inventory-product-edit-modal .product-edit-fields { display: grid !important; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px !important; }
 .inventory-product-edit-modal .product-edit-fields > div { display: contents; }
@@ -510,10 +517,6 @@
 .product-card-status.success { color: var(--color-success); }
 .product-card-status.warning { color: var(--color-warning); }
 .product-card-status.danger { color: var(--color-danger); }
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
 
 @layer base {
   /* Base styles will be handled by Design Tokens and Themes */
@@ -3501,7 +3504,8 @@ aside.sidebar nav {
 }
 
 .checkout-mode .pos-modern-container {
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 /* Body Layout */

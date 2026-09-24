@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
@@ -261,19 +262,27 @@ func (r *Repository) GetAuditLogSummary(ctx context.Context) (*AuditLogSummary, 
 	}
 
 	// This week logs
-	weekQuery := `SELECT COUNT(*) FROM audit_logs WHERE created_at >= DATE_TRUNC('week', CURRENT_DATE)`
-	monthQuery := `SELECT COUNT(*) FROM audit_logs WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)`
-	if dbutil.IsSQLite(r.db) {
-		weekQuery = `SELECT COUNT(*) FROM audit_logs WHERE date(created_at) >= date('now', 'weekday 1', '-7 days')`
-		monthQuery = `SELECT COUNT(*) FROM audit_logs WHERE strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')`
+	weekStart, _, err := accounting.StoreWeekBounds(accounting.StoreNow())
+	if err != nil {
+		return nil, fmt.Errorf("calculate store week boundary: %w", err)
 	}
-	err = r.db.GetContext(ctx, &summary.ThisWeek, weekQuery)
+	monthStart, monthEnd, err := accounting.StoreMonthBounds(accounting.StoreNow())
+	if err != nil {
+		return nil, fmt.Errorf("calculate store month boundary: %w", err)
+	}
+	weekQuery := `SELECT COUNT(*) FROM audit_logs WHERE created_at >= $1`
+	monthQuery := `SELECT COUNT(*) FROM audit_logs WHERE created_at >= $1 AND created_at < $2`
+	if dbutil.IsSQLite(r.db) {
+		weekQuery = `SELECT COUNT(*) FROM audit_logs WHERE datetime(created_at) >= datetime(?)`
+		monthQuery = `SELECT COUNT(*) FROM audit_logs WHERE datetime(created_at) >= datetime(?) AND datetime(created_at) < datetime(?)`
+	}
+	err = r.db.GetContext(ctx, &summary.ThisWeek, weekQuery, weekStart)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this week logs: %w", err)
 	}
 
 	// This month logs
-	err = r.db.GetContext(ctx, &summary.ThisMonth, monthQuery)
+	err = r.db.GetContext(ctx, &summary.ThisMonth, monthQuery, monthStart, monthEnd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this month logs: %w", err)
 	}

@@ -698,13 +698,18 @@ func (h *Handler) AddPayment(c *gin.Context) {
 	}
 
 	// Create payment record
+	storeDate, err := accounting.StoreDate(accounting.StoreNow())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	paymentID := uuid.New()
 	paymentQuery := `
 		INSERT INTO payments (id, reference_number, customer_id, amount, payment_method, payment_date, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 'cash', CURRENT_DATE, $5, NOW(), NOW())
+		VALUES ($1, $2, $3, $4, 'cash', $5, $6, NOW(), NOW())
 	`
 
-	_, err = tx.Exec(paymentQuery, paymentID, "PAY-"+paymentID.String()[:8], customerID, req.Amount, req.Notes)
+	_, err = tx.Exec(paymentQuery, paymentID, "PAY-"+paymentID.String()[:8], customerID, req.Amount, storeDate, req.Notes)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

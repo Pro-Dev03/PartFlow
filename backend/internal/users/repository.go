@@ -390,3 +390,19 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 	return nil
 }
+
+// RevokeRefreshTokens invalidates every persistent session for an account.
+// Older local installations may not have the revocation table yet; live
+// account/subscription checks still deny access immediately in that case.
+func (r *Repository) RevokeRefreshTokens(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, id)
+	if err == nil {
+		return nil
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "refresh_tokens") &&
+		(strings.Contains(message, "no such table") || strings.Contains(message, "does not exist")) {
+		return nil
+	}
+	return err
+}

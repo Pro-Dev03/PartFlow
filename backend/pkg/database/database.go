@@ -56,6 +56,10 @@ func Initialize() error {
 		if parseErr != nil {
 			return fmt.Errorf("failed to parse database URL: %w", parseErr)
 		}
+		if pgxConfig.RuntimeParams == nil {
+			pgxConfig.RuntimeParams = make(map[string]string)
+		}
+		pgxConfig.RuntimeParams["timezone"] = "UTC"
 		pgxConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 		DB = sqlx.NewDb(stdlib.OpenDB(*pgxConfig), driver)
 		err = DB.Ping()

@@ -8,10 +8,12 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
+	"github.com/partflow/smart-store/internal/accounting"
 	dbutil "github.com/partflow/smart-store/internal/database"
 	"github.com/partflow/smart-store/internal/expenses"
 	"github.com/partflow/smart-store/pkg/config"
@@ -20,8 +22,15 @@ import (
 )
 
 func main() {
-	if _, err := config.Load(); err != nil {
+	// Keep worker timestamps independent of the container or host timezone.
+	time.Local = time.UTC
+
+	cfg, err := config.Load()
+	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
+	}
+	if err := accounting.ConfigureStoreTimezone(cfg.DefaultTimezone); err != nil {
+		log.Fatalf("Invalid store timezone configuration: %v", err)
 	}
 
 	// Initialize structured logger
@@ -257,13 +266,18 @@ func startDebtScanWorker(ctx context.Context, db *sqlx.DB) {
 }
 
 func processOverdueDebts(ctx context.Context, db *sqlx.DB) {
+	today, err := accounting.StoreDate(time.Now())
+	if err != nil {
+		logger.Error("Failed to calculate store date", err, nil)
+		return
+	}
 	query := `
 		SELECT id, customer_id, remaining_amount, due_date
 		FROM debts
-		WHERE status = 'pending' AND due_date < NOW()
+		WHERE status = 'pending' AND DATE(due_date) < $1
 	`
 	if dbutil.IsSQLite(db) {
-		query = `SELECT id, customer_id, remaining_amount, due_date FROM debts WHERE status = 'pending' AND date(due_date) < date('now')`
+		query = `SELECT id, customer_id, remaining_amount, due_date FROM debts WHERE status = 'pending' AND date(due_date) < ?`
 	}
 
 	var overdueDebts []struct {
@@ -273,7 +287,7 @@ func processOverdueDebts(ctx context.Context, db *sqlx.DB) {
 		DueDate         string  `db:"due_date"`
 	}
 
-	err := db.SelectContext(ctx, &overdueDebts, query)
+	err = db.SelectContext(ctx, &overdueDebts, query, today)
 	if err != nil {
 		logger.Error("Failed to fetch overdue debts", err, nil)
 		return
@@ -368,15 +382,25 @@ func processLowStockItems(ctx context.Context, db *sqlx.DB) {
 }
 
 func startDailyInsightsWorker(ctx context.Context, db *sqlx.DB) {
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-
 	for {
+		_, nextStoreDay, err := accounting.StoreDayBounds(accounting.StoreNow())
+		if err != nil {
+			logger.Error("Failed to calculate next store day boundary", err, nil)
+			select {
+			case <-ctx.Done():
+				logger.Info("Daily insights worker stopped", nil)
+				return
+			case <-time.After(time.Minute):
+				continue
+			}
+		}
+		timer := time.NewTimer(time.Until(nextStoreDay))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			logger.Info("Daily insights worker stopped", nil)
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			logger.Info("Generating daily insights...", nil)
 			generateDailyInsights(ctx, db)
 		}
@@ -384,7 +408,11 @@ func startDailyInsightsWorker(ctx context.Context, db *sqlx.DB) {
 }
 
 func generateDailyInsights(ctx context.Context, db *sqlx.DB) {
-	today := time.Now().Format("2006-01-02")
+	today, err := accounting.StoreDate(time.Now())
+	if err != nil {
+		logger.Error("Failed to calculate store date", err, nil)
+		return
+	}
 
 	var salesSummary struct {
 		TotalSales   int     `db:"total_sales"`
@@ -402,7 +430,7 @@ func generateDailyInsights(ctx context.Context, db *sqlx.DB) {
 	if dbutil.IsSQLite(db) {
 		salesQuery = `SELECT COUNT(*) AS total_sales, COALESCE(SUM(total_amount), 0) AS total_revenue, COALESCE(SUM(COALESCE(gross_profit, total_amount - cost_amount, 0)), 0) AS total_profit FROM sales WHERE date(COALESCE(sale_date, created_at)) = $1 AND lower(COALESCE(status, 'completed')) = 'completed'`
 	}
-	err := db.GetContext(ctx, &salesSummary, salesQuery, today)
+	err = db.GetContext(ctx, &salesSummary, salesQuery, today)
 	if err != nil {
 		logger.Error("Failed to fetch sales summary", err, nil)
 		return

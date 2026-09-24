@@ -13,13 +13,14 @@ import { PaginationControls } from '../../../design-system/components/pagination
 import { salesApi, customersApi, debtsApi } from '../../../services/api/endpoints';
 import { useDebounce } from '../../../hooks/useDebounce';
 import { SalesInvoice } from '../../../components/invoice/SalesInvoice';
+import { formatStoreDate } from '../../../utils/store-time';
 
 const formatMoney = (value: unknown) => `₪${Number(value || 0).toLocaleString('en-US')}`;
 
 const formatDate = (value?: string) => {
   if (!value) return 'بدون تاريخ';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ar-SA');
+  const formatted = formatStoreDate(value, 'ar-SA');
+  return formatted === 'غير محدد' ? value : formatted;
 };
 
 export function CustomerPurchasesPage() {

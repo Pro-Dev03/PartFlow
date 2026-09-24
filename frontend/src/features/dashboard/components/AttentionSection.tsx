@@ -43,11 +43,7 @@ export function AttentionSection({
   const lowStockOnlyCount = Math.max(lowStockCount - outOfStockCount, 0);
 
   return (
-    <Card variant="ai" style={{
-      background: 'transparent',
-      border: 'none',
-      boxShadow: 'none'
-    }}>
+    <Card variant="ai" className="dashboard-attention">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <AlertCircle className="w-5 h-5" style={{ color: 'var(--warning)' }} />

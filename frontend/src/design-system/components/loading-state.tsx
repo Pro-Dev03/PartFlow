@@ -37,9 +37,11 @@ const LoadingState = forwardRef<HTMLDivElement, LoadingStateProps>(
       <div
         ref={ref}
         className={cn(
-          'flex flex-col items-center justify-center text-center',
+          'pf-loading-state flex flex-col items-center justify-center text-center',
           className
         )}
+        role="status"
+        aria-live="polite"
         style={{
           minHeight: currentSize.minHeight,
           padding: 'var(--spacing-8)'

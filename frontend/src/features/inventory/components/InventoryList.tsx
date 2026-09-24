@@ -3,13 +3,14 @@ import { Badge } from '../../../design-system/components/badge';
 import { EmptyState } from '../../../design-system/components/empty-state';
 import { Button } from '../../../design-system/components/button';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../../../design-system/components/table';
-import { Archive, Package, PackageOpen, Eye, SlidersHorizontal, Inbox, FileText, Plus, Trash, PencilLine } from 'lucide-react';
+import { Package, PackageOpen, Eye, SlidersHorizontal, Inbox, FileText, Plus, Trash, PencilLine } from 'lucide-react';
 import { ActionMenu } from '../../../design-system/components/action-menu';
 import { Product, InventoryItem, ViewMode } from '../types/inventory.types';
 import { formatPrice, normalizeCurrencyValue } from '../../../utils';
 import { PaginationControls } from '../../../design-system/components/pagination-controls';
 import { getLocalProductImage } from '../../../services/localProductImages';
 import { getCategoryImage } from '../../../services/localCategoryImages';
+import { formatStoreDate } from '../../../utils/store-time';
 
 interface InventoryListProps {
   viewMode: ViewMode;
@@ -24,7 +25,6 @@ interface InventoryListProps {
   onEditProduct: (product: Product) => void;
   onEditMinimumStock: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
-  onArchiveProduct?: (productId: string) => void;
   onDeleteInventoryItem?: (itemId: string) => void;
   onClearSearch: () => void;
   onViewInventoryLedger?: (productId: string) => void;
@@ -40,7 +40,6 @@ function RowActionMenu({
   onEditProduct,
   onEditMinimumStock,
   onDeleteProduct,
-  onArchiveProduct,
   onDeleteInventoryItem,
   onViewInventoryLedger,
 }: {
@@ -50,7 +49,6 @@ function RowActionMenu({
   onEditProduct: (product: Product) => void;
   onEditMinimumStock: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
-  onArchiveProduct?: (productId: string) => void;
   onDeleteInventoryItem?: (itemId: string) => void;
   onViewInventoryLedger?: (productId: string) => void;
 }) {
@@ -64,7 +62,6 @@ function RowActionMenu({
         { label: 'تعديل', icon: PencilLine, onClick: () => onEditProduct(product) },
         { label: 'حد الأدنى', icon: SlidersHorizontal, onClick: () => onEditMinimumStock(product) },
           ...(onViewInventoryLedger ? [{ label: 'سجل الحركات', icon: FileText, onClick: () => onViewInventoryLedger(product.id) }] : []),
-          ...(onArchiveProduct ? [{ label: 'أرشفة', icon: Archive, onClick: () => onArchiveProduct(product.id) }] : []),
         { label: 'حذف', icon: Trash, onClick: () => (onDeleteInventoryItem ? onDeleteInventoryItem(product.id) : onDeleteProduct(product.id)), danger: true },
       ]}
     />
@@ -132,7 +129,6 @@ export function InventoryList({
   onEditProduct,
   onEditMinimumStock,
   onDeleteProduct,
-  onArchiveProduct,
   onDeleteInventoryItem,
   onClearSearch,
   onViewInventoryLedger,
@@ -204,6 +200,9 @@ export function InventoryList({
     const rightSection = getProductStockSection(getStockValue(right), right.min_stock_level);
     return sectionOrder[leftSection] - sectionOrder[rightSection];
   });
+  const visibleProducts = pagination && displayProducts.length > pagination.pageSize
+    ? displayProducts.slice((pagination.page - 1) * pagination.pageSize, pagination.page * pagination.pageSize)
+    : displayProducts;
 
   const emptyProductsState = (
     <EmptyState
@@ -246,7 +245,7 @@ export function InventoryList({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {displayProducts.map((product: Product) => {
+                    {visibleProducts.map((product: Product) => {
                       const stockVal = getStockValue(product);
                       const stockBadge = getStockDisplay(stockVal, product.min_stock_level);
                       const conditionBadge = getConditionBadge(product.condition || '');
@@ -316,7 +315,6 @@ export function InventoryList({
                                 onEditProduct={onEditProduct}
                                 onEditMinimumStock={onEditMinimumStock}
                                 onDeleteProduct={onDeleteProduct}
-                                onArchiveProduct={onArchiveProduct}
                                 onViewInventoryLedger={onViewInventoryLedger}
                               />
                             </div>
@@ -326,20 +324,11 @@ export function InventoryList({
                     })}
                   </TableBody>
                 </Table>
-                {pagination && (
-                  <PaginationControls
-                    page={pagination.page}
-                    pageSize={pagination.pageSize}
-                    total={pagination.total}
-                    onPageChange={pagination.onPageChange}
-                    isLoading={productsLoading}
-                  />
-                )}
               </div>
 
               <div className={layoutMode === 'cards' ? 'block' : 'hidden'}>
                 <div className="product-cards-grid gap-4 p-4">
-                  {displayProducts.map((product: Product) => {
+                  {visibleProducts.map((product: Product) => {
                     const stockVal = getStockValue(product);
                     const stockBadge = getStockDisplay(stockVal, product.min_stock_level);
                     const conditionBadge = getConditionBadge(product.condition || '');
@@ -401,7 +390,6 @@ export function InventoryList({
                             onEditProduct={onEditProduct}
                             onEditMinimumStock={onEditMinimumStock}
                             onDeleteProduct={onDeleteProduct}
-                            onArchiveProduct={onArchiveProduct}
                             onViewInventoryLedger={onViewInventoryLedger}
                           />
                         </div>
@@ -410,6 +398,15 @@ export function InventoryList({
                   })}
                 </div>
               </div>
+              {pagination && (
+                <PaginationControls
+                  page={pagination.page}
+                  pageSize={pagination.pageSize}
+                  total={pagination.total}
+                  onPageChange={pagination.onPageChange}
+                  isLoading={productsLoading}
+                />
+              )}
             </>
           )}
         </div>
@@ -489,7 +486,7 @@ export function InventoryList({
                         </TableCell>
                         <TableCell><div className="flex flex-wrap gap-1.5"><Badge variant={itemStatus.variant} size="sm">{itemStatus.text}</Badge><Badge variant={condBadge.variant} size="sm">{condBadge.label}</Badge></div></TableCell>
                         <TableCell className="text-text-secondary">{item.supplier_name || '-'}</TableCell>
-                        <TableCell className="text-text-secondary">{item.purchase_date ? new Date(item.purchase_date).toLocaleDateString('ar-SA') : '-'}</TableCell>
+                        <TableCell className="text-text-secondary">{item.purchase_date ? formatStoreDate(item.purchase_date, 'ar-SA') : '-'}</TableCell>
                         <TableCell className="text-center font-medium text-text-secondary">{formatPrice(normalizeCurrencyValue(item.purchase_cost ?? 0))}</TableCell>
                         <TableCell className="text-center font-medium text-primary">{formatPrice(normalizeCurrencyValue(item.selling_price ?? item.price ?? 0))}</TableCell>
                         <TableCell><Badge variant={condBadge.variant} size="sm">{condBadge.label}</Badge></TableCell>
@@ -498,7 +495,7 @@ export function InventoryList({
                             <Button type="button" variant="ghost" size="icon" onClick={() => onViewProduct({
                               id: item.id,
                               name: item.product_name || item.product?.name || '-',
-                              sku: item.product?.sku || item.sku || item.barcode || '',
+                              sku: item.product?.sku || item.sku || '',
                               condition: item.condition || '',
                               category_name: item.category_name || '',
                               stock: item.quantity ?? 0,
@@ -517,7 +514,7 @@ export function InventoryList({
                               product={{
                                 id: item.id,
                                 name: item.product_name || item.product?.name || '-',
-                                sku: item.product?.sku || item.sku || item.barcode || '',
+                                sku: item.product?.sku || item.sku || '',
                                 condition: item.condition || '',
                                 category_name: item.category_name || '',
                                 stock: item.quantity ?? 0,
@@ -535,7 +532,6 @@ export function InventoryList({
                               onEditProduct={onEditProduct}
                               onEditMinimumStock={onEditMinimumStock}
                               onDeleteProduct={onDeleteProduct}
-                              onArchiveProduct={onArchiveProduct}
                               onDeleteInventoryItem={onDeleteInventoryItem}
                               onViewInventoryLedger={onViewInventoryLedger}
                             />
@@ -594,7 +590,7 @@ export function InventoryList({
                       <div className="compact-product-meta">
                           <span className="truncate">التاجر: <strong>{item.supplier_name || '-'}</strong></span>
                         <span className="truncate">التصنيف: <strong>{item.category_name || 'بدون تصنيف'}</strong></span>
-                        <span className="truncate">الشراء: <strong>{item.purchase_date ? new Date(item.purchase_date).toLocaleDateString('ar-SA') : '-'}</strong></span>
+                        <span className="truncate">الشراء: <strong>{item.purchase_date ? formatStoreDate(item.purchase_date, 'ar-SA') : '-'}</strong></span>
                         <Badge variant={condBadge.variant} size="sm">{condBadge.label}</Badge>
                       </div>
 
@@ -602,7 +598,7 @@ export function InventoryList({
                         <Button type="button" variant="primary" size="sm" onClick={() => onViewProduct({
                           id: item.id,
                           name: item.product_name || item.product?.name || '-',
-                          sku: item.product?.sku || item.sku || item.barcode || '',
+                          sku: item.product?.sku || item.sku || '',
                           condition: item.condition || '',
                           category_name: item.category_name || '',
                           stock: item.quantity ?? 0,
@@ -620,7 +616,7 @@ export function InventoryList({
                           product={{
                             id: item.id,
                             name: item.product_name || item.product?.name || '-',
-                            sku: item.product?.sku || item.sku || item.barcode || '',
+                            sku: item.product?.sku || item.sku || '',
                             condition: item.condition || '',
                             category_name: item.category_name || '',
                             stock: item.quantity ?? 0,
@@ -636,7 +632,6 @@ export function InventoryList({
                           onEditProduct={onEditProduct}
                           onEditMinimumStock={onEditMinimumStock}
                           onDeleteProduct={onDeleteProduct}
-                              onArchiveProduct={onArchiveProduct}
                           onDeleteInventoryItem={onDeleteInventoryItem}
                           onViewInventoryLedger={onViewInventoryLedger}
                         />

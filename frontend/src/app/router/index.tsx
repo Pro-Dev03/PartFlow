@@ -1,5 +1,5 @@
 import { lazy } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 
 // Lazy load components for better performance
 const DashboardPage = lazy(() => import('../../features/dashboard/pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
@@ -23,7 +23,7 @@ const SettingsPage = lazy(() => import('../../features/settings/pages/SettingsPa
 const ReturnDetailsPage = lazy(() => import('../../features/returns/pages/ReturnDetailsPage').then(m => ({ default: m.ReturnDetailsPage })));
 const SupplierReturnsPage = lazy(() => import('../../features/supplier-returns/pages/SupplierReturnsPage').then(m => ({ default: m.SupplierReturnsPage })));
 const CategoriesPage = lazy(() => import('../../features/categories/pages/CategoriesPage').then(m => ({ default: m.CategoriesPage })));
-const ArchivePage = lazy(() => import('../../features/archive/pages/ArchivePage').then(m => ({ default: m.ArchivePage })));
+const AuditLogPage = lazy(() => import('../../features/audit/pages/AuditLogPage').then(m => ({ default: m.AuditLogPage })));
 
 // Loading component for lazy loaded routes
 export function PageLoader() {
@@ -59,7 +59,8 @@ export const appRoutes = (
     <Route path="reports" element={<ReportsPage />} />
     <Route path="settings" element={<SettingsPage />} />
     <Route path="categories" element={<CategoriesPage />} />
-    <Route path="archive" element={<ArchivePage />} />
+    <Route path="audit" element={<AuditLogPage />} />
+    <Route path="archive" element={<Navigate to="/app/audit" replace />} />
     {/* Catch all - redirect to dashboard */}
     <Route path="*" element={<DashboardPage />} />
   </Routes>

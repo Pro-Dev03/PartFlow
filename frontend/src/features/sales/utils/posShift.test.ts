@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { resolvePosShiftState } from './posShift';
 
 describe('resolvePosShiftState', () => {
-  it('defaults to an open shift when the backend has no active shift', () => {
+  it('defaults to a closed shift when the backend has no active shift', () => {
     expect(resolvePosShiftState(null)).toMatchObject({
-      status: 'open',
+      status: 'closed',
       salesTotal: 0,
       saleCount: 0,
     });

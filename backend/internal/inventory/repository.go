@@ -323,15 +323,18 @@ func (r *Repository) deleteInventoryItemRelatedRows(ctx context.Context, tx *sql
 	return nil
 }
 
-func (r *Repository) DeleteUsedInventoryItem(ctx context.Context, itemID uuid.UUID) error {
+func (r *Repository) DeleteUsedInventoryItem(ctx context.Context, itemID, userID uuid.UUID) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to start permanent inventory deletion: %w", err)
 	}
 	defer tx.Rollback()
 
-	var productID *uuid.UUID
-	if err := tx.GetContext(ctx, &productID, `SELECT product_id FROM inventory_items WHERE id = $1`, itemID); err != nil {
+	var row struct {
+		ProductID string `db:"product_id"`
+		Status    string `db:"status"`
+	}
+	if err := tx.GetContext(ctx, &row, `SELECT product_id, status FROM inventory_items WHERE id = $1`, itemID); err != nil {
 		if err == sql.ErrNoRows {
 			return ErrItemNotFound
 		}
@@ -365,9 +368,14 @@ func (r *Repository) DeleteUsedInventoryItem(ctx context.Context, itemID uuid.UU
 		}
 	}
 
-	if productID != nil {
-		if _, err := tx.ExecContext(ctx, `UPDATE inventory SET quantity = CASE WHEN COALESCE(quantity, 0) > 0 THEN quantity - 1 ELSE 0 END, reserved_quantity = CASE WHEN COALESCE(reserved_quantity, 0) > 0 THEN reserved_quantity - 1 ELSE 0 END, updated_at = CURRENT_TIMESTAMP WHERE product_id = $1`, productID); err != nil {
-			return fmt.Errorf("failed to update inventory totals after permanent delete: %w", err)
+	if strings.EqualFold(row.Status, "AVAILABLE") || strings.EqualFold(row.Status, "RETURNED") {
+		if _, err := tx.ExecContext(ctx, `UPDATE inventory SET quantity = CASE WHEN COALESCE(quantity, 0) > 0 THEN quantity - 1 ELSE 0 END, updated_at = CURRENT_TIMESTAMP WHERE product_id = $1`, row.ProductID); err != nil {
+			return fmt.Errorf("failed to update inventory quantity after delete: %w", err)
+		}
+	}
+	if strings.EqualFold(row.Status, "RESERVED") {
+		if _, err := tx.ExecContext(ctx, `UPDATE inventory SET reserved_quantity = CASE WHEN COALESCE(reserved_quantity, 0) > 0 THEN reserved_quantity - 1 ELSE 0 END, updated_at = CURRENT_TIMESTAMP WHERE product_id = $1`, row.ProductID); err != nil {
+			return fmt.Errorf("failed to update reserved quantity after delete: %w", err)
 		}
 	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM inventory_items WHERE id = $1`, itemID)
@@ -376,6 +384,13 @@ func (r *Repository) DeleteUsedInventoryItem(ctx context.Context, itemID uuid.UU
 	}
 	if affected, err := result.RowsAffected(); err != nil || affected == 0 {
 		return ErrItemNotFound
+	}
+	var actor interface{}
+	if userID != uuid.Nil {
+		actor = userID
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO audit_logs (id,user_id,action,entity_type,entity_id,new_values,created_at) VALUES ($1,$2,'DELETE','inventory_item',$3,$4,CURRENT_TIMESTAMP)`, uuid.New(), actor, itemID, fmt.Sprintf(`{"product_id":%q,"status":%q}`, row.ProductID, row.Status)); err != nil {
+		return fmt.Errorf("write inventory deletion audit: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit permanent inventory deletion: %w", err)

@@ -32,6 +32,7 @@ import { usePurchases } from '../hooks/usePurchases';
 import { PurchaseItem } from '../types/purchases.types';
 import { toast } from 'sonner';
 import { generateSku } from '../../../utils/sku';
+import { getStoreDateKey, getStoreToday, storeDateToUTCISOString } from '../../../utils/store-time';
 
 interface LineItem extends PurchaseItem {
   key: string;
@@ -48,7 +49,7 @@ export function EditPurchasePage() {
   const [barcodeInput, setBarcodeInput] = useState('');
   const [activeTab, setActiveTab] = useState<'scan' | 'manual'>('manual');
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [purchaseDate, setPurchaseDate] = useState(getStoreToday());
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -173,8 +174,8 @@ export function EditPurchasePage() {
     if (purchase) {
       setSelectedSupplier(purchase.supplier_id || '');
       setInvoiceNumber(purchase.invoice_number || '');
-      setPurchaseDate(purchase.purchase_date ? new Date(purchase.purchase_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
-      setExpectedDate(purchase.expected_delivery_date ? new Date(purchase.expected_delivery_date).toISOString().split('T')[0] : '');
+      setPurchaseDate(purchase.purchase_date ? getStoreDateKey(purchase.purchase_date) ?? getStoreToday() : getStoreToday());
+      setExpectedDate(purchase.expected_delivery_date ? getStoreDateKey(purchase.expected_delivery_date) ?? '' : '');
       setNotes(purchase.notes || '');
       
       // Load items
@@ -216,7 +217,8 @@ export function EditPurchasePage() {
       const product = response.data?.product || response.data;
 
       setItems((prev) => {
-        const existingIndex = prev.findIndex((item) => item.product_id === product.id);
+        const scannedBarcode = barcodeInput.trim();
+        const existingIndex = prev.findIndex((item) => item.product_id === product.id && item.barcode === scannedBarcode);
         if (existingIndex >= 0) {
           return prev.map((item, idx) =>
             idx === existingIndex ? { ...item, quantity: item.quantity + 1 } : item
@@ -228,6 +230,7 @@ export function EditPurchasePage() {
             key: `${product.id}-${Date.now()}`,
             product_id: product.id,
             product_name: product.name,
+            barcode: scannedBarcode,
             quantity: 1,
             unit_cost: product.cost_price || 0,
             condition: 'new',
@@ -334,8 +337,8 @@ export function EditPurchasePage() {
     const formData = {
       supplier_id: selectedSupplier,
       invoice_number: invoiceNumber || `PO-${Date.now()}`,
-      purchase_date: new Date(purchaseDate).toISOString(),
-      expected_delivery_date: expectedDate ? new Date(expectedDate).toISOString() : undefined,
+      purchase_date: storeDateToUTCISOString(purchaseDate) ?? new Date().toISOString(),
+      expected_delivery_date: expectedDate ? storeDateToUTCISOString(expectedDate) ?? undefined : undefined,
       notes: notes || undefined,
         items: items.map((item) => ({
           id: item.id,
@@ -541,7 +544,7 @@ export function EditPurchasePage() {
                           <div className="flex-1">
                             <div className="font-medium">{product.name}</div>
                             <div className="text-sm text-text-muted">
-                              {product.barcode ? `الباركود: ${product.barcode}` : product.sku ? `SKU: ${product.sku}` : product.id}
+                              {`الباركود: ${product.barcode || 'لا يوجد باركود'}${product.sku ? ` · SKU: ${product.sku}` : ''}`}
                             </div>
                           </div>
                           <div className="flex items-center gap-4">

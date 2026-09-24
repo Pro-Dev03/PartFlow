@@ -29,4 +29,8 @@ var (
 
 	// ErrSubscriptionExpired is returned when credentials are valid but access is no longer permitted.
 	ErrSubscriptionExpired = errors.New("subscription expired")
+
+	ErrSubscriptionSuspended = errors.New("subscription suspended")
+
+	ErrAccountDeleted = errors.New("account deleted")
 )

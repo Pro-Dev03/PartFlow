@@ -7,6 +7,7 @@ import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { ReportActions } from '../../../design-system/components/report-actions';
 import { CreditCard, Plus } from 'lucide-react';
+import { getStoreToday } from '../../../utils/store-time';
 
 // Custom hooks
 import { useCustomers } from '../hooks/useCustomers';
@@ -106,7 +107,7 @@ export function CustomersPage() {
     }));
 
   const handleExport = () => {
-    exportToCSV(getCustomerReportRows(filteredCustomers), `customers-${new Date().toISOString().split('T')[0]}`);
+    exportToCSV(getCustomerReportRows(filteredCustomers), `customers-${getStoreToday()}`);
   };
 
   const handlePrint = () => {
@@ -123,7 +124,7 @@ export function CustomersPage() {
   };
 
   const handleExportAll = async () => {
-    exportToCSV(getCustomerReportRows(await loadAllCustomers()), `customers-all-${new Date().toISOString().split('T')[0]}`);
+    exportToCSV(getCustomerReportRows(await loadAllCustomers()), `customers-all-${getStoreToday()}`);
   };
 
   const handlePrintAll = async () => {

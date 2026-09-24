@@ -1,15 +1,9 @@
-/* ============================================================================
-   PartFlow Styles
-   ============================================================================ */
-
-/* Import Design Tokens first (base layer) */
+@import "tailwindcss" source("../");
 @import './design-system/styles/tokens.css';
-
-/* Import Themes (theme layer) */
 @import './design-system/styles/themes.css';
-
-/* Import Global Styles (components layer) */
 @import './design-system/styles/globals.css';
-
-/* Import Mobile-specific enhancements */
 @import './design-system/styles/mobile.css';
+@import './design-system/styles/visual-refresh.css';
+
+/* Tailwind CSS v4 no longer discovers the legacy JavaScript config automatically. */
+@config "../tailwind.config.js";

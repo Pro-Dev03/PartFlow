@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
@@ -679,13 +680,17 @@ func (s *Service) CreateSellerPayment(ctx context.Context, req *SellerPaymentReq
 
 // AddRepairCost adds a repair cost to an item
 func (s *Service) AddRepairCost(ctx context.Context, inventoryItemID uuid.UUID, acquisitionItemID uuid.UUID, repairType string, cost float64, description string, userID uuid.UUID) error {
+	storeDate, err := accounting.StoreDate(accounting.StoreNow())
+	if err != nil {
+		return fmt.Errorf("failed to calculate repair date: %w", err)
+	}
 	nowSQL := dbutil.NowSQL(s.db)
 	query := fmt.Sprintf(`
 		INSERT INTO item_repair_costs (inventory_item_id, acquisition_item_id, repair_date, repair_type, cost, description, performed_by, created_at)
-		VALUES ($1, $2, CURRENT_DATE, $3, $4, $5, $6, %s)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, %s)
 	`, nowSQL)
 
-	_, err := s.db.Exec(query, inventoryItemID, acquisitionItemID, repairType, cost, description, userID)
+	_, err = s.db.Exec(query, inventoryItemID, acquisitionItemID, storeDate, repairType, cost, description, userID)
 	if err != nil {
 		return fmt.Errorf("failed to add repair cost: %w", err)
 	}

@@ -24,8 +24,10 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		barcodes.GET("/:code", h.LookupBarcode)
 		barcodes.GET("/resolve/:code", h.ResolveBarcode)
 		barcodes.GET("/product/:code", h.LookupProductByBarcode)
+		barcodes.GET("/products/:id/codes", h.ListProductBarcodes)
 		barcodes.GET("/sku/:sku", h.LookupProductBySKU)
 		barcodes.POST("/generate", h.GenerateBarcode)
+		barcodes.POST("", h.CreateBarcode)
 		barcodes.POST("/labels", h.GenerateLabels)
 		barcodes.GET("", h.ListBarcodes)
 		barcodes.DELETE("/:id", h.DeleteBarcode)
@@ -80,6 +82,20 @@ func (h *Handler) LookupProductByBarcode(c *gin.Context) {
 	c.JSON(http.StatusOK, product)
 }
 
+func (h *Handler) ListProductBarcodes(c *gin.Context) {
+	productID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid product id"})
+		return
+	}
+	barcodes, err := h.service.ListBarcodesByProduct(c.Request.Context(), productID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"barcodes": barcodes})
+}
+
 // LookupProductBySKU looks up product information by SKU
 func (h *Handler) LookupProductBySKU(c *gin.Context) {
 	sku := c.Param("sku")
@@ -110,6 +126,20 @@ func (h *Handler) GenerateBarcode(c *gin.Context) {
 	c.JSON(http.StatusCreated, barcode)
 }
 
+func (h *Handler) CreateBarcode(c *gin.Context) {
+	var req BarcodeCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	barcode, err := h.service.CreateBarcode(c.Request.Context(), &req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, barcode)
+}
+
 // ListBarcodes lists all barcodes
 func (h *Handler) ListBarcodes(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -137,7 +167,13 @@ func (h *Handler) DeleteBarcode(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteBarcode(c.Request.Context(), id); err != nil {
+	var userID uuid.UUID
+	if value, exists := c.Get("user_id"); exists {
+		if parsed, ok := value.(uuid.UUID); ok {
+			userID = parsed
+		}
+	}
+	if err := h.service.DeleteBarcode(c.Request.Context(), id, userID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

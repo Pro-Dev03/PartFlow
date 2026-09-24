@@ -8,6 +8,7 @@ import { Card, CardContent } from '../../../design-system/components/card';
 import { Badge } from '../../../design-system/components/badge';
 import { SupplierInvoiceModal } from '../components/SupplierInvoiceModal';
 import { useState } from 'react';
+import { formatStoreDate } from '../../../utils/store-time';
 
 export function PurchaseDetailsPage() {
   const [supplierInvoiceOpen, setSupplierInvoiceOpen] = useState(false);
@@ -56,7 +57,7 @@ export function PurchaseDetailsPage() {
               <div><span className="text-sm text-text-muted">التاجر</span><p>{purchase.supplier?.name || purchase.supplier_name || '-'}</p></div>
               <div><span className="text-sm text-text-muted">الحالة</span><p><Badge>{purchase.status}</Badge></p></div>
               <div><span className="text-sm text-text-muted">الإجمالي</span><p>₪{Number(purchase.total_amount || 0).toLocaleString('en-US')}</p></div>
-              <div><span className="text-sm text-text-muted">تاريخ فاتورة المورد</span><p>{purchase.purchase_date ? new Date(purchase.purchase_date).toLocaleDateString('en-US') : '-'}</p></div>
+              <div><span className="text-sm text-text-muted">تاريخ فاتورة المورد</span><p>{purchase.purchase_date ? formatStoreDate(purchase.purchase_date, 'en-US') : '-'}</p></div>
               <div><span className="text-sm text-text-muted">رقم فاتورة المورد</span><p>{purchase.invoice_number || '-'}</p></div>
               <div><span className="text-sm text-text-muted">المدفوع</span><p>₪{Number(purchase.paid_amount || 0).toLocaleString('en-US')}</p></div>
               <div><span className="text-sm text-text-muted">المتبقي</span><p>₪{Math.max(0, Number(purchase.total_amount || 0) - Number(purchase.paid_amount || 0)).toLocaleString('en-US')}</p></div>

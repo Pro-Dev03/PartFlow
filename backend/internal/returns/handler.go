@@ -4,7 +4,6 @@ import (
 	stderrors "errors"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -228,8 +227,7 @@ func (h *Handler) DeleteReturn(c *gin.Context) {
 		return
 	}
 
-	permanent := strings.EqualFold(c.Query("permanent"), "true")
-	if err := h.service.DeleteReturn(c.Request.Context(), id, permanent); err != nil {
+	if err := h.service.DeleteReturn(c.Request.Context(), id); err != nil {
 		apperrors.HandleError(c, apperrors.ValidateRequest(err))
 		return
 	}

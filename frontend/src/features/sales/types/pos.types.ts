@@ -4,11 +4,11 @@ export interface CartItem {
   serialNumber?: string;
   name: string;
   barcode: string;
+  operationalBarcode?: string;
   price: number;
   quantity: number;
   total: number;
   stock?: number;
-  isTradeIn?: boolean;
   purchaseCost?: number;
   condition?: string;
   partType?: string;
@@ -51,6 +51,7 @@ export interface InvoiceData {
 
 export interface InvoiceItem {
   name: string;
+  barcode?: string;
   partType?: string;
   partTypeColor?: string;
   condition?: string;

@@ -361,23 +361,6 @@ func (s *Service) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// RestoreProduct restores a soft-deleted product
-func (s *Service) RestoreProduct(ctx context.Context, id uuid.UUID) error {
-	// Invalidate dashboard cache since products data changed
-	dashboard.InvalidateDashboardCacheWithReason("product_restored")
-	return s.repo.RestoreProduct(ctx, id)
-}
-
-// ArchiveProduct archives a product (soft delete)
-func (s *Service) ArchiveProduct(ctx context.Context, id uuid.UUID) error {
-	_, err := s.repo.GetProductByID(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	return s.repo.ArchiveProduct(ctx, id)
-}
-
 // GenerateBarcode generates a new barcode for a product
 func (s *Service) GenerateBarcode(ctx context.Context, productID uuid.UUID) (string, error) {
 	product, err := s.repo.GetProductByID(ctx, productID)

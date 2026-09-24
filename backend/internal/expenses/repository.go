@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
@@ -812,14 +813,22 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 	}
 
 	// This month expenses
-	monthExpr := `DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE)`
-	previousMonthExpr := `DATE_TRUNC('month', expense_date) = DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')`
+	monthStart, monthEnd, err := accounting.StoreMonthBounds(accounting.StoreNow())
+	if err != nil {
+		return nil, fmt.Errorf("calculate store month boundaries: %w", err)
+	}
+	previousMonthStart, previousMonthEnd, err := accounting.StorePreviousMonthBounds(accounting.StoreNow())
+	if err != nil {
+		return nil, fmt.Errorf("calculate previous store month boundaries: %w", err)
+	}
+	monthExpr := `expense_date >= $1 AND expense_date < $2`
+	previousMonthExpr := `expense_date >= $1 AND expense_date < $2`
 	if dbutil.IsSQLite(r.db) {
-		monthExpr = `strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now')`
-		previousMonthExpr = `strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now', '-1 month')`
+		monthExpr = `datetime(expense_date) >= datetime(?) AND datetime(expense_date) < datetime(?)`
+		previousMonthExpr = `datetime(expense_date) >= datetime(?) AND datetime(expense_date) < datetime(?)`
 	}
 	err = r.db.GetContext(ctx, &summary.ThisMonth,
-		fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE %s`, monthExpr))
+		fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE %s`, monthExpr), monthStart, monthEnd)
 	if err != nil {
 		if err.Error() == `pq: relation "expenses" does not exist` {
 			summary.ThisMonth = 0
@@ -830,7 +839,7 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 
 	// Last month expenses
 	err = r.db.GetContext(ctx, &summary.LastMonth,
-		fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE %s`, previousMonthExpr))
+		fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE %s`, previousMonthExpr), previousMonthStart, previousMonthEnd)
 	if err != nil {
 		if err.Error() == `pq: relation "expenses" does not exist` {
 			summary.LastMonth = 0

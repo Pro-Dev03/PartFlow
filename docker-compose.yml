@@ -14,6 +14,7 @@ services:
     ports:
       - "8080:8080"
     environment:
+      - TZ=UTC
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set in .env}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in .env}
       - SUPABASE_URL=${SUPABASE_URL:-}
@@ -49,7 +50,9 @@ services:
   # PostgreSQL (لتطوير محلي - على Render استخدم Managed PostgreSQL)
   postgres:
     image: postgres:15-alpine
+    command: ["postgres", "-c", "timezone=UTC"]
     environment:
+      - TZ=UTC
       - POSTGRES_DB=${POSTGRES_DB:-partflow}
       - POSTGRES_USER=${POSTGRES_USER:-partflow}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
@@ -72,6 +75,7 @@ services:
       context: ./worker
       dockerfile: Dockerfile
     environment:
+      - TZ=UTC
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set in .env}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set in .env}

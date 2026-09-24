@@ -19,16 +19,45 @@ import (
 )
 
 type IdempotencyMiddleware struct {
-	db *sqlx.DB
+	db          *sqlx.DB
+	lastCleanup time.Time
 }
 
 var idempotencyMu sync.Mutex
+var idempotencyLocks = map[string]*idempotencyKeyLock{}
 var idempotencyCache = map[string]struct {
 	requestHash  string
 	responseCode int
 	responseBody []byte
 	expiresAt    time.Time
 }{}
+
+type idempotencyKeyLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func lockIdempotencyKey(key string) func() {
+	idempotencyMu.Lock()
+	keyLock := idempotencyLocks[key]
+	if keyLock == nil {
+		keyLock = &idempotencyKeyLock{}
+		idempotencyLocks[key] = keyLock
+	}
+	keyLock.refs++
+	idempotencyMu.Unlock()
+
+	keyLock.mu.Lock()
+	return func() {
+		keyLock.mu.Unlock()
+		idempotencyMu.Lock()
+		keyLock.refs--
+		if keyLock.refs == 0 {
+			delete(idempotencyLocks, key)
+		}
+		idempotencyMu.Unlock()
+	}
+}
 
 func NewIdempotencyMiddleware(database interface{}) *IdempotencyMiddleware {
 	var db *sqlx.DB
@@ -69,9 +98,6 @@ func (im *IdempotencyMiddleware) Idempotency() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		idempotencyMu.Lock()
-		defer idempotencyMu.Unlock()
-
 		// Read request body for hashing
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil {
@@ -85,7 +111,18 @@ func (im *IdempotencyMiddleware) Idempotency() gin.HandlerFunc {
 
 		// Calculate request hash
 		requestHash := calculateHash(body)
-		if cached, ok := idempotencyCache[idempotencyKey]; ok && time.Now().Before(cached.expiresAt) {
+		unlockKey := lockIdempotencyKey(idempotencyKey)
+		defer unlockKey()
+		im.cleanupExpiredEntries()
+
+		idempotencyMu.Lock()
+		cached, ok := idempotencyCache[idempotencyKey]
+		if ok && !time.Now().Before(cached.expiresAt) {
+			delete(idempotencyCache, idempotencyKey)
+			ok = false
+		}
+		idempotencyMu.Unlock()
+		if ok {
 			if cached.requestHash != requestHash {
 				c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "idempotency key was already used with a different request"})
 				return
@@ -135,12 +172,14 @@ func (im *IdempotencyMiddleware) Idempotency() gin.HandlerFunc {
 
 func (im *IdempotencyMiddleware) cacheResponse(idempotencyKey, requestHash string, statusCode int, responseBody []byte) {
 	expiresAt := time.Now().Add(24 * time.Hour) // Cache for 24 hours
+	idempotencyMu.Lock()
 	idempotencyCache[idempotencyKey] = struct {
 		requestHash  string
 		responseCode int
 		responseBody []byte
 		expiresAt    time.Time
 	}{requestHash, statusCode, append([]byte(nil), responseBody...), expiresAt}
+	idempotencyMu.Unlock()
 
 	query := `
 		INSERT INTO idempotency_keys (id, idempotency_key, resource_type,
@@ -155,6 +194,26 @@ func (im *IdempotencyMiddleware) cacheResponse(idempotencyKey, requestHash strin
 	if err != nil {
 		// Log error but don't fail the request
 		fmt.Printf("Warning: failed to cache idempotency response: %v\n", err)
+	}
+}
+
+func (im *IdempotencyMiddleware) cleanupExpiredEntries() {
+	now := time.Now()
+	idempotencyMu.Lock()
+	if now.Sub(im.lastCleanup) < time.Hour {
+		idempotencyMu.Unlock()
+		return
+	}
+	im.lastCleanup = now
+	for key, cached := range idempotencyCache {
+		if !now.Before(cached.expiresAt) {
+			delete(idempotencyCache, key)
+		}
+	}
+	idempotencyMu.Unlock()
+
+	if _, err := im.db.Exec(`DELETE FROM idempotency_keys WHERE expires_at <= CURRENT_TIMESTAMP`); err != nil {
+		fmt.Printf("Warning: failed to clean expired idempotency keys: %v\n", err)
 	}
 }
 

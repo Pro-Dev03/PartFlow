@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client'
 import { Toaster } from 'sonner'
 import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react'
 import './index.css'
-import './design-system/styles/visual-refresh.css'
 import './i18n/config'
 import App from './App.tsx'
 

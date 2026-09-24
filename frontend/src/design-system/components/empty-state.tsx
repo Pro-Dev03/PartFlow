@@ -1,6 +1,7 @@
 import { forwardRef } from 'react';
 import { cn } from '../../utils';
 import { Package, Users, ShoppingCart, AlertCircle, FileText, CheckCircle } from 'lucide-react';
+import { Button } from './button';
 
 export interface EmptyStateProps {
   icon?: React.ReactNode;
@@ -48,7 +49,7 @@ const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
       <div
         ref={ref}
         className={cn(
-          'flex flex-col items-center justify-center text-center',
+          'pf-empty-state flex flex-col items-center justify-center text-center',
           className
         )}
         style={{
@@ -82,18 +83,14 @@ const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
           </p>
         )}
         {action && (
-          <button
+          <Button
+            type="button"
             onClick={action.onClick}
-            className={cn(
-              'mt-4 inline-flex min-h-10 items-center justify-center rounded-xl px-4 py-2 font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30',
-              action.variant === 'primary' 
-                ? 'border border-blue-200 bg-blue-50 text-blue-700 shadow-sm hover:-translate-y-0.5 hover:bg-blue-100 hover:shadow-md'
-                : 'border border-border bg-secondary text-secondary-foreground hover:bg-secondary/80'
-            )}
-            style={{ fontSize: 'var(--font-size-secondary)' }}
+            variant={action.variant || 'primary'}
+            className="mt-4"
           >
             {action.label}
-          </button>
+          </Button>
         )}
       </div>
     );
@@ -109,7 +106,6 @@ export const EmptyStates = {
       icon={<Package />}
       title="لا توجد منتجات"
       description="أضف أول منتج إلى مخزونك لتبدأ بإدارة متجرك"
-      action={{ label: 'إضافة منتج', onClick: () => {} }}
       {...props}
     />
   ),
@@ -118,7 +114,6 @@ export const EmptyStates = {
       icon={<Users />}
       title="لا يوجد عملاء"
       description="أضف أول عميل لتبدأ في تتبع معاملاتك"
-      action={{ label: 'إضافة عميل', onClick: () => {} }}
       {...props}
     />
   ),
@@ -127,7 +122,6 @@ export const EmptyStates = {
       icon={<ShoppingCart />}
       title="لا توجد مبيعات"
       description="ابدأ ببيع المنتجات لتتبع أداء متجرك"
-      action={{ label: 'بيع جديد', onClick: () => {} }}
       {...props}
     />
   ),
@@ -136,7 +130,6 @@ export const EmptyStates = {
       icon={<Package />}
       title="المخزون فارغ"
       description="أضف قطع إلى المخزون لتبدأ في البيع"
-      action={{ label: 'إضافة قطعة', onClick: () => {} }}
       {...props}
     />
   ),

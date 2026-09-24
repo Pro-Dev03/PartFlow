@@ -4,6 +4,7 @@ import { Button } from '../../design-system/components/button';
 import { Input } from '../../design-system/components/input';
 import { Select } from '../../design-system/components/select';
 import { Badge } from '../../design-system/components/badge';
+import { addStoreDays, getStoreToday } from '../../utils/store-time';
 import { 
   DollarSign, 
   AlertTriangle, 
@@ -31,9 +32,7 @@ export function DebtSale({ total, customers, onComplete, onCancel }: DebtSalePro
   const customer = customers.find((c: any) => c.id === selectedCustomer);
   
   // Calculate default due date (30 days from now)
-  const defaultDueDate = new Date();
-  defaultDueDate.setDate(defaultDueDate.getDate() + 30);
-  const defaultDueDateStr = defaultDueDate.toISOString().split('T')[0];
+  const defaultDueDateStr = addStoreDays(getStoreToday(), 30);
 
   const handleSubmit = () => {
     if (!selectedCustomer) return;
@@ -168,7 +167,7 @@ export function DebtSale({ total, customers, onComplete, onCancel }: DebtSalePro
             type="date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
-            min={new Date().toISOString().split('T')[0]}
+            min={getStoreToday()}
             defaultValue={defaultDueDateStr}
           />
           <p className="text-xs text-gray-500 dark:text-gray-400">

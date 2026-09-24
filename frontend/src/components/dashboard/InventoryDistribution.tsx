@@ -200,6 +200,7 @@ export function InventoryDistribution({
                       }}
                     >
                       <div
+                        className="dashboard-distribution-bar"
                         style={{
                           height: '100%',
                           width: `${Math.min(percentage, 100)}%`,

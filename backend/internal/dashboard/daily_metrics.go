@@ -27,6 +27,9 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 	if db == nil {
 		return todayMetrics{}, fmt.Errorf("dashboard database is nil")
 	}
+	if db.DriverName() == "sqlite" {
+		ensureSQLiteAccountingReturnViews(db.DB)
+	}
 
 	date, err := accounting.StoreDate(now)
 	if err != nil {
@@ -61,8 +64,8 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 		), expenses_total AS (SELECT 0 AS amount), returns_total AS (
 			SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded,
 			       COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost
-			FROM returns r
-			JOIN return_items ri ON ri.return_id = r.id
+			FROM accounting_returns r
+			JOIN accounting_return_items ri ON ri.return_id = r.id
 			LEFT JOIN sale_items si ON si.id = ri.sale_item_id
 			LEFT JOIN products p ON p.id = ri.product_id
 			WHERE r.return_date::date = $1::date
@@ -108,8 +111,8 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			), expenses_total AS (SELECT 0 AS amount), returns_total AS (
 				SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded,
 				       COALESCE(SUM(%s * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost
-				FROM returns r
-				JOIN return_items ri ON ri.return_id = r.id
+				FROM accounting_returns r
+				JOIN accounting_return_items ri ON ri.return_id = r.id
 				LEFT JOIN sale_items si ON si.id = ri.sale_item_id
 				%s
 				WHERE date(r.return_date) = ?

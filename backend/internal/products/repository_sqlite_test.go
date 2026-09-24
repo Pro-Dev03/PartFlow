@@ -58,6 +58,11 @@ func TestListProducts_LowStockFilterUsesInventoryItems(t *testing.T) {
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);
+		CREATE TABLE inventory (
+			id TEXT PRIMARY KEY,
+			product_id TEXT NOT NULL,
+			quantity INTEGER NOT NULL DEFAULT 0
+		);
 	`)
 	if err != nil {
 		t.Fatalf("create test schema: %v", err)
@@ -82,7 +87,7 @@ func TestListProducts_LowStockFilterUsesInventoryItems(t *testing.T) {
 	}
 
 	repo := NewRepository(db)
-	products, total, err := repo.ListProducts(context.Background(), &ProductListRequest{Page: 1, PerPage: 20, LowStockOnly: boolPtr(true)})
+	products, total, err := repo.ListProducts(context.Background(), &ProductListRequest{Page: 1, PerPage: 20, Search: "BAR-LOW-1", LowStockOnly: boolPtr(true)})
 	if err != nil {
 		t.Fatalf("ListProducts returned error: %v", err)
 	}
@@ -94,6 +99,102 @@ func TestListProducts_LowStockFilterUsesInventoryItems(t *testing.T) {
 	}
 	if products[0].Name != "Low Stock Product" {
 		t.Fatalf("unexpected product name: %s", products[0].Name)
+	}
+
+	products, total, err = repo.ListProducts(context.Background(), &ProductListRequest{
+		Page: 1, PerPage: 20, Search: "BAR-LOW-1", InStockOnly: boolPtr(true),
+	})
+	if err != nil {
+		t.Fatalf("ListProducts with in-stock filter returned error: %v", err)
+	}
+	if total != 1 || len(products) != 1 {
+		t.Fatalf("expected available product in filtered results, total=%d items=%d", total, len(products))
+	}
+	if _, err := db.Exec(`UPDATE inventory_items SET condition = 'USED' WHERE product_id = ?`, productID); err != nil {
+		t.Fatalf("mark item used: %v", err)
+	}
+	products, total, err = repo.ListProducts(context.Background(), &ProductListRequest{
+		Page: 1, PerPage: 20, Search: "BAR-LOW-1", InStockOnly: boolPtr(true),
+	})
+	if err != nil {
+		t.Fatalf("ListProducts with used-only stock returned error: %v", err)
+	}
+	if total != 0 || len(products) != 0 {
+		t.Fatalf("expected used-only product to be excluded, total=%d items=%d", total, len(products))
+	}
+}
+
+func TestGetProductStockCountExcludesUsedItems(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE inventory (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0);
+		CREATE TABLE inventory_items (
+			id TEXT PRIMARY KEY,
+			product_id TEXT NOT NULL,
+			status TEXT NOT NULL,
+			condition TEXT
+		);
+	`)
+	if err != nil {
+		t.Fatalf("create test schema: %v", err)
+	}
+
+	productID := uuid.NewString()
+	usedOnlyProductID := uuid.NewString()
+	multiLocationProductID := uuid.NewString()
+	for _, item := range []struct {
+		productID string
+		condition string
+	}{
+		{productID, "NEW"},
+		{productID, "NEW"},
+		{productID, "USED"},
+		{usedOnlyProductID, "USED"},
+	} {
+		if _, err := db.Exec(
+			`INSERT INTO inventory_items (id, product_id, status, condition) VALUES (?, ?, 'AVAILABLE', ?)`,
+			uuid.NewString(), item.productID, item.condition,
+		); err != nil {
+			t.Fatalf("insert inventory item: %v", err)
+		}
+	}
+	for _, quantity := range []int{2, 3} {
+		if _, err := db.Exec(
+			`INSERT INTO inventory (id, product_id, quantity) VALUES (?, ?, ?)`,
+			uuid.NewString(), multiLocationProductID, quantity,
+		); err != nil {
+			t.Fatalf("insert location stock: %v", err)
+		}
+	}
+
+	repo := NewRepository(db)
+	stock, err := repo.GetProductStockCount(context.Background(), uuid.MustParse(productID))
+	if err != nil {
+		t.Fatalf("GetProductStockCount returned error: %v", err)
+	}
+	if stock != 2 {
+		t.Fatalf("expected two new available items, got %d", stock)
+	}
+
+	stock, err = repo.GetProductStockCount(context.Background(), uuid.MustParse(usedOnlyProductID))
+	if err != nil {
+		t.Fatalf("GetProductStockCount returned error: %v", err)
+	}
+	if stock != 0 {
+		t.Fatalf("expected used-only stock to be excluded, got %d", stock)
+	}
+
+	stock, err = repo.GetProductStockCount(context.Background(), uuid.MustParse(multiLocationProductID))
+	if err != nil {
+		t.Fatalf("GetProductStockCount for multiple locations returned error: %v", err)
+	}
+	if stock != 5 {
+		t.Fatalf("expected stock from both locations to be summed to five, got %d", stock)
 	}
 }
 

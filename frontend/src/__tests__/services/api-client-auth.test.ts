@@ -86,6 +86,32 @@ describe('apiClient auth propagation', () => {
     window.removeEventListener('partflow:auth-invalidated', invalidated);
   });
 
+  it('retries refresh after a temporary refresh endpoint failure', async () => {
+    TokenManager.setToken('expired-local-token');
+    apiClient.setToken('expired-local-token');
+    const unauthorized = () => new Response(JSON.stringify({ code: 'INVALID_TOKEN', error: 'invalid token' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(unauthorized())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'temporary failure' }), { status: 503 }))
+      .mockResolvedValueOnce(unauthorized())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { access_token: 'fresh-local-token' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: { ok: true } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+
+    await expect(apiClient.get('/products', undefined, false)).rejects.toMatchObject({ code: 'AUTH_REFRESH_PENDING' });
+    await expect(apiClient.get('/products', undefined, false)).resolves.toMatchObject({ data: { ok: true } });
+    expect(fetchSpy).toHaveBeenCalledTimes(5);
+    expect(TokenManager.getToken()).toBe('fresh-local-token');
+  });
+
   it('does not log an expected unknown-barcode lookup as a server error', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(

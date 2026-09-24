@@ -41,15 +41,18 @@ func CurrentStoreTimezone() string {
 // StoreNow returns the current instant. Business dates must interpret it with
 // StoreLocation rather than the host or browser timezone.
 func StoreNow() time.Time {
-	return time.Now()
+	return time.Now().UTC()
 }
 
 func ConfigureStoreTimezone(timezone string) error {
-	if _, err := time.LoadLocation(timezone); err != nil {
-		return fmt.Errorf("load store timezone %s: %w", timezone, err)
+	if strings.TrimSpace(timezone) != DefaultStoreTimezone {
+		return fmt.Errorf("PartFlow store timezone is fixed to %s", DefaultStoreTimezone)
+	}
+	if _, err := time.LoadLocation(DefaultStoreTimezone); err != nil {
+		return fmt.Errorf("load store timezone %s: %w", DefaultStoreTimezone, err)
 	}
 	storeTimezoneMu.Lock()
-	storeTimezone = timezone
+	storeTimezone = DefaultStoreTimezone
 	storeTimezoneMu.Unlock()
 	return nil
 }
@@ -70,10 +73,13 @@ func LoadStoreTimezone(ctx context.Context, db *sqlx.DB) error {
 		}
 		return fmt.Errorf("load persisted store timezone: %w", err)
 	}
-	if strings.TrimSpace(timezone) == "" {
-		return nil
+	if strings.TrimSpace(timezone) != DefaultStoreTimezone {
+		query := db.Rebind(`UPDATE settings SET value = ? WHERE key = ?`)
+		if _, err := db.ExecContext(ctx, query, DefaultStoreTimezone, "store_timezone"); err != nil {
+			return fmt.Errorf("normalize persisted store timezone: %w", err)
+		}
 	}
-	return ConfigureStoreTimezone(strings.TrimSpace(timezone))
+	return ConfigureStoreTimezone(DefaultStoreTimezone)
 }
 
 // StoreDayBounds returns UTC instants for the local calendar day containing now.
@@ -120,6 +126,32 @@ func StoreMonthBounds(now time.Time) (time.Time, time.Time, error) {
 	local := now.In(location)
 	start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, location)
 	return start.UTC(), start.AddDate(0, 1, 0).UTC(), nil
+}
+
+// StorePreviousMonthBounds returns UTC boundaries for the previous store-local month.
+func StorePreviousMonthBounds(now time.Time) (time.Time, time.Time, error) {
+	monthStart, _, err := StoreMonthBounds(now)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	location, err := StoreLocation()
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	previousStart := monthStart.In(location).AddDate(0, -1, 0)
+	return previousStart.UTC(), monthStart, nil
+}
+
+// StoreWeekBounds returns UTC boundaries for the Monday-based store-local week.
+func StoreWeekBounds(now time.Time) (time.Time, time.Time, error) {
+	location, err := StoreLocation()
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	local := now.In(location)
+	daysSinceMonday := (int(local.Weekday()) + 6) % 7
+	weekStart := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location).AddDate(0, 0, -daysSinceMonday)
+	return weekStart.UTC(), weekStart.AddDate(0, 0, 7).UTC(), nil
 }
 
 // StoreDateRange returns inclusive-start/exclusive-end calendar dates for a

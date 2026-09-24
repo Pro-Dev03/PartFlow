@@ -22,18 +22,18 @@ import { ConfirmDialog } from '../../../design-system/components/confirm-dialog'
 import { TableActionButton } from '../../../design-system/components/table-action-button';
 import { settingsApi } from '../../../services/api/endpoints';
 import type { User } from '../../../types/models';
+import { formatStoreDate, parseBackendTimestamp } from '../../../utils/store-time';
 
 const formatExpiry = (value?: string | null) => {
   if (!value) return 'غير محدد';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'غير محدد';
-  return new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium', timeZone: 'UTC' }).format(date);
+  const formatted = formatStoreDate(value, 'ar-EG');
+  return formatted === 'غير محدد' ? 'غير محدد' : formatted;
 };
 
 const getDaysRemaining = (value?: string | null) => {
   if (!value) return null;
-  const expiry = new Date(value);
-  if (Number.isNaN(expiry.getTime())) return null;
+  const expiry = parseBackendTimestamp(value);
+  if (!expiry) return null;
   const diffMs = expiry.getTime() - Date.now();
   return Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
 };
@@ -101,8 +101,8 @@ export function SubscriptionManagement() {
     });
 
     return normalized.sort((a, b) => {
-      const aDate = a.subscription_expires_at ? new Date(a.subscription_expires_at).getTime() : Number.MAX_SAFE_INTEGER;
-      const bDate = b.subscription_expires_at ? new Date(b.subscription_expires_at).getTime() : Number.MAX_SAFE_INTEGER;
+      const aDate = a.subscription_expires_at ? parseBackendTimestamp(a.subscription_expires_at)?.getTime() ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+      const bDate = b.subscription_expires_at ? parseBackendTimestamp(b.subscription_expires_at)?.getTime() ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
       return aDate - bDate;
     });
   }, [search, statusFilter, subscribersData]);
@@ -227,7 +227,7 @@ export function SubscriptionManagement() {
   const previewExtensionDate = () => {
     const days = Number(extensionDays);
     if (!Number.isInteger(days) || days < 1) return 'أدخل مدة صحيحة';
-    const currentExpiry = extensionUser?.subscription_expires_at ? new Date(extensionUser.subscription_expires_at) : null;
+      const currentExpiry = extensionUser?.subscription_expires_at ? parseBackendTimestamp(extensionUser.subscription_expires_at) : null;
     const baseDate = currentExpiry && currentExpiry.getTime() > Date.now() ? currentExpiry : new Date();
     baseDate.setDate(baseDate.getDate() + days);
     return formatExpiry(baseDate.toISOString());

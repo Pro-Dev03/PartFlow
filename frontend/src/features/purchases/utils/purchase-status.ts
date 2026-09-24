@@ -26,7 +26,7 @@ export function matchesPurchaseViewFilter(status?: string | null, viewFilter?: s
   const normalized = normalizePurchaseStatus(status);
 
   if (!viewFilter || viewFilter === 'all') return true;
-  if (viewFilter === 'archived') return normalized === 'reversed' || normalized === 'cancelled';
+  if (viewFilter === 'closed') return normalized === 'reversed' || normalized === 'cancelled';
   if (viewFilter === 'received') return isReceivedPurchaseStatus(normalized);
   if (viewFilter === 'active') return !['reversed', 'cancelled'].includes(normalized) && !isReceivedPurchaseStatus(normalized);
 

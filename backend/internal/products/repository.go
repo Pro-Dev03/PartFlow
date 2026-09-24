@@ -617,7 +617,12 @@ func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string) (*
 	if dbutil.IsSQLite(r.db) {
 		var productID string
 		err := r.db.GetContext(ctx, &productID,
-			`SELECT id FROM products WHERE barcode = $1 AND deleted_at IS NULL`, barcode)
+			`SELECT p.id FROM products p
+			 WHERE p.deleted_at IS NULL AND (
+				p.barcode = $1
+				OR EXISTS (SELECT 1 FROM barcodes b LEFT JOIN inventory_items bi ON bi.id = b.inventory_item_id WHERE (b.product_id = p.id OR bi.product_id = p.id) AND b.code = $1 AND b.is_active = 1 AND UPPER(b.type) IN ('EXTERNAL', 'INTERNAL'))
+				OR EXISTS (SELECT 1 FROM inventory_items ii WHERE ii.product_id = p.id AND ii.barcode = $1)
+			 ) LIMIT 1`, barcode)
 		if err == sql.ErrNoRows {
 			return nil, ErrProductNotFound
 		}
@@ -629,13 +634,22 @@ func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string) (*
 		if err != nil {
 			return nil, fmt.Errorf("parse product id: %w", err)
 		}
-		return r.GetProductByID(ctx, id)
+		product, err := r.GetProductByID(ctx, id)
+		if err == nil {
+			product.Barcode = barcode
+		}
+		return product, err
 	}
 
 	query := `
-		SELECT id, category_id, brand_id, preferred_supplier_id, name, description, model, sku, barcode, cost_price, selling_price, track_serial, track_individual, min_stock_level, warranty_days, is_active, deleted_at, created_at, updated_at
-		FROM products
-		WHERE barcode = $1 AND deleted_at IS NULL
+		SELECT p.id, p.category_id, p.brand_id, p.preferred_supplier_id, p.name, p.description, p.model, p.sku, $1 AS barcode, p.cost_price, p.selling_price, p.track_serial, p.track_individual, p.min_stock_level, p.warranty_days, p.is_active, p.deleted_at, p.created_at, p.updated_at
+		FROM products p
+		WHERE p.deleted_at IS NULL AND (
+			p.barcode = $1
+			OR EXISTS (SELECT 1 FROM barcodes b LEFT JOIN inventory_items bi ON bi.id = b.inventory_item_id WHERE (b.product_id = p.id OR bi.product_id = p.id) AND b.code = $1 AND b.is_active = true AND UPPER(b.type) IN ('EXTERNAL', 'INTERNAL'))
+			OR EXISTS (SELECT 1 FROM inventory_items ii WHERE ii.product_id = p.id AND ii.barcode = $1)
+		)
+		LIMIT 1
 	`
 	var product Product
 	err := r.db.GetContext(ctx, &product, query, barcode)
@@ -682,8 +696,8 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 	if req.Search != "" {
 		argCount++
 		searchPattern := "%" + req.Search + "%"
-		baseQuery += ` AND (name ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR model ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR sku ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR description ` + likeOperator + ` $` + fmt.Sprint(argCount) + `)`
-		countQuery += ` AND (name ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR model ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR sku ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR description ` + likeOperator + ` $` + fmt.Sprint(argCount) + `)`
+		baseQuery += ` AND (name ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR model ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR sku ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR barcode ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR description ` + likeOperator + ` $` + fmt.Sprint(argCount) + `)`
+		countQuery += ` AND (name ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR model ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR sku ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR barcode ` + likeOperator + ` $` + fmt.Sprint(argCount) + ` OR description ` + likeOperator + ` $` + fmt.Sprint(argCount) + `)`
 		args = append(args, searchPattern)
 	}
 
@@ -721,16 +735,16 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 
 	// Advanced filtering: in stock only
 	if req.InStockOnly != nil && *req.InStockOnly {
-		baseQuery += ` AND (
-			SELECT COALESCE(COUNT(*), 0)
-			FROM inventory_items ii
-			WHERE ii.product_id = p.id AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE'
-		) > 0`
-		countQuery += ` AND (
-			SELECT COALESCE(COUNT(*), 0)
-			FROM inventory_items ii
-			WHERE ii.product_id = p.id AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE'
-		) > 0`
+		availableStock := `COALESCE(
+			(SELECT SUM(inv.quantity) FROM inventory inv WHERE inv.product_id = p.id),
+			(SELECT COUNT(*) FROM inventory_items ii
+			 WHERE ii.product_id = p.id
+			   AND UPPER(COALESCE(ii.status, '')) = 'AVAILABLE'
+			   AND UPPER(COALESCE(ii.condition, '')) <> 'USED'),
+			0
+		)`
+		baseQuery += ` AND ` + availableStock + ` > 0`
+		countQuery += ` AND ` + availableStock + ` > 0`
 	}
 
 	if req.ManualOnly != nil && *req.ManualOnly {
@@ -1188,32 +1202,14 @@ func isOptionalProductCleanupError(err error) bool {
 	return false
 }
 
-// RestoreProduct restores a soft-deleted product
-func (r *Repository) RestoreProduct(ctx context.Context, id uuid.UUID) error {
-	query := `UPDATE products SET deleted_at = NULL, updated_at = $1 WHERE id = $2 AND deleted_at IS NOT NULL`
-	now := time.Now()
-	result, err := r.db.ExecContext(ctx, query, now, id)
-	if err != nil {
-		return err
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rows == 0 {
-		return ErrProductNotFound
-	}
-
-	return nil
-}
-
 // GetProductStockCount returns the stock count for a product
 func (r *Repository) GetProductStockCount(ctx context.Context, productID uuid.UUID) (int, error) {
 	query := `
-		SELECT COALESCE((SELECT quantity FROM inventory WHERE product_id = $1), (
-			SELECT COUNT(*) FROM inventory_items WHERE product_id = $1 AND UPPER(COALESCE(status, '')) = 'AVAILABLE'
+		SELECT COALESCE((SELECT SUM(quantity) FROM inventory WHERE product_id = $1), (
+			SELECT COUNT(*) FROM inventory_items
+			WHERE product_id = $1
+			  AND UPPER(COALESCE(status, '')) = 'AVAILABLE'
+			  AND UPPER(COALESCE(condition, '')) <> 'USED'
 		))
 	`
 	var count int
@@ -1226,26 +1222,6 @@ func (r *Repository) GetProductStockSettings(ctx context.Context, productID uuid
 	var minStockLevel int
 	err := r.db.QueryRowContext(ctx, `SELECT track_individual, min_stock_level FROM products WHERE id = $1 AND deleted_at IS NULL`, productID).Scan(&trackIndividual, &minStockLevel)
 	return trackIndividual, minStockLevel, err
-}
-
-// ArchiveProduct archives a product (sets is_active to false)
-func (r *Repository) ArchiveProduct(ctx context.Context, id uuid.UUID) error {
-	query := `UPDATE products SET is_active = false, updated_at = $1 WHERE id = $2 AND deleted_at IS NULL`
-	result, err := r.db.ExecContext(ctx, query, time.Now(), id)
-	if err != nil {
-		return err
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rows == 0 {
-		return ErrProductNotFound
-	}
-
-	return nil
 }
 
 // GetAvailableItemCount returns the count of available items for a product

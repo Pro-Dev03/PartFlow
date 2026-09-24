@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 import { TokenManager } from '../../lib/token-manager';
-import { getCloudApiUrl, getConnectionMode, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
+import { getActiveApiUrl, getCloudApiUrl, getConnectionMode, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
 import type {
   ProductCreateRequest,
   ProductUpdateRequest,
@@ -61,11 +61,35 @@ export const authApi = {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload?.error?.message || payload?.error || 'تعذر إنشاء الجلسة المحلية.');
+      const error: any = new Error(payload?.error?.message || payload?.error || 'تعذر إنشاء الجلسة المحلية.');
+      error.status = response.status;
+      error.code = payload?.code || payload?.error?.code;
+      error.response = payload;
+      throw error;
     }
     return payload?.data ?? payload;
   },
-  logout: () => apiClient.post('/auth/logout', {}),
+  logout: async () => {
+    const accessToken = TokenManager.getToken();
+    const cloudToken = TokenManager.getCloudToken();
+    const response = await fetch(`${getActiveApiUrl()}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        ...(cloudToken ? { 'X-PartFlow-Cloud-Token': cloudToken } : {}),
+      },
+      body: '{}',
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const error: any = new Error(payload?.error?.message || payload?.error || 'Logout failed');
+      error.status = response.status;
+      error.code = payload?.code || payload?.error?.code;
+      throw error;
+    }
+  },
   logoutWithCloud: (accessToken: string) => {
     if (!accessToken || typeof fetch !== 'function') {
       return Promise.resolve();
@@ -96,7 +120,7 @@ export const authApi = {
     const response = await apiClient.get<{ is_admin?: boolean }>('/auth/admin-check', undefined, false);
     return response.data ?? response;
   },
-  refreshToken: async () => {
+  refreshToken: async (signal?: AbortSignal) => {
     const baseUrl = typeof window !== 'undefined' && shouldUseLocalApi(window.location.hostname)
       ? getLocalApiUrl()
       : getCloudApiUrl();
@@ -104,6 +128,7 @@ export const authApi = {
     const response = await fetch(`${baseUrl}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
+      signal,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -134,6 +159,7 @@ export const authApi = {
     if (!response.ok) {
       const error: any = new Error(payload?.error?.message || payload?.error || 'تعذر تحديث الجلسة.');
       error.status = response.status;
+      error.code = payload?.code || payload?.error?.code;
       error.response = payload;
       throw error;
     }
@@ -185,7 +211,6 @@ export const productsApi = {
   updateName: (id: string, name: string) => apiClient.patch(`/products/${id}/name`, { name }),
   updateMinimumStock: (id: string, minStockLevel: number) => apiClient.patch(`/products/${id}/min-stock`, { min_stock_level: minStockLevel }),
   delete: (id: string) => apiClient.delete(`/products/${id}`),
-  archive: (id: string) => apiClient.post(`/products/${id}/archive`),
 };
 
 // Categories endpoints
@@ -201,8 +226,6 @@ export const categoriesApi = {
 export const inventoryApi = {
   list: (params?: InventoryListParams) =>
     apiClient.get('/inventory/items', params),
-  listArchived: (params?: PaginationParams) =>
-    apiClient.get('/inventory/archive', params),
   listWithSupplier: (params?: InventoryListParams & { 
     exclude_condition?: string;
     supplier_id?: string;
@@ -229,7 +252,7 @@ export const inventoryApi = {
     apiClient.post(`/inventory/products/${productId}/quantity`, { new_quantity: newQuantity, reason }),
   update: (id: string, data: InventoryUpdateRequest) => apiClient.put(`/inventory/items/${id}`, data),
   updateStatus: (id: string, status: string) => apiClient.patch(`/inventory/items/${id}/status`, { status }),
-  delete: (id: string, params?: { permanent?: boolean }) => apiClient.delete(`/inventory/items/${id}`, params),
+  delete: (id: string) => apiClient.delete(`/inventory/items/${id}`),
   movements: <T = unknown>(itemId: string) => apiClient.get<T>(`/inventory/items/${itemId}/history`),
   createTradeIn: (data: InventoryCreateRequest) => apiClient.post('/inventory/trade-ins', data),
 };
@@ -267,7 +290,7 @@ export const salesApi = {
   list: (params?: PaginationParams & { search?: string; customer_id?: string; status?: string; available_for_return?: boolean }) =>
     apiClient.get('/sales', params),
   get: (id: string) => apiClient.get(`/sales/${id}`),
-  create: (data: SaleCreateRequest) => apiClient.post('/sales', data),
+  create: (data: SaleCreateRequest, idempotencyKey?: string) => apiClient.post('/sales', data, idempotencyKey),
   listHeld: () => apiClient.get('/sales/held'),
   hold: (items: unknown[]) => apiClient.post('/sales/held', { items }),
   deleteHeld: (id: string) => apiClient.delete(`/sales/held/${id}`),
@@ -581,6 +604,10 @@ export const barcodeApi = {
     }
   },
   lookup: (barcode: string) => apiClient.get(`/barcodes/${barcode}`),
+  create: (data: { code: string; type?: 'EXTERNAL' | 'INTERNAL'; product_id?: string; inventory_item_id?: string }) =>
+    apiClient.post('/barcodes', data),
+  listByProduct: (productId: string) => apiClient.get(`/barcodes/products/${encodeURIComponent(productId)}/codes`),
+  delete: (id: string) => apiClient.delete(`/barcodes/${encodeURIComponent(id)}`),
   lookupProduct: async (barcode: string) => {
     try {
       const response = await apiClient.get(`/barcodes/resolve/${encodeURIComponent(barcode)}`);
@@ -638,7 +665,7 @@ export const returnsApi = {
   getWithItems: (id: string) => apiClient.get(`/returns/${id}/with-items`),
   create: (data: any) => apiClient.post('/returns', data),
   update: (id: string, data: any) => apiClient.put(`/returns/${id}`, data),
-  delete: (id: string, options?: { permanent?: boolean }) => apiClient.delete(`/returns/${id}`, options),
+  delete: (id: string) => apiClient.delete(`/returns/${id}`),
   approve: (id: string) => apiClient.post(`/returns/${id}/approve`),
   reject: (id: string) => apiClient.post(`/returns/${id}/reject`),
   processRefund: (id: string) => apiClient.post(`/returns/${id}/refund`),

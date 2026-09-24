@@ -1,5 +1,5 @@
 import { printHtmlDocument } from './print-html';
-import { getRegionalProfile } from '../../utils/store-time';
+import { formatStoreDate, getRegionalProfile, parseBackendTimestamp, STORE_TIMEZONE } from '../../utils/store-time';
 
 export interface InvoiceDocumentItem {
   name: string;
@@ -102,19 +102,19 @@ export function invoiceDocumentFromPurchase({ purchase, supplier, items, storeIn
 }
 
 function renderInvoiceHtmlBase(document: InvoiceDocument): string {
-  const date = new Date(document.date);
+  const date = parseBackendTimestamp(document.date);
   const regionalProfile = getRegionalProfile();
-  const dateText = Number.isNaN(date.valueOf()) ? '-' : `${new Intl.DateTimeFormat('ar-SA', {
+  const dateText = !date || Number.isNaN(date.valueOf()) ? '-' : `${new Intl.DateTimeFormat('ar-SA', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-    timeZone: regionalProfile.timezone,
+    timeZone: STORE_TIMEZONE,
   }).format(date).replace(/\s*\/\s*/g, ' \u00a0/\u00a0 ')}\u00a0\u00a0`;
-  const timeText = Number.isNaN(date.valueOf()) ? '-' : `\u00a0\u00a0${new Intl.DateTimeFormat('ar-SA', {
+  const timeText = !date || Number.isNaN(date.valueOf()) ? '-' : `\u00a0\u00a0${new Intl.DateTimeFormat('ar-SA', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: regionalProfile.time_format === '12h',
-    timeZone: regionalProfile.timezone,
+    timeZone: STORE_TIMEZONE,
   }).format(date)}`;
   const itemTotal = document.items.reduce((sum, item) => sum + Math.max(0, Number(item.total || 0)), 0);
   const rows = document.items.map((item) => {
@@ -238,7 +238,7 @@ async function saveBrowserPdf(document: InvoiceDocument, fileName: string): Prom
   write(`رقم الفاتورة: ${document.invoiceNumber}`, 10); y += 6;
   write(`رقم العملية: ${document.transactionId || '-'}`, 10); y += 6;
   write(`${document.partyLabel}: ${document.partyName}`, 10); y += 6;
-  write(`التاريخ: ${new Date(document.date).toLocaleDateString('ar-SA')}`, 10); y += 6;
+  write(`التاريخ: ${formatStoreDate(document.date, 'ar-SA')}`, 10); y += 6;
   write(`حالة الدفع: ${document.status}`, 10, true); y += 10;
   pdf.setFillColor(238, 242, 247);
   pdf.rect(14, y - 6, pageWidth - 28, 9, 'F');
@@ -305,7 +305,7 @@ export async function saveInvoiceDocumentPdf(document: InvoiceDocument): Promise
   write(document.storeName || 'PartFlow', 20);
   write(document.title, 13);
   write(`رقم الفاتورة: ${document.invoiceNumber}`);
-  write(`التاريخ: ${new Date(document.date).toLocaleDateString('ar-SA')}`);
+  write(`التاريخ: ${formatStoreDate(document.date, 'ar-SA')}`);
   write(`${document.partyLabel}: ${document.partyName}`);
   write(`حالة الدفع: ${document.status}`);
   y += 5;

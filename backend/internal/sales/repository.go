@@ -17,24 +17,25 @@ type Repository struct {
 }
 
 type localSaleRow struct {
-	ID             string         `db:"id"`
-	SaleDate       string         `db:"sale_date"`
-	CustomerID     sql.NullString `db:"customer_id"`
-	InvoiceNumber  string         `db:"invoice_number"`
-	Subtotal       float64        `db:"subtotal"`
-	TaxAmount      float64        `db:"tax_amount"`
-	DiscountAmount float64        `db:"discount_amount"`
-	TotalAmount    float64        `db:"total_amount"`
+	ID             string          `db:"id"`
+	SaleDate       string          `db:"sale_date"`
+	CustomerID     sql.NullString  `db:"customer_id"`
+	CustomerName   sql.NullString  `db:"customer_name"`
+	InvoiceNumber  string          `db:"invoice_number"`
+	Subtotal       float64         `db:"subtotal"`
+	TaxAmount      float64         `db:"tax_amount"`
+	DiscountAmount float64         `db:"discount_amount"`
+	TotalAmount    float64         `db:"total_amount"`
 	CostAmount     sql.NullFloat64 `db:"cost_amount"`
-	GrossProfit    float64        `db:"gross_profit"`
-	NetProfit      float64        `db:"net_profit"`
-	PaidAmount     float64        `db:"paid_amount"`
-	PaymentMethod  *string        `db:"payment_method"`
-	PaymentStatus  string         `db:"payment_status"`
-	Status         string         `db:"status"`
-	Notes          *string        `db:"notes"`
-	CreatedAt      string         `db:"created_at"`
-	UpdatedAt      string         `db:"updated_at"`
+	GrossProfit    float64         `db:"gross_profit"`
+	NetProfit      float64         `db:"net_profit"`
+	PaidAmount     float64         `db:"paid_amount"`
+	PaymentMethod  *string         `db:"payment_method"`
+	PaymentStatus  string          `db:"payment_status"`
+	Status         string          `db:"status"`
+	Notes          *string         `db:"notes"`
+	CreatedAt      string          `db:"created_at"`
+	UpdatedAt      string          `db:"updated_at"`
 }
 
 type paymentAllocationRow struct {
@@ -75,6 +76,10 @@ func (r localSaleRow) sale() (Sale, error) {
 		if customerID, parseErr := uuid.Parse(strings.TrimSpace(r.CustomerID.String)); parseErr == nil {
 			sale.CustomerID = &customerID
 		}
+	}
+	if r.CustomerName.Valid {
+		customerName := r.CustomerName.String
+		sale.CustomerName = &customerName
 	}
 	sale.SaleDate, err = parseSaleTime(r.SaleDate)
 	if err != nil {
@@ -150,13 +155,15 @@ func (r *Repository) CreateSale(ctx context.Context, sale *Sale) error {
 // GetSaleByID retrieves a sale by ID
 func (r *Repository) GetSaleByID(ctx context.Context, id uuid.UUID) (*Sale, error) {
 	query := `
-		SELECT id, sale_date, customer_id, invoice_number, 
+		SELECT id, sale_date, customer_id,
+			(SELECT c.name FROM customers c WHERE c.id = sales.customer_id) AS customer_name,
+			invoice_number,
 			COALESCE(subtotal, 0) AS subtotal, COALESCE(tax_amount, 0) AS tax_amount,
 			COALESCE(discount_amount, 0) AS discount_amount, COALESCE(total_amount, 0) AS total_amount,
 			COALESCE(cost_amount, 0) AS cost_amount, COALESCE(gross_profit, 0) AS gross_profit,
 			COALESCE(net_profit, 0) AS net_profit, COALESCE(paid_amount, 0) AS paid_amount,
 			payment_method, payment_status, status, notes, created_at, updated_at
-		FROM sales WHERE id = $1
+		FROM sales WHERE sales.id = $1
 	`
 	if dbutil.IsSQLite(r.db) {
 		var row localSaleRow
@@ -182,10 +189,12 @@ func (r *Repository) GetSaleByID(ctx context.Context, id uuid.UUID) (*Sale, erro
 // GetSaleByInvoiceNumber retrieves a sale by invoice number
 func (r *Repository) GetSaleByInvoiceNumber(ctx context.Context, invoiceNumber string) (*Sale, error) {
 	query := `
-		SELECT id, sale_date, customer_id, invoice_number, 
+		SELECT id, sale_date, customer_id,
+			(SELECT c.name FROM customers c WHERE c.id = sales.customer_id) AS customer_name,
+			invoice_number,
 			subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit,
 			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at
-		FROM sales WHERE invoice_number = $1
+		FROM sales WHERE sales.invoice_number = $1
 	`
 	if dbutil.IsSQLite(r.db) {
 		var row localSaleRow
@@ -213,7 +222,9 @@ func (r *Repository) ListSales(ctx context.Context, page, perPage int, filters m
 	offset := (page - 1) * perPage
 
 	baseQuery := `
-		SELECT id, sale_date, customer_id, invoice_number, 
+		SELECT id, sale_date, customer_id,
+			(SELECT c.name FROM customers c WHERE c.id = sales.customer_id) AS customer_name,
+			invoice_number,
 			subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit,
 			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at
 		FROM sales WHERE 1=1
@@ -259,8 +270,8 @@ func (r *Repository) ListSales(ctx context.Context, page, perPage int, filters m
 			WHERE available_items.sale_id = sales.id
 			  AND available_items.quantity > COALESCE((
 				SELECT SUM(ri.quantity_returned)
-				FROM return_items ri
-				JOIN returns r ON r.id = ri.return_id
+				FROM accounting_return_items ri
+				JOIN accounting_returns r ON r.id = ri.return_id
 				WHERE ri.sale_item_id = available_items.id
 				  AND LOWER(COALESCE(r.status, 'completed')) NOT IN ('rejected', 'cancelled', 'canceled')
 			), 0)
@@ -331,13 +342,41 @@ func (r *Repository) CreateSaleItem(ctx context.Context, item *SaleItem) error {
 
 // GetSaleItems retrieves items for a sale
 func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]SaleItem, error) {
-	productCodeColumns := "p.sku, p.barcode"
+	skuColumn := "p.sku"
+	barcodeCandidates := []string{"NULLIF(si.barcode, '')", "NULLIF(ii.barcode, '')", "NULLIF(p.barcode, '')"}
 	if dbutil.IsSQLite(r.db) {
-		var productCodeCount int
-		if err := r.db.GetContext(ctx, &productCodeCount, `SELECT COUNT(*) FROM pragma_table_info('products') WHERE name IN ('sku', 'barcode')`); err != nil || productCodeCount < 2 {
-			productCodeColumns = "NULL AS sku, NULL AS barcode"
+		var columns struct {
+			ProductSKU     bool `db:"product_sku"`
+			ProductBarcode bool `db:"product_barcode"`
+			SaleBarcode    bool `db:"sale_barcode"`
+			ItemBarcode    bool `db:"item_barcode"`
+		}
+		if err := r.db.GetContext(ctx, &columns, `SELECT
+			EXISTS (SELECT 1 FROM pragma_table_info('products') WHERE name='sku') AS product_sku,
+			EXISTS (SELECT 1 FROM pragma_table_info('products') WHERE name='barcode') AS product_barcode,
+			EXISTS (SELECT 1 FROM pragma_table_info('sale_items') WHERE name='barcode') AS sale_barcode,
+			EXISTS (SELECT 1 FROM pragma_table_info('inventory_items') WHERE name='barcode') AS item_barcode`); err != nil {
+			return nil, fmt.Errorf("inspect sale item barcode columns: %w", err)
+		}
+		if !columns.ProductSKU {
+			skuColumn = "NULL AS sku"
+		}
+		barcodeCandidates = nil
+		if columns.SaleBarcode {
+			barcodeCandidates = append(barcodeCandidates, "NULLIF(si.barcode, '')")
+		}
+		if columns.ItemBarcode {
+			barcodeCandidates = append(barcodeCandidates, "NULLIF(ii.barcode, '')")
+		}
+		if columns.ProductBarcode {
+			barcodeCandidates = append(barcodeCandidates, "NULLIF(p.barcode, '')")
 		}
 	}
+	barcodeColumn := "NULL AS barcode"
+	if len(barcodeCandidates) > 0 {
+		barcodeColumn = "COALESCE(" + strings.Join(barcodeCandidates, ", ") + ") AS barcode"
+	}
+	productCodeColumns := skuColumn + ", " + barcodeColumn
 	baseQuery := `
 		SELECT si.id, si.sale_id, si.product_id, p.name AS product_name, %s, si.inventory_item_id, ii.serial_number,
 			si.quantity, 0 AS returned_quantity, si.quantity AS remaining_quantity,
@@ -351,8 +390,8 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 	query := fmt.Sprintf(`
 		SELECT si.id, si.sale_id, si.product_id, p.name AS product_name, %s, si.inventory_item_id, ii.serial_number,
 			si.quantity,
-			COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri JOIN returns r ON r.id = ri.return_id WHERE ri.sale_item_id = si.id AND LOWER(COALESCE(r.status, 'completed')) NOT IN ('rejected', 'cancelled', 'canceled')), 0) AS returned_quantity,
-			si.quantity - COALESCE((SELECT SUM(ri.quantity_returned) FROM return_items ri JOIN returns r ON r.id = ri.return_id WHERE ri.sale_item_id = si.id AND LOWER(COALESCE(r.status, 'completed')) NOT IN ('rejected', 'cancelled', 'canceled')), 0) AS remaining_quantity,
+			COALESCE((SELECT SUM(ri.quantity_returned) FROM accounting_return_items ri JOIN accounting_returns r ON r.id = ri.return_id WHERE ri.sale_item_id = si.id AND LOWER(COALESCE(r.status, 'completed')) NOT IN ('rejected', 'cancelled', 'canceled')), 0) AS returned_quantity,
+			si.quantity - COALESCE((SELECT SUM(ri.quantity_returned) FROM accounting_return_items ri JOIN accounting_returns r ON r.id = ri.return_id WHERE ri.sale_item_id = si.id AND LOWER(COALESCE(r.status, 'completed')) NOT IN ('rejected', 'cancelled', 'canceled')), 0) AS remaining_quantity,
 			si.unit_price, si.unit_cost,
 			si.discount_amount, si.tax_amount, si.total_amount, si.supplier_id,
 			sup.name AS supplier_name,

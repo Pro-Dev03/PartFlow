@@ -145,8 +145,8 @@ func TestAuthRejectsLocalJWTWhenCloudHeaderMissing(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected missing cloud header to be rejected, status=%d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected missing cloud header to be rejected outside a configured grace grant, status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 

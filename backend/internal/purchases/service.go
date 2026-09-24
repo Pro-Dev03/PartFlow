@@ -375,8 +375,12 @@ func (s *Service) UpdatePurchase(ctx context.Context, id uuid.UUID, req *Purchas
 			purchase.TotalAmount += float64(item.Quantity) * item.UnitCost
 		}
 	}
+	purchaseDate, err := purchaseDateForStorage(purchase.PurchaseDate)
+	if err != nil {
+		return nil, err
+	}
 	updateQuery := `UPDATE purchases SET invoice_number = $1, purchase_date = $2, status = $3, notes = $4, total_amount = $5, remaining_amount = CASE WHEN $5 - paid_amount > 0 THEN $5 - paid_amount ELSE 0 END, updated_at = $6 WHERE id = $7`
-	if _, err := tx.ExecContext(ctx, updateQuery, purchase.InvoiceNumber, purchase.PurchaseDate, purchase.Status, purchase.Notes, purchase.TotalAmount, purchase.UpdatedAt, purchase.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, updateQuery, purchase.InvoiceNumber, purchaseDate, purchase.Status, purchase.Notes, purchase.TotalAmount, purchase.UpdatedAt, purchase.ID); err != nil {
 		return nil, fmt.Errorf("failed to update purchase: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -550,6 +554,10 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 	if err != nil {
 		return nil, err
 	}
+	purchaseDate, err := purchaseDateForStorage(purchase.PurchaseDate)
+	if err != nil {
+		return nil, err
+	}
 
 	if purchase.Status == "cancelled" {
 		return nil, ErrPurchaseCancelled
@@ -664,10 +672,11 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 			`
 
+			now := time.Now().UTC()
 			_, err = tx.ExecContext(ctx, createItemQuery,
 				uuid.New(), item.ProductID, item.CategoryID, itemCode, barcode, serialNumberValue,
 				condition, item.Grade, item.UnitCost, sellingPrice, "AVAILABLE",
-				&purchase.SupplierID, &purchase.UpdatedAt, item.Notes, time.Now(), time.Now())
+				&purchase.SupplierID, purchaseDate, item.Notes, now, now)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create inventory item: %w", err)
 			}

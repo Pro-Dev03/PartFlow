@@ -61,7 +61,6 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		inventory.POST("/used/bulk", h.CreateBulkUsedStock)
 		inventory.POST("/products/:id/quantity", h.AdjustProductQuantity)
 		inventory.GET("/items-with-supplier", h.ListInventoryItemsWithSupplierInfo)
-		inventory.GET("/archive", h.ListArchivedInventoryItems)
 		inventory.GET("/items", h.ListInventoryItems)
 		inventory.GET("/items/:id", h.GetInventoryItem)
 		inventory.PUT("/items/:id", h.UpdateInventoryItem)
@@ -240,8 +239,7 @@ func (h *Handler) DeleteInventoryItem(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	permanent := strings.EqualFold(c.Query("permanent"), "true")
-	if err := h.service.DeleteInventoryItem(c.Request.Context(), id, getUserID(c), permanent); err != nil {
+	if err := h.service.DeleteInventoryItem(c.Request.Context(), id, getUserID(c)); err != nil {
 		handleError(c, err)
 		return
 	}
@@ -414,42 +412,6 @@ func (h *Handler) ListInventoryItemsWithSupplierInfo(c *gin.Context) {
 	})
 }
 
-// ListArchivedInventoryItems lists inventory items removed from active stock
-// while preserving their commercial history.
-func (h *Handler) ListArchivedInventoryItems(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "50"))
-	if page < 1 {
-		page = 1
-	}
-	if perPage < 1 || perPage > 100 {
-		perPage = 50
-	}
-
-	items, total, err := h.service.ListArchivedInventoryItems(c.Request.Context(), page, perPage)
-	if err != nil {
-		handleError(c, err)
-		return
-	}
-	if items == nil {
-		items = []*InventoryItemWithSupplier{}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"items":    items,
-			"total":    total,
-			"page":     page,
-			"per_page": perPage,
-		},
-		"meta": gin.H{
-			"total":    total,
-			"page":     page,
-			"per_page": perPage,
-		},
-	})
-}
 
 // UpdateItemStatus updates the status of an inventory item
 func (h *Handler) UpdateItemStatus(c *gin.Context) {

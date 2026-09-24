@@ -3,10 +3,10 @@ import { Input } from '../../../design-system/components/input';
 import { Select } from '../../../design-system/components/select';
 import { Button } from '../../../design-system/components/button';
 import { Product } from '../types/inventory.types';
-import { Package, Plus, Sparkles, Tag, DollarSign } from 'lucide-react';
+import { Package, Plus, Sparkles, Tag, DollarSign, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { categoriesApi, settingsApi, suppliersApi } from '../../../services/api/endpoints';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { barcodeApi, categoriesApi, settingsApi, suppliersApi } from '../../../services/api/endpoints';
 import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
 import { formatPrice } from '../../../utils/helpers';
 import { clearBarcodeLookupFields, lookupProductByBarcode } from '../../../lib/productBarcodeLookup';
@@ -35,6 +35,7 @@ export function InventoryModals({
   onSaveProduct,
   onSaveProductAndReturnToSales,
 }: InventoryModalsProps) {
+  const queryClient = useQueryClient();
   const { data: categoriesData } = useQuery({
     queryKey: ['categories'],
     queryFn: () => categoriesApi.list(),
@@ -70,6 +71,40 @@ export function InventoryModals({
     ? configuredMargin
     : DEFAULT_PROFIT_MARGIN;
   const [productStep, setProductStep] = useState<1 | 2 | 3 | 4>(1);
+  const [additionalBarcode, setAdditionalBarcode] = useState('');
+  const productBarcodesQuery = useQuery({
+    queryKey: ['barcodes', 'product', selectedProduct?.id],
+    queryFn: () => barcodeApi.listByProduct(String(selectedProduct!.id)),
+    enabled: isViewModalOpen && Boolean(selectedProduct?.id),
+  });
+
+  const addProductBarcode = async () => {
+    const code = additionalBarcode.trim();
+    if (!selectedProduct?.id || !code) return;
+    if (code === String(selectedProduct.barcode || '').trim()) {
+      toast.info('هذا هو الباركود الأساسي للمنتج بالفعل');
+      return;
+    }
+    try {
+      await barcodeApi.create({ code, type: 'EXTERNAL', product_id: String(selectedProduct.id) });
+      setAdditionalBarcode('');
+      await queryClient.invalidateQueries({ queryKey: ['barcodes', 'product', selectedProduct.id] });
+      toast.success('تم ربط الباركود بالمنتج');
+    } catch (error: any) {
+      toast.error(error?.message || 'تعذر إضافة الباركود');
+    }
+  };
+
+  const removeProductBarcode = async (barcodeId: string) => {
+    if (!window.confirm('هل تريد حذف هذا الباركود نهائيًا؟')) return;
+    try {
+      await barcodeApi.delete(barcodeId);
+      await queryClient.invalidateQueries({ queryKey: ['barcodes', 'product', selectedProduct?.id] });
+      toast.success('تم حذف الباركود');
+    } catch (error: any) {
+      toast.error(error?.message || 'تعذر حذف الباركود');
+    }
+  };
 
   const goToNextStep = () => {
     setProductStep((currentStep) => {
@@ -144,7 +179,7 @@ export function InventoryModals({
         enableEnterNavigation={false}
       >
         {selectedProduct && (
-          <div className="product-edit-fields space-y-md">
+          <div className="product-edit-fields product-details-readonly-fields space-y-md">
             <div style={{ 
               display: 'grid', 
               gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
@@ -152,41 +187,70 @@ export function InventoryModals({
             }}>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">الاسم</label>
-                <Input value={selectedProduct.name || ''} disabled />
+                <Input value={selectedProduct.name || ''} readOnly />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">SKU</label>
-                <Input value={selectedProduct.sku || ''} disabled />
+                <Input value={selectedProduct.sku || ''} readOnly />
+              </div>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">الباركود</label>
+                <Input value={selectedProduct.barcode || 'لا يوجد باركود'} readOnly />
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label className="text-small font-medium text-text mb-sm block">باركودات إضافية</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    value={additionalBarcode}
+                    onChange={(event) => setAdditionalBarcode(event.target.value)}
+                    placeholder="امسح أو أدخل باركودًا إضافيًا"
+                    aria-label="باركود إضافي للمنتج"
+                  />
+                  <Button type="button" variant="secondary" onClick={() => void addProductBarcode()} disabled={!additionalBarcode.trim()}>
+                    <Plus className="h-4 w-4" /> إضافة
+                  </Button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2" aria-live="polite">
+                  {(productBarcodesQuery.data?.data?.barcodes || []).map((barcode: any) => (
+                    <span key={barcode.id} className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-default)] px-2.5 py-1.5 text-sm text-text-primary">
+                      <bdi dir="ltr">{barcode.code}</bdi>
+                      <button type="button" className="text-danger" aria-label={`حذف الباركود ${barcode.code}`} onClick={() => void removeProductBarcode(String(barcode.id))}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                  {productBarcodesQuery.isLoading && <span className="text-xs text-text-secondary">جارٍ تحميل الباركودات...</span>}
+                </div>
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">التاجر</label>
-                <Input value={selectedProduct.supplier_name || 'غير محدد'} disabled />
+                <Input value={selectedProduct.supplier_name || 'غير محدد'} readOnly />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">سعر التكلفة</label>
-                <Input value={formatPrice(selectedProduct.costPrice || 0)} disabled />
+                <Input value={formatPrice(selectedProduct.costPrice || 0)} readOnly />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">سعر البيع قبل الضريبة</label>
-                <Input value={formatPrice(selectedProduct.sellingPrice || 0)} disabled />
+                <Input value={formatPrice(selectedProduct.sellingPrice || 0)} readOnly />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">الضريبة</label>
                 <Input
                   value={taxRate > 0 ? `${taxRate}% - تضاف عند البيع` : '0% - بدون ضريبة'}
-                  disabled
+                  readOnly
                 />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">السعر النهائي للعميل</label>
                 <Input
                   value={formatPrice((Number(selectedProduct.sellingPrice) || 0) * (1 + taxRate / 100))}
-                  disabled
+                  readOnly
                 />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">المخزون</label>
-                <Input value={selectedProduct.stock || 0} disabled />
+                <Input value={selectedProduct.stock || 0} readOnly />
               </div>
             </div>
             <div className="flex gap-sm justify-end">

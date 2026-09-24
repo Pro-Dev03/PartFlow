@@ -123,7 +123,7 @@
   }
 
   /* تحسين Header */
-  header,
+  .pf-app-header,
   .topbar {
     padding: var(--spacing-3) var(--spacing-4);
     height: var(--topbar-height-mobile);
@@ -185,7 +185,7 @@
     padding: var(--spacing-3) !important;
   }
 
-  header {
+  .pf-app-header {
     height: var(--topbar-height-mobile);
   }
 

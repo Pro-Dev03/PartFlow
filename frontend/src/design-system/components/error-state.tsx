@@ -16,7 +16,7 @@ const ErrorState = forwardRef<HTMLDivElement, ErrorStateProps>(
       <div
         ref={ref}
         className={cn(
-          'flex flex-col items-center justify-center py-12 px-4 text-center',
+          'pf-error-state flex flex-col items-center justify-center py-12 px-4 text-center',
           className
         )}
         role="alert"
@@ -24,7 +24,7 @@ const ErrorState = forwardRef<HTMLDivElement, ErrorStateProps>(
         {...props}
       >
         {icon && (
-          <div className="w-16 h-16 rounded-full bg-red/10 flex items-center justify-center mb-4 text-red" aria-hidden="true">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ background: 'var(--color-danger-10)', color: 'var(--danger)' }} aria-hidden="true">
             {icon}
           </div>
         )}
@@ -37,7 +37,7 @@ const ErrorState = forwardRef<HTMLDivElement, ErrorStateProps>(
           </p>
         )}
         {error && (
-          <p className="text-tiny text-red max-w-sm mb-6 font-mono">
+          <p className="text-tiny max-w-sm mb-6 font-mono" style={{ color: 'var(--danger)' }}>
             {error}
           </p>
         )}

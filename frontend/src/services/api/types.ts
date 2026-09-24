@@ -71,6 +71,7 @@ export interface BulkProductCreateRequest {
 export interface ProductListParams extends PaginationParams {
   search?: string;
   category_id?: string;
+  in_stock_only?: boolean;
 }
 
 // Category Types
@@ -224,6 +225,7 @@ export interface Sale {
 
 export interface SaleItem {
   product_id: string;
+  barcode?: string;
   inventory_item_id?: string;
   quantity: number;
   unit_price: number;

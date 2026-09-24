@@ -69,7 +69,6 @@ function ProductCard({
   const stock = getStockValue(product);
   const price = getPriceValue(product);
   const costPrice = getCostPriceValue(product);
-  const sku = product.sku ?? product.barcode ?? '';
 
   const getStockStatus = () => {
     if (stock === undefined) {
@@ -122,9 +121,14 @@ function ProductCard({
                 <div className="truncate text-sm font-semibold text-text-primary">
                   {product.name}
                 </div>
-                {sku && (
+                {product.barcode && (
                   <div className="truncate text-xs text-text-secondary">
-                    {sku}
+                    باركود: {product.barcode}
+                  </div>
+                )}
+                {product.sku && (
+                  <div className="truncate text-xs text-text-tertiary">
+                    SKU: {product.sku}
                   </div>
                 )}
               </div>

@@ -1,13 +1,15 @@
 import { CloudCog, LockKeyhole } from 'lucide-react';
 import { PartFlowLogo } from '../../../components/branding/PartFlowLogo';
+import { useAuthStore } from '../../../stores/authStore';
 
-export function SubscriptionVerificationScreen() {
+export function SubscriptionVerificationScreen({ offline = false }: { offline?: boolean }) {
+  const checkAuth = useAuthStore((state) => state.checkAuth);
   return (
     <div
       dir="rtl"
       role="status"
       aria-live="polite"
-      aria-busy="true"
+      aria-busy={!offline}
       style={{
         minHeight: '100vh',
         display: 'grid',
@@ -86,15 +88,17 @@ export function SubscriptionVerificationScreen() {
           PARTFLOW · ACCESS CONTROL
         </p>
         <h1 style={{ margin: '0', color: '#f8fbff', fontSize: 'clamp(26px, 5vw, 38px)', lineHeight: 1.25, fontWeight: 800 }}>
-          نتحقق من اشتراكك
+          {offline ? 'تعذر استعادة الجلسة دون اتصال' : 'نتحقق من اشتراكك'}
         </h1>
         <p style={{ maxWidth: '390px', margin: '14px auto 0', color: '#9fb2c5', fontSize: '14px', lineHeight: 1.9 }}>
-          نتحقق من صلاحية اشتراكك قبل فتح مساحة العمل الخاصة بك.
+          {offline
+            ? 'حُفظت معلومات الجلسة. أعد الاتصال وسيحاول التطبيق استعادتها تلقائيًا؛ لن تحتاج إلى إدخال كلمة المرور بسبب انقطاع مؤقت.'
+            : 'نتحقق من صلاحية اشتراكك قبل فتح مساحة العمل الخاصة بك.'}
         </p>
 
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: '20px' }}>
           <span style={{ padding: '6px 12px', borderRadius: '999px', color: '#8af3cf', background: 'rgba(52, 211, 153, 0.1)', border: '1px solid rgba(52, 211, 153, 0.24)', fontSize: '11px', fontWeight: 750 }}>
-            اشتراكك قيد التحقق
+            {offline ? 'بانتظار عودة الاتصال' : 'اشتراكك قيد التحقق'}
           </span>
         </div>
 
@@ -129,11 +133,11 @@ export function SubscriptionVerificationScreen() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e5eef7', fontSize: '13px', fontWeight: 750 }}>
               <CloudCog size={17} color="#67e8f9" />
-              جارٍ الاتصال بخدمة الاشتراكات
+              {offline ? 'لم يتم إنهاء الجلسة' : 'جارٍ الاتصال بخدمة الاشتراكات'}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '5px', color: '#7890a5', fontSize: '11px' }}>
               <LockKeyhole size={13} />
-              التحقق مشفّر ولا يتم فتح النظام قبل اكتماله
+              {offline ? 'تتم إعادة المحاولة تلقائيًا عند الاتصال' : 'التحقق مشفّر ولا يتم فتح النظام قبل اكتماله'}
             </div>
           </div>
         </div>
@@ -144,6 +148,15 @@ export function SubscriptionVerificationScreen() {
         <p style={{ margin: '12px 0 0', color: '#678096', fontSize: '11px' }}>
           يتم تأمين بيانات حسابك أثناء التحقق
         </p>
+        {offline && (
+          <button
+            type="button"
+            onClick={() => void checkAuth()}
+            style={{ marginTop: '18px', minHeight: '42px', padding: '0 20px', borderRadius: '10px', border: '1px solid rgba(103, 232, 249, 0.35)', background: 'rgba(34, 211, 238, 0.12)', color: '#cffafe', fontWeight: 700, cursor: 'pointer' }}
+          >
+            إعادة المحاولة الآن
+          </button>
+        )}
       </div>
     </div>
   );

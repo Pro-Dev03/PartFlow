@@ -10,6 +10,7 @@ COPY backend .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/partflow-worker ./cmd/worker
 
 FROM alpine:3.20
+ENV TZ=UTC
 RUN apk --no-cache add ca-certificates
 WORKDIR /app
 COPY --from=builder /out/partflow-worker /app/partflow-worker

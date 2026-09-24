@@ -355,12 +355,8 @@ func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, req *ReturnUpd
 }
 
 // DeleteReturn deletes a return
-func (s *Service) DeleteReturn(ctx context.Context, id uuid.UUID, permanent bool) error {
-	deleteReturn := s.repo.DeleteReturn
-	if permanent {
-		deleteReturn = s.repo.DeleteReturnPermanently
-	}
-	if err := deleteReturn(ctx, id); err != nil {
+func (s *Service) DeleteReturn(ctx context.Context, id uuid.UUID) error {
+	if err := s.repo.DeleteReturn(ctx, id); err != nil {
 		return err
 	}
 	dashboard.InvalidateDashboardCacheWithReason("return_deleted")
@@ -489,6 +485,13 @@ func (s *Service) UpdateReturnItem(ctx context.Context, itemID uuid.UUID, req Re
 	if err != nil {
 		return nil, err
 	}
+	parentReturn, err := s.repo.GetReturnByID(ctx, item.ReturnID)
+	if err != nil {
+		return nil, err
+	}
+	if strings.EqualFold(parentReturn.Status, "COMPLETED") {
+		return nil, ErrReturnAlreadyCompleted
+	}
 
 	// Update fields
 	if req.QuantityReturned > 0 {
@@ -527,6 +530,17 @@ func (s *Service) UpdateReturnItem(ctx context.Context, itemID uuid.UUID, req Re
 
 // DeleteReturnItem deletes a return item
 func (s *Service) DeleteReturnItem(ctx context.Context, itemID uuid.UUID) error {
+	item, err := s.repo.GetReturnItemByID(ctx, itemID)
+	if err != nil {
+		return err
+	}
+	parentReturn, err := s.repo.GetReturnByID(ctx, item.ReturnID)
+	if err != nil {
+		return err
+	}
+	if strings.EqualFold(parentReturn.Status, "COMPLETED") {
+		return ErrReturnAlreadyCompleted
+	}
 	if err := s.repo.DeleteReturnItem(ctx, itemID); err != nil {
 		return err
 	}

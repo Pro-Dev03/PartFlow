@@ -3,8 +3,10 @@ package inspections
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	_ "modernc.org/sqlite"
 )
 
@@ -18,9 +20,13 @@ func TestGetInspectionSummarySQLite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	storeDate, err := accounting.StoreDate(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = db.Exec(`INSERT INTO inspections (id, result, inspection_date, condition, grade) VALUES
-		('1', 'passed', date('now'), 'good', 'B'),
-		('2', 'pending', date('now'), 'fair', 'C')`)
+		('1', 'passed', ?, 'good', 'B'),
+		('2', 'pending', ?, 'fair', 'C')`, storeDate, storeDate)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -807,61 +807,11 @@ func (s *Service) ListInventoryItems(ctx context.Context, page, perPage int, fil
 	return s.repo.ListInventoryItems(ctx, perPage, offset, filters)
 }
 
-func (s *Service) DeleteInventoryItem(ctx context.Context, itemID, userID uuid.UUID, permanent bool) error {
-	item, err := s.repo.GetInventoryItemByID(ctx, itemID)
-	if err != nil {
+func (s *Service) DeleteInventoryItem(ctx context.Context, itemID, userID uuid.UUID) error {
+	if err := s.repo.DeleteUsedInventoryItem(ctx, itemID, userID); err != nil {
 		return err
 	}
-	if permanent {
-		if err := s.repo.DeleteUsedInventoryItem(ctx, itemID); err != nil {
-			return err
-		}
-		dashboard.InvalidateDashboardCacheWithReason("inventory_item_deleted")
-		return nil
-	}
-	if strings.EqualFold(string(item.Status), string(StatusSold)) {
-		return ErrCannotDeleteSoldItem
-	}
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin inventory item deletion: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
-
-	updatedAt := dbutil.NowSQL(s.db)
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-		UPDATE inventory_items SET status = $1, updated_at = %s WHERE id = $2
-	`, updatedAt), string(StatusArchived), itemID); err != nil {
-		return fmt.Errorf("failed to archive inventory item: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-		UPDATE inventory
-		SET quantity = CASE WHEN COALESCE(quantity, 0) > 0 THEN quantity - 1 ELSE 0 END,
-			updated_at = %s
-		WHERE product_id = $1
-	`, updatedAt), item.ProductID); err != nil {
-		return fmt.Errorf("failed to update inventory quantity: %w", err)
-	}
-	reason := "Inventory item removed from active inventory"
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO inventory_movements (id, item_id, product_id, movement_type,
-			quantity, before_quantity, after_quantity, reference_type, reference_id,
-			reason, created_by, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, %s)
-	`, updatedAt), uuid.New(), itemID, item.ProductID, MovementAdjustment,
-		-1, 1, 0, "inventory_removal", itemID, reason, userID); err != nil {
-		return fmt.Errorf("failed to create inventory removal movement: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit inventory item deletion: %w", err)
-	}
-	committed = true
-	dashboard.InvalidateDashboardCacheWithReason("inventory_item_archived")
+	dashboard.InvalidateDashboardCacheWithReason("inventory_item_deleted")
 	return nil
 }
 
@@ -869,15 +819,6 @@ func (s *Service) DeleteInventoryItem(ctx context.Context, itemID, userID uuid.U
 func (s *Service) ListInventoryItemsWithSupplierInfo(ctx context.Context, page, perPage int, filters map[string]interface{}) ([]*InventoryItemWithSupplier, int64, error) {
 	offset := (page - 1) * perPage
 	return s.repo.ListInventoryItemsWithSupplierInfo(ctx, perPage, offset, filters)
-}
-
-// ListArchivedInventoryItems returns items removed from active inventory.
-func (s *Service) ListArchivedInventoryItems(ctx context.Context, page, perPage int) ([]*InventoryItemWithSupplier, int64, error) {
-	offset := (page - 1) * perPage
-	return s.repo.ListInventoryItemsWithSupplierInfo(ctx, perPage, offset, map[string]interface{}{
-		"status":           string(StatusArchived),
-		"include_archived": true,
-	})
 }
 
 func (s *Service) CreateLocation(ctx context.Context, req *LocationRequest) (*Location, error) {

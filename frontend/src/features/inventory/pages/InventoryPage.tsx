@@ -10,6 +10,7 @@ import { Input } from '../../../design-system/components/input';
 import { getButtonSize } from '../../../config/button-sizes';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { FileText, Plus, Package, PackageOpen, LayoutGrid, List } from 'lucide-react';
+import { getStoreToday, parseBackendTimestamp } from '../../../utils/store-time';
 
 // Custom hooks
 import { useInventory } from '../hooks/useInventory';
@@ -102,7 +103,6 @@ export function InventoryPage() {
     setFilters,
     refetch,
     deleteProductMutation,
-    archiveProductMutation,
     deleteInventoryItemMutation,
     createProductMutation,
     updateProductMutation,
@@ -173,7 +173,7 @@ export function InventoryPage() {
     }
 
     setViewMode('products');
-    setSearchQuery(product.sku || product.name || barcode);
+    setSearchQuery(product.barcode || product.name || barcode);
     return true;
   };
 
@@ -260,7 +260,7 @@ export function InventoryPage() {
           ...baseProduct,
           id: productId,
           name: String(baseProduct.name ?? item.product_name ?? '-'),
-          sku: String(baseProduct.sku ?? item.item_code ?? item.barcode ?? productId),
+          sku: String(baseProduct.sku ?? ''),
           sellingPrice: Number(baseProduct.sellingPrice ?? baseProduct.selling_price ?? item.selling_price ?? item.price ?? 0),
           stock: Number.isFinite(quantity) ? Math.max(0, quantity) : 0,
           condition: String(baseProduct.condition ?? item.condition ?? ''),
@@ -291,7 +291,7 @@ export function InventoryPage() {
       }
       const rows = getReportRows(products);
       if (action === 'export') {
-        exportToCSV(rows, `inventory-${allResults ? 'all-' : ''}${new Date().toISOString().split('T')[0]}`);
+        exportToCSV(rows, `inventory-${allResults ? 'all-' : ''}${getStoreToday()}`);
         toast.success(`تم تصدير ${products.length} منتج بنجاح`);
       } else {
         printTable(rows, ['الاسم', 'SKU', 'السعر قبل الضريبة', 'المخزون', 'الحالة'], 'تقرير المخزون');
@@ -522,7 +522,7 @@ export function InventoryPage() {
             product_id: product.id,
             mode: 'quantity' as const,
             quantity,
-            business_date: new Date().toISOString().slice(0, 10),
+            business_date: getStoreToday(),
             condition: productData.condition === 'used' ? 'USED' : 'NEW',
             purchase_cost: Number(productData.costPrice) || 0,
             selling_price: Number(productData.sellingPrice) || 0,
@@ -643,7 +643,7 @@ export function InventoryPage() {
       }));
       const movements = responses
         .flatMap((response) => response.data?.movements ?? [])
-        .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
+        .sort((left, right) => (parseBackendTimestamp(right.created_at)?.getTime() ?? 0) - (parseBackendTimestamp(left.created_at)?.getTime() ?? 0));
       setInventoryMovements(movements.map((movement) => ({
         id: movement.id,
         type: movement.movement_type,
@@ -918,7 +918,6 @@ export function InventoryPage() {
         onEditProduct={handleEditProduct}
         onEditMinimumStock={handleEditMinimumStock}
         onDeleteProduct={handleDeleteProduct}
-        onArchiveProduct={(productId) => archiveProductMutation.mutate(productId)}
         onDeleteInventoryItem={(itemId) => { setInventoryItemToDelete(itemId); setDeleteDialogOpen(true); }}
         onClearSearch={handleClearSearch}
         onViewInventoryLedger={handleViewInventoryLedger}

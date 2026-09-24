@@ -46,6 +46,76 @@ func TestSQLiteBarcodeAndLookup(t *testing.T) {
 	}
 }
 
+func TestSQLiteBarcodeLookupUsesAliasesAndNeverTreatsSKUAsBarcode(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "barcode-aliases.db"))
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+	db := sqlx.NewDb(database.DB, "sqlite")
+	ctx := context.Background()
+	productID := uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := database.DB.Exec(`INSERT INTO products (id,sku,name,barcode,selling_price,cost_price,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`, productID.String(), "SKU-ONLY-778", "Alias Product", nil, 25, 10, now, now); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewRepository(db)
+	if _, err := repo.GetProductByBarcode(ctx, "SKU-ONLY-778"); err == nil {
+		t.Fatal("SKU must not resolve through the barcode lookup")
+	}
+	skuAlias := &Barcode{ID: uuid.New(), Code: "SKU-ALIAS-778", Type: BarcodeTypeSKU, ProductID: &productID, IsActive: true}
+	if err := repo.CreateBarcode(ctx, skuAlias); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetProductByBarcode(ctx, skuAlias.Code); err == nil {
+		t.Fatal("SKU-type barcode aliases must not resolve through the operational barcode lookup")
+	}
+	barcode := &Barcode{ID: uuid.New(), Code: "EAN-ALIAS-778", Type: BarcodeTypeExternal, ProductID: &productID, IsActive: true}
+	if err := repo.CreateBarcode(ctx, barcode); err != nil {
+		t.Fatal(err)
+	}
+	product, err := repo.GetProductByBarcode(ctx, barcode.Code)
+	if err != nil {
+		t.Fatalf("resolve additional barcode: %v", err)
+	}
+	if product.ID != productID || product.Barcode != barcode.Code {
+		t.Fatalf("resolved product=%+v; expected product %s and scanned barcode %s", product, productID, barcode.Code)
+	}
+	itemID := uuid.New()
+	if _, err := database.DB.Exec(`INSERT INTO inventory_items (id,product_id,item_code,barcode,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`, itemID.String(), productID.String(), "ITEM-ALIAS-778", nil, "AVAILABLE", now, now); err != nil {
+		t.Fatal(err)
+	}
+	itemAlias := &Barcode{ID: uuid.New(), Code: "ITEM-ALIAS-778-BARCODE", Type: BarcodeTypeInternal, InventoryItemID: &itemID, IsActive: true}
+	if err := repo.CreateBarcode(ctx, itemAlias); err != nil {
+		t.Fatal(err)
+	}
+	itemProduct, err := repo.GetProductByBarcode(ctx, itemAlias.Code)
+	if err != nil || itemProduct.ID != productID {
+		t.Fatalf("resolve item-linked barcode: product=%+v err=%v", itemProduct, err)
+	}
+	productAliases, err := repo.ListBarcodesByProduct(ctx, productID)
+	if err != nil {
+		t.Fatalf("list product barcode aliases: %v", err)
+	}
+	if len(productAliases) != 2 {
+		t.Fatalf("product has %d operational aliases, want 2", len(productAliases))
+	}
+	if err := repo.DeleteBarcode(ctx, barcode.ID, uuid.Nil); err != nil {
+		t.Fatalf("hard delete barcode: %v", err)
+	}
+	var barcodeCount, deletionAuditCount int
+	if err := db.Get(&barcodeCount, `SELECT COUNT(*) FROM barcodes WHERE id = ?`, barcode.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&deletionAuditCount, `SELECT COUNT(*) FROM audit_logs WHERE entity_id = ? AND action = 'DELETE'`, barcode.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if barcodeCount != 0 || deletionAuditCount != 1 {
+		t.Fatalf("barcode rows=%d, deletion audit rows=%d; want 0 and 1", barcodeCount, deletionAuditCount)
+	}
+}
+
 func TestSQLiteResolveBarcodePreservesLifecycleReferences(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "barcode-lifecycle.db"))
 	database, err := localdb.Open()

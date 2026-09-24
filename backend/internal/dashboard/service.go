@@ -3,9 +3,11 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/business"
 )
 
@@ -14,6 +16,9 @@ type Service struct {
 }
 
 func NewService(db *sqlx.DB) *Service {
+	if db != nil && db.DriverName() == "sqlite" {
+		ensureSQLiteAccountingReturnViews(db.DB)
+	}
 	return &Service{db: db}
 }
 
@@ -127,6 +132,10 @@ type Alert struct {
 // OPTIMIZED: Using aggregation tables for much better performance
 func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error) {
 	stats := &DashboardStats{}
+	storeDate, err := accounting.StoreDate(accounting.StoreNow())
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate dashboard date: %w", err)
+	}
 	refundAmountExpr := "0"
 	if isSQLiteDriver(s.db.DriverName()) {
 		switch {
@@ -155,9 +164,9 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 			(SELECT COUNT(*) FROM products WHERE is_active = true AND deleted_at IS NULL) as total_products,
 			(SELECT COUNT(*) FROM customers) as total_customers,
 			(SELECT COUNT(*) FROM suppliers) as total_suppliers,
-			(SELECT COUNT(*) FROM returns WHERE status = 'pending') as pending_returns,
-			(SELECT COALESCE(SUM(%s), 0) FROM returns WHERE status = 'completed') as total_refunded,
-			(SELECT COUNT(*) FROM returns WHERE status = 'completed') as total_returns
+			(SELECT COUNT(*) FROM accounting_returns WHERE status = 'pending') as pending_returns,
+			(SELECT COALESCE(SUM(%s), 0) FROM accounting_returns WHERE status = 'completed') as total_refunded,
+			(SELECT COUNT(*) FROM accounting_returns WHERE status = 'completed') as total_returns
 	`, refundAmountExpr)
 
 	var result struct {
@@ -176,7 +185,7 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 		TotalReturns   int     `db:"total_returns"`
 	}
 
-	err := s.db.GetContext(ctx, &result, query)
+	err = s.db.GetContext(ctx, &result, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get dashboard stats: %w", err)
 	}
@@ -275,11 +284,15 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 			FROM debts d
 			WHERE COALESCE(d.remaining_amount, 0) > 0
 			  AND d.due_date IS NOT NULL
-			  AND julianday(d.due_date) < julianday('now')
+			  AND d.due_date::date < $1::date
 			  AND ` + business.OpenDebtStatusSQL("d.status") + `
 		) AS overdue_customers
 	`
-	err = s.db.GetContext(ctx, &overdueDebtsCount, countQuery)
+	countArgs := []any{storeDate}
+	if isSQLiteDriver(s.db.DriverName()) {
+		countQuery = strings.Replace(countQuery, "d.due_date::date < $1::date", "date(d.due_date) < date(?)", 1)
+	}
+	err = s.db.GetContext(ctx, &overdueDebtsCount, countQuery, countArgs...)
 	if err != nil {
 		// Fallback to 0 if query fails
 		overdueDebtsCount = 0
@@ -360,6 +373,10 @@ func (s *Service) GetLowStockItems(ctx context.Context) ([]LowStockItem, error) 
 
 // GetOverdueDebts retrieves overdue debts with details
 func (s *Service) GetOverdueDebts(ctx context.Context) ([]OverdueDebtItem, error) {
+	storeDate, err := accounting.StoreDate(accounting.StoreNow())
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate overdue debt date: %w", err)
+	}
 	query := `
 		SELECT 
 			d.id,
@@ -367,19 +384,19 @@ func (s *Service) GetOverdueDebts(ctx context.Context) ([]OverdueDebtItem, error
 			c.name as customer_name,
 			d.remaining_amount,
 			d.due_date,
-			CAST((julianday(date('now')) - julianday(d.due_date)) AS INTEGER) as days_overdue,
+			CAST((julianday(?) - julianday(substr(d.due_date, 1, 10))) AS INTEGER) as days_overdue,
 			COALESCE(c.phone, '') as phone
 		FROM debts d
 		JOIN customers c ON d.customer_id = c.id
 		WHERE d.remaining_amount > 0
-		AND julianday(d.due_date) < julianday('now')
+		AND date(d.due_date) < date(?)
 		AND ` + business.OpenDebtStatusSQL("d.status") + `
 		ORDER BY d.due_date ASC
 		LIMIT 10
 	`
 
 	var debts []OverdueDebtItem
-	err := s.db.SelectContext(ctx, &debts, query)
+	err = s.db.SelectContext(ctx, &debts, query, storeDate, storeDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get overdue debts: %w", err)
 	}

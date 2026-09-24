@@ -119,10 +119,8 @@ export function DebtsPage() {
       
       recordPaymentMutation.mutate(paymentData, {
         onSuccess: () => {
-          const now = new Date();
-          const day = String(now.getDate()).padStart(2, '0');
-          const month = String(now.getMonth() + 1).padStart(2, '0');
-          const year = now.getFullYear();
+          const now = getStoreDateKey(new Date()) || '';
+          const [year, month, day] = now.split('-');
           
           setLastPayment({
             ...paymentData,
@@ -507,7 +505,7 @@ export function DebtsPage() {
                 </label>
                 <Input
                   value={selectedCustomer?.name || ''}
-                  disabled
+                  readOnly
                 />
               </div>
               <div>
@@ -648,7 +646,7 @@ export function DebtsPage() {
                 ))}
                 <div>
                   <label className="text-small font-medium text-text mb-sm block">العميل</label>
-                  <Input value={selectedDebt.customer?.name || ''} disabled />
+                  <Input value={selectedDebt.customer?.name || ''} readOnly />
                 </div>
                 <div>
                   <label className="text-small font-medium text-text mb-sm block">مبلغ الدين</label>
@@ -658,11 +656,11 @@ export function DebtsPage() {
                 </div>
                 <div>
                   <label className="text-small font-medium text-text mb-sm block">موعد السداد</label>
-                  <Input value={selectedDebt.dueDate ? formatStoreDate(selectedDebt.dueDate, 'ar-SA') : 'غير محدد'} disabled />
+                  <Input value={selectedDebt.dueDate ? formatStoreDate(selectedDebt.dueDate, 'ar-SA') : 'غير محدد'} readOnly />
                 </div>
                 <div>
                   <label className="text-small font-medium text-text mb-sm block">الحالة</label>
-                  <Input value={Number(selectedDebt.remaining_amount ?? selectedDebt.remainingAmount ?? 0) <= 0 ? 'مدفوع' : selectedDebt.status === 'overdue' ? 'متأخر' : selectedDebt.status === 'partial' ? 'جزئي' : 'معلق'} disabled />
+                  <Input value={Number(selectedDebt.remaining_amount ?? selectedDebt.remainingAmount ?? 0) <= 0 ? 'مدفوع' : selectedDebt.status === 'overdue' ? 'متأخر' : selectedDebt.status === 'partial' ? 'جزئي' : 'معلق'} readOnly />
                 </div>
                 <div className="flex gap-sm justify-end" style={{ gridColumn: '1 / -1' }}>
                   <Button variant="secondary" size={getButtonSize('debts', 'modalAction')} onClick={() => setIsViewModalOpen(false)}>

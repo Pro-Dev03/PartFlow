@@ -107,7 +107,7 @@ func TestRepository_DeleteBarcode(t *testing.T) {
 	repo := NewRepository(db)
 	ctx := context.Background()
 	barcodeID := uuid.New()
-	err := repo.DeleteBarcode(ctx, barcodeID)
+	err := repo.DeleteBarcode(ctx, barcodeID, uuid.Nil)
 	if err != nil {
 		t.Logf("DeleteBarcode() error (expected with test DB): %v", err)
 	}

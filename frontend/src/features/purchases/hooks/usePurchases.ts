@@ -11,7 +11,7 @@ export function usePurchases() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [viewFilter, setViewFilter] = useState<'active' | 'received' | 'archived' | 'all'>('active');
+  const [viewFilter, setViewFilter] = useState<'active' | 'received' | 'closed' | 'all'>('active');
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const debouncedSearchQuery = useDebounce(searchQuery, 250);

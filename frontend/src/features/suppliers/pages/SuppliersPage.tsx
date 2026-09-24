@@ -18,6 +18,7 @@ import { ConfirmDialog } from '../../../design-system/components/confirm-dialog'
 import { PaginationControls } from '../../../design-system/components/pagination-controls';
 import { SortButton } from '../../../design-system/components/sort-button';
 import type { SupplierFormData } from '../../../components/forms/SupplierForm';
+import { getStoreToday } from '../../../utils/store-time';
 
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { ReportActions } from '../../../design-system/components/report-actions';
@@ -108,7 +109,7 @@ export function SuppliersPage() {
     }));
 
   const handleExport = () => {
-    exportToCSV(getSupplierReportRows(filteredSuppliers), `suppliers-${new Date().toISOString().split('T')[0]}`);
+    exportToCSV(getSupplierReportRows(filteredSuppliers), `suppliers-${getStoreToday()}`);
   };
 
   const handlePrint = () => {
@@ -128,7 +129,7 @@ export function SuppliersPage() {
   };
 
   const handleExportAll = async () => {
-    exportToCSV(getSupplierReportRows(await loadAllSuppliers()), `suppliers-all-${new Date().toISOString().split('T')[0]}`);
+    exportToCSV(getSupplierReportRows(await loadAllSuppliers()), `suppliers-all-${getStoreToday()}`);
   };
 
   const handlePrintAll = async () => {

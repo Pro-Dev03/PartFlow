@@ -11,6 +11,7 @@ import { saveAutoLogoutReason, type AutoLogoutReason } from '../features/auth/se
 interface AuthState {
   isAuthenticated: boolean;
   sessionVerified: boolean;
+  sessionRestorePending: boolean;
   cloudVerificationPending: boolean;
   user: User | null;
   token: string | null;
@@ -26,7 +27,30 @@ interface AuthState {
   refreshToken: () => Promise<void>;
 }
 
+const SUBSCRIPTION_BLOCK_CODES = new Set([
+  'SUBSCRIPTION_EXPIRED',
+  'SUBSCRIPTION_SUSPENDED',
+  'ACCOUNT_SUSPENDED',
+  'ACCOUNT_DELETED',
+]);
+
+function isSubscriptionBlockCode(value: unknown): boolean {
+  return SUBSCRIPTION_BLOCK_CODES.has(String(value ?? ''));
+}
+
+function isTemporaryAuthFailure(error: unknown): boolean {
+  const status = Number((error as { status?: number } | null)?.status);
+  return isNetworkError(error)
+    || status === 0
+    || status === 408
+    || status === 429
+    || status >= 500;
+}
+
 let refreshInterval: ReturnType<typeof setTimeout> | null = null;
+let checkAuthInFlight: Promise<void> | null = null;
+let authSessionGeneration = 0;
+const pendingAuthRefreshControllers = new Set<AbortController>();
 let cloudValidationInFlight: Promise<boolean> | null = null;
 let cloudValidationRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let cloudValidationRetryAttempt = 0;
@@ -37,6 +61,17 @@ const CLOUD_REFRESH_FAILED_KEY = 'partflow-cloud-refresh-failed';
 const CLOUD_REFRESH_LOCK_KEY = 'partflow-cloud-refresh-lock';
 const CLOUD_REFRESH_LOCK_TTL_MS = 15_000;
 const CLOUD_VALIDATION_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 300_000];
+
+function createAuthRefreshController(): AbortController {
+  const controller = new AbortController();
+  pendingAuthRefreshControllers.add(controller);
+  return controller;
+}
+
+function abortPendingAuthRefreshes(): void {
+  pendingAuthRefreshControllers.forEach((controller) => controller.abort());
+  pendingAuthRefreshControllers.clear();
+}
 
 const authStorage = {
   getItem: (name: string) => localStorage.getItem(name),
@@ -55,6 +90,7 @@ function clearPersistedAuthStorage() {
   localStorage.removeItem('refresh_token');
   localStorage.removeItem('cloud_token');
   localStorage.removeItem('cloud_refresh_token');
+  localStorage.removeItem(CLOUD_REFRESH_FAILED_KEY);
   localStorage.removeItem(CLOUD_LAST_VALIDATED_AT_KEY);
   localStorage.removeItem('partflow-user-phone');
   TokenManager.clearToken();
@@ -94,7 +130,7 @@ function scheduleCloudValidationRetry(): void {
   if (cloudValidationRetryTimer || typeof window === 'undefined') return;
 
   const state = useAuthStore.getState();
-  if (!state.isAuthenticated || !state.token || !state.cloudToken) return;
+  if (!state.isAuthenticated || !state.token) return;
 
   const delay = CLOUD_VALIDATION_RETRY_DELAYS_MS[Math.min(
     cloudValidationRetryAttempt,
@@ -103,7 +139,11 @@ function scheduleCloudValidationRetry(): void {
   cloudValidationRetryAttempt += 1;
   cloudValidationRetryTimer = setTimeout(() => {
     cloudValidationRetryTimer = null;
-    void validateSubscriptionWithCloud();
+    if (getConnectionMode() === 'local' && !TokenManager.getCloudToken()) {
+      void retrySubscriptionVerification();
+    } else {
+      void validateSubscriptionWithCloud();
+    }
   }, delay);
 }
 
@@ -131,6 +171,31 @@ function clearCloudVerificationPending(): void {
   useAuthStore.setState({ cloudVerificationPending: false });
 }
 
+function clearSessionForSubscriptionBlock(): void {
+  authSessionGeneration += 1;
+  checkAuthInFlight = null;
+  abortPendingAuthRefreshes();
+  cancelCloudValidationRetry();
+  stopTokenRefresh();
+  apiClient.logout();
+  TokenManager.clearToken();
+  TokenManager.clearRefreshToken();
+  TokenManager.clearCloudToken();
+  useAuthStore.setState({
+    isAuthenticated: false,
+    sessionVerified: false,
+    sessionRestorePending: false,
+    user: null,
+    token: null,
+    refreshTokenValue: null,
+    cloudToken: null,
+    cloudVerificationPending: false,
+    isLoading: false,
+  });
+  clearPersistedAuthStorage();
+  goToSubscriptionExpiredPage();
+}
+
 export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = window.location.pathname): boolean {
   if (!error || typeof error !== 'object') return false;
   if (pathname.includes('/subscription-expired')) return false;
@@ -146,7 +211,7 @@ export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = w
   const message = (anyError.message ?? anyError.response?.error?.message ?? '').toLowerCase();
   const combined = `${code} ${message}`.toLowerCase();
 
-  if (code === 'SUBSCRIPTION_EXPIRED') return true;
+  if (isSubscriptionBlockCode(code)) return true;
 
   return /subscription.*expired|expired.*subscription|اشتراك.*منتهي|اشتراك.*منتهية/.test(combined);
 }
@@ -159,6 +224,7 @@ export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = w
  */
 async function refreshCloudAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
+  const refreshGeneration = authSessionGeneration;
   if (localStorage.getItem(CLOUD_REFRESH_FAILED_KEY) === 'true') return null;
 
   const lockOwner = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -182,6 +248,7 @@ async function refreshCloudAccessToken(): Promise<string | null> {
 
   if (lockIsActive()) {
     await waitForOtherRefresh();
+    if (refreshGeneration !== authSessionGeneration) return null;
     return TokenManager.getCloudToken();
   }
 
@@ -191,17 +258,21 @@ async function refreshCloudAccessToken(): Promise<string | null> {
   }));
   if (lockIsActive()) {
     await waitForOtherRefresh();
+    if (refreshGeneration !== authSessionGeneration) return null;
     return TokenManager.getCloudToken();
   }
 
+  const controller = createAuthRefreshController();
   try {
     const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
+      signal: controller.signal,
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
     });
     const refreshData = await refreshResponse.json().catch(() => ({}));
+    if (refreshGeneration !== authSessionGeneration) return null;
     if (!refreshResponse.ok) {
       if (refreshResponse.status === 401) {
         localStorage.setItem(CLOUD_REFRESH_FAILED_KEY, 'true');
@@ -209,6 +280,7 @@ async function refreshCloudAccessToken(): Promise<string | null> {
       } else {
         const error = new Error('Cloud token refresh is temporarily unavailable') as Error & { status?: number };
         error.status = refreshResponse.status;
+        (error as Error & { code?: string }).code = refreshData?.code || refreshData?.error?.code;
         throw error;
       }
       return null;
@@ -225,6 +297,7 @@ async function refreshCloudAccessToken(): Promise<string | null> {
     useAuthStore.setState({ cloudToken: nextToken });
     return nextToken as string;
   } finally {
+    pendingAuthRefreshControllers.delete(controller);
     try {
       const currentLock = JSON.parse(localStorage.getItem(CLOUD_REFRESH_LOCK_KEY) || '{}') as { owner?: string };
       if (currentLock.owner === lockOwner) {
@@ -247,6 +320,7 @@ async function classifyLocalLoginFailure(email: string, password: string): Promi
 
 export async function validateSubscriptionWithCloud(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
+  const validationGeneration = authSessionGeneration;
   const sessionToken = TokenManager.getCloudToken();
   if (!sessionToken) {
     const state = useAuthStore.getState();
@@ -279,8 +353,10 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
       });
 
       let response = await callValidate(cloudToken);
+      if (validationGeneration !== authSessionGeneration) return false;
       if (response.status === 401) {
         const refreshed = await refreshCloudAccessToken();
+        if (validationGeneration !== authSessionGeneration) return false;
         if (refreshed) {
           cloudToken = refreshed;
           response = await callValidate(cloudToken);
@@ -288,42 +364,36 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
       }
 
       if (!response.ok) {
+        if (validationGeneration !== authSessionGeneration) return false;
         if (response.status === 403) {
           const rejectedPayload = await response.clone().json().catch(() => ({}));
           const rejectionCode = rejectedPayload?.code || rejectedPayload?.error?.code || rejectedPayload?.data?.code;
-          if (rejectionCode !== 'SUBSCRIPTION_EXPIRED') {
+          if (!isSubscriptionBlockCode(rejectionCode)) {
             markCloudVerificationPending();
             return false;
           }
-          cancelCloudValidationRetry();
-          stopTokenRefresh();
-          apiClient.logout();
-          TokenManager.clearToken();
-          TokenManager.clearRefreshToken();
-          useAuthStore.setState({
-            isAuthenticated: false,
-            sessionVerified: false,
-            user: null,
-            token: null,
-            refreshTokenValue: null,
-            cloudToken: null,
-            cloudVerificationPending: false,
-            isLoading: false,
-          });
-          clearPersistedAuthStorage();
-          goToSubscriptionExpiredPage();
+          clearSessionForSubscriptionBlock();
           return false;
         } else if (response.status === 401) {
-          markCloudVerificationPending();
+          const rejectedPayload = await response.clone().json().catch(() => ({}));
+          const rejectionCode = rejectedPayload?.code || rejectedPayload?.error?.code || rejectedPayload?.data?.code;
+          if (isSubscriptionBlockCode(rejectionCode)) {
+            clearSessionForSubscriptionBlock();
+          } else if (localStorage.getItem(CLOUD_REFRESH_FAILED_KEY) === 'true') {
+            forceLogoutToLogin('Session expired');
+          } else {
+            markCloudVerificationPending();
+          }
           return false;
         }
-        // Keep an already-authenticated owner in the app for infrastructure
-        // outages. Mutations remain blocked until a later validation succeeds.
+        // Keep the session during infrastructure outages. The backend enforces
+        // the signed offline grace grant for local operations.
         markCloudVerificationPending();
         return false;
       }
 
       const payload = await response.json();
+      if (validationGeneration !== authSessionGeneration) return false;
       const data = payload?.data ?? payload;
       const nextToken = data?.token || data?.access_token || cloudToken;
       if (nextToken) {
@@ -347,15 +417,20 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
         user: mergedUser,
         isAuthenticated: true,
         sessionVerified: true,
+        sessionRestorePending: false,
         cloudVerificationPending: false,
       });
       clearCloudVerificationPending();
       localStorage.removeItem(CLOUD_LAST_VALIDATED_AT_KEY);
       goToAppDashboard();
       return true;
-    } catch {
+    } catch (error) {
+      if (isSubscriptionBlockCode((error as { code?: string } | null)?.code)) {
+        clearSessionForSubscriptionBlock();
+        return false;
+      }
       // A network or cloud infrastructure failure is temporary. Keep the
-      // authenticated UI available, block mutations, and retry with backoff.
+      // authenticated UI available; the local API checks its signed grace grant.
       markCloudVerificationPending();
       return false;
     }
@@ -376,9 +451,24 @@ export async function retrySubscriptionVerification(): Promise<boolean> {
     localStorage.removeItem(CLOUD_REFRESH_FAILED_KEY);
   }
   if (typeof window !== 'undefined' && !TokenManager.getCloudToken()) {
-    const refreshedToken = await refreshCloudAccessToken();
-    if (refreshedToken) {
-      apiClient.setCloudToken(refreshedToken);
+    try {
+      const refreshedToken = await refreshCloudAccessToken();
+      if (refreshedToken) {
+        apiClient.setCloudToken(refreshedToken);
+      } else if (localStorage.getItem(CLOUD_REFRESH_FAILED_KEY) === 'true') {
+        forceLogoutToLogin('Session expired');
+        return false;
+      }
+    } catch (error) {
+      if (isSubscriptionBlockCode((error as { code?: string } | null)?.code)) {
+        clearSessionForSubscriptionBlock();
+        return false;
+      }
+      if (isTemporaryAuthFailure(error)) {
+        markCloudVerificationPending();
+        return false;
+      }
+      throw error;
     }
   }
   return validateSubscriptionWithCloud();
@@ -414,6 +504,10 @@ function goToAppDashboard(): void {
 export function forceLogoutToLogin(reason = 'Session expired') {
   if (typeof window === 'undefined') return;
 
+  authSessionGeneration += 1;
+  checkAuthInFlight = null;
+  abortPendingAuthRefreshes();
+
   const logoutReason: AutoLogoutReason = reason.includes('Internet')
     ? 'offline'
     : reason.includes('subscription') || reason.includes('اشتراك')
@@ -438,6 +532,7 @@ export function forceLogoutToLogin(reason = 'Session expired') {
     refreshTokenValue: null,
     cloudToken: null,
     sessionVerified: false,
+    sessionRestorePending: false,
     cloudVerificationPending: false,
     isLoading: false,
   });
@@ -462,8 +557,9 @@ export function forceLogoutToLogin(reason = 'Session expired') {
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
-      isAuthenticated: false,
-      sessionVerified: false,
+    isAuthenticated: false,
+    sessionVerified: false,
+    sessionRestorePending: false,
       cloudVerificationPending: false,
       user: null,
       token: null,
@@ -475,6 +571,9 @@ export const useAuthStore = create<AuthState>()(
         setPostLoginVerifying: (value: boolean) => set({ isPostLoginVerifying: value }),
 
           login: async (email: string, password: string) => {
+        authSessionGeneration += 1;
+        checkAuthInFlight = null;
+        abortPendingAuthRefreshes();
         clearPersistedAuthStorage();
             localStorage.removeItem(CLOUD_REFRESH_FAILED_KEY);
         apiClient.logout();
@@ -532,9 +631,10 @@ export const useAuthStore = create<AuthState>()(
             }
             apiClient.setCloudToken(cloudTokenForLocalSession);
 
-            set({
+          set({
               isAuthenticated: true,
               sessionVerified: true,
+              sessionRestorePending: false,
               user: localData.user || null,
               token: localToken,
               refreshTokenValue: null,
@@ -577,6 +677,7 @@ export const useAuthStore = create<AuthState>()(
           set({
             isAuthenticated: true,
             sessionVerified: true,
+            sessionRestorePending: false,
             user: user || null,
             token: accessToken,
             refreshTokenValue: null,
@@ -618,7 +719,12 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         const state = useAuthStore.getState();
         const cloudToken = state.cloudToken || TokenManager.getCloudToken();
-        if (cloudToken && (typeof navigator === 'undefined' || navigator.onLine)) {
+        const isLocalMode = getConnectionMode() === 'local';
+        authSessionGeneration += 1;
+        checkAuthInFlight = null;
+        abortPendingAuthRefreshes();
+        void authApi.logout().catch(() => undefined);
+        if (isLocalMode && cloudToken && (typeof navigator === 'undefined' || navigator.onLine)) {
           void authApi.logoutWithCloud(cloudToken).catch(() => undefined);
         }
         cancelCloudValidationRetry();
@@ -633,6 +739,7 @@ export const useAuthStore = create<AuthState>()(
         set({
           isAuthenticated: false,
           sessionVerified: false,
+          sessionRestorePending: false,
           user: null,
           token: null,
           refreshTokenValue: null,
@@ -642,8 +749,12 @@ export const useAuthStore = create<AuthState>()(
         clearPersistedAuthStorage();
       },
 
-      checkAuth: async () => {
-        set({ isLoading: true, sessionVerified: false });
+      checkAuth: () => {
+        if (checkAuthInFlight) return checkAuthInFlight;
+
+        const checkGeneration = authSessionGeneration;
+        const checkPromise = (async () => {
+        set({ isLoading: true, sessionVerified: false, sessionRestorePending: false });
 
         // Migrate credentials created by older builds. Refresh credentials are
         // now HttpOnly cookies and must never remain readable by JavaScript.
@@ -656,16 +767,8 @@ export const useAuthStore = create<AuthState>()(
         const persistedState = getPersistedAuthState();
         const currentState = useAuthStore.getState();
 
-        if (window.location.hash.includes('/login')
-          && !persistedState?.isAuthenticated
-          && !persistedState?.user
-          && !currentState.token) {
-          set({ isAuthenticated: false, sessionVerified: false, cloudVerificationPending: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
-          return;
-        }
-
         const token = currentState.token || persistedState?.token || TokenManager.getToken();
-        const cloudToken = currentState.cloudToken || persistedState?.cloudToken || null;
+        let cloudToken = currentState.cloudToken || persistedState?.cloudToken || null;
 
         if (token && !TokenManager.getToken()) {
           TokenManager.setToken(token);
@@ -675,8 +778,17 @@ export const useAuthStore = create<AuthState>()(
         }
 
         if (!token) {
+          const hadSavedSession = Boolean(persistedState?.isAuthenticated || persistedState?.user);
+          let restoreFailure: unknown = null;
           try {
-            const refreshed = await authApi.refreshToken();
+            const controller = createAuthRefreshController();
+            let refreshed;
+            try {
+              refreshed = await authApi.refreshToken(controller.signal);
+            } finally {
+              pendingAuthRefreshControllers.delete(controller);
+            }
+            if (checkGeneration !== authSessionGeneration) return;
             const payload = (refreshed && typeof refreshed === 'object' && 'data' in refreshed && refreshed.data)
               ? refreshed.data
               : refreshed;
@@ -684,9 +796,20 @@ export const useAuthStore = create<AuthState>()(
             if (refreshedToken) {
               TokenManager.setToken(refreshedToken);
               apiClient.setToken(refreshedToken);
-              const refreshedCloudToken = getConnectionMode() === 'local'
-                ? await refreshCloudAccessToken()
-                : refreshedToken;
+              let refreshedCloudToken: string | null = getConnectionMode() === 'local' ? null : refreshedToken;
+              if (getConnectionMode() === 'local') {
+                try {
+                  refreshedCloudToken = await refreshCloudAccessToken();
+                  if (checkGeneration !== authSessionGeneration) return;
+                } catch (error) {
+                  restoreFailure = error;
+                  if (!isTemporaryAuthFailure(error)) throw error;
+                }
+                if (!refreshedCloudToken && localStorage.getItem(CLOUD_REFRESH_FAILED_KEY) === 'true') {
+                  forceLogoutToLogin('Session expired');
+                  return;
+                }
+              }
               if (refreshedCloudToken) {
                 TokenManager.setCloudToken(refreshedCloudToken);
                 apiClient.setCloudToken(refreshedCloudToken);
@@ -694,12 +817,17 @@ export const useAuthStore = create<AuthState>()(
               set({
                 isAuthenticated: true,
                 sessionVerified: true,
+                sessionRestorePending: false,
                 token: refreshedToken,
                 cloudToken: refreshedCloudToken,
                 user: payload?.user ?? null,
                 isLoading: false,
               });
-              if (refreshedCloudToken && await validateSubscriptionWithCloud()) {
+              const subscriptionValid = refreshedCloudToken
+                ? await validateSubscriptionWithCloud()
+                : false;
+              if (checkGeneration !== authSessionGeneration) return;
+              if (subscriptionValid) {
                 startTokenRefresh();
                 return;
               }
@@ -707,20 +835,29 @@ export const useAuthStore = create<AuthState>()(
                 startTokenRefresh();
                 return;
               }
+              if (getConnectionMode() === 'local' && !refreshedCloudToken) {
+                markCloudVerificationPending();
+                startTokenRefresh();
+                return;
+              }
             }
-          } catch {
+          } catch (error) {
+            if (checkGeneration !== authSessionGeneration) return;
+            restoreFailure = error;
             // A local refresh cookie can become invalid after the local API is
             // rebuilt. Recreate the local session from the cloud cookie before
             // treating the browser session as signed out.
             if (getConnectionMode() === 'local' && navigator.onLine) {
               try {
                 const refreshedCloudToken = await refreshCloudAccessToken();
+                if (checkGeneration !== authSessionGeneration) return;
                 if (refreshedCloudToken) {
                   const localSession = await authApi.createLocalSession(refreshedCloudToken) as {
                     token?: string;
                     access_token?: string;
                     user?: User;
                   };
+                  if (checkGeneration !== authSessionGeneration) return;
                   const localToken = localSession.token || localSession.access_token;
                   if (localToken) {
                     TokenManager.setToken(localToken);
@@ -728,6 +865,7 @@ export const useAuthStore = create<AuthState>()(
                     set({
                       isAuthenticated: true,
                       sessionVerified: true,
+                      sessionRestorePending: false,
                       token: localToken,
                       cloudToken: refreshedCloudToken,
                       user: localSession.user ?? null,
@@ -737,19 +875,78 @@ export const useAuthStore = create<AuthState>()(
                     return;
                   }
                 }
-              } catch {
+              } catch (fallbackError) {
+                if (checkGeneration !== authSessionGeneration) return;
+                restoreFailure = fallbackError;
                 // Fall through to the normal unauthenticated state.
               }
             }
           }
 
-          set({ isAuthenticated: false, sessionVerified: false, cloudVerificationPending: false, user: null, token: null, refreshTokenValue: null, isLoading: false });
+          if (checkGeneration !== authSessionGeneration) return;
+          if (isSubscriptionBlockCode((restoreFailure as { code?: string } | null)?.code)) {
+            clearSessionForSubscriptionBlock();
+            return;
+          }
+
+          if (hadSavedSession && (!navigator.onLine || isTemporaryAuthFailure(restoreFailure))) {
+            set({
+              isAuthenticated: false,
+              sessionVerified: false,
+              sessionRestorePending: true,
+              cloudVerificationPending: true,
+              user: persistedState?.user ?? null,
+              token: null,
+              refreshTokenValue: null,
+              cloudToken: null,
+              isLoading: false,
+            });
+            return;
+          }
+
+          TokenManager.clearToken();
+          TokenManager.clearRefreshToken();
+          TokenManager.clearCloudToken();
+          set({ isAuthenticated: false, sessionVerified: false, sessionRestorePending: false, cloudVerificationPending: false, user: null, token: null, refreshTokenValue: null, cloudToken: null, isLoading: false });
           return;
         }
 
         if (!cloudToken) {
-          forceLogoutToLogin('No active cloud session');
-          return;
+          if (getConnectionMode() === 'local') {
+            try {
+              cloudToken = await refreshCloudAccessToken();
+              if (checkGeneration !== authSessionGeneration) return;
+            } catch (error) {
+              if (checkGeneration !== authSessionGeneration) return;
+              if (!isTemporaryAuthFailure(error)) {
+                forceLogoutToLogin('Session expired');
+                return;
+              }
+            }
+            if (cloudToken) {
+              TokenManager.setCloudToken(cloudToken);
+              apiClient.setCloudToken(cloudToken);
+              set({ cloudToken });
+            } else if (localStorage.getItem(CLOUD_REFRESH_FAILED_KEY) === 'true') {
+              forceLogoutToLogin('Session expired');
+              return;
+            } else {
+              set({
+                isAuthenticated: true,
+                sessionVerified: true,
+                sessionRestorePending: false,
+                cloudVerificationPending: true,
+                token,
+                user: currentState.user ?? persistedState?.user ?? null,
+                isLoading: false,
+              });
+              startTokenRefresh();
+              return;
+            }
+          } else {
+            forceLogoutToLogin('No active cloud session');
+            return;
+          }
         }
 
         apiClient.setToken(token);
@@ -762,6 +959,7 @@ export const useAuthStore = create<AuthState>()(
         }
 
         const valid = await validateSubscriptionWithCloud();
+        if (checkGeneration !== authSessionGeneration) return;
         if (!valid) {
           const pending = useAuthStore.getState().cloudVerificationPending;
           if (pending) {
@@ -774,11 +972,26 @@ export const useAuthStore = create<AuthState>()(
 
         set({ isAuthenticated: true, sessionVerified: true, cloudVerificationPending: false, isLoading: false });
         startTokenRefresh();
+        })();
+        checkAuthInFlight = checkPromise;
+        const clearInFlight = () => {
+          if (checkAuthInFlight === checkPromise) checkAuthInFlight = null;
+        };
+        void checkPromise.then(clearInFlight, clearInFlight);
+        return checkPromise;
       },
 
       refreshToken: async () => {
+        const refreshGeneration = authSessionGeneration;
         try {
-          const response = await authApi.refreshToken();
+          const controller = createAuthRefreshController();
+          let response;
+          try {
+            response = await authApi.refreshToken(controller.signal);
+          } finally {
+            pendingAuthRefreshControllers.delete(controller);
+          }
+          if (refreshGeneration !== authSessionGeneration) return;
           const payload = (response && typeof response === 'object' && 'data' in response && response.data)
             ? response.data
             : response;
@@ -791,6 +1004,7 @@ export const useAuthStore = create<AuthState>()(
           TokenManager.setToken(token);
           apiClient.setToken(token);
           const cloudValid = await validateSubscriptionWithCloud();
+          if (refreshGeneration !== authSessionGeneration) return;
           if (!cloudValid) {
             if (useAuthStore.getState().cloudVerificationPending) {
               set({ isAuthenticated: true, sessionVerified: true });
@@ -816,6 +1030,7 @@ export const useAuthStore = create<AuthState>()(
             refreshTokenValue: null,
           });
         } catch (error) {
+          if (refreshGeneration !== authSessionGeneration) return;
           console.error('Failed to refresh token:', error);
 
           const currentToken = TokenManager.getToken() || useAuthStore.getState().token;
@@ -826,16 +1041,57 @@ export const useAuthStore = create<AuthState>()(
 
           const status = Number((error as { status?: number })?.status);
           if (status === 401) {
-            // A rejected refresh credential is not subscription expiry and is
-            // not enough evidence of a network loss. Keep the session visible,
-            // block sensitive work, and retry after the next online check.
-            markCloudVerificationPending();
-            set({
-              isAuthenticated: true,
-              sessionVerified: true,
-              token: currentToken ?? null,
-              isLoading: false,
-            });
+            if (getConnectionMode() === 'local' && navigator.onLine) {
+              try {
+                const refreshedCloudToken = await refreshCloudAccessToken();
+                if (refreshGeneration !== authSessionGeneration) return;
+                if (refreshedCloudToken) {
+                  const localSession = await authApi.createLocalSession(refreshedCloudToken) as {
+                    token?: string;
+                    access_token?: string;
+                    user?: User;
+                  };
+                  if (refreshGeneration !== authSessionGeneration) return;
+                  const localToken = localSession.token || localSession.access_token;
+                  if (localToken) {
+                    TokenManager.setCloudToken(refreshedCloudToken);
+                    TokenManager.setToken(localToken);
+                    apiClient.setCloudToken(refreshedCloudToken);
+                    apiClient.setToken(localToken);
+                    set({
+                      isAuthenticated: true,
+                      sessionVerified: true,
+                      sessionRestorePending: false,
+                      cloudVerificationPending: false,
+                      cloudToken: refreshedCloudToken,
+                      token: localToken,
+                      user: localSession.user ?? useAuthStore.getState().user,
+                      isLoading: false,
+                    });
+                    const cloudValid = await validateSubscriptionWithCloud();
+                    if (refreshGeneration !== authSessionGeneration) return;
+                    if (cloudValid) return;
+                    if (useAuthStore.getState().cloudVerificationPending) return;
+                  }
+                }
+              } catch (refreshError) {
+                if (refreshGeneration !== authSessionGeneration) return;
+                if (isTemporaryAuthFailure(refreshError)) {
+                  markCloudVerificationPending();
+                  return;
+                }
+              }
+
+              if (isTemporaryAuthFailure(error)) {
+                markCloudVerificationPending();
+                set({ isAuthenticated: true, sessionVerified: true, token: currentToken ?? null, isLoading: false });
+                return;
+              }
+              forceLogoutToLogin('Session expired');
+              return;
+            }
+
+            forceLogoutToLogin('Session expired');
             return;
           }
 
@@ -844,9 +1100,11 @@ export const useAuthStore = create<AuthState>()(
             return;
           }
 
-          // Invalid or expired credentials can fail a refresh without proving
-          // subscription expiry. Preserve the session and let the next online
-          // validation or explicit login resolve it.
+          if (isTemporaryAuthFailure(error)) {
+            markCloudVerificationPending();
+            set({ isAuthenticated: true, sessionVerified: true, isLoading: false });
+            return;
+          }
           throw error;
         }
       },

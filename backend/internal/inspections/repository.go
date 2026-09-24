@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
@@ -594,21 +595,40 @@ func (r *Repository) GetInspectionSummary(ctx context.Context) (*InspectionSumma
 	}
 
 	// This week inspections
-	weekQuery := `SELECT COUNT(*) FROM inspections WHERE inspection_date >= DATE_TRUNC('week', CURRENT_DATE)`
-	monthQuery := `SELECT COUNT(*) FROM inspections WHERE DATE_TRUNC('month', inspection_date) = DATE_TRUNC('month', CURRENT_DATE)`
-	if dbutil.IsSQLite(r.db) {
-		// SQLite stores local timestamps as TEXT.  Using a half-open date range
-		// keeps the query index-friendly and avoids PostgreSQL-only DATE_TRUNC.
-		weekQuery = `SELECT COUNT(*) FROM inspections WHERE date(inspection_date) >= date('now', 'weekday 1', '-7 days')`
-		monthQuery = `SELECT COUNT(*) FROM inspections WHERE strftime('%Y-%m', inspection_date) = strftime('%Y-%m', 'now')`
+	storeNow := accounting.StoreNow()
+	weekStart, _, err := accounting.StoreWeekBounds(storeNow)
+	if err != nil {
+		return nil, fmt.Errorf("calculate store week boundary: %w", err)
 	}
-	err = r.db.GetContext(ctx, &summary.ThisWeek, weekQuery)
+	monthStart, monthEnd, err := accounting.StoreMonthBounds(storeNow)
+	if err != nil {
+		return nil, fmt.Errorf("calculate store month boundary: %w", err)
+	}
+	weekStartDate, err := accounting.StoreDate(weekStart)
+	if err != nil {
+		return nil, fmt.Errorf("calculate store week date: %w", err)
+	}
+	monthStartDate, err := accounting.StoreDate(monthStart)
+	if err != nil {
+		return nil, fmt.Errorf("calculate store month date: %w", err)
+	}
+	monthEndDate, err := accounting.StoreDate(monthEnd)
+	if err != nil {
+		return nil, fmt.Errorf("calculate next store month date: %w", err)
+	}
+	weekQuery := `SELECT COUNT(*) FROM inspections WHERE inspection_date >= $1`
+	monthQuery := `SELECT COUNT(*) FROM inspections WHERE inspection_date >= $1 AND inspection_date < $2`
+	if dbutil.IsSQLite(r.db) {
+		weekQuery = `SELECT COUNT(*) FROM inspections WHERE date(inspection_date) >= date(?)`
+		monthQuery = `SELECT COUNT(*) FROM inspections WHERE date(inspection_date) >= date(?) AND date(inspection_date) < date(?)`
+	}
+	err = r.db.GetContext(ctx, &summary.ThisWeek, weekQuery, weekStartDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this week inspections: %w", err)
 	}
 
 	// This month inspections
-	err = r.db.GetContext(ctx, &summary.ThisMonth, monthQuery)
+	err = r.db.GetContext(ctx, &summary.ThisMonth, monthQuery, monthStartDate, monthEndDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get this month inspections: %w", err)
 	}

@@ -7,6 +7,7 @@ import { SupplierForm, type SupplierFormData } from '../../../components/forms/S
 import { suppliersApi } from '../../../services/api/endpoints';
 import { getButtonSize } from '../../../config/button-sizes';
 import { normalizeSupplier } from '../utils/supplier-normalization';
+import { formatStoreDate } from '../../../utils/store-time';
 
 interface SupplierModalsProps {
   isOpen: boolean;
@@ -84,35 +85,35 @@ export function SupplierModals({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">الاسم</label>
-                <Input value={normalizedViewingSupplier.name || ''} disabled />
+                <Input value={normalizedViewingSupplier.name || ''} readOnly />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">الهاتف</label>
-                <Input value={normalizedViewingSupplier.phone || ''} disabled />
+                <Input value={normalizedViewingSupplier.phone || ''} readOnly />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">البريد الإلكتروني</label>
-                <Input value={normalizedViewingSupplier.email || '-'} disabled />
+                <Input value={normalizedViewingSupplier.email || '-'} readOnly />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">إجمالي المشتريات</label>
-                <Input value={`₪${(normalizedViewingSupplier.totalPurchases || 0).toLocaleString()}`} disabled />
+                <Input value={`₪${(normalizedViewingSupplier.totalPurchases || 0).toLocaleString()}`} readOnly />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">المدفوع</label>
-                <Input value={`₪${(normalizedViewingSupplier.paidAmount || 0).toLocaleString()}`} disabled />
+                <Input value={`₪${(normalizedViewingSupplier.paidAmount || 0).toLocaleString()}`} readOnly />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">صافي المستحق</label>
-                <Input value={`₪${(normalizedViewingSupplier.outstanding || 0).toLocaleString()}`} disabled />
+                <Input value={`₪${(normalizedViewingSupplier.outstanding || 0).toLocaleString()}`} readOnly />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">رصيد مرتجعات التاجر</label>
-                <Input value={`-₪${Number(ledger?.supplier_return_credits || 0).toLocaleString()}`} disabled />
+                <Input value={`-₪${Number(ledger?.supplier_return_credits || 0).toLocaleString()}`} readOnly />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">دفعات التاجر</label>
-                <Input value={`₪${Number(ledger?.supplier_payments || 0).toLocaleString()}`} disabled />
+                <Input value={`₪${Number(ledger?.supplier_payments || 0).toLocaleString()}`} readOnly />
               </div>
             </div>
             <p className="text-xs text-text-muted">صافي المستحق = المستحق الأصلي - Credits المرتجعات - دفعات التاجر.</p>
@@ -143,7 +144,7 @@ export function SupplierModals({
                       {entries.map((entry: any, idx: number) => (
                         <tr key={entry.id || idx} className="border-b border-border">
                           <td className="p-2 text-text-secondary">
-                            {entry.created_at ? new Date(entry.created_at).toLocaleDateString('ar-SA') : '-'}
+                            {entry.created_at ? formatStoreDate(entry.created_at, 'ar-SA') : '-'}
                           </td>
                           <td className="p-2">
                             <span className={entry.entry_type === 'credit' || entry.type === 'credit' ? 'text-green' : 'text-danger'}>

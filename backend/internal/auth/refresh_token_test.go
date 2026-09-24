@@ -96,3 +96,43 @@ func TestRefreshTokenIsRotatedAndOldTokenRejected(t *testing.T) {
 		t.Fatalf("after logout token count=%d err=%v, want 0", count, err)
 	}
 }
+
+func TestDatabaseOutageIsNotReportedAsMissingUser(t *testing.T) {
+	service, db, userID := newRefreshTokenTestService(t)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.Login(context.Background(), &LoginRequest{Email: "refresh@example.test", Password: "TestOwnerPassword123!"}); err == nil || errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("login error=%v, want a transient database error", err)
+	}
+	if _, err := service.GetUserByID(context.Background(), userID); err == nil || errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("GetUserByID error=%v, want a transient database error", err)
+	}
+
+	refreshToken, err := service.jwtService.GenerateRefreshToken(userID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RefreshToken(context.Background(), refreshToken); err == nil || errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("RefreshToken error=%v, want a transient database error", err)
+	}
+}
+
+func TestLoginAndRefreshRejectSuspendedSubscription(t *testing.T) {
+	service, db, userID := newRefreshTokenTestService(t)
+	ctx := context.Background()
+	login, err := service.Login(ctx, &LoginRequest{Email: "refresh@example.test", Password: "TestOwnerPassword123!"})
+	if err != nil {
+		t.Fatalf("login before suspension: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE users SET subscription_status = 'suspended' WHERE id = ?`, userID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RefreshToken(ctx, login.RefreshToken); !errors.Is(err, ErrSubscriptionSuspended) {
+		t.Fatalf("refresh after suspension error=%v, want ErrSubscriptionSuspended", err)
+	}
+	if _, err := service.Login(ctx, &LoginRequest{Email: "refresh@example.test", Password: "TestOwnerPassword123!"}); !errors.Is(err, ErrSubscriptionSuspended) {
+		t.Fatalf("login after suspension error=%v, want ErrSubscriptionSuspended", err)
+	}
+}

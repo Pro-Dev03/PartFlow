@@ -93,7 +93,7 @@ export function SmartActions({ lowStockCount = 0, overdueDebtsCount = 0 }: Smart
   const allActions = [...urgentActions, ...actions];
 
   return (
-    <Card variant="open">
+    <Card className="dashboard-smart-actions">
       <CardContent>
         <div className="flex items-center gap-2 mb-4">
           <div 

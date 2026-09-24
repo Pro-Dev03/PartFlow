@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
@@ -73,6 +74,21 @@ func parsePurchaseTime(value string) (time.Time, error) {
 	return dbutil.ParseTimestamp(value)
 }
 
+func purchaseDateForStorage(value time.Time) (string, error) {
+	date, err := accounting.StoreDate(value)
+	if err != nil {
+		return "", fmt.Errorf("normalize purchase business date: %w", err)
+	}
+	return date, nil
+}
+
+func optionalPurchaseDateForStorage(value *time.Time) (any, error) {
+	if value == nil || value.IsZero() {
+		return nil, nil
+	}
+	return purchaseDateForStorage(*value)
+}
+
 // NewRepository creates a new purchase repository
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
@@ -97,6 +113,14 @@ func (r *Repository) CreateTx(ctx context.Context, tx *sqlx.Tx, purchase *Purcha
 }
 
 func createPurchase(ctx context.Context, executor sqlx.ExtContext, purchase *Purchase) error {
+	purchaseDate, err := purchaseDateForStorage(purchase.PurchaseDate)
+	if err != nil {
+		return err
+	}
+	expectedDeliveryDate, err := optionalPurchaseDateForStorage(purchase.ExpectedDeliveryDate)
+	if err != nil {
+		return err
+	}
 	query := `
 		INSERT INTO purchases (id, supplier_id, invoice_number, purchase_date, expected_delivery_date,
 			tax_amount, total_amount, paid_amount, status, notes, user_id, created_at, updated_at)
@@ -104,9 +128,9 @@ func createPurchase(ctx context.Context, executor sqlx.ExtContext, purchase *Pur
 		RETURNING id, created_at, updated_at
 	`
 
-	err := executor.QueryRowxContext(ctx, query,
-		purchase.ID, purchase.SupplierID, purchase.InvoiceNumber, purchase.PurchaseDate,
-		purchase.ExpectedDeliveryDate, purchase.TaxAmount, purchase.TotalAmount,
+	err = executor.QueryRowxContext(ctx, query,
+		purchase.ID, purchase.SupplierID, purchase.InvoiceNumber, purchaseDate,
+		expectedDeliveryDate, purchase.TaxAmount, purchase.TotalAmount,
 		purchase.PaidAmount, purchase.Status, purchase.Notes, purchase.UserID, purchase.CreatedAt, purchase.UpdatedAt,
 	).Scan(&purchase.ID, &purchase.CreatedAt, &purchase.UpdatedAt)
 
@@ -117,10 +141,19 @@ func createPurchase(ctx context.Context, executor sqlx.ExtContext, purchase *Pur
 }
 
 func createPurchaseSQLite(ctx context.Context, executor sqlx.ExtContext, purchase *Purchase) error {
+	purchaseDate, err := purchaseDateForStorage(purchase.PurchaseDate)
+	if err != nil {
+		return err
+	}
+	expectedDeliveryDate, err := optionalPurchaseDateForStorage(purchase.ExpectedDeliveryDate)
+	if err != nil {
+		return err
+	}
 	var hasTaxAmount bool
 	var hasPurchaseDate bool
+	var hasExpectedDeliveryDate bool
 	if err := executor.QueryRowxContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('purchases') WHERE name = 'tax_amount')`).Scan(&hasTaxAmount); err == nil && !hasTaxAmount {
-		_, err := executor.ExecContext(ctx, `
+		_, err = executor.ExecContext(ctx, `
 				INSERT INTO purchases (id, purchase_number, supplier_id, total_amount, paid_amount,
 					remaining_amount, status, notes, created_at, updated_at)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -133,18 +166,32 @@ func createPurchaseSQLite(ctx context.Context, executor sqlx.ExtContext, purchas
 		return nil
 	}
 	if err := executor.QueryRowxContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('purchases') WHERE name = 'purchase_date')`).Scan(&hasPurchaseDate); err == nil && hasPurchaseDate {
+		_ = executor.QueryRowxContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('purchases') WHERE name = 'expected_delivery_date')`).Scan(&hasExpectedDeliveryDate)
+		if hasExpectedDeliveryDate {
+			_, err := executor.ExecContext(ctx, `
+				INSERT INTO purchases (id, purchase_number, supplier_id, purchase_date, expected_delivery_date, tax_amount, total_amount, paid_amount,
+					remaining_amount, status, notes, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`, purchase.ID, purchase.InvoiceNumber, purchase.SupplierID, purchaseDate, expectedDeliveryDate,
+				purchase.TaxAmount, purchase.TotalAmount, purchase.PaidAmount, purchase.TotalAmount-purchase.PaidAmount,
+				purchase.Status, purchase.Notes, purchase.CreatedAt.Format(time.RFC3339), purchase.UpdatedAt.Format(time.RFC3339))
+			if err != nil {
+				return fmt.Errorf("failed to create local purchase: %w", err)
+			}
+			return nil
+		}
 		_, err := executor.ExecContext(ctx, `
 			INSERT INTO purchases (id, purchase_number, supplier_id, purchase_date, tax_amount, total_amount, paid_amount,
 				remaining_amount, status, notes, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, purchase.ID, purchase.InvoiceNumber, purchase.SupplierID, purchase.PurchaseDate.Format(time.RFC3339), purchase.TaxAmount, purchase.TotalAmount,
+		`, purchase.ID, purchase.InvoiceNumber, purchase.SupplierID, purchaseDate, purchase.TaxAmount, purchase.TotalAmount,
 			purchase.PaidAmount, purchase.TotalAmount-purchase.PaidAmount, purchase.Status, purchase.Notes, purchase.CreatedAt.Format(time.RFC3339), purchase.UpdatedAt.Format(time.RFC3339))
 		if err != nil {
 			return fmt.Errorf("failed to create local purchase: %w", err)
 		}
 		return nil
 	}
-	_, err := executor.ExecContext(ctx, `
+	_, err = executor.ExecContext(ctx, `
 		INSERT INTO purchases (id, purchase_number, supplier_id, tax_amount, total_amount, paid_amount,
 			remaining_amount, status, notes, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -528,8 +575,12 @@ func (r *Repository) ListSummaries(ctx context.Context, req PurchaseListRequest)
 
 // Update updates a purchase
 func (r *Repository) Update(ctx context.Context, purchase *Purchase) error {
+	purchaseDate, err := purchaseDateForStorage(purchase.PurchaseDate)
+	if err != nil {
+		return err
+	}
 	if dbutil.IsSQLite(r.db) {
-		result, err := r.db.ExecContext(ctx, `UPDATE purchases SET purchase_number = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?`, purchase.InvoiceNumber, purchase.Status, purchase.Notes, purchase.UpdatedAt, purchase.ID)
+		result, err := r.db.ExecContext(ctx, `UPDATE purchases SET purchase_number = ?, purchase_date = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?`, purchase.InvoiceNumber, purchaseDate, purchase.Status, purchase.Notes, purchase.UpdatedAt, purchase.ID)
 		if err != nil {
 			return fmt.Errorf("failed to update local purchase: %w", err)
 		}
@@ -546,8 +597,8 @@ func (r *Repository) Update(ctx context.Context, purchase *Purchase) error {
 		RETURNING updated_at
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
-		purchase.ID, purchase.InvoiceNumber, purchase.PurchaseDate, purchase.Status,
+	err = r.db.QueryRowContext(ctx, query,
+		purchase.ID, purchase.InvoiceNumber, purchaseDate, purchase.Status,
 		purchase.Notes, purchase.UpdatedAt,
 	).Scan(&purchase.UpdatedAt)
 

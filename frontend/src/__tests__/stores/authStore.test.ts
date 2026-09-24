@@ -14,6 +14,7 @@ describe('cloud subscription validation', () => {
     useAuthStore.setState({
       isAuthenticated: false,
       sessionVerified: false,
+      sessionRestorePending: false,
       cloudVerificationPending: false,
       user: null,
       token: null,
@@ -34,6 +35,7 @@ describe('cloud subscription validation', () => {
     useAuthStore.setState({
       isAuthenticated: true,
       sessionVerified: true,
+      sessionRestorePending: false,
       cloudVerificationPending: false,
       user: null,
       token: 'local-token',
@@ -70,6 +72,60 @@ describe('cloud subscription validation', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
     expect(useAuthStore.getState().token).toBe('local-access-token');
     expect(useAuthStore.getState().cloudToken).toBe('cloud-access-token');
+  });
+
+  it('restores the HttpOnly-cookie session before showing login on startup', async () => {
+    const user = { id: 'u-restore', email: 'owner@example.test', first_name: 'Test', last_name: 'Owner' } as any;
+    window.location.hash = '#/login';
+    useAuthStore.setState({
+      isAuthenticated: false,
+      sessionVerified: false,
+      sessionRestorePending: false,
+      user: null,
+      token: null,
+      cloudToken: null,
+      cloudVerificationPending: false,
+      isLoading: false,
+    });
+    localStorage.setItem('auth-storage', JSON.stringify({ state: { isAuthenticated: true, user }, version: 0 }));
+    vi.spyOn(authApi, 'refreshToken').mockResolvedValue({ token: 'restored-access-token', user } as any);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { valid: true, user } }), { status: 200 })
+    );
+
+    await useAuthStore.getState().checkAuth();
+
+    expect(authApi.refreshToken).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().sessionVerified).toBe(true);
+    expect(useAuthStore.getState().token).toBe('restored-access-token');
+  });
+
+  it('shares one startup refresh when React invokes auth restoration more than once', async () => {
+    const user = { id: 'u-restore', email: 'owner@example.test' } as any;
+    TokenManager.clearToken();
+    TokenManager.clearCloudToken();
+    useAuthStore.setState({
+      isAuthenticated: false,
+      sessionVerified: false,
+      sessionRestorePending: false,
+      user: null,
+      token: null,
+      cloudToken: null,
+    });
+    localStorage.setItem('auth-storage', JSON.stringify({ state: { isAuthenticated: true, user }, version: 0 }));
+    const refreshSpy = vi.spyOn(authApi, 'refreshToken').mockResolvedValue({ token: 'restored-access-token', user } as any);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { valid: true, user } }), { status: 200 })
+    );
+
+    await Promise.all([
+      useAuthStore.getState().checkAuth(),
+      useAuthStore.getState().checkAuth(),
+    ]);
+
+    expect(refreshSpy).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
   });
 
   it('validates the subscription in local mode', async () => {
@@ -128,7 +184,7 @@ describe('cloud subscription validation', () => {
     expect(window.location.hash).toBe('#/subscription-expired');
   });
 
-  it('keeps the session pending when the refresh token is rejected', async () => {
+  it('clears the session when the refresh token is definitively rejected', async () => {
     localStorage.setItem('auth_token', 'expired-access-token');
     localStorage.setItem('refresh_token', 'expired-refresh-token');
     TokenManager.setCloudToken('cloud-token');
@@ -143,10 +199,42 @@ describe('cloud subscription validation', () => {
 
     await useAuthStore.getState().refreshToken();
 
-    expect(useAuthStore.getState().isAuthenticated).toBe(true);
-    expect(useAuthStore.getState().sessionVerified).toBe(true);
-    expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
-    expect(TokenManager.getToken()).toBe('expired-access-token');
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().sessionVerified).toBe(false);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(false);
+    expect(TokenManager.getToken()).toBeNull();
+  });
+
+  it('does not process a refresh rejection that arrives after manual logout', async () => {
+    localStorage.setItem(CONNECTION_MODE_KEY, 'local');
+    TokenManager.setToken('access-token');
+    TokenManager.setCloudToken('cloud-token');
+    useAuthStore.setState({
+      isAuthenticated: true,
+      sessionVerified: true,
+      token: 'access-token',
+      cloudToken: 'cloud-token',
+    });
+    let rejectRefresh!: (reason: unknown) => void;
+    const refreshSpy = vi.spyOn(authApi, 'refreshToken').mockReturnValue(new Promise((_, reject) => {
+      rejectRefresh = reject;
+    }) as any);
+    const localLogout = vi.spyOn(authApi, 'logout').mockResolvedValue(undefined as any);
+    vi.spyOn(authApi, 'logoutWithCloud').mockResolvedValue(undefined as any);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const warning = vi.spyOn(console, 'warn');
+
+    const refreshPromise = useAuthStore.getState().refreshToken();
+    useAuthStore.getState().logout();
+    rejectRefresh(Object.assign(new Error('refresh token rejected'), { status: 401 }));
+    await refreshPromise;
+
+    expect(refreshSpy.mock.calls[0]?.[0]?.aborted).toBe(true);
+    expect(localLogout).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(TokenManager.getToken()).toBeNull();
+    expect(warning).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('retries cloud token refresh when the user presses retry', async () => {

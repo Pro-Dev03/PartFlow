@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { debtsApi } from '../../../services/api/endpoints';
 import { Debt, DebtStats, DebtSummaryResponse } from '../types/debts.types';
 import { SearchFilters } from '../components/AdvancedSearch';
+import { addStoreDays, getStoreDateKey, getStoreToday } from '../../../utils/store-time';
 
 export function useDebts() {
   const queryClient = useQueryClient();
@@ -53,7 +54,7 @@ export function useDebts() {
             amount: customer.current_balance + (customer.paid_amount || 0),
             paid_amount: customer.paid_amount || 0,
             remaining_amount: customer.current_balance,
-            due_date: new Date().toISOString(),
+            due_date: getStoreToday(),
             status: 'overdue',
             created_at: new Date().toISOString(),
           }]
@@ -97,18 +98,20 @@ export function useDebts() {
   // Helper function to check date range
   const isInDateRange = (dateString: string, range: string) => {
     if (!dateString) return false;
-    const date = new Date(dateString);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const diffTime = date.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const dueDate = getStoreDateKey(dateString);
+    const today = getStoreToday();
+    if (!dueDate || !today) return false;
+    const toOrdinal = (dateKey: string) => {
+      const [year, month, day] = dateKey.split('-').map(Number);
+      return Date.UTC(year, month - 1, day) / (24 * 60 * 60 * 1000);
+    };
+    const diffDays = toOrdinal(dueDate) - toOrdinal(today);
 
     switch (range) {
       case 'today':
         return diffDays === 0;
       case 'week':
-        return diffDays >= 0 && diffDays <= 7;
+        return diffDays >= 0 && diffDays <= 7 && dueDate < addStoreDays(today, 8);
       case 'month':
         return diffDays >= 0 && diffDays <= 30;
       default:

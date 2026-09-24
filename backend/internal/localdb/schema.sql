@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS sale_items (
     sale_id TEXT NOT NULL,
     inventory_item_id TEXT,
     product_id TEXT NOT NULL,
+    barcode TEXT,
     quantity INTEGER NOT NULL,
     unit_price REAL NOT NULL,
     item_total REAL NOT NULL,

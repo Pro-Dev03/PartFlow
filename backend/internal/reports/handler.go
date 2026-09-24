@@ -255,7 +255,7 @@ func parseReportDateRange(c *gin.Context) (time.Time, time.Time, error) {
 		}
 		// Date-only end dates are inclusive for callers, so make the upper
 		// bound exclusive by advancing one day as the existing API expects.
-		endDate = parsed.Add(24 * time.Hour)
+		endDate = parsed.In(location).AddDate(0, 0, 1)
 	}
 
 	if !endDate.After(startDate) {

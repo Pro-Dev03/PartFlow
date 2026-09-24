@@ -7,6 +7,7 @@ import { Input } from '../../../design-system/components/input';
 import { Select } from '../../../design-system/components/select';
 import { Button } from '../../../design-system/components/button';
 import { barcodeApi, customersApi, inventoryApi, partTypesApi, productsApi, suppliersApi } from '../../../services/api/endpoints';
+import { getStoreToday } from '../../../utils/store-time';
 
 interface OpeningStockModalProps {
   isOpen: boolean;
@@ -23,7 +24,7 @@ interface BatchRow {
   barcode: string;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => getStoreToday();
 
 export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'general' }: OpeningStockModalProps) {
   const isUsedStock = stockType === 'used';

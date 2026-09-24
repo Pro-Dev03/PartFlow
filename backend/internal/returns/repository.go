@@ -539,8 +539,406 @@ func (r *Repository) UpdateReturn(ctx context.Context, returnRecord *Return) err
 	return nil
 }
 
-// DeleteReturn removes the return from active inventory while preserving its history.
+// DeleteReturn removes the operational return record. Posted financial and
+// stock effects of completed returns are first detached into the accounting
+// effect ledger and remain unchanged.
 func (r *Repository) DeleteReturn(ctx context.Context, id uuid.UUID) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin return delete: %w", err)
+	}
+	defer tx.Rollback()
+
+	returnID := interface{}(id)
+	if dbutil.IsSQLite(r.db) {
+		returnID = id.String()
+	}
+	var record struct {
+		ReturnNumber   string  `db:"return_number"`
+		Status         string  `db:"status"`
+		RefundMethod   string  `db:"refund_method"`
+		CustomerID     string  `db:"customer_id"`
+		DebtID         *string `db:"debt_id"`
+		DebtAdjustment float64 `db:"debt_adjustment"`
+	}
+	if err := tx.GetContext(ctx, &record, tx.Rebind(`SELECT return_number, status, COALESCE(refund_method,'') AS refund_method, COALESCE(customer_id,'') AS customer_id, debt_id, COALESCE(debt_adjustment,0) AS debt_adjustment FROM returns WHERE id = ?`), returnID); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrReturnNotFound
+		}
+		return fmt.Errorf("load return before delete: %w", err)
+	}
+	isCompleted := strings.EqualFold(strings.TrimSpace(record.Status), "COMPLETED")
+	if isCompleted {
+		if err := preserveCompletedReturnEffectsTx(ctx, tx, dbutil.IsSQLite(r.db), returnID); err != nil {
+			return fmt.Errorf("preserve completed return effects: %w", err)
+		}
+		if err := detachCompletedReturnReferencesTx(ctx, tx, dbutil.IsSQLite(r.db), returnID); err != nil {
+			return fmt.Errorf("detach completed return references: %w", err)
+		}
+	} else if err := reverseReturnEffectsTx(ctx, tx, dbutil.IsSQLite(r.db), returnID, record.CustomerID, record.DebtID, record.DebtAdjustment); err != nil {
+		return fmt.Errorf("reverse uncompleted return effects: %w", err)
+	}
+	var refundTransactions []string
+	refundLinksExist, err := returnTableExists(tx, dbutil.IsSQLite(r.db), "return_payment_refunds")
+	if err != nil {
+		return fmt.Errorf("check return refund links: %w", err)
+	}
+	if refundLinksExist && !isCompleted {
+		if err := tx.SelectContext(ctx, &refundTransactions, tx.Rebind(`SELECT DISTINCT payment_transaction_id FROM return_payment_refunds WHERE return_id = ?`), returnID); err != nil {
+			return fmt.Errorf("load return payment transactions: %w", err)
+		}
+	}
+
+	for _, table := range []string{"payment_refunds", "return_payment_refunds", "return_refunds", "return_inspection", "return_audit_log", "supplier_return_items", "supplier_returns", "inventory_movements", "item_history", "ledger_entries", "customer_ledger", "audit_logs"} {
+		exists, err := returnTableExists(tx, dbutil.IsSQLite(r.db), table)
+		if err != nil {
+			return fmt.Errorf("check %s before return delete: %w", table, err)
+		}
+		if !exists {
+			continue
+		}
+		if isCompleted {
+			switch table {
+			case "payment_refunds", "inventory_movements", "item_history", "ledger_entries", "customer_ledger":
+				// These records are the posted payment, inventory, and balance
+				// effects. Keep them; their reference id is now the effect-ledger id.
+				continue
+			case "supplier_return_items", "supplier_returns":
+				// Supplier returns are independent operations. Remove only the
+				// pointer back to the deleted customer-return workflow.
+				if table == "supplier_returns" {
+					query := `UPDATE supplier_returns SET customer_return_id = NULL WHERE customer_return_id = ?`
+					if _, err := tx.ExecContext(ctx, tx.Rebind(query), returnID); err != nil {
+						return fmt.Errorf("detach supplier returns: %w", err)
+					}
+				} else {
+					query := `UPDATE supplier_return_items SET customer_return_id = NULL WHERE customer_return_id = ?`
+					if _, err := tx.ExecContext(ctx, tx.Rebind(query), returnID); err != nil {
+						return fmt.Errorf("detach supplier return items: %w", err)
+					}
+				}
+				continue
+			}
+		}
+		if table == "payment_refunds" {
+			refundLinksExist, err := returnTableExists(tx, dbutil.IsSQLite(r.db), "return_payment_refunds")
+			if err != nil {
+				return fmt.Errorf("check return refund links: %w", err)
+			}
+			if !refundLinksExist {
+				continue
+			}
+		}
+		query := `DELETE FROM ` + table + ` WHERE return_id = ?`
+		if table == "return_inspection" {
+			query = `DELETE FROM return_inspection WHERE return_item_id IN (SELECT id FROM return_items WHERE return_id = ?)`
+		}
+		if table == "payment_refunds" {
+			query = `DELETE FROM payment_refunds WHERE id IN (SELECT payment_refund_id FROM return_payment_refunds WHERE return_id = ? AND payment_refund_id IS NOT NULL)`
+		}
+		if table == "supplier_return_items" {
+			query = `DELETE FROM supplier_return_items WHERE supplier_return_id IN (SELECT id FROM supplier_returns WHERE customer_return_id = ?) OR customer_return_id = ?`
+			if _, err := tx.ExecContext(ctx, tx.Rebind(query), returnID, returnID); err != nil {
+				return fmt.Errorf("clean supplier return items: %w", err)
+			}
+			continue
+		}
+		if table == "supplier_returns" {
+			query = `DELETE FROM supplier_returns WHERE customer_return_id = ?`
+		}
+		if table == "inventory_movements" {
+			query = `DELETE FROM inventory_movements WHERE reference_id = ? AND LOWER(COALESCE(reference_type,'')) LIKE '%return%'`
+		}
+		if table == "item_history" || table == "ledger_entries" {
+			query = `DELETE FROM ` + table + ` WHERE reference_id = ?`
+		}
+		if table == "customer_ledger" {
+			query = `DELETE FROM customer_ledger WHERE reference_id = ?`
+		}
+		if table == "audit_logs" {
+			query = `DELETE FROM audit_logs WHERE entity_id = ? AND LOWER(COALESCE(entity_type, '')) IN ('return','returns','customer_return')`
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(query), returnID); err != nil {
+			return fmt.Errorf("clean %s for return delete: %w", table, err)
+		}
+	}
+	if !isCompleted {
+		if err := recalculateReturnPaymentTransactionsTx(ctx, tx, dbutil.IsSQLite(r.db), refundTransactions); err != nil {
+			return fmt.Errorf("recalculate payment state after return delete: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM return_items WHERE return_id = ?`), returnID); err != nil {
+		return fmt.Errorf("delete return items: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM returns WHERE id = ?`), returnID); err != nil {
+		return fmt.Errorf("delete return: %w", err)
+	}
+
+	if !isCompleted && record.CustomerID != "" && record.CustomerID != uuid.Nil.String() {
+		balanceQuery := `UPDATE customers SET current_balance = COALESCE((SELECT SUM(CASE WHEN LOWER(COALESCE(type,''))='debit' THEN amount WHEN LOWER(COALESCE(type,''))='credit' THEN -amount ELSE 0 END) FROM customer_ledger WHERE customer_id = ?),0), updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+		if !dbutil.IsSQLite(r.db) {
+			balanceQuery = `UPDATE customers SET current_balance = COALESCE((SELECT SUM(CASE WHEN LOWER(COALESCE(type,''))='debit' THEN amount WHEN LOWER(COALESCE(type,''))='credit' THEN -amount ELSE 0 END) FROM customer_ledger WHERE customer_id = $1),0), updated_at = NOW() WHERE id = $2`
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(balanceQuery), record.CustomerID, record.CustomerID); err != nil {
+			return fmt.Errorf("recalculate customer balance after return delete: %w", err)
+		}
+	}
+
+	deletionID := uuid.New()
+	auditQuery := `INSERT INTO audit_logs (id,user_id,action,entity_type,entity_id,new_values,created_at) VALUES ($1,NULL,'DELETE','return',$2,$3::jsonb,NOW())`
+	if dbutil.IsSQLite(r.db) {
+		auditQuery = `INSERT INTO audit_logs (id,user_id,action,entity_type,entity_id,new_values,created_at) VALUES (?,NULL,'DELETE','return',?,?,CURRENT_TIMESTAMP)`
+	}
+	snapshot := fmt.Sprintf(`{"return_number":%q,"status":%q,"financial_effect_preserved":%t}`, record.ReturnNumber, record.Status, isCompleted)
+	if _, err := tx.ExecContext(ctx, tx.Rebind(auditQuery), deletionID, returnID, snapshot); err != nil {
+		return fmt.Errorf("write return deletion audit: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit return delete: %w", err)
+	}
+	return nil
+}
+
+func preserveCompletedReturnEffectsTx(ctx context.Context, tx *sqlx.Tx, isSQLite bool, returnID interface{}) error {
+	var exists int
+	if err := tx.GetContext(ctx, &exists, tx.Rebind(`SELECT COUNT(*) FROM return_effects WHERE id = ?`), returnID); err != nil {
+		return err
+	}
+	if exists > 0 {
+		return nil
+	}
+	parentInsert := `INSERT INTO return_effects (id, sale_id, purchase_id, customer_id, total_refund_amount, status, return_date, refund_date, refund_method, debt_id, debt_adjustment, customer_credit, is_reversal, created_at, updated_at)
+		SELECT id, sale_id, purchase_id, customer_id, total_refund_amount, 'COMPLETED', return_date, refund_date, refund_method, debt_id, COALESCE(debt_adjustment,0), COALESCE(customer_credit,0), CASE WHEN UPPER(COALESCE(reference_number,'')) LIKE 'REV-%' THEN TRUE ELSE FALSE END, COALESCE(created_at,CURRENT_TIMESTAMP), COALESCE(updated_at,created_at,CURRENT_TIMESTAMP)
+		FROM returns WHERE id = ? AND UPPER(COALESCE(status,'')) = 'COMPLETED'`
+	result, err := tx.ExecContext(ctx, tx.Rebind(parentInsert), returnID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return fmt.Errorf("completed return snapshot missing or status changed")
+	}
+	itemsInsert := `INSERT INTO return_effect_items (id, return_effect_id, sale_item_id, product_id, inventory_item_id, serial_number, barcode, quantity_returned, original_quantity, unit_price, total_refund_amount, original_cost, resolution, inventory_status, created_at)
+		SELECT ri.id, ri.return_id, ri.sale_item_id, COALESCE(ri.product_id,si.product_id), ri.inventory_item_id, ri.serial_number, ri.barcode, COALESCE(ri.quantity_returned,0), ri.original_quantity, COALESCE(ri.unit_price,0), COALESCE(ri.total_refund_amount,0), COALESCE(ri.original_cost,si.unit_cost,p.cost_price,0), ri.resolution, ri.inventory_status, COALESCE(ri.created_at,CURRENT_TIMESTAMP)
+		FROM return_items ri
+		LEFT JOIN sale_items si ON si.id = ri.sale_item_id
+		LEFT JOIN products p ON p.id = COALESCE(ri.product_id,si.product_id)
+		WHERE ri.return_id = ?`
+	if _, err := tx.ExecContext(ctx, tx.Rebind(itemsInsert), returnID); err != nil {
+		return err
+	}
+	refundTable, err := returnTableExists(tx, isSQLite, "return_refunds")
+	if err != nil {
+		return err
+	}
+	if refundTable {
+		refundsInsert := `INSERT INTO return_effect_refunds (id, return_effect_id, refund_type, amount, refund_date, payment_method, transaction_reference, debt_id, debt_reduction_amount, created_at)
+			SELECT id, return_id, refund_type, amount, refund_date, payment_method, transaction_reference, debt_id, debt_reduction_amount, created_at
+			FROM return_refunds WHERE return_id = ?`
+		if _, err := tx.ExecContext(ctx, tx.Rebind(refundsInsert), returnID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func detachCompletedReturnReferencesTx(ctx context.Context, tx *sqlx.Tx, isSQLite bool, returnID interface{}) error {
+	for _, item := range []struct{ table, query string }{
+		{"inventory_movements", `UPDATE inventory_movements SET reference_type='return_effect' WHERE reference_id=? AND LOWER(COALESCE(reference_type,'')) LIKE '%return%'`},
+		{"item_history", `UPDATE item_history SET reference_type='return_effect' WHERE reference_id=? AND LOWER(COALESCE(reference_type,'')) LIKE '%return%'`},
+		{"ledger_entries", `UPDATE ledger_entries SET reference_type='return_effect' WHERE reference_id=? AND LOWER(COALESCE(reference_type,'')) LIKE '%return%'`},
+		{"customer_ledger", `UPDATE customer_ledger SET reference_type='return_effect' WHERE reference_id=? AND LOWER(COALESCE(reference_type,'')) LIKE '%return%'`},
+	} {
+		exists, err := returnTableExists(tx, isSQLite, item.table)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(item.query), returnID); err != nil {
+			// Legacy schemas may not have a reference_type on every ledger table;
+			// its reference_id still resolves to the effect ledger id.
+			if !strings.Contains(strings.ToLower(err.Error()), "no such column") && !strings.Contains(strings.ToLower(err.Error()), "does not exist") {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func recalculateReturnPaymentTransactionsTx(ctx context.Context, tx *sqlx.Tx, isSQLite bool, transactionIDs []string) error {
+	if len(transactionIDs) == 0 {
+		return nil
+	}
+	for _, transactionID := range transactionIDs {
+		var state struct {
+			AmountMinor   int64 `db:"amount_minor"`
+			RefundedMinor int64 `db:"refunded_minor"`
+		}
+		query := `SELECT pt.amount_minor, COALESCE(SUM(CASE WHEN pr.status IN ('refunded','succeeded') THEN pr.amount_minor ELSE 0 END),0) AS refunded_minor FROM payment_transactions pt LEFT JOIN payment_refunds pr ON pr.payment_transaction_id=pt.id WHERE pt.id=? GROUP BY pt.id,pt.amount_minor`
+		if !isSQLite {
+			query = `SELECT pt.amount_minor, COALESCE(SUM(CASE WHEN pr.status IN ('refunded','succeeded') THEN pr.amount_minor ELSE 0 END),0) AS refunded_minor FROM payment_transactions pt LEFT JOIN payment_refunds pr ON pr.payment_transaction_id=pt.id WHERE pt.id=$1 GROUP BY pt.id,pt.amount_minor`
+		}
+		if err := tx.GetContext(ctx, &state, tx.Rebind(query), transactionID); err != nil {
+			if err == sql.ErrNoRows {
+				continue
+			}
+			return err
+		}
+		status := "paid"
+		if state.RefundedMinor > 0 {
+			status = "partially_refunded"
+			if state.RefundedMinor >= state.AmountMinor {
+				status = "refunded"
+			}
+		}
+		updatedAt := `CURRENT_TIMESTAMP`
+		if !isSQLite {
+			updatedAt = `NOW()`
+		}
+		update := `UPDATE payment_transactions SET status=?,updated_at=` + updatedAt + ` WHERE id=?`
+		if !isSQLite {
+			update = `UPDATE payment_transactions SET status=$1,updated_at=` + updatedAt + ` WHERE id=$2`
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(update), status, transactionID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func reverseReturnEffectsTx(ctx context.Context, tx *sqlx.Tx, isSQLite bool, returnID interface{}, customerID string, debtID *string, debtAdjustment float64) error {
+	var movementTable bool
+	if exists, err := returnTableExists(tx, isSQLite, "inventory_movements"); err != nil {
+		return err
+	} else {
+		movementTable = exists
+	}
+	if movementTable {
+		var movements []struct {
+			ItemID    sql.NullString `db:"item_id"`
+			ProductID sql.NullString `db:"product_id"`
+			Quantity  int            `db:"quantity"`
+		}
+		if err := tx.SelectContext(ctx, &movements, tx.Rebind(`SELECT item_id, product_id, quantity FROM inventory_movements WHERE reference_id = ? AND LOWER(COALESCE(reference_type,'')) LIKE '%return%'`), returnID); err != nil {
+			return err
+		}
+		for _, movement := range movements {
+			if movement.Quantity <= 0 || !movement.ProductID.Valid || movement.ProductID.String == "" {
+				continue
+			}
+			if !movement.ItemID.Valid || movement.ItemID.String == "" {
+				query := `UPDATE inventory SET quantity=MAX(0,COALESCE(quantity,0)-?),updated_at=CURRENT_TIMESTAMP WHERE product_id=?`
+				if !isSQLite {
+					query = `UPDATE inventory SET quantity=GREATEST(0,COALESCE(quantity,0)-$1),updated_at=NOW() WHERE product_id=$2`
+				}
+				if _, err := tx.ExecContext(ctx, tx.Rebind(query), movement.Quantity, movement.ProductID.String); err != nil {
+					return fmt.Errorf("reverse aggregate return stock: %w", err)
+				}
+				continue
+			}
+			var status string
+			if err := tx.GetContext(ctx, &status, tx.Rebind(`SELECT COALESCE(status,'') FROM inventory_items WHERE id = ?`), movement.ItemID.String); err != nil && err != sql.ErrNoRows {
+				return fmt.Errorf("read returned item status: %w", err)
+			}
+			if strings.EqualFold(status, "AVAILABLE") {
+				query := `UPDATE inventory SET quantity=MAX(0,COALESCE(quantity,0)-?),updated_at=CURRENT_TIMESTAMP WHERE product_id=?`
+				if !isSQLite {
+					query = `UPDATE inventory SET quantity=GREATEST(0,COALESCE(quantity,0)-$1),updated_at=NOW() WHERE product_id=$2`
+				}
+				if _, err := tx.ExecContext(ctx, tx.Rebind(query), movement.Quantity, movement.ProductID.String); err != nil {
+					return fmt.Errorf("reverse returned unit stock: %w", err)
+				}
+			}
+		}
+	}
+
+	itemTable, err := returnTableExists(tx, isSQLite, "return_items")
+	if err != nil {
+		return err
+	}
+	if itemTable {
+		soldAt := `(SELECT MAX(si.created_at) FROM sale_items si WHERE si.inventory_item_id = inventory_items.id)`
+		updatedAt := `CURRENT_TIMESTAMP`
+		if !isSQLite {
+			updatedAt = `NOW()`
+		}
+		query := `UPDATE inventory_items SET status='SOLD', sold_at=COALESCE(` + soldAt + `, sold_at), updated_at=` + updatedAt + ` WHERE id IN (SELECT inventory_item_id FROM return_items WHERE return_id = ? AND inventory_item_id IS NOT NULL)`
+		if _, err := tx.ExecContext(ctx, tx.Rebind(query), returnID); err != nil {
+			return fmt.Errorf("restore returned inventory units to sold state: %w", err)
+		}
+	}
+
+	if debtAdjustment > 0 && debtID != nil && strings.TrimSpace(*debtID) != "" {
+		query := `UPDATE debts SET paid_amount=MAX(0,COALESCE(paid_amount,0)-?),remaining_amount=MIN(amount,COALESCE(remaining_amount,0)+?),status=CASE WHEN COALESCE(remaining_amount,0)+? >= amount THEN 'pending' WHEN COALESCE(remaining_amount,0)+? <= 0 THEN 'paid' ELSE 'partial' END,updated_at=CURRENT_TIMESTAMP WHERE id=?`
+		if !isSQLite {
+			query = `UPDATE debts SET paid_amount=GREATEST(0,COALESCE(paid_amount,0)-$1),remaining_amount=LEAST(amount,COALESCE(remaining_amount,0)+$2),status=CASE WHEN COALESCE(remaining_amount,0)+$3 >= amount THEN 'pending' WHEN COALESCE(remaining_amount,0)+$4 <= 0 THEN 'paid' ELSE 'partial' END,updated_at=NOW() WHERE id=$5`
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(query), debtAdjustment, debtAdjustment, debtAdjustment, debtAdjustment, *debtID); err != nil {
+			return fmt.Errorf("reverse return debt adjustment: %w", err)
+		}
+	}
+
+	if err := reverseReturnSupplierBridgeTx(ctx, tx, isSQLite, returnID); err != nil {
+		return err
+	}
+	_ = customerID // Customer balance is recalculated after the return's ledger row is removed.
+	return nil
+}
+
+func reverseReturnSupplierBridgeTx(ctx context.Context, tx *sqlx.Tx, isSQLite bool, returnID interface{}) error {
+	exists, err := returnTableExists(tx, isSQLite, "supplier_returns")
+	if err != nil || !exists {
+		return err
+	}
+	var rows []struct {
+		ID         string `db:"id"`
+		SupplierID string `db:"supplier_id"`
+	}
+	if err := tx.SelectContext(ctx, &rows, tx.Rebind(`SELECT id, COALESCE(supplier_id,'') AS supplier_id FROM supplier_returns WHERE customer_return_id = ?`), returnID); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.SupplierID != "" {
+			ledgerExists, err := returnTableExists(tx, isSQLite, "supplier_ledger")
+			if err != nil {
+				return err
+			}
+			if ledgerExists {
+				if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM supplier_ledger WHERE reference_id = ?`), row.ID); err != nil {
+					return fmt.Errorf("remove supplier return ledger: %w", err)
+				}
+				balanceQuery := `UPDATE suppliers SET current_balance=COALESCE((SELECT SUM(CASE WHEN type='debit' OR transaction_type='PURCHASE' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id=?),0),updated_at=CURRENT_TIMESTAMP WHERE id=?`
+				if !isSQLite {
+					balanceQuery = `UPDATE suppliers SET current_balance=COALESCE((SELECT SUM(CASE WHEN type='debit' OR transaction_type='PURCHASE' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id=$1),0),updated_at=NOW() WHERE id=$2`
+				}
+				if _, err := tx.ExecContext(ctx, tx.Rebind(balanceQuery), row.SupplierID, row.SupplierID); err != nil {
+					return fmt.Errorf("recalculate supplier balance after return delete: %w", err)
+				}
+			}
+		}
+		movementExists, err := returnTableExists(tx, isSQLite, "inventory_movements")
+		if err != nil {
+			return err
+		}
+		if movementExists {
+			if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM inventory_movements WHERE reference_id = ? AND LOWER(COALESCE(reference_type,'')) LIKE '%supplier_return%'`), row.ID); err != nil {
+				return fmt.Errorf("remove supplier return movement: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM supplier_return_items WHERE supplier_return_id = ?`), row.ID); err != nil {
+			return fmt.Errorf("remove supplier return items: %w", err)
+		}
+	}
+	return nil
+}
+
+// archiveReturnLegacy is retained for migration compatibility; the API no longer exposes it.
+func (r *Repository) archiveReturnLegacy(ctx context.Context, id uuid.UUID) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin return archive: %w", err)
@@ -580,7 +978,7 @@ func (r *Repository) DeleteReturn(ctx context.Context, id uuid.UUID) error {
 }
 
 // DeleteReturnPermanently removes a return from active operation while preserving linked history.
-func (r *Repository) DeleteReturnPermanently(ctx context.Context, id uuid.UUID) error {
+func (r *Repository) deleteReturnLegacyPermanent(ctx context.Context, id uuid.UUID) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin permanent return deletion: %w", err)
@@ -1309,7 +1707,7 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 				COALESCE(SUM(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' THEN total_refund_amount ELSE 0 END), 0) AS total_refunded,
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) AS defective_returns,
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_returns
-			FROM returns
+			FROM accounting_returns
 			WHERE date(substr(COALESCE(return_date, created_at), 1, 10)) >= date(?)
 			  AND date(substr(COALESCE(return_date, created_at), 1, 10)) < date(?)
 		`
@@ -1339,7 +1737,7 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 			COALESCE(SUM(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' THEN total_refund_amount ELSE 0 END), 0) as total_refunded,
 			COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) as defective_returns,
 			COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) as warranty_returns
-		FROM returns
+		FROM accounting_returns
 		WHERE date(substr(return_date, 1, 10)) >= date(?)
 		  AND date(substr(return_date, 1, 10)) < date(?)
 		  AND COALESCE(reference_number, '') NOT LIKE 'REV-%'
@@ -1356,7 +1754,7 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 				COALESCE(SUM(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' THEN total_refund_amount ELSE 0 END), 0) AS total_refunded,
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) AS defective_returns,
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_returns
-			FROM returns
+			FROM accounting_returns
 			WHERE return_date::date >= $1::date
 			  AND return_date::date < $2::date
 			  AND COALESCE(reference_number, '') NOT LIKE 'REV-%'

@@ -12,7 +12,7 @@ export function SimpleBarChart({ data, title, color = '#14b8a6', loading }: Simp
   const maxValue = data.length > 0 ? Math.max(...data.map(d => d.value), 1) : 1;
   
   return (
-    <Card>
+    <Card className="pf-report-bar-chart">
       {title && (
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -36,8 +36,9 @@ export function SimpleBarChart({ data, title, color = '#14b8a6', loading }: Simp
                   <div style={{ minWidth: '80px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                     {item.label}
                   </div>
-                  <div style={{ flex: 1, height: '8px', background: 'rgba(148, 163, 184, 0.13)', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div className="pf-report-chart-track" style={{ flex: 1, height: '8px', background: 'rgba(148, 163, 184, 0.13)', borderRadius: '4px', overflow: 'hidden' }}>
                     <div
+                      className="pf-report-chart-bar"
                       style={{
                         width: `${percentage}%`,
                         height: '100%',
@@ -111,7 +112,7 @@ export function SimpleLineChart({ data, title, valueLabel = 'إجمالي الف
   const showPointValues = safeData.length > 1;
 
   return (
-    <Card className={className}>
+    <Card className={`pf-report-line-chart ${className || ''}`}>
       {title && (
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -167,9 +168,9 @@ export function SimpleLineChart({ data, title, valueLabel = 'إجمالي الف
               style={{ width: '100%', height: '100%', overflow: 'visible' }}
             >
               <defs>
-                <linearGradient id="sales-area-gradient" x1="0" x2="0" y1="0" y2="1">
-                  <stop offset="0%" stopColor={color} stopOpacity="0.25" />
-                  <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+                <linearGradient id="sales-area-gradient" className="pf-report-chart-gradient" x1="0" x2="0" y1="0" y2="1">
+                  <stop className="pf-report-chart-gradient-start" offset="0%" stopColor={color} stopOpacity="0.25" />
+                  <stop className="pf-report-chart-gradient-end" offset="100%" stopColor={color} stopOpacity="0.02" />
                 </linearGradient>
               </defs>
               {[0, 1, 2, 3, 4].map((step) => {
@@ -184,9 +185,9 @@ export function SimpleLineChart({ data, title, valueLabel = 'إجمالي الف
                   </g>
                 );
               })}
-              <polygon className="sales-chart-area" points={areaPoints} fill="url(#sales-area-gradient)" />
+              <polygon className="sales-chart-area pf-report-chart-area" points={areaPoints} fill="url(#sales-area-gradient)" />
               <polyline
-                className="sales-chart-line"
+                className="sales-chart-line pf-report-chart-line-primary"
                 points={points}
                 fill="none"
                 stroke={color}
@@ -195,7 +196,7 @@ export function SimpleLineChart({ data, title, valueLabel = 'إجمالي الف
                 strokeLinejoin="round"
               />
               {secondaryLabel && <polyline
-                className="sales-chart-line"
+                className="sales-chart-line pf-report-chart-line-secondary"
                 points={secondaryPoints}
                 fill="none"
                 stroke={secondaryColor}
@@ -205,11 +206,11 @@ export function SimpleLineChart({ data, title, valueLabel = 'إجمالي الف
                 strokeDasharray="7 5"
               />}
               {secondaryLabel && secondaryCoordinates.map((item, index) => (
-                <circle key={`secondary-${index}`} cx={item.x} cy={item.y} r="5" fill="var(--bg-surface)" stroke={secondaryColor} strokeWidth="3" />
+                <circle className="pf-report-chart-point-secondary" key={`secondary-${index}`} cx={item.x} cy={item.y} r="5" fill="var(--bg-surface)" stroke={secondaryColor} strokeWidth="3" />
               ))}
               {coordinates.map((item, index) => {
                 return (
-                  <g className="sales-chart-point" key={index} style={{ animationDelay: `${index * 45}ms` }}>
+                  <g className="sales-chart-point pf-report-chart-point-primary" key={index} style={{ animationDelay: `${index * 45}ms` }}>
                     <circle cx={item.x} cy={item.y} r="6" fill="var(--bg-surface)" stroke={color} strokeWidth="3" />
                     {showPointValues && (
                       <text className="sales-chart-value" x={item.x} y={item.y - 14} textAnchor="middle" fontSize="14" fontWeight="600" fill="var(--text-primary)">
@@ -381,7 +382,7 @@ export function SimplePieChart({ data, title, loading }: SimplePieChartProps) {
   });
 
   return (
-    <Card>
+    <Card className="pf-report-pie-chart">
       {title && (
         <CardHeader>
           <CardTitle>{title}</CardTitle>
@@ -411,6 +412,7 @@ export function SimplePieChart({ data, title, loading }: SimplePieChartProps) {
                   
                   return (
                     <path
+                      className="pf-report-pie-segment"
                       key={index}
                       d={`M 50 50 L ${x1} ${y1} A 40 40 0 ${largeArcFlag} 1 ${x2} ${y2} Z`}
                       fill={segment.color}
@@ -423,8 +425,8 @@ export function SimplePieChart({ data, title, loading }: SimplePieChartProps) {
             </div>
             <div style={{ flex: 1 }}>
               {segments.map((segment, index) => (
-                <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                  <div style={{ width: '12px', height: '12px', borderRadius: '2px', background: segment.color }} />
+                <div className="pf-report-pie-legend-row" key={index} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <div className="pf-report-pie-swatch" style={{ width: '12px', height: '12px', borderRadius: '2px', background: segment.color }} />
                   <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
                     <span style={{ color: 'var(--text-secondary)' }}>{segment.label}</span>
                     <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>

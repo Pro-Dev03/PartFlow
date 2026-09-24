@@ -11,8 +11,30 @@ interface UIState {
   setLanguage: (language: string) => void;
 }
 
-const storedTheme = typeof window !== 'undefined' ? localStorage.getItem('theme') : null;
-const initialTheme: UIState['theme'] = storedTheme === 'dark' ? 'dark' : 'light';
+function readStoredTheme(): UIState['theme'] {
+  if (typeof window === 'undefined') return 'light';
+  try {
+    const storedTheme = window.localStorage.getItem('theme');
+    return storedTheme === 'dark' || storedTheme === 'system' ? storedTheme : 'light';
+  } catch {
+    return 'light';
+  }
+}
+
+function applyTheme(theme: UIState['theme']) {
+  if (typeof document === 'undefined') return;
+
+  const root = document.documentElement;
+  const isDark = theme !== 'light';
+  root.classList.add('theme-switching');
+  root.classList.toggle('dark', isDark);
+  root.classList.toggle('light', !isDark);
+  root.style.colorScheme = isDark ? 'dark' : 'light';
+  window.requestAnimationFrame(() => root.classList.remove('theme-switching'));
+}
+
+const initialTheme = readStoredTheme();
+applyTheme(initialTheme);
 
 export const useUIStore = create<UIState>((set) => ({
   sidebarCollapsed: false,
@@ -21,6 +43,14 @@ export const useUIStore = create<UIState>((set) => ({
   language: 'ar',
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setCheckoutMode: (checkoutMode) => set({ checkoutMode }),
-  setTheme: (theme) => set({ theme }),
+  setTheme: (theme) => {
+    applyTheme(theme);
+    try {
+      window.localStorage.setItem('theme', theme);
+    } catch {
+      // Keep the in-memory theme usable when storage is unavailable.
+    }
+    set({ theme });
+  },
   setLanguage: (language) => set({ language }),
 }));

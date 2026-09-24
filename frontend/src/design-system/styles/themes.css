@@ -5,17 +5,6 @@
  */
 
 /* ==========================================================================
-   Base Theme Application
-   ========================================================================== */
-
-body {
-  background-color: var(--bg-background);
-  color: var(--text-primary);
-  font-family: var(--font-family-base);
-  transition: background-color var(--transition-normal), color var(--transition-normal);
-}
-
-/* ==========================================================================
    Component Theme Application
    ========================================================================== */
 

@@ -2,6 +2,7 @@ import { PartFlowLogo } from '../../../components/branding/PartFlowLogo';
 
 import { ReactNode } from 'react';
 import { cn } from '../../../../utils';
+import { STORE_TIMEZONE } from '../../../../utils/store-time';
 
 interface ModernPOSLayoutProps {
   header: ReactNode;
@@ -77,6 +78,7 @@ export function ModernHeader({
             {new Intl.DateTimeFormat('ar', {
               hour: '2-digit',
               minute: '2-digit',
+              timeZone: STORE_TIMEZONE,
             }).format(new Date())}
           </span>
         </div>

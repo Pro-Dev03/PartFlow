@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/partflow/smart-store/internal/accounting"
 )
 
 // CardcomAdapter implements Cardcom API v11. Cardcom's LowProfile webhook is
@@ -37,11 +39,20 @@ func (a *CardcomAdapter) TestConnection(ctx context.Context) error {
 	if err != nil || terminal <= 0 || strings.TrimSpace(a.config.APIKey) == "" || strings.TrimSpace(a.config.APISecret) == "" {
 		return ErrNotConfigured
 	}
+	storeDate, err := accounting.StoreDate(accounting.StoreNow())
+	if err != nil {
+		return fmt.Errorf("calculate Cardcom store date: %w", err)
+	}
+	parsedStoreDate, err := time.Parse("2006-01-02", storeDate)
+	if err != nil {
+		return fmt.Errorf("parse Cardcom store date: %w", err)
+	}
+	cardcomDate := parsedStoreDate.Format("02012006")
 	_, err = a.post(ctx, "/Transactions/ListTransactions", map[string]any{
 		"ApiName":          a.config.APIKey,
 		"ApiPassword":      a.config.APISecret,
-		"FromDate":         time.Now().Format("02012006"),
-		"ToDate":           time.Now().Format("02012006"),
+		"FromDate":         cardcomDate,
+		"ToDate":           cardcomDate,
 		"TranStatus":       "Success",
 		"Page":             1,
 		"Page_size":        1,

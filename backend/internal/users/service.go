@@ -97,6 +97,11 @@ func (s *Service) UpdateUser(ctx context.Context, id uuid.UUID, email, passwordH
 	if err := s.repo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("failed to update user: %w", err)
 	}
+	if !user.IsActive {
+		if err := s.repo.RevokeRefreshTokens(ctx, id); err != nil {
+			return nil, fmt.Errorf("failed to revoke disabled user's sessions: %w", err)
+		}
+	}
 
 	return user, nil
 }
@@ -116,6 +121,16 @@ func (s *Service) UpdateSubscription(ctx context.Context, id uuid.UUID, status s
 	user.UpdatedAt = time.Now().UTC()
 	if err := s.repo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("failed to update subscription: %w", err)
+	}
+	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
+	accessBlocked := normalizedStatus != "active" && normalizedStatus != "trial"
+	if expiresAt != nil && !time.Now().UTC().Before(expiresAt.UTC()) {
+		accessBlocked = true
+	}
+	if accessBlocked {
+		if err := s.repo.RevokeRefreshTokens(ctx, id); err != nil {
+			return nil, fmt.Errorf("failed to revoke suspended subscriber sessions: %w", err)
+		}
 	}
 	return user, nil
 }
@@ -175,6 +190,9 @@ func (s *Service) GetSubscriptionSummary(ctx context.Context) (map[string]int, e
 
 // DeleteUser deletes a user
 func (s *Service) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	if err := s.repo.RevokeRefreshTokens(ctx, id); err != nil {
+		return fmt.Errorf("failed to revoke deleted user's sessions: %w", err)
+	}
 	return s.repo.Delete(ctx, id)
 }
 

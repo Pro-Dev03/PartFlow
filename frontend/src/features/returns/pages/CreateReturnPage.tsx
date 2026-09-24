@@ -11,6 +11,7 @@ import { SearchInput } from '../../../design-system/components/search-input';
 import { PageHeader } from '../../../design-system/components/page-header';
 import { ArrowRight, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
+import { getStoreToday, parseBackendTimestamp } from '../../../utils/store-time';
 
 const getPayload = (response: any) => response?.data ?? response;
 
@@ -31,7 +32,7 @@ export function CreateReturnPage({ embedded = false, onClose }: CreateReturnPage
   const [reason, setReason] = useState('DEFECTIVE');
   const [condition, setCondition] = useState('READY_FOR_SALE');
   const [refundMethod, setRefundMethod] = useState('CASH');
-  const [returnDate, setReturnDate] = useState(new Date().toISOString().slice(0, 10));
+  const [returnDate, setReturnDate] = useState(getStoreToday());
   const [notes, setNotes] = useState('');
 
   const { data: salesData, isLoading: salesLoading } = useQuery({
@@ -71,14 +72,14 @@ export function CreateReturnPage({ embedded = false, onClose }: CreateReturnPage
       const invoiceNumber = String(sale.invoice_number || sale.invoiceNumber || '');
       const invoiceTimestamp = invoiceNumber.match(/^INV-(\d{14})-/)?.[1];
       if (invoiceTimestamp) {
-        const parsedInvoiceDate = new Date(
-          `${invoiceTimestamp.slice(0, 4)}-${invoiceTimestamp.slice(4, 6)}-${invoiceTimestamp.slice(6, 8)}T${invoiceTimestamp.slice(8, 10)}:${invoiceTimestamp.slice(10, 12)}:${invoiceTimestamp.slice(12, 14)}`,
-        ).getTime();
-        if (Number.isFinite(parsedInvoiceDate)) return parsedInvoiceDate;
+        const parsedInvoiceDate = parseBackendTimestamp(
+          `${invoiceTimestamp.slice(0, 4)}-${invoiceTimestamp.slice(4, 6)}-${invoiceTimestamp.slice(6, 8)}T${invoiceTimestamp.slice(8, 10)}:${invoiceTimestamp.slice(10, 12)}:${invoiceTimestamp.slice(12, 14)}Z`,
+        )?.getTime();
+        if (parsedInvoiceDate !== undefined) return parsedInvoiceDate;
       }
       const saleDate = String(sale.sale_date || sale.saleDate || '');
       const createdAt = sale.created_at || sale.createdAt || '';
-      return new Date(saleDate.length > 10 ? saleDate : createdAt || saleDate || 0).getTime();
+      return parseBackendTimestamp(saleDate.length > 10 ? saleDate : createdAt || saleDate)?.getTime() ?? 0;
     };
     const firstDate = getSaleTimestamp(first);
     const secondDate = getSaleTimestamp(second);

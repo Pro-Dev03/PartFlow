@@ -7,6 +7,7 @@ interface ModernCartPanelProps {
   discount?: number;
   tax?: number;
   total: number;
+  showTotals?: boolean;
   onUpdateQuantity: (barcode: string, quantity: number) => void;
   onRemoveFromCart: (barcode: string) => void;
   onClearCart: () => void;
@@ -18,6 +19,7 @@ export function ModernCartPanel({
   discount = 0,
   tax = 0,
   total,
+  showTotals = true,
   onUpdateQuantity,
   onRemoveFromCart,
   onClearCart,
@@ -64,7 +66,7 @@ export function ModernCartPanel({
       </div>
 
       {/* Cart Total */}
-      {cart.length > 0 && (
+      {cart.length > 0 && showTotals && (
         <div className="cart-panel-footer">
           {subtotal !== undefined && (
             <div className="cart-panel-subtotal">

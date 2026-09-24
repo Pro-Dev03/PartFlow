@@ -11,6 +11,7 @@ import { BrandPanel } from '../components/BrandPanel';
 import { LoginForm } from '../components/LoginForm';
 import { SubscriptionVerificationScreen } from '../components/SubscriptionVerificationScreen';
 import { isNetworkError } from '../../../lib/error-messages';
+import { useUIStore } from '../../../stores/uiStore';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -18,49 +19,18 @@ export function LoginPage() {
   const { login, isLoading, loginError: authLoginError, setPostLoginVerifying } = useAuthStore();
   const [isVerifyingSubscription, setIsVerifyingSubscription] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') === 'dark');
+  const theme = useUIStore((state) => state.theme);
+  const setTheme = useUIStore((state) => state.setTheme);
+  const isDark = theme === 'dark';
   const [language, setLanguage] = useState('ar');
   const [connectionMode, setSelectedConnectionMode] = useState<ConnectionMode>(getConnectionMode);
 
-  // Check theme on mount and listen for changes
   useEffect(() => {
     sessionStorage.removeItem('partflow-login-error');
-
-    const checkTheme = () => {
-      setIsDark(document.documentElement.classList.contains('dark') || localStorage.getItem('theme') === 'dark');
-    };
-    
-    const storedTheme = localStorage.getItem('theme');
-    document.documentElement.classList.toggle('dark', storedTheme === 'dark');
-    document.documentElement.classList.toggle('light', storedTheme !== 'dark');
-    document.body.classList.toggle('dark', storedTheme === 'dark');
-    document.body.classList.toggle('light', storedTheme !== 'dark');
-    checkTheme();
-    
-    const observer = new MutationObserver(checkTheme);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class']
-    });
-    
-    return () => observer.disconnect();
   }, []);
 
   const toggleTheme = () => {
-    const html = document.documentElement;
-    if (isDark) {
-      html.classList.add('light');
-      html.classList.remove('dark');
-      document.body.classList.add('light');
-      document.body.classList.remove('dark');
-    } else {
-      html.classList.add('dark');
-      html.classList.remove('light');
-      document.body.classList.add('dark');
-      document.body.classList.remove('light');
-    }
-    localStorage.setItem('theme', isDark ? 'light' : 'dark');
-    setIsDark(!isDark);
+    setTheme(isDark ? 'light' : 'dark');
   };
 
   const toggleLanguage = () => {

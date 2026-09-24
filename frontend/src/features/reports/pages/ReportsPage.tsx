@@ -16,6 +16,7 @@ import {
   Zap,
   RotateCcw
 } from 'lucide-react';
+import { getStoreToday } from '../../../utils/store-time';
 
 // Custom hooks
 import { useReports } from '../hooks/useReports';
@@ -181,13 +182,13 @@ export function ReportsPage() {
     
     const rows = getReportRows(report, selectedReport);
     const dataToExport = rows.map((item: any) => ({
-      'التاريخ': item.date || new Date().toLocaleDateString('ar-SA'),
+      'التاريخ': item.date || formatStoreDate(new Date(), 'ar-SA'),
       'القيمة': getReportDisplayValue(item, selectedReport),
       'الوصف': getReportRowDescription(item),
       'الحالة': getReportStatusLabel(item.status),
     }));
     
-    exportToCSV(dataToExport, `${selectedReport}-report-${new Date().toISOString().split('T')[0]}`);
+    exportToCSV(dataToExport, `${selectedReport}-report-${getStoreToday()}`);
   };
 
   const handlePrint = () => {
@@ -196,7 +197,7 @@ export function ReportsPage() {
     
     const rows = getReportRows(report, selectedReport);
     const dataToPrint = rows.map((item: any) => ({
-      'التاريخ': item.date || new Date().toLocaleDateString('ar-SA'),
+      'التاريخ': item.date || formatStoreDate(new Date(), 'ar-SA'),
       'القيمة': getReportDisplayValue(item, selectedReport),
       'الوصف': getReportRowDescription(item),
       'الحالة': getReportStatusLabel(item.status),

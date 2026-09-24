@@ -23,6 +23,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/api
 # Final stage
 FROM alpine:latest
 
+ENV TZ=UTC
+
 WORKDIR /app
 
 # Install ca-certificates and wget for HTTPS and health checks

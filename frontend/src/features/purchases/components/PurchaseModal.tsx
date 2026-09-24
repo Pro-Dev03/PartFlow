@@ -18,6 +18,7 @@ import { suppliersApi, productsApi, purchasesApi, settingsApi } from '../../../s
 import { usePurchases } from '../hooks/usePurchases';
 import { PurchaseItem } from '../types/purchases.types';
 import { toast } from 'sonner';
+import { getStoreToday, storeDateToUTCISOString } from '../../../utils/store-time';
 
 interface PurchaseModalProps {
   isOpen: boolean;
@@ -36,7 +37,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
   const [barcodeInput, setBarcodeInput] = useState('');
   const [activeTab, setActiveTab] = useState<'scan' | 'manual'>('manual');
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [purchaseDate, setPurchaseDate] = useState(getStoreToday());
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
   const [receiveImmediately, setReceiveImmediately] = useState(false);
@@ -81,7 +82,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
   useEffect(() => {
     if (isOpen) {
       setInvoiceNumber(`PO-${Date.now()}`);
-      setPurchaseDate(new Date().toISOString().split('T')[0]);
+      setPurchaseDate(getStoreToday());
       setExpectedDate('');
       setNotes('');
       setItems([]);
@@ -103,7 +104,8 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
       const product = response.data?.product || response.data;
 
       setItems((prev) => {
-        const existingIndex = prev.findIndex((item) => item.product_id === product.id);
+        const scannedBarcode = barcodeInput.trim();
+        const existingIndex = prev.findIndex((item) => item.product_id === product.id && item.barcode === scannedBarcode);
         if (existingIndex >= 0) {
           return prev.map((item, idx) =>
             idx === existingIndex ? { ...item, quantity: item.quantity + 1 } : item
@@ -115,6 +117,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
             key: `${product.id}-${Date.now()}`,
             product_id: product.id,
             product_name: product.name,
+            barcode: scannedBarcode,
             quantity: 1,
             unit_cost: product.cost_price || 0,
             condition: 'new',
@@ -191,8 +194,8 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
     const formData = {
       supplier_id: selectedSupplier,
       invoice_number: invoiceNumber || `PO-${Date.now()}`,
-      purchase_date: new Date(purchaseDate).toISOString(),
-      expected_delivery_date: expectedDate ? new Date(expectedDate).toISOString() : undefined,
+      purchase_date: storeDateToUTCISOString(purchaseDate) ?? new Date().toISOString(),
+      expected_delivery_date: expectedDate ? storeDateToUTCISOString(expectedDate) ?? undefined : undefined,
       notes: notes || undefined,
       items: items.map((item) => ({
         product_id: item.product_id,
@@ -381,7 +384,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
                         <div>
                           <div className="font-medium">{product.name}</div>
                           <div className="text-sm text-text-muted">
-                            {product.barcode ? `الباركود: ${product.barcode}` : product.sku ? `SKU: ${product.sku}` : product.id}
+                            {`الباركود: ${product.barcode || 'لا يوجد باركود'}${product.sku ? ` · SKU: ${product.sku}` : ''}`}
                           </div>
                         </div>
                         <div className="text-sm font-medium text-cyan">

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/dashboard"
 )
 
@@ -133,8 +134,29 @@ type storeSummary struct {
 
 func (s *Service) loadSummary(ctx context.Context) (storeSummary, error) {
 	var result storeSummary
+	now := accounting.StoreNow()
+	todayStart, todayEnd, err := accounting.StoreDayBounds(now)
+	if err != nil {
+		return result, err
+	}
+	monthStart, monthEnd, err := accounting.StoreMonthBounds(now)
+	if err != nil {
+		return result, err
+	}
+	rollingStartDate, rollingEndDate, err := accounting.StoreDateRange(now, 6)
+	if err != nil {
+		return result, err
+	}
+	rollingStart, _, err := accounting.StoreDateBounds(rollingStartDate)
+	if err != nil {
+		return result, err
+	}
+	rollingEnd, _, err := accounting.StoreDateBounds(rollingEndDate)
+	if err != nil {
+		return result, err
+	}
 	if isSQLite(s.db) {
-		if err := s.db.GetContext(ctx, &result.SalesCount, `SELECT COUNT(*) FROM sales WHERE date(COALESCE(sale_date, created_at)) = date('now') AND LOWER(COALESCE(status, 'completed')) = 'completed'`); err != nil && err != sql.ErrNoRows {
+		if err := s.db.GetContext(ctx, &result.SalesCount, `SELECT COUNT(*) FROM sales WHERE datetime(COALESCE(sale_date, created_at)) >= datetime(?) AND datetime(COALESCE(sale_date, created_at)) < datetime(?) AND LOWER(COALESCE(status, 'completed')) = 'completed'`, todayStart, todayEnd); err != nil && err != sql.ErrNoRows {
 			return result, err
 		}
 		if err := s.db.GetContext(ctx, &result.OutstandingCount, `SELECT COUNT(DISTINCT customer_id) FROM debts WHERE COALESCE(remaining_amount, 0) > 0`); err != nil && err != sql.ErrNoRows {
@@ -144,15 +166,15 @@ func (s *Service) loadSummary(ctx context.Context) (storeSummary, error) {
 			return result, err
 		}
 		_ = s.db.GetContext(ctx, &result.SupplierTotal, `SELECT COALESCE(SUM(current_balance), 0) FROM suppliers WHERE COALESCE(is_active, 1) = 1`)
-		_ = s.db.GetContext(ctx, &result.PurchasesCount, `SELECT COUNT(*) FROM purchases WHERE date(COALESCE(purchase_date, created_at)) = date('now') AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'reversed')`)
-		_ = s.db.GetContext(ctx, &result.ExpensesToday, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date(expense_date) = date('now') AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`)
-		_ = s.db.GetContext(ctx, &result.MonthlySales, `SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE date(COALESCE(sale_date, created_at)) >= date('now', 'start of month') AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`)
-		_ = s.db.GetContext(ctx, &result.MonthlyExpenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date(expense_date) >= date('now', 'start of month') AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`)
-		_ = s.db.GetContext(ctx, &result.MonthlyPurchases, `SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE date(COALESCE(purchase_date, created_at)) >= date('now', 'start of month') AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'reversed')`)
+		_ = s.db.GetContext(ctx, &result.PurchasesCount, `SELECT COUNT(*) FROM purchases WHERE datetime(COALESCE(purchase_date, created_at)) >= datetime(?) AND datetime(COALESCE(purchase_date, created_at)) < datetime(?) AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'reversed')`, todayStart, todayEnd)
+		_ = s.db.GetContext(ctx, &result.ExpensesToday, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE datetime(expense_date) >= datetime(?) AND datetime(expense_date) < datetime(?) AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, todayStart, todayEnd)
+		_ = s.db.GetContext(ctx, &result.MonthlySales, `SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE datetime(COALESCE(sale_date, created_at)) >= datetime(?) AND datetime(COALESCE(sale_date, created_at)) < datetime(?) AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`, monthStart, monthEnd)
+		_ = s.db.GetContext(ctx, &result.MonthlyExpenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE datetime(expense_date) >= datetime(?) AND datetime(expense_date) < datetime(?) AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, monthStart, monthEnd)
+		_ = s.db.GetContext(ctx, &result.MonthlyPurchases, `SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE datetime(COALESCE(purchase_date, created_at)) >= datetime(?) AND datetime(COALESCE(purchase_date, created_at)) < datetime(?) AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'reversed')`, monthStart, monthEnd)
 		_ = s.db.GetContext(ctx, &result.InventoryValue, `SELECT COALESCE(SUM(ii.purchase_cost), 0) FROM inventory_items ii JOIN products p ON p.id = ii.product_id WHERE UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND p.deleted_at IS NULL`)
 		_ = s.db.GetContext(ctx, &result.InventoryRetail, `SELECT COALESCE(SUM(ii.selling_price), 0) FROM inventory_items ii JOIN products p ON p.id = ii.product_id WHERE UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND p.deleted_at IS NULL`)
 		result.PotentialProfit = result.InventoryRetail - result.InventoryValue
-		_ = s.db.GetContext(ctx, &result.ExpenseAverage7d, `SELECT COALESCE(SUM(amount), 0) / 7.0 FROM expenses WHERE date(expense_date) >= date('now', '-6 days') AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`)
+		_ = s.db.GetContext(ctx, &result.ExpenseAverage7d, `SELECT COALESCE(SUM(amount), 0) / 7.0 FROM expenses WHERE datetime(expense_date) >= datetime(?) AND datetime(expense_date) < datetime(?) AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, rollingStart, rollingEnd)
 		_ = s.db.GetContext(ctx, &result.BestMarginProduct, `SELECT name FROM products WHERE deleted_at IS NULL AND COALESCE(selling_price, 0) > 0 ORDER BY (COALESCE(selling_price, 0) - COALESCE(cost_price, 0)) DESC LIMIT 1`)
 		if result.BestMarginProduct != "" {
 			_ = s.db.GetContext(ctx, &result.BestMarginRate, `SELECT COALESCE((selling_price - cost_price) * 100.0 / NULLIF(selling_price, 0), 0) FROM products WHERE deleted_at IS NULL AND name = ? LIMIT 1`, result.BestMarginProduct)
@@ -179,7 +201,7 @@ func (s *Service) loadSummary(ctx context.Context) (storeSummary, error) {
 		return result, rows.Err()
 	}
 
-	if err := s.db.GetContext(ctx, &result.SalesCount, `SELECT COUNT(*) FROM sales WHERE COALESCE(sale_date::date, created_at::date) = CURRENT_DATE AND LOWER(COALESCE(status, 'completed')) = 'completed'`); err != nil && err != sql.ErrNoRows {
+	if err := s.db.GetContext(ctx, &result.SalesCount, `SELECT COUNT(*) FROM sales WHERE COALESCE(sale_date, created_at) >= $1 AND COALESCE(sale_date, created_at) < $2 AND LOWER(COALESCE(status, 'completed')) = 'completed'`, todayStart, todayEnd); err != nil && err != sql.ErrNoRows {
 		return result, err
 	}
 	if err := s.db.GetContext(ctx, &result.OutstandingCount, `SELECT COUNT(DISTINCT customer_id) FROM debts WHERE COALESCE(remaining_amount, 0) > 0`); err != nil && err != sql.ErrNoRows {
@@ -189,15 +211,15 @@ func (s *Service) loadSummary(ctx context.Context) (storeSummary, error) {
 		return result, err
 	}
 	_ = s.db.GetContext(ctx, &result.SupplierTotal, `SELECT COALESCE(SUM(current_balance), 0) FROM suppliers WHERE COALESCE(is_active, true) = true`)
-	_ = s.db.GetContext(ctx, &result.PurchasesCount, `SELECT COUNT(*) FROM purchases WHERE COALESCE(purchase_date::date, created_at::date) = CURRENT_DATE AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'reversed')`)
-	_ = s.db.GetContext(ctx, &result.ExpensesToday, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date::date = CURRENT_DATE AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`)
-	_ = s.db.GetContext(ctx, &result.MonthlySales, `SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE COALESCE(sale_date::date, created_at::date) >= date_trunc('month', CURRENT_DATE)::date AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`)
-	_ = s.db.GetContext(ctx, &result.MonthlyExpenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date::date >= date_trunc('month', CURRENT_DATE)::date AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`)
-	_ = s.db.GetContext(ctx, &result.MonthlyPurchases, `SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE COALESCE(purchase_date::date, created_at::date) >= date_trunc('month', CURRENT_DATE)::date AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'reversed')`)
+	_ = s.db.GetContext(ctx, &result.PurchasesCount, `SELECT COUNT(*) FROM purchases WHERE COALESCE(purchase_date, created_at) >= $1 AND COALESCE(purchase_date, created_at) < $2 AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'reversed')`, todayStart, todayEnd)
+	_ = s.db.GetContext(ctx, &result.ExpensesToday, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date >= $1 AND expense_date < $2 AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, todayStart, todayEnd)
+	_ = s.db.GetContext(ctx, &result.MonthlySales, `SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE COALESCE(sale_date, created_at) >= $1 AND COALESCE(sale_date, created_at) < $2 AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`, monthStart, monthEnd)
+	_ = s.db.GetContext(ctx, &result.MonthlyExpenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date >= $1 AND expense_date < $2 AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, monthStart, monthEnd)
+	_ = s.db.GetContext(ctx, &result.MonthlyPurchases, `SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE COALESCE(purchase_date, created_at) >= $1 AND COALESCE(purchase_date, created_at) < $2 AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'reversed')`, monthStart, monthEnd)
 	_ = s.db.GetContext(ctx, &result.InventoryValue, `SELECT COALESCE(SUM(ii.purchase_cost), 0) FROM inventory_items ii JOIN products p ON p.id = ii.product_id WHERE UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND p.deleted_at IS NULL`)
 	_ = s.db.GetContext(ctx, &result.InventoryRetail, `SELECT COALESCE(SUM(ii.selling_price), 0) FROM inventory_items ii JOIN products p ON p.id = ii.product_id WHERE UPPER(COALESCE(ii.status, '')) = 'AVAILABLE' AND p.deleted_at IS NULL`)
 	result.PotentialProfit = result.InventoryRetail - result.InventoryValue
-	_ = s.db.GetContext(ctx, &result.ExpenseAverage7d, `SELECT COALESCE(SUM(amount), 0) / 7.0 FROM expenses WHERE expense_date::date >= CURRENT_DATE - INTERVAL '6 days' AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`)
+	_ = s.db.GetContext(ctx, &result.ExpenseAverage7d, `SELECT COALESCE(SUM(amount), 0) / 7.0 FROM expenses WHERE expense_date >= $1 AND expense_date < $2 AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, rollingStart, rollingEnd)
 	_ = s.db.GetContext(ctx, &result.BestMarginProduct, `SELECT name FROM products WHERE deleted_at IS NULL AND COALESCE(selling_price, 0) > 0 ORDER BY (COALESCE(selling_price, 0) - COALESCE(cost_price, 0)) DESC LIMIT 1`)
 	if result.BestMarginProduct != "" {
 		_ = s.db.GetContext(ctx, &result.BestMarginRate, `SELECT COALESCE((selling_price - cost_price) * 100.0 / NULLIF(selling_price, 0), 0) FROM products WHERE deleted_at IS NULL AND name = $1 LIMIT 1`, result.BestMarginProduct)

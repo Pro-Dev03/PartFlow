@@ -725,7 +725,11 @@ func (s *Service) GeneratePaymentReceipt(ctx context.Context, customerID uuid.UU
 	writeText("Store Management System", 95, 38, 10.0, false, 200, 200, 200)
 
 	// Receipt number and date in header
-	receiptNumber := time.Now().Format("20060102150405")[:8]
+	storeDate, err := accounting.StoreDate(accounting.StoreNow())
+	if err != nil {
+		return nil, fmt.Errorf("calculate receipt business date: %w", err)
+	}
+	receiptNumber := strings.ReplaceAll(storeDate, "-", "")
 	if isRTL {
 		writeText(fmt.Sprintf("رقم الإيصال: %s", receiptNumber), 25, 28, 10.0, false, 255, 255, 255)
 		writeText(fmt.Sprintf("التاريخ: %s", req.Date), 25, 38, 10.0, false, 200, 200, 200)

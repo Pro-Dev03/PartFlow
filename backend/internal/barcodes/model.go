@@ -38,6 +38,15 @@ type BarcodeGenerationRequest struct {
 	Quantity        int         `json:"quantity"`
 }
 
+// BarcodeCreateRequest attaches an existing operational barcode to a product
+// or an individual inventory item. It intentionally does not accept SKU codes.
+type BarcodeCreateRequest struct {
+	Code            string      `json:"code" binding:"required,max=100"`
+	Type            BarcodeType `json:"type"`
+	ProductID       *uuid.UUID  `json:"product_id"`
+	InventoryItemID *uuid.UUID  `json:"inventory_item_id"`
+}
+
 // BarcodeLabelRequest represents barcode label generation request
 type BarcodeLabelRequest struct {
 	Barcodes []string `json:"barcodes" binding:"required"`

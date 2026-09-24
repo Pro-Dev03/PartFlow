@@ -30,6 +30,7 @@ type PaymentAllocationRequest struct {
 // SaleItemRequest represents an item in a sale request
 type SaleItemRequest struct {
 	ProductID       uuid.UUID  `json:"product_id" binding:"required"`
+	Barcode         string     `json:"barcode,omitempty"`
 	InventoryItemID *uuid.UUID `json:"inventory_item_id,omitempty"`
 	Quantity        int        `json:"quantity" binding:"required,min=1"`
 	UnitPrice       float64    `json:"unit_price" binding:"required,min=0"`

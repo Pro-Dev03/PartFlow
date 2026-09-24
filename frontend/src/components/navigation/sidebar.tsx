@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from '../../hooks/useTranslation';
 import {
   LayoutDashboard,
+  Activity,
   ShoppingCart,
   Package,
   Users,
@@ -14,7 +15,7 @@ import {
   Scan,
   BarChart3,
   Tag,
-  Archive,
+  ClipboardList,
 } from 'lucide-react';
 import { cn } from '../../utils';
 import type { LucideIcon } from 'lucide-react';
@@ -25,6 +26,7 @@ import { BarcodeScanner } from '../business/BarcodeScanner';
 
 interface SidebarProps {
   isCollapsed: boolean;
+  mobileOpen?: boolean;
 }
 
 interface MenuItem {
@@ -39,11 +41,10 @@ interface MenuGroup {
   items: MenuItem[];
 }
 
-export function Sidebar({ isCollapsed }: SidebarProps) {
+export function Sidebar({ isCollapsed, mobileOpen = false }: SidebarProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const [activeItem, setActiveItem] = useState('dashboard');
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
   const sessionReady = useAuthStore((state) => state.isAuthenticated && state.sessionVerified);
   const { data: storeNameSetting } = useQuery({
@@ -65,25 +66,24 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
       title: '',
       items: [
         { id: 'dashboard', icon: LayoutDashboard, label: t('nav.dashboard') || 'لوحة التحكم', path: '/app/dashboard' },
+        { id: 'activity', icon: Activity, label: 'النشاط', path: '/app/activity' },
         { id: 'sales', icon: ShoppingCart, label: t('nav.pos') || 'نقطة البيع', path: '/app/sales' },
         { id: 'customers', icon: Users, label: t('nav.customers') || 'الزبائن', path: '/app/customers' },
         { id: 'inventory', icon: Package, label: t('nav.inventory') || 'المخزون', path: '/app/inventory' },
       ]
     },
     {
-      title: 'المخزون',
+      title: 'إدارة العمل',
       items: [
-      ]
-    },
-    {
-      title: '',
-      items: [
+        { id: 'purchases', icon: Package, label: 'المشتريات', path: '/app/purchases' },
         { id: 'suppliers', icon: Truck, label: t('nav.suppliers') || 'التجار', path: '/app/suppliers' },
+        { id: 'supplier-returns', icon: RotateCcw, label: 'مرتجعات التجار', path: '/app/supplier-returns' },
       ]
     },
     {
-      title: '',
+      title: 'المالية والتقارير',
       items: [
+        { id: 'debts', icon: DollarSign, label: 'الديون', path: '/app/debts' },
         { id: 'expenses', icon: DollarSign, label: t('nav.expenses') || 'المصروفات', path: '/app/expenses' },
         { id: 'returns', icon: RotateCcw, label: t('nav.returns') || 'المرتجعات', path: '/app/returns' },
         { id: 'reports', icon: BarChart3, label: t('nav.reports') || 'التقارير', path: '/app/reports' },
@@ -93,29 +93,19 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
       title: t('nav.system') || 'النظام',
       items: [
         { id: 'categories', icon: Tag, label: 'التصنيفات', path: '/app/categories' },
-        { id: 'archive', icon: Archive, label: 'الأرشيف والسجل التاريخي', path: '/app/archive' },
+        { id: 'audit', icon: ClipboardList, label: 'سجل النظام', path: '/app/audit' },
         { id: 'settings', icon: Settings, label: t('nav.settings') || 'الإعدادات', path: '/app/settings' },
       ]
     }
   ];
 
-  // Flatten all items for active state checking
-  const allItems = menuGroups.flatMap(group => group.items);
-
-  // Update active item based on current location
-  useEffect(() => {
-    const currentItem = allItems.find(item => {
-      // Match exact path or path with params
-      return location.pathname === item.path || 
-             location.pathname.startsWith(item.path + '/');
-    });
-    if (currentItem) {
-      setActiveItem(currentItem.id);
-    }
-  }, [location.pathname, allItems]);
+  const activeItem = menuGroups.flatMap((group) => group.items).find((item) =>
+    location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)
+  )?.id;
 
   return (
     <aside
+      id="app-sidebar"
       className={cn(
         'pf-sidebar flex flex-col sidebar',
         'border-l border-[var(--border-default)]',
@@ -124,7 +114,8 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
         'hover:shadow-lg',
         'shrink-0',
         'relative',
-        isCollapsed ? 'w-[72px]' : 'w-[260px]'
+        isCollapsed ? 'w-[72px]' : 'w-[260px]',
+        mobileOpen && 'pf-sidebar-open'
       )}
     >
       {/* Logo */}
@@ -192,7 +183,6 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
                   <button
                     key={item.id}
                     onClick={() => {
-                      setActiveItem(item.id);
                       navigate(item.path);
                     }}
                     className={cn(
@@ -202,6 +192,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
                       isActive && 'active'
                     )}
                     title={isCollapsed ? item.label : undefined}
+                    aria-current={isActive ? 'page' : undefined}
                   >
                     <Icon
                       className={cn(

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
+import { formatStoreDate, parseBackendTimestamp } from '../../../utils/store-time';
 import { PageHeader } from '../../../design-system/components/page-header';
 import { useAuthStore } from '../../../stores/authStore';
 import { authApi } from '../../../services/api/endpoints';
@@ -61,7 +62,7 @@ export function SettingsPage() {
     };
   }, []);
 
-  const expiryDate = user?.subscription_expires_at ? new Date(user.subscription_expires_at) : null;
+  const expiryDate = user?.subscription_expires_at ? parseBackendTimestamp(user.subscription_expires_at) : null;
   const remainingMs = expiryDate ? expiryDate.getTime() - now : null;
   const remainingDays = remainingMs === null ? 0 : Math.max(0, Math.ceil(remainingMs / (1000 * 60 * 60 * 24)));
   const remainingText = remainingMs === null ? 'غير محدد' : `${remainingDays} يوم`;
@@ -162,7 +163,7 @@ export function SettingsPage() {
             <span className="settings-detail-label">تاريخ الانتهاء</span>
             <strong>
               {expiryDate
-                ? new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium', timeZone: 'UTC' }).format(expiryDate)
+                ? formatStoreDate(expiryDate, 'ar-EG')
                 : 'غير محدد'}
             </strong>
           </div>

@@ -1,5 +1,6 @@
 import { type HTMLAttributes, useState } from 'react';
 import { cn } from '../../utils';
+import { formatStoreDate } from '../../utils/store-time';
 import { Phone, Mail, Package, Eye, Edit, Trash2, ChevronDown, ChevronUp, CircleDollarSign, RotateCcw, UserRound, ScanSearch, CircleX } from 'lucide-react';
 import { Button } from './button';
 import { Badge } from './badge';
@@ -128,7 +129,7 @@ function SupplierCard({
                 <span>آخر شراء:</span>
                 <span className="text-[var(--text-secondary)]">
                   {supplier.lastPurchase
-                    ? new Date(supplier.lastPurchase).toLocaleDateString('ar-SA')
+                    ? formatStoreDate(supplier.lastPurchase, 'ar-SA')
                     : '-'}
                 </span>
               </div>

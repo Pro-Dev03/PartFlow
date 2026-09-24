@@ -33,7 +33,7 @@ func TestRegionalProfileForCountryRejectsUnknownCode(t *testing.T) {
 	}
 }
 
-func TestPersistedStoreTimezoneTakesPriorityOverCountry(t *testing.T) {
+func TestLegacyStoreTimezoneDoesNotOverrideJerusalem(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestPersistedStoreTimezoneTakesPriorityOverCountry(t *testing.T) {
 	if request.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", request.Code)
 	}
-	if !strings.Contains(request.Body.String(), `"store_timezone":"America/New_York"`) {
-		t.Fatalf("response did not preserve store timezone: %s", request.Body.String())
+	if !strings.Contains(request.Body.String(), `"store_timezone":"Asia/Jerusalem"`) {
+		t.Fatalf("response did not use Jerusalem timezone: %s", request.Body.String())
 	}
 }

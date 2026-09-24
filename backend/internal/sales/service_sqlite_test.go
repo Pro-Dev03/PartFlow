@@ -127,17 +127,17 @@ func TestCreateSaleSQLiteUsesLocalSchema(t *testing.T) {
 	defer db.Close()
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = db.Exec(`
-		CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT NOT NULL, purchase_price REAL DEFAULT 0);
-		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, purchase_cost REAL DEFAULT 0, condition TEXT, status TEXT, supplier_id TEXT, serial_number TEXT, sold_at TEXT, created_at TEXT, updated_at TEXT);
+		CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT NOT NULL, barcode TEXT, purchase_price REAL DEFAULT 0);
+		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, barcode TEXT, purchase_cost REAL DEFAULT 0, condition TEXT, status TEXT, supplier_id TEXT, serial_number TEXT, sold_at TEXT, created_at TEXT, updated_at TEXT);
 		CREATE TABLE inventory (id TEXT PRIMARY KEY, product_id TEXT, quantity INTEGER DEFAULT 0, updated_at TEXT, created_at TEXT);
 		CREATE TABLE inventory_movements (id TEXT PRIMARY KEY, item_id TEXT, product_id TEXT, movement_type TEXT, quantity INTEGER, before_quantity INTEGER, after_quantity INTEGER, reference_type TEXT, reference_id TEXT, reason TEXT, created_by TEXT, created_at TEXT);
 		CREATE TABLE sales (id TEXT PRIMARY KEY, sale_number TEXT, invoice_number TEXT, sale_date TEXT, customer_id TEXT, user_id TEXT, subtotal REAL, tax_amount REAL, discount_amount REAL, total_amount REAL, cost_amount REAL, gross_profit REAL, net_profit REAL, paid_amount REAL, remaining_amount REAL, payment_method TEXT, payment_status TEXT, status TEXT, notes TEXT, created_at TEXT, updated_at TEXT);
-		CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, inventory_item_id TEXT, quantity INTEGER, unit_price REAL, unit_cost REAL, discount_amount REAL, tax_amount REAL, total_amount REAL, supplier_id TEXT, created_at TEXT);
+		CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, inventory_item_id TEXT, barcode TEXT, quantity INTEGER, unit_price REAL, unit_cost REAL, discount_amount REAL, tax_amount REAL, total_amount REAL, supplier_id TEXT, created_at TEXT);
 		CREATE TABLE payments (id TEXT PRIMARY KEY, transaction_number TEXT NOT NULL UNIQUE, sale_id TEXT, customer_id TEXT, amount REAL, payment_method TEXT, payment_status TEXT, created_by TEXT, payment_date TEXT, created_at TEXT, updated_at TEXT);
 		CREATE TABLE sale_payment_allocations (id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, amount REAL NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', check_number TEXT, bank_name TEXT, check_date TEXT, created_at TEXT NOT NULL);
 		CREATE TABLE customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT, type TEXT, amount REAL, balance REAL, reference_id TEXT, description TEXT, created_at TEXT);
 		CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT, sale_id TEXT UNIQUE, amount REAL, paid_amount REAL DEFAULT 0, remaining_amount REAL DEFAULT 0, due_date TEXT, status TEXT, notes TEXT, created_at TEXT, updated_at TEXT);
-		CREATE TABLE customers (id TEXT PRIMARY KEY, current_balance REAL DEFAULT 0, credit_limit REAL DEFAULT 0, updated_at TEXT);
+		CREATE TABLE customers (id TEXT PRIMARY KEY, name TEXT, current_balance REAL DEFAULT 0, credit_limit REAL DEFAULT 0, updated_at TEXT);
 		CREATE TABLE acquisition_items (id TEXT PRIMARY KEY, inventory_item_id TEXT, item_status TEXT, updated_at TEXT);
 		CREATE TABLE item_history (id TEXT PRIMARY KEY, inventory_item_id TEXT, event_type TEXT, event_date TEXT, reference_type TEXT, reference_id TEXT, description TEXT, metadata TEXT, created_by TEXT, created_at TEXT);
 		CREATE TABLE audit_logs (id TEXT PRIMARY KEY, user_id TEXT, action TEXT, entity_type TEXT, entity_id TEXT, new_values TEXT, created_at TEXT);
@@ -149,19 +149,47 @@ func TestCreateSaleSQLiteUsesLocalSchema(t *testing.T) {
 	if _, err = db.Exec(`INSERT INTO settings (key, value) VALUES ('tax_rate', '0'), ('max_discount_rate', '0')`); err != nil {
 		t.Fatal(err)
 	}
-	productID, itemID := uuid.New(), uuid.New()
+	productID, itemID, customerID := uuid.New(), uuid.New(), uuid.New()
 	_, err = db.Exec(`INSERT INTO products (id,name,purchase_price) VALUES ($1,'Widget',10); INSERT INTO inventory_items (id,product_id,purchase_cost,status,created_at,updated_at) VALUES ($2,$1,10,'AVAILABLE',$3,$3); INSERT INTO inventory (id,product_id,quantity,created_at,updated_at) VALUES ($4,$1,1,$3,$3)`, productID, itemID, now, uuid.New())
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = db.Exec(`INSERT INTO customers (id, name) VALUES ($1, $2)`, customerID, "Rana Test"); err != nil {
+		t.Fatal(err)
+	}
 	svc := NewService(NewRepository(db), db)
 	price := 25.0
-	sale, err := svc.CreateSale(context.Background(), uuid.Nil, &CreateSaleRequest{Items: []SaleItemRequest{{ProductID: productID, Quantity: 1, UnitPrice: price}}})
+	sale, err := svc.CreateSale(context.Background(), uuid.Nil, &CreateSaleRequest{
+		CustomerID:    &customerID,
+		Items:         []SaleItemRequest{{ProductID: productID, Barcode: "ALT-ITEM-001", Quantity: 1, UnitPrice: price}},
+		PaymentMethod: stringPtr("cash"),
+		PaymentAmount: price,
+		CashReceived:  price,
+	})
 	if err != nil {
 		t.Fatalf("CreateSale failed: %v", err)
 	}
 	if sale.TotalAmount != price {
 		t.Fatalf("total = %v, want %v", sale.TotalAmount, price)
+	}
+	var storedSaleDate, storedCreatedAt, storedUpdatedAt string
+	if err := db.QueryRow(`SELECT sale_date, created_at, updated_at FROM sales WHERE id = ?`, sale.ID).Scan(&storedSaleDate, &storedCreatedAt, &storedUpdatedAt); err != nil {
+		t.Fatal(err)
+	}
+	parsedSaleDate, err := time.Parse(time.RFC3339Nano, storedSaleDate)
+	if err != nil {
+		t.Fatalf("stored sale_date is not an explicit UTC timestamp: %q: %v", storedSaleDate, err)
+	}
+	parsedCreatedAt, err := time.Parse(time.RFC3339Nano, storedCreatedAt)
+	if err != nil {
+		t.Fatalf("stored created_at is not an explicit UTC timestamp: %q: %v", storedCreatedAt, err)
+	}
+	parsedUpdatedAt, err := time.Parse(time.RFC3339Nano, storedUpdatedAt)
+	if err != nil {
+		t.Fatalf("stored updated_at is not an explicit UTC timestamp: %q: %v", storedUpdatedAt, err)
+	}
+	if !sale.SaleDate.Equal(parsedSaleDate) || !sale.CreatedAt.Equal(parsedCreatedAt) || !sale.UpdatedAt.Equal(parsedUpdatedAt) {
+		t.Fatalf("sale timestamps differ from SQLite: response=(%s, %s, %s) storage=(%s, %s, %s)", sale.SaleDate, sale.CreatedAt, sale.UpdatedAt, parsedSaleDate, parsedCreatedAt, parsedUpdatedAt)
 	}
 	var status string
 	if err := db.Get(&status, `SELECT status FROM inventory_items WHERE id = $1`, itemID); err != nil {
@@ -177,8 +205,35 @@ func TestCreateSaleSQLiteUsesLocalSchema(t *testing.T) {
 	if linkedItemID != itemID.String() {
 		t.Fatalf("sale item inventory_item_id = %s, want %s", linkedItemID, itemID)
 	}
-	if _, err := svc.GetSale(context.Background(), sale.ID); err != nil {
+	var persistedBarcode string
+	if err := db.Get(&persistedBarcode, `SELECT barcode FROM sale_items`); err != nil {
+		t.Fatal(err)
+	}
+	if persistedBarcode != "ALT-ITEM-001" {
+		t.Fatalf("sale item barcode = %q, want actual scanned barcode", persistedBarcode)
+	}
+	details, err := svc.GetSale(context.Background(), sale.ID)
+	if err != nil {
 		t.Fatalf("GetSale after CreateSale failed: %v", err)
+	}
+	if details.Sale.CustomerID == nil || *details.Sale.CustomerID != customerID {
+		t.Fatalf("persisted customer_id = %v, want %s", details.Sale.CustomerID, customerID)
+	}
+	if details.Sale.CustomerName == nil || *details.Sale.CustomerName != "Rana Test" {
+		t.Fatalf("loaded customer name = %v, want Rana Test", details.Sale.CustomerName)
+	}
+	if !details.Sale.CreatedAt.Equal(parsedCreatedAt) || !details.Sale.UpdatedAt.Equal(parsedUpdatedAt) {
+		t.Fatalf("sale details timestamps differ from SQLite: created=%s updated=%s", details.Sale.CreatedAt, details.Sale.UpdatedAt)
+	}
+	sales, _, err := svc.ListSales(context.Background(), 1, 10, nil)
+	if err != nil {
+		t.Fatalf("ListSales failed: %v", err)
+	}
+	if len(sales) != 1 || sales[0].CustomerName == nil || *sales[0].CustomerName != "Rana Test" {
+		t.Fatalf("listed customer name = %#v, want Rana Test", sales)
+	}
+	if !sales[0].CreatedAt.Equal(parsedCreatedAt) {
+		t.Fatalf("sales list created_at = %s, want %s", sales[0].CreatedAt, parsedCreatedAt)
 	}
 }
 
@@ -200,7 +255,7 @@ func TestCreateSaleSQLiteRecordsPaymentAmount(t *testing.T) {
 		CREATE TABLE sale_payment_allocations (id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, amount REAL NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', check_number TEXT, bank_name TEXT, check_date TEXT, created_at TEXT NOT NULL);
 		CREATE TABLE customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT, type TEXT, amount REAL, balance REAL, reference_id TEXT, description TEXT, created_at TEXT);
 		CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT, sale_id TEXT UNIQUE, amount REAL, paid_amount REAL DEFAULT 0, remaining_amount REAL DEFAULT 0, due_date TEXT, status TEXT, notes TEXT, created_at TEXT, updated_at TEXT);
-		CREATE TABLE customers (id TEXT PRIMARY KEY, current_balance REAL DEFAULT 0, credit_limit REAL DEFAULT 0, updated_at TEXT);
+		CREATE TABLE customers (id TEXT PRIMARY KEY, name TEXT, current_balance REAL DEFAULT 0, credit_limit REAL DEFAULT 0, updated_at TEXT);
 		CREATE TABLE acquisition_items (id TEXT PRIMARY KEY, inventory_item_id TEXT, item_status TEXT, updated_at TEXT);
 		CREATE TABLE item_history (id TEXT PRIMARY KEY, inventory_item_id TEXT, event_type TEXT, event_date TEXT, reference_type TEXT, reference_id TEXT, description TEXT, metadata TEXT, created_by TEXT, created_at TEXT);
 		CREATE TABLE audit_logs (id TEXT PRIMARY KEY, user_id TEXT, action TEXT, entity_type TEXT, entity_id TEXT, new_values TEXT, created_at TEXT);
@@ -282,7 +337,7 @@ func TestCreateSaleSQLiteUsesAggregateInventoryWhenSingleRepresentativeRowExists
 		CREATE TABLE payments (id TEXT PRIMARY KEY, transaction_number TEXT NOT NULL UNIQUE, sale_id TEXT, customer_id TEXT, amount REAL, payment_method TEXT, payment_status TEXT, created_by TEXT, payment_date TEXT, created_at TEXT, updated_at TEXT);
 		CREATE TABLE sale_payment_allocations (id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, amount REAL NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', check_number TEXT, bank_name TEXT, check_date TEXT, created_at TEXT NOT NULL);
 		CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
-		CREATE TABLE customers (id TEXT PRIMARY KEY, current_balance REAL DEFAULT 0, credit_limit REAL DEFAULT 0, updated_at TEXT);
+		CREATE TABLE customers (id TEXT PRIMARY KEY, name TEXT, current_balance REAL DEFAULT 0, credit_limit REAL DEFAULT 0, updated_at TEXT);
 		CREATE TABLE customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT, type TEXT, amount REAL, balance REAL, reference_id TEXT, description TEXT, created_at TEXT);
 		CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT, sale_id TEXT UNIQUE, amount REAL, paid_amount REAL DEFAULT 0, remaining_amount REAL DEFAULT 0, due_date TEXT, status TEXT, notes TEXT, created_at TEXT, updated_at TEXT);
 		CREATE TABLE item_history (id TEXT PRIMARY KEY, inventory_item_id TEXT, event_type TEXT, event_date TEXT, reference_type TEXT, reference_id TEXT, description TEXT, metadata TEXT, created_by TEXT, created_at TEXT);
@@ -347,7 +402,7 @@ func TestCreateSaleSQLiteCreatesLinkedCreditDebt(t *testing.T) {
 		CREATE TABLE payments (id TEXT PRIMARY KEY, transaction_number TEXT NOT NULL UNIQUE, sale_id TEXT, customer_id TEXT, amount REAL, payment_method TEXT, payment_status TEXT, created_by TEXT, payment_date TEXT, created_at TEXT, updated_at TEXT);
 		CREATE TABLE sale_payment_allocations (id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, amount REAL NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', check_number TEXT, bank_name TEXT, check_date TEXT, created_at TEXT NOT NULL);
 		CREATE TABLE customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT, type TEXT, amount REAL, balance REAL, reference_id TEXT, description TEXT, created_at TEXT);
-		CREATE TABLE customers (id TEXT PRIMARY KEY, current_balance REAL DEFAULT 0, credit_limit REAL DEFAULT 0, updated_at TEXT);
+		CREATE TABLE customers (id TEXT PRIMARY KEY, name TEXT, current_balance REAL DEFAULT 0, credit_limit REAL DEFAULT 0, updated_at TEXT);
 		CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT, sale_id TEXT UNIQUE, amount REAL, paid_amount REAL DEFAULT 0, remaining_amount REAL DEFAULT 0, due_date TEXT, status TEXT, notes TEXT, created_at TEXT, updated_at TEXT);
 		CREATE TABLE acquisition_items (id TEXT PRIMARY KEY, inventory_item_id TEXT, item_status TEXT, updated_at TEXT);
 		CREATE TABLE item_history (id TEXT PRIMARY KEY, inventory_item_id TEXT, event_type TEXT, event_date TEXT, reference_type TEXT, reference_id TEXT, description TEXT, metadata TEXT, created_by TEXT, created_at TEXT);

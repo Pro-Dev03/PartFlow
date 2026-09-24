@@ -11,20 +11,20 @@ import { toast } from 'sonner';
 
 export function AppearanceSettings() {
   const queryClient = useQueryClient();
-  const { theme, setTheme } = useUIStore();
+  const theme = useUIStore((state) => state.theme);
+  const setTheme = useUIStore((state) => state.setTheme);
   const [appearanceSettings, setAppearanceSettings] = useState({
-    theme,
     language: 'ar',
     fontSize: 'medium',
     posProductsPerPage: 12,
     posProductViewMode: 'cards',
   });
-  const { data: posProductsPerPageSetting } = useQuery({
+  const { data: posProductsPerPageSetting, isLoading: isProductsPerPageLoading } = useQuery({
     queryKey: ['settings', 'pos_products_per_page'],
     queryFn: () => settingsApi.getSetting('pos_products_per_page'),
     retry: false,
   });
-  const { data: posProductViewModeSetting } = useQuery({
+  const { data: posProductViewModeSetting, isLoading: isProductViewModeLoading } = useQuery({
     queryKey: ['settings', 'pos_product_view_mode'],
     queryFn: () => settingsApi.getSetting('pos_product_view_mode'),
     retry: false,
@@ -41,10 +41,6 @@ export function AppearanceSettings() {
     },
     onError: () => toast.error('تعذر حفظ إعدادات العرض'),
   });
-
-  useEffect(() => {
-    setAppearanceSettings((settings) => ({ ...settings, theme }));
-  }, [theme]);
 
   useEffect(() => {
     const value = Number(posProductsPerPageSetting?.data?.value);
@@ -95,22 +91,16 @@ export function AppearanceSettings() {
           </div>
           <div className="flex gap-2">
             <Button
-              variant={appearanceSettings.theme === 'dark' ? 'primary' : 'secondary'}
-              onClick={() => {
-                setTheme('dark');
-                localStorage.setItem('theme', 'dark');
-              }}
+              variant={theme === 'dark' ? 'primary' : 'secondary'}
+              onClick={() => setTheme('dark')}
               className="gap-2"
             >
               <Moon className="w-4 h-4" />
               داكن
             </Button>
             <Button
-              variant={appearanceSettings.theme === 'light' ? 'primary' : 'secondary'}
-              onClick={() => {
-                setTheme('light');
-                localStorage.setItem('theme', 'light');
-              }}
+              variant={theme === 'light' ? 'primary' : 'secondary'}
+              onClick={() => setTheme('light')}
               className="gap-2"
             >
               <Sun className="w-4 h-4" />
@@ -182,7 +172,7 @@ export function AppearanceSettings() {
           variant="primary"
           className="gap-2"
           onClick={() => saveAppearanceMutation.mutate()}
-          disabled={saveAppearanceMutation.isPending}
+          disabled={saveAppearanceMutation.isPending || isProductsPerPageLoading || isProductViewModeLoading}
         >
           <Save className="w-4 h-4" />
           حفظ التغييرات

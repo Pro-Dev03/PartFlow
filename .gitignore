@@ -60,6 +60,7 @@ cleanup-archive/
 local-partflow.db
 backend/partflow-local.db
 backend/*.exe
+backend/tmp/
 backend/api
 backend/main
 backend/worker

@@ -11,6 +11,7 @@ type Sale struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
 	InvoiceNumber  string     `json:"invoice_number" db:"invoice_number"`
 	CustomerID     *uuid.UUID `json:"customer_id,omitempty" db:"customer_id"`
+	CustomerName   *string    `json:"customer_name,omitempty" db:"customer_name"`
 	UserID         *uuid.UUID `json:"user_id,omitempty" db:"user_id"`
 	SaleDate       time.Time  `json:"sale_date" db:"sale_date"`
 	Subtotal       float64    `json:"subtotal" db:"subtotal"`
@@ -88,7 +89,7 @@ func NewSale(organizationID uuid.UUID, invoiceNumber string, userID *uuid.UUID) 
 		ID:             uuid.New(),
 		InvoiceNumber:  invoiceNumber,
 		UserID:         userID,
-		SaleDate:       time.Now(),
+		SaleDate:       time.Now().UTC(),
 		Subtotal:       0,
 		TaxAmount:      0,
 		DiscountAmount: 0,
@@ -96,8 +97,8 @@ func NewSale(organizationID uuid.UUID, invoiceNumber string, userID *uuid.UUID) 
 		PaidAmount:     0,
 		PaymentStatus:  "pending",
 		Status:         "completed",
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		CreatedAt:      time.Now().UTC(),
+		UpdatedAt:      time.Now().UTC(),
 	}
 }
 

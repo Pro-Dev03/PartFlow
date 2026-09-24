@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 import { settingsApi } from '../../../services/api/endpoints';
 import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
 import { generateSku } from '../../../utils/sku';
+import { getStoreToday, storeDateToUTCISOString } from '../../../utils/store-time';
 import { compressProductImage, setLocalProductImage } from '../../../services/localProductImages';
 
 interface LineItem extends PurchaseItem {
@@ -64,7 +65,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
   const [draftQuantity, setDraftQuantity] = useState('1');
   const [draftUnitCost, setDraftUnitCost] = useState('0');
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [purchaseDate, setPurchaseDate] = useState(getStoreToday());
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
   const [receiveImmediately, setReceiveImmediately] = useState(isEmbedded);
@@ -256,7 +257,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
 
   useEffect(() => {
     setInvoiceNumber(`PO-${Date.now()}`);
-    setPurchaseDate(new Date().toISOString().split('T')[0]);
+    setPurchaseDate(getStoreToday());
   }, []);
 
   useEffect(() => {
@@ -294,20 +295,20 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
     const query = productSearchQuery.trim();
     if (!query) return;
 
-    if (searchedProducts[0]) {
-      handleManualAdd(searchedProducts[0]);
-      return;
-    }
-
     try {
       const response = await productsApi.getByBarcode(query);
       const product = response.data?.product || response.data;
       if (product?.id) {
-        handleManualAdd(product);
+        handleManualAdd({ ...product, barcode: query });
         return;
       }
     } catch (error) {
       console.debug('Barcode lookup did not find a product:', error);
+    }
+
+    if (searchedProducts[0]) {
+      handleManualAdd(searchedProducts[0]);
+      return;
     }
 
     toast.error('لم يتم العثور على المنتج بهذا الباركود');
@@ -324,7 +325,9 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
     }
 
     setItems((prev) => {
-      const existingIndex = prev.findIndex((item) => item.product_id === selectedProductDraft.id);
+      const existingIndex = prev.findIndex((item) =>
+        item.product_id === selectedProductDraft.id && item.barcode === (selectedProductDraft.barcode || ''),
+      );
       if (existingIndex >= 0) {
         return prev.map((item, index) => index === existingIndex
           ? { ...item, quantity: item.quantity + quantity, unit_cost: unitCost }
@@ -460,8 +463,8 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
     const formData = {
       supplier_id: selectedSupplier,
       invoice_number: invoiceNumber || `PO-${Date.now()}`,
-      purchase_date: new Date(purchaseDate).toISOString(),
-      expected_delivery_date: expectedDate ? new Date(expectedDate).toISOString() : undefined,
+      purchase_date: storeDateToUTCISOString(purchaseDate) ?? new Date().toISOString(),
+      expected_delivery_date: expectedDate ? storeDateToUTCISOString(expectedDate) ?? undefined : undefined,
       notes: notes || undefined,
       items: items.map((item) => ({
         product_id: item.product_id,

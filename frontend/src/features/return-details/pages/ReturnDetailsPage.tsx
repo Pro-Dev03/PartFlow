@@ -6,7 +6,7 @@ import { Button } from '../../../design-system/components/button';
 import { PageHeader } from '../../../design-system/components/page-header';
 import { Badge } from '../../../design-system/components/badge';
 import { toast } from 'sonner';
-import { formatStoreDate } from '../../../utils/store-time';
+import { formatStoreDate, formatStoreDateTime } from '../../../utils/store-time';
 import { 
   ArrowRight,
   RotateCcw,
@@ -290,7 +290,7 @@ export function ReturnDetailsPage() {
               </div>
               {returnItem.warranty_valid_until && (
                 <p className="text-sm text-blue-600 mt-1">
-                  صالح حتى: {new Date(returnItem.warranty_valid_until).toLocaleDateString('ar-SA')}
+                  صالح حتى: {formatStoreDate(returnItem.warranty_valid_until, 'ar-SA')}
                 </p>
               )}
             </div>
@@ -440,7 +440,7 @@ export function ReturnDetailsPage() {
               </div>
               <div className="flex-1 pb-4">
                 <p className="font-medium">إنشاء المرتجع</p>
-                <p className="text-sm text-gray-400">{new Date(returnItem.created_at).toLocaleString('ar-SA')}</p>
+                <p className="text-sm text-gray-400">{formatStoreDateTime(returnItem.created_at, 'ar-SA')}</p>
               </div>
             </div>
 
@@ -452,7 +452,7 @@ export function ReturnDetailsPage() {
                 </div>
                 <div className="flex-1 pb-4">
                   <p className="font-medium">موافقة على المرتجع</p>
-                  <p className="text-sm text-gray-400">{new Date(returnItem.approved_at).toLocaleString('ar-SA')}</p>
+                  <p className="text-sm text-gray-400">{formatStoreDateTime(returnItem.approved_at, 'ar-SA')}</p>
                 </div>
               </div>
             )}
@@ -465,7 +465,7 @@ export function ReturnDetailsPage() {
                 </div>
                 <div className="flex-1 pb-4">
                   <p className="font-medium">تنفيذ الاسترجاع</p>
-                  <p className="text-sm text-gray-400">{new Date(returnItem.refund_date).toLocaleString('ar-SA')}</p>
+                  <p className="text-sm text-gray-400">{formatStoreDateTime(returnItem.refund_date, 'ar-SA')}</p>
                 </div>
               </div>
             )}
@@ -476,7 +476,7 @@ export function ReturnDetailsPage() {
               </div>
               <div className="flex-1">
                 <p className="font-medium">آخر تحديث</p>
-                <p className="text-sm text-gray-400">{new Date(returnItem.updated_at).toLocaleString('ar-SA')}</p>
+                <p className="text-sm text-gray-400">{formatStoreDateTime(returnItem.updated_at, 'ar-SA')}</p>
               </div>
             </div>
           </div>

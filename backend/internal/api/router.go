@@ -129,7 +129,11 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 
 		// Protected routes (auth required)
 		protected := v1.Group("")
-		protected.Use(middleware.Auth(), auth.CloudGuard(authService))
+		// middleware.Auth enforces cloud subscription state for local SQLite
+		// requests and the database state for cloud requests. A second CloudGuard
+		// here duplicated the remote check and made a valid bounded offline grant
+		// unusable when the cloud was temporarily unreachable.
+		protected.Use(middleware.Auth())
 		paymentTransactionsHandler.RegisterRoutes(v1, protected)
 		{
 			protected.POST("/assistant/reply", assistantHandler.Reply)
@@ -219,7 +223,6 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				products.PUT("/:id", productHandler.UpdateProduct)
 				products.PATCH("/:id/min-stock", productHandler.UpdateMinimumStock)
 				products.DELETE("/:id", productHandler.DeleteProduct)
-				products.POST("/:id/archive", productHandler.ArchiveProduct)
 				products.POST("/:id/barcode", productHandler.GenerateBarcode)
 				products.GET("/:id/stock", productHandler.GetProductStock)
 				products.GET("/search", productHandler.SearchProducts)
@@ -256,6 +259,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				sales.POST("/held", salesHandler.HoldSale)
 				sales.DELETE("/held/:id", salesHandler.DeleteHeldSale)
 				sales.GET("/:id", salesHandler.GetSale)
+				sales.DELETE("/:id", salesHandler.DeleteSale)
 				sales.GET("", salesHandler.ListSales)
 				sales.POST("/:id/payment", salesHandler.UpdateSalePayment)
 				sales.POST("/:id/cancel", salesHandler.CancelSale)
