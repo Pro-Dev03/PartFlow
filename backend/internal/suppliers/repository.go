@@ -536,40 +536,150 @@ func (r *Repository) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID
 
 // AddPayment adds a payment to supplier ledger
 func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) error {
-	if dbutil.IsSQLite(r.db) {
-		_, err := r.db.ExecContext(ctx, `INSERT INTO payments (id, transaction_number, supplier_id, amount, payment_method, reference, notes, payment_date, payment_status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed', $9, $9)`, payment.ID, "PAY-"+payment.ID.String()[:8], payment.SupplierID, payment.Amount, payment.Method, payment.Reference, payment.Notes, payment.PaymentDate, payment.CreatedAt)
-		if err != nil {
-			return fmt.Errorf("failed to add local payment: %w", err)
+	return r.RecordPaymentTransaction(ctx, payment, false)
+}
+
+// RecordPaymentTransaction commits the payment, supplier ledger, optional debt
+// allocation, and denormalized supplier balance atomically.
+func (r *Repository) RecordPaymentTransaction(ctx context.Context, payment *PaymentResponse, strictDebtCoverage bool) error {
+	if payment.Amount <= 0 {
+		return ErrPaymentAmountInvalid
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin supplier payment transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	lock := ""
+	if !dbutil.IsSQLite(r.db) {
+		lock = " FOR UPDATE"
+	}
+	var currentBalance float64
+	if err := tx.GetContext(ctx, &currentBalance, tx.Rebind(`SELECT COALESCE(current_balance, 0) FROM suppliers WHERE id = ?`)+lock, payment.SupplierID.String()); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrSupplierNotFound
 		}
-		_, err = r.db.ExecContext(ctx, `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT $1, $2, 'credit', 'PAYMENT', $3, COALESCE((SELECT SUM(CASE WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id = $2), 0) - $3, $4, $5, $6`, uuid.New(), payment.SupplierID, payment.Amount, "Payment: "+payment.Method, payment.ID, payment.CreatedAt)
+		return fmt.Errorf("lock supplier balance: %w", err)
+	}
+	var ledgerBalance float64
+	ledgerQuery := `SELECT COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0) FROM supplier_ledger WHERE supplier_id = ?`
+	if dbutil.IsSQLite(r.db) {
+		ledgerQuery = `SELECT COALESCE(SUM(CASE WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount ELSE -amount END), 0) FROM supplier_ledger WHERE supplier_id = ?`
+	}
+	if err := tx.GetContext(ctx, &ledgerBalance, tx.Rebind(ledgerQuery), payment.SupplierID.String()); err != nil {
+		return fmt.Errorf("read supplier ledger balance: %w", err)
+	}
+	if payment.Amount > currentBalance+0.000001 || payment.Amount > ledgerBalance+0.000001 {
+		return ErrPaymentExceedsBalance
+	}
+
+	if payment.Reference != nil && strings.TrimSpace(*payment.Reference) != "" {
+		column := "reference_number"
+		if dbutil.IsSQLite(r.db) {
+			column = "reference"
+		}
+		var duplicate bool
+		if err := tx.GetContext(ctx, &duplicate, tx.Rebind(`SELECT EXISTS (SELECT 1 FROM payments WHERE supplier_id = ? AND `+column+` = ?)`), payment.SupplierID.String(), strings.TrimSpace(*payment.Reference)); err != nil {
+			return fmt.Errorf("check duplicate supplier payment reference: %w", err)
+		}
+		if duplicate {
+			return ErrPaymentDuplicate
+		}
+	}
+
+	type debtRow struct {
+		ID     string  `db:"id"`
+		Amount float64 `db:"amount"`
+		Paid   float64 `db:"paid_amount"`
+	}
+	var debts []debtRow
+	if strictDebtCoverage {
+		debtQuery := `SELECT id, amount, COALESCE(paid_amount, 0) AS paid_amount FROM supplier_debts
+			WHERE supplier_id = ? AND COALESCE(is_paid, FALSE) = FALSE AND amount > COALESCE(paid_amount, 0)
+			ORDER BY due_date, created_at, id`
+		if !dbutil.IsSQLite(r.db) {
+			debtQuery += ` FOR UPDATE`
+		}
+		if err := tx.SelectContext(ctx, &debts, tx.Rebind(debtQuery), payment.SupplierID.String()); err != nil {
+			return fmt.Errorf("load supplier debts for payment: %w", err)
+		}
+		var outstanding float64
+		for _, debt := range debts {
+			if remaining := debt.Amount - debt.Paid; remaining > 0 {
+				outstanding += remaining
+			}
+		}
+		if payment.Amount > outstanding+0.000001 {
+			return ErrPaymentExceedsBalance
+		}
+	}
+
+	if err := r.insertPaymentAndLedgerTx(ctx, tx, payment); err != nil {
 		return err
 	}
-	query := `
-		INSERT INTO payments (id, reference_number, supplier_id, amount, payment_method, payment_date, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
-	`
-	_, err := r.db.ExecContext(ctx, query,
-		payment.ID, "PAY-"+payment.ID.String()[:8], payment.SupplierID, payment.Amount, payment.Method, payment.PaymentDate, payment.Notes, payment.CreatedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to add payment: %w", err)
+	remainingPayment := payment.Amount
+	if strictDebtCoverage {
+		for _, debt := range debts {
+			debtRemaining := debt.Amount - debt.Paid
+			if debtRemaining <= 0 || remainingPayment <= 0.000001 {
+				continue
+			}
+			applied := debtRemaining
+			if applied > remainingPayment {
+				applied = remainingPayment
+			}
+			paid := debt.Paid + applied
+			isPaid := paid >= debt.Amount-0.000001
+			if isPaid {
+				paid = debt.Amount
+			}
+			result, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE supplier_debts SET paid_amount = ?, is_paid = ? WHERE id = ? AND supplier_id = ?`), paid, isPaid, debt.ID, payment.SupplierID.String())
+			if err != nil {
+				return fmt.Errorf("allocate supplier payment to debt: %w", err)
+			}
+			if affected, _ := result.RowsAffected(); affected != 1 {
+				return fmt.Errorf("supplier debt changed during payment allocation")
+			}
+			remainingPayment -= applied
+		}
 	}
 
-	// Add to ledger
-	ledgerQuery := `
-		INSERT INTO supplier_ledger (id, supplier_id, type, amount, balance, description, reference_id, created_at)
-		SELECT $1, $2, 'credit', $3, 
-			(SELECT COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0) FROM supplier_ledger WHERE supplier_id = $2) - $3,
-			$4, $5, $6
-	`
-	_, err = r.db.ExecContext(ctx, ledgerQuery,
-		uuid.New(), payment.SupplierID, payment.Amount,
-		"Payment: "+payment.Method, payment.ID, payment.CreatedAt,
-	)
+	updateBalance := fmt.Sprintf(`UPDATE suppliers SET current_balance = COALESCE(current_balance, 0) - ?, updated_at = %s WHERE id = ? AND COALESCE(current_balance, 0) >= ?`, dbutil.NowSQL(r.db))
+	result, err := tx.ExecContext(ctx, tx.Rebind(updateBalance), payment.Amount, payment.SupplierID.String(), payment.Amount)
 	if err != nil {
-		return fmt.Errorf("failed to add ledger entry: %w", err)
+		return fmt.Errorf("update supplier balance for payment: %w", err)
 	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return ErrPaymentExceedsBalance
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit supplier payment transaction: %w", err)
+	}
+	return nil
+}
 
+func (r *Repository) insertPaymentAndLedgerTx(ctx context.Context, tx *sqlx.Tx, payment *PaymentResponse) error {
+	paymentNumber := "PAY-" + payment.ID.String()[:8]
+	if dbutil.IsSQLite(r.db) {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO payments (id, transaction_number, supplier_id, amount, payment_method, reference, notes, payment_date, payment_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?)`), payment.ID.String(), paymentNumber, payment.SupplierID.String(), payment.Amount, payment.Method, payment.Reference, payment.Notes, payment.PaymentDate, payment.CreatedAt, payment.CreatedAt); err != nil {
+			return fmt.Errorf("failed to add supplier payment: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'credit', 'PAYMENT', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id = ?), 0) - ?, ?, ?, ?`), uuid.New().String(), payment.SupplierID.String(), payment.Amount, payment.SupplierID.String(), payment.Amount, "Payment: "+payment.Method, payment.ID.String(), payment.CreatedAt); err != nil {
+			return fmt.Errorf("failed to add supplier ledger entry: %w", err)
+		}
+		return nil
+	}
+	referenceNumber := paymentNumber
+	if payment.Reference != nil && strings.TrimSpace(*payment.Reference) != "" {
+		referenceNumber = strings.TrimSpace(*payment.Reference)
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO payments (id, reference_number, supplier_id, amount, payment_method, payment_date, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`), payment.ID, referenceNumber, payment.SupplierID, payment.Amount, payment.Method, payment.PaymentDate, payment.Notes, payment.CreatedAt, payment.CreatedAt); err != nil {
+		return fmt.Errorf("failed to add supplier payment: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO supplier_ledger (id, supplier_id, type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'credit', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id = ?), 0) - ?, ?, ?, ?`), uuid.New(), payment.SupplierID, payment.Amount, payment.SupplierID, payment.Amount, "Payment: "+payment.Method, payment.ID, payment.CreatedAt); err != nil {
+		return fmt.Errorf("failed to add supplier ledger entry: %w", err)
+	}
 	return nil
 }
 
@@ -631,6 +741,117 @@ func (r *Repository) CreateDebtEntry(ctx context.Context, debt *DebtEntry) error
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create debt entry: %w", err)
+	}
+	return nil
+}
+
+// RecordDebtEntryTransaction commits a supplier debt, ledger debit, and balance
+// update together while enforcing the credit limit under the supplier row lock.
+func (r *Repository) RecordDebtEntryTransaction(ctx context.Context, debt *DebtEntry, description string, enforceCreditLimit bool) error {
+	if debt.Amount <= 0 {
+		return ErrPaymentAmountInvalid
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin supplier debt transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	lock := ""
+	if !dbutil.IsSQLite(r.db) {
+		lock = " FOR UPDATE"
+	}
+	var balance, creditLimit float64
+	if err := tx.QueryRowxContext(ctx, tx.Rebind(`SELECT COALESCE(current_balance, 0), COALESCE(credit_limit, 0) FROM suppliers WHERE id = ?`)+lock, debt.SupplierID.String()).Scan(&balance, &creditLimit); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrSupplierNotFound
+		}
+		return fmt.Errorf("lock supplier debt balance: %w", err)
+	}
+	if enforceCreditLimit && balance+debt.Amount > creditLimit+0.000001 {
+		return ErrCreditLimitExceeded
+	}
+
+	if dbutil.IsSQLite(r.db) {
+		if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS supplier_debts (id TEXT PRIMARY KEY, supplier_id TEXT NOT NULL, amount REAL NOT NULL, reference_id TEXT, reference_type TEXT, due_date TEXT, is_paid INTEGER DEFAULT 0, paid_amount REAL DEFAULT 0, created_at TEXT NOT NULL)`); err != nil {
+			return fmt.Errorf("ensure local supplier debt table: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO supplier_debts (id, supplier_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`), debt.ID.String(), debt.SupplierID.String(), debt.Amount, nullableSupplierDebtReference(debt.ReferenceID), debt.ReferenceType, debt.DueDate, debt.IsPaid, debt.PaidAmount, debt.CreatedAt); err != nil {
+			return fmt.Errorf("create local supplier debt entry: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'debit', 'PURCHASE', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id = ?), 0) + ?, ?, ?, ?`), uuid.New().String(), debt.SupplierID.String(), debt.Amount, debt.SupplierID.String(), debt.Amount, description, nullableSupplierDebtReference(debt.ReferenceID), debt.CreatedAt); err != nil {
+			return fmt.Errorf("create supplier debt ledger entry: %w", err)
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO supplier_debts (id, supplier_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`), debt.ID, debt.SupplierID, debt.Amount, nullableSupplierDebtReference(debt.ReferenceID), debt.ReferenceType, debt.DueDate, debt.IsPaid, debt.PaidAmount, debt.CreatedAt); err != nil {
+			return fmt.Errorf("create supplier debt entry: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO supplier_ledger (id, supplier_id, type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'debit', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id = ?), 0) + ?, ?, ?, ?`), uuid.New(), debt.SupplierID, debt.Amount, debt.SupplierID, debt.Amount, description, nullableSupplierDebtReference(debt.ReferenceID), debt.CreatedAt); err != nil {
+			return fmt.Errorf("create supplier debt ledger entry: %w", err)
+		}
+	}
+
+	updateBalance := fmt.Sprintf(`UPDATE suppliers SET current_balance = COALESCE(current_balance, 0) + ?, updated_at = %s WHERE id = ?`, dbutil.NowSQL(r.db))
+	result, err := tx.ExecContext(ctx, tx.Rebind(updateBalance), debt.Amount, debt.SupplierID.String())
+	if err != nil {
+		return fmt.Errorf("update supplier balance for debt: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return ErrSupplierNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit supplier debt transaction: %w", err)
+	}
+	return nil
+}
+
+func nullableSupplierDebtReference(value uuid.UUID) interface{} {
+	if value == uuid.Nil {
+		return nil
+	}
+	return value
+}
+
+// RecordAccountDebtTransaction atomically records a supplier account debit and
+// balance increase without creating a separate debt-row record.
+func (r *Repository) RecordAccountDebtTransaction(ctx context.Context, supplierID uuid.UUID, amount float64, description string, referenceID uuid.UUID) error {
+	if amount <= 0 {
+		return ErrPaymentAmountInvalid
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin supplier account-debt transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	lock := ""
+	if !dbutil.IsSQLite(r.db) {
+		lock = " FOR UPDATE"
+	}
+	var balance, creditLimit float64
+	if err := tx.QueryRowxContext(ctx, tx.Rebind(`SELECT COALESCE(current_balance, 0), COALESCE(credit_limit, 0) FROM suppliers WHERE id = ?`)+lock, supplierID.String()).Scan(&balance, &creditLimit); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrSupplierNotFound
+		}
+		return fmt.Errorf("lock supplier account-debt balance: %w", err)
+	}
+	if balance+amount > creditLimit+0.000001 {
+		return ErrCreditLimitExceeded
+	}
+	insert := `INSERT INTO supplier_ledger (id, supplier_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'debit', 'PURCHASE', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' OR transaction_type = 'PURCHASE' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id = ?), 0) + ?, ?, ?, ?`
+	if _, err := tx.ExecContext(ctx, tx.Rebind(insert), uuid.New(), supplierID.String(), amount, supplierID.String(), amount, description, nullableSupplierDebtReference(referenceID), time.Now().UTC()); err != nil {
+		return fmt.Errorf("record supplier account-debt ledger: %w", err)
+	}
+	update := fmt.Sprintf(`UPDATE suppliers SET current_balance = COALESCE(current_balance, 0) + ?, updated_at = %s WHERE id = ?`, dbutil.NowSQL(r.db))
+	result, err := tx.ExecContext(ctx, tx.Rebind(update), amount, supplierID.String())
+	if err != nil {
+		return fmt.Errorf("update supplier account-debt balance: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return ErrSupplierNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit supplier account-debt transaction: %w", err)
 	}
 	return nil
 }

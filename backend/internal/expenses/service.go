@@ -382,12 +382,8 @@ func (s *Service) UpdateExpenseCategory(ctx context.Context, id uuid.UUID, req *
 	return category, nil
 }
 
-// DeleteExpenseCategory deletes an expense category
+// DeleteExpenseCategory archives an expense category while preserving history.
 func (s *Service) DeleteExpenseCategory(ctx context.Context, id uuid.UUID) error {
-	// Check if category has expenses
-	// This would require a count query
-	// For simplicity, we'll allow deletion for now
-
 	return s.repo.DeleteExpenseCategory(ctx, id)
 }
 

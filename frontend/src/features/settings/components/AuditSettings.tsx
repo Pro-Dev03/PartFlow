@@ -1,76 +1,55 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Download, FileText, ListChecks } from 'lucide-react';
+import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
 import { Button } from '../../../design-system/components/button';
-import { Input } from '../../../design-system/components/input';
-import { FileText, Save, Download } from 'lucide-react';
+import { auditApi } from '../../../services/api/endpoints';
 
 export function AuditSettings() {
-  const [auditSettings, setAuditSettings] = useState({
-    logRetentionDays: 90,
-    logAllActions: true,
-    logFailedAttempts: true,
-    autoExportLogs: false,
-  });
+  const navigate = useNavigate();
+  const [isExporting, setIsExporting] = useState(false);
+
+  const exportAuditLog = async () => {
+    setIsExporting(true);
+    try {
+      const blob = await auditApi.exportCsv();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `partflow-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      toast.success('تم تصدير سجل التدقيق بنجاح');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تصدير سجل التدقيق');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <FileText className="w-5 h-5 text-cyan" />
-          إعدادات التدقيق
+          <FileText className="h-5 w-5 text-cyan" />
+          سجل التدقيق
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-md">
-        <Input
-          label="فترة الاحتفاظ بالسجلات (أيام)"
-          type="number"
-          value={auditSettings.logRetentionDays}
-          onChange={(e) => setAuditSettings({ ...auditSettings, logRetentionDays: Number(e.target.value) })}
-        />
-        <div className="flex items-center justify-between p-4 border border-border rounded-lg">
-          <div>
-            <h4 className="font-medium text-text-primary">تسجيل جميع الإجراءات</h4>
-            <p className="text-small text-text-secondary">تسجيل كل نشاط في النظام</p>
-          </div>
-          <Button
-            variant={auditSettings.logAllActions ? 'primary' : 'secondary'}
-            onClick={() => setAuditSettings({ ...auditSettings, logAllActions: !auditSettings.logAllActions })}
-          >
-            {auditSettings.logAllActions ? 'مفعّل' : 'معطّل'}
+      <CardContent className="space-y-4">
+        <p className="text-sm text-text-secondary">
+          يعرض سجل التدقيق العمليات المسجلة فعليًا في قاعدة البيانات ويمكن تصديره بصيغة CSV للمراجعة والأرشفة.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" className="gap-2" onClick={() => navigate('/app/audit')}>
+            <ListChecks className="h-4 w-4" />
+            فتح سجل التدقيق
           </Button>
-        </div>
-        <div className="flex items-center justify-between p-4 border border-border rounded-lg">
-          <div>
-            <h4 className="font-medium text-text-primary">تسجيل المحاولات الفاشلة</h4>
-            <p className="text-small text-text-secondary">تسجيل محاولات الدخول الفاشلة</p>
-          </div>
-          <Button
-            variant={auditSettings.logFailedAttempts ? 'primary' : 'secondary'}
-            onClick={() => setAuditSettings({ ...auditSettings, logFailedAttempts: !auditSettings.logFailedAttempts })}
-          >
-            {auditSettings.logFailedAttempts ? 'مفعّل' : 'معطّل'}
-          </Button>
-        </div>
-        <div className="flex items-center justify-between p-4 border border-border rounded-lg">
-          <div>
-            <h4 className="font-medium text-text-primary">تصدير تلقائي للسجلات</h4>
-            <p className="text-small text-text-secondary">تصدير السجلات بشكل دوري</p>
-          </div>
-          <Button
-            variant={auditSettings.autoExportLogs ? 'primary' : 'secondary'}
-            onClick={() => setAuditSettings({ ...auditSettings, autoExportLogs: !auditSettings.autoExportLogs })}
-          >
-            {auditSettings.autoExportLogs ? 'مفعّل' : 'معطّل'}
-          </Button>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="primary" className="gap-2 flex-1">
-            <Save className="w-4 h-4" />
-            حفظ التغييرات
-          </Button>
-          <Button variant="secondary" className="gap-2">
-            <Download className="w-4 h-4" />
-            تصدير السجلات
+          <Button variant="secondary" className="gap-2" onClick={() => void exportAuditLog()} disabled={isExporting}>
+            <Download className="h-4 w-4" />
+            {isExporting ? 'جارِ التصدير...' : 'تصدير السجل'}
           </Button>
         </div>
       </CardContent>

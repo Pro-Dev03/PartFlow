@@ -179,6 +179,10 @@ func (h *Handler) AddPayment(c *gin.Context) {
 			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Payment exceeds supplier net balance", err.Error())
 			return
 		}
+		if err == ErrPaymentDuplicate {
+			response.Error(c, http.StatusConflict, http.StatusConflict, "Duplicate payment reference", err.Error())
+			return
+		}
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to add payment", err.Error())
 		return
 	}
@@ -267,6 +271,10 @@ func (h *Handler) CreateDebtEntry(c *gin.Context) {
 
 	err = h.service.CreateDebtEntry(c.Request.Context(), id, req.Amount, req.ReferenceID, req.ReferenceType, req.DueDate)
 	if err != nil {
+		if err == ErrPaymentAmountInvalid {
+			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Debt amount must be greater than zero", err.Error())
+			return
+		}
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
 			return
@@ -381,6 +389,10 @@ func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 	if err != nil {
 		if err == ErrSupplierNotFound {
 			response.Error(c, http.StatusNotFound, http.StatusNotFound, "Supplier not found", err.Error())
+			return
+		}
+		if err == ErrPaymentAmountInvalid || err == ErrPaymentExceedsBalance {
+			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid debt payment amount", err.Error())
 			return
 		}
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to process debt payment", err.Error())

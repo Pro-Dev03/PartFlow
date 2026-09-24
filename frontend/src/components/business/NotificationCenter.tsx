@@ -262,7 +262,7 @@ export function NotificationCenter() {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-end p-4">
       <div className="bg-black/50 absolute inset-0" onClick={() => setIsOpen(false)} />
-      <Card className="relative w-full max-w-md max-h-[80vh] overflow-hidden">
+      <Card className="relative w-full max-w-[28rem] max-h-[80vh] overflow-hidden">
         <CardContent className="p-0">
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">

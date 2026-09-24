@@ -1,4 +1,5 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
+import { getBrowserAuthHeaders } from './helpers/auth';
 
 const BARCODE = 'FNX-GPU-000421';
 const API_BASE_URL = process.env.E2E_API_BASE_URL ?? 'http://localhost:8080/api/v1';
@@ -19,15 +20,13 @@ test.describe('Barcode lifecycle: FNX-GPU-000421', () => {
   }
 
   async function api<T = any>(page: Page, method: string, path: string, body?: unknown): Promise<T> {
-    return page.evaluate(async ({ apiBase, requestMethod, requestPath, requestBody }) => {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
-      const cloudToken = localStorage.getItem('cloud_token');
+    const authHeaders = await getBrowserAuthHeaders(page);
+    return page.evaluate(async ({ apiBase, requestMethod, requestPath, requestBody, authHeaders }) => {
       const response = await fetch(`${apiBase}${requestPath}`, {
         method: requestMethod,
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          ...(cloudToken ? { 'X-PartFlow-Cloud-Token': cloudToken } : {}),
+          ...authHeaders,
         },
         body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
       });
@@ -36,7 +35,7 @@ test.describe('Barcode lifecycle: FNX-GPU-000421', () => {
         throw new Error(`${requestMethod} ${requestPath} -> ${response.status}: ${JSON.stringify(payload)}`);
       }
       return payload as T;
-    }, { apiBase: API_BASE_URL, requestMethod: method, requestPath: path, requestBody: body });
+    }, { apiBase: API_BASE_URL, requestMethod: method, requestPath: path, requestBody: body, authHeaders });
   }
 
   function data<T = any>(payload: any): T {
@@ -167,20 +166,18 @@ test.describe('Barcode lifecycle: FNX-GPU-000421', () => {
 
     await expect.poll(async () => (await api<any>(page, 'GET', `/barcodes/resolve/${encodeURIComponent(BARCODE)}`)).inventory_item?.status ?? '').toBe('SOLD');
 
-    const secondSale = await page.evaluate(async ({ apiBase, productId: pid, itemId }) => {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
-      const cloudToken = localStorage.getItem('cloud_token');
+    const authHeaders = await getBrowserAuthHeaders(page);
+    const secondSale = await page.evaluate(async ({ apiBase, productId: pid, itemId, authHeaders }) => {
       const response = await fetch(`${apiBase}/sales`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          ...(cloudToken ? { 'X-PartFlow-Cloud-Token': cloudToken } : {}),
+          ...authHeaders,
         },
         body: JSON.stringify({ items: [{ product_id: pid, inventory_item_id: itemId, quantity: 1, unit_price: 880 }], payment_method: 'cash', payment_amount: 880, total_amount: 880 }),
       });
       return { status: response.status, body: await response.json().catch(() => ({})) };
-    }, { apiBase: API_BASE_URL, productId, itemId: inventoryItem.id });
+    }, { apiBase: API_BASE_URL, productId, itemId: inventoryItem.id, authHeaders });
     expect(secondSale.status).toBeGreaterThanOrEqual(400);
     evidence.negative = [{ name: 'Sell same individual item twice', result: secondSale }];
 
@@ -231,15 +228,14 @@ test.describe('Barcode lifecycle: FNX-GPU-000421', () => {
       await page.screenshot({ path: testInfo.outputPath(`${route.split('/').pop()}-barcode.png`), fullPage: true });
     }
 
-    const duplicate = await page.evaluate(async ({ apiBase, productId: pid }) => {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
+    const duplicate = await page.evaluate(async ({ apiBase, productId: pid, authHeaders }) => {
       const response = await fetch(`${apiBase}/inventory`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ product_id: pid, quantity: 1, barcode: BARCODE, condition: 'USED', purchase_cost: 400, selling_price: 880, status: 'AVAILABLE' }),
       });
       return { status: response.status, body: await response.json().catch(() => ({})) };
-    }, { apiBase: API_BASE_URL, productId });
+    }, { apiBase: API_BASE_URL, productId, authHeaders });
     expect(duplicate.status).toBeGreaterThanOrEqual(400);
     evidence.negative.push({ name: 'Duplicate barcode', result: duplicate });
 

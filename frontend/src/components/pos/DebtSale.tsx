@@ -51,7 +51,7 @@ export function DebtSale({ total, customers, onComplete, onCancel }: DebtSalePro
   const quickAmounts = [0, total * 0.25, total * 0.5, total * 0.75, total];
 
   return (
-    <Card className="w-full max-w-md mx-auto">
+    <Card className="w-full max-w-[28rem] mx-auto">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <DollarSign className="w-5 h-5 text-orange-500" />

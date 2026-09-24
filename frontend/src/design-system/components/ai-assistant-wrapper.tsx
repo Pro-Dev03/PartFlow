@@ -109,7 +109,7 @@ export default function AIAssistantWrapper() {
 
   const { data: customersData } = useQuery({
     queryKey: ['assistant-customers-count'],
-    queryFn: () => customersApi.list({ page: 1, per_page: 1 }),
+    queryFn: () => customersApi.list({ page: 1, per_page: 1, is_active: true }),
     staleTime: 120000,
     enabled: isAuthReady && !isLoading && isOnline,
     retry: 1,

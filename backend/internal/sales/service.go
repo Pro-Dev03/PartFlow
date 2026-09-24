@@ -3,6 +3,7 @@ package sales
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -150,7 +151,11 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			// Quantity-based products may be represented by a single inventory row while the
 			// true available balance lives in the aggregate inventory table.
 			var aggregateQuantity int
-			aggregateErr := tx.GetContext(ctx, &aggregateQuantity, `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1`, itemReq.ProductID)
+			aggregateStockQuery := `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1`
+			if !dbutil.IsSQLite(s.db) {
+				aggregateStockQuery += ` FOR UPDATE`
+			}
+			aggregateErr := tx.GetContext(ctx, &aggregateQuantity, aggregateStockQuery, itemReq.ProductID)
 			if aggregateErr == nil && aggregateQuantity >= itemReq.Quantity {
 				aggregateStockMap[itemReq.ProductID] = aggregateQuantity
 			} else if aggregateErr == nil && aggregateQuantity > 0 {
@@ -263,11 +268,19 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 	if req.PaymentTransactionID != nil {
 		var externalStatus string
 		var externalAmountMinor int64
-		if err := tx.QueryRowContext(ctx, `SELECT status, amount_minor FROM payment_transactions WHERE id = $1`, *req.PaymentTransactionID).Scan(&externalStatus, &externalAmountMinor); err != nil {
-			return nil, fmt.Errorf("payment transaction not found: %w", err)
+		var linkedSaleID, linkedPaymentID sql.NullString
+		paymentTransactionQuery := `SELECT status, amount_minor, sale_id, payment_id FROM payment_transactions WHERE id = $1`
+		if !dbutil.IsSQLite(s.db) {
+			paymentTransactionQuery += ` FOR UPDATE`
 		}
-		if externalStatus != "paid" {
-			return nil, fmt.Errorf("payment transaction is not verified: %s", externalStatus)
+		if err := tx.QueryRowContext(ctx, paymentTransactionQuery, *req.PaymentTransactionID).Scan(&externalStatus, &externalAmountMinor, &linkedSaleID, &linkedPaymentID); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrInvalidPayment
+			}
+			return nil, fmt.Errorf("read payment transaction: %w", err)
+		}
+		if externalStatus != "paid" || linkedSaleID.Valid || !linkedPaymentID.Valid {
+			return nil, ErrInvalidPayment
 		}
 		if math.Abs(float64(externalAmountMinor)/100-totalAmount) > 0.01 {
 			return nil, fmt.Errorf("verified payment amount does not match sale total")
@@ -566,13 +579,10 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 				INSERT INTO item_history
 					(inventory_item_id, event_type, event_date, reference_type, reference_id,
 					 description, metadata, created_by, created_at)
-				VALUES ($1, 'sold', %s, 'sale', $2, $3, %s, $5, %s)
-			`, sqlNow, metadataValue, sqlNow), itemID, sale.ID, reason, string(itemHistoryMetadata), userID)
+			VALUES ($1, 'sold', %s, 'sale', $2, $3, %s, $5, %s)
+		`, sqlNow, metadataValue, sqlNow), itemID, sale.ID, reason, string(itemHistoryMetadata), userID)
 			if err != nil {
-				if !(dbutil.IsSQLite(s.db) && strings.Contains(strings.ToLower(err.Error()), "no such table: item_history")) {
-					return nil, fmt.Errorf("failed to create item history: %w", err)
-				}
-				fmt.Printf("Warning: item_history table is unavailable; continuing sale: %v\n", err)
+				return nil, fmt.Errorf("failed to create item history: %w", err)
 			}
 
 			_, err = tx.ExecContext(ctx, fmt.Sprintf(`
@@ -593,10 +603,32 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		`, sqlNow)
 		_, isAggregate := aggregateStockMap[items[i].ProductID]
 		if !isAggregate {
-			_, inventoryErr := tx.ExecContext(ctx, inventoryUpdateQuery, items[i].Quantity, items[i].ProductID)
-			if inventoryErr != nil {
-				// Log but don't fail if inventory table doesn't exist or has no record
-				fmt.Printf("Warning: failed to update aggregate inventory: %v\n", inventoryErr)
+			var aggregateQuantity int
+			aggregateQuery := `SELECT COALESCE(quantity, 0) FROM inventory WHERE product_id = $1`
+			if !dbutil.IsSQLite(s.db) {
+				aggregateQuery += ` FOR UPDATE`
+			}
+			aggregateErr := tx.GetContext(ctx, &aggregateQuantity, aggregateQuery, items[i].ProductID)
+			if aggregateErr != nil && aggregateErr != sql.ErrNoRows {
+				return nil, fmt.Errorf("read aggregate inventory before sale: %w", aggregateErr)
+			}
+			if aggregateErr == nil {
+				if aggregateQuantity < items[i].Quantity {
+					return nil, &InsufficientStockError{
+						ProductID: items[i].ProductID, ProductName: productNames[items[i].ProductID],
+						Requested: items[i].Quantity, Available: aggregateQuantity,
+					}
+				}
+				result, inventoryErr := tx.ExecContext(ctx, inventoryUpdateQuery+` AND COALESCE(quantity, 0) >= $1`, items[i].Quantity, items[i].ProductID)
+				if inventoryErr != nil {
+					return nil, fmt.Errorf("failed to update aggregate inventory: %w", inventoryErr)
+				}
+				if affected, _ := result.RowsAffected(); affected != 1 {
+					return nil, &InsufficientStockError{
+						ProductID: items[i].ProductID, ProductName: productNames[items[i].ProductID],
+						Requested: items[i].Quantity, Available: aggregateQuantity,
+					}
+				}
 			}
 		}
 
@@ -614,11 +646,18 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 				}
 			}
 			afterQuantity := currentQuantity - items[i].Quantity
-			_, err := tx.ExecContext(ctx, fmt.Sprintf(`
-				UPDATE inventory SET quantity = quantity - $1, updated_at = %s WHERE product_id = $2
+			result, err := tx.ExecContext(ctx, fmt.Sprintf(`
+				UPDATE inventory SET quantity = quantity - $1, updated_at = %s
+				WHERE product_id = $2 AND COALESCE(quantity, 0) >= $1
 			`, dbutil.NowSQL(s.db)), items[i].Quantity, items[i].ProductID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to decrement aggregate inventory quantity: %w", err)
+			}
+			if affected, _ := result.RowsAffected(); affected != 1 {
+				return nil, &InsufficientStockError{
+					ProductID: items[i].ProductID, ProductName: productNames[items[i].ProductID],
+					Requested: items[i].Quantity, Available: currentQuantity,
+				}
 			}
 			_, err = tx.ExecContext(ctx, fmt.Sprintf(`
 				INSERT INTO inventory_movements (id, item_id, product_id, movement_type, quantity, before_quantity, after_quantity, reference_type, reference_id, reason, created_by, created_at)
@@ -632,16 +671,18 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 	// Update customer ledger if customer exists (SALES-PHILOSOPHY.md - automatic debt calculation)
 	if req.CustomerID != nil {
-		// Get current balance
-		var currentBalance float64
-		balanceQuery := `
-			SELECT COALESCE(SUM(amount), 0)
-			FROM customer_ledger
-			WHERE customer_id = $1
-		`
-		balanceErr := tx.GetContext(ctx, &currentBalance, balanceQuery, *req.CustomerID)
-		if balanceErr != nil {
-			currentBalance = 0
+		// Lock the account row so concurrent sales and payments cannot calculate
+		// customer debt from stale or unsigned ledger totals.
+		balanceQuery := `SELECT COALESCE(current_balance, 0), COALESCE(credit_limit, 0) FROM customers WHERE id = $1`
+		if !dbutil.IsSQLite(s.db) {
+			balanceQuery += ` FOR UPDATE`
+		}
+		var currentBalance, creditLimit float64
+		if err := tx.QueryRowxContext(ctx, balanceQuery, *req.CustomerID).Scan(&currentBalance, &creditLimit); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, ErrCustomerNotFound
+			}
+			return nil, fmt.Errorf("read customer balance before sale: %w", err)
 		}
 
 		debtAmount := totalAmount - paymentAmount
@@ -664,9 +705,12 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 				SET current_balance = $1, updated_at = %s
 				WHERE id = $2
 			`, dbutil.NowSQL(s.db))
-			_, customerErr := tx.ExecContext(ctx, updateCustomerQuery, newBalance, *req.CustomerID)
+			customerResult, customerErr := tx.ExecContext(ctx, updateCustomerQuery, newBalance, *req.CustomerID)
 			if customerErr != nil {
 				return nil, fmt.Errorf("failed to update customer balance: %w", customerErr)
+			}
+			if affected, _ := customerResult.RowsAffected(); affected != 1 {
+				return nil, ErrCustomerNotFound
 			}
 
 			if isDebtSale {
@@ -684,14 +728,11 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		}
 
 		// Check credit limit (SALES-PHILOSOPHY.md)
-		var creditLimit *float64
-		limitQuery := `SELECT credit_limit FROM customers WHERE id = $1`
-		limitErr := tx.GetContext(ctx, &creditLimit, limitQuery, *req.CustomerID)
-		if limitErr == nil && creditLimit != nil && *creditLimit > 0 {
-			if newBalance > *creditLimit {
+		if creditLimit > 0 {
+			if newBalance > creditLimit {
 				// Log warning but don't fail the sale (store owner's decision)
 				fmt.Printf("Warning: Customer %s will exceed credit limit. Current: %.2f, Limit: %.2f, New: %.2f\n",
-					*req.CustomerID, currentBalance, *creditLimit, newBalance)
+					*req.CustomerID, currentBalance, creditLimit, newBalance)
 			}
 		}
 	}
@@ -748,11 +789,19 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		}
 	}
 	if req.PaymentTransactionID != nil {
-		if _, err := tx.ExecContext(ctx, `UPDATE payment_transactions SET sale_id = $1, updated_at = $2 WHERE id = $3 AND status = 'paid'`, sale.ID, time.Now(), *req.PaymentTransactionID); err != nil {
+		result, err := tx.ExecContext(ctx, `UPDATE payment_transactions SET sale_id = $1, updated_at = $2 WHERE id = $3 AND status = 'paid' AND sale_id IS NULL`, sale.ID, time.Now(), *req.PaymentTransactionID)
+		if err != nil {
 			return nil, fmt.Errorf("link payment transaction to sale: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE payments SET sale_id = $1, updated_at = $2 WHERE id = $3`, sale.ID, time.Now(), *req.PaymentTransactionID); err != nil {
+		if affected, _ := result.RowsAffected(); affected != 1 {
+			return nil, ErrInvalidPayment
+		}
+		paymentResult, err := tx.ExecContext(ctx, `UPDATE payments SET sale_id = $1, updated_at = $2 WHERE id = (SELECT payment_id FROM payment_transactions WHERE id = $3) AND sale_id IS NULL`, sale.ID, time.Now(), *req.PaymentTransactionID)
+		if err != nil {
 			return nil, fmt.Errorf("link legacy payment to sale: %w", err)
+		}
+		if affected, _ := paymentResult.RowsAffected(); affected != 1 {
+			return nil, ErrInvalidPayment
 		}
 	}
 	if activeShift != nil {

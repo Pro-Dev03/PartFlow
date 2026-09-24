@@ -98,7 +98,7 @@ export function CameraScanner({ onScan, onClose, onError }: CameraScannerProps) 
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-surface border border-border-default rounded-2xl w-full max-w-2xl overflow-hidden">
+      <div className="bg-surface border border-border-default rounded-2xl w-full max-w-[42rem] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border-default">
           <div className="flex items-center gap-2">

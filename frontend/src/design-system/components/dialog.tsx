@@ -26,10 +26,10 @@ const Dialog = forwardRef<HTMLDivElement, DialogProps>(
     if (!open) return null;
 
     const sizes = {
-      sm: 'max-w-md',
-      md: 'max-w-lg',
-      lg: 'max-w-2xl',
-      xl: 'max-w-4xl',
+      sm: 'max-w-[28rem]',
+      md: 'max-w-[32rem]',
+      lg: 'max-w-[42rem]',
+      xl: 'max-w-[56rem]',
       full: 'max-w-full',
     };
 

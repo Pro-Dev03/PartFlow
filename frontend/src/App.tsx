@@ -227,7 +227,7 @@ function App() {
         {isAuthenticated && sessionVerified && <RegionalProfileLoader />}
         {isAuthenticated && sessionVerified && cloudVerificationPending && typeof document !== 'undefined' && createPortal(
           <div role="status" className="fixed inset-x-0 top-0 z-[100] px-3 pt-3" dir="rtl">
-            <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 shadow-lg">
+            <div className="mx-auto flex max-w-[64rem] flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 shadow-lg">
               <div className="flex min-w-0 items-start gap-3">
                 <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
                 <div>

@@ -58,6 +58,20 @@ describe('apiClient auth propagation', () => {
     );
   });
 
+  it('does not automatically retry a transaction create after a server failure', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'temporary failure' } }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await expect(apiClient.post('/payments', { amount: 125 })).rejects.toMatchObject({ status: 503 });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the session credentials when a 401 cannot be refreshed', async () => {
     TokenManager.setToken('local-token');
     TokenManager.setCloudToken('cloud-token');

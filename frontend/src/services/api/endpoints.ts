@@ -743,6 +743,17 @@ export const auditApi = {
   list: (params?: PaginationParams & { entity_type?: string; action?: string; search?: string }) =>
     apiClient.get('/audit', params),
   get: (id: string) => apiClient.get(`/audit/${id}`),
+  exportCsv: async (): Promise<Blob> => {
+    const response = await fetch(`${getActiveApiUrl()}/audit/export`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: TokenManager.getAuthHeader(),
+    });
+    if (!response.ok) {
+      throw new Error('تعذر تصدير سجل التدقيق');
+    }
+    return response.blob();
+  },
 };
 
 // Global search endpoint

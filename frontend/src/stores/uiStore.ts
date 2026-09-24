@@ -37,7 +37,7 @@ const initialTheme = readStoredTheme();
 applyTheme(initialTheme);
 
 export const useUIStore = create<UIState>((set) => ({
-  sidebarCollapsed: false,
+  sidebarCollapsed: true,
   checkoutMode: false,
   theme: initialTheme,
   language: 'ar',

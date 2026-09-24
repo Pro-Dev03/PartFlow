@@ -234,7 +234,7 @@ export function BarcodeScanner({ isOpen, onClose, onScanComplete, context = Barc
 
   return (
     <Dialog open={isOpen} onClose={onClose}>
-      <Card className="w-full max-w-md overflow-hidden">
+      <Card className="w-full max-w-[28rem] overflow-hidden">
         <CardContent className="p-5 sm:p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">

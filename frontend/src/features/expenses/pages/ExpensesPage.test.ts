@@ -8,6 +8,7 @@ describe('formatExpenseDate', () => {
 
   it('rejects incomplete dates instead of guessing the day', () => {
     expect(formatExpenseDate('1/9')).toBe('-');
+    expect(formatExpenseDate('2026-02-31')).toBe('-');
   });
 });
 

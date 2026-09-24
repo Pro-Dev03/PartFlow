@@ -48,7 +48,7 @@ export function CreateReturnPage({ embedded = false, onClose }: CreateReturnPage
 
   const { data: customersData } = useQuery({
     queryKey: ['customers-for-return'],
-    queryFn: () => customersApi.list({ page: 1, per_page: 100 }),
+    queryFn: () => customersApi.list({ page: 1, per_page: 100, is_active: true }),
   });
 
   const salesPayload = getPayload(salesData);

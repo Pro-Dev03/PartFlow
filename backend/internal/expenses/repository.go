@@ -717,13 +717,14 @@ func (r *Repository) UpdateExpenseCategory(ctx context.Context, category *Expens
 	return nil
 }
 
-// DeleteExpenseCategory deletes an expense category
+// DeleteExpenseCategory archives a category so historical expenses keep their
+// category relationship and remain reportable.
 func (r *Repository) DeleteExpenseCategory(ctx context.Context, id uuid.UUID) error {
-	query := `DELETE FROM expense_categories WHERE id = $1`
+	query := fmt.Sprintf(`UPDATE expense_categories SET is_active = FALSE, updated_at = %s WHERE id = $1`, dbutil.NowSQL(r.db))
 
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
-		return fmt.Errorf("failed to delete expense category: %w", err)
+		return fmt.Errorf("failed to archive expense category: %w", err)
 	}
 
 	rowsAffected, _ := result.RowsAffected()

@@ -76,7 +76,7 @@ const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
         </h3>
         {description && (
           <p 
-            className="text-text-muted mb-4 max-w-md"
+            className="text-text-muted mb-4 max-w-[28rem]"
             style={{ fontSize: 'var(--font-size-secondary)' }}
           >
             {description}

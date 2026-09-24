@@ -3,6 +3,7 @@ package customers
 import (
 	"bytes"
 	"context"
+	stdErrors "errors"
 	"fmt"
 	"strings"
 	"time"
@@ -51,12 +52,15 @@ func (s *Service) CreateCustomer(ctx context.Context, req *CustomerRequest) (*Cu
 	customer.Notes = req.Notes
 	customer.IsActive = req.IsActive
 
-	if err := s.repo.Create(ctx, customer); err != nil {
+	if err := s.repo.CreateWithOpeningDebt(ctx, customer, req.OpeningDebt); err != nil {
 		return nil, fmt.Errorf("failed to create customer: %w", err)
 	}
 
 	// Invalidate dashboard cache since customers data changed
 	dashboard.InvalidateDashboardCacheWithReason("customer_created")
+	if req.OpeningDebt > 0 {
+		dashboard.InvalidateDashboardCacheWithReason("opening_debt_created")
+	}
 
 	return customer, nil
 }
@@ -67,24 +71,13 @@ func (s *Service) AddOpeningDebt(ctx context.Context, customerID uuid.UUID, amou
 		return nil
 	}
 	now := time.Now().UTC()
-	if err := s.repo.CreateDebtEntry(ctx, &DebtEntry{
-		ID:            uuid.New(),
-		CustomerID:    customerID,
-		Amount:        amount,
-		ReferenceID:   uuid.Nil,
-		ReferenceType: "opening_debt",
-		DueDate:       now,
-		IsPaid:        false,
-		PaidAmount:    0,
-		CreatedAt:     now,
-	}); err != nil {
-		return fmt.Errorf("failed to add opening debt entry: %w", err)
+	debt := &DebtEntry{
+		ID: uuid.New(), CustomerID: customerID, Amount: amount,
+		ReferenceID: uuid.Nil, ReferenceType: "opening_debt", DueDate: now,
+		IsPaid: false, PaidAmount: 0, CreatedAt: now,
 	}
-	if err := s.repo.AddLedgerEntry(ctx, customerID, "debit", amount, "دين سابق قبل استخدام النظام", uuid.Nil); err != nil {
-		return fmt.Errorf("failed to add opening debt ledger entry: %w", err)
-	}
-	if err := s.repo.UpdateBalance(ctx, customerID, amount); err != nil {
-		return fmt.Errorf("failed to update opening debt balance: %w", err)
+	if err := s.repo.RecordDebtEntryTransaction(ctx, debt, "\u062F\u064A\u0646 \u0633\u0627\u0628\u0642 \u0642\u0628\u0644 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0627\u0644\u0646\u0638\u0627\u0645", false); err != nil {
+		return fmt.Errorf("record opening debt transaction: %w", err)
 	}
 	dashboard.InvalidateDashboardCacheWithReason("opening_debt_created")
 	return nil
@@ -154,7 +147,7 @@ func (s *Service) UpdateCustomer(ctx context.Context, id uuid.UUID, req *UpdateC
 	return customer, nil
 }
 
-// DeleteCustomer deletes a customer and all related finance/operational records.
+// DeleteCustomer archives a customer without deleting financial history.
 func (s *Service) DeleteCustomer(ctx context.Context, id uuid.UUID) error {
 	if _, err := s.repo.GetByID(ctx, id); err != nil {
 		return err
@@ -164,7 +157,7 @@ func (s *Service) DeleteCustomer(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 
-	dashboard.InvalidateDashboardCacheWithReason("customer_deleted")
+	dashboard.InvalidateDashboardCacheWithReason("customer_archived")
 
 	return nil
 }
@@ -205,16 +198,11 @@ func (s *Service) AddPayment(ctx context.Context, customerID uuid.UUID, req *Pay
 	}
 
 	// Add payment
-	if err := s.repo.AddPayment(ctx, payment); err != nil {
-		return nil, fmt.Errorf("failed to add payment: %w", err)
-	}
-	if err := s.repo.ApplyPaymentToOldestDebt(ctx, customerID, req.Amount); err != nil {
-		return nil, fmt.Errorf("failed to apply payment to debt: %w", err)
-	}
-
-	// Update customer balance
-	if err := s.repo.UpdateBalance(ctx, customerID, -req.Amount); err != nil {
-		return nil, fmt.Errorf("failed to update customer balance: %w", err)
+	if err := s.repo.RecordPaymentTransaction(ctx, payment, false); err != nil {
+		if stdErrors.Is(err, ErrCustomerNotFound) || stdErrors.Is(err, ErrPaymentAmountInvalid) || stdErrors.Is(err, ErrPaymentExceedsBalance) || stdErrors.Is(err, ErrPaymentDuplicate) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("record customer payment: %w", err)
 	}
 
 	return payment, nil
@@ -278,28 +266,7 @@ func (s *Service) GetFinancialTimeline(ctx context.Context, customerID uuid.UUID
 
 // AddDebt adds a debt entry to customer (when they make a purchase on credit)
 func (s *Service) AddDebt(ctx context.Context, customerID uuid.UUID, amount float64, referenceID uuid.UUID, description string) error {
-	customer, err := s.repo.GetByID(ctx, customerID)
-	if err != nil {
-		return err
-	}
-
-	// Check if adding debt would exceed credit limit
-	if customer.CurrentBalance+amount > customer.CreditLimit {
-		return ErrCreditLimitExceeded
-	}
-
-	// Add to ledger
-	err = s.repo.AddLedgerEntry(ctx, customerID, "debit", amount, description, referenceID)
-	if err != nil {
-		return fmt.Errorf("failed to add ledger entry: %w", err)
-	}
-
-	// Update customer balance
-	if err := s.repo.UpdateBalance(ctx, customerID, amount); err != nil {
-		return fmt.Errorf("failed to update customer balance: %w", err)
-	}
-
-	return nil
+	return s.repo.RecordAccountDebtTransaction(ctx, customerID, amount, description, referenceID)
 }
 
 // GetCustomerDebtSummary retrieves debt summary for a customer
@@ -487,43 +454,13 @@ func (s *Service) calculateDaysUntilOverdue(ctx context.Context, customerID uuid
 
 // CreateDebtEntry creates a new debt entry for a customer
 func (s *Service) CreateDebtEntry(ctx context.Context, customerID uuid.UUID, amount float64, referenceID uuid.UUID, referenceType string, dueDate time.Time) error {
-	customer, err := s.repo.GetByID(ctx, customerID)
-	if err != nil {
-		return err
-	}
-
-	// Check if adding debt would exceed credit limit
-	if customer.CurrentBalance+amount > customer.CreditLimit {
-		return ErrCreditLimitExceeded
-	}
-
 	debt := &DebtEntry{
-		ID:            uuid.New(),
-		CustomerID:    customerID,
-		Amount:        amount,
-		ReferenceID:   referenceID,
-		ReferenceType: referenceType,
-		DueDate:       dueDate,
-		IsPaid:        false,
-		PaidAmount:    0,
-		CreatedAt:     time.Now(),
+		ID: uuid.New(), CustomerID: customerID, Amount: amount,
+		ReferenceID: referenceID, ReferenceType: referenceType, DueDate: dueDate,
+		IsPaid: false, PaidAmount: 0, CreatedAt: time.Now(),
 	}
-
-	if err := s.repo.CreateDebtEntry(ctx, debt); err != nil {
-		return fmt.Errorf("failed to create debt entry: %w", err)
-	}
-
-	// Add to ledger
-	if err := s.repo.AddLedgerEntry(ctx, customerID, "debit", amount, fmt.Sprintf("%s - %s", referenceType, referenceID.String()), referenceID); err != nil {
-		return fmt.Errorf("failed to add ledger entry: %w", err)
-	}
-
-	// Update customer balance
-	if err := s.repo.UpdateBalance(ctx, customerID, amount); err != nil {
-		return fmt.Errorf("failed to update customer balance: %w", err)
-	}
-
-	return nil
+	description := fmt.Sprintf("%s - %s", referenceType, referenceID.String())
+	return s.repo.RecordDebtEntryTransaction(ctx, debt, description, true)
 }
 
 // GetDebtEntries retrieves debt entries for a customer
@@ -598,41 +535,6 @@ func (s *Service) ProcessDebtPaymentWithReference(ctx context.Context, customerI
 		}
 	}
 
-	// Get unpaid debts
-	debts, err := s.repo.GetDebtEntries(ctx, customerID)
-	if err != nil {
-		return err
-	}
-	var outstandingAmount float64
-	for _, debt := range debts {
-		if !debt.IsPaid {
-			outstandingAmount += debt.Amount - debt.PaidAmount
-		}
-	}
-	if paymentAmount > outstandingAmount {
-		return fmt.Errorf("payment amount exceeds outstanding balance")
-	}
-
-	remainingAmount := paymentAmount
-	for _, debt := range debts {
-		if debt.IsPaid || remainingAmount <= 0 {
-			continue
-		}
-
-		amountToPay := debt.Amount - debt.PaidAmount
-		if amountToPay > remainingAmount {
-			amountToPay = remainingAmount
-		}
-
-		// Update debt payment
-		if err := s.repo.UpdateDebtPayment(ctx, debt.ID, amountToPay); err != nil {
-			return fmt.Errorf("failed to update debt payment: %w", err)
-		}
-
-		remainingAmount -= amountToPay
-	}
-
-	// Add payment record
 	payment := &PaymentResponse{
 		ID:          uuid.New(),
 		CustomerID:  customerID,
@@ -643,13 +545,11 @@ func (s *Service) ProcessDebtPaymentWithReference(ctx context.Context, customerI
 		CreatedAt:   time.Now(),
 	}
 
-	if err := s.repo.AddPayment(ctx, payment); err != nil {
-		return fmt.Errorf("failed to add payment: %w", err)
-	}
-
-	// Update customer balance
-	if err := s.repo.UpdateBalance(ctx, customerID, -paymentAmount); err != nil {
-		return fmt.Errorf("failed to update customer balance: %w", err)
+	if err := s.repo.RecordPaymentTransaction(ctx, payment, true); err != nil {
+		if stdErrors.Is(err, ErrCustomerNotFound) || stdErrors.Is(err, ErrPaymentAmountInvalid) || stdErrors.Is(err, ErrPaymentExceedsBalance) || stdErrors.Is(err, ErrPaymentDuplicate) {
+			return err
+		}
+		return fmt.Errorf("record customer debt payment: %w", err)
 	}
 
 	return nil

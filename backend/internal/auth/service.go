@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/partflow/smart-store/internal/database"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -491,8 +492,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, req *Cha
 	}
 
 	// Verify current password
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword))
-	if err != nil {
+	if !s.validatePassword(req.CurrentPassword, user.PasswordHash, user.Email) {
 		return ErrInvalidPassword
 	}
 
@@ -503,11 +503,14 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, req *Cha
 	}
 
 	// Update password
-	_, err = s.db.ExecContext(ctx,
-		"UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
+	result, err := s.db.ExecContext(ctx,
+		fmt.Sprintf("UPDATE users SET password_hash = $1, updated_at = %s WHERE id = $2", dbutil.NowSQL(s.db)),
 		string(hashedPassword), userID)
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return ErrUserNotFound
 	}
 
 	return nil

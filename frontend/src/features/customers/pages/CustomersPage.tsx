@@ -115,7 +115,7 @@ export function CustomersPage() {
   };
 
   const loadAllCustomers = async () => {
-    const response = await customersApi.list({ page: 1, per_page: 1000, ...(searchQuery ? { search: searchQuery } : {}) });
+    const response = await customersApi.list({ page: 1, per_page: 1000, is_active: true, ...(searchQuery ? { search: searchQuery } : {}) });
     return (((response as any)?.data ?? []) as any[]).map((row) => ({
       ...row,
       totalPurchases: Number(row.totalPurchases ?? row.total_purchases ?? 0),
@@ -226,9 +226,9 @@ export function CustomersPage() {
           setCustomerToDelete(null);
         }}
         onConfirm={handleConfirmDelete}
-        title="حذف العميل"
-        message="سيتم حذف هذا العميل مع جميع البيانات المالية المرتبطة به، مثل الديون والدفعات والمبيعات والمرتجعات والقيود المرتبطة. هذا الإجراء لا يمكن التراجع عنه."
-        confirmText="حذف العميل مع البيانات"
+        title="أرشفة العميل"
+        message="سيتم إخفاء العميل من القوائم النشطة مع الاحتفاظ بجميع المبيعات والدفعات والديون والمرتجعات والسجلات المالية المرتبطة به."
+        confirmText="أرشفة العميل"
         cancelText="إلغاء"
         variant="danger"
         isLoading={deleteMutation.isPending}

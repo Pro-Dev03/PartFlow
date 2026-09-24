@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -30,6 +31,35 @@ import (
 func main() {
 	// Persisted timestamps and API timestamps use UTC on every host.
 	time.Local = time.UTC
+	if len(os.Args) == 3 && os.Args[1] == "--validate-local-database" {
+		if err := localdb.ValidateExistingFile(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		fmt.Println("ok")
+		return
+	}
+	if len(os.Args) == 3 && os.Args[1] == "--backup-local-database" {
+		sourcePath := os.Getenv("PARTFLOW_LOCAL_DB_PATH")
+		if sourcePath == "" {
+			fmt.Fprintln(os.Stderr, "PARTFLOW_LOCAL_DB_PATH is required")
+			os.Exit(2)
+		}
+		if err := localdb.CreateConsistentBackup(sourcePath, os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		fmt.Println("ok")
+		return
+	}
+	if len(os.Args) == 4 && os.Args[1] == "--backup-database-file" {
+		if err := localdb.CreateConsistentBackup(os.Args[2], os.Args[3]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		fmt.Println("ok")
+		return
+	}
 
 	// Load configuration
 	cfg, err := config.Load()

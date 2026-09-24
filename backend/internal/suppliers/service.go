@@ -3,6 +3,7 @@ package suppliers
 import (
 	"context"
 	"database/sql"
+	stdErrors "errors"
 	"fmt"
 	"strings"
 	"time"
@@ -181,13 +182,11 @@ func (s *Service) AddPayment(ctx context.Context, supplierID uuid.UUID, req *Pay
 	}
 
 	// Add payment
-	if err := s.repo.AddPayment(ctx, payment); err != nil {
-		return nil, fmt.Errorf("failed to add payment: %w", err)
-	}
-
-	// Update supplier balance
-	if err := s.repo.UpdateBalance(ctx, supplierID, -req.Amount); err != nil {
-		return nil, fmt.Errorf("failed to update supplier balance: %w", err)
+	if err := s.repo.RecordPaymentTransaction(ctx, payment, false); err != nil {
+		if stdErrors.Is(err, ErrSupplierNotFound) || stdErrors.Is(err, ErrPaymentAmountInvalid) || stdErrors.Is(err, ErrPaymentExceedsBalance) || stdErrors.Is(err, ErrPaymentDuplicate) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("record supplier payment: %w", err)
 	}
 
 	return payment, nil
@@ -232,28 +231,7 @@ func (s *Service) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID) (
 
 // AddDebt adds a debt entry to supplier (when we make a purchase on credit)
 func (s *Service) AddDebt(ctx context.Context, supplierID uuid.UUID, amount float64, referenceID uuid.UUID, description string) error {
-	supplier, err := s.repo.GetByID(ctx, supplierID)
-	if err != nil {
-		return err
-	}
-
-	// Check if adding debt would exceed credit limit
-	if supplier.CurrentBalance+amount > supplier.CreditLimit {
-		return ErrCreditLimitExceeded
-	}
-
-	// Add to ledger
-	err = s.repo.AddLedgerEntry(ctx, supplierID, "debit", amount, description, referenceID)
-	if err != nil {
-		return fmt.Errorf("failed to add ledger entry: %w", err)
-	}
-
-	// Update supplier balance
-	if err := s.repo.UpdateBalance(ctx, supplierID, amount); err != nil {
-		return fmt.Errorf("failed to update supplier balance: %w", err)
-	}
-
-	return nil
+	return s.repo.RecordAccountDebtTransaction(ctx, supplierID, amount, description, referenceID)
 }
 
 // GetSupplierDebtSummary retrieves debt summary for a supplier
@@ -375,43 +353,13 @@ func (s *Service) calculateDaysUntilOverdue(ctx context.Context, supplierID uuid
 
 // CreateDebtEntry creates a new debt entry for a supplier
 func (s *Service) CreateDebtEntry(ctx context.Context, supplierID uuid.UUID, amount float64, referenceID uuid.UUID, referenceType string, dueDate time.Time) error {
-	supplier, err := s.repo.GetByID(ctx, supplierID)
-	if err != nil {
-		return err
-	}
-
-	// Check if adding debt would exceed credit limit
-	if supplier.CurrentBalance+amount > supplier.CreditLimit {
-		return ErrCreditLimitExceeded
-	}
-
 	debt := &DebtEntry{
-		ID:            uuid.New(),
-		SupplierID:    supplierID,
-		Amount:        amount,
-		ReferenceID:   referenceID,
-		ReferenceType: referenceType,
-		DueDate:       dueDate,
-		IsPaid:        false,
-		PaidAmount:    0,
-		CreatedAt:     time.Now(),
+		ID: uuid.New(), SupplierID: supplierID, Amount: amount,
+		ReferenceID: referenceID, ReferenceType: referenceType, DueDate: dueDate,
+		IsPaid: false, PaidAmount: 0, CreatedAt: time.Now(),
 	}
-
-	if err := s.repo.CreateDebtEntry(ctx, debt); err != nil {
-		return fmt.Errorf("failed to create debt entry: %w", err)
-	}
-
-	// Add to ledger
-	if err := s.repo.AddLedgerEntry(ctx, supplierID, "debit", amount, fmt.Sprintf("%s - %s", referenceType, referenceID.String()), referenceID); err != nil {
-		return fmt.Errorf("failed to add ledger entry: %w", err)
-	}
-
-	// Update supplier balance
-	if err := s.repo.UpdateBalance(ctx, supplierID, amount); err != nil {
-		return fmt.Errorf("failed to update supplier balance: %w", err)
-	}
-
-	return nil
+	description := fmt.Sprintf("%s - %s", referenceType, referenceID.String())
+	return s.repo.RecordDebtEntryTransaction(ctx, debt, description, true)
 }
 
 // GetDebtEntries retrieves debt entries for a supplier
@@ -464,37 +412,13 @@ func (s *Service) GetPendingDebtCollections(ctx context.Context) ([]DebtCollecti
 
 // ProcessDebtPayment processes a payment for specific debts
 func (s *Service) ProcessDebtPayment(ctx context.Context, supplierID uuid.UUID, paymentAmount float64, method string) error {
+	if paymentAmount <= 0 {
+		return ErrPaymentAmountInvalid
+	}
 	_, err := s.repo.GetByID(ctx, supplierID)
 	if err != nil {
 		return err
 	}
-
-	// Get unpaid debts
-	debts, err := s.repo.GetDebtEntries(ctx, supplierID)
-	if err != nil {
-		return err
-	}
-
-	remainingAmount := paymentAmount
-	for _, debt := range debts {
-		if debt.IsPaid || remainingAmount <= 0 {
-			continue
-		}
-
-		amountToPay := debt.Amount - debt.PaidAmount
-		if amountToPay > remainingAmount {
-			amountToPay = remainingAmount
-		}
-
-		// Update debt payment
-		if err := s.repo.UpdateDebtPayment(ctx, debt.ID, amountToPay); err != nil {
-			return fmt.Errorf("failed to update debt payment: %w", err)
-		}
-
-		remainingAmount -= amountToPay
-	}
-
-	// Add payment record
 	payment := &PaymentResponse{
 		ID:          uuid.New(),
 		SupplierID:  supplierID,
@@ -504,13 +428,11 @@ func (s *Service) ProcessDebtPayment(ctx context.Context, supplierID uuid.UUID, 
 		CreatedAt:   time.Now(),
 	}
 
-	if err := s.repo.AddPayment(ctx, payment); err != nil {
-		return fmt.Errorf("failed to add payment: %w", err)
-	}
-
-	// Update supplier balance
-	if err := s.repo.UpdateBalance(ctx, supplierID, -paymentAmount); err != nil {
-		return fmt.Errorf("failed to update supplier balance: %w", err)
+	if err := s.repo.RecordPaymentTransaction(ctx, payment, true); err != nil {
+		if stdErrors.Is(err, ErrSupplierNotFound) || stdErrors.Is(err, ErrPaymentAmountInvalid) || stdErrors.Is(err, ErrPaymentExceedsBalance) || stdErrors.Is(err, ErrPaymentDuplicate) {
+			return err
+		}
+		return fmt.Errorf("record supplier debt payment: %w", err)
 	}
 
 	return nil

@@ -92,10 +92,6 @@ func (h *Handler) CreateCustomer(c *gin.Context) {
 		errors.HandleError(c, errors.WrapError(err, "Failed to create customer"))
 		return
 	}
-	if err := h.service.AddOpeningDebt(c.Request.Context(), customer.ID, req.OpeningDebt); err != nil {
-		errors.HandleError(c, errors.WrapError(err, "Failed to add opening debt"))
-		return
-	}
 	h.cache.clear()
 
 	response.Success(c, http.StatusCreated, customer, "Customer created successfully")
@@ -230,7 +226,7 @@ func (h *Handler) DeleteCustomer(c *gin.Context) {
 	}
 	h.cache.clear()
 
-	response.Success(c, http.StatusOK, nil, "Customer deleted successfully")
+	response.Success(c, http.StatusOK, nil, "Customer archived successfully")
 }
 
 // GetCustomerLedger handles customer ledger retrieval
@@ -301,6 +297,10 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		}
 		if err == ErrPaymentExceedsBalance {
 			errors.HandleError(c, errors.NewBusinessError("Payment amount exceeds customer balance", err))
+			return
+		}
+		if err == ErrPaymentDuplicate {
+			errors.HandleError(c, errors.NewConflictError("Payment reference already exists", err))
 			return
 		}
 		errors.HandleError(c, errors.WrapError(err, "Failed to add payment"))
@@ -393,6 +393,10 @@ func (h *Handler) CreateDebtEntry(c *gin.Context) {
 
 	err = h.service.CreateDebtEntry(c.Request.Context(), id, req.Amount, req.ReferenceID, req.ReferenceType, req.DueDate)
 	if err != nil {
+		if err == ErrPaymentAmountInvalid {
+			errors.HandleError(c, errors.NewValidationError("Debt amount must be greater than zero", err))
+			return
+		}
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
 			return
@@ -511,6 +515,10 @@ func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 		}
 		if err == ErrPaymentDuplicate {
 			response.Error(c, http.StatusConflict, http.StatusConflict, "Duplicate payment reference", err.Error())
+			return
+		}
+		if err == ErrPaymentAmountInvalid || err == ErrPaymentExceedsBalance {
+			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid debt payment amount", err.Error())
 			return
 		}
 		errors.HandleError(c, errors.WrapError(err, "Failed to process debt payment"))

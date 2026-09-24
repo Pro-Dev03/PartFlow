@@ -80,7 +80,7 @@ export function AuditLogPage() {
 
       <Card>
         <CardContent className="space-y-4 p-4">
-          <div className="relative max-w-xl">
+          <div className="relative max-w-[36rem]">
             <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
             <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث في وصف العملية أو المستخدم أو المعرّف" className="pr-10" />
           </div>

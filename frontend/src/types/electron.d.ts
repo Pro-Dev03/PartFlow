@@ -25,6 +25,10 @@ declare global {
         save: (categoryId: string, dataUrl: string) => Promise<string>;
         delete: (categoryId: string) => Promise<boolean>;
       };
+      database?: {
+        backup: () => Promise<{ canceled: boolean; filePath?: string }>;
+        restore: () => Promise<{ canceled: boolean; recoveryPath?: string }>;
+      };
     };
   }
 }

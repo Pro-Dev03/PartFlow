@@ -113,7 +113,8 @@ func TestDeleteInventoryItemPermanentAllowsLinkedUsedItem(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO products (id, sku, name, cost_price, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, productID, "PERM-DEL-001", "Permanent Delete Product", 30, 80); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))`, uuid.New(), productID, 1); err != nil {
+	// Sold items are already excluded from the aggregate available quantity.
+	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))`, uuid.New(), productID, 0); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, item_code, barcode, condition, status, purchase_cost, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, itemID, productID, "IT-DEL-001", "BAR-DEL-001", "USED", "SOLD", 30, 80); err != nil {

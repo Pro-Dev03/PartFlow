@@ -646,7 +646,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
           </div>
         </div>
 
-      <div className={currentStep === 3 ? 'mx-auto w-full max-w-5xl' : 'mx-auto w-full max-w-2xl'}>
+      <div className={currentStep === 3 ? 'mx-auto w-full max-w-[64rem]' : 'mx-auto w-full max-w-[42rem]'}>
         {/* Left Column - Main Form */}
         <div className="space-y-6">
           {/* Supplier and Invoice Info */}
@@ -968,7 +968,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
                                 { value: '', label: 'بدون تصنيف' },
                                 ...categories.map((category) => ({ value: category.id, label: category.name })),
                               ]}
-                              className="max-w-xs"
+                              className="max-w-[20rem]"
                               aria-label="التصنيف"
                             />
                             <Button

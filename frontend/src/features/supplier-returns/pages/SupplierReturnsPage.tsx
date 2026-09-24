@@ -278,7 +278,7 @@ export function SupplierReturnsPage() {
                 الطلبات المنتهية
               </Button>
             </div>
-            <div className="relative w-full sm:max-w-xs">
+            <div className="relative w-full sm:max-w-[20rem]">
               <Search className="pointer-events-none absolute right-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-text-muted" />
               <Input className="pr-9" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="بحث برقم المرتجع أو السبب" />
             </div>

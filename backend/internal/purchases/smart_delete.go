@@ -137,7 +137,7 @@ func (s *SmartDeleteService) deleteReceivedPurchase(ctx context.Context, purchas
 		Invoice    string    `db:"invoice_number"`
 		Total      float64   `db:"total_amount"`
 	}
-	if err := tx.GetContext(ctx, &purchase, tx.Rebind(`SELECT supplier_id, COALESCE(invoice_number,''), total_amount FROM purchases WHERE id=?`), purchaseID.String()); err != nil {
+	if err := tx.GetContext(ctx, &purchase, tx.Rebind(`SELECT supplier_id, COALESCE(invoice_number,'') AS invoice_number, total_amount FROM purchases WHERE id=?`), purchaseID.String()); err != nil {
 		return nil, fmt.Errorf("load received purchase: %w", err)
 	}
 	if returnsExist, err := s.tableExists(ctx, tx, "supplier_returns"); err != nil {
@@ -299,7 +299,7 @@ func (s *SmartDeleteService) deleteDraftPurchase(ctx context.Context, purchaseID
 		Invoice    string    `db:"invoice_number"`
 		Total      float64   `db:"total_amount"`
 	}
-	if err = tx.GetContext(ctx, &purchase, "SELECT supplier_id, COALESCE(invoice_number,''), total_amount FROM purchases WHERE id = $1", purchaseID); err != nil {
+	if err = tx.GetContext(ctx, &purchase, "SELECT supplier_id, COALESCE(invoice_number,'') AS invoice_number, total_amount FROM purchases WHERE id = $1", purchaseID); err != nil {
 		return nil, fmt.Errorf("failed to find purchase supplier: %w", err)
 	}
 

@@ -1,8 +1,12 @@
 package audit
 
 import (
+	"bytes"
+	"encoding/csv"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -169,22 +173,49 @@ func (h *Handler) ExportAuditLogs(c *gin.Context) {
 		return
 	}
 
-	// Convert to CSV format (simplified)
-	csvData := "ID,Action,EntityType,EntityID,Description,Status,UserID,CreatedAt\n"
+	var output bytes.Buffer
+	writer := csv.NewWriter(&output)
+	if err := writer.Write([]string{"ID", "Action", "EntityType", "EntityID", "Description", "Status", "UserID", "CreatedAt"}); err != nil {
+		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to create audit export", err.Error())
+		return
+	}
 	for _, log := range auditLogs {
-		csvData += log["id"].(string) + ","
-		csvData += log["action"].(string) + ","
-		csvData += log["entity_type"].(string) + ","
-		csvData += log["entity_id"].(string) + ","
-		csvData += log["description"].(string) + ","
-		csvData += log["status"].(string) + ","
-		csvData += log["user_id"].(string) + ","
-		csvData += log["created_at"].(string) + "\n"
+		row := []string{
+			safeCSVValue(log["id"]),
+			safeCSVValue(log["action"]),
+			safeCSVValue(log["entity_type"]),
+			safeCSVValue(log["entity_id"]),
+			safeCSVValue(log["description"]),
+			safeCSVValue(log["status"]),
+			safeCSVValue(log["user_id"]),
+			safeCSVValue(log["created_at"]),
+		}
+		if err := writer.Write(row); err != nil {
+			response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to create audit export", err.Error())
+			return
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to create audit export", err.Error())
+		return
 	}
 
-	c.Header("Content-Type", "text/csv")
+	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", "attachment; filename=audit_logs.csv")
-	c.String(http.StatusOK, csvData)
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", append([]byte{0xEF, 0xBB, 0xBF}, output.Bytes()...))
+}
+
+func safeCSVValue(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	text := fmt.Sprint(value)
+	trimmed := strings.TrimLeft(text, " \t\r\n")
+	if trimmed != "" && strings.ContainsRune("=+-@", rune(trimmed[0])) {
+		return "'" + text
+	}
+	return text
 }
 
 // GetAuditStats retrieves audit statistics for dashboard

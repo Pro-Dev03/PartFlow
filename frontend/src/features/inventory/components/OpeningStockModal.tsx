@@ -60,7 +60,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
   });
   const { data: customersData, isLoading: customersLoading } = useQuery({
     queryKey: ['customers', 'opening-stock-picker'],
-    queryFn: () => customersApi.list({ page: 1, per_page: 100 }),
+    queryFn: () => customersApi.list({ page: 1, per_page: 100, is_active: true }),
     enabled: isOpen && isUsedStock,
   });
   const { data: partTypesData, isLoading: partTypesLoading } = useQuery({

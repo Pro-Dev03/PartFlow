@@ -50,12 +50,27 @@ export function normalizeExpenseForDisplay(expense: any) {
 }
 
 export function formatExpenseDate(value: string) {
-  const dateKey = getStoreDateKey(value);
+  const dateKey = getExpenseDateKey(value);
   return dateKey ? formatStoreDate(dateKey, 'en-GB') : '-';
 }
 
+function getExpenseDateKey(value: string) {
+  const normalized = String(value ?? '').trim();
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) return null;
+
+  return getStoreDateKey(normalized);
+}
+
 export function isExpenseInCurrentMonth(value: string, referenceDate = new Date()) {
-  const datePart = getStoreDateKey(value)?.slice(0, 7);
+  const datePart = getExpenseDateKey(value)?.slice(0, 7);
   if (!datePart) return false;
   const currentMonth = getStoreDateKey(referenceDate)?.slice(0, 7) || '';
   return datePart === currentMonth;

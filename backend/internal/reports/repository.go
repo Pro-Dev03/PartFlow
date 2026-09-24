@@ -637,7 +637,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 
 	report.ByPaymentMethod = make(map[string]float64)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(payment_method, 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯'), COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) as total
+		`SELECT COALESCE(payment_method, 'غير محدد'), COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) as total
 		 FROM sales
 		 WHERE date(sale_date) >= date(?) AND date(sale_date) < date(?)
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
@@ -660,7 +660,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 	// Keep payment distribution consistent with net revenue by subtracting
 	// completed customer refunds from the payment method of the original sale.
 	refundByPaymentQuery := fmt.Sprintf(`
-		SELECT COALESCE(s.payment_method, 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯'), COALESCE(SUM(r.total_refund_amount), 0)
+		SELECT COALESCE(s.payment_method, 'غير محدد'), COALESCE(SUM(r.total_refund_amount), 0)
 		FROM accounting_returns r
 		JOIN sales s ON s.id = r.sale_id
 		WHERE UPPER(COALESCE(r.status, '')) = 'COMPLETED'
@@ -855,7 +855,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 	_ = rows.Err()
 	rows.Close()
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(c.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'), COUNT(*)
+		`SELECT COALESCE(c.name, 'غير مصنف'), COUNT(*)
 		 FROM inventory_items ii
 		 JOIN products p ON p.id = ii.product_id
 		 LEFT JOIN categories c ON c.id = p.category_id
@@ -1100,7 +1100,7 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 	}
 
 	topExpensesQuery := fmt.Sprintf(`SELECT expense_date, amount,
-		COALESCE(NULLIF(description, ''), NULLIF(title, ''), 'Ù…ØµØ±ÙˆÙ') AS description,
+		COALESCE(NULLIF(description, ''), NULLIF(title, ''), 'مصروف') AS description,
 		COALESCE(status, 'approved')
 		FROM expenses
 		WHERE %s AND %s
@@ -1464,7 +1464,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 	}
 	report.ByCategory = make(map[string]float64)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(NULLIF(TRIM(c.name), ''), p.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'),
+		`SELECT COALESCE(NULLIF(TRIM(c.name), ''), p.name, 'غير مصنف'),
 		        COALESCE(SUM((COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) - (si.quantity * COALESCE(si.unit_cost, 0))), 0)
 		 FROM sale_items si
 		 JOIN sales s ON s.id = si.sale_id
@@ -1596,7 +1596,7 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 		rows.Close()
 	}
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT p.payment_date, p.customer_id, COALESCE(c.name, 'Ã˜Â¹Ã™â€¦Ã™Å Ã™â€ž Ã˜ÂºÃ™Å Ã˜Â± Ã™â€¦Ã˜Â¹Ã˜Â±Ã™Ë†Ã™Â'), p.amount
+		`SELECT p.payment_date, p.customer_id, COALESCE(c.name, 'عميل غير معروف'), p.amount
 		 FROM payments p LEFT JOIN customers c ON c.id = p.customer_id
 		 WHERE p.customer_id IS NOT NULL ORDER BY p.payment_date DESC LIMIT 100`)
 	if err == nil {
@@ -1724,7 +1724,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 
 	report.BySupplier = []SupplierPurchases{}
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT p.supplier_id, COALESCE(s.name, 'Ã™â€¦Ã™Ë†Ã˜Â±Ã˜Â¯ Ã˜ÂºÃ™Å Ã˜Â± Ã™â€¦Ã˜Â¹Ã˜Â±Ã™Ë†Ã™Â'),
+		`SELECT p.supplier_id, COALESCE(s.name, 'مورد غير معروف'),
 		        COALESCE(SUM(p.total_amount), 0), COALESCE(SUM(pi.item_count), 0)
 		 FROM purchases p
 		 LEFT JOIN suppliers s ON s.id = p.supplier_id
@@ -1751,7 +1751,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 
 	report.ByCategory = make(map[string]int)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(c.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'), COALESCE(SUM(pi.quantity), 0)
+		`SELECT COALESCE(c.name, 'غير مصنف'), COALESCE(SUM(pi.quantity), 0)
 		 FROM purchase_items pi
 		 JOIN purchases p ON p.id = pi.purchase_id
 		 JOIN products pr ON pr.id = pi.product_id
@@ -1858,7 +1858,7 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 
 	report.ByProduct = []ProductReturns{}
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT ri.product_id, COALESCE(p.name, 'Ã™â€¦Ã™â€ Ã˜ÂªÃ˜Â¬ Ã™â€¦Ã˜Â­Ã˜Â°Ã™Ë†Ã™Â'),
+		`SELECT ri.product_id, COALESCE(p.name, 'منتج محذوف'),
 			        COUNT(DISTINCT r.id), COALESCE(SUM(ri.total_refund_amount), 0)
 			 FROM accounting_returns r
 			 JOIN accounting_return_items ri ON ri.return_id = r.id
@@ -2028,7 +2028,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	// Get payment method breakdown for gross sales
 	report.ByCategory = make(map[string]float64)
 	rows, err = r.db.QueryContext(ctx,
-		`SELECT COALESCE(c.name, p.name, 'ØºÙŠØ± Ù…ØµÙ†Ù'), COALESCE(SUM(COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)), 0) AS total
+		`SELECT COALESCE(c.name, p.name, 'غير مصنف'), COALESCE(SUM(COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)), 0) AS total
 		 FROM sale_items si
 		 JOIN sales s ON s.id = si.sale_id
 		 JOIN products p ON p.id = si.product_id

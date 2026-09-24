@@ -23,15 +23,10 @@ Operational result:
 
 ## 2. Test Account
 
-The supplied E2E account is:
-- Email: `test@test.com`
-- Password: `85265400`
-
-Verification result from the active cloud environment:
-- The cloud login call to `https://partflow-api.onrender.com/api/v1/auth/login` succeeded and returned an access token and user payload for `test@test.com`.
-- The response included `subscription_status: active` and a valid `user.id`.
-
-This proves that the test account exists in the cloud environment used by the local API.
+Do not store E2E credentials in source files or reports. Supply the credentials
+to the test process through `E2E_EMAIL` and `E2E_PASSWORD`; never print tokens or
+passwords in test output. The previous account documented here was deleted and
+is not valid evidence for the current cloud environment.
 
 ## 3. Why `invalid credentials` is returned by the Local API
 
@@ -49,19 +44,11 @@ So the real operational issue is:
 
 This is a data-source mismatch between Cloud auth and Local SQLite auth, not a login logic bug.
 
-## 4. Is this account present in the Cloud/Auth environment used by the Local API?
+## 4. Is the current test account present in the Cloud/Auth environment?
 
-Yes, in the cloud environment referenced by the app config, the login succeeds.
-
-Verified evidence:
-- Cloud login returned a valid response for `test@test.com` from `https://partflow-api.onrender.com/api/v1/auth/login`
-- The response included:
-  - `access_token`
-  - `refresh_token`
-  - `user.email = test@test.com`
-  - `subscription_status = active`
-
-This means the account exists in the cloud environment used by the local app configuration.
+Not proven until a current credential check succeeds against the configured
+cloud endpoint. An earlier test account was deleted; its former successful
+login must not be used as current evidence.
 
 ## 5. Is the Local API connected to the correct Cloud environment?
 

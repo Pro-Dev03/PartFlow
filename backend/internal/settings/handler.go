@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -70,6 +71,52 @@ func redactSetting(setting *Setting) {
 	if isSensitiveSetting(setting.Key) && setting.Value != "" {
 		setting.Value = "********"
 	}
+}
+
+func validateSettingValue(key, value string, metadata struct {
+	defaultValue string
+	valueType    string
+	category     string
+	description  string
+	isPublic     bool
+}) error {
+	trimmed := strings.TrimSpace(value)
+	switch metadata.valueType {
+	case "boolean":
+		if _, err := strconv.ParseBool(trimmed); err != nil {
+			return fmt.Errorf("setting %s must be true or false", key)
+		}
+	case "number":
+		number, err := strconv.ParseFloat(trimmed, 64)
+		if err != nil || math.IsNaN(number) || math.IsInf(number, 0) {
+			return fmt.Errorf("setting %s must be a valid number", key)
+		}
+		switch key {
+		case "tax_rate", "max_discount_rate":
+			if number < 0 || number > 100 {
+				return fmt.Errorf("setting %s must be between 0 and 100", key)
+			}
+		case "default_profit_margin":
+			if number < 0 || number > 1000 {
+				return fmt.Errorf("setting %s must be between 0 and 1000", key)
+			}
+		case "pos_products_per_page":
+			if number < 1 || number > 100 || number != math.Trunc(number) {
+				return fmt.Errorf("setting %s must be a whole number between 1 and 100", key)
+			}
+		}
+	case "json":
+		if !json.Valid([]byte(value)) {
+			return fmt.Errorf("setting %s must contain valid JSON", key)
+		}
+	}
+	if key == "pos_product_view_mode" && trimmed != "cards" && trimmed != "list" {
+		return fmt.Errorf("unsupported POS product view mode")
+	}
+	if key == "payment_environment" && trimmed != "test" && trimmed != "live" {
+		return fmt.Errorf("payment environment must be test or live")
+	}
+	return nil
 }
 
 func NewHandler(db *sql.DB) *Handler {
@@ -276,6 +323,11 @@ func (h *Handler) GetSetting(c *gin.Context) {
 // UpdateSetting updates a setting value
 func (h *Handler) UpdateSetting(c *gin.Context) {
 	key := c.Param("key")
+	metadata, knownSetting := settingMetadata[key]
+	if !knownSetting {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Setting not found"})
+		return
+	}
 
 	var req UpdateSettingRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.Value == nil {
@@ -283,6 +335,13 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 		return
 	}
 	value := *req.Value
+	preserveSensitive := isSensitiveSetting(key) && strings.TrimSpace(value) == "********"
+	if !preserveSensitive {
+		if err := validateSettingValue(key, value, metadata); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	if key == "country_code" {
 		profile, err := RegionalProfileForCountry(value)
 		if err != nil {
@@ -304,11 +363,13 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 			return
 		}
 	}
-	if isSensitiveSetting(key) && strings.TrimSpace(value) == "********" {
-		_ = h.db.QueryRow(`SELECT value FROM settings WHERE key = $1`, key).Scan(&value)
-	}
 	storedValue := value
-	if isSensitiveSetting(key) {
+	if preserveSensitive {
+		if err := h.db.QueryRow(`SELECT value FROM settings WHERE key = $1`, key).Scan(&storedValue); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Setting not found"})
+			return
+		}
+	} else if isSensitiveSetting(key) {
 		var encryptErr error
 		storedValue, encryptErr = secrets.Encrypt(value)
 		if encryptErr != nil {
@@ -323,11 +384,6 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 		return
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
-		metadata, exists := settingMetadata[key]
-		if !exists {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Setting not found"})
-			return
-		}
 		_, err = insertSetting(h.db, key, storedValue, metadata.valueType, metadata.category, metadata.description, metadata.isPublic, true)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create setting"})
@@ -373,15 +429,15 @@ func (h *Handler) GetTaxRate(c *gin.Context) {
 // UpdateTaxRate updates the tax rate
 func (h *Handler) UpdateTaxRate(c *gin.Context) {
 	var req struct {
-		TaxRate float64 `json:"tax_rate" binding:"required,min=0,max=100"`
+		TaxRate *float64 `json:"tax_rate" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := c.ShouldBindJSON(&req); err != nil || req.TaxRate == nil || math.IsNaN(*req.TaxRate) || math.IsInf(*req.TaxRate, 0) || *req.TaxRate < 0 || *req.TaxRate > 100 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tax rate value"})
 		return
 	}
 
-	result, err := h.db.Exec(`UPDATE settings SET value = $1, updated_at = CURRENT_TIMESTAMP WHERE key = 'tax_rate'`, strconv.FormatFloat(req.TaxRate, 'f', 2, 64))
+	result, err := h.db.Exec(`UPDATE settings SET value = $1, updated_at = CURRENT_TIMESTAMP WHERE key = 'tax_rate'`, strconv.FormatFloat(*req.TaxRate, 'f', 2, 64))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update tax rate"})
 		return
@@ -394,7 +450,7 @@ func (h *Handler) UpdateTaxRate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"tax_rate": req.TaxRate,
+			"tax_rate": *req.TaxRate,
 		},
 		"message": "Tax rate updated successfully",
 	})

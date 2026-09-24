@@ -173,8 +173,8 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 		}
 		if actualStockUnits != expectedStockUnits {
 			return &DeleteResult{
-				Action: "blocked", Message: "Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø­Ø°Ù Ø§Ù„Ø¨ÙŠØ¹ Ù„Ø£Ù† ÙƒÙ…ÙŠØ§Øª Ø­Ø±ÙƒØ§Øª Ø§Ù„Ù…Ø®Ø²ÙˆÙ† Ù„Ø§ ØªØ·Ø§Ø¨Ù‚ Ø³Ø·ÙˆØ± Ø§Ù„ÙØ§ØªÙˆØ±Ø©", CanProceed: false,
-				Details: &DeleteDetails{Reason: "ÙŠÙˆØ¬Ø¯ Ù†Ù‚Øµ Ø£Ùˆ Ø²ÙŠØ§Ø¯Ø© ÙÙŠ Ø­Ø±ÙƒØ§Øª Ø§Ù„Ù…Ø®Ø²ÙˆÙ† Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø©", SuggestedAction: "Ø·Ø§Ø¨Ù‚ Ø­Ø±ÙƒØ§Øª Ø§Ù„Ù…Ø®Ø²ÙˆÙ† Ù…Ø¹ ÙƒÙ…ÙŠØ§Øª Ø§Ù„ÙØ§ØªÙˆØ±Ø© Ù‚Ø¨Ù„ Ø§Ù„Ø­Ø°Ù"},
+				Action: "blocked", Message: "لا يمكن حذف البيع لأن كميات حركات المخزون لا تطابق سطور الفاتورة", CanProceed: false,
+				Details: &DeleteDetails{Reason: "يوجد نقص أو زيادة في حركات المخزون المرتبطة", SuggestedAction: "طابق حركات المخزون مع كميات الفاتورة قبل الحذف"},
 			}, nil
 		}
 	} else if itemCount > 0 {

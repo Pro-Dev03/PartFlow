@@ -83,6 +83,7 @@ type PurchaseRequest struct {
 
 // PurchaseItemRequest represents purchase item creation request
 type PurchaseItemRequest struct {
+	ID           *uuid.UUID `json:"id,omitempty"`
 	ProductID    uuid.UUID  `json:"product_id" binding:"required"`
 	Barcode      string     `json:"barcode"`
 	Quantity     int        `json:"quantity" binding:"required,min=1"`
@@ -98,11 +99,13 @@ type PurchaseItemRequest struct {
 
 // PurchaseUpdateRequest represents purchase update request
 type PurchaseUpdateRequest struct {
-	InvoiceNumber string                `json:"invoice_number"`
-	PurchaseDate  time.Time             `json:"purchase_date"`
-	Status        string                `json:"status" binding:"omitempty,oneof=draft pending received cancelled reversed partially_received"`
-	Notes         string                `json:"notes"`
-	Items         []PurchaseItemRequest `json:"items"`
+	SupplierID           *uuid.UUID            `json:"supplier_id"`
+	InvoiceNumber        string                `json:"invoice_number"`
+	PurchaseDate         time.Time             `json:"purchase_date"`
+	ExpectedDeliveryDate *time.Time            `json:"expected_delivery_date"`
+	Status               string                `json:"status" binding:"omitempty,oneof=draft pending received cancelled reversed partially_received"`
+	Notes                string                `json:"notes"`
+	Items                []PurchaseItemRequest `json:"items"`
 }
 
 // PurchaseResponse represents purchase response with related data

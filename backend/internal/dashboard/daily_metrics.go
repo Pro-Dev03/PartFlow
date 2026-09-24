@@ -210,7 +210,9 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 	paymentDateColumn := "created_at"
 	debtPaymentFilter := "1 = 1"
 	customerPaymentFilter := "customer_id IS NOT NULL"
+	collectedPaymentFilter := customerPaymentFilter
 	supplierPaymentFilter := "supplier_id IS NOT NULL"
+	paymentStatusFilter := "1 = 1"
 	if sqliteHasColumns(db, "payments", "payment_date") {
 		// SQLite may receive Go's time.Time string, which can include a
 		// monotonic suffix ("m=+"). Keep the parseable date-time prefix.
@@ -223,17 +225,28 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 		customerPaymentFilter = "(customer_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'customer' AND reference_id IS NOT NULL))"
 		supplierPaymentFilter = "(supplier_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'supplier' AND reference_id IS NOT NULL))"
 	}
-	if sqliteHasColumns(db, "payments", "sale_id") {
+	collectedPaymentFilter = customerPaymentFilter
+	hasSaleID := sqliteHasColumns(db, "payments", "sale_id")
+	if !isSQLiteDriver(db.DriverName()) {
+		hasSaleID = true
+	}
+	if hasSaleID {
 		// A sale-linked payment is the payment made at checkout, even when the
 		// sale creates a debt. Debt collections are recorded separately with no
 		// sale_id and must be the only values shown in today's debt collection.
 		debtPaymentFilter = "(sale_id IS NULL OR TRIM(sale_id) = '') AND " + customerPaymentFilter
+		collectedPaymentFilter = "((sale_id IS NOT NULL AND TRIM(sale_id) <> '') OR " + customerPaymentFilter + ")"
+	}
+	if isSQLiteDriver(db.DriverName()) && sqliteHasColumns(db, "payments", "payment_status") {
+		paymentStatusFilter = "LOWER(COALESCE(payment_status, 'completed')) IN ('completed', 'paid')"
+	} else if !isSQLiteDriver(db.DriverName()) {
+		paymentStatusFilter = "LOWER(COALESCE(status, payment_status, 'completed')) IN ('completed', 'paid')"
 	}
 	if isSQLiteDriver(db.DriverName()) {
-		_ = db.GetContext(ctx, &metrics.Collected, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE %s AND date(%s) = ?`, customerPaymentFilter, paymentDateColumn), date)
-		_ = db.GetContext(ctx, &metrics.DebtCollected, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE %s AND date(%s) = ?`, debtPaymentFilter, paymentDateColumn), date)
-		_ = db.GetContext(ctx, &metrics.SupplierPaid, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE %s AND date(%s) = ?`, supplierPaymentFilter, paymentDateColumn), date)
-		if sqliteHasColumns(db, "sales", "payment_method", "paid_amount") {
+		_ = db.GetContext(ctx, &metrics.Collected, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE %s AND %s AND date(%s) = ?`, collectedPaymentFilter, paymentStatusFilter, paymentDateColumn), date)
+		_ = db.GetContext(ctx, &metrics.DebtCollected, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE %s AND %s AND date(%s) = ?`, debtPaymentFilter, paymentStatusFilter, paymentDateColumn), date)
+		_ = db.GetContext(ctx, &metrics.SupplierPaid, fmt.Sprintf(`SELECT COALESCE(SUM(amount), 0) FROM payments WHERE %s AND %s AND date(%s) = ?`, supplierPaymentFilter, paymentStatusFilter, paymentDateColumn), date)
+		if !hasSaleID && sqliteHasColumns(db, "sales", "payment_method", "paid_amount") {
 			var salesCashIn float64
 			dateColumn := "created_at"
 			if sqliteHasColumns(db, "sales", "sale_date") {
@@ -247,17 +260,10 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			metrics.Collected += salesCashIn
 		}
 	} else {
-		_ = db.GetContext(ctx, &metrics.Collected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE (customer_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'customer' AND reference_id IS NOT NULL)) AND COALESCE(payment_date, created_at)::date = $1::date`, date)
-		_ = db.GetContext(ctx, &metrics.DebtCollected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE sale_id IS NULL AND (customer_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'customer' AND reference_id IS NOT NULL)) AND COALESCE(payment_date, created_at)::date = $1::date`, date)
-		_ = db.GetContext(ctx, &metrics.SupplierPaid, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE (supplier_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'supplier' AND reference_id IS NOT NULL)) AND COALESCE(payment_date, created_at)::date = $1::date`, date)
+		_ = db.GetContext(ctx, &metrics.Collected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE (sale_id IS NOT NULL OR customer_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'customer' AND reference_id IS NOT NULL)) AND LOWER(COALESCE(status, payment_status, 'completed')) IN ('completed', 'paid') AND COALESCE(payment_date, created_at)::date = $1::date`, date)
+		_ = db.GetContext(ctx, &metrics.DebtCollected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE sale_id IS NULL AND (customer_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'customer' AND reference_id IS NOT NULL)) AND LOWER(COALESCE(status, payment_status, 'completed')) IN ('completed', 'paid') AND COALESCE(payment_date, created_at)::date = $1::date`, date)
+		_ = db.GetContext(ctx, &metrics.SupplierPaid, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE (supplier_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'supplier' AND reference_id IS NOT NULL)) AND LOWER(COALESCE(status, payment_status, 'completed')) IN ('completed', 'paid') AND COALESCE(payment_date, created_at)::date = $1::date`, date)
 		_ = db.GetContext(ctx, &metrics.Expenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date::date = $1::date AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, date)
-		var salesCashIn float64
-		_ = db.GetContext(ctx, &salesCashIn, `
-			SELECT COALESCE(SUM(CASE WHEN LOWER(COALESCE(payment_method, '')) IN ('cash', 'cash_payment', 'card', 'credit_card')
-				THEN COALESCE(NULLIF(paid_amount, 0), total_amount) ELSE 0 END), 0)
-			FROM sales
-			WHERE LOWER(COALESCE(status, 'completed')) = 'completed' AND COALESCE(sale_date::date, created_at::date) = $1::date`, date)
-		metrics.Collected += salesCashIn
 	}
 	return metrics, nil
 }

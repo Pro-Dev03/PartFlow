@@ -113,8 +113,11 @@ export function usePurchases() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['purchases'] });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error('Error updating purchase:', error);
+      toast.error(
+        error?.response?.data?.error || error?.message || 'تعذر حفظ تعديلات الشراء. تحقق من الكميات والعناصر المرتبطة بالمخزون ثم أعد المحاولة.'
+      );
     },
   });
 

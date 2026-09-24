@@ -194,7 +194,7 @@ func TestCustomerDebtLifecyclePaymentAndReturnCreditSQLite(t *testing.T) {
 	}
 }
 
-func TestDeleteCustomerRemovesRelatedFinancialRowsSQLite(t *testing.T) {
+func TestDeleteCustomerArchivesAndPreservesFinancialRowsSQLite(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/delete-customer-cascade.db")
 	database, err := localdb.Open()
 	if err != nil {
@@ -236,12 +236,12 @@ func TestDeleteCustomerRemovesRelatedFinancialRowsSQLite(t *testing.T) {
 		t.Fatalf("delete customer: %v", err)
 	}
 
-	var customerCount int
-	if err := db.Get(&customerCount, `SELECT COUNT(*) FROM customers WHERE id = ?`, customerID); err != nil {
+	var isActive bool
+	if err := db.Get(&isActive, `SELECT is_active FROM customers WHERE id = ?`, customerID); err != nil {
 		t.Fatal(err)
 	}
-	if customerCount != 0 {
-		t.Fatalf("customer remains after delete, count = %d", customerCount)
+	if isActive {
+		t.Fatal("customer remains active after archive")
 	}
 
 	for _, query := range []string{
@@ -255,13 +255,13 @@ func TestDeleteCustomerRemovesRelatedFinancialRowsSQLite(t *testing.T) {
 		if err := db.Get(&count, query, customerID); err != nil {
 			t.Fatal(err)
 		}
-		if count != 0 {
-			t.Fatalf("query %s left %d rows for customer after delete", query, count)
+		if count != 1 {
+			t.Fatalf("query %s has %d rows after archive, want 1", query, count)
 		}
 	}
 }
 
-func TestDeleteCustomerRemovesSupplierReturnReferencesSQLite(t *testing.T) {
+func TestDeleteCustomerPreservesSupplierReturnReferencesSQLite(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/delete-customer-supplier-returns.db")
 	database, err := localdb.Open()
 	if err != nil {
@@ -306,15 +306,15 @@ func TestDeleteCustomerRemovesSupplierReturnReferencesSQLite(t *testing.T) {
 	if err := db.Get(&returnCount, `SELECT COUNT(*) FROM returns WHERE id = ?`, returnID); err != nil {
 		t.Fatal(err)
 	}
-	if returnCount != 0 {
-		t.Fatalf("customer return remained after delete, count = %d", returnCount)
+	if returnCount != 1 {
+		t.Fatalf("customer return count after archive = %d, want 1", returnCount)
 	}
 	var supplierReturnCount int
 	if err := db.Get(&supplierReturnCount, `SELECT COUNT(*) FROM supplier_returns WHERE customer_return_id = ?`, returnID); err != nil {
 		t.Fatal(err)
 	}
-	if supplierReturnCount != 0 {
-		t.Fatalf("supplier return rows remained after delete, count = %d", supplierReturnCount)
+	if supplierReturnCount != 1 {
+		t.Fatalf("supplier return count after archive = %d, want 1", supplierReturnCount)
 	}
 }
 

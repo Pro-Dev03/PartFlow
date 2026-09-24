@@ -252,6 +252,11 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 		stats.TodaySales = today.Sales
 		stats.TodayProfit = today.Profit
 		stats.TodaySupplierReturns = today.SupplierReturns
+		stats.TodayCollected = today.Collected
+		stats.TodayDebtCollected = today.DebtCollected
+		stats.TodaySupplierPaid = today.SupplierPaid
+		stats.TodayExpenses = today.Expenses
+		stats.TodayCashDifference = today.Collected - today.SupplierPaid + today.SupplierReturns
 	}
 	stats.OutstandingDebts = result.OverdueDebts
 	var outstandingDebtorCount int

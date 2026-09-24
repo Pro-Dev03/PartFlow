@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Moon, Sun, Globe, LogOut, Menu, ShoppingCart, Plus, Users, LayoutDashboard, Package } from 'lucide-react';
+import { Moon, Sun, Globe, LogOut, Menu, RefreshCw, ShoppingCart, Plus, Users, LayoutDashboard, Package } from 'lucide-react';
 import { useTranslation } from '../../hooks/useTranslation';
 import { SearchInput } from '../../design-system/components/search-input';
 import { Button } from '../../design-system/components/button';
@@ -191,6 +191,7 @@ export function Header({ onToggleSidebar, sidebarOpen = false }: HeaderProps) {
                  onClick={() => setIsLangDropdownOpen(!isLangDropdownOpen)}
                  icon={<Globe style={{ width: '16px', height: '16px' }} />}
                  title="Change language"
+                 aria-label="Change language"
                />
 
                {isLangDropdownOpen && (
@@ -220,6 +221,13 @@ export function Header({ onToggleSidebar, sidebarOpen = false }: HeaderProps) {
                  </div>
                )}
              </div>
+
+             <IconButton
+               onClick={() => window.location.reload()}
+               icon={<RefreshCw style={{ width: '16px', height: '16px' }} />}
+               title={t('common.refresh')}
+               aria-label={t('common.refresh')}
+             />
 
              {/* Theme */}
              <IconButton

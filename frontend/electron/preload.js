@@ -26,4 +26,8 @@ contextBridge.exposeInMainWorld('partflowDesktop', {
     save: (categoryId, dataUrl) => ipcRenderer.invoke('category-images:save', categoryId, dataUrl),
     delete: (categoryId) => ipcRenderer.invoke('category-images:delete', categoryId),
   },
+  database: {
+    backup: () => ipcRenderer.invoke('database:backup'),
+    restore: () => ipcRenderer.invoke('database:restore'),
+  },
 });

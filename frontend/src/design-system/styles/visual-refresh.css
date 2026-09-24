@@ -711,31 +711,31 @@ tbody tr:last-child td {
 }
 
 @media (max-width: 1000px) {
-  .pf-sidebar {
+  .pf-sidebar[class*="w-[72px]"] {
     width: 76px !important;
     min-width: 76px !important;
   }
 
-  .pf-sidebar .brand-text,
-  .pf-sidebar .nav-label,
-  .pf-sidebar .brand-sub,
-  .pf-sidebar nav button span,
-  .pf-sidebar button span {
+  .pf-sidebar[class*="w-[72px]"] .brand-text,
+  .pf-sidebar[class*="w-[72px]"] .nav-label,
+  .pf-sidebar[class*="w-[72px]"] .brand-sub,
+  .pf-sidebar[class*="w-[72px]"] nav button span,
+  .pf-sidebar[class*="w-[72px]"] button span {
     display: none !important;
   }
 
-  .pf-sidebar .sidebar-item,
-  .pf-sidebar .sidebar-scan-button {
+  .pf-sidebar[class*="w-[72px]"] .sidebar-item,
+  .pf-sidebar[class*="w-[72px]"] .sidebar-scan-button {
     justify-content: center !important;
     padding-inline: 8px !important;
   }
 
-  .pf-sidebar-brand {
+  .pf-sidebar[class*="w-[72px]"] .pf-sidebar-brand {
     justify-content: center !important;
     padding-inline: 10px !important;
   }
 
-  .pf-sidebar-nav > div > div:first-child:not(:last-child) {
+  .pf-sidebar[class*="w-[72px]"] .pf-sidebar-nav > div > div:first-child:not(:last-child) {
     display: none;
   }
 }

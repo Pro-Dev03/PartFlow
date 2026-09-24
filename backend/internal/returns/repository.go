@@ -189,6 +189,16 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // CreateReturn creates a new return
 func (r *Repository) CreateReturn(ctx context.Context, returnRecord *Return) error {
+	return r.createReturn(ctx, r.db, returnRecord)
+}
+
+// CreateReturnTx creates the return through the caller's transaction so the
+// parent and every item can be committed or rolled back as one operation.
+func (r *Repository) CreateReturnTx(ctx context.Context, tx *sqlx.Tx, returnRecord *Return) error {
+	return r.createReturn(ctx, tx, returnRecord)
+}
+
+func (r *Repository) createReturn(ctx context.Context, executor sqlx.ExtContext, returnRecord *Return) error {
 	if dbutil.IsSQLite(r.db) {
 		if returnRecord.ID == uuid.Nil {
 			returnRecord.ID = uuid.New()
@@ -209,7 +219,7 @@ func (r *Repository) CreateReturn(ctx context.Context, returnRecord *Return) err
 		if returnRecord.CreatedBy != nil {
 			createdBy = returnRecord.CreatedBy.String()
 		}
-		_, err := r.db.ExecContext(ctx, `INSERT INTO returns (id,return_number,reference_number,sale_id,purchase_id,customer_id,return_date,return_type,status,total_refund_amount,refund_method,refund_date,refund_reference,debt_id,debt_adjustment,customer_credit,reason,reason_detail,item_condition_after_return,is_warranty_claim,warranty_id,warranty_valid_until,created_by,processed_by,approved_by,approved_at,notes,internal_notes,created_at,updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, returnRecord.ID.String(), returnRecord.ReturnNumber, returnRecord.ReferenceNumber, idArg(returnRecord.SaleID), idArg(returnRecord.PurchaseID), idArg(returnRecord.CustomerID), returnRecord.ReturnDate.Format(time.RFC3339Nano), returnRecord.ReturnType, returnRecord.Status, returnRecord.TotalRefundAmount, returnRecord.RefundMethod, returnRecord.RefundDate, returnRecord.RefundReference, idArgPtr(returnRecord.DebtID), returnRecord.DebtAdjustment, returnRecord.CustomerCredit, returnRecord.Reason, returnRecord.ReasonDetail, returnRecord.ItemConditionAfterReturn, returnRecord.IsWarrantyClaim, idArgPtr(returnRecord.WarrantyID), returnRecord.WarrantyValidUntil, createdBy, idArgPtr(returnRecord.ProcessedBy), idArgPtr(returnRecord.ApprovedBy), returnRecord.ApprovedAt, returnRecord.Notes, returnRecord.InternalNotes, returnRecord.CreatedAt.Format(time.RFC3339Nano), returnRecord.UpdatedAt.Format(time.RFC3339Nano))
+		_, err := executor.ExecContext(ctx, `INSERT INTO returns (id,return_number,reference_number,sale_id,purchase_id,customer_id,return_date,return_type,status,total_refund_amount,refund_method,refund_date,refund_reference,debt_id,debt_adjustment,customer_credit,reason,reason_detail,item_condition_after_return,is_warranty_claim,warranty_id,warranty_valid_until,created_by,processed_by,approved_by,approved_at,notes,internal_notes,created_at,updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, returnRecord.ID.String(), returnRecord.ReturnNumber, returnRecord.ReferenceNumber, idArg(returnRecord.SaleID), idArg(returnRecord.PurchaseID), idArg(returnRecord.CustomerID), returnRecord.ReturnDate.Format(time.RFC3339Nano), returnRecord.ReturnType, returnRecord.Status, returnRecord.TotalRefundAmount, returnRecord.RefundMethod, returnRecord.RefundDate, returnRecord.RefundReference, idArgPtr(returnRecord.DebtID), returnRecord.DebtAdjustment, returnRecord.CustomerCredit, returnRecord.Reason, returnRecord.ReasonDetail, returnRecord.ItemConditionAfterReturn, returnRecord.IsWarrantyClaim, idArgPtr(returnRecord.WarrantyID), returnRecord.WarrantyValidUntil, createdBy, idArgPtr(returnRecord.ProcessedBy), idArgPtr(returnRecord.ApprovedBy), returnRecord.ApprovedAt, returnRecord.Notes, returnRecord.InternalNotes, returnRecord.CreatedAt.Format(time.RFC3339Nano), returnRecord.UpdatedAt.Format(time.RFC3339Nano))
 		if err != nil {
 			return fmt.Errorf("failed to create return: %w", err)
 		}
@@ -230,7 +240,7 @@ func (r *Repository) CreateReturn(ctx context.Context, returnRecord *Return) err
 	createdBy := returnRecord.CreatedBy
 	if createdBy != nil {
 		var exists bool
-		if err := r.db.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, *createdBy); err != nil || !exists {
+		if err := sqlx.GetContext(ctx, executor, &exists, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, *createdBy); err != nil || !exists {
 			createdBy = nil
 		}
 	}
@@ -245,7 +255,7 @@ func (r *Repository) CreateReturn(ctx context.Context, returnRecord *Return) err
 		RETURNING id, created_at, updated_at
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
+	err := executor.QueryRowxContext(ctx, query,
 		returnRecord.ReturnNumber, returnRecord.ReferenceNumber, saleID, purchaseID, customerID,
 		returnRecord.ReturnDate, returnRecord.ReturnType, returnRecord.Status, returnRecord.TotalRefundAmount, returnRecord.RefundMethod,
 		returnRecord.RefundDate, returnRecord.RefundReference, returnRecord.DebtID, returnRecord.DebtAdjustment, returnRecord.CustomerCredit,
@@ -1069,6 +1079,14 @@ func returnTableExists(tx *sqlx.Tx, isSQLite bool, table string) (bool, error) {
 
 // CreateReturnItem creates a new return item
 func (r *Repository) CreateReturnItem(ctx context.Context, item *ReturnItem) error {
+	return r.createReturnItem(ctx, r.db, item)
+}
+
+func (r *Repository) CreateReturnItemTx(ctx context.Context, tx *sqlx.Tx, item *ReturnItem) error {
+	return r.createReturnItem(ctx, tx, item)
+}
+
+func (r *Repository) createReturnItem(ctx context.Context, executor sqlx.ExtContext, item *ReturnItem) error {
 	if dbutil.IsSQLite(r.db) {
 		if item.ID == uuid.Nil {
 			item.ID = uuid.New()
@@ -1080,7 +1098,7 @@ func (r *Repository) CreateReturnItem(ctx context.Context, item *ReturnItem) err
 		if item.UpdatedAt.IsZero() {
 			item.UpdatedAt = item.CreatedAt
 		}
-		_, err := r.db.ExecContext(ctx, `INSERT INTO return_items (id,return_id,sale_item_id,product_id,inventory_item_id,serial_number,barcode,quantity_returned,original_quantity,unit_price,total_refund_amount,original_condition,returned_condition,condition_notes,resolution,inventory_status,inspection_required,inspection_date,inspection_result,inspection_notes,original_cost,repair_cost,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, item.ID.String(), item.ReturnID.String(), idArgPtr(item.SaleItemID), idArgPtr(item.ProductID), idArgPtr(item.InventoryItemID), item.SerialNumber, item.Barcode, item.QuantityReturned, item.OriginalQuantity, item.UnitPrice, item.TotalRefundAmount, item.OriginalCondition, item.ReturnedCondition, item.ConditionNotes, item.Resolution, item.InventoryStatus, item.InspectionRequired, item.InspectionDate, item.InspectionResult, item.InspectionNotes, item.OriginalCost, item.RepairCost, item.CreatedAt.Format(time.RFC3339Nano), item.UpdatedAt.Format(time.RFC3339Nano))
+		_, err := executor.ExecContext(ctx, `INSERT INTO return_items (id,return_id,sale_item_id,product_id,inventory_item_id,serial_number,barcode,quantity_returned,original_quantity,unit_price,total_refund_amount,original_condition,returned_condition,condition_notes,resolution,inventory_status,inspection_required,inspection_date,inspection_result,inspection_notes,original_cost,repair_cost,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, item.ID.String(), item.ReturnID.String(), idArgPtr(item.SaleItemID), idArgPtr(item.ProductID), idArgPtr(item.InventoryItemID), item.SerialNumber, item.Barcode, item.QuantityReturned, item.OriginalQuantity, item.UnitPrice, item.TotalRefundAmount, item.OriginalCondition, item.ReturnedCondition, item.ConditionNotes, item.Resolution, item.InventoryStatus, item.InspectionRequired, item.InspectionDate, item.InspectionResult, item.InspectionNotes, item.OriginalCost, item.RepairCost, item.CreatedAt.Format(time.RFC3339Nano), item.UpdatedAt.Format(time.RFC3339Nano))
 		if err != nil {
 			return fmt.Errorf("failed to create return item: %w", err)
 		}
@@ -1104,7 +1122,7 @@ func (r *Repository) CreateReturnItem(ctx context.Context, item *ReturnItem) err
 		RETURNING id, created_at, updated_at
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
+	err := executor.QueryRowxContext(ctx, query,
 		item.ReturnID, item.SaleItemID, item.ProductID, item.InventoryItemID, item.SerialNumber, item.Barcode,
 		item.QuantityReturned, item.OriginalQuantity, item.UnitPrice, item.TotalRefundAmount,
 		item.OriginalCondition, item.ReturnedCondition, item.ConditionNotes, item.Resolution, inventoryStatus,
@@ -1249,9 +1267,17 @@ func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]
 
 // UpdateReturnItem updates a return item
 func (r *Repository) UpdateReturnItem(ctx context.Context, item *ReturnItem) error {
+	return r.updateReturnItem(ctx, r.db, item)
+}
+
+func (r *Repository) UpdateReturnItemTx(ctx context.Context, tx *sqlx.Tx, item *ReturnItem) error {
+	return r.updateReturnItem(ctx, tx, item)
+}
+
+func (r *Repository) updateReturnItem(ctx context.Context, executor sqlx.ExtContext, item *ReturnItem) error {
 	if dbutil.IsSQLite(r.db) {
 		now := time.Now().UTC()
-		result, err := r.db.ExecContext(ctx, `UPDATE return_items SET quantity_returned=?,original_quantity=?,unit_price=?,total_refund_amount=?,original_condition=?,returned_condition=?,condition_notes=?,resolution=?,inventory_status=?,inspection_required=?,inspection_date=?,inspection_result=?,inspection_notes=?,original_cost=?,repair_cost=?,updated_at=? WHERE id=?`, item.QuantityReturned, item.OriginalQuantity, item.UnitPrice, item.TotalRefundAmount, item.OriginalCondition, item.ReturnedCondition, item.ConditionNotes, item.Resolution, item.InventoryStatus, item.InspectionRequired, item.InspectionDate, item.InspectionResult, item.InspectionNotes, item.OriginalCost, item.RepairCost, now.Format(time.RFC3339Nano), item.ID.String())
+		result, err := executor.ExecContext(ctx, `UPDATE return_items SET quantity_returned=?,original_quantity=?,unit_price=?,total_refund_amount=?,original_condition=?,returned_condition=?,condition_notes=?,resolution=?,inventory_status=?,inspection_required=?,inspection_date=?,inspection_result=?,inspection_notes=?,original_cost=?,repair_cost=?,updated_at=? WHERE id=?`, item.QuantityReturned, item.OriginalQuantity, item.UnitPrice, item.TotalRefundAmount, item.OriginalCondition, item.ReturnedCondition, item.ConditionNotes, item.Resolution, item.InventoryStatus, item.InspectionRequired, item.InspectionDate, item.InspectionResult, item.InspectionNotes, item.OriginalCost, item.RepairCost, now.Format(time.RFC3339Nano), item.ID.String())
 		if err != nil {
 			return fmt.Errorf("failed to update return item: %w", err)
 		}
@@ -1272,7 +1298,7 @@ func (r *Repository) UpdateReturnItem(ctx context.Context, item *ReturnItem) err
 		RETURNING updated_at
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
+	err := executor.QueryRowxContext(ctx, query,
 		item.ID, item.QuantityReturned, item.OriginalQuantity, item.UnitPrice, item.TotalRefundAmount,
 		item.OriginalCondition, item.ReturnedCondition, item.ConditionNotes, item.Resolution, item.InventoryStatus,
 		item.InspectionRequired, item.InspectionDate, item.InspectionResult, item.InspectionNotes,
@@ -1290,6 +1316,14 @@ func (r *Repository) UpdateReturnItem(ctx context.Context, item *ReturnItem) err
 
 // DeleteReturnItem deletes a return item
 func (r *Repository) DeleteReturnItem(ctx context.Context, id uuid.UUID) error {
+	return r.deleteReturnItem(ctx, r.db, id)
+}
+
+func (r *Repository) DeleteReturnItemTx(ctx context.Context, tx *sqlx.Tx, id uuid.UUID) error {
+	return r.deleteReturnItem(ctx, tx, id)
+}
+
+func (r *Repository) deleteReturnItem(ctx context.Context, executor sqlx.ExtContext, id uuid.UUID) error {
 	query := `DELETE FROM return_items WHERE id = $1`
 	arg := interface{}(id)
 	if dbutil.IsSQLite(r.db) {
@@ -1297,7 +1331,7 @@ func (r *Repository) DeleteReturnItem(ctx context.Context, id uuid.UUID) error {
 		arg = id.String()
 	}
 
-	result, err := r.db.ExecContext(ctx, query, arg)
+	result, err := executor.ExecContext(ctx, query, arg)
 	if err != nil {
 		return fmt.Errorf("failed to delete return item: %w", err)
 	}
@@ -1532,13 +1566,14 @@ func (r *Repository) GetReturnedQuantity(ctx context.Context, saleItemID uuid.UU
 	var returnedQty int
 	query := `
 		SELECT COALESCE(SUM(quantity_returned), 0)
-		FROM return_items
-		WHERE sale_item_id = $1
+		FROM return_items ri
+		JOIN returns r ON r.id = ri.return_id
+		WHERE ri.sale_item_id = $1 AND UPPER(COALESCE(r.status, '')) NOT IN ('REJECTED', 'CANCELLED')
 	`
 
 	arg := interface{}(saleItemID)
 	if dbutil.IsSQLite(r.db) {
-		query = `SELECT COALESCE(SUM(quantity_returned),0) FROM return_items WHERE sale_item_id = ?`
+		query = `SELECT COALESCE(SUM(ri.quantity_returned),0) FROM return_items ri JOIN returns r ON r.id = ri.return_id WHERE ri.sale_item_id = ? AND UPPER(COALESCE(r.status, '')) NOT IN ('REJECTED', 'CANCELLED')`
 		arg = saleItemID.String()
 	}
 	err := r.db.GetContext(ctx, &returnedQty, query, arg)

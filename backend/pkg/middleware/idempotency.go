@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 
 type IdempotencyMiddleware struct {
 	db          *sqlx.DB
+	initErr     error
 	lastCleanup time.Time
 }
 
@@ -69,7 +71,7 @@ func NewIdempotencyMiddleware(database interface{}) *IdempotencyMiddleware {
 	default:
 		panic("unsupported database type for idempotency middleware")
 	}
-	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS idempotency_keys (
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS idempotency_keys (
 		id TEXT PRIMARY KEY,
 		idempotency_key TEXT NOT NULL UNIQUE,
 		resource_type TEXT NOT NULL,
@@ -79,7 +81,7 @@ func NewIdempotencyMiddleware(database interface{}) *IdempotencyMiddleware {
 		expires_at TIMESTAMP NOT NULL,
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`)
-	return &IdempotencyMiddleware{db: db}
+	return &IdempotencyMiddleware{db: db, initErr: err}
 }
 
 // Idempotency handles idempotent requests
@@ -95,7 +97,19 @@ func (im *IdempotencyMiddleware) Idempotency() gin.HandlerFunc {
 		// Get idempotency key from header
 		idempotencyKey := c.GetHeader("Idempotency-Key")
 		if idempotencyKey == "" {
-			c.Next()
+			const code = "IDEMPOTENCY_KEY_REQUIRED"
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"code":    code,
+				"error": gin.H{
+					"code":    code,
+					"message": "Idempotency-Key is required for sale creation.",
+				},
+			})
+			return
+		}
+		if im.initErr != nil {
+			abortIdempotencyStoreUnavailable(c)
 			return
 		}
 		// Read request body for hashing
@@ -155,6 +169,10 @@ func (im *IdempotencyMiddleware) Idempotency() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			abortIdempotencyStoreUnavailable(c)
+			return
+		}
 
 		// Use a custom writer to capture response
 		w := &responseWriter{ResponseWriter: c.Writer, body: bytes.NewBufferString("")}
@@ -168,6 +186,18 @@ func (im *IdempotencyMiddleware) Idempotency() gin.HandlerFunc {
 			im.cacheResponse(idempotencyKey, requestHash, c.Writer.Status(), w.body.Bytes())
 		}
 	}
+}
+
+func abortIdempotencyStoreUnavailable(c *gin.Context) {
+	const code = "IDEMPOTENCY_STORE_UNAVAILABLE"
+	c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+		"success": false,
+		"code":    code,
+		"error": gin.H{
+			"code":    code,
+			"message": "Sale idempotency could not be verified; retry after the database is available.",
+		},
+	})
 }
 
 func (im *IdempotencyMiddleware) cacheResponse(idempotencyKey, requestHash string, statusCode int, responseBody []byte) {

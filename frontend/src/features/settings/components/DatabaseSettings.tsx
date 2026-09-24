@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system
 import { Button } from '../../../design-system/components/button';
 import { settingsApi } from '../../../services/api/endpoints';
 import { useAuthStore } from '../../../stores/authStore';
-import { RefreshCw, Wifi, Check, X, HardDrive, Trash2 } from 'lucide-react';
+import { RefreshCw, Wifi, Check, X, HardDrive, Trash2, Download, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCloudApiUrl, getLocalApiUrl, setCloudApiUrl } from '../../../lib/config/app';
 
@@ -29,6 +29,50 @@ export function DatabaseSettings() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [cloudUrl, setCloudUrl] = useState(getCloudApiUrl());
   const [isSavingCloudUrl, setIsSavingCloudUrl] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+
+  const createLocalBackup = async () => {
+    const backup = window.partflowDesktop?.database?.backup;
+    if (!backup) {
+      toast.error('النسخ الاحتياطي متاح من تطبيق PartFlow المكتبي.');
+      return;
+    }
+    setIsBackingUp(true);
+    try {
+      const result = await backup();
+      if (!result.canceled && result.filePath) {
+        toast.success('تم إنشاء النسخة الاحتياطية والتحقق من سلامتها.', { description: result.filePath });
+      }
+    } catch (error: any) {
+      toast.error(`تعذر إنشاء النسخة الاحتياطية: ${error?.message || 'حدث خطأ غير متوقع'}`);
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const restoreLocalBackup = async () => {
+    const restore = window.partflowDesktop?.database?.restore;
+    if (!restore) {
+      toast.error('استعادة قاعدة البيانات متاحة من تطبيق PartFlow المكتبي.');
+      return;
+    }
+    setIsRestoring(true);
+    try {
+      const result = await restore();
+      if (!result.canceled) {
+        void queryClient.clear();
+        toast.success('تمت استعادة قاعدة البيانات. سيُعاد تحميل النظام الآن.', {
+          description: result.recoveryPath ? `نسخة الرجوع محفوظة في: ${result.recoveryPath}` : undefined,
+        });
+        window.setTimeout(() => window.location.reload(), 900);
+      }
+    } catch (error: any) {
+      toast.error(`تعذرت استعادة قاعدة البيانات: ${error?.message || 'حدث خطأ غير متوقع'}`);
+    } finally {
+      setIsRestoring(false);
+    }
+  };
 
   const saveCloudUrl = async () => {
     const normalized = cloudUrl.trim().replace(/\/+$/, '');
@@ -301,6 +345,29 @@ export function DatabaseSettings() {
                 </>
               )}
             </Button>
+
+            {window.partflowDesktop?.database && (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="secondary"
+                  className="min-h-10 flex-1"
+                  onClick={() => void createLocalBackup()}
+                  disabled={isBackingUp || isRestoring}
+                >
+                  <Download className="ml-2 h-4 w-4" />
+                  {isBackingUp ? 'جارٍ إنشاء النسخة والتحقق منها...' : 'إنشاء نسخة احتياطية'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="min-h-10 flex-1"
+                  onClick={() => void restoreLocalBackup()}
+                  disabled={isBackingUp || isRestoring}
+                >
+                  <Upload className="ml-2 h-4 w-4" />
+                  {isRestoring ? 'جارٍ التحقق والاستعادة...' : 'استعادة نسخة احتياطية'}
+                </Button>
+              </div>
+            )}
 
             <div className="p-3 bg-amber-100 rounded-lg border border-amber-300">
               <p className="text-xs text-amber-900">

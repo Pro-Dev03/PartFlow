@@ -345,6 +345,22 @@ func (s *Service) UpdatePurchase(ctx context.Context, id uuid.UUID, req *Purchas
 	if purchase.Status == StatusReversed || purchase.Status == StatusCancelled {
 		return nil, ErrInvalidPurchaseStatus
 	}
+	originalSupplierID := purchase.SupplierID
+	originalStatus := purchase.Status
+	originalSubtotal := purchase.TotalAmount - purchase.TaxAmount
+	if originalSubtotal < 0 {
+		originalSubtotal = 0
+	}
+	if req.SupplierID != nil && *req.SupplierID != uuid.Nil {
+		var supplierExists bool
+		if err := tx.GetContext(ctx, &supplierExists, `SELECT EXISTS (SELECT 1 FROM suppliers WHERE id = $1)`, *req.SupplierID); err != nil {
+			return nil, fmt.Errorf("failed to validate purchase supplier: %w", err)
+		}
+		if !supplierExists {
+			return nil, ErrSupplierNotFound
+		}
+		purchase.SupplierID = *req.SupplierID
+	}
 
 	// Update fields
 	if req.InvoiceNumber != "" {
@@ -353,10 +369,17 @@ func (s *Service) UpdatePurchase(ctx context.Context, id uuid.UUID, req *Purchas
 	if !req.PurchaseDate.IsZero() {
 		purchase.PurchaseDate = req.PurchaseDate
 	}
+	if req.ExpectedDeliveryDate != nil {
+		purchase.ExpectedDeliveryDate = req.ExpectedDeliveryDate
+	}
 	if req.Status != "" {
 		// Validate status transition
 		if !isValidStatusTransition(purchase.Status, req.Status) {
 			return nil, ErrInvalidStatusTransition
+		}
+		if (req.Status == StatusReceived || req.Status == StatusPartiallyReceived) &&
+			originalStatus != StatusReceived && originalStatus != StatusPartiallyReceived && originalStatus != "completed" {
+			return nil, fmt.Errorf("receiving a purchase must use the receive operation")
 		}
 		purchase.Status = req.Status
 	}
@@ -366,82 +389,428 @@ func (s *Service) UpdatePurchase(ctx context.Context, id uuid.UUID, req *Purchas
 
 	purchase.UpdatedAt = time.Now()
 
-	if len(req.Items) > 0 {
-		if err := s.updatePurchaseItemsAndInventory(ctx, tx, purchase, req.Items); err != nil {
+	if req.Items != nil {
+		if len(req.Items) == 0 {
+			return nil, ErrNoItems
+		}
+		if err := s.updatePurchaseItemsAndInventory(ctx, tx, purchase, originalStatus, req.Items); err != nil {
 			return nil, err
 		}
-		purchase.TotalAmount = 0
+		newSubtotal := 0.0
 		for _, item := range req.Items {
-			purchase.TotalAmount += float64(item.Quantity) * item.UnitCost
+			newSubtotal += float64(item.Quantity) * item.UnitCost
 		}
+		taxRate := 0.0
+		if originalSubtotal > 0 && purchase.TaxAmount > 0 {
+			taxRate = purchase.TaxAmount / originalSubtotal
+		}
+		purchase.Subtotal = newSubtotal
+		purchase.TaxAmount = newSubtotal * taxRate
+		purchase.TotalAmount = newSubtotal + purchase.TaxAmount
 	}
 	purchaseDate, err := purchaseDateForStorage(purchase.PurchaseDate)
 	if err != nil {
 		return nil, err
 	}
-	updateQuery := `UPDATE purchases SET invoice_number = $1, purchase_date = $2, status = $3, notes = $4, total_amount = $5, remaining_amount = CASE WHEN $5 - paid_amount > 0 THEN $5 - paid_amount ELSE 0 END, updated_at = $6 WHERE id = $7`
-	if _, err := tx.ExecContext(ctx, updateQuery, purchase.InvoiceNumber, purchaseDate, purchase.Status, purchase.Notes, purchase.TotalAmount, purchase.UpdatedAt, purchase.ID); err != nil {
+	if err := s.updatePurchaseSupplierLedgerTx(ctx, tx, purchase.ID, originalSupplierID, purchase.SupplierID, purchase.TotalAmount); err != nil {
+		return nil, err
+	}
+	updateQuery := `UPDATE purchases SET supplier_id = $1, invoice_number = $2, purchase_date = $3, expected_delivery_date = $4, status = $5, notes = $6, tax_amount = $7, total_amount = $8, remaining_amount = CASE WHEN $8 - paid_amount > 0 THEN $8 - paid_amount ELSE 0 END, updated_at = $9 WHERE id = $10`
+	if _, err := tx.ExecContext(ctx, updateQuery, purchase.SupplierID, purchase.InvoiceNumber, purchaseDate, purchase.ExpectedDeliveryDate, purchase.Status, purchase.Notes, purchase.TaxAmount, purchase.TotalAmount, purchase.UpdatedAt, purchase.ID); err != nil {
 		return nil, fmt.Errorf("failed to update purchase: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("failed to commit purchase update: %w", err)
 	}
 	committed = true
+	dashboard.InvalidateDashboardCacheWithReason("purchase_updated")
 
 	return s.GetPurchase(ctx, id)
 }
 
 // updatePurchaseItemsAndInventory keeps a received purchase and its unsold
 // inventory items aligned when purchase costs or quantities are edited.
-func (s *Service) updatePurchaseItemsAndInventory(ctx context.Context, tx *sqlx.Tx, purchase *Purchase, requested []PurchaseItemRequest) error {
+func (s *Service) updatePurchaseItemsAndInventory(ctx context.Context, tx *sqlx.Tx, purchase *Purchase, originalStatus string, requested []PurchaseItemRequest) error {
 	items, err := s.repo.GetPurchaseItems(ctx, purchase.ID)
 	if err != nil {
 		return fmt.Errorf("failed to load purchase items: %w", err)
 	}
-	prefix := purchase.ID.String()[:8]
-	for _, item := range requested {
-		if item.Quantity <= 0 || item.UnitCost < 0 {
+	received := originalStatus == StatusReceived || originalStatus == StatusPartiallyReceived || originalStatus == "completed"
+	matched := make(map[uuid.UUID]bool, len(items))
+	for requestIndex := range requested {
+		item := &requested[requestIndex]
+		if item.ProductID == uuid.Nil || item.Quantity <= 0 || item.UnitCost < 0 {
 			return fmt.Errorf("invalid purchase item quantity or cost")
 		}
-		var currentID uuid.UUID
-		var currentQuantity int
-		found := false
-		for _, existing := range items {
-			if existing.ProductID == item.ProductID {
-				currentID = existing.ID
-				currentQuantity = existing.Quantity
-				found = true
-				break
+		var current *PurchaseItem
+		if item.ID != nil && *item.ID != uuid.Nil {
+			for i := range items {
+				if items[i].ID == *item.ID {
+					current = &items[i]
+					break
+				}
+			}
+			if current == nil || current.ProductID != item.ProductID {
+				return fmt.Errorf("purchase item does not belong to this purchase")
+			}
+		} else {
+			for i := range items {
+				if !matched[items[i].ID] && items[i].ProductID == item.ProductID {
+					current = &items[i]
+					item.ID = &items[i].ID
+					break
+				}
 			}
 		}
-		if !found {
-			return fmt.Errorf("purchase item not found")
+		if current == nil {
+			created := CreatePurchaseItem(purchase.ID, *item)
+			created.Barcode = strings.TrimSpace(item.Barcode)
+			if err := s.repo.CreatePurchaseItemTx(ctx, tx, created); err != nil {
+				return err
+			}
+			item.ID = &created.ID
+			if received {
+				if err := s.addReceivedInventoryTx(ctx, tx, purchase, *item, item.Quantity); err != nil {
+					return err
+				}
+			}
+			continue
 		}
-		var usedCount int
-		pattern := fmt.Sprintf("ITM-%s-%%", prefix)
-		if err := tx.GetContext(ctx, &usedCount, `SELECT COUNT(*) FROM inventory_items WHERE item_code LIKE $1 AND product_id = $2 AND status <> 'AVAILABLE'`, pattern, item.ProductID); err != nil {
-			return fmt.Errorf("failed to check purchase inventory usage: %w", err)
+		matched[current.ID] = true
+		if received && item.Quantity < current.Quantity {
+			if err := s.removeReceivedInventoryTx(ctx, tx, purchase.ID, current.ProductID, current.Quantity-item.Quantity); err != nil {
+				return err
+			}
+		} else if received && item.Quantity > current.Quantity {
+			if err := s.addReceivedInventoryTx(ctx, tx, purchase, *item, item.Quantity-current.Quantity); err != nil {
+				return err
+			}
 		}
-		if item.Quantity < usedCount {
-			return fmt.Errorf("cannot reduce quantity below used inventory count")
+		if err := s.updatePurchaseItemTx(ctx, tx, current.ID, *item); err != nil {
+			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE purchase_items SET quantity = $1, unit_price = $2, item_total = $1 * $2 WHERE id = $3`, item.Quantity, item.UnitCost, currentID); err != nil {
-			return fmt.Errorf("failed to update purchase item: %w", err)
+		if received {
+			pattern := fmt.Sprintf("ITM-%s-%%", purchase.ID.String()[:8])
+			if _, err := tx.ExecContext(ctx, `UPDATE inventory_items SET purchase_cost = $1, selling_price = CASE WHEN $2 > 0 THEN $2 ELSE selling_price END, condition = $3, supplier_id = $4, updated_at = CURRENT_TIMESTAMP WHERE item_code LIKE $5 AND product_id = $6 AND status = 'AVAILABLE'`, item.UnitCost, item.SellingPrice, strings.ToUpper(item.Condition), purchase.SupplierID, pattern, item.ProductID); err != nil {
+				return fmt.Errorf("failed to update linked inventory: %w", err)
+			}
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE inventory_items SET purchase_cost = $1, selling_price = $2, condition = $3, updated_at = CURRENT_TIMESTAMP WHERE item_code LIKE $4 AND product_id = $5 AND status = 'AVAILABLE'`, item.UnitCost, item.SellingPrice, strings.ToUpper(item.Condition), pattern, item.ProductID); err != nil {
-			return fmt.Errorf("failed to update linked inventory: %w", err)
+		if item.CategoryID != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE inventory_items SET category_id = $1, updated_at = CURRENT_TIMESTAMP WHERE product_id = $2`, item.CategoryID, item.ProductID); err != nil {
+				return fmt.Errorf("failed to update linked inventory category: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE products SET category_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, item.CategoryID, item.ProductID); err != nil {
+				return fmt.Errorf("failed to update product category: %w", err)
+			}
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE inventory_items SET category_id = $1, updated_at = CURRENT_TIMESTAMP WHERE product_id = $2`, item.CategoryID, item.ProductID.String()); err != nil {
-			return fmt.Errorf("failed to update linked inventory category: %w", err)
+	}
+	for _, existing := range items {
+		if matched[existing.ID] {
+			continue
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE products SET category_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, item.CategoryID, item.ProductID); err != nil {
-			return fmt.Errorf("failed to update product category: %w", err)
+		if received {
+			if err := s.removeReceivedInventoryTx(ctx, tx, purchase.ID, existing.ProductID, existing.Quantity); err != nil {
+				return err
+			}
 		}
-		if item.Quantity > currentQuantity {
-			return fmt.Errorf("increasing received quantity requires receiving new inventory items")
+		if _, err := tx.ExecContext(ctx, `DELETE FROM purchase_items WHERE id = $1 AND purchase_id = $2`, existing.ID, purchase.ID); err != nil {
+			return fmt.Errorf("failed to remove purchase item: %w", err)
 		}
 	}
 	return nil
+}
+
+func (s *Service) updatePurchaseItemTx(ctx context.Context, tx *sqlx.Tx, itemID uuid.UUID, item PurchaseItemRequest) error {
+	totalColumn := "total_amount"
+	if dbutil.IsSQLite(s.db) {
+		totalColumn = "item_total"
+	}
+	assignments := []string{"quantity = $1", "unit_price = $2", totalColumn + " = $3"}
+	args := []interface{}{item.Quantity, item.UnitCost, float64(item.Quantity) * item.UnitCost}
+	for _, optional := range []struct {
+		name  string
+		value interface{}
+	}{
+		{name: "barcode", value: strings.TrimSpace(item.Barcode)},
+		{name: "serial_number", value: strings.TrimSpace(item.SerialNumber)},
+	} {
+		exists, err := purchaseColumnExistsTx(ctx, tx, s.db, "purchase_items", optional.name)
+		if err != nil {
+			return err
+		}
+		if exists {
+			args = append(args, optional.value)
+			assignments = append(assignments, fmt.Sprintf("%s = $%d", optional.name, len(args)))
+		}
+	}
+	args = append(args, itemID)
+	query := fmt.Sprintf("UPDATE purchase_items SET %s WHERE id = $%d", strings.Join(assignments, ", "), len(args))
+	result, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to update purchase item: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	if affected != 1 {
+		return ErrPurchaseItemNotFound
+	}
+	return nil
+}
+
+func (s *Service) addReceivedInventoryTx(ctx context.Context, tx *sqlx.Tx, purchase *Purchase, item PurchaseItemRequest, count int) error {
+	if count <= 0 {
+		return nil
+	}
+	purchaseDate, err := purchaseDateForStorage(purchase.PurchaseDate)
+	if err != nil {
+		return err
+	}
+	prefix := purchase.ID.String()[:8]
+	pattern := fmt.Sprintf("ITM-%s-%%", prefix)
+	var productSellingPrice float64
+	if err := tx.GetContext(ctx, &productSellingPrice, `SELECT COALESCE(selling_price, 0) FROM products WHERE id = $1`, item.ProductID); err != nil {
+		return fmt.Errorf("failed to load product price: %w", err)
+	}
+	if item.SellingPrice > 0 {
+		productSellingPrice = item.SellingPrice
+	}
+	var linkedCount int
+	if err := tx.GetContext(ctx, &linkedCount, `SELECT COUNT(*) FROM inventory_items WHERE item_code LIKE $1`, pattern); err != nil {
+		return fmt.Errorf("failed to count purchase inventory: %w", err)
+	}
+	nextNumber := linkedCount + 1
+	for created := 0; created < count; created++ {
+		itemCode := ""
+		itemNumber := 0
+		for {
+			itemNumber = nextNumber
+			nextNumber++
+			candidate := fmt.Sprintf("ITM-%s-%03d", prefix, itemNumber)
+			var exists bool
+			if err := tx.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM inventory_items WHERE item_code = $1)`, candidate); err != nil {
+				return fmt.Errorf("failed to reserve inventory item code: %w", err)
+			}
+			if !exists {
+				itemCode = candidate
+				break
+			}
+		}
+
+		barcode := strings.TrimSpace(item.Barcode)
+		if barcode != "" {
+			var barcodeExists bool
+			if err := tx.GetContext(ctx, &barcodeExists, `SELECT EXISTS (SELECT 1 FROM inventory_items WHERE barcode = $1)`, barcode); err != nil {
+				return fmt.Errorf("failed to validate inventory barcode: %w", err)
+			}
+			if barcodeExists || count > 1 {
+				barcode = ""
+			}
+		}
+		if barcode == "" {
+			barcode = fmt.Sprintf("BC-%s-%03d", prefix, itemNumber)
+		}
+
+		serial := strings.TrimSpace(item.SerialNumber)
+		if serial != "" {
+			base := serial
+			suffix := 2
+			for {
+				var serialExists bool
+				if err := tx.GetContext(ctx, &serialExists, `SELECT EXISTS (SELECT 1 FROM inventory_items WHERE serial_number = $1)`, serial); err != nil {
+					return fmt.Errorf("failed to validate inventory serial: %w", err)
+				}
+				if !serialExists {
+					break
+				}
+				serial = fmt.Sprintf("%s-%d", base, suffix)
+				suffix++
+			}
+		}
+		var serialArg interface{}
+		if serial != "" {
+			serialArg = serial
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO inventory_items (
+				id, product_id, category_id, item_code, barcode, serial_number, condition, grade,
+				purchase_cost, selling_price, status, supplier_id, purchase_date, notes, created_at, updated_at
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'AVAILABLE',$11,$12,$13,$14,$14)
+		`, uuid.New(), item.ProductID, item.CategoryID, itemCode, barcode, serialArg, strings.ToUpper(item.Condition), item.Grade, item.UnitCost, productSellingPrice, purchase.SupplierID, purchaseDate, item.Notes, time.Now().UTC()); err != nil {
+			return fmt.Errorf("failed to add inventory for edited purchase: %w", err)
+		}
+	}
+	return s.adjustInventoryAggregateTx(ctx, tx, item.ProductID, count)
+}
+
+func (s *Service) removeReceivedInventoryTx(ctx context.Context, tx *sqlx.Tx, purchaseID, productID uuid.UUID, count int) error {
+	if count <= 0 {
+		return nil
+	}
+	pattern := fmt.Sprintf("ITM-%s-%%", purchaseID.String()[:8])
+	var ids []string
+	if err := tx.SelectContext(ctx, &ids, `SELECT id FROM inventory_items WHERE item_code LIKE $1 AND product_id = $2 AND UPPER(TRIM(COALESCE(status, ''))) = 'AVAILABLE' ORDER BY created_at DESC LIMIT $3`, pattern, productID, count); err != nil {
+		return fmt.Errorf("failed to load removable purchase inventory: %w", err)
+	}
+	if len(ids) != count {
+		return fmt.Errorf("cannot reduce purchase quantity because %d item(s) have already been used", count-len(ids))
+	}
+	for _, inventoryID := range ids {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM inventory_items WHERE id = $1`, inventoryID); err != nil {
+			return fmt.Errorf("failed to remove purchase inventory: %w", err)
+		}
+	}
+	return s.adjustInventoryAggregateTx(ctx, tx, productID, -count)
+}
+
+func (s *Service) adjustInventoryAggregateTx(ctx context.Context, tx *sqlx.Tx, productID uuid.UUID, delta int) error {
+	exists, err := purchaseTableExistsTx(ctx, tx, s.db, "inventory")
+	if err != nil || !exists {
+		return err
+	}
+	if delta > 0 {
+		return s.incrementInventoryAggregate(ctx, tx, productID, delta)
+	}
+	if delta == 0 {
+		return nil
+	}
+	quantityExpression := "MAX(0, COALESCE(quantity, 0) + $1)"
+	if !dbutil.IsSQLite(s.db) {
+		quantityExpression = "GREATEST(0, COALESCE(quantity, 0) + $1)"
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`UPDATE inventory SET quantity = %s, updated_at = %s WHERE product_id = $2`, quantityExpression, dbutil.NowSQL(s.db)), delta, productID); err != nil {
+		return fmt.Errorf("failed to reduce inventory aggregate: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) updatePurchaseSupplierLedgerTx(ctx context.Context, tx *sqlx.Tx, purchaseID, oldSupplierID, newSupplierID uuid.UUID, total float64) error {
+	exists, err := purchaseTableExistsTx(ctx, tx, s.db, "supplier_ledger")
+	if err != nil || !exists {
+		return err
+	}
+	hasType, hasTransactionType, hasReferenceType, _, err := supplierLedgerSchema(ctx, tx, s.db)
+	if err != nil {
+		return fmt.Errorf("failed to inspect supplier ledger schema: %w", err)
+	}
+	purchaseKinds := make([]string, 0, 3)
+	paymentKinds := make([]string, 0, 3)
+	if hasType {
+		purchaseKinds = append(purchaseKinds, "type = 'debit'")
+		paymentKinds = append(paymentKinds, "type = 'credit'")
+	}
+	if hasTransactionType {
+		purchaseKinds = append(purchaseKinds, "transaction_type = 'PURCHASE'")
+		paymentKinds = append(paymentKinds, "transaction_type = 'PAYMENT'")
+	}
+	if hasReferenceType {
+		purchaseKinds = append(purchaseKinds, "reference_type = 'purchase'")
+		paymentKinds = append(paymentKinds, "reference_type = 'payment'")
+	}
+	if len(purchaseKinds) == 0 {
+		return fmt.Errorf("supplier_ledger has no purchase classification column")
+	}
+	purchaseLedgerQuery := fmt.Sprintf(`UPDATE supplier_ledger SET supplier_id = $1, amount = $2 WHERE reference_id = $3 AND (%s)`, strings.Join(purchaseKinds, " OR "))
+	if _, err := tx.ExecContext(ctx, purchaseLedgerQuery, newSupplierID, total, purchaseID); err != nil {
+		return fmt.Errorf("failed to update purchase supplier ledger: %w", err)
+	}
+	if oldSupplierID != newSupplierID {
+		paymentsExist, err := purchaseTableExistsTx(ctx, tx, s.db, "payments")
+		if err != nil {
+			return err
+		}
+		if paymentsExist {
+			purchaseIDColumn, err := purchaseColumnExistsTx(ctx, tx, s.db, "payments", "purchase_id")
+			if err != nil {
+				return err
+			}
+			if purchaseIDColumn {
+				paymentReferences := `reference_id = $2 OR reference_id IN (SELECT id FROM payments WHERE purchase_id = $2)`
+				paymentLedgerQuery := fmt.Sprintf(`UPDATE supplier_ledger SET supplier_id = $1 WHERE (%s) AND (%s)`, paymentReferences, strings.Join(paymentKinds, " OR "))
+				if _, err := tx.ExecContext(ctx, paymentLedgerQuery, newSupplierID, purchaseID); err != nil {
+					return fmt.Errorf("failed to move purchase payment ledger: %w", err)
+				}
+				if _, err := tx.ExecContext(ctx, `UPDATE payments SET supplier_id = $1 WHERE purchase_id = $2`, newSupplierID, purchaseID); err != nil {
+					return fmt.Errorf("failed to move purchase payments to supplier: %w", err)
+				}
+			}
+		}
+		pattern := fmt.Sprintf("ITM-%s-%%", purchaseID.String()[:8])
+		if _, err := tx.ExecContext(ctx, `UPDATE inventory_items SET supplier_id = $1, updated_at = CURRENT_TIMESTAMP WHERE item_code LIKE $2`, newSupplierID, pattern); err != nil {
+			return fmt.Errorf("failed to update purchase inventory supplier: %w", err)
+		}
+	}
+	seenSuppliers := make(map[uuid.UUID]bool, 2)
+	for _, supplierID := range []uuid.UUID{oldSupplierID, newSupplierID} {
+		if supplierID == uuid.Nil || seenSuppliers[supplierID] {
+			continue
+		}
+		seenSuppliers[supplierID] = true
+		if err := s.recalculateSupplierLedgerTx(ctx, tx, supplierID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) recalculateSupplierLedgerTx(ctx context.Context, tx *sqlx.Tx, supplierID uuid.UUID) error {
+	hasType, hasTransactionType, _, _, err := supplierLedgerSchema(ctx, tx, s.db)
+	if err != nil {
+		return fmt.Errorf("failed to inspect supplier ledger schema: %w", err)
+	}
+	typeExpression := "NULL AS type"
+	transactionTypeExpression := "NULL AS transaction_type"
+	if hasType {
+		typeExpression = "type"
+	}
+	if hasTransactionType {
+		transactionTypeExpression = "transaction_type"
+	}
+	var rows []struct {
+		ID              string         `db:"id"`
+		Type            sql.NullString `db:"type"`
+		TransactionType sql.NullString `db:"transaction_type"`
+		Amount          float64        `db:"amount"`
+	}
+	query := fmt.Sprintf(`SELECT id, %s, %s, amount FROM supplier_ledger WHERE supplier_id = $1 ORDER BY created_at, id`, typeExpression, transactionTypeExpression)
+	if err := tx.SelectContext(ctx, &rows, query, supplierID); err != nil {
+		return fmt.Errorf("failed to read supplier ledger for reconciliation: %w", err)
+	}
+	balance := 0.0
+	for _, row := range rows {
+		typeName := strings.ToLower(strings.TrimSpace(row.Type.String))
+		transactionType := strings.ToUpper(strings.TrimSpace(row.TransactionType.String))
+		if typeName == "debit" || (typeName == "" && transactionType == "PURCHASE") {
+			balance += row.Amount
+		} else {
+			balance -= row.Amount
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE supplier_ledger SET balance = $1 WHERE id = $2`, balance, row.ID); err != nil {
+			return fmt.Errorf("failed to reconcile supplier ledger row: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE suppliers SET current_balance = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`, balance, supplierID); err != nil {
+		return fmt.Errorf("failed to reconcile supplier balance: %w", err)
+	}
+	return nil
+}
+
+func purchaseTableExistsTx(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, table string) (bool, error) {
+	var exists bool
+	if dbutil.IsSQLite(db) {
+		err := tx.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $1)`, table)
+		return exists, err
+	}
+	err := tx.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)`, table)
+	return exists, err
+}
+
+func purchaseColumnExistsTx(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, table, column string) (bool, error) {
+	var exists bool
+	if dbutil.IsSQLite(db) {
+		err := tx.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM pragma_table_info($1) WHERE name = $2)`, table, column)
+		return exists, err
+	}
+	err := tx.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2)`, table, column)
+	return exists, err
 }
 
 // isValidStatusTransition validates purchase status transitions
@@ -1139,8 +1508,7 @@ func (s *Service) AddPurchaseItem(ctx context.Context, purchaseID uuid.UUID, req
 	if err != nil {
 		return nil, err
 	}
-
-	if purchase.Status == "received" || purchase.Status == "cancelled" {
+	if purchase.Status == StatusCancelled || purchase.Status == StatusReversed {
 		return nil, ErrInvalidPurchaseStatus
 	}
 
@@ -1158,48 +1526,113 @@ func (s *Service) AddPurchaseItem(ctx context.Context, purchaseID uuid.UUID, req
 		return nil, ErrInvalidCondition
 	}
 
-	item := CreatePurchaseItem(purchaseID, *req)
-	if err := s.repo.CreatePurchaseItem(ctx, item); err != nil {
+	items, err := s.repo.GetPurchaseItems(ctx, purchaseID)
+	if err != nil {
 		return nil, err
 	}
-
-	// Update purchase total amount
-	purchase.TotalAmount += item.TotalCost
-	purchase.UpdatedAt = time.Now()
-	if err := s.repo.Update(ctx, purchase); err != nil {
+	requests := purchaseItemsAsRequests(items)
+	requests = append(requests, *req)
+	response, err := s.UpdatePurchase(ctx, purchaseID, &PurchaseUpdateRequest{Items: requests})
+	if err != nil {
 		return nil, err
 	}
-
-	return item, nil
+	for i := len(response.Items) - 1; i >= 0; i-- {
+		if response.Items[i].ProductID == req.ProductID {
+			return &response.Items[i], nil
+		}
+	}
+	return nil, ErrPurchaseItemNotFound
 }
 
 // UpdatePurchaseItem updates a purchase item
 func (s *Service) UpdatePurchaseItem(ctx context.Context, itemID uuid.UUID, req *PurchaseItemRequest) (*PurchaseItem, error) {
-	// Get the item first
-	var item PurchaseItem
-	// This would require a more complex query to join with purchases table
-	// For now, we'll update directly
-
-	totalCost := float64(req.Quantity) * req.UnitCost
-
-	item.ID = itemID
-	item.Quantity = req.Quantity
-	item.UnitCost = req.UnitCost
-	item.TotalCost = totalCost
-	item.SerialNumber = req.SerialNumber
-	item.Condition = req.Condition
-	item.LocationID = req.LocationID
-	item.Notes = req.Notes
-	item.UpdatedAt = time.Now()
-
-	if err := s.repo.UpdatePurchaseItem(ctx, &item); err != nil {
+	var purchaseID uuid.UUID
+	if err := s.db.GetContext(ctx, &purchaseID, `SELECT purchase_id FROM purchase_items WHERE id = $1`, itemID); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrPurchaseItemNotFound
+		}
 		return nil, err
 	}
-
-	return &item, nil
+	items, err := s.repo.GetPurchaseItems(ctx, purchaseID)
+	if err != nil {
+		return nil, err
+	}
+	requests := purchaseItemsAsRequests(items)
+	found := false
+	for i := range requests {
+		if requests[i].ID != nil && *requests[i].ID == itemID {
+			req.ID = &itemID
+			requests[i] = *req
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, ErrPurchaseItemNotFound
+	}
+	response, err := s.UpdatePurchase(ctx, purchaseID, &PurchaseUpdateRequest{Items: requests})
+	if err != nil {
+		return nil, err
+	}
+	for i := range response.Items {
+		if response.Items[i].ID == itemID {
+			return &response.Items[i], nil
+		}
+	}
+	return nil, ErrPurchaseItemNotFound
 }
 
 // DeletePurchaseItem deletes a purchase item
 func (s *Service) DeletePurchaseItem(ctx context.Context, itemID uuid.UUID) error {
-	return s.repo.DeletePurchaseItem(ctx, itemID)
+	var purchaseID uuid.UUID
+	if err := s.db.GetContext(ctx, &purchaseID, `SELECT purchase_id FROM purchase_items WHERE id = $1`, itemID); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrPurchaseItemNotFound
+		}
+		return err
+	}
+	items, err := s.repo.GetPurchaseItems(ctx, purchaseID)
+	if err != nil {
+		return err
+	}
+	if len(items) <= 1 {
+		return ErrNoItems
+	}
+	requests := make([]PurchaseItemRequest, 0, len(items)-1)
+	for _, item := range items {
+		if item.ID != itemID {
+			requests = append(requests, purchaseItemAsRequest(item))
+		}
+	}
+	if len(requests) == len(items) {
+		return ErrPurchaseItemNotFound
+	}
+	_, err = s.UpdatePurchase(ctx, purchaseID, &PurchaseUpdateRequest{Items: requests})
+	return err
+}
+
+func purchaseItemsAsRequests(items []PurchaseItem) []PurchaseItemRequest {
+	requests := make([]PurchaseItemRequest, 0, len(items))
+	for _, item := range items {
+		requests = append(requests, purchaseItemAsRequest(item))
+	}
+	return requests
+}
+
+func purchaseItemAsRequest(item PurchaseItem) PurchaseItemRequest {
+	id := item.ID
+	return PurchaseItemRequest{
+		ID:           &id,
+		ProductID:    item.ProductID,
+		Barcode:      item.Barcode,
+		Quantity:     item.Quantity,
+		UnitCost:     item.UnitCost,
+		SellingPrice: item.SellingPrice,
+		CategoryID:   item.CategoryID,
+		SerialNumber: item.SerialNumber,
+		Condition:    item.Condition,
+		Grade:        item.Grade,
+		LocationID:   item.LocationID,
+		Notes:        item.Notes,
+	}
 }

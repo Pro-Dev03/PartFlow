@@ -104,6 +104,8 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 	}
 
 	requiresSupplierSource := strings.EqualFold(req.ItemConditionAfterReturn, "RETURN_TO_SUPPLIER")
+	saleItems := make(map[uuid.UUID]SaleItemInfo, len(req.Items))
+	requestedBySaleItem := make(map[uuid.UUID]int, len(req.Items))
 
 	// Reject duplicate or over-quantity returns before creating the parent
 	// record. The database trigger remains a final safety net.
@@ -116,11 +118,13 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 		if err != nil {
 			return nil, fmt.Errorf("failed to get sale item info: %w", err)
 		}
+		saleItems[*itemReq.SaleItemID] = saleItem
+		requestedBySaleItem[*itemReq.SaleItemID] += itemReq.QuantityReturned
 		returnedQty, err := s.repo.GetReturnedQuantity(ctx, *itemReq.SaleItemID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get returned quantity: %w", err)
 		}
-		if returnedQty+itemReq.QuantityReturned > saleItem.Quantity {
+		if returnedQty+requestedBySaleItem[*itemReq.SaleItemID] > saleItem.Quantity {
 			return nil, ErrInsufficientStock
 		}
 		if requiresSupplierSource {
@@ -159,12 +163,8 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 		returnRecord.DebtID = debtID
 	}
 
-	if err := s.repo.CreateReturn(ctx, returnRecord); err != nil {
-		return nil, fmt.Errorf("failed to create return: %w", err)
-	}
-
-	// Create return items
-	var items []ReturnItem
+	// Build and validate every item before opening the write transaction.
+	items := make([]ReturnItem, 0, len(req.Items))
 	var totalRefund float64
 
 	for _, itemReq := range req.Items {
@@ -172,10 +172,7 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 		var unitPrice float64
 		var originalQuantity *int
 		if itemReq.SaleItemID != nil && *itemReq.SaleItemID != uuid.Nil {
-			saleItem, err := s.repo.GetSaleItemInfo(ctx, *itemReq.SaleItemID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get sale item info: %w", err)
-			}
+			saleItem := saleItems[*itemReq.SaleItemID]
 			if itemReq.InventoryItemID == nil {
 				itemReq.InventoryItemID = saleItem.InventoryItemID
 			}
@@ -204,20 +201,12 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 
 		item := CreateReturnItem(returnRecord.ID, itemReq, unitPrice)
 		item.OriginalQuantity = originalQuantity
-		if err := s.repo.CreateReturnItem(ctx, item); err != nil {
-			return nil, fmt.Errorf("failed to create return item: %w", err)
-		}
 		items = append(items, *item)
 		totalRefund += item.TotalRefundAmount
 	}
 
-	// Update return with total refund amount
 	returnRecord.TotalRefundAmount = totalRefund
 	returnRecord.UpdatedAt = time.Now()
-	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
-		return nil, fmt.Errorf("failed to update return: %w", err)
-	}
-	dashboard.InvalidateDashboardCacheWithReason("return_created")
 
 	// Customer information is optional for walk-in sales.
 	var customer *CustomerInfo
@@ -227,6 +216,24 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 			return nil, fmt.Errorf("failed to get customer info: %w", err)
 		}
 	}
+
+	tx, err := s.repo.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin return transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if err := s.repo.CreateReturnTx(ctx, tx, returnRecord); err != nil {
+		return nil, fmt.Errorf("failed to create return: %w", err)
+	}
+	for index := range items {
+		if err := s.repo.CreateReturnItemTx(ctx, tx, &items[index]); err != nil {
+			return nil, fmt.Errorf("failed to create return item: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit return: %w", err)
+	}
+	dashboard.InvalidateDashboardCacheWithReason("return_created")
 
 	return returnRecord.ToReturnResponse(items, customer, sale), nil
 }
@@ -437,6 +444,9 @@ func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, req Ret
 	if err != nil {
 		return nil, err
 	}
+	if !returnCanEditItems(returnRecord.Status) {
+		return nil, ErrInvalidReturnStatus
+	}
 
 	// Get sale item info if provided
 	var unitPrice float64
@@ -451,6 +461,13 @@ func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, req Ret
 		if req.QuantityReturned > saleItem.Quantity {
 			return nil, ErrInsufficientStock
 		}
+		returnedQty, err := s.repo.GetReturnedQuantity(ctx, *req.SaleItemID)
+		if err != nil {
+			return nil, err
+		}
+		if returnedQty+req.QuantityReturned > saleItem.Quantity {
+			return nil, ErrInsufficientStock
+		}
 		quantity := saleItem.Quantity
 		originalQuantity = &quantity
 
@@ -463,15 +480,19 @@ func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, req Ret
 
 	item := CreateReturnItem(returnID, req, unitPrice)
 	item.OriginalQuantity = originalQuantity
-	if err := s.repo.CreateReturnItem(ctx, item); err != nil {
+	tx, err := s.repo.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin return item transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if err := s.repo.CreateReturnItemTx(ctx, tx, item); err != nil {
 		return nil, err
 	}
-
-	// Update return total refund amount
-	returnRecord.TotalRefundAmount += item.TotalRefundAmount
-	returnRecord.UpdatedAt = time.Now()
-	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
+	if err := s.recalculateReturnTotalTx(ctx, tx, returnID); err != nil {
 		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit return item: %w", err)
 	}
 	dashboard.InvalidateDashboardCacheWithReason("return_item_added")
 
@@ -492,16 +513,36 @@ func (s *Service) UpdateReturnItem(ctx context.Context, itemID uuid.UUID, req Re
 	if strings.EqualFold(parentReturn.Status, "COMPLETED") {
 		return nil, ErrReturnAlreadyCompleted
 	}
+	if !returnCanEditItems(parentReturn.Status) {
+		return nil, ErrInvalidReturnStatus
+	}
+	originalQuantity := item.QuantityReturned
+	originalUnitPrice := item.UnitPrice
 
 	// Update fields
 	if req.QuantityReturned > 0 {
 		item.QuantityReturned = req.QuantityReturned
+	}
+	if item.SaleItemID != nil && *item.SaleItemID != uuid.Nil {
+		saleItem, err := s.repo.GetSaleItemInfo(ctx, *item.SaleItemID)
+		if err != nil {
+			return nil, err
+		}
+		returnedQty, err := s.repo.GetReturnedQuantity(ctx, *item.SaleItemID)
+		if err != nil {
+			return nil, err
+		}
+		if returnedQty-originalQuantity+item.QuantityReturned > saleItem.Quantity {
+			return nil, ErrInsufficientStock
+		}
 	}
 	if req.UnitPrice > 0 {
 		item.UnitPrice = req.UnitPrice
 	}
 	if req.TotalRefundAmount > 0 {
 		item.TotalRefundAmount = req.TotalRefundAmount
+	} else if item.QuantityReturned != originalQuantity || item.UnitPrice != originalUnitPrice {
+		item.TotalRefundAmount = float64(item.QuantityReturned) * item.UnitPrice
 	}
 	if req.ReturnedCondition != "" {
 		item.ReturnedCondition = req.ReturnedCondition
@@ -520,8 +561,19 @@ func (s *Service) UpdateReturnItem(ctx context.Context, itemID uuid.UUID, req Re
 	}
 	item.UpdatedAt = time.Now()
 
-	if err := s.repo.UpdateReturnItem(ctx, item); err != nil {
+	tx, err := s.repo.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin return item transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if err := s.repo.UpdateReturnItemTx(ctx, tx, item); err != nil {
 		return nil, err
+	}
+	if err := s.recalculateReturnTotalTx(ctx, tx, item.ReturnID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit return item update: %w", err)
 	}
 	dashboard.InvalidateDashboardCacheWithReason("return_item_updated")
 
@@ -541,10 +593,57 @@ func (s *Service) DeleteReturnItem(ctx context.Context, itemID uuid.UUID) error 
 	if strings.EqualFold(parentReturn.Status, "COMPLETED") {
 		return ErrReturnAlreadyCompleted
 	}
-	if err := s.repo.DeleteReturnItem(ctx, itemID); err != nil {
+	if !returnCanEditItems(parentReturn.Status) {
+		return ErrInvalidReturnStatus
+	}
+	tx, err := s.repo.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin return item transaction: %w", err)
+	}
+	defer tx.Rollback()
+	returnIDArg := interface{}(item.ReturnID)
+	if dbutil.IsSQLite(s.repo.db) {
+		returnIDArg = item.ReturnID.String()
+	}
+	var itemCount int
+	if err := tx.GetContext(ctx, &itemCount, tx.Rebind(`SELECT COUNT(*) FROM return_items WHERE return_id = ?`), returnIDArg); err != nil {
+		return fmt.Errorf("failed to count return items: %w", err)
+	}
+	if itemCount <= 1 {
+		return ErrNoItems
+	}
+	if err := s.repo.DeleteReturnItemTx(ctx, tx, itemID); err != nil {
 		return err
 	}
+	if err := s.recalculateReturnTotalTx(ctx, tx, item.ReturnID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit return item deletion: %w", err)
+	}
 	dashboard.InvalidateDashboardCacheWithReason("return_item_deleted")
+	return nil
+}
+
+func returnCanEditItems(status string) bool {
+	status = strings.ToUpper(strings.TrimSpace(status))
+	return status == "PENDING" || status == "APPROVED"
+}
+
+func (s *Service) recalculateReturnTotalTx(ctx context.Context, tx *sqlx.Tx, returnID uuid.UUID) error {
+	returnIDArg := interface{}(returnID)
+	if dbutil.IsSQLite(s.repo.db) {
+		returnIDArg = returnID.String()
+	}
+	query := tx.Rebind(`UPDATE returns SET total_refund_amount = (SELECT COALESCE(SUM(total_refund_amount), 0) FROM return_items WHERE return_id = ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+	result, err := tx.ExecContext(ctx, query, returnIDArg, returnIDArg)
+	if err != nil {
+		return fmt.Errorf("failed to recalculate return total: %w", err)
+	}
+	affected, _ := result.RowsAffected()
+	if affected != 1 {
+		return ErrReturnNotFound
+	}
 	return nil
 }
 

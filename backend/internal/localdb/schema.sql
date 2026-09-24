@@ -181,6 +181,68 @@ CREATE TABLE IF NOT EXISTS debts (
     FOREIGN KEY (sale_id) REFERENCES sales(id)
 );
 
+CREATE TABLE IF NOT EXISTS customer_debts (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL,
+    amount REAL NOT NULL CHECK (amount > 0),
+    reference_id TEXT,
+    reference_type TEXT,
+    due_date TEXT NOT NULL,
+    is_paid INTEGER NOT NULL DEFAULT 0,
+    paid_amount REAL NOT NULL DEFAULT 0 CHECK (paid_amount >= 0 AND paid_amount <= amount),
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+CREATE TABLE IF NOT EXISTS supplier_debts (
+    id TEXT PRIMARY KEY,
+    supplier_id TEXT NOT NULL,
+    amount REAL NOT NULL CHECK (amount > 0),
+    reference_id TEXT,
+    reference_type TEXT,
+    due_date TEXT NOT NULL,
+    is_paid INTEGER NOT NULL DEFAULT 0,
+    paid_amount REAL NOT NULL DEFAULT 0 CHECK (paid_amount >= 0 AND paid_amount <= amount),
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+);
+
+CREATE TABLE IF NOT EXISTS debt_collections (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    notes TEXT,
+    scheduled_date TEXT NOT NULL,
+    completed_date TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+CREATE TABLE IF NOT EXISTS supplier_debt_collections (
+    id TEXT PRIMARY KEY,
+    supplier_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    notes TEXT,
+    scheduled_date TEXT NOT NULL,
+    completed_date TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_supplier_debts_supplier_due
+    ON supplier_debts(supplier_id, is_paid, due_date, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_customer_debts_customer_due
+    ON customer_debts(customer_id, is_paid, due_date, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_debt_collections_customer_schedule
+    ON debt_collections(customer_id, status, scheduled_date);
+
+CREATE INDEX IF NOT EXISTS idx_supplier_debt_collections_supplier_schedule
+    ON supplier_debt_collections(supplier_id, status, scheduled_date);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);

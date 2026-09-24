@@ -1,5 +1,5 @@
 import { app, BrowserWindow, shell, Tray, Menu, nativeImage, ipcMain, dialog } from 'electron';
-import { spawn, execSync } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,9 @@ app.commandLine.appendSwitch('in-process-gpu');
 app.disableHardwareAcceleration();
 
 app.name = 'PartFlow';
+// Pin Electron's persistent user-data location so database, image, log, and
+// offline-key paths remain stable across install directories and app updates.
+app.setPath('userData', path.join(app.getPath('appData'), 'PartFlow'));
 
 const appState = {
   tray: null,
@@ -25,36 +28,81 @@ const appState = {
   mainWindow: null,
   backendProcess: null,
   backendStarting: null,
+  backendEnv: null,
+  databaseOperation: false,
+  rendererRecoveryPromptOpen: false,
 };
 
 const backendPort = 8080;
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const window = appState.mainWindow;
+    if (!window) return;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  });
+}
+
+function getListeningBackendPids() {
+  if (process.platform !== 'win32') return new Set();
+
+  try {
+    const output = execFileSync('netstat.exe', ['-ano', '-p', 'tcp'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const pids = new Set();
+    for (const line of String(output).split(/\r?\n/)) {
+      const columns = line.trim().split(/\s+/);
+      if (
+        columns.length < 5 ||
+        columns[0].toUpperCase() !== 'TCP' ||
+        !columns[1].endsWith(`:${backendPort}`) ||
+        columns[3].toUpperCase() !== 'LISTENING' ||
+        !/^\d+$/.test(columns[4])
+      ) {
+        continue;
+      }
+      pids.add(columns[4]);
+    }
+    return pids;
+  } catch {
+    return new Set();
+  }
+}
+
+function getWindowsProcessExecutablePath(pid) {
+  try {
+    const command = `$process = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction SilentlyContinue; if ($process) { [Console]::Write($process.ExecutablePath) }`;
+    return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
+}
 
 function killExistingBackendProcesses() {
   if (process.platform !== 'win32') return;
 
-  try {
-    const output = execSync(`netstat -ano -p tcp | findstr :${backendPort}`, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    const pids = new Set();
-    for (const line of String(output).split(/\r?\n/)) {
-      const match = line.trim().match(/\s+(\d+)\s*$/);
-      if (match && match[1]) {
-        pids.add(match[1]);
-      }
+  const expectedBackendPath = path.win32.resolve(getBackendPath()).toLowerCase();
+  for (const pid of getListeningBackendPids()) {
+    const executablePath = getWindowsProcessExecutablePath(pid);
+    if (!executablePath || path.win32.resolve(executablePath).toLowerCase() !== expectedBackendPath) {
+      continue;
     }
 
-    for (const pid of pids) {
-      try {
-        execSync(`taskkill /PID ${pid} /F /T`, { stdio: 'ignore' });
-      } catch {
-        // Ignore failed process cleanup; the main backend start will fail fast if a port is still in use.
-      }
+    try {
+      execFileSync('taskkill.exe', ['/PID', pid, '/F', '/T'], { stdio: 'ignore' });
+    } catch {
+      // Ignore cleanup failures; startup will report if the PartFlow backend remains unavailable.
     }
-  } catch {
-    // netstat can fail if nothing is listening; this is safe to ignore.
   }
 }
 
@@ -66,7 +114,11 @@ function getBackendPath() {
 }
 
 function getLocalDatabasePath() {
-  return path.join(app.getPath('userData'), 'data', 'partflow.db');
+  return getUserDataPath('data', 'partflow.db');
+}
+
+function getUserDataPath(...segments) {
+  return path.join(app.getPath('userData'), ...segments);
 }
 
 function getBundledDatabasePath() {
@@ -76,26 +128,26 @@ function getBundledDatabasePath() {
 }
 
 function getProductImagesPath() {
-  return path.join(app.getPath('userData'), 'data', 'product-images');
+  return getUserDataPath('data', 'product-images');
 }
 
 function getPartTypeImagesPath() {
-  return path.join(app.getPath('userData'), 'data', 'part-type-images');
+  return getUserDataPath('data', 'part-type-images');
 }
 
 function getCategoryImagesPath() {
-  return path.join(app.getPath('userData'), 'data', 'category-images');
+  return getUserDataPath('data', 'category-images');
 }
 
 function getBackendLogPath() {
-  return path.join(app.getPath('userData'), 'logs', 'backend.log');
+  return getUserDataPath('logs', 'backend.log');
 }
 
 function getOfflineGrantPublicKey() {
   const fromEnvironment = String(process.env.PARTFLOW_OFFLINE_GRANT_PUBLIC_KEY || '').trim();
   if (fromEnvironment) return fromEnvironment;
   try {
-    return fs.readFileSync(path.join(app.getPath('userData'), 'offline-grant-public-key.txt'), 'utf8').trim();
+    return fs.readFileSync(getUserDataPath('offline-grant-public-key.txt'), 'utf8').trim();
   } catch {
     return '';
   }
@@ -246,6 +298,177 @@ ipcMain.handle('category-images:delete', async (_event, categoryId) => {
     if (error.code !== 'ENOENT') throw error;
   }
   return true;
+});
+
+function runBackendMaintenance(args) {
+  const backendPath = getBackendPath();
+  if (!fs.existsSync(backendPath)) throw new Error(`Backend executable not found: ${backendPath}`);
+  return execFileSync(backendPath, args, {
+    env: appState.backendEnv || { ...process.env, PARTFLOW_LOCAL_DB_PATH: getLocalDatabasePath() },
+    cwd: path.dirname(backendPath),
+    windowsHide: true,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 120_000,
+  }).trim();
+}
+
+async function stopBackendForDatabaseOperation() {
+  const backend = appState.backendProcess;
+  if (!backend || backend.exitCode !== null || backend.signalCode !== null) {
+    appState.backendProcess = null;
+    return;
+  }
+
+  const exited = new Promise((resolve) => {
+    backend.once('exit', resolve);
+    backend.once('error', resolve);
+  });
+  backend.kill('SIGTERM');
+  const timeout = new Promise((resolve) => setTimeout(resolve, 10_000));
+  await Promise.race([exited, timeout]);
+  if (backend.exitCode === null && backend.signalCode === null) {
+    backend.kill('SIGKILL');
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 2_000))]);
+  }
+  if (appState.backendProcess === backend) appState.backendProcess = null;
+}
+
+async function withStoppedBackend(operation) {
+  if (appState.databaseOperation) throw new Error('A database operation is already running');
+  appState.databaseOperation = true;
+  try {
+    await appState.backendStarting?.catch(() => {});
+    await stopBackendForDatabaseOperation();
+    return await operation();
+  } finally {
+    try {
+      await startBackend();
+    } finally {
+      appState.databaseOperation = false;
+    }
+  }
+}
+
+function timestampForFileName() {
+  return new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
+}
+
+function assertTrustedDatabaseRequest(event) {
+  if (!appState.mainWindow || event.sender !== appState.mainWindow.webContents) {
+    throw new Error('Database operation is not available to this renderer');
+  }
+  const senderUrl = event.senderFrame?.url || event.sender.getURL();
+  if (isDev) {
+    let parsed;
+    try {
+      parsed = new URL(senderUrl);
+    } catch {
+      throw new Error('Database operation is not available to this page');
+    }
+    if (parsed.protocol !== 'http:' || parsed.hostname !== 'localhost' || parsed.port !== '5174') {
+      throw new Error('Database operation is not available to this page');
+    }
+    return;
+  }
+  let senderPath;
+  try {
+    senderPath = path.resolve(fileURLToPath(senderUrl));
+  } catch {
+    throw new Error('Database operation is not available to this page');
+  }
+  const applicationPagePath = path.resolve(__dirname, '..', 'dist', 'index.html');
+  if (senderPath.toLowerCase() !== applicationPagePath.toLowerCase()) {
+    throw new Error('Database operation is not available to this page');
+  }
+}
+
+ipcMain.handle('database:backup', async (event) => {
+  assertTrustedDatabaseRequest(event);
+  const result = await dialog.showSaveDialog(appState.mainWindow, {
+    title: 'حفظ نسخة احتياطية من قاعدة البيانات',
+    defaultPath: path.join(app.getPath('documents'), `PartFlow-backup-${timestampForFileName()}.db`),
+    filters: [{ name: 'SQLite database', extensions: ['db', 'sqlite'] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+
+  await withStoppedBackend(async () => {
+    runBackendMaintenance(['--backup-local-database', result.filePath]);
+  });
+  return { canceled: false, filePath: result.filePath };
+});
+
+ipcMain.handle('database:restore', async (event) => {
+  assertTrustedDatabaseRequest(event);
+  const selection = await dialog.showOpenDialog(appState.mainWindow, {
+    title: 'اختيار نسخة PartFlow للاستعادة',
+    properties: ['openFile'],
+    filters: [{ name: 'SQLite database', extensions: ['db', 'sqlite'] }],
+  });
+  if (selection.canceled || selection.filePaths.length === 0) return { canceled: true };
+
+  const selectedPath = selection.filePaths[0];
+  runBackendMaintenance(['--validate-local-database', selectedPath]);
+  const confirmation = await dialog.showMessageBox(appState.mainWindow, {
+    type: 'warning',
+    title: 'تأكيد استعادة قاعدة البيانات',
+    message: 'سيتم استبدال بيانات المتجر الحالية بالنسخة المحددة.',
+    detail: 'سيُحفظ ملف استعادة تلقائي من قاعدة البيانات الحالية قبل الاستبدال.',
+    buttons: ['استعادة النسخة', 'إلغاء'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  if (confirmation.response !== 0) return { canceled: true };
+
+  const databasePath = getLocalDatabasePath();
+  const directory = path.dirname(databasePath);
+  const recoveryPath = path.join(directory, `partflow-before-restore-${timestampForFileName()}.db`);
+  const stagingPath = `${databasePath}.restore-${process.pid}-${Date.now()}`;
+  const displacedPath = `${databasePath}.previous-${process.pid}-${Date.now()}`;
+  let installed = false;
+
+  try {
+    await withStoppedBackend(async () => {
+      runBackendMaintenance(['--backup-local-database', recoveryPath]);
+      runBackendMaintenance(['--backup-database-file', selectedPath, stagingPath]);
+
+      for (const suffix of ['-wal', '-shm']) {
+        await fs.promises.rm(`${databasePath}${suffix}`, { force: true });
+      }
+      await fs.promises.rename(databasePath, displacedPath);
+      try {
+        await fs.promises.rename(stagingPath, databasePath);
+        installed = true;
+      } catch (error) {
+        await fs.promises.rename(displacedPath, databasePath);
+        throw error;
+      }
+    });
+  } catch (error) {
+    if (installed) {
+      try {
+        await stopBackendForDatabaseOperation();
+        for (const suffix of ['-wal', '-shm']) {
+          await fs.promises.rm(`${databasePath}${suffix}`, { force: true });
+        }
+        await fs.promises.rm(databasePath, { force: true });
+        await fs.promises.rename(displacedPath, databasePath);
+        await startBackend();
+      } catch (rollbackError) {
+        appendBackendLog(`database restore rollback failed: ${rollbackError.message}`);
+        throw new Error(`Restore failed and automatic rollback needs attention. Recovery copy: ${recoveryPath}. ${error.message}`);
+      }
+    }
+    throw error;
+  } finally {
+    await fs.promises.rm(stagingPath, { force: true }).catch(() => {});
+    if (installed && fs.existsSync(displacedPath)) {
+      await fs.promises.rm(displacedPath, { force: true }).catch(() => {});
+    }
+  }
+
+  return { canceled: false, recoveryPath };
 });
 
 function escapeInvoiceHtml(value) {
@@ -525,6 +748,7 @@ async function startBackend() {
       PARTFLOW_OFFLINE_GRANT_PUBLIC_KEY: getOfflineGrantPublicKey(),
       PARTFLOW_LOCAL_DB_PATH: getLocalDatabasePath(),
     };
+    appState.backendEnv = backendEnv;
     delete backendEnv.DATABASE_URL;
     delete backendEnv.DATABASE_URL_CLOUD;
 
@@ -532,21 +756,30 @@ async function startBackend() {
     if (!fs.existsSync(getLocalDatabasePath()) && fs.existsSync(getBundledDatabasePath())) {
       fs.copyFileSync(getBundledDatabasePath(), getLocalDatabasePath());
     }
-    appState.backendProcess = spawn(backendPath, [], {
+    const backendProcess = spawn(backendPath, [], {
       env: backendEnv,
       cwd: path.dirname(backendPath),
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    appState.backendProcess.stdout?.on('data', (chunk) => appendBackendLog(String(chunk).trimEnd()));
-    appState.backendProcess.stderr?.on('data', (chunk) => appendBackendLog(String(chunk).trimEnd()));
-    appState.backendProcess.once('error', (error) => appendBackendLog(`process error: ${error.message}`));
-    appState.backendProcess.once('exit', (code, signal) => {
+    appState.backendProcess = backendProcess;
+    backendProcess.stdout?.on('data', (chunk) => appendBackendLog(String(chunk).trimEnd()));
+    backendProcess.stderr?.on('data', (chunk) => appendBackendLog(String(chunk).trimEnd()));
+    backendProcess.once('error', (error) => appendBackendLog(`process error: ${error.message}`));
+    backendProcess.once('exit', (code, signal) => {
       appendBackendLog(`process exited: code=${code ?? 'null'} signal=${signal ?? 'null'}`);
       appState.backendProcess = null;
     });
 
-    if (!(await waitForBackend())) {
+    const isHealthy = await waitForBackend();
+    const ownsBackendPort =
+      process.platform !== 'win32' || getListeningBackendPids().has(String(backendProcess.pid));
+    const processIsRunning =
+      Boolean(backendProcess.pid) &&
+      backendProcess.exitCode === null &&
+      backendProcess.signalCode === null &&
+      appState.backendProcess === backendProcess;
+    if (!isHealthy || !ownsBackendPort || !processIsRunning) {
       appendBackendLog('health check timed out after backend start');
       stopBackend();
       throw new Error('تعذر تشغيل خدمة PartFlow المحلية.');
@@ -769,6 +1002,48 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    appendBackendLog(`renderer process exited: reason=${details.reason} exitCode=${details.exitCode}`);
+    if (appState.rendererRecoveryPromptOpen || mainWindow.isDestroyed()) return;
+    appState.rendererRecoveryPromptOpen = true;
+    void dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      title: 'توقفت واجهة PartFlow',
+      message: 'تعذر على نافذة المتجر الاستمرار.',
+      detail: 'أعد فتح الواجهة للمتابعة. قاعدة البيانات المحلية بقيت كما هي.',
+      buttons: ['إعادة فتح الواجهة', 'إغلاق البرنامج'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    }).then(({ response }) => {
+      appState.rendererRecoveryPromptOpen = false;
+      if (mainWindow.isDestroyed()) return;
+      if (response === 0) mainWindow.webContents.reload();
+      else mainWindow.close();
+    }).catch(() => {
+      appState.rendererRecoveryPromptOpen = false;
+    });
+  });
+
+  mainWindow.on('unresponsive', () => {
+    if (appState.rendererRecoveryPromptOpen || mainWindow.isDestroyed()) return;
+    appState.rendererRecoveryPromptOpen = true;
+    void dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'واجهة PartFlow لا تستجيب',
+      message: 'توقفت الواجهة عن الاستجابة.',
+      buttons: ['إعادة تحميل الواجهة', 'الانتظار'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    }).then(({ response }) => {
+      appState.rendererRecoveryPromptOpen = false;
+      if (response === 0 && !mainWindow.isDestroyed()) mainWindow.webContents.reload();
+    }).catch(() => {
+      appState.rendererRecoveryPromptOpen = false;
+    });
+  });
+
   mainWindow.on('ready-to-show', () => {
     if (appState.splashWindow && !appState.splashWindow.isDestroyed()) {
       setTimeout(() => {
@@ -789,12 +1064,29 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return;
   await fs.promises.mkdir(getProductImagesPath(), { recursive: true });
-  killExistingBackendProcesses();
-  try {
-    await startBackend();
-  } catch (error) {
-    console.error(error);
+  while (true) {
+    try {
+      await startBackend();
+      break;
+    } catch (error) {
+      console.error(error);
+      const { response } = await dialog.showMessageBox({
+        type: 'error',
+        title: 'تعذر تشغيل PartFlow',
+        message: 'لم تبدأ خدمة المتجر المحلية.',
+        detail: error instanceof Error ? error.message : String(error),
+        buttons: ['إعادة المحاولة', 'إنهاء البرنامج'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (response !== 0) {
+        app.quit();
+        return;
+      }
+    }
   }
   createSplashWindow();
 

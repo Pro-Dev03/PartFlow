@@ -1,4 +1,5 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
+import { getBrowserAuthHeaders } from './helpers/auth';
 
 const API_BASE_URL = process.env.E2E_API_BASE_URL ?? 'http://localhost:8080/api/v1';
 const hasLiveEnvironment = Boolean(
@@ -20,22 +21,20 @@ test.describe('Opening Stock supplier-less lifecycle', () => {
   }
 
   async function api<T = any>(page: Page, method: string, path: string, body?: unknown): Promise<T> {
-    return page.evaluate(async ({ apiBase, requestMethod, requestPath, requestBody }) => {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
-      const cloudToken = localStorage.getItem('cloud_token');
+    const authHeaders = await getBrowserAuthHeaders(page);
+    return page.evaluate(async ({ apiBase, requestMethod, requestPath, requestBody, authHeaders }) => {
       const response = await fetch(`${apiBase}${requestPath}`, {
         method: requestMethod,
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          ...(cloudToken ? { 'X-PartFlow-Cloud-Token': cloudToken } : {}),
+          ...authHeaders,
         },
         body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(`${requestMethod} ${requestPath} -> ${response.status}: ${JSON.stringify(payload)}`);
       return payload as T;
-    }, { apiBase: API_BASE_URL, requestMethod: method, requestPath: path, requestBody: body });
+    }, { apiBase: API_BASE_URL, requestMethod: method, requestPath: path, requestBody: body, authHeaders });
   }
 
   function data<T = any>(payload: any): T {

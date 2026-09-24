@@ -353,7 +353,11 @@ export function EditPurchasePage() {
 
     updatePurchaseMutation.mutate({ id: id || '', data: formData }, {
       onSuccess: (response) => {
-        const purchaseId = response?.data?.id;
+        const purchaseId =
+          response?.purchase?.id ||
+          response?.data?.purchase?.id ||
+          response?.data?.id ||
+          response?.id;
         if (purchaseId && receiveImmediately) {
           receivePurchaseMutation.mutate(purchaseId, {
             onSuccess: () => {
@@ -364,6 +368,10 @@ export function EditPurchasePage() {
             },
           });
         } else {
+          if (receiveImmediately && !purchaseId) {
+            toast.error('تم حفظ الشراء لكن تعذر تحديده للاستلام. أعد تحميل الصفحة وتحقق من حالته.');
+            return;
+          }
           queryClient.invalidateQueries({ queryKey: ['purchases'] });
           navigate('/app/purchases');
         }

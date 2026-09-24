@@ -700,11 +700,11 @@ func (h *LocalDatabaseHandler) ResolveSyncConflict(c *gin.Context) {
 	defer db.DB.Close()
 	conflict, err := localdb.GetSyncConflict(db.DB, conflictID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ØªØ¹Ø°Ø± Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„ØªØ¹Ø§Ø±Ø¶", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "تعذر قراءة التعارض", "details": err.Error()})
 		return
 	}
 	if conflict == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Ø§Ù„ØªØ¹Ø§Ø±Ø¶ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "التعارض غير موجود"})
 		return
 	}
 
@@ -713,24 +713,24 @@ func (h *LocalDatabaseHandler) ResolveSyncConflict(c *gin.Context) {
 	switch policy {
 	case "server_wins":
 		if err := h.applyCloudSnapshot(c, db.DB); err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "ÙØ´Ù„ ØªØ·Ø¨ÙŠÙ‚ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø®Ø§Ø¯Ù… Ø§Ù„Ø³Ø­Ø§Ø¨ÙŠ", "details": err.Error()})
+			c.JSON(http.StatusBadGateway, gin.H{"error": "فشل تطبيق بيانات الخادم السحابي", "details": err.Error()})
 			return
 		}
 	case "client_wins":
 		var payload map[string]any
 		if strings.TrimSpace(conflict["payload"]) == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Ø¨ÙŠØ§Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯ Ù„Ù„ØªØ¹Ø§Ø±Ø¶"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "بيان العميل غير موجود للتعارض"})
 			return
 		}
 		if err := json.Unmarshal([]byte(conflict["payload"]), &payload); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Ø¨ÙŠØ§Ù† Ø§Ù„ØªØ¹Ø§Ø±Ø¶ ØºÙŠØ± ØµØ§Ù„Ø­", "details": err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "بيان التعارض غير صالح", "details": err.Error()})
 			return
 		}
 		cloudSnapshotMu.Lock()
 		err = localdb.SeedLocalSnapshot(db.DB, map[string]any{conflict["entity_table"]: []any{payload}})
 		cloudSnapshotMu.Unlock()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªØ·Ø¨ÙŠÙ‚ ØªØºÙŠÙŠØ± Ø§Ù„Ø¹Ù…ÙŠÙ„ Ù…Ø­Ù„ÙŠØ§Ù‹", "details": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تطبيق تغيير العميل محليًا", "details": err.Error()})
 			return
 		}
 	case "manual_merge":
@@ -742,7 +742,7 @@ func (h *LocalDatabaseHandler) ResolveSyncConflict(c *gin.Context) {
 		err = localdb.SeedLocalSnapshot(db.DB, map[string]any{conflict["entity_table"]: []any{request.MergedData}})
 		cloudSnapshotMu.Unlock()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "ÙØ´Ù„ ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ø¯Ù…Ø¬ Ø§Ù„ÙŠØ¯ÙˆÙŠ", "details": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تطبيق الدمج اليدوي", "details": err.Error()})
 			return
 		}
 	}

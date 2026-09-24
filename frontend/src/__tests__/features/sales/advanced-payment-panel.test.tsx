@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PaymentMethod } from '../../../features/sales/types/pos.types'
 import { AdvancedPaymentPanel } from '../../../features/sales/components/modern/AdvancedPaymentPanel'
@@ -135,19 +135,30 @@ describe('AdvancedPaymentPanel numeric keypad', () => {
     renderPaymentPanel()
     await paymentInput()
 
-    fireEvent.click(keypadButton('غير مفعل'))
-    fireEvent.click(keypadButton('إضافة طريقة دفع'))
-    const splitInput = await screen.findByRole('textbox', { name: 'مبلغ الدفعة' })
-    await waitFor(() => expect(splitInput).toHaveValue('150.00'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    fireEvent.click(keypadButton('تقسيم الدفع'))
+    const splitDialog = screen.getByRole('dialog')
+    const splitKeypadButton = (name: string) => within(splitDialog).getByRole('button', { name })
 
-    fireEvent.click(keypadButton('مسح المبلغ'))
-    for (const digit of ['1', '0', '0']) fireEvent.click(keypadButton(digit))
-    expect(splitInput).toHaveValue('100')
-    expect(screen.getByText('المتبقي: ₪50')).toBeInTheDocument()
+    expect(splitDialog).toBeInTheDocument()
+    const firstSplitInput = within(splitDialog).getByRole('textbox', { name: 'مبلغ طريقة الدفع 1' })
+    fireEvent.focus(firstSplitInput)
+    await waitFor(() => expect(firstSplitInput).toHaveValue('150.00'))
 
-    fireEvent.click(keypadButton('إضافة طريقة دفع'))
-    for (const digit of ['5', '0']) fireEvent.click(keypadButton(digit))
-    expect(screen.getByText('المبلغ المقسم: ₪150')).toBeInTheDocument()
+    fireEvent.click(splitKeypadButton('مسح المبلغ'))
+    for (const digit of ['1', '0', '0']) fireEvent.click(splitKeypadButton(digit))
+    expect(firstSplitInput).toHaveValue('100')
+    expect(within(splitDialog).getByText('المبلغ المتبقي').parentElement).toHaveTextContent('₪50')
+
+    fireEvent.click(within(splitDialog).getByRole('button', { name: 'إضافة طريقة دفع' }))
+    const secondSplitInput = within(splitDialog).getByRole('textbox', { name: 'مبلغ طريقة الدفع 2' })
+    expect(secondSplitInput).toHaveValue('50.00')
+    fireEvent.click(splitKeypadButton('مسح المبلغ'))
+    for (const digit of ['5', '0']) fireEvent.click(splitKeypadButton(digit))
+    expect(within(splitDialog).getByText('المبلغ الموزع').parentElement).toHaveTextContent('₪150')
+    fireEvent.click(within(splitDialog).getByRole('button', { name: 'تأكيد التقسيم' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByLabelText('ملخص تقسيم الدفع')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /إتمام البيع/ })).toBeEnabled()
   })
 

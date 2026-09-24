@@ -26,17 +26,54 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 // Create creates a new customer
 func (r *Repository) Create(ctx context.Context, customer *Customer) error {
-	query := `
-		INSERT INTO customers (id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-	`
-	_, err := r.db.ExecContext(ctx, query,
-		customer.ID, customer.Code, customer.Name, customer.Email, customer.Phone, customer.Address, customer.City,
-		customer.Country, customer.TaxID, customer.CreditLimit, customer.CurrentBalance,
-		customer.Notes, customer.IsActive, customer.CreatedAt, customer.UpdatedAt,
-	)
+	return r.CreateWithOpeningDebt(ctx, customer, 0)
+}
+
+// CreateWithOpeningDebt inserts a customer and its opening balance as one
+// transaction so a failed opening-debt write cannot leave a partial account.
+func (r *Repository) CreateWithOpeningDebt(ctx context.Context, customer *Customer, openingDebt float64) error {
+	if openingDebt < 0 {
+		return ErrPaymentAmountInvalid
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("begin customer creation: %w", err)
+	}
+	defer tx.Rollback()
+
+	query := `INSERT INTO customers (id, code, name, email, phone, address, city, country, tax_id, credit_limit, current_balance, notes, is_active, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	if _, err := tx.ExecContext(ctx, tx.Rebind(query), customer.ID, customer.Code, customer.Name, customer.Email, customer.Phone, customer.Address, customer.City,
+		customer.Country, customer.TaxID, customer.CreditLimit, customer.CurrentBalance, customer.Notes, customer.IsActive, customer.CreatedAt, customer.UpdatedAt); err != nil {
 		return fmt.Errorf("failed to create customer: %w", err)
+	}
+
+	if openingDebt > 0 {
+		now := time.Now().UTC()
+		debtID := uuid.New()
+		if dbutil.IsSQLite(r.db) {
+			if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO debts (id, customer_id, sale_id, amount, paid_amount, remaining_amount, due_date, status, notes, created_at, updated_at) VALUES (?, ?, NULL, ?, 0, ?, ?, 'pending', ?, ?, ?)`), debtID.String(), customer.ID.String(), openingDebt, openingDebt, now, "opening_debt", now, now); err != nil {
+				return fmt.Errorf("create local opening debt entry: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'debit', 'SALE', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + ?, ?, NULL, ?`), uuid.New().String(), customer.ID.String(), openingDebt, customer.ID.String(), openingDebt, "\u062F\u064A\u0646 \u0633\u0627\u0628\u0642 \u0642\u0628\u0644 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0627\u0644\u0646\u0638\u0627\u0645", now); err != nil {
+				return fmt.Errorf("create local opening debt ledger entry: %w", err)
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_debts (id, customer_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at) VALUES (?, ?, ?, NULL, 'opening_debt', ?, FALSE, 0, ?)`), debtID, customer.ID, openingDebt, now, now); err != nil {
+				return fmt.Errorf("create opening debt entry: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'debit', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + ?, ?, NULL, ?`), uuid.New(), customer.ID, openingDebt, customer.ID, openingDebt, "\u062F\u064A\u0646 \u0633\u0627\u0628\u0642 \u0642\u0628\u0644 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0627\u0644\u0646\u0638\u0627\u0645", now); err != nil {
+				return fmt.Errorf("create opening debt ledger entry: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE customers SET current_balance = ? WHERE id = ?`), openingDebt, customer.ID); err != nil {
+			return fmt.Errorf("set opening customer balance: %w", err)
+		}
+		customer.CurrentBalance = openingDebt
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit customer creation: %w", err)
 	}
 	return nil
 }
@@ -506,84 +543,19 @@ func (r *Repository) Update(ctx context.Context, customer *Customer) error {
 	return nil
 }
 
-// Delete deletes a customer and all related rows so no foreign-key conflict remains.
+// Delete archives a customer while preserving the financial and operational
+// history that references it. Historical sales, payments, debts, returns, and
+// ledger entries must remain available for reconciliation and audit reports.
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
+	query := fmt.Sprintf(`UPDATE customers SET is_active = FALSE, updated_at = %s WHERE id = $1`, dbutil.NowSQL(r.db))
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
-		return fmt.Errorf("failed to begin delete transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	deleteQueries := []string{
-		`DELETE FROM return_payment_refunds WHERE return_id IN (SELECT id FROM returns WHERE customer_id = $1)`,
-		`DELETE FROM payment_refunds WHERE payment_transaction_id IN (
-			SELECT id FROM payment_transactions
-			WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1)
-			OR payment_id IN (SELECT id FROM payments WHERE customer_id = $1)
-		)`,
-		`DELETE FROM payment_webhook_events WHERE payment_transaction_id IN (
-			SELECT id FROM payment_transactions
-			WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1)
-			OR payment_id IN (SELECT id FROM payments WHERE customer_id = $1)
-		)`,
-		`DELETE FROM payment_transactions WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1) OR payment_id IN (SELECT id FROM payments WHERE customer_id = $1)`,
-		`DELETE FROM sale_payment_allocations WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1)`,
-		`DELETE FROM supplier_return_items
-			WHERE supplier_return_id IN (
-				SELECT sr.id
-				FROM supplier_returns sr
-				WHERE sr.customer_return_id IN (SELECT id FROM returns WHERE customer_id = $1)
-				   OR sr.sale_id IN (SELECT id FROM sales WHERE customer_id = $1)
-			)
-			OR customer_return_id IN (SELECT id FROM returns WHERE customer_id = $1)
-			OR sale_id IN (SELECT id FROM sales WHERE customer_id = $1)
-			OR sale_item_id IN (SELECT id FROM sale_items WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1))`,
-		`DELETE FROM supplier_returns
-			WHERE id IN (
-				SELECT sri.supplier_return_id
-				FROM supplier_return_items sri
-				WHERE sri.customer_return_id IN (SELECT id FROM returns WHERE customer_id = $1)
-				   OR sri.sale_id IN (SELECT id FROM sales WHERE customer_id = $1)
-			)
-			OR customer_return_id IN (SELECT id FROM returns WHERE customer_id = $1)
-			OR sale_id IN (SELECT id FROM sales WHERE customer_id = $1)`,
-		`DELETE FROM return_items WHERE return_id IN (SELECT id FROM returns WHERE customer_id = $1)`,
-		`DELETE FROM sale_items WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = $1)`,
-		`DELETE FROM returns WHERE customer_id = $1`,
-		`DELETE FROM warranty_claims WHERE customer_id = $1`,
-		`DELETE FROM debt_collections WHERE customer_id = $1`,
-		`DELETE FROM customer_payments WHERE customer_id = $1`,
-		`DELETE FROM customer_ledger WHERE customer_id = $1`,
-		`DELETE FROM customer_debts WHERE customer_id = $1`,
-		`DELETE FROM debts WHERE customer_id = $1`,
-		`DELETE FROM payments WHERE customer_id = $1`,
-		`DELETE FROM sales WHERE customer_id = $1`,
-		`DELETE FROM reservations WHERE customer_id = $1`,
-		`DELETE FROM inventory_items WHERE customer_id = $1`,
-		`DELETE FROM trade_ins WHERE customer_id = $1`,
-		`DELETE FROM acquisitions WHERE customer_id = $1`,
-		`DELETE FROM seller_payments WHERE customer_id = $1`,
-	}
-
-	for i, query := range deleteQueries {
-		if _, err := tx.ExecContext(ctx, query, id); err != nil {
-			fmt.Printf("DELETE QUERY %d FAILED: %s\nERR: %v\n", i, query, err)
-			return fmt.Errorf("failed to clean customer dependencies: %w", err)
-		}
-	}
-
-	result, err := tx.ExecContext(ctx, `DELETE FROM customers WHERE id = $1`, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete customer: %w", err)
+		return fmt.Errorf("failed to archive customer: %w", err)
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		return ErrCustomerNotFound
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit customer delete: %w", err)
 	}
 
 	return nil
@@ -781,46 +753,175 @@ func (r *Repository) GetFinancialTimeline(ctx context.Context, customerID uuid.U
 
 // AddPayment adds a payment to customer ledger
 func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) error {
+	return r.RecordPaymentTransaction(ctx, payment, false)
+}
+
+// RecordPaymentTransaction commits the payment, customer ledger, debt allocation,
+// and denormalized customer balance as one operation. strictDebtCoverage is used
+// by explicit debt collection so concurrent collections cannot over-allocate.
+func (r *Repository) RecordPaymentTransaction(ctx context.Context, payment *PaymentResponse, strictDebtCoverage bool) error {
+	if payment.Amount <= 0 {
+		return ErrPaymentAmountInvalid
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin customer payment transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	lock := ""
+	if !dbutil.IsSQLite(r.db) {
+		lock = " FOR UPDATE"
+	}
+	var currentBalance float64
+	if err := tx.GetContext(ctx, &currentBalance, tx.Rebind(`SELECT COALESCE(current_balance, 0) FROM customers WHERE id = ?`)+lock, payment.CustomerID.String()); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrCustomerNotFound
+		}
+		return fmt.Errorf("lock customer balance: %w", err)
+	}
+	if payment.Amount > currentBalance+0.000001 {
+		return ErrPaymentExceedsBalance
+	}
+
+	if payment.Reference != nil && strings.TrimSpace(*payment.Reference) != "" {
+		column := "reference_number"
+		if dbutil.IsSQLite(r.db) {
+			column = "reference"
+		}
+		var duplicate bool
+		if err := tx.GetContext(ctx, &duplicate, tx.Rebind(`SELECT EXISTS (SELECT 1 FROM payments WHERE customer_id = ? AND `+column+` = ?)`), payment.CustomerID.String(), strings.TrimSpace(*payment.Reference)); err != nil {
+			return fmt.Errorf("check duplicate customer payment reference: %w", err)
+		}
+		if duplicate {
+			return ErrPaymentDuplicate
+		}
+	}
+
+	type debtRow struct {
+		ID     string  `db:"id"`
+		Amount float64 `db:"amount"`
+		Paid   float64 `db:"paid_amount"`
+	}
+	var debts []debtRow
+	usesSalesDebts := dbutil.IsSQLite(r.db) || !strictDebtCoverage
+	debtQuery := `SELECT id, amount, COALESCE(paid_amount, 0) AS paid_amount FROM customer_debts
+		WHERE customer_id = ? AND COALESCE(is_paid, FALSE) = FALSE AND amount > COALESCE(paid_amount, 0)
+		ORDER BY due_date, created_at, id`
 	if dbutil.IsSQLite(r.db) {
-		method := payment.Method
-		ref := payment.Reference
-		_, err := r.db.ExecContext(ctx, `INSERT INTO payments (id, transaction_number, customer_id, amount, payment_method, reference, notes, payment_date, created_at, updated_at, payment_status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, 'completed')`, payment.ID, "PAY-"+payment.ID.String()[:8], payment.CustomerID, payment.Amount, method, ref, payment.Notes, payment.PaymentDate, payment.CreatedAt)
-		if err != nil {
+		debtQuery = `SELECT id, amount, COALESCE(paid_amount, 0) AS paid_amount FROM debts
+			WHERE customer_id = ? AND COALESCE(status, 'pending') IN ('pending', 'partial', 'overdue')
+			AND amount > COALESCE(paid_amount, 0)
+			ORDER BY due_date, created_at, id`
+	} else if !strictDebtCoverage {
+		// Ordinary account payments have historically been applied to POS sale
+		// debts, which live in `debts`; explicit debt collection uses
+		// `customer_debts` on PostgreSQL.
+		debtQuery = `SELECT id, amount, COALESCE(paid_amount, 0) AS paid_amount FROM debts
+			WHERE customer_id = ? AND COALESCE(status, 'pending') IN ('pending', 'partial', 'overdue')
+			AND amount > COALESCE(paid_amount, 0)
+			ORDER BY due_date, created_at, id`
+	}
+	if !dbutil.IsSQLite(r.db) {
+		debtQuery += ` FOR UPDATE`
+	}
+	if err := tx.SelectContext(ctx, &debts, tx.Rebind(debtQuery), payment.CustomerID.String()); err != nil {
+		return fmt.Errorf("load customer debts for payment: %w", err)
+	}
+	var outstanding float64
+	for _, debt := range debts {
+		if remaining := debt.Amount - debt.Paid; remaining > 0 {
+			outstanding += remaining
+		}
+	}
+	if strictDebtCoverage && payment.Amount > outstanding+0.000001 {
+		return ErrPaymentExceedsBalance
+	}
+
+	if err := r.insertPaymentAndLedgerTx(ctx, tx, payment); err != nil {
+		return err
+	}
+	remainingPayment := payment.Amount
+	for _, debt := range debts {
+		debtRemaining := debt.Amount - debt.Paid
+		if debtRemaining <= 0 || remainingPayment <= 0.000001 {
+			continue
+		}
+		applied := debtRemaining
+		if applied > remainingPayment {
+			applied = remainingPayment
+		}
+		paid := debt.Paid + applied
+		remaining := debt.Amount - paid
+		var update string
+		if usesSalesDebts {
+			status := "partial"
+			if remaining <= 0.000001 {
+				status = "paid"
+				remaining = 0
+				paid = debt.Amount
+			}
+			update = `UPDATE debts SET paid_amount = ?, remaining_amount = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND customer_id = ?`
+			result, err := tx.ExecContext(ctx, tx.Rebind(update), paid, remaining, status, debt.ID, payment.CustomerID.String())
+			if err != nil {
+				return fmt.Errorf("allocate customer payment to debt: %w", err)
+			}
+			if affected, _ := result.RowsAffected(); affected != 1 {
+				return fmt.Errorf("customer debt changed during payment allocation")
+			}
+		} else {
+			isPaid := remaining <= 0.000001
+			if isPaid {
+				remaining = 0
+				paid = debt.Amount
+			}
+			update = `UPDATE customer_debts SET paid_amount = ?, is_paid = ? WHERE id = ? AND customer_id = ?`
+			result, err := tx.ExecContext(ctx, tx.Rebind(update), paid, isPaid, debt.ID, payment.CustomerID.String())
+			if err != nil {
+				return fmt.Errorf("allocate customer payment to debt: %w", err)
+			}
+			if affected, _ := result.RowsAffected(); affected != 1 {
+				return fmt.Errorf("customer debt changed during payment allocation")
+			}
+		}
+		remainingPayment -= applied
+	}
+
+	updateBalance := fmt.Sprintf(`UPDATE customers SET current_balance = COALESCE(current_balance, 0) - ?, updated_at = %s WHERE id = ? AND COALESCE(current_balance, 0) >= ?`, dbutil.NowSQL(r.db))
+	result, err := tx.ExecContext(ctx, tx.Rebind(updateBalance), payment.Amount, payment.CustomerID.String(), payment.Amount)
+	if err != nil {
+		return fmt.Errorf("update customer balance for payment: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return ErrPaymentExceedsBalance
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit customer payment transaction: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) insertPaymentAndLedgerTx(ctx context.Context, tx *sqlx.Tx, payment *PaymentResponse) error {
+	paymentNumber := "PAY-" + payment.ID.String()[:8]
+	if dbutil.IsSQLite(r.db) {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO payments (id, transaction_number, customer_id, amount, payment_method, reference, notes, payment_date, created_at, updated_at, payment_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed')`), payment.ID.String(), paymentNumber, payment.CustomerID.String(), payment.Amount, payment.Method, payment.Reference, payment.Notes, payment.PaymentDate, payment.CreatedAt, payment.CreatedAt); err != nil {
 			return fmt.Errorf("failed to add payment: %w", err)
 		}
-		_, err = r.db.ExecContext(ctx, `INSERT INTO customer_ledger (id, customer_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT $1, $2, 'credit', 'PAYMENT', $3, COALESCE((SELECT balance FROM customer_ledger WHERE customer_id = $2 ORDER BY created_at DESC LIMIT 1), 0) - $3, $4, $5, $6`, uuid.New(), payment.CustomerID, payment.Amount, "Payment: "+method, payment.ID, payment.CreatedAt)
-		if err != nil {
-			return fmt.Errorf("failed to add ledger entry: %w", err)
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'credit', 'PAYMENT', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) - ?, ?, ?, ?`), uuid.New().String(), payment.CustomerID.String(), payment.Amount, payment.CustomerID.String(), payment.Amount, "Payment: "+payment.Method, payment.ID.String(), payment.CreatedAt); err != nil {
+			return fmt.Errorf("failed to add customer ledger entry: %w", err)
 		}
 		return nil
 	}
-	query := `
-		INSERT INTO payments (id, reference_number, customer_id, amount, payment_method, payment_date, notes, created_at, updated_at, payment_status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, 'completed')
-	`
-	_, err := r.db.ExecContext(ctx, query,
-		payment.ID, "PAY-"+payment.ID.String()[:8], payment.CustomerID, payment.Amount,
-		payment.Method, payment.PaymentDate, payment.Notes, payment.CreatedAt,
-	)
-	if err != nil {
+	referenceNumber := paymentNumber
+	if payment.Reference != nil && strings.TrimSpace(*payment.Reference) != "" {
+		referenceNumber = strings.TrimSpace(*payment.Reference)
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO payments (id, reference_number, customer_id, amount, payment_method, payment_date, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`), payment.ID, referenceNumber, payment.CustomerID, payment.Amount, payment.Method, payment.PaymentDate, payment.Notes, payment.CreatedAt, payment.CreatedAt); err != nil {
 		return fmt.Errorf("failed to add payment: %w", err)
 	}
-
-	// Add to ledger
-	ledgerQuery := `
-		INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at)
-		SELECT $1, $2, 'credit', $3, 
-			(SELECT COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0) FROM customer_ledger WHERE customer_id = $2) - $3,
-			$4, $5, $6
-	`
-	_, err = r.db.ExecContext(ctx, ledgerQuery,
-		uuid.New(), payment.CustomerID, payment.Amount,
-		"Payment: "+payment.Method, payment.ID, payment.CreatedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to add ledger entry: %w", err)
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'credit', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) - ?, ?, ?, ?`), uuid.New(), payment.CustomerID, payment.Amount, payment.CustomerID, payment.Amount, "Payment: "+payment.Method, payment.ID, payment.CreatedAt); err != nil {
+		return fmt.Errorf("failed to add customer ledger entry: %w", err)
 	}
-
 	return nil
 }
 
@@ -898,6 +999,119 @@ func (r *Repository) CreateDebtEntry(ctx context.Context, debt *DebtEntry) error
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create debt entry: %w", err)
+	}
+	return nil
+}
+
+// RecordDebtEntryTransaction writes the debt entry, customer ledger debit, and
+// customer balance together so a failed step cannot leave accounting drift.
+func (r *Repository) RecordDebtEntryTransaction(ctx context.Context, debt *DebtEntry, description string, enforceCreditLimit bool) error {
+	if debt.Amount <= 0 {
+		return ErrPaymentAmountInvalid
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin customer debt transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	lock := ""
+	if !dbutil.IsSQLite(r.db) {
+		lock = " FOR UPDATE"
+	}
+	var balance, creditLimit float64
+	if err := tx.QueryRowxContext(ctx, tx.Rebind(`SELECT COALESCE(current_balance, 0), COALESCE(credit_limit, 0) FROM customers WHERE id = ?`)+lock, debt.CustomerID.String()).Scan(&balance, &creditLimit); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrCustomerNotFound
+		}
+		return fmt.Errorf("lock customer debt balance: %w", err)
+	}
+	if enforceCreditLimit && balance+debt.Amount > creditLimit+0.000001 {
+		return ErrCreditLimitExceeded
+	}
+
+	if dbutil.IsSQLite(r.db) {
+		status := "pending"
+		if debt.IsPaid {
+			status = "paid"
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO debts (id, customer_id, sale_id, amount, paid_amount, remaining_amount, due_date, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`), debt.ID.String(), debt.CustomerID.String(), nullableUUID(debt.ReferenceID), debt.Amount, debt.PaidAmount, debt.Amount-debt.PaidAmount, debt.DueDate, status, debt.ReferenceType, debt.CreatedAt, debt.CreatedAt); err != nil {
+			return fmt.Errorf("create local customer debt entry: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'debit', 'SALE', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + ?, ?, ?, ?`), uuid.New().String(), debt.CustomerID.String(), debt.Amount, debt.CustomerID.String(), debt.Amount, description, nullableUUID(debt.ReferenceID), debt.CreatedAt); err != nil {
+			return fmt.Errorf("create customer debt ledger entry: %w", err)
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_debts (id, customer_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`), debt.ID, debt.CustomerID, debt.Amount, nullableUUID(debt.ReferenceID), debt.ReferenceType, debt.DueDate, debt.IsPaid, debt.PaidAmount, debt.CreatedAt); err != nil {
+			return fmt.Errorf("create customer debt entry: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'debit', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + ?, ?, ?, ?`), uuid.New(), debt.CustomerID, debt.Amount, debt.CustomerID, debt.Amount, description, nullableUUID(debt.ReferenceID), debt.CreatedAt); err != nil {
+			return fmt.Errorf("create customer debt ledger entry: %w", err)
+		}
+	}
+
+	updateBalance := fmt.Sprintf(`UPDATE customers SET current_balance = COALESCE(current_balance, 0) + ?, updated_at = %s WHERE id = ?`, dbutil.NowSQL(r.db))
+	result, err := tx.ExecContext(ctx, tx.Rebind(updateBalance), debt.Amount, debt.CustomerID.String())
+	if err != nil {
+		return fmt.Errorf("update customer balance for debt: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return ErrCustomerNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit customer debt transaction: %w", err)
+	}
+	return nil
+}
+
+// RecordAccountDebtTransaction atomically records an account debit and balance
+// increase for debt paths that intentionally do not create a debt-row record.
+func (r *Repository) RecordAccountDebtTransaction(ctx context.Context, customerID uuid.UUID, amount float64, description string, referenceID uuid.UUID) error {
+	if amount <= 0 {
+		return ErrPaymentAmountInvalid
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin customer account-debt transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	lock := ""
+	if !dbutil.IsSQLite(r.db) {
+		lock = " FOR UPDATE"
+	}
+	var balance, creditLimit float64
+	if err := tx.QueryRowxContext(ctx, tx.Rebind(`SELECT COALESCE(current_balance, 0), COALESCE(credit_limit, 0) FROM customers WHERE id = ?`)+lock, customerID.String()).Scan(&balance, &creditLimit); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrCustomerNotFound
+		}
+		return fmt.Errorf("lock customer account-debt balance: %w", err)
+	}
+	if balance+amount > creditLimit+0.000001 {
+		return ErrCreditLimitExceeded
+	}
+	insert := `INSERT INTO customer_ledger (id, customer_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'debit', 'SALE', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + ?, ?, ?, ?`
+	if dbutil.IsSQLite(r.db) {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(insert), uuid.New().String(), customerID.String(), amount, customerID.String(), amount, description, nullableUUID(referenceID), time.Now().UTC()); err != nil {
+			return fmt.Errorf("record customer account-debt ledger: %w", err)
+		}
+	} else {
+		insert = `INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'debit', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + ?, ?, ?, ?`
+		if _, err := tx.ExecContext(ctx, tx.Rebind(insert), uuid.New(), customerID, amount, customerID, amount, description, nullableUUID(referenceID), time.Now().UTC()); err != nil {
+			return fmt.Errorf("record customer account-debt ledger: %w", err)
+		}
+	}
+
+	update := fmt.Sprintf(`UPDATE customers SET current_balance = COALESCE(current_balance, 0) + ?, updated_at = %s WHERE id = ?`, dbutil.NowSQL(r.db))
+	result, err := tx.ExecContext(ctx, tx.Rebind(update), amount, customerID.String())
+	if err != nil {
+		return fmt.Errorf("update customer account-debt balance: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return ErrCustomerNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit customer account-debt transaction: %w", err)
 	}
 	return nil
 }

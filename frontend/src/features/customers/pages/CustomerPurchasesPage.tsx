@@ -177,7 +177,7 @@ export function CustomerPurchasesPage() {
                 <h2 className="flex items-center gap-2 text-lg font-bold text-text-primary"><FileText className="h-5 w-5 text-primary" /> فواتير العميل</h2>
                 <span className="rounded-full border border-primary/20 bg-primary/8 px-2.5 py-1 text-xs font-semibold text-primary">{total} فاتورة</span>
               </div>
-              <p className="mt-2 max-w-xl text-sm text-text-muted">افتح أي فاتورة لمراجعة المنتجات والمدفوعات والتفاصيل.</p>
+              <p className="mt-2 max-w-[36rem] text-sm text-text-muted">افتح أي فاتورة لمراجعة المنتجات والمدفوعات والتفاصيل.</p>
             </div>
             <div className="relative w-full md:w-80 md:max-w-[40%]">
               <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />

@@ -58,7 +58,7 @@ export function CheckoutFlow({ cart, total, onComplete, onCancel }: CheckoutFlow
 
   if (step === 'success') {
     return (
-      <Card className="w-full max-w-md mx-auto">
+      <Card className="w-full max-w-[28rem] mx-auto">
         <CardContent className="p-8 text-center">
           <div className="w-16 h-16 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="w-5 h-5 text-green-600" />
@@ -79,7 +79,7 @@ export function CheckoutFlow({ cart, total, onComplete, onCancel }: CheckoutFlow
 
   if (step === 'processing') {
     return (
-      <Card className="w-full max-w-md mx-auto">
+      <Card className="w-full max-w-[28rem] mx-auto">
         <CardContent className="p-8 text-center">
           <Loader2 className="w-12 h-12 animate-spin text-primary-600 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">
@@ -95,7 +95,7 @@ export function CheckoutFlow({ cart, total, onComplete, onCancel }: CheckoutFlow
 
   if (step === 'confirm') {
     return (
-      <Card className="w-full max-w-md mx-auto">
+      <Card className="w-full max-w-[28rem] mx-auto">
         <CardContent className="p-6">
           <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-6">
             تأكيد العملية
@@ -146,7 +146,7 @@ export function CheckoutFlow({ cart, total, onComplete, onCancel }: CheckoutFlow
   }
 
   return (
-    <Card className="w-full max-w-md mx-auto">
+    <Card className="w-full max-w-[28rem] mx-auto">
       <CardContent className="p-6">
         <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-6">
           إتمام الدفع

@@ -279,8 +279,12 @@ class ApiClient {
         throw error;
       }
 
-      // Check if error is retryable
-      if (isRetryableError(error) && retryCount < MAX_RETRIES) {
+      // A write may already have committed when the response is lost or the
+      // server returns 5xx. Retrying it can create duplicate sales, payments,
+      // or other business records, so automatic retries are limited to reads.
+      const method = String(options.method || 'GET').toUpperCase();
+      const isReadOnlyRequest = method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
+      if (isReadOnlyRequest && isRetryableError(error) && retryCount < MAX_RETRIES) {
         console.log(`Retrying request (${retryCount + 1}/${MAX_RETRIES})...`);
         await this.sleep(RETRY_DELAY * (retryCount + 1)); // Exponential backoff
         return this.requestWithRetry<T>(endpoint, options, retryCount + 1);

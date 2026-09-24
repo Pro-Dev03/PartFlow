@@ -67,7 +67,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
       return (
         <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900 p-4">
-          <Card className="max-w-md w-full">
+          <Card className="max-w-[28rem] w-full">
             <CardContent className="p-6 text-center">
               <AlertTriangle className="w-16 h-16 text-red-500 mx-auto mb-4" />
               <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">

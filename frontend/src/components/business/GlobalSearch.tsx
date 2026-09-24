@@ -107,7 +107,7 @@ export function GlobalSearch() {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 px-4">
       <div className="absolute inset-0 bg-black/50" onClick={() => setIsOpen(false)} />
-      <Card className="relative w-full max-w-2xl max-h-[600px] overflow-hidden">
+      <Card className="relative w-full max-w-[42rem] max-h-[600px] overflow-hidden">
         <CardContent className="p-0">
           {/* Search Input */}
           <div className="flex items-center border-b border-gray-200 dark:border-gray-700 p-4">

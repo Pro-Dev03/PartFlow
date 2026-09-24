@@ -24,7 +24,7 @@ export default function SubscriptionExpiredPage() {
   return (
     <div dir="rtl" className="min-h-screen flex items-center justify-center px-4" style={{ background: 'var(--bg-background)' }}>
       <div
-        className="w-full max-w-xl rounded-2xl border"
+        className="w-full max-w-[36rem] rounded-2xl border"
         style={{
           background: 'var(--bg-surface)',
           borderColor: 'var(--border-color)',

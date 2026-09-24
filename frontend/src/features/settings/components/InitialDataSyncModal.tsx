@@ -39,7 +39,7 @@ export function InitialDataSyncModal({ isOpen, onComplete, userId }: InitialData
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <Card className="w-full max-w-md">
+      <Card className="w-full max-w-[28rem]">
         <CardHeader>
           <CardTitle className="text-center">تحميل البيانات من الخادم</CardTitle>
         </CardHeader>

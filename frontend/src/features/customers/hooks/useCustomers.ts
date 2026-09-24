@@ -23,11 +23,12 @@ export function useCustomers() {
         return customersApi.list({
           page,
           per_page: pageSize,
-          search: normalizedSearchQuery
+          search: normalizedSearchQuery,
+          is_active: true
         });
       } else {
         // Initial load - fetch limited results for performance
-        return customersApi.list({ page, per_page: pageSize });
+        return customersApi.list({ page, per_page: pageSize, is_active: true });
       }
     },
     enabled: true, // Always enabled, but will refetch when search changes
@@ -113,7 +114,7 @@ export function useCustomers() {
     mutationFn: (customerId: string) => customersApi.delete(customerId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
-      toast.success('تم حذف العميل بنجاح');
+      toast.success('تمت أرشفة العميل بنجاح');
     },
     onError: (error: any) => {
       console.error('Delete customer failed:', error);
@@ -126,7 +127,7 @@ export function useCustomers() {
       } else if (error.message) {
         toast.error(error.message);
       } else {
-        toast.error('فشل حذف العميل');
+        toast.error('فشلت أرشفة العميل');
       }
     },
   });

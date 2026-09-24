@@ -447,9 +447,10 @@ export function POSPage() {
           page: 1,
           per_page: 50,
           search: debouncedCustomerSearchQuery,
+          is_active: true,
         });
       } else {
-        return customersApi.list({ page: 1, per_page: 50 });
+        return customersApi.list({ page: 1, per_page: 50, is_active: true });
       }
     },
     enabled: isCustomerMenuOpen,

@@ -32,12 +32,12 @@ const ErrorState = forwardRef<HTMLDivElement, ErrorStateProps>(
           {title}
         </h3>
         {description && (
-          <p className="text-small text-text-muted max-w-sm mb-4">
+          <p className="text-small text-text-muted max-w-[24rem] mb-4">
             {description}
           </p>
         )}
         {error && (
-          <p className="text-tiny max-w-sm mb-6 font-mono" style={{ color: 'var(--danger)' }}>
+          <p className="text-tiny max-w-[24rem] mb-6 font-mono" style={{ color: 'var(--danger)' }}>
             {error}
           </p>
         )}
