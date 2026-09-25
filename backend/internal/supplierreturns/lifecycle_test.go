@@ -2,6 +2,7 @@ package supplierreturns
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,6 +92,76 @@ func TestSupplierReturnCreditsLedgerAndRemovesInventorySQLite(t *testing.T) {
 	}
 	if refund != 100 {
 		t.Fatalf("refund amount = %v, want 100", refund)
+	}
+	// A mismatch must roll back the whole cleanup without changing the live
+	// balance or deleting any part of the operation.
+	if _, err := db.Exec(`UPDATE supplier_ledger SET amount = 99 WHERE reference_id = ? AND transaction_type = 'SUPPLIER_RETURN'`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Delete(ctx, created.ID, true); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("mismatched completed return cleanup error = %v, want explicit ledger mismatch", err)
+	}
+	var retainedReturnCount, retainedItemCount, retainedCreditCount, retainedMovementCount, snapshotCount int
+	if err := db.Get(&retainedReturnCount, `SELECT COUNT(*) FROM supplier_returns WHERE id = ? AND status = 'COMPLETED'`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&retainedItemCount, `SELECT COUNT(*) FROM supplier_return_items WHERE supplier_return_id = ?`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&retainedCreditCount, `SELECT COUNT(*) FROM supplier_ledger WHERE supplier_id = ? AND transaction_type = 'SUPPLIER_RETURN'`, supplierID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&retainedMovementCount, `SELECT COUNT(*) FROM inventory_movements WHERE reference_id = ? AND movement_type = 'SUPPLIER_RETURN'`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&snapshotCount, `SELECT COUNT(*) FROM deleted_operation_snapshots WHERE entity_type = 'supplier_return' AND operation_id = ?`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	var balanceAfterRejectedDelete float64
+	if err := db.Get(&balanceAfterRejectedDelete, `SELECT current_balance FROM suppliers WHERE id = ?`, supplierID); err != nil {
+		t.Fatal(err)
+	}
+	if retainedReturnCount != 1 || retainedItemCount != 1 || retainedCreditCount != 1 || retainedMovementCount != 1 || snapshotCount != 0 || balanceAfterRejectedDelete != 0 {
+		t.Fatalf("mismatched cleanup changed data: returns=%d items=%d credits=%d movements=%d snapshots=%d balance=%v", retainedReturnCount, retainedItemCount, retainedCreditCount, retainedMovementCount, snapshotCount, balanceAfterRejectedDelete)
+	}
+	if _, err := db.Exec(`UPDATE supplier_ledger SET amount = 100 WHERE reference_id = ? AND transaction_type = 'SUPPLIER_RETURN'`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Delete(ctx, created.ID, true); err != nil {
+		t.Fatalf("clean up completed, fully posted supplier return: %v", err)
+	}
+	var deletedReturnCount, deletedItemCount, keptCreditCount, keptMovementCount, keptSnapshotCount, auditCount int
+	if err := db.Get(&deletedReturnCount, `SELECT COUNT(*) FROM supplier_returns WHERE id = ?`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&deletedItemCount, `SELECT COUNT(*) FROM supplier_return_items WHERE supplier_return_id = ?`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&keptCreditCount, `SELECT COUNT(*) FROM supplier_ledger WHERE reference_id = ? AND reference_type = 'supplier_return_effect'`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&keptMovementCount, `SELECT COUNT(*) FROM inventory_movements WHERE reference_id = ? AND reference_type = 'supplier_return_effect'`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&keptSnapshotCount, `SELECT COUNT(*) FROM deleted_operation_snapshots WHERE entity_type = 'supplier_return' AND operation_id = ?`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&auditCount, `SELECT COUNT(*) FROM audit_logs WHERE entity_type = 'supplier_return' AND entity_id = ? AND action = 'DELETE'`, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	var balanceAfterCleanup float64
+	var inventoryAfterCleanup int
+	if err := db.Get(&balanceAfterCleanup, `SELECT current_balance FROM suppliers WHERE id = ?`, supplierID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&inventoryAfterCleanup, `SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE product_id = ?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if deletedReturnCount != 0 || deletedItemCount != 0 || keptCreditCount != 1 || keptMovementCount != 1 || keptSnapshotCount != 1 || auditCount != 1 {
+		t.Fatalf("cleanup retained wrong operational/history rows: returns=%d items=%d credits=%d movements=%d snapshots=%d audit=%d", deletedReturnCount, deletedItemCount, keptCreditCount, keptMovementCount, keptSnapshotCount, auditCount)
+	}
+	if balanceAfterCleanup != 0 || inventoryAfterCleanup != 0 {
+		t.Fatalf("cleanup changed settled balances: supplier=%v inventory=%d, want 0/0", balanceAfterCleanup, inventoryAfterCleanup)
 	}
 }
 

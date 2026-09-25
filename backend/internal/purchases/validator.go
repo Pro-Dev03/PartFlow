@@ -1,6 +1,8 @@
 package purchases
 
 import (
+	"math"
+
 	"github.com/google/uuid"
 )
 
@@ -37,8 +39,8 @@ func ValidatePurchaseStatus(status string) error {
 
 // ValidatePaymentAmount validates payment amount
 func ValidatePaymentAmount(amount float64) error {
-	if amount <= 0 {
-		return ErrInvalidCost
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return ErrInvalidPaymentAmount
 	}
 	return nil
 }

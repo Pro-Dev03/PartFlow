@@ -81,6 +81,7 @@ func TestPurchaseUpdateSynchronizesItemsInventorySupplierAndLedgerSQLite(t *test
 	if updated.Purchase.SupplierID != supplierTwo || updated.Purchase.TotalAmount != 270 || len(updated.Items) != 2 {
 		t.Fatalf("unexpected pending update: supplier=%s total=%v items=%d", updated.Purchase.SupplierID, updated.Purchase.TotalAmount, len(updated.Items))
 	}
+	assertStoredPurchaseRemaining(t, db, created.Purchase.ID, 270)
 	assertSupplierBalance(t, db, supplierOne, 0)
 	assertSupplierBalance(t, db, supplierTwo, 270)
 
@@ -114,6 +115,7 @@ func TestPurchaseUpdateSynchronizesItemsInventorySupplierAndLedgerSQLite(t *test
 	if updated.Purchase.TotalAmount != 240 || len(updated.Items) != 1 {
 		t.Fatalf("unexpected received update: total=%v items=%d", updated.Purchase.TotalAmount, len(updated.Items))
 	}
+	assertStoredPurchaseRemaining(t, db, created.Purchase.ID, 140)
 	var productOneStock, productTwoStock int
 	if err := db.Get(&productOneStock, `SELECT COUNT(*) FROM inventory_items WHERE product_id = ?`, productOne); err != nil {
 		t.Fatal(err)

@@ -34,6 +34,7 @@ type Purchase struct {
 	TaxAmount            float64    `json:"tax_amount" db:"tax_amount"`
 	TotalAmount          float64    `json:"total_amount" db:"total_amount"`
 	PaidAmount           float64    `json:"paid_amount" db:"paid_amount"`
+	RemainingAmount      float64    `json:"remaining_amount" db:"remaining_amount"`
 	Status               string     `json:"status" db:"status"` // pending, received, cancelled, reversed, partially_received
 	Notes                *string    `json:"notes" db:"notes"`
 	UserID               *uuid.UUID `json:"user_id" db:"user_id"` // Nullable - Maps to created_by in API

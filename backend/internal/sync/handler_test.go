@@ -105,6 +105,24 @@ func TestPushDataRejectsOversizedBatch(t *testing.T) {
 	}
 }
 
+func TestSupplierReturnItemSyncRequiresTheStoredStableID(t *testing.T) {
+	entityID := uuid.NewString()
+	otherID := uuid.NewString()
+	entry := localdb.SyncQueueEntry{EntityType: "supplier_return_item", EntityID: entityID, Operation: "create", Payload: fmt.Sprintf(`{"id":%q,"supplier_return_id":"parent","purchase_item_id":"purchase-item","product_id":"product","quantity":1,"unit_cost":10}`, otherID)}
+	if err := syncOneItem(nil, nil, entry); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("syncing an item with a mismatched queued id returned %v, want stable-id mismatch", err)
+	}
+
+	for _, invalidID := range []any{nil, "", "  ", "null"} {
+		if err := validateSyncPayload("supplier_return_items", map[string]any{"id": invalidID, "supplier_return_id": "parent"}); err == nil {
+			t.Fatalf("sync payload with id %#v was accepted", invalidID)
+		}
+	}
+	if err := validateSyncPayload("supplier_return_items", map[string]any{"id": entityID, "supplier_return_id": "parent", "inventory_item_id": nil}); err != nil {
+		t.Fatalf("valid stable id with a legacy nullable inventory item link was rejected: %v", err)
+	}
+}
+
 func TestSubscriberCanPushValidatedSyncOperations(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	userID := uuid.New()

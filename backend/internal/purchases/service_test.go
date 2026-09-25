@@ -532,23 +532,29 @@ func TestPurchaseLifecycleSupplierBalanceAndReturnLedgerSQLite(t *testing.T) {
 	if response.Purchase.TotalAmount != 300 {
 		t.Fatalf("purchase total = %v, want 300", response.Purchase.TotalAmount)
 	}
-	if response.Purchase.PaidAmount != 0 || response.Remaining != 300 {
+	if response.Purchase.PaidAmount != 0 || response.Purchase.RemainingAmount != 300 || response.Remaining != 300 {
 		t.Fatalf("unpaid projection = paid %.2f remaining %.2f, want 0/300", response.Purchase.PaidAmount, response.Remaining)
 	}
+	assertStoredPurchaseRemaining(t, xdb, response.Purchase.ID, 300)
 
 	partial, err := purchaseSvc.AddPayment(ctx, response.Purchase.ID, userID, 150, "cash")
 	if err != nil {
 		t.Fatalf("partial payment: %v", err)
 	}
-	if partial.Purchase.PaidAmount != 150 || partial.Remaining != 150 {
+	if partial.Purchase.PaidAmount != 150 || partial.Purchase.RemainingAmount != 150 || partial.Remaining != 150 {
 		t.Fatalf("partial payment projection = paid %.2f remaining %.2f, want 150/150", partial.Purchase.PaidAmount, partial.Remaining)
 	}
+	assertStoredPurchaseRemaining(t, xdb, response.Purchase.ID, 150)
 	full, err := purchaseSvc.AddPayment(ctx, response.Purchase.ID, userID, 150, "cash")
 	if err != nil {
 		t.Fatalf("full payment: %v", err)
 	}
-	if full.Purchase.PaidAmount != 300 || full.Remaining != 0 {
+	if full.Purchase.PaidAmount != 300 || full.Purchase.RemainingAmount != 0 || full.Remaining != 0 {
 		t.Fatalf("full payment projection = paid %.2f remaining %.2f, want 300/0", full.Purchase.PaidAmount, full.Remaining)
+	}
+	assertStoredPurchaseRemaining(t, xdb, response.Purchase.ID, 0)
+	if _, err := purchaseSvc.AddPayment(ctx, response.Purchase.ID, userID, 0, "cash"); !errors.Is(err, ErrInvalidPaymentAmount) {
+		t.Fatalf("zero payment error = %v, want %v", err, ErrInvalidPaymentAmount)
 	}
 	if _, err := purchaseSvc.AddPayment(ctx, response.Purchase.ID, userID, 0.01, "cash"); !errors.Is(err, ErrPaymentExceedsTotal) {
 		t.Fatalf("overpayment error = %v, want %v", err, ErrPaymentExceedsTotal)
@@ -609,5 +615,16 @@ func TestPurchaseLifecycleSupplierBalanceAndReturnLedgerSQLite(t *testing.T) {
 	}
 	if refundAmount != 100 {
 		t.Fatalf("supplier return refund_amount = %v, want 100", refundAmount)
+	}
+}
+
+func assertStoredPurchaseRemaining(t *testing.T, db *sqlx.DB, purchaseID uuid.UUID, want float64) {
+	t.Helper()
+	var got float64
+	if err := db.Get(&got, `SELECT remaining_amount FROM purchases WHERE id = ?`, purchaseID); err != nil {
+		t.Fatalf("read stored purchase remaining amount: %v", err)
+	}
+	if got != want {
+		t.Fatalf("stored purchase remaining amount = %.2f, want %.2f", got, want)
 	}
 }

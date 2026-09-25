@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { CLOUD_API_URL_OVERRIDE_KEY, getActiveApiUrl, getBusinessApiUrl, getCloudApiUrl, getConnectionMode, setCloudApiUrl, setConnectionMode, shouldUseLocalApi } from '../../../lib/config/app';
+import { CLOUD_API_URL_OVERRIDE_KEY, getActiveApiUrl, getBusinessApiUrl, getCloudApiUrl, getConnectionMode, isElectronRuntime, setCloudApiUrl, setConnectionMode, shouldUseLocalApi } from '../../../lib/config/app';
 
 describe('app config', () => {
   beforeEach(() => {
@@ -36,6 +36,17 @@ describe('app config', () => {
     expect(getConnectionMode()).toBe('local');
     expect(localStorage.getItem('partflow-connection-mode')).toBe('local');
     expect(getBusinessApiUrl()).toBe('https://partflow-api.onrender.com/api/v1');
+  });
+
+  it('does not classify a hosted browser as Electron from its user agent', () => {
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      value: 'Mozilla/5.0 Electron/42.8.1',
+    });
+    localStorage.setItem('partflow-connection-mode', 'cloud');
+
+    expect(isElectronRuntime()).toBe(false);
+    expect(getConnectionMode()).toBe('cloud');
   });
 
   it('keeps the cloud API pinned to the production Render service', () => {

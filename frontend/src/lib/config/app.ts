@@ -24,8 +24,7 @@ export const CONNECTION_MODE_KEY = 'partflow-connection-mode';
 export function isElectronRuntime(): boolean {
   if (typeof window === 'undefined') return false;
   return Boolean(window.partflowDesktop)
-    || window.location.protocol === 'file:'
-    || /Electron/i.test(window.navigator.userAgent);
+    || window.location.protocol === 'file:';
 }
 
 export function getConnectionMode(): ConnectionMode {
@@ -57,12 +56,7 @@ export function setConnectionMode(mode: ConnectionMode): void {
 export function shouldUseLocalApi(hostname = typeof window !== 'undefined' ? window.location.hostname : ''): boolean {
   if (getConnectionMode() === 'cloud') return false;
 
-  const isElectron = typeof window !== 'undefined' && (
-    window.location.protocol === 'file:' ||
-    /Electron/i.test(window.navigator.userAgent)
-  );
-
-  return isElectron || /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(hostname);
+  return isElectronRuntime() || /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(hostname);
 }
 
 export function getActiveApiUrl(): string {

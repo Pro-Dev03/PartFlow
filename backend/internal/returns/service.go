@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -222,6 +223,9 @@ func (s *Service) CreateReturn(ctx context.Context, userID uuid.UUID, req *Retur
 		return nil, fmt.Errorf("failed to begin return transaction: %w", err)
 	}
 	defer tx.Rollback()
+	if err := s.lockAndValidateReturnQuantitiesTx(ctx, tx, *req.SaleID, requestedBySaleItem, nil); err != nil {
+		return nil, err
+	}
 	if err := s.repo.CreateReturnTx(ctx, tx, returnRecord); err != nil {
 		return nil, fmt.Errorf("failed to create return: %w", err)
 	}
@@ -494,6 +498,14 @@ func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, req Ret
 	if err := lockReturnForItemEdit(ctx, tx, s.repo.db, returnID); err != nil {
 		return nil, err
 	}
+	if item.SaleItemID != nil && *item.SaleItemID != uuid.Nil {
+		if returnRecord.SaleID == uuid.Nil {
+			return nil, ErrSaleNotFound
+		}
+		if err := s.lockAndValidateReturnQuantitiesTx(ctx, tx, returnRecord.SaleID, map[uuid.UUID]int{*item.SaleItemID: item.QuantityReturned}, nil); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.repo.CreateReturnItemTx(ctx, tx, item); err != nil {
 		return nil, err
 	}
@@ -577,6 +589,14 @@ func (s *Service) UpdateReturnItem(ctx context.Context, itemID uuid.UUID, req Re
 	defer tx.Rollback()
 	if err := lockReturnForItemEdit(ctx, tx, s.repo.db, item.ReturnID); err != nil {
 		return nil, err
+	}
+	if item.SaleItemID != nil && *item.SaleItemID != uuid.Nil {
+		if parentReturn.SaleID == uuid.Nil {
+			return nil, ErrSaleNotFound
+		}
+		if err := s.lockAndValidateReturnQuantitiesTx(ctx, tx, parentReturn.SaleID, map[uuid.UUID]int{*item.SaleItemID: item.QuantityReturned}, &item.ID); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.repo.UpdateReturnItemTx(ctx, tx, item); err != nil {
 		return nil, err
@@ -671,6 +691,98 @@ func lockReturnForItemEdit(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, return
 	}
 	if !returnCanEditItems(status) {
 		return ErrInvalidReturnStatus
+	}
+	return nil
+}
+
+// lockAndValidateReturnQuantitiesTx serializes returns for each sale item and
+// rechecks the cumulative quantity in the same transaction that writes them.
+func (s *Service) lockAndValidateReturnQuantitiesTx(ctx context.Context, tx *sqlx.Tx, saleID uuid.UUID, requested map[uuid.UUID]int, excludeReturnItemID *uuid.UUID) error {
+	if len(requested) == 0 {
+		return nil
+	}
+	if saleID == uuid.Nil {
+		return ErrSaleNotFound
+	}
+
+	saleItemIDs := make([]uuid.UUID, 0, len(requested))
+	for saleItemID, quantity := range requested {
+		if saleItemID == uuid.Nil || quantity <= 0 {
+			return ErrInvalidQuantity
+		}
+		saleItemIDs = append(saleItemIDs, saleItemID)
+	}
+	sort.Slice(saleItemIDs, func(i, j int) bool { return saleItemIDs[i].String() < saleItemIDs[j].String() })
+
+	isSQLite := dbutil.IsSQLite(s.repo.db)
+	for _, saleItemID := range saleItemIDs {
+		var originalQuantity int
+		var saleItemSaleID uuid.UUID
+		if isSQLite {
+			itemIDArg := saleItemID.String()
+			if _, err := tx.ExecContext(ctx, `UPDATE sale_items SET quantity = quantity WHERE id = ?`, itemIDArg); err != nil {
+				return fmt.Errorf("lock sale item for return: %w", err)
+			}
+			var row struct {
+				SaleID   string `db:"sale_id"`
+				Quantity int    `db:"quantity"`
+			}
+			if err := tx.GetContext(ctx, &row, `SELECT sale_id, quantity FROM sale_items WHERE id = ?`, itemIDArg); err != nil {
+				if err == sql.ErrNoRows {
+					return ErrSaleItemNotFound
+				}
+				return fmt.Errorf("read locked sale item for return: %w", err)
+			}
+			parsedSaleID, err := uuid.Parse(row.SaleID)
+			if err != nil {
+				return fmt.Errorf("invalid sale ID on sale item: %w", err)
+			}
+			saleItemSaleID = parsedSaleID
+			originalQuantity = row.Quantity
+		} else {
+			var row struct {
+				SaleID   uuid.UUID `db:"sale_id"`
+				Quantity int       `db:"quantity"`
+			}
+			if err := tx.GetContext(ctx, &row, `SELECT sale_id, quantity FROM sale_items WHERE id = $1 FOR UPDATE`, saleItemID); err != nil {
+				if err == sql.ErrNoRows {
+					return ErrSaleItemNotFound
+				}
+				return fmt.Errorf("lock sale item for return: %w", err)
+			}
+			saleItemSaleID = row.SaleID
+			originalQuantity = row.Quantity
+		}
+		if saleItemSaleID != saleID {
+			return ErrSaleItemNotFound
+		}
+
+		var alreadyReturned int
+		query := `SELECT COALESCE(SUM(ri.quantity_returned), 0)
+			FROM return_items ri JOIN returns r ON r.id = ri.return_id
+			WHERE ri.sale_item_id = ? AND UPPER(COALESCE(r.status, '')) NOT IN ('REJECTED', 'CANCELLED')`
+		args := []interface{}{saleItemID.String()}
+		if !isSQLite {
+			query = `SELECT COALESCE(SUM(ri.quantity_returned), 0)
+				FROM return_items ri JOIN returns r ON r.id = ri.return_id
+				WHERE ri.sale_item_id = $1 AND UPPER(COALESCE(r.status, '')) NOT IN ('REJECTED', 'CANCELLED')`
+			args[0] = saleItemID
+		}
+		if excludeReturnItemID != nil && *excludeReturnItemID != uuid.Nil {
+			if isSQLite {
+				query += ` AND ri.id <> ?`
+				args = append(args, excludeReturnItemID.String())
+			} else {
+				query += ` AND ri.id <> $2`
+				args = append(args, *excludeReturnItemID)
+			}
+		}
+		if err := tx.GetContext(ctx, &alreadyReturned, tx.Rebind(query), args...); err != nil {
+			return fmt.Errorf("recheck returned quantity in transaction: %w", err)
+		}
+		if alreadyReturned+requested[saleItemID] > originalQuantity {
+			return ErrInsufficientStock
+		}
 	}
 	return nil
 }

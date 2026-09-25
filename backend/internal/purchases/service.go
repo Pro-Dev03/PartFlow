@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -1489,8 +1490,8 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 		return nil, err
 	}
 
-	if amount <= 0 {
-		return nil, ErrInvalidCost
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return nil, ErrInvalidPaymentAmount
 	}
 
 	// Get purchase with row lock

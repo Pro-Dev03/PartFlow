@@ -82,6 +82,102 @@ func TestReturnItemMutationsRecalculateParentTotalAtomicallySQLite(t *testing.T)
 	assertReturnTotal(t, db, created.Return.ID, 150)
 }
 
+func TestConcurrentReturnsDoNotExceedSaleItemQuantitySQLite(t *testing.T) {
+	db, service, saleID, products := openReturnLifecycleTest(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	saleItemID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO sale_items (id,sale_id,product_id,quantity,unit_price,item_total,created_at) VALUES (?,?,?,?,?,?,?)`, saleItemID.String(), saleID.String(), products[0].String(), 1, 100, 100, now); err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			_, err := service.CreateReturn(ctx, uuid.Nil, &ReturnRequest{
+				SaleID:                   &saleID,
+				ReturnDate:               time.Now().UTC(),
+				ReturnType:               "PARTIAL",
+				Reason:                   "DEFECTIVE",
+				ItemConditionAfterReturn: "NOT_FOR_SALE",
+				RefundMethod:             "CASH",
+				Items: []ReturnItemRequest{{
+					SaleItemID:        &saleItemID,
+					ProductID:         &products[0],
+					QuantityReturned:  1,
+					UnitPrice:         100,
+					TotalRefundAmount: 100,
+					ReturnedCondition: "DAMAGED",
+					Resolution:        "WRITE_OFF",
+				}},
+			})
+			results <- err
+		}()
+	}
+	close(start)
+
+	successes := 0
+	for i := 0; i < 2; i++ {
+		if err := <-results; err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful concurrent returns = %d, want 1", successes)
+	}
+	var returned int
+	if err := db.Get(&returned, `SELECT COALESCE(SUM(quantity_returned),0) FROM return_items WHERE sale_item_id = ?`, saleItemID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if returned != 1 {
+		t.Fatalf("returned quantity = %d, sold quantity = 1", returned)
+	}
+}
+
+func TestReturnCannotReferenceSaleItemFromAnotherSaleSQLite(t *testing.T) {
+	db, service, saleID, products := openReturnLifecycleTest(t)
+	ctx := context.Background()
+	otherSaleID := uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := db.Exec(`INSERT INTO sales (id,sale_number,invoice_number,sale_date,subtotal,discount_amount,total_amount,paid_amount,remaining_amount,payment_method,payment_status,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, otherSaleID.String(), "S-OTHER-RETURN", "INV-OTHER-RETURN", now, 100, 0, 100, 100, 0, "cash", "paid", "completed", now, now); err != nil {
+		t.Fatal(err)
+	}
+	saleItemID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO sale_items (id,sale_id,product_id,quantity,unit_price,item_total,created_at) VALUES (?,?,?,?,?,?,?)`, saleItemID.String(), otherSaleID.String(), products[1].String(), 1, 100, 100, now); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := service.CreateReturn(ctx, uuid.Nil, &ReturnRequest{
+		SaleID:                   &saleID,
+		ReturnDate:               time.Now().UTC(),
+		ReturnType:               "PARTIAL",
+		Reason:                   "DEFECTIVE",
+		ItemConditionAfterReturn: "NOT_FOR_SALE",
+		RefundMethod:             "CASH",
+		Items: []ReturnItemRequest{{
+			SaleItemID:        &saleItemID,
+			ProductID:         &products[1],
+			QuantityReturned:  1,
+			UnitPrice:         100,
+			TotalRefundAmount: 100,
+			ReturnedCondition: "DAMAGED",
+			Resolution:        "WRITE_OFF",
+		}},
+	})
+	if err != ErrSaleItemNotFound {
+		t.Fatalf("cross-sale item return error = %v, want %v", err, ErrSaleItemNotFound)
+	}
+	var returnCount int
+	if err := db.Get(&returnCount, `SELECT COUNT(*) FROM returns`); err != nil {
+		t.Fatal(err)
+	}
+	if returnCount != 0 {
+		t.Fatalf("cross-sale return created %d records, want none", returnCount)
+	}
+}
+
 func openReturnLifecycleTest(t *testing.T) (*sqlx.DB, *Service, uuid.UUID, []uuid.UUID) {
 	t.Helper()
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "return-lifecycle.sqlite"))

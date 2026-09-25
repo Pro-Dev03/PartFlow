@@ -2,7 +2,9 @@ package supplierreturns
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -52,48 +54,191 @@ type AddItemRequest struct {
 	Quantity       int       `json:"quantity" binding:"required,min=1"`
 }
 
-func (s *Service) Delete(ctx context.Context, id uuid.UUID, force bool) error {
+func (s *Service) Delete(ctx context.Context, id uuid.UUID, force bool, actorIDs ...uuid.UUID) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin delete supplier return: %w", err)
 	}
 	defer tx.Rollback()
 
-	customerReturnQuery := `SELECT COALESCE(customer_return_id, '') FROM supplier_returns WHERE id = $1`
+	lockQuery := `SELECT id::text FROM supplier_returns WHERE id = $1 FOR UPDATE`
 	if dbutil.IsSQLite(s.db) {
-		customerReturnQuery = `SELECT COALESCE(customer_return_id, '') FROM supplier_returns WHERE id = ?`
+		lockQuery = `UPDATE supplier_returns SET updated_at = updated_at WHERE id = ?`
 	}
-	var customerReturnID string
-	if err = tx.GetContext(ctx, &customerReturnID, customerReturnQuery, id); err != nil {
+	if dbutil.IsSQLite(s.db) {
+		result, lockErr := tx.ExecContext(ctx, lockQuery, id)
+		if lockErr != nil {
+			return fmt.Errorf("lock supplier return for deletion: %w", lockErr)
+		}
+		if count, rowsErr := result.RowsAffected(); rowsErr != nil || count != 1 {
+			return fmt.Errorf("get supplier return source: supplier return not found")
+		}
+	} else {
+		var lockedID string
+		if err = tx.GetContext(ctx, &lockedID, lockQuery, id); err != nil {
+			return fmt.Errorf("lock supplier return for deletion: %w", err)
+		}
+	}
+
+	var status string
+	if err = tx.GetContext(ctx, &status, tx.Rebind(`SELECT status FROM supplier_returns WHERE id = ?`), id); err != nil {
 		return fmt.Errorf("get supplier return source: %w", err)
 	}
-	if !force && strings.TrimSpace(customerReturnID) != "" && customerReturnID != uuid.Nil.String() {
-		return fmt.Errorf("only an empty, unprocessed supplier return can be deleted")
+	status = strings.ToUpper(strings.TrimSpace(status))
+	var actor interface{}
+	if len(actorIDs) > 0 && actorIDs[0] != uuid.Nil {
+		actor = actorIDs[0]
+	}
+	var snapshotJSON string
+	switch status {
+	case "DRAFT", "PENDING", "REJECTED":
+		// These states have not posted financial or stock effects. A linked
+		// customer return does not prevent cleanup; its own record remains.
+	case "COMPLETED":
+		snapshotJSON, err = s.snapshotCompletedSupplierReturn(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if dbutil.IsSQLite(s.db) {
+			_, err = tx.ExecContext(ctx, `INSERT INTO deleted_operation_snapshots (entity_type, operation_id, business_number, status, snapshot, deleted_by) VALUES ('supplier_return', ?, (SELECT return_number FROM supplier_returns WHERE id = ?), ?, ?, ?)`, id.String(), id.String(), status, snapshotJSON, actor)
+		} else {
+			_, err = tx.ExecContext(ctx, `INSERT INTO deleted_operation_snapshots (entity_type, operation_id, business_number, status, snapshot, deleted_by) SELECT 'supplier_return', $1, return_number, $2, $3::jsonb, $4 FROM supplier_returns WHERE id = $1`, id.String(), status, snapshotJSON, actor)
+		}
+		if err != nil {
+			return fmt.Errorf("preserve completed supplier return history: %w", err)
+		}
+		// The posted ledger and stock rows remain intact. Their reference now
+		// resolves to the durable cleanup snapshot instead of the removed row.
+		for _, table := range []string{"inventory_movements", "supplier_ledger"} {
+			if !dbutil.IsSQLite(s.db) && table == "supplier_ledger" {
+				_, err = tx.ExecContext(ctx, `UPDATE supplier_ledger SET reference_type = 'supplier_return_effect' WHERE reference_id = $1 AND UPPER(COALESCE(transaction_type,'')) = 'SUPPLIER_RETURN'`, id)
+			} else if !dbutil.IsSQLite(s.db) {
+				_, err = tx.ExecContext(ctx, `UPDATE inventory_movements SET reference_type = 'supplier_return_effect' WHERE reference_id = $1 AND UPPER(COALESCE(movement_type,'')) = 'SUPPLIER_RETURN'`, id)
+			} else if table == "supplier_ledger" {
+				_, err = tx.ExecContext(ctx, `UPDATE supplier_ledger SET reference_type = 'supplier_return_effect' WHERE reference_id = ? AND UPPER(COALESCE(transaction_type,'')) = 'SUPPLIER_RETURN'`, id.String())
+			} else {
+				_, err = tx.ExecContext(ctx, `UPDATE inventory_movements SET reference_type = 'supplier_return_effect' WHERE reference_id = ? AND UPPER(COALESCE(movement_type,'')) = 'SUPPLIER_RETURN'`, id.String())
+			}
+			if err != nil {
+				return fmt.Errorf("detach supplier return %s history: %w", table, err)
+			}
+		}
+	default:
+		return fmt.Errorf("supplier return is still in %s processing; complete or reject it before cleanup", status)
 	}
 
-	deleteItemsQuery := `DELETE FROM supplier_return_items WHERE supplier_return_id = $1`
-	if dbutil.IsSQLite(s.db) {
-		deleteItemsQuery = `DELETE FROM supplier_return_items WHERE supplier_return_id = ?`
+	// force remains accepted for API compatibility; linked historical records
+	// are now handled by explicit state-aware cleanup instead of a bypass flag.
+	_ = force
+	if status == "COMPLETED" {
+		auditJSON, _ := json.Marshal(map[string]any{"financial_effect_preserved": true, "snapshot_entity": "supplier_return", "status": status})
+		if dbutil.IsSQLite(s.db) {
+			_, err = tx.ExecContext(ctx, `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at) VALUES (?, ?, 'DELETE', 'supplier_return', ?, ?, CURRENT_TIMESTAMP)`, uuid.NewString(), actor, id.String(), string(auditJSON))
+		} else {
+			_, err = tx.ExecContext(ctx, `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at) VALUES ($1, $2, 'DELETE', 'supplier_return', $3, $4::jsonb, NOW())`, uuid.New(), actor, id, string(auditJSON))
+		}
+		if err != nil {
+			return fmt.Errorf("write supplier return deletion audit: %w", err)
+		}
 	}
-	if _, err = tx.ExecContext(ctx, deleteItemsQuery, id); err != nil {
+	if _, err = tx.ExecContext(ctx, tx.Rebind(`DELETE FROM supplier_return_items WHERE supplier_return_id = ?`), id); err != nil {
 		return fmt.Errorf("delete supplier return items: %w", err)
 	}
-
-	deleteQuery := `DELETE FROM supplier_returns WHERE id = $1 AND status IN ('DRAFT', 'PENDING')`
-	if force {
-		deleteQuery = `DELETE FROM supplier_returns WHERE id = $1`
-	}
-	result, err := tx.ExecContext(ctx, deleteQuery, id)
+	deleteQuery := `DELETE FROM supplier_returns WHERE id = ? AND UPPER(status) IN ('DRAFT', 'PENDING', 'REJECTED', 'COMPLETED')`
+	result, err := tx.ExecContext(ctx, tx.Rebind(deleteQuery), id)
 	if err != nil {
 		return fmt.Errorf("delete supplier return: %w", err)
 	}
 	if count, err := result.RowsAffected(); err != nil || count != 1 {
-		return fmt.Errorf("only an empty, unprocessed supplier return can be deleted")
+		return fmt.Errorf("supplier return could not be cleaned up in its current state")
 	}
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("commit delete supplier return: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) snapshotCompletedSupplierReturn(ctx context.Context, tx *sqlx.Tx, id uuid.UUID) (string, error) {
+	var quantity, movementCount, movementQuantity, ledgerCount int
+	var ledgerAmount, refundAmount float64
+	if err := tx.GetContext(ctx, &refundAmount, tx.Rebind(`SELECT refund_amount FROM supplier_returns WHERE id = ?`), id); err != nil {
+		return "", fmt.Errorf("load completed supplier return amount: %w", err)
+	}
+	if err := tx.GetContext(ctx, &quantity, tx.Rebind(`SELECT COALESCE(SUM(quantity), 0) FROM supplier_return_items WHERE supplier_return_id = ?`), id); err != nil {
+		return "", fmt.Errorf("validate supplier return items: %w", err)
+	}
+	if quantity <= 0 {
+		return "", fmt.Errorf("completed supplier return has no item history; cleanup was stopped to protect stock integrity")
+	}
+	if err := tx.GetContext(ctx, &movementCount, tx.Rebind(`SELECT COUNT(*) FROM inventory_movements WHERE reference_id = ? AND UPPER(COALESCE(movement_type,'')) = 'SUPPLIER_RETURN'`), id); err != nil {
+		return "", fmt.Errorf("validate supplier return stock history: %w", err)
+	}
+	if err := tx.GetContext(ctx, &movementQuantity, tx.Rebind(`SELECT COALESCE(SUM(quantity),0) FROM inventory_movements WHERE reference_id = ? AND UPPER(COALESCE(movement_type,'')) = 'SUPPLIER_RETURN'`), id); err != nil {
+		return "", fmt.Errorf("validate supplier return stock quantity: %w", err)
+	}
+	if movementCount != quantity || movementQuantity != -quantity {
+		return "", fmt.Errorf("completed supplier return stock history is incomplete (expected %d units, found %d); reconcile its history before cleanup", quantity, movementCount)
+	}
+	if err := tx.GetContext(ctx, &ledgerCount, tx.Rebind(`SELECT COUNT(*) FROM supplier_ledger WHERE reference_id = ? AND UPPER(COALESCE(transaction_type,'')) = 'SUPPLIER_RETURN'`), id); err != nil {
+		return "", fmt.Errorf("validate supplier return financial history: %w", err)
+	}
+	if err := tx.GetContext(ctx, &ledgerAmount, tx.Rebind(`SELECT COALESCE(SUM(amount),0) FROM supplier_ledger WHERE reference_id = ? AND UPPER(COALESCE(transaction_type,'')) = 'SUPPLIER_RETURN'`), id); err != nil {
+		return "", fmt.Errorf("validate supplier return ledger amount: %w", err)
+	}
+	if ledgerCount != 1 || math.Abs(ledgerAmount-refundAmount) > 0.01 {
+		return "", fmt.Errorf("completed supplier return supplier-ledger history does not match its refund amount; reconcile its history before cleanup")
+	}
+
+	type header struct {
+		ID               string  `db:"id"`
+		CustomerReturnID string  `db:"customer_return_id"`
+		SaleID           string  `db:"sale_id"`
+		PurchaseID       string  `db:"purchase_id"`
+		SupplierID       string  `db:"supplier_id"`
+		ReturnNumber     string  `db:"return_number"`
+		Status           string  `db:"status"`
+		SourceStatus     string  `db:"source_status"`
+		Reason           string  `db:"reason"`
+		Notes            string  `db:"notes"`
+		CreatedBy        string  `db:"created_by"`
+		ReturnReason     string  `db:"return_reason"`
+		ReturnDate       string  `db:"return_date"`
+		CreatedAt        string  `db:"created_at"`
+		UpdatedAt        string  `db:"updated_at"`
+		RefundAmount     float64 `db:"refund_amount"`
+	}
+	var h header
+	query := `SELECT CAST(id AS TEXT) AS id, COALESCE(CAST(customer_return_id AS TEXT), '') AS customer_return_id, COALESCE(CAST(sale_id AS TEXT), '') AS sale_id, CAST(purchase_id AS TEXT) AS purchase_id, CAST(supplier_id AS TEXT) AS supplier_id, return_number, status, COALESCE(source_status,'') AS source_status, reason, COALESCE(notes,'') AS notes, COALESCE(CAST(created_by AS TEXT),'') AS created_by, COALESCE(return_reason,'') AS return_reason, COALESCE(CAST(return_date AS TEXT),'') AS return_date, CAST(created_at AS TEXT) AS created_at, CAST(updated_at AS TEXT) AS updated_at, refund_amount FROM supplier_returns WHERE id = ?`
+	if err := tx.GetContext(ctx, &h, tx.Rebind(query), id); err != nil {
+		return "", fmt.Errorf("snapshot supplier return header: %w", err)
+	}
+	type item struct {
+		ID               string  `db:"id"`
+		CustomerReturnID string  `db:"customer_return_id"`
+		SaleID           string  `db:"sale_id"`
+		SaleItemID       string  `db:"sale_item_id"`
+		InventoryItemID  string  `db:"inventory_item_id"`
+		PurchaseItemID   string  `db:"purchase_item_id"`
+		ProductID        string  `db:"product_id"`
+		Barcode          string  `db:"barcode"`
+		SerialNumber     string  `db:"serial_number"`
+		ReturnReason     string  `db:"return_reason"`
+		ReturnDate       string  `db:"return_date"`
+		CreatedAt        string  `db:"created_at"`
+		Quantity         int     `db:"quantity"`
+		UnitCost         float64 `db:"unit_cost"`
+		PurchaseCost     float64 `db:"purchase_cost"`
+	}
+	items := make([]item, 0)
+	itemQuery := `SELECT COALESCE(CAST(id AS TEXT),'') AS id, COALESCE(CAST(customer_return_id AS TEXT),'') AS customer_return_id, COALESCE(CAST(sale_id AS TEXT),'') AS sale_id, COALESCE(CAST(sale_item_id AS TEXT),'') AS sale_item_id, COALESCE(CAST(inventory_item_id AS TEXT),'') AS inventory_item_id, CAST(purchase_item_id AS TEXT) AS purchase_item_id, CAST(product_id AS TEXT) AS product_id, COALESCE(barcode,'') AS barcode, COALESCE(serial_number,'') AS serial_number, COALESCE(return_reason,'') AS return_reason, COALESCE(CAST(return_date AS TEXT),'') AS return_date, CAST(created_at AS TEXT) AS created_at, quantity, unit_cost, COALESCE(purchase_cost,0) AS purchase_cost FROM supplier_return_items WHERE supplier_return_id = ? ORDER BY created_at, id`
+	if err := tx.SelectContext(ctx, &items, tx.Rebind(itemQuery), id); err != nil {
+		return "", fmt.Errorf("snapshot supplier return items: %w", err)
+	}
+	encoded, err := json.Marshal(map[string]any{"supplier_return": h, "items": items, "posted_effects": map[string]any{"stock_movement_count": movementCount, "stock_quantity": movementQuantity, "supplier_ledger_count": ledgerCount, "supplier_ledger_amount": ledgerAmount}})
+	if err != nil {
+		return "", fmt.Errorf("encode supplier return cleanup snapshot: %w", err)
+	}
+	return string(encoded), nil
 }
 
 func (s *Service) Reject(ctx context.Context, id uuid.UUID) error {
@@ -407,8 +552,8 @@ func addSupplierReturnItem(ctx context.Context, tx *sqlx.Tx, id uuid.UUID, req A
 	}
 
 	query := `INSERT INTO supplier_return_items
-			(supplier_return_id, purchase_item_id, product_id, quantity, unit_cost)
-			SELECT $1, pi.id, pi.product_id, $3, pi.unit_price
+			(id, supplier_return_id, purchase_item_id, product_id, quantity, unit_cost)
+			SELECT $4, $1, pi.id, pi.product_id, $3, pi.unit_price
 			FROM purchase_items pi
 			JOIN supplier_returns sr ON sr.purchase_id = pi.purchase_id
 			JOIN purchases p ON p.id = pi.purchase_id
@@ -428,7 +573,7 @@ func addSupplierReturnItem(ctx context.Context, tx *sqlx.Tx, id uuid.UUID, req A
 				AND existing_pi.product_id = pi.product_id
 				AND existing_sr.status IN ('PENDING', 'SHIPPED', 'RECEIVED')), 0)`
 	result, err := tx.ExecContext(ctx, tx.Rebind(query),
-		id, req.PurchaseItemID, req.Quantity)
+		id, req.PurchaseItemID, req.Quantity, uuid.New())
 	if err != nil {
 		return fmt.Errorf("add supplier return item: %w", err)
 	}

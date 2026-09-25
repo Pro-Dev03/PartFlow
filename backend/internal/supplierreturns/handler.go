@@ -69,7 +69,7 @@ func (h *Handler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid supplier return ID"})
 		return
 	}
-	if err = h.service.Delete(c.Request.Context(), id, c.Query("force") == "true"); err != nil {
+	if err = h.service.Delete(c.Request.Context(), id, c.Query("force") == "true", middleware.GetUserID(c)); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

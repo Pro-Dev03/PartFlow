@@ -140,3 +140,18 @@ func TestSingleStoreHardeningMigrationCoversSupabaseFindings(t *testing.T) {
 		t.Fatal("migration does not include the exposed rls_auto_enable function")
 	}
 }
+
+func TestCompletedReturnMigrationSupportsCurrentReturnsSchema(t *testing.T) {
+	path := filepath.Join("..", "..", "migrations", "075_completed_return_effect_ledger.sql")
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read completed return migration: %v", err)
+	}
+	sql := string(contents)
+	if strings.Contains(sql, "r.refund_status") {
+		t.Fatal("migration reads refund_status from returns, which is absent in the current schema")
+	}
+	if !strings.Contains(sql, "END AS refund_status") || !strings.Contains(sql, "r.refund_date IS NOT NULL") {
+		t.Fatal("accounting_returns must derive refund_status from fields present in the current returns schema")
+	}
+}

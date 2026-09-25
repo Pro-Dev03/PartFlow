@@ -18,7 +18,7 @@ func (p *Purchase) ToPurchaseResponse(items []PurchaseItem, supplier *SupplierIn
 		Items:      items,
 		Supplier:   supplier,
 		TotalItems: totalItems,
-		Remaining:  p.TotalAmount - p.PaidAmount,
+		Remaining:  p.RemainingAmount,
 	}
 }
 
@@ -32,6 +32,7 @@ func (p *Purchase) ToAPIMap() map[string]interface{} {
 		"expected_delivery_date": p.ExpectedDeliveryDate,
 		"total_amount":           p.TotalAmount,
 		"paid_amount":            p.PaidAmount,
+		"remaining_amount":       p.RemainingAmount,
 		"status":                 p.Status,
 		"notes":                  p.Notes,
 		"created_at":             p.CreatedAt,
@@ -56,6 +57,7 @@ type PurchaseListItem struct {
 	TotalAmount          float64    `json:"total_amount" db:"total_amount"`
 	PaidAmount           float64    `json:"paid_amount" db:"paid_amount"`
 	Remaining            float64    `json:"remaining" db:"remaining"`
+	RemainingAmount      float64    `json:"remaining_amount" db:"remaining_amount"`
 	Status               string     `json:"status" db:"status"`
 	SupplierName         string     `json:"supplier_name" db:"supplier_name"`
 	TotalItems           int        `json:"total_items" db:"total_items"`

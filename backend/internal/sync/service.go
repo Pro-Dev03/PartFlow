@@ -147,14 +147,14 @@ func syncOneItem(postgresDB *sqlx.DB, sqliteDB *sql.DB, entry localdb.SyncQueueE
 	if len(payloadMap) == 0 {
 		return fmt.Errorf("empty payload")
 	}
+	payloadID, hasPayloadID := payloadMap["id"]
 	if entry.EntityID != "" {
-		payloadMap["id"] = entry.EntityID
-	}
-	if _, ok := payloadMap["id"]; !ok {
-		if entry.EntityID == "" {
-			return fmt.Errorf("missing id in payload")
+		if hasPayloadID && !sameSyncID(payloadID, entry.EntityID) {
+			return fmt.Errorf("sync payload id %q does not match queued entity id %q", strings.TrimSpace(fmt.Sprint(payloadID)), entry.EntityID)
 		}
 		payloadMap["id"] = entry.EntityID
+	} else if !hasPayloadID || isBlankSyncID(payloadID) {
+		return fmt.Errorf("missing id in payload")
 	}
 
 	tableName, err := tableNameForEntity(entry.EntityType)
@@ -540,7 +540,7 @@ func syncColumns(tableName string) map[string]struct{} {
 		"acquisition_items":         "id acquisition_id product_id inventory_item_id item_code serial_number condition grade unit_cost total_cost item_status notes created_at updated_at",
 		"trade_ins":                 "id customer_id inventory_item_id purchase_price purchase_date notes created_at updated_at",
 		"supplier_returns":          "id purchase_id supplier_id return_number status reason refund_amount notes created_by created_at updated_at",
-		"supplier_return_items":     "id supplier_return_id purchase_item_id product_id quantity unit_cost created_at",
+		"supplier_return_items":     "id customer_return_id sale_id sale_item_id inventory_item_id supplier_return_id purchase_item_id product_id quantity unit_cost barcode serial_number purchase_cost return_reason return_date created_at",
 		"seller_payments":           "id acquisition_id customer_id amount payment_method payment_date notes user_id created_at",
 		"part_types":                "id name_ar name_en icon color is_active sort_order created_at updated_at",
 		"part_specifications":       "id name_ar name_en data_type options is_required created_at",
@@ -559,7 +559,7 @@ func validateSyncPayload(tableName string, payload map[string]any) error {
 	if len(allowed) == 0 {
 		return fmt.Errorf("no sync schema registered for %s", tableName)
 	}
-	if id, ok := payload["id"]; !ok || strings.TrimSpace(fmt.Sprint(id)) == "" {
+	if id, ok := payload["id"]; !ok || isBlankSyncID(id) {
 		return fmt.Errorf("sync payload for %s is missing id", tableName)
 	}
 	for key, value := range payload {
@@ -574,6 +574,25 @@ func validateSyncPayload(tableName string, payload map[string]any) error {
 		}
 	}
 	return nil
+}
+
+func isBlankSyncID(value any) bool {
+	if value == nil {
+		return true
+	}
+	switch typed := value.(type) {
+	case []byte:
+		return strings.TrimSpace(string(typed)) == ""
+	case string:
+		return strings.TrimSpace(typed) == ""
+	default:
+		text := strings.TrimSpace(fmt.Sprint(value))
+		return text == "" || strings.EqualFold(text, "<nil>") || strings.EqualFold(text, "null")
+	}
+}
+
+func sameSyncID(payloadID any, entityID string) bool {
+	return strings.EqualFold(strings.TrimSpace(fmt.Sprint(payloadID)), strings.TrimSpace(entityID))
 }
 
 func joinQuoted(cols []string) string {

@@ -15,6 +15,7 @@ export interface Purchase {
   total_amount: number;
   paid_amount: number;
   remaining: number;
+  remaining_amount?: number;
   total_items?: number;
   supplier_name?: string;
   created_at?: string;

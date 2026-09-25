@@ -59,11 +59,17 @@ CREATE TABLE IF NOT EXISTS return_effect_refunds (
 CREATE INDEX IF NOT EXISTS idx_return_effect_refunds_effect ON return_effect_refunds(return_effect_id);
 
 CREATE OR REPLACE VIEW accounting_returns AS
-SELECT id, return_number, reference_number, sale_id, purchase_id, customer_id,
-       total_refund_amount, refund_status, status, return_date, refund_date,
-       reason, refund_method, debt_id, debt_adjustment, customer_credit, created_at, updated_at,
-       return_type, is_warranty_claim, item_condition_after_return
-FROM returns
+SELECT r.id, r.return_number, r.reference_number, r.sale_id, r.purchase_id, r.customer_id,
+       r.total_refund_amount,
+       CASE
+           WHEN r.refund_date IS NOT NULL OR UPPER(COALESCE(r.status, '')) = 'COMPLETED'
+               THEN 'refunded'::VARCHAR(30)
+           ELSE 'pending'::VARCHAR(30)
+       END AS refund_status,
+       r.status, r.return_date, r.refund_date,
+       r.reason, r.refund_method, r.debt_id, r.debt_adjustment, r.customer_credit, r.created_at, r.updated_at,
+       r.return_type, r.is_warranty_claim, r.item_condition_after_return
+FROM returns r
 UNION ALL
 SELECT id, NULL::VARCHAR(50) AS return_number,
        CASE WHEN is_reversal THEN 'REV-POSTED'::VARCHAR(50) ELSE NULL::VARCHAR(50) END AS reference_number,

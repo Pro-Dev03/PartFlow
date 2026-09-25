@@ -2,6 +2,7 @@ package debts
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -700,7 +701,7 @@ func (h *Handler) AddPayment(c *gin.Context) {
 	}
 
 	var req struct {
-		Amount float64 `json:"amount" binding:"required"`
+		Amount float64 `json:"amount" binding:"required,gt=0"`
 		Notes  string  `json:"notes"`
 	}
 
@@ -708,83 +709,98 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if req.Amount <= 0 || math.IsNaN(req.Amount) || math.IsInf(req.Amount, 0) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "amount must be greater than zero"})
+		return
+	}
 
 	// Start transaction
-	tx, err := h.db.Beginx()
+	tx, err := h.db.BeginTxx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	defer tx.Rollback()
+	var customerID string
+	var debt struct {
+		Amount          float64 `db:"amount"`
+		PaidAmount      float64 `db:"paid_amount"`
+		RemainingAmount float64 `db:"remaining_amount"`
+	}
 	if dbutil.IsSQLite(h.db) {
-		var customerID string
-		if err := tx.Get(&customerID, `SELECT customer_id FROM debts WHERE id = ?`, id.String()); err != nil {
+		// Acquire SQLite's write lock before reading the balance so two concurrent
+		// collections cannot both pass the same remaining-amount check.
+		result, err := tx.ExecContext(c.Request.Context(), `UPDATE debts SET updated_at = updated_at WHERE id = ?`, id.String())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if affected, _ := result.RowsAffected(); affected != 1 {
 			c.JSON(http.StatusNotFound, gin.H{"error": "debt not found"})
 			return
 		}
-		if req.Amount <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "amount must be greater than zero"})
+		if err := tx.GetContext(c.Request.Context(), &customerID, `SELECT customer_id FROM debts WHERE id = ?`, id.String()); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "debt not found"})
 			return
 		}
-		if _, err := tx.Exec(`UPDATE debts SET paid_amount = MIN(amount, COALESCE(paid_amount,0) + ?), remaining_amount = MAX(0, remaining_amount - ?), status = CASE WHEN remaining_amount - ? <= 0 THEN 'paid' ELSE status END, updated_at = ? WHERE id = ?`, req.Amount, req.Amount, req.Amount, time.Now().UTC().Format(time.RFC3339), id.String()); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if err := tx.GetContext(c.Request.Context(), &debt, `SELECT amount, COALESCE(paid_amount, 0) AS paid_amount, COALESCE(remaining_amount, MAX(amount - COALESCE(paid_amount, 0), 0)) AS remaining_amount FROM debts WHERE id = ?`, id.String()); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "debt not found"})
 			return
 		}
+	} else {
+		if err := tx.GetContext(c.Request.Context(), &customerID, `SELECT customer_id FROM debts WHERE id = $1 FOR UPDATE`, id); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "debt not found"})
+			return
+		}
+		if err := tx.GetContext(c.Request.Context(), &debt, `SELECT amount, COALESCE(paid_amount, 0) AS paid_amount, COALESCE(remaining_amount, GREATEST(amount - COALESCE(paid_amount, 0), 0)) AS remaining_amount FROM debts WHERE id = $1`, id); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "debt not found"})
+			return
+		}
+	}
+	if req.Amount > debt.RemainingAmount+0.000001 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "payment amount exceeds remaining debt balance"})
+		return
+	}
+	newRemainingAmount := debt.RemainingAmount - req.Amount
+	if newRemainingAmount <= 0.000001 {
+		newRemainingAmount = 0
+	}
+	newPaidAmount := debt.Amount - newRemainingAmount
+	if newPaidAmount > debt.Amount {
+		newPaidAmount = debt.Amount
+	}
+	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	updateQuery := `UPDATE debts SET paid_amount = ?, remaining_amount = ?, status = CASE WHEN ? THEN 'paid' ELSE status END, updated_at = ? WHERE id = ? AND COALESCE(remaining_amount, 0) >= ?`
+	result, err := tx.ExecContext(c.Request.Context(), tx.Rebind(updateQuery), newPaidAmount, newRemainingAmount, newRemainingAmount == 0, updatedAt, id.String(), req.Amount)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "debt balance changed; refresh and try again"})
+		return
+	}
+	if dbutil.IsSQLite(h.db) {
 		paymentID := uuid.New().String()
-		if _, err := tx.Exec(`INSERT INTO payments (id, transaction_number, customer_id, amount, payment_method, reference, notes, created_at) VALUES (?, ?, ?, ?, 'cash', ?, ?, ?)`, paymentID, "PAY-"+paymentID[:8], customerID, req.Amount, id.String(), req.Notes, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		if _, err := tx.ExecContext(c.Request.Context(), `INSERT INTO payments (id, transaction_number, customer_id, amount, payment_method, reference, notes, created_at) VALUES (?, ?, ?, ?, 'cash', ?, ?, ?)`, paymentID, "PAY-"+paymentID[:8], customerID, req.Amount, id.String(), req.Notes, updatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		if err := tx.Commit(); err != nil {
+	} else {
+		storeDate, err := accounting.StoreDate(accounting.StoreNow())
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		h.cache.set(nil, 0)
-		dashboard.InvalidateDashboardCache()
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "payment added successfully"})
-		return
-	}
-
-	var customerID uuid.UUID
-	if err := tx.Get(&customerID, `SELECT customer_id FROM debts WHERE id = $1`, id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "debt not found"})
-		return
-	}
-
-	// Update debt remaining amount
-	updateQuery := `
-		UPDATE debts 
-		SET remaining_amount = GREATEST(0, remaining_amount - $1),
-		    status = CASE 
-		        WHEN remaining_amount - $1 <= 0 THEN 'paid'
-		        ELSE status 
-		    END,
-		    updated_at = NOW()
-		WHERE id = $2
-	`
-
-	_, err = tx.Exec(updateQuery, req.Amount, id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Create payment record
-	storeDate, err := accounting.StoreDate(accounting.StoreNow())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	paymentID := uuid.New()
-	paymentQuery := `
-		INSERT INTO payments (id, reference_number, customer_id, amount, payment_method, payment_date, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, 'cash', $5, $6, NOW(), NOW())
-	`
-
-	_, err = tx.Exec(paymentQuery, paymentID, "PAY-"+paymentID.String()[:8], customerID, req.Amount, storeDate, req.Notes)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		paymentID := uuid.New()
+		paymentQuery := `
+			INSERT INTO payments (id, reference_number, customer_id, amount, payment_method, payment_date, notes, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, 'cash', $5, $6, NOW(), NOW())
+		`
+		if _, err = tx.ExecContext(c.Request.Context(), paymentQuery, paymentID, "PAY-"+paymentID.String()[:8], customerID, req.Amount, storeDate, req.Notes); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	// Commit transaction
@@ -792,6 +808,7 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	h.cache.set(nil, 0)
 	dashboard.InvalidateDashboardCache()
 
 	c.JSON(http.StatusOK, gin.H{

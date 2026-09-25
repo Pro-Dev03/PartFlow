@@ -2,8 +2,13 @@ package debts
 
 import (
 	"database/sql"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
 )
@@ -62,5 +67,68 @@ func TestDebtSummaryTracksPartialAndClosedDebt(t *testing.T) {
 	}
 	if summary.TotalDebt != 250 || summary.PaidAmount != 250 || summary.RemainingAmount != 0 || summary.CustomerCount != 0 {
 		t.Fatalf("closed summary = %+v, want total 250, paid 250, remaining 0, customers 0", summary)
+	}
+}
+
+func TestAddDebtPaymentSynchronizesBalanceAndRejectsOverpaymentSQLite(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	xdb := sqlx.NewDb(db, "sqlite")
+	for _, statement := range []string{
+		`CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, amount REAL NOT NULL, paid_amount REAL NOT NULL DEFAULT 0, remaining_amount REAL NOT NULL, status TEXT NOT NULL, updated_at TEXT)`,
+		`CREATE TABLE payments (id TEXT PRIMARY KEY, transaction_number TEXT NOT NULL, customer_id TEXT, amount REAL NOT NULL, payment_method TEXT, reference TEXT, notes TEXT, created_at TEXT NOT NULL)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	debtID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO debts (id, customer_id, amount, paid_amount, remaining_amount, status) VALUES (?, ?, 100, 0, 100, 'pending')`, debtID, uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	router.POST("/debts/:id/payments", NewHandler(xdb).AddPayment)
+	request := func(body string) int {
+		t.Helper()
+		response := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/debts/"+debtID.String()+"/payments", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(response, req)
+		return response.Code
+	}
+	if status := request(`{"amount":40}`); status != http.StatusOK {
+		t.Fatalf("partial payment status = %d, want 200", status)
+	}
+	var paid, remaining float64
+	if err := db.QueryRow(`SELECT paid_amount, remaining_amount FROM debts WHERE id = ?`, debtID.String()).Scan(&paid, &remaining); err != nil {
+		t.Fatal(err)
+	}
+	if paid != 40 || remaining != 60 {
+		t.Fatalf("partial debt balance = paid %.2f remaining %.2f, want 40/60", paid, remaining)
+	}
+	if status := request(`{"amount":60.01}`); status != http.StatusBadRequest {
+		t.Fatalf("overpayment status = %d, want 400", status)
+	}
+	var paymentCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM payments`).Scan(&paymentCount); err != nil {
+		t.Fatal(err)
+	}
+	if paymentCount != 1 {
+		t.Fatalf("payment rows after rejected overpayment = %d, want 1", paymentCount)
+	}
+	if status := request(`{"amount":60}`); status != http.StatusOK {
+		t.Fatalf("final payment status = %d, want 200", status)
+	}
+	var finalPaid, finalRemaining float64
+	var finalStatus string
+	if err := db.QueryRow(`SELECT paid_amount, remaining_amount, status FROM debts WHERE id = ?`, debtID.String()).Scan(&finalPaid, &finalRemaining, &finalStatus); err != nil {
+		t.Fatal(err)
+	}
+	if finalPaid != 100 || finalRemaining != 0 || finalStatus != "paid" {
+		t.Fatalf("final debt state = paid %.2f remaining %.2f status %q, want 100/0/paid", finalPaid, finalRemaining, finalStatus)
 	}
 }
