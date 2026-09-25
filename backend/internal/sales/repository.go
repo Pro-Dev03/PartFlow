@@ -50,6 +50,29 @@ type paymentAllocationRow struct {
 	CreatedAt   string  `db:"created_at"`
 }
 
+type postgresSaleItemRow struct {
+	ID                string         `db:"id"`
+	SaleID            string         `db:"sale_id"`
+	ProductID         string         `db:"product_id"`
+	ProductName       sql.NullString `db:"product_name"`
+	SKU               sql.NullString `db:"sku"`
+	Barcode           sql.NullString `db:"barcode"`
+	InventoryItemID   sql.NullString `db:"inventory_item_id"`
+	SerialNumber      sql.NullString `db:"serial_number"`
+	Quantity          int            `db:"quantity"`
+	ReturnedQuantity  int            `db:"returned_quantity"`
+	RemainingQuantity int            `db:"remaining_quantity"`
+	UnitPrice         float64        `db:"unit_price"`
+	UnitCost          float64        `db:"unit_cost"`
+	DiscountAmount    float64        `db:"discount_amount"`
+	TaxAmount         float64        `db:"tax_amount"`
+	TotalAmount       float64        `db:"total_amount"`
+	SupplierID        sql.NullString `db:"supplier_id"`
+	SupplierName      sql.NullString `db:"supplier_name"`
+	InventorySource   sql.NullString `db:"inventory_source"`
+	CreatedAt         time.Time      `db:"created_at"`
+}
+
 func parseSaleTime(value string) (time.Time, error) {
 	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02", "2006-01-02 15:04:05.999999999 -0700 MST", "2006-01-02 15:04:05.9999999 -0700 MST", "2006-01-02 15:04:05.999999 -0700 MST", "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05.9999999", "2006-01-02 15:04:05.999999", "2006-01-02 15:04:05"} {
 		if parsed, err := time.Parse(layout, value); err == nil {
@@ -545,9 +568,78 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 		}
 		return items, nil
 	}
-	var items []SaleItem
-	err := r.db.SelectContext(ctx, &items, query, saleID)
-	return items, err
+	var rows []postgresSaleItemRow
+	if err := r.db.SelectContext(ctx, &rows, query, saleID); err != nil {
+		return nil, err
+	}
+	items := make([]SaleItem, 0, len(rows))
+	for _, row := range rows {
+		itemID, err := uuid.Parse(row.ID)
+		if err != nil {
+			return nil, err
+		}
+		saleItemID, err := uuid.Parse(row.SaleID)
+		if err != nil {
+			return nil, err
+		}
+		productID, err := uuid.Parse(row.ProductID)
+		if err != nil {
+			return nil, err
+		}
+		item := SaleItem{
+			ID:                itemID,
+			SaleID:            saleItemID,
+			ProductID:         productID,
+			Quantity:          row.Quantity,
+			ReturnedQuantity:  row.ReturnedQuantity,
+			RemainingQuantity: row.RemainingQuantity,
+			UnitPrice:         row.UnitPrice,
+			UnitCost:          row.UnitCost,
+			DiscountAmount:    row.DiscountAmount,
+			TaxAmount:         row.TaxAmount,
+			TotalAmount:       row.TotalAmount,
+			CreatedAt:         row.CreatedAt,
+		}
+		if row.ProductName.Valid {
+			value := row.ProductName.String
+			item.ProductName = &value
+		}
+		if row.SKU.Valid {
+			value := row.SKU.String
+			item.SKU = &value
+		}
+		if row.Barcode.Valid {
+			value := row.Barcode.String
+			item.Barcode = &value
+		}
+		if row.InventoryItemID.Valid && row.InventoryItemID.String != "" {
+			value, parseErr := uuid.Parse(row.InventoryItemID.String)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			item.InventoryItemID = &value
+		}
+		if row.SerialNumber.Valid {
+			value := row.SerialNumber.String
+			item.SerialNumber = &value
+		}
+		if row.SupplierID.Valid && row.SupplierID.String != "" {
+			value, parseErr := uuid.Parse(row.SupplierID.String)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			item.SupplierID = &value
+		}
+		if row.SupplierName.Valid {
+			value := row.SupplierName.String
+			item.SupplierName = &value
+		}
+		if row.InventorySource.Valid {
+			item.InventorySource = row.InventorySource.String
+		}
+		items = append(items, item)
+	}
+	return items, nil
 }
 
 // DeleteSaleItems deletes all items for a sale
