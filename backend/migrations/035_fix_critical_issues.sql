@@ -2,18 +2,9 @@
 -- Fix Critical Issues for PartFlow Testing
 -- ============================================
 
--- 1. Fix trade_ins table column name mismatch
--- The code uses "item_id" but the schema has "inventory_item_id"
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'trade_ins' AND column_name = 'inventory_item_id'
-    ) THEN
-        ALTER TABLE trade_ins RENAME COLUMN inventory_item_id TO item_id;
-        RAISE NOTICE 'Renamed inventory_item_id to item_id in trade_ins table';
-    END IF;
-END $$;
+-- 1. trade_ins.inventory_item_id is the canonical name shared by Local,
+-- Backend and Sync. Older Cloud databases that already ran this migration
+-- are reconciled by 088_cloud_runtime_schema_alignment.sql.
 
 -- 2. Make sales user_id nullable for API compatibility
 DO $$

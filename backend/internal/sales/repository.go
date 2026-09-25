@@ -103,7 +103,7 @@ func (r *Repository) loadCashChange(ctx context.Context, sale *Sale) {
 
 func (r *Repository) GetPaymentAllocations(ctx context.Context, saleID uuid.UUID) ([]PaymentAllocation, error) {
 	query := `
-		SELECT id, sale_id, amount, payment_method, status, check_number, bank_name,
+		SELECT id, sale_id, amount, payment_method, COALESCE(status, 'unknown') AS status, check_number, bank_name,
 		       NULLIF(CAST(check_date AS TEXT), '') AS check_date,
 		       CAST(created_at AS TEXT) AS created_at
 		FROM sale_payment_allocations

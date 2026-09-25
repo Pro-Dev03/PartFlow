@@ -32,3 +32,22 @@ func TestNormalizeCloudPayloadTreatsNaiveTimestampAsUTC(t *testing.T) {
 		t.Fatalf("updated_at = %#v, want naive UTC timestamp", got)
 	}
 }
+
+func TestNormalizeCloudPayloadUsesCloudPurchaseColumnsAndBooleans(t *testing.T) {
+	item := map[string]any{"id": "item-id", "quantity": float64(2), "unit_cost": float64(10), "item_total": float64(20)}
+	NormalizeCloudPayload("purchase_items", item)
+	if item["unit_price"] != float64(10) || item["total_amount"] != float64(20) {
+		t.Fatalf("purchase item aliases not mapped: %#v", item)
+	}
+	if _, present := item["unit_cost"]; present {
+		t.Fatalf("obsolete unit_cost remains in Cloud payload: %#v", item)
+	}
+	if _, present := item["item_total"]; present {
+		t.Fatalf("local-only item_total remains in Cloud payload: %#v", item)
+	}
+	product := map[string]any{"is_active": float64(1), "track_serial": float64(0)}
+	NormalizeCloudPayload("products", product)
+	if product["is_active"] != true || product["track_serial"] != false {
+		t.Fatalf("SQLite booleans not normalized for Cloud: %#v", product)
+	}
+}

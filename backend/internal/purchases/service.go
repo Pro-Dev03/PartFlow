@@ -1571,10 +1571,14 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 
 	// Create payment record
 	paymentID := uuid.New()
-	paymentQuery := `
-		INSERT INTO payments (id, transaction_number, purchase_id, supplier_id, amount, payment_method, payment_status, created_by, created_at, updated_at)
+	paymentNumberColumn := "reference_number"
+	if dbutil.IsSQLite(s.db) {
+		paymentNumberColumn = "transaction_number"
+	}
+	paymentQuery := fmt.Sprintf(`
+		INSERT INTO payments (id, %s, purchase_id, supplier_id, amount, payment_method, payment_status, created_by, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`
+	`, paymentNumberColumn)
 	_, err = tx.ExecContext(ctx, paymentQuery,
 		paymentID, "PAY-"+paymentID.String()[:8], purchase.ID, purchase.SupplierID, amount,
 		paymentMethod, "completed", userID, time.Now(), time.Now())

@@ -15,6 +15,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/localdb"
 	authmw "github.com/partflow/smart-store/pkg/middleware"
 	_ "modernc.org/sqlite"
 )

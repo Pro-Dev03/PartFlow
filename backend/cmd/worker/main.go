@@ -111,12 +111,9 @@ func notifyAllUsers(ctx context.Context, db *sqlx.DB, notifType, title, message 
 
 	notificationQuery := `
 		INSERT INTO notifications (id, user_id, type, title, message,
-			data, is_read, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+			data, priority, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, 'medium', 'unread', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 	`
-	if dbutil.IsSQLite(db) {
-		notificationQuery = `INSERT INTO notifications (id, user_id, type, title, message, data, priority, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, 'medium', 'unread', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
-	}
 
 	for _, userIDValue := range users {
 		userID, parseErr := uuid.Parse(userIDValue)
@@ -124,12 +121,7 @@ func notifyAllUsers(ctx context.Context, db *sqlx.DB, notifType, title, message 
 			logger.Error("Failed to parse active user ID", parseErr, nil)
 			continue
 		}
-		var err error
-		if dbutil.IsSQLite(db) {
-			_, err = db.ExecContext(ctx, notificationQuery, uuid.New(), userID, notifType, title, message, data)
-		} else {
-			_, err = db.ExecContext(ctx, notificationQuery, uuid.New(), userID, notifType, title, message, data, false)
-		}
+		_, err := db.ExecContext(ctx, notificationQuery, uuid.New(), userID, notifType, title, message, data)
 		if err != nil {
 			logger.Error("Failed to create notification", err, nil)
 		}

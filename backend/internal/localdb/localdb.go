@@ -1145,7 +1145,8 @@ func dropRetiredAcquisitionColumns(db *sql.DB) error {
 func migrateLegacySchema(db *sql.DB) error {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS sale_payment_allocations (
 		id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, amount REAL NOT NULL CHECK (amount > 0),
-		payment_method TEXT NOT NULL, check_number TEXT, bank_name TEXT, check_date TEXT,
+		payment_method TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+		check_number TEXT, bank_name TEXT, check_date TEXT,
 		created_at TEXT NOT NULL, FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
 	)`); err != nil {
 		return fmt.Errorf("create sale payment allocations table: %w", err)
@@ -1158,6 +1159,7 @@ func migrateLegacySchema(db *sql.DB) error {
 		columnName string
 		columnDef  string
 	}{
+		{tableName: "sale_payment_allocations", columnName: "status", columnDef: "status TEXT NOT NULL DEFAULT 'pending'"},
 		// Older local databases may have been created before the category
 		// metadata columns were added. Keep category writes compatible with
 		// those databases instead of relying on CREATE TABLE IF NOT EXISTS.

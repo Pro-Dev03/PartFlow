@@ -860,22 +860,22 @@ func (r *Repository) UpdatePurchaseItem(ctx context.Context, item *PurchaseItem)
 	}
 	query := `
 		UPDATE purchase_items
-		SET quantity = $2, unit_cost = $3, total_cost = $4, serial_number = $5, 
-			condition = $6, location_id = $7, notes = $8, updated_at = $9
+		SET quantity = $2, unit_price = $3, total_amount = $4,
+			serial_number = $5, barcode = $6
 		WHERE id = $1
-		RETURNING updated_at
 	`
 
-	err := r.db.QueryRowContext(ctx, query,
-		item.ID, item.Quantity, item.UnitCost, item.TotalCost, item.SerialNumber,
-		item.Condition, item.LocationID, item.Notes, item.UpdatedAt,
-	).Scan(&item.UpdatedAt)
+	result, err := r.db.ExecContext(ctx, query,
+		item.ID, item.Quantity, item.UnitCost, item.TotalCost,
+		item.SerialNumber, item.Barcode,
+	)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return ErrPurchaseItemNotFound
-		}
 		return fmt.Errorf("failed to update purchase item: %w", err)
+	}
+	count, _ := result.RowsAffected()
+	if count == 0 {
+		return ErrPurchaseItemNotFound
 	}
 	return nil
 }

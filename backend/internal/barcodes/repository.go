@@ -188,10 +188,12 @@ func (r *Repository) ResolveBarcode(ctx context.Context, code string) (*BarcodeR
 		SellingPrice float64 `db:"selling_price"`
 		Status       string  `db:"status"`
 	}
-	itemQuery := r.db.Rebind(`SELECT ii.id, ii.product_id, ii.barcode, ii.serial_number, ii.condition, ii.status
+	itemQuery := r.db.Rebind(`SELECT ii.id, ii.product_id, COALESCE(ii.barcode, '') AS barcode,
+		ii.serial_number, ii.condition, ii.status, ii.supplier_id, ii.purchase_date,
+		ii.purchase_cost, ii.selling_price
 		FROM inventory_items ii
 		WHERE ii.barcode = ? OR EXISTS (
-			SELECT 1 FROM barcodes b WHERE b.inventory_item_id = ii.id AND b.code = ? AND b.is_active = 1 AND UPPER(b.type) IN ('EXTERNAL', 'INTERNAL')
+			SELECT 1 FROM barcodes b WHERE b.inventory_item_id = ii.id AND b.code = ? AND b.is_active = TRUE AND UPPER(b.type) IN ('EXTERNAL', 'INTERNAL')
 		)
 		LIMIT 1`)
 	if err := r.db.GetContext(ctx, &item, itemQuery, code, code); err == nil {

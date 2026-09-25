@@ -331,9 +331,13 @@ func NormalizeCloudPayload(tableName string, payload map[string]any) map[string]
 			}
 		}
 		delete(payload, "purchase_number")
-		delete(payload, "remaining_amount")
 	}
 	if tableName == "purchase_items" {
+		if _, ok := payload["unit_price"]; !ok {
+			if value, ok := payload["unit_cost"]; ok {
+				payload["unit_price"] = value
+			}
+		}
 		if _, ok := payload["total_amount"]; !ok {
 			if value, ok := payload["item_total"]; ok {
 				payload["total_amount"] = value
@@ -344,6 +348,7 @@ func NormalizeCloudPayload(tableName string, payload map[string]any) map[string]
 			}
 		}
 		delete(payload, "item_total")
+		delete(payload, "unit_cost")
 	}
 	if tableName == "payments" {
 		if _, ok := payload["reference_number"]; !ok {
@@ -353,7 +358,49 @@ func NormalizeCloudPayload(tableName string, payload map[string]any) map[string]
 		}
 		delete(payload, "transaction_number")
 	}
+	for _, field := range strings.Fields(syncBooleanColumns[tableName]) {
+		if value, ok := payload[field]; ok {
+			if normalized, valid := normalizeSyncBoolean(value); valid {
+				payload[field] = normalized
+			}
+		}
+	}
 	return payload
+}
+
+var syncBooleanColumns = map[string]string{
+	"products": "is_active track_serial track_individual",
+	"customers": "is_active",
+	"suppliers": "is_active",
+	"categories": "is_active",
+	"expense_categories": "is_active",
+	"expenses": "is_recurring",
+	"locations": "is_active",
+	"part_types": "is_active",
+	"part_specifications": "is_required",
+	"item_specification_values": "value_boolean",
+	"barcodes": "is_active",
+	"return_items": "inspection_required",
+	"returns": "is_warranty_claim",
+	"return_effects": "is_reversal",
+	"inventory_movements": "is_reversed",
+}
+
+func normalizeSyncBoolean(value any) (bool, bool) {
+	if boolean, ok := value.(bool); ok {
+		return boolean, true
+	}
+	if number, ok := syncNumber(value); ok && (number == 0 || number == 1) {
+		return number == 1, true
+	}
+	switch strings.ToLower(strings.TrimSpace(fmt.Sprint(value))) {
+	case "true", "t", "1":
+		return true, true
+	case "false", "f", "0":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func normalizeTimestampFields(payload map[string]any) {
@@ -512,18 +559,18 @@ func upsertEntity(postgresDB *sqlx.DB, tableName string, payload map[string]any)
 
 func syncColumns(tableName string) map[string]struct{} {
 	columns := map[string]string{
-		"products":                  "id sku barcode name description category_id brand_id preferred_supplier_id cost_price selling_price min_stock_level max_stock_level is_active created_at updated_at",
+		"products":                  "id sku barcode name description category_id brand_id preferred_supplier_id purchase_price cost_price selling_price currency min_stock_level max_stock_level is_active created_at updated_at",
 		"customers":                 "id code name email phone address city country tax_id credit_limit current_balance notes is_active created_at updated_at",
 		"suppliers":                 "id code name email phone address city country tax_id payment_terms credit_limit current_balance notes is_active created_at updated_at",
 		"inventory_items":           "id product_id part_type_id item_code barcode serial_number condition grade purchase_cost selling_price status location_id supplier_id purchase_date sold_at notes created_at updated_at",
-		"sales":                     "id invoice_number customer_id user_id sale_date subtotal tax_amount discount_amount total_amount paid_amount payment_method payment_status status notes created_at updated_at",
-		"purchases":                 "id invoice_number supplier_id user_id purchase_date subtotal tax_amount discount_amount total_amount paid_amount remaining_amount payment_method payment_status status notes created_at updated_at",
+		"sales":                     "id sale_number invoice_number customer_id user_id sale_date subtotal tax_amount discount_amount total_amount paid_amount remaining_amount payment_method payment_status status notes created_at updated_at",
+		"purchases":                 "id invoice_number supplier_id user_id purchase_date expected_delivery_date subtotal tax_amount discount_amount total_amount paid_amount remaining_amount payment_method payment_status status notes created_at updated_at",
 		"payments":                  "id reference_number sale_id purchase_id customer_id supplier_id amount payment_method payment_date notes created_at updated_at",
 		"debts":                     "id customer_id sale_id amount paid_amount remaining_amount due_date status notes created_at updated_at",
 		"categories":                "id name description parent_id icon color is_active created_at updated_at",
 		"brands":                    "id name description logo_url created_at updated_at",
 		"sale_items":                "id sale_id inventory_item_id product_id quantity unit_price total_amount unit_cost created_at",
-		"purchase_items":            "id purchase_id product_id quantity unit_price total_amount unit_cost created_at",
+		"purchase_items":            "id purchase_id product_id quantity unit_price total_amount barcode serial_number created_at",
 		"expenses":                  "id title category_id reference_number category amount description expense_date payment_method receipt_url created_by currency reference status is_recurring recurring_period approved_by created_at updated_at",
 		"expense_categories":        "id name description color icon budget is_active created_at updated_at",
 		"inventory":                 "id product_id quantity reserved_quantity location warehouse_id current_quantity available_quantity current_cost current_value last_movement_id last_restocked_at created_at updated_at",
@@ -532,12 +579,12 @@ func syncColumns(tableName string) map[string]struct{} {
 		"reservations":              "id item_id customer_id user_id reserved_at expires_at status notes created_at updated_at",
 		"barcodes":                  "id code product_id inventory_item_id type is_active generated_at created_at updated_at",
 		"returns":                   "id return_number reference_number sale_id purchase_id customer_id return_date return_type status total_refund_amount refund_method refund_date refund_reference debt_id debt_adjustment customer_credit reason reason_detail item_condition_after_return is_warranty_claim warranty_id warranty_valid_until created_by processed_by approved_by approved_at notes internal_notes created_at updated_at",
-		"return_items":              "id return_id sale_item_id product_id inventory_item_id quantity_returned original_quantity serial_number barcode unit_price total_refund_amount reason original_condition returned_condition condition_notes resolution inventory_status inspection_required inspection_date inspection_result inspection_notes original_cost repair_cost created_at updated_at",
-		"return_effects":            "id return_number reference_number sale_id purchase_id customer_id total_refund_amount refund_status status return_date refund_date reason refund_method debt_id debt_adjustment customer_credit created_at updated_at",
-		"return_effect_items":       "id return_effect_id source_return_item_id sale_item_id product_id inventory_item_id serial_number barcode quantity_returned original_quantity unit_price total_refund_amount original_cost resolution inventory_status created_at",
-		"return_effect_refunds":     "id return_effect_id source_refund_id refund_type amount refund_date payment_method transaction_reference debt_id debt_reduction_amount created_at",
+		"return_items":              "id return_id sale_item_id product_id inventory_item_id quantity_returned original_quantity serial_number barcode unit_price total_refund_amount original_condition returned_condition condition_notes resolution inventory_status inspection_required inspection_date inspection_result inspection_notes original_cost repair_cost created_at updated_at",
+		"return_effects":            "id sale_id purchase_id customer_id total_refund_amount status return_date refund_date refund_method debt_id debt_adjustment customer_credit is_reversal created_at updated_at",
+		"return_effect_items":       "id return_effect_id sale_item_id product_id inventory_item_id serial_number barcode quantity_returned original_quantity unit_price total_refund_amount original_cost resolution inventory_status created_at",
+		"return_effect_refunds":     "id return_effect_id refund_type amount refund_date payment_method transaction_reference debt_id debt_reduction_amount created_at",
 		"acquisitions":              "id type acquisition_date supplier_id customer_id total_cost paid_amount payment_status status notes user_id created_at updated_at reversed_at reversed_by reversal_reason",
-		"acquisition_items":         "id acquisition_id product_id inventory_item_id item_code serial_number condition grade unit_cost total_cost item_status notes created_at updated_at",
+		"acquisition_items":         "id acquisition_id product_id inventory_item_id serial_number condition grade unit_cost total_cost item_status notes created_at updated_at",
 		"trade_ins":                 "id customer_id inventory_item_id purchase_price purchase_date notes created_at updated_at",
 		"supplier_returns":          "id purchase_id supplier_id return_number status reason refund_amount notes created_by created_at updated_at",
 		"supplier_return_items":     "id customer_return_id sale_id sale_item_id inventory_item_id supplier_return_id purchase_item_id product_id quantity unit_cost barcode serial_number purchase_cost return_reason return_date created_at",
@@ -582,9 +629,11 @@ func isBlankSyncID(value any) bool {
 	}
 	switch typed := value.(type) {
 	case []byte:
-		return strings.TrimSpace(string(typed)) == ""
+		text := strings.TrimSpace(string(typed))
+		return text == "" || strings.EqualFold(text, "null")
 	case string:
-		return strings.TrimSpace(typed) == ""
+		text := strings.TrimSpace(typed)
+		return text == "" || strings.EqualFold(text, "null")
 	default:
 		text := strings.TrimSpace(fmt.Sprint(value))
 		return text == "" || strings.EqualFold(text, "<nil>") || strings.EqualFold(text, "null")
