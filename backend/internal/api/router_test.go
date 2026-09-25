@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,6 +111,20 @@ func TestCloudBusinessAccessUsesAuthenticatedSingleStoreModeWithoutTenantIsolati
 	router.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("authenticated active subscriber status=%d body=%s; want single-store access without tenant-isolation rollout gate", response.Code, response.Body.String())
+	}
+
+	// Exercise the actual route tree: ordinary subscribers may use cloud-backed
+	// business APIs, but neither legacy queue import nor full local SQLite
+	// reconciliation may accept their data.
+	for _, path := range []string{"/api/v1/sync/push", "/api/v1/settings/sync/push"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"operations":[{"id":"legacy-1","entity_type":"customers","entity_id":"customer-1","operation":"upsert","payload":"{}"}]}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+tokenString)
+		pushResponse := httptest.NewRecorder()
+		router.ServeHTTP(pushResponse, req)
+		if pushResponse.Code != http.StatusForbidden || !strings.Contains(pushResponse.Body.String(), "ADMIN_REQUIRED") {
+			t.Fatalf("subscriber POST %s status=%d body=%s; want ADMIN_REQUIRED", path, pushResponse.Code, pushResponse.Body.String())
+		}
 	}
 
 	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)

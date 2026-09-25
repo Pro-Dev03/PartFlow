@@ -53,6 +53,45 @@ func TestSingleStoreDefaultSkipsTenantIsolationMigration(t *testing.T) {
 	if shouldSkipDefaultMigration("081_single_store_cloud_hardening.sql") {
 		t.Fatal("single-store cloud hardening migration must remain in the default run")
 	}
+	if shouldSkipDefaultMigration("082_remove_duplicate_indexes.sql") {
+		t.Fatal("single-store duplicate index cleanup must remain in the default run")
+	}
+}
+
+func TestDuplicateIndexMigrationDropsOnlyRedundantSupabaseIndexes(t *testing.T) {
+	path := filepath.Join("..", "..", "migrations", "082_remove_duplicate_indexes.sql")
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read duplicate index cleanup migration: %v", err)
+	}
+	sql := string(contents)
+
+	for _, redundantIndex := range []string{
+		"idx_daily_debt_summary_runtime_date",
+		"idx_daily_inventory_summary_runtime_date",
+		"idx_daily_profit_summary_runtime_date",
+		"idx_daily_sales_summary_runtime_date",
+		"idx_monthly_debt_summary_runtime_year_month",
+		"idx_monthly_inventory_summary_runtime_year_month",
+		"idx_monthly_profit_summary_runtime_year_month",
+		"idx_monthly_sales_summary_runtime_year_month",
+		"idx_supplier_ledger_runtime_type",
+		"idx_supplier_ledger_type_normalized",
+	} {
+		if !strings.Contains(sql, "DROP INDEX IF EXISTS public."+redundantIndex) {
+			t.Errorf("migration does not remove redundant index %q", redundantIndex)
+		}
+	}
+
+	for _, retainedIndex := range []string{
+		"idx_daily_debt_date", "idx_daily_inventory_date", "idx_daily_profit_date", "idx_daily_sales_date",
+		"idx_monthly_debt_year_month", "idx_monthly_inventory_year_month", "idx_monthly_profit_year_month", "idx_monthly_sales_year_month",
+		"idx_supplier_ledger_type",
+	} {
+		if strings.Contains(sql, "DROP INDEX IF EXISTS public."+retainedIndex+";") {
+			t.Errorf("migration drops canonical index %q", retainedIndex)
+		}
+	}
 }
 
 func TestSingleStoreHardeningMigrationCoversSupabaseFindings(t *testing.T) {
