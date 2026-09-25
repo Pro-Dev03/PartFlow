@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -57,7 +56,7 @@ func TestSetupRoutesRegistersCustomerDebtRoutes(t *testing.T) {
 	}
 }
 
-func TestCloudBusinessAccessFailsClosedUntilTenantIsolationIsEnabled(t *testing.T) {
+func TestCloudBusinessAccessUsesAuthenticatedSingleStoreModeWithoutTenantIsolation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "sync-admin-test.db"))
 	t.Setenv("DB_CONNECTION_MODE", "cloud")
@@ -99,17 +98,18 @@ func TestCloudBusinessAccessFailsClosedUntilTenantIsolationIsEnabled(t *testing.
 	if err != nil {
 		t.Fatalf("sign subscriber token: %v", err)
 	}
-	for _, target := range []struct{ method, path string }{
-		{http.MethodGet, "/api/v1/sync/initial-data"},
-		{http.MethodPost, "/api/v1/sync/push"},
-	} {
-		request := httptest.NewRequest(target.method, target.path, nil)
-		request.Header.Set("Authorization", "Bearer "+tokenString)
-		response := httptest.NewRecorder()
-		router.ServeHTTP(response, request)
-		if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "TENANT_ISOLATION_REQUIRED") {
-			t.Fatalf("%s %s status=%d body=%s; want rollout isolation denial", target.method, target.path, response.Code, response.Body.String())
-		}
+	unauthenticated := httptest.NewRecorder()
+	router.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/auth/admin-check", nil))
+	if unauthenticated.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated cloud request status=%d body=%s; want authentication to remain required", unauthenticated.Code, unauthenticated.Body.String())
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/auth/admin-check", nil)
+	request.Header.Set("Authorization", "Bearer "+tokenString)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("authenticated active subscriber status=%d body=%s; want single-store access without tenant-isolation rollout gate", response.Code, response.Body.String())
 	}
 
 	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)

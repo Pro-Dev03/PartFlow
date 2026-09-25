@@ -323,7 +323,13 @@ func (h *AggregationHandler) GetMonthlySalesSummary(c *gin.Context) {
 	}
 	summary := aggregations.MonthlySalesSummary{Year: year, Month: month}
 	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, storeLocation())
-	if err := h.refreshSQLiteSummaries(c.Request.Context(), start, start.AddDate(0, 1, -1)); err != nil {
+	var refreshErr error
+	if dbutil.IsSQLite(h.db) {
+		refreshErr = h.refreshSQLiteSummaries(c.Request.Context(), start, start.AddDate(0, 1, -1))
+	} else {
+		refreshErr = h.refreshPostgresMonthlySalesSummary(c.Request.Context(), year, month)
+	}
+	if refreshErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update sales summary"})
 		return
 	}
@@ -771,6 +777,29 @@ const postgresDailySalesSummaryUpsert = `INSERT INTO daily_sales_summary (summar
 func (h *AggregationHandler) refreshPostgresDailySalesSummary(ctx context.Context, date string) error {
 	if _, err := h.db.ExecContext(ctx, postgresDailySalesSummaryUpsert, date); err != nil {
 		return fmt.Errorf("refresh PostgreSQL daily sales summary for %s: %w", date, err)
+	}
+	return nil
+}
+
+const postgresMonthlySalesSummaryUpsert = `INSERT INTO monthly_sales_summary (year,month,total_sales,total_revenue,total_profit,total_customers,average_order_value,total_items_sold,cash_sales,card_sales,debt_sales,updated_at)
+	SELECT $1,$2,COUNT(s.id),COALESCE(SUM(s.total_amount),0),COALESCE(SUM(s.total_amount-COALESCE(cost.total_cost,0)),0),COUNT(DISTINCT s.customer_id),COALESCE(SUM(s.total_amount)/NULLIF(COUNT(s.id),0),0),COALESCE(SUM(cost.total_items),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('cash','cash_payment') THEN s.total_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('card','credit_card') THEN s.total_amount ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('debt','credit','on_account') THEN s.total_amount ELSE 0 END),0),NOW()
+	FROM sales s LEFT JOIN (
+		SELECT s2.id AS sale_id,SUM(si.quantity) AS total_items,
+			CASE WHEN s2.cost_amount IS NOT NULL THEN s2.cost_amount
+				ELSE COALESCE(SUM(si.quantity*COALESCE(si.unit_cost,ii.purchase_cost,p.cost_price,0)),0) END AS total_cost
+		FROM sales s2 LEFT JOIN sale_items si ON si.sale_id=s2.id
+		LEFT JOIN inventory_items ii ON ii.id=si.inventory_item_id
+		LEFT JOIN products p ON p.id=si.product_id
+		GROUP BY s2.id,s2.cost_amount
+	) cost ON cost.sale_id=s.id
+	WHERE s.sale_date >= make_date($1,$2,1)
+		AND s.sale_date < make_date($1,$2,1) + INTERVAL '1 month'
+		AND LOWER(COALESCE(s.status,'completed'))='completed'
+	ON CONFLICT(year,month) DO UPDATE SET total_sales=EXCLUDED.total_sales,total_revenue=EXCLUDED.total_revenue,total_profit=EXCLUDED.total_profit,total_customers=EXCLUDED.total_customers,average_order_value=EXCLUDED.average_order_value,total_items_sold=EXCLUDED.total_items_sold,cash_sales=EXCLUDED.cash_sales,card_sales=EXCLUDED.card_sales,debt_sales=EXCLUDED.debt_sales,updated_at=NOW()`
+
+func (h *AggregationHandler) refreshPostgresMonthlySalesSummary(ctx context.Context, year, month int) error {
+	if _, err := h.db.ExecContext(ctx, postgresMonthlySalesSummaryUpsert, year, month); err != nil {
+		return fmt.Errorf("refresh PostgreSQL monthly sales summary for %04d-%02d: %w", year, month, err)
 	}
 	return nil
 }

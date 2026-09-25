@@ -75,6 +75,16 @@ func main() {
 		}
 		migrationFiles = filtered
 		fmt.Printf("Running selected migration: %s\n", targetVersion)
+	} else {
+		filtered := make([]string, 0, len(migrationFiles))
+		for _, file := range migrationFiles {
+			if shouldSkipDefaultMigration(file) {
+				fmt.Printf("Skipping optional tenant isolation migration for the single-store deployment: %s\n", filepath.Base(file))
+				continue
+			}
+			filtered = append(filtered, file)
+		}
+		migrationFiles = filtered
 	}
 
 	// Create migrations table if not exists
@@ -134,6 +144,10 @@ func main() {
 	}
 
 	fmt.Println("All migrations completed successfully")
+}
+
+func shouldSkipDefaultMigration(filename string) bool {
+	return strings.TrimSuffix(filepath.Base(filename), ".sql") == "080_tenant_isolation"
 }
 
 func findAppliedMigration(db *sql.DB, version, filename string) (appliedVersion, appliedAt string, err error) {

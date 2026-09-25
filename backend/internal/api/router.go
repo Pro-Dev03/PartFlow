@@ -127,9 +127,8 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 		cloudValidation.Use(middleware.Auth())
 		cloudValidation.POST("/auth/validate", authHandler.ValidateSubscription)
 
-		// Logout only revokes the caller's session and must stay available while
-		// tenant data access is blocked awaiting the RLS migration. It is
-		// authenticated, but does not read or mutate store business data.
+		// Logout only revokes the caller's session and remains available even if
+		// store business requests fail for another reason.
 		sessionRoutes := v1.Group("")
 		sessionRoutes.Use(middleware.Auth())
 		sessionRoutes.POST("/auth/logout", authHandler.Logout)

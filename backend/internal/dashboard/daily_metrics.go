@@ -274,13 +274,38 @@ func isSQLiteDriver(driver string) bool {
 }
 
 func sqliteHasColumns(db *sqlx.DB, table string, required ...string) bool {
-	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	var rows *sqlx.Rows
+	var err error
+	if isSQLiteDriver(db.DriverName()) {
+		rows, err = db.Queryx("PRAGMA table_info(" + table + ")")
+	} else {
+		rows, err = db.Queryx(`SELECT column_name AS name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`, table)
+	}
 	if err != nil {
 		return false
 	}
 	defer rows.Close()
 
 	found := make(map[string]bool, len(required))
+	if !isSQLiteDriver(db.DriverName()) {
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return false
+			}
+			found[strings.ToLower(name)] = true
+		}
+		if err := rows.Err(); err != nil {
+			return false
+		}
+		for _, column := range required {
+			if !found[strings.ToLower(column)] {
+				return false
+			}
+		}
+		return true
+	}
+
 	for rows.Next() {
 		var cid, notNull, pk int
 		var name, dataType string

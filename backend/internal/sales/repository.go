@@ -350,7 +350,7 @@ func (r *Repository) CreateSaleItem(ctx context.Context, item *SaleItem) error {
 // GetSaleItems retrieves items for a sale
 func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]SaleItem, error) {
 	skuColumn := "p.sku"
-	barcodeCandidates := []string{"NULLIF(si.barcode, '')", "NULLIF(ii.barcode, '')", "NULLIF(p.barcode, '')"}
+	barcodeCandidates := []string{}
 	if dbutil.IsSQLite(r.db) {
 		var columns struct {
 			ProductSKU     bool `db:"product_sku"`
@@ -368,7 +368,32 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 		if !columns.ProductSKU {
 			skuColumn = "NULL AS sku"
 		}
-		barcodeCandidates = nil
+		if columns.SaleBarcode {
+			barcodeCandidates = append(barcodeCandidates, "NULLIF(si.barcode, '')")
+		}
+		if columns.ItemBarcode {
+			barcodeCandidates = append(barcodeCandidates, "NULLIF(ii.barcode, '')")
+		}
+		if columns.ProductBarcode {
+			barcodeCandidates = append(barcodeCandidates, "NULLIF(p.barcode, '')")
+		}
+	} else {
+		var columns struct {
+			ProductSKU     bool `db:"product_sku"`
+			ProductBarcode bool `db:"product_barcode"`
+			SaleBarcode    bool `db:"sale_barcode"`
+			ItemBarcode    bool `db:"item_barcode"`
+		}
+		if err := r.db.GetContext(ctx, &columns, `SELECT
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'sku') AS product_sku,
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'barcode') AS product_barcode,
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sale_items' AND column_name = 'barcode') AS sale_barcode,
+			EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'inventory_items' AND column_name = 'barcode') AS item_barcode`); err != nil {
+			return nil, fmt.Errorf("inspect sale item product code columns: %w", err)
+		}
+		if !columns.ProductSKU {
+			skuColumn = "NULL AS sku"
+		}
 		if columns.SaleBarcode {
 			barcodeCandidates = append(barcodeCandidates, "NULLIF(si.barcode, '')")
 		}
@@ -414,6 +439,13 @@ func (r *Repository) GetSaleItems(ctx context.Context, saleID uuid.UUID) ([]Sale
 	if dbutil.IsSQLite(r.db) {
 		var hasReturnItems bool
 		if err := r.db.GetContext(ctx, &hasReturnItems, `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'return_items')`); err != nil || !hasReturnItems {
+			query = baseQuery
+		}
+	} else {
+		var returnViewsExist bool
+		if err := r.db.GetContext(ctx, &returnViewsExist, `SELECT
+			EXISTS (SELECT 1 FROM information_schema.views WHERE table_schema = 'public' AND table_name = 'accounting_return_items')
+			AND EXISTS (SELECT 1 FROM information_schema.views WHERE table_schema = 'public' AND table_name = 'accounting_returns')`); err != nil || !returnViewsExist {
 			query = baseQuery
 		}
 	}

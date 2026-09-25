@@ -42,3 +42,12 @@ func TestFindAppliedMigrationRecognizesLegacyExtension(t *testing.T) {
 		t.Fatalf("got version=%q appliedAt=%q", version, appliedAt)
 	}
 }
+
+func TestSingleStoreDefaultSkipsTenantIsolationMigration(t *testing.T) {
+	if !shouldSkipDefaultMigration("080_tenant_isolation.sql") {
+		t.Fatal("default single-store migration run must skip tenant isolation")
+	}
+	if shouldSkipDefaultMigration("081_single_store_cloud_hardening.sql") {
+		t.Fatal("single-store cloud hardening migration must remain in the default run")
+	}
+}

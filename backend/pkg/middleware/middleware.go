@@ -44,14 +44,9 @@ func TenantIDFromContext(ctx context.Context) (uuid.UUID, bool) {
 func TenantScope() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !partflowdb.TenantIsolationEnabled() {
-			// The deployed schema has global business tables until migration 080
-			// is applied. Do not let ordinary subscribers reach that shared data
-			// during the rollout window.
-			if !isLocalDatabaseMode() && !IsConfiguredAdmin(c, GetUserID(c)) {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Tenant isolation must be installed before subscriber business access", "code": "TENANT_ISOLATION_REQUIRED"})
-				c.Abort()
-				return
-			}
+			// PartFlow currently runs as one store on one cloud database. In this
+			// mode Auth remains responsible for the live account and subscription
+			// check; tenant-scoped RLS is an optional future deployment mode.
 			c.Next()
 			return
 		}

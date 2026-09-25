@@ -205,28 +205,10 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 	stats.TotalReturns = float64(result.TotalReturns)
 	stats.TotalRefunded = result.TotalRefunded
 
-	var hasWarrantyClaimsTable bool
-	if checkErr := s.db.GetContext(ctx, &hasWarrantyClaimsTable, `
-		SELECT COUNT(*) > 0
-		FROM sqlite_master
-		WHERE type = 'table' AND name = 'warranty_claims'
-	`); checkErr == nil && hasWarrantyClaimsTable {
+	if hasTable(ctx, s.db, "warranty_claims") {
 		var pendingClaims int
 		if countErr := s.db.GetContext(ctx, &pendingClaims, `SELECT COUNT(*) FROM warranty_claims WHERE status = 'pending'`); countErr == nil {
 			stats.PendingClaims = pendingClaims
-		}
-	}
-
-	// Some SQLite local databases do not have legacy warranty_claims tables.
-	if stats.PendingClaims == 0 {
-		var pendingClaims int
-		err = s.db.GetContext(ctx, &pendingClaims, `
-			SELECT COUNT(*)
-			FROM sqlite_master
-			WHERE type = 'table' AND name = 'warranty_claims'
-		`)
-		if err == nil && pendingClaims == 0 {
-			stats.PendingClaims = 0
 		}
 	}
 

@@ -391,10 +391,16 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 	`
-	hasCashColumns := true
+	hasCashColumns := false
 	if dbutil.IsSQLite(s.db) {
 		var cashColumnCount int
 		if err := tx.GetContext(ctx, &cashColumnCount, `SELECT COUNT(*) FROM pragma_table_info('sales') WHERE name IN ('cash_received', 'change_amount')`); err != nil {
+			return nil, fmt.Errorf("failed to inspect cash change schema: %w", err)
+		}
+		hasCashColumns = cashColumnCount == 2
+	} else {
+		var cashColumnCount int
+		if err := tx.GetContext(ctx, &cashColumnCount, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'sales' AND column_name IN ('cash_received', 'change_amount')`); err != nil {
 			return nil, fmt.Errorf("failed to inspect cash change schema: %w", err)
 		}
 		hasCashColumns = cashColumnCount == 2

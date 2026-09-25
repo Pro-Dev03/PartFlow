@@ -23,18 +23,22 @@ func NewRepository(db *sqlx.DB) *Repository {
 
 func inventoryQuantityExpressions(ctx context.Context, db *sqlx.DB, productRef string) (string, string) {
 	var tableExists int
-	if err := db.GetContext(ctx, &tableExists, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'inventory'`); err == nil && tableExists > 0 {
-		return fmt.Sprintf(`CASE WHEN EXISTS (SELECT 1 FROM inventory_items ii0 WHERE ii0.product_id = %s) THEN (SELECT COUNT(*) FROM inventory_items ii2 WHERE ii2.product_id = %s) ELSE COALESCE((SELECT quantity FROM inventory WHERE product_id = %s), 0) END`, productRef, productRef, productRef), fmt.Sprintf(`CASE WHEN EXISTS (SELECT 1 FROM inventory_items ii0 WHERE ii0.product_id = %s) THEN (SELECT COUNT(*) FROM inventory_items ii3 WHERE ii3.product_id = %s AND UPPER(TRIM(COALESCE(ii3.status, ''))) = 'AVAILABLE') ELSE MAX(0, COALESCE((SELECT quantity - COALESCE(reserved_quantity, 0) FROM inventory WHERE product_id = %s), 0)) END`, productRef, productRef, productRef)
+	if dbutil.IsSQLite(db) {
+		if err := db.GetContext(ctx, &tableExists, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'inventory'`); err == nil && tableExists > 0 {
+			return fmt.Sprintf(`CASE WHEN EXISTS (SELECT 1 FROM inventory_items ii0 WHERE ii0.product_id = %s) THEN (SELECT COUNT(*) FROM inventory_items ii2 WHERE ii2.product_id = %s) ELSE COALESCE((SELECT quantity FROM inventory WHERE product_id = %s), 0) END`, productRef, productRef, productRef), fmt.Sprintf(`CASE WHEN EXISTS (SELECT 1 FROM inventory_items ii0 WHERE ii0.product_id = %s) THEN (SELECT COUNT(*) FROM inventory_items ii3 WHERE ii3.product_id = %s AND UPPER(TRIM(COALESCE(ii3.status, ''))) = 'AVAILABLE') ELSE MAX(0, COALESCE((SELECT quantity - COALESCE(reserved_quantity, 0) FROM inventory WHERE product_id = %s), 0)) END`, productRef, productRef, productRef)
+		}
 	}
 	return fmt.Sprintf(`(SELECT COUNT(*) FROM inventory_items ii2 WHERE ii2.product_id = %s)`, productRef), fmt.Sprintf(`(SELECT COUNT(*) FROM inventory_items ii3 WHERE ii3.product_id = %s AND UPPER(TRIM(COALESCE(ii3.status, ''))) = 'AVAILABLE')`, productRef)
 }
 
-func sqliteHasColumn(db *sqlx.DB, tableName string, columnName string) bool {
-	if !dbutil.IsSQLite(db) {
-		return true
-	}
+func inventoryHasColumn(db *sqlx.DB, tableName string, columnName string) bool {
 	var count int
-	err := db.Get(&count, `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, tableName, columnName)
+	var err error
+	if dbutil.IsSQLite(db) {
+		err = db.Get(&count, `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, tableName, columnName)
+	} else {
+		err = db.Get(&count, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`, tableName, columnName)
+	}
 	return err == nil && count > 0
 }
 
@@ -689,21 +693,24 @@ func (r *Repository) ListInventoryItems(ctx context.Context, limit, offset int, 
 // ListInventoryItemsWithSupplierInfo retrieves inventory items with supplier information
 func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, limit, offset int, filters map[string]interface{}) ([]*InventoryItemWithSupplier, int64, error) {
 	currentQuantityExpr, availableQuantityExpr := inventoryQuantityExpressions(ctx, r.db, "ii.product_id")
-	categoryExpr := "p.category_id"
-	if !sqliteHasColumn(r.db, "products", "category_id") {
+	productsHaveCategory := inventoryHasColumn(r.db, "products", "category_id")
+	itemsHaveCategory := inventoryHasColumn(r.db, "inventory_items", "category_id")
+	categoryExpr := "NULL"
+	categoryValueExpr := "NULL"
+	switch {
+	case productsHaveCategory && itemsHaveCategory:
+		categoryExpr = "COALESCE(ii.category_id, p.category_id)"
+		categoryValueExpr = categoryExpr
+	case productsHaveCategory:
+		categoryExpr = "p.category_id"
+		categoryValueExpr = categoryExpr
+	case itemsHaveCategory:
 		categoryExpr = "ii.category_id"
-	}
-	categoryValueExpr := "p.category_id"
-	if dbutil.IsSQLite(r.db) {
-		if sqliteHasColumn(r.db, "products", "category_id") && sqliteHasColumn(r.db, "inventory_items", "category_id") {
-			categoryValueExpr = "COALESCE(ii.category_id, p.category_id)"
-		} else if sqliteHasColumn(r.db, "inventory_items", "category_id") {
-			categoryValueExpr = "ii.category_id"
-		}
+		categoryValueExpr = categoryExpr
 	}
 	// Backfill legacy inventory rows whenever the list is read. This also covers
 	// products imported after SQLite startup, when the startup migration ran too early.
-	if categoryExpr == "p.category_id" {
+	if productsHaveCategory && itemsHaveCategory {
 		_, _ = r.db.ExecContext(ctx, `
 		UPDATE inventory_items
 		SET category_id = (SELECT p.category_id FROM products p WHERE p.id = inventory_items.product_id)
@@ -736,6 +743,7 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 	`, currentQuantityExpr, availableQuantityExpr, categoryValueExpr, categoryValueExpr, categoryValueExpr)
 	countQuery := `
 		SELECT COUNT(*) FROM inventory_items ii
+		LEFT JOIN products p ON p.id = ii.product_id
 	`
 	if includeArchived, ok := filters["include_archived"].(bool); !ok || !includeArchived {
 		baseQuery += ` WHERE UPPER(COALESCE(ii.status, '')) <> 'ARCHIVED' AND p.deleted_at IS NULL`
@@ -926,7 +934,7 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 		argCount++
 		param := fmt.Sprintf("$%d", argCount)
 		targetColumn := filterPrefix + ".category_id"
-		if filterPrefix == "ii" && !manualOnly && !supplierOnly {
+		if filterPrefix == "ii" {
 			targetColumn = categoryExpr
 		}
 		baseQuery += ` AND ` + targetColumn + ` = ` + param

@@ -52,7 +52,7 @@ func TestTenantScopeIsNoopUntilCloudMigrationIsEnabled(t *testing.T) {
 	}
 }
 
-func TestTenantScopeBlocksCloudSubscribersBeforeMigration(t *testing.T) {
+func TestTenantScopeAllowsSingleStoreCloudRequestsWhenRLSDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("PARTFLOW_TENANT_RLS_ENABLED", "false")
 	t.Setenv("DB_CONNECTION_MODE", "cloud")
@@ -69,8 +69,8 @@ func TestTenantScopeBlocksCloudSubscribersBeforeMigration(t *testing.T) {
 	router.GET("/business", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/business", nil))
-	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "TENANT_ISOLATION_REQUIRED") {
-		t.Fatalf("cloud subscriber reached global data before RLS migration: status=%d body=%s", response.Code, response.Body.String())
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("single-store cloud request was blocked while tenant RLS is disabled: status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 
