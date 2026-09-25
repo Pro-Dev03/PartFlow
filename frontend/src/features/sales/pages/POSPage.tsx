@@ -1703,7 +1703,6 @@ export function POSPage() {
               className={`category-chip ${posSection === 'products' ? 'active' : ''}`}
               onClick={() => setPosSection('products')}
             >
-              <Package className="w-3.5 h-3.5" />
               <span>المنتجات</span>
             </button>
           </div>

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Input } from '../../design-system/components/input';
 import { Button } from '../../design-system/components/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../design-system/components/card';
 import { CustomerFormData } from '../../features/customers/types/customers.types';
+import './CustomerForm.css';
 
 const generateCustomerCode = () => `CUST-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
 
@@ -27,116 +27,96 @@ export function CustomerForm({ onSubmit, onCancel, initialData, isSubmitting = f
     is_active: initialData?.is_active !== undefined ? initialData.is_active : true,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
     onSubmit(formData);
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{initialData ? 'تعديل العميل' : 'إضافة عميل جديد'}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <Input
-                label="كود العميل"
-                value={formData.code}
-                onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-              />
-            </div>
+    <form onSubmit={handleSubmit} className="customer-form">
+      <div className="customer-form__grid">
+        <Input
+          label="كود العميل"
+          value={formData.code}
+          onChange={(event) => setFormData({ ...formData, code: event.target.value })}
+        />
 
-            <div>
-              <Input
-                label="الاسم الكامل"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                required
-              />
-            </div>
+        <Input
+          label="الاسم الكامل"
+          value={formData.name}
+          onChange={(event) => setFormData({ ...formData, name: event.target.value })}
+          required
+          autoComplete="name"
+        />
 
-            <div>
-              <Input
-                label="رقم الهاتف"
-                type="tel"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                required
-              />
-            </div>
+        <Input
+          label="رقم الهاتف"
+          type="tel"
+          value={formData.phone}
+          onChange={(event) => setFormData({ ...formData, phone: event.target.value })}
+          required
+          autoComplete="tel"
+        />
 
-            <div>
-              <Input
-                label="البريد الإلكتروني"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              />
-            </div>
+        <Input
+          label="البريد الإلكتروني"
+          type="email"
+          value={formData.email}
+          onChange={(event) => setFormData({ ...formData, email: event.target.value })}
+          autoComplete="email"
+        />
 
-            <div className="col-span-2 grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <Input
-                label="العنوان"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-              />
+        <div className={initialData ? 'customer-form__field--wide' : undefined}>
+          <Input
+            label="العنوان"
+            value={formData.address}
+            onChange={(event) => setFormData({ ...formData, address: event.target.value })}
+            autoComplete="street-address"
+          />
+        </div>
 
-              {!initialData && (
-                <Input
-                  label="مبلغ سابق مستحق على العميل"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formData.opening_debt || ''}
-                  onChange={(e) => setFormData({ ...formData, opening_debt: Number(e.target.value) || 0 })}
-                  placeholder="0"
-                />
-              )}
+        {!initialData && (
+          <Input
+            label="مبلغ سابق مستحق على العميل"
+            type="number"
+            min="0"
+            step="0.01"
+            value={formData.opening_debt || ''}
+            onChange={(event) => setFormData({ ...formData, opening_debt: Number(event.target.value) || 0 })}
+            placeholder="0.00"
+          />
+        )}
 
-              <div className="xl:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  ملاحظات العميل
-                </label>
-                <textarea
-                  value={formData.notes || ''}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:bg-gray-800 dark:text-gray-100"
-                />
-              </div>
+        <div className="customer-form__textarea-field">
+          <label className="customer-form__label" htmlFor="customer-notes">ملاحظات العميل</label>
+          <textarea
+            id="customer-notes"
+            value={formData.notes || ''}
+            onChange={(event) => setFormData({ ...formData, notes: event.target.value })}
+            rows={3}
+          />
+        </div>
 
-              <div className="xl:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  سبب الدين
-                </label>
-                <textarea
-                  value={formData.debt_reason || ''}
-                  onChange={(e) => setFormData({ ...formData, debt_reason: e.target.value })}
-                  rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:bg-gray-800 dark:text-gray-100"
-                  placeholder="اكتب سبب الدين أو المذكرة المالية للعميل"
-                />
-              </div>
-            </div>
-          </div>
+        <div className="customer-form__textarea-field">
+          <label className="customer-form__label" htmlFor="customer-debt-reason">سبب الدين</label>
+          <textarea
+            id="customer-debt-reason"
+            value={formData.debt_reason || ''}
+            onChange={(event) => setFormData({ ...formData, debt_reason: event.target.value })}
+            rows={3}
+            placeholder="اكتب سبب الدين أو المذكرة المالية للعميل"
+          />
+        </div>
+      </div>
 
-          <div className="flex gap-3 justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onCancel}
-              disabled={isSubmitting}
-            >
-              إلغاء
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'جاري الحفظ...' : initialData ? 'حفظ التغييرات' : 'إضافة العميل'}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+      <div className="customer-form__actions">
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? 'جاري الحفظ...' : initialData ? 'حفظ التغييرات' : 'إضافة العميل'}
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
+          إلغاء
+        </Button>
+      </div>
+    </form>
   );
 }

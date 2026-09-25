@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Activity, ArrowLeft, ArrowRight, CalendarDays, Clock, DollarSign, Eye, FileText, RefreshCw, RotateCcw, Search, ShoppingCart } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowRight, CalendarDays, Clock, DollarSign, Eye, RefreshCw, ReceiptText, RotateCcw, Search, ShoppingCart, Undo2, UserRound } from 'lucide-react';
 import { dashboardApi, purchasesApi, returnsApi, salesApi } from '../../../services/api/endpoints';
 import { PageHeader } from '../../../design-system/components/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
@@ -24,6 +24,18 @@ const statusLabels: Record<string, string> = {
   received: 'مستلم',
   ordered: 'تم الطلب',
   draft: 'مسودة',
+  approved: 'معتمد',
+  rejected: 'مرفوض',
+};
+
+const paymentLabels: Record<string, string> = {
+  cash: 'نقدًا',
+  card: 'بطاقة',
+  debt: 'دين',
+  credit: 'دين',
+  transfer: 'تحويل بنكي',
+  bank_transfer: 'تحويل بنكي',
+  checks: 'شيك',
 };
 
 function getStatusLabel(status: string) {
@@ -177,6 +189,8 @@ export function ActivityPage() {
                 const activityDescription = item.type === 'sale' && item.seller_name
                   ? `بواسطة: ${item.seller_name}`
                   : item.description;
+                const isSale = item.type === 'sale';
+                const paymentLabel = paymentLabels[String(item.payment_method || '').toLowerCase()] || item.payment_method || 'غير محدد';
                 return (
                   <div
                     key={`${item.type}-${item.id}`}
@@ -192,9 +206,20 @@ export function ActivityPage() {
                     <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--color-primary-10)' }}>
                       <Icon className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>{item.title}</p>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p style={{ fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>{item.title}</p>
+                        {isSale && item.invoice_number && <span className="text-xs text-text-muted">فاتورة {item.invoice_number}</span>}
+                      </div>
                       <p style={{ fontSize: 'var(--font-size-caption)', color: 'var(--text-secondary)' }}>{activityDescription}</p>
+                      {isSale && (
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
+                          <span>العميل: {item.customer_name || 'عميل عام'}</span>
+                          <span>الدفع: {paymentLabel}</span>
+                          <span>المدفوع: ₪{Number(item.paid_amount || 0).toLocaleString('en-US')}</span>
+                          <span>المتبقي: ₪{Number(item.remaining_amount || 0).toLocaleString('en-US')}</span>
+                        </div>
+                      )}
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <p style={{ fontWeight: 'var(--font-weight-medium)', color: 'var(--text-primary)' }}>₪{Number(item.amount || 0).toLocaleString('en-US')}</p>
@@ -202,8 +227,10 @@ export function ActivityPage() {
                     </div>
                     <Badge variant={normalizedStatus === 'completed' ? 'success' : 'warning'} size="sm">{getStatusLabel(item.status)}</Badge>
                     <Button type="button" variant="ghost" size="icon" onClick={() => setSelectedItem(item)} aria-label="عرض تفاصيل العملية" title="عرض التفاصيل والفاتورة">
-                      {item.type === 'sale' ? <FileText className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      {isSale ? <ReceiptText className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </Button>
+                    {isSale && item.customer_id && <Button type="button" variant="ghost" size="icon" onClick={() => navigate(`/app/customers/${item.customer_id}/purchases`)} aria-label="فتح ملف العميل" title="مشتريات العميل"><UserRound className="h-4 w-4" /></Button>}
+                    {isSale && <Button type="button" variant="ghost" size="icon" onClick={() => navigate(`/app/returns/create?sale_id=${encodeURIComponent(item.id)}`)} aria-label="إنشاء مرتجع من البيع" title="إنشاء مرتجع من هذا البيع"><Undo2 className="h-4 w-4" /></Button>}
                     <Button type="button" variant="ghost" size="sm" onClick={() => navigate(`/app/${item.type === 'sale' ? 'sales' : item.type === 'purchase' ? 'purchases' : 'returns'}`)}>فتح القسم</Button>
                   </div>
                 );

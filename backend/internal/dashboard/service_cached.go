@@ -600,7 +600,6 @@ func (s *CachedService) fetchRecentActivity(ctx context.Context) []RecentActivit
 	if hasUsersTable && (s.db.DriverName() != "sqlite" || sqliteHasColumns(s.db, "sales", "user_id")) {
 		saleSellerExpr = "COALESCE((SELECT first_name || ' ' || last_name FROM users WHERE users.id = s.user_id), '') AS seller_name"
 	}
-
 	query := fmt.Sprintf(`
 		SELECT id, type, title, description, amount, activity_time AS time, sale_date, status, seller_name
 		FROM (
@@ -689,6 +688,7 @@ func (s *CachedService) GetActivityWithFilters(ctx context.Context, page, perPag
 	hasSalesTable := hasTable(ctx, s.db, "sales")
 	hasReturnsTable := hasTable(ctx, s.db, "returns")
 	hasUsersTable := hasTable(ctx, s.db, "users")
+	hasCustomersTable := hasTable(ctx, s.db, "customers")
 	saleSellerExpr := "'' AS seller_name"
 	if hasSalesTable && hasUsersTable && hasColumn(ctx, s.db, "sales", "user_id") {
 		saleSellerExpr = "COALESCE((SELECT first_name || ' ' || last_name FROM users WHERE users.id = s.user_id), '') AS seller_name"
@@ -701,6 +701,38 @@ func (s *CachedService) GetActivityWithFilters(ctx context.Context, page, perPag
 			saleDateExpr = "COALESCE(TO_CHAR(s.sale_date, 'YYYY-MM-DD'), '') AS sale_date"
 		}
 	}
+	saleInvoiceExpr := "'' AS invoice_number"
+	if hasColumn(ctx, s.db, "sales", "invoice_number") {
+		saleInvoiceExpr = "COALESCE(s.invoice_number, '') AS invoice_number"
+	}
+	saleCustomerIDExpr := "'' AS customer_id"
+	saleCustomerNameExpr := "'' AS customer_name"
+	if hasColumn(ctx, s.db, "sales", "customer_id") {
+		saleCustomerIDExpr = "COALESCE(CAST(s.customer_id AS TEXT), '') AS customer_id"
+		if hasCustomersTable {
+			saleCustomerNameExpr = "COALESCE((SELECT c.name FROM customers c WHERE c.id = s.customer_id), '') AS customer_name"
+		}
+	}
+	salePaymentExpr := "'' AS payment_method"
+	if hasColumn(ctx, s.db, "sales", "payment_method") {
+		salePaymentExpr = "COALESCE(s.payment_method, '') AS payment_method"
+	}
+	salePaidExpr := "0 AS paid_amount"
+	if hasColumn(ctx, s.db, "sales", "paid_amount") {
+		salePaidExpr = "COALESCE(s.paid_amount, 0) AS paid_amount"
+	}
+	saleRemainingExpr := "0 AS remaining_amount"
+	if hasColumn(ctx, s.db, "sales", "paid_amount") {
+		saleRemainingExpr = "CASE WHEN COALESCE(s.total_amount, 0) - COALESCE(s.paid_amount, 0) > 0 THEN COALESCE(s.total_amount, 0) - COALESCE(s.paid_amount, 0) ELSE 0 END AS remaining_amount"
+	}
+	saleCashExpr := "0 AS cash_received"
+	if hasColumn(ctx, s.db, "sales", "cash_received") {
+		saleCashExpr = "COALESCE(s.cash_received, 0) AS cash_received"
+	}
+	saleChangeExpr := "0 AS change_amount"
+	if hasColumn(ctx, s.db, "sales", "change_amount") {
+		saleChangeExpr = "COALESCE(s.change_amount, 0) AS change_amount"
+	}
 	purchaseStatusExpr := "'' AS status"
 	if hasPurchasesTable && hasColumn(ctx, s.db, "purchases", "status") {
 		purchaseStatusExpr = "p.status"
@@ -711,14 +743,15 @@ func (s *CachedService) GetActivityWithFilters(ctx context.Context, page, perPag
 		activityParts = append(activityParts, fmt.Sprintf(`
 			SELECT s.id, 'sale' AS type, 'بيع' AS title, 'عملية بيع' AS description,
 			       s.total_amount AS amount, s.created_at AS activity_time, %s, s.status,
-			       %s
-			FROM sales s`, saleDateExpr, saleSellerExpr))
+			       %s, %s, %s, %s, %s, %s, %s, %s, %s
+			FROM sales s`, saleDateExpr, saleSellerExpr, saleInvoiceExpr, saleCustomerIDExpr, saleCustomerNameExpr, salePaymentExpr, salePaidExpr, saleRemainingExpr, saleCashExpr, saleChangeExpr))
 	}
 	if hasPurchasesTable {
 		activityParts = append(activityParts, fmt.Sprintf(`
 		SELECT p.id, 'purchase' AS type, 'شراء' AS title, 'عملية شراء' AS description,
 		       p.total_amount AS amount, p.created_at AS activity_time, '' AS sale_date, %s,
-		       '' AS seller_name
+		       '' AS seller_name, '' AS invoice_number, '' AS customer_id, '' AS customer_name,
+		       '' AS payment_method, 0 AS paid_amount, 0 AS remaining_amount, 0 AS cash_received, 0 AS change_amount
 		FROM purchases p`, purchaseStatusExpr))
 	}
 	if hasReturnsTable {
@@ -727,7 +760,8 @@ func (s *CachedService) GetActivityWithFilters(ctx context.Context, page, perPag
 		activityParts = append(activityParts, fmt.Sprintf(`
 		SELECT r.id, 'return' AS type, 'مرتجع' AS title, 'استرداد مرتجع' AS description,
 		       r.total_refund_amount AS amount, %s AS activity_time, '' AS sale_date, %s,
-		       '' AS seller_name
+		       '' AS seller_name, '' AS invoice_number, '' AS customer_id, '' AS customer_name,
+		       '' AS payment_method, 0 AS paid_amount, 0 AS remaining_amount, 0 AS cash_received, 0 AS change_amount
 		FROM returns r
 		WHERE COALESCE(r.total_refund_amount, 0) >= 0`, returnTimeExpr, returnStatusExpr))
 	}
@@ -764,7 +798,7 @@ func (s *CachedService) GetActivityWithFilters(ctx context.Context, page, perPag
 	}
 
 	offset := (page - 1) * perPage
-	query := "SELECT id, type, title, description, amount, activity_time AS time, sale_date, status, seller_name FROM " + activityQuery + where + " ORDER BY activity_time DESC LIMIT ? OFFSET ?"
+	query := "SELECT id, type, title, description, amount, activity_time AS time, sale_date, status, seller_name, invoice_number, customer_id, customer_name, payment_method, paid_amount, remaining_amount, cash_received, change_amount FROM " + activityQuery + where + " ORDER BY activity_time DESC LIMIT ? OFFSET ?"
 	query = s.db.Rebind(query)
 	queryArgs := append(args, perPage, offset)
 	var items []RecentActivityItem

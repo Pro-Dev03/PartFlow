@@ -213,7 +213,7 @@ export function CustomerModals({
         }}
         title={editingCustomer ? 'تعديل العميل' : 'إضافة عميل جديد'}
         variant="modern"
-        size="lg"
+        size="xl"
       >
         <CustomerForm
           initialData={editingCustomer}

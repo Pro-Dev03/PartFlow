@@ -89,6 +89,14 @@ type RecentActivityItem struct {
 	Time        string  `json:"time"`
 	SaleDate    string  `json:"sale_date,omitempty" db:"sale_date"`
 	SellerName  string  `json:"seller_name,omitempty" db:"seller_name"`
+	InvoiceNumber string `json:"invoice_number,omitempty" db:"invoice_number"`
+	CustomerID  string  `json:"customer_id,omitempty" db:"customer_id"`
+	CustomerName string `json:"customer_name,omitempty" db:"customer_name"`
+	PaymentMethod string `json:"payment_method,omitempty" db:"payment_method"`
+	PaidAmount  float64 `json:"paid_amount,omitempty" db:"paid_amount"`
+	RemainingAmount float64 `json:"remaining_amount,omitempty" db:"remaining_amount"`
+	CashReceived float64 `json:"cash_received,omitempty" db:"cash_received"`
+	ChangeAmount float64 `json:"change_amount,omitempty" db:"change_amount"`
 	Status      string  `json:"status"`
 }
 
