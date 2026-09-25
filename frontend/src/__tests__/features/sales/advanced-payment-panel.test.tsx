@@ -107,12 +107,12 @@ describe('AdvancedPaymentPanel numeric keypad', () => {
     expect(input).toHaveValue('')
   })
 
-  it('sets the exact invoice amount and submits only through the checkout action', async () => {
+  it('allows entering the invoice amount manually and submits only through checkout', async () => {
     const { onCheckout } = renderPaymentPanel()
     const input = await paymentInput()
 
-    fireEvent.click(keypadButton('مسح المبلغ'))
-    fireEvent.click(keypadButton('دفع المبلغ كاملًا'))
+    expect(screen.queryByRole('button', { name: /₪(?:50|100|200|500)|دفع المبلغ كاملًا/ })).not.toBeInTheDocument()
+    fireEvent.change(input, { target: { value: '150.00' } })
     expect(input).toHaveValue('150.00')
     fireEvent.click(screen.getByRole('button', { name: /إتمام البيع/ }))
     expect(onCheckout).toHaveBeenCalledTimes(1)

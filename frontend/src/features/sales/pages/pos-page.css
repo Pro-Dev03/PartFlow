@@ -475,24 +475,6 @@
   opacity: 0.55;
 }
 
-.pos-modern-container .pos-advanced-payment-panel .quick-amounts {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 5px;
-  margin-top: 6px;
-}
-
-.pos-modern-container .pos-advanced-payment-panel .quick-amount-btn.exact {
-  grid-column: 1 / -1;
-}
-
-.pos-modern-container .pos-advanced-payment-panel .quick-amount-btn {
-  min-height: 30px;
-  padding: 4px 8px;
-  border-radius: 7px;
-  font-size: 0.72rem;
-}
-
 .pos-modern-container .pos-advanced-payment-panel .payment-change,
 .pos-modern-container .pos-advanced-payment-panel .payment-remaining {
   margin: 5px 0 0;

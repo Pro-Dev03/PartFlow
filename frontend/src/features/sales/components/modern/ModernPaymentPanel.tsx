@@ -133,27 +133,6 @@ export function ModernPaymentPanel({
         </div>
       )}
 
-      {/* Quick Amount Buttons for Cash */}
-      {paymentMethod === 'cash' && total > 0 && (
-        <div className="quick-amounts">
-          {[50, 100, 200, 500].map((amount) => (
-            <button
-              key={amount}
-              className="quick-amount-btn"
-              onClick={() => setPaidAmount(String(amount))}
-            >
-              ₪{amount}
-            </button>
-          ))}
-          <button
-            className="quick-amount-btn exact"
-            onClick={() => setPaidAmount(total.toFixed(2))}
-          >
-            دفع المبلغ كاملًا
-          </button>
-        </div>
-      )}
-
       {/* Checkout Button */}
       <button
         className={cn('checkout-btn', isCheckoutDisabled && 'disabled')}

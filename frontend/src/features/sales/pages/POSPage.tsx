@@ -2208,9 +2208,21 @@ export function POSPage() {
         onClose={() => setIsSalesHistoryOpen(false)}
         title="المبيعات السابقة"
         variant="modern"
-        size="lg"
+        size="xl"
       >
         <div className="pos-sales-history">
+          <div className="pos-history-intro">
+            <div className="pos-history-intro-icon" aria-hidden="true">
+              <History className="h-5 w-5" />
+            </div>
+            <div className="pos-history-intro-copy">
+              <strong>سجل فواتير المبيعات</strong>
+              <span>ابحث عن فاتورة سابقة لعرضها أو إعادة طباعتها</span>
+            </div>
+            <span className="pos-history-count" aria-live="polite">
+              {historicalSales.length} فاتورة
+            </span>
+          </div>
           <label className="pos-history-search">
             <Search className="h-4 w-4" aria-hidden="true" />
             <input
@@ -2221,6 +2233,17 @@ export function POSPage() {
               aria-label="البحث في المبيعات السابقة"
               autoFocus
             />
+            {salesHistorySearch && (
+              <button
+                type="button"
+                className="pos-history-search-clear"
+                onClick={() => setSalesHistorySearch('')}
+                aria-label="مسح البحث"
+                title="مسح البحث"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
           </label>
           {salesHistoryLoading ? (
             <div className="pos-history-state" role="status">جارٍ تحميل المبيعات...</div>
@@ -2232,7 +2255,7 @@ export function POSPage() {
           ) : historicalSales.length === 0 ? (
             <div className="pos-history-state">لا توجد مبيعات مطابقة لبحثك.</div>
           ) : (
-            <div className="pos-history-list" role="list" aria-label="نتائج المبيعات السابقة">
+            <ul className="pos-history-list" aria-label="نتائج المبيعات السابقة">
               {historicalSales.map((sale, index) => {
                 const saleId = String(sale.id ?? `sale-${index}`);
                 const invoiceNumber = String(sale.invoice_number ?? saleId);
@@ -2241,11 +2264,11 @@ export function POSPage() {
                 const saleDate = saleDateValue ? formatStoreDateTime(String(saleDateValue), 'ar') : '—';
                 const saleTotal = Number(sale.total_amount ?? sale.total ?? 0) || 0;
                 return (
-                  <button
+                  <li key={saleId}>
+                    <button
                     key={saleId}
                     type="button"
                     className="pos-history-row"
-                    role="listitem"
                     onClick={() => void handleOpenHistoricalInvoice(sale)}
                     disabled={Boolean(loadingHistoricalSaleId)}
                     aria-label={`عرض فاتورة ${invoiceNumber}`}
@@ -2258,10 +2281,11 @@ export function POSPage() {
                     {loadingHistoricalSaleId === saleId
                       ? <RefreshCw className="h-4 w-4 animate-spin" aria-label="جارٍ التحميل" />
                       : <Printer className="h-4 w-4" aria-hidden="true" />}
-                  </button>
+                    </button>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
         </div>
       </Modal>

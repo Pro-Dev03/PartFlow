@@ -883,35 +883,6 @@ export function AdvancedPaymentPanel({
             disabled={isProcessing}
           />
           
-          {/* Quick Amount Buttons */}
-          {paymentMethod === 'cash' && (
-            <div className="quick-amounts">
-              {[50, 100, 200, 500].map((amount) => (
-              <button
-                key={amount}
-                className="quick-amount-btn"
-                onClick={() => {
-                  mainAmountEntryStarted.current = true
-                  setPaidAmount(String(amount))
-                  setPaid(amount)
-                  }}
-                >
-                  ₪{amount}
-                </button>
-              ))}
-              <button
-                className="quick-amount-btn exact"
-                onClick={() => {
-                  mainAmountEntryStarted.current = true
-                  setPaidAmount(total.toFixed(2))
-                  setPaid(total)
-                }}
-              >
-                دفع المبلغ كاملًا
-              </button>
-            </div>
-          )}
-
           {remaining > 0 && (
             <p className="payment-remaining">المتبقي للدفع: ₪{remaining.toLocaleString()}</p>
           )}
