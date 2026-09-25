@@ -1011,13 +1011,17 @@ func (r *Repository) AdjustCustomerBalance(ctx context.Context, customerID uuid.
 	if entryType == "credit" && amount > balance+0.000001 {
 		return ErrPaymentExceedsBalance
 	}
+	ledgerDelta := amount
+	if entryType == "credit" {
+		ledgerDelta = -amount
+	}
 
 	if dbutil.IsSQLite(r.db) {
-		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT ?, ?, ?, 'ADJUSTMENT', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + CASE WHEN ? = 'debit' THEN ? ELSE -? END, ?, ?, ?`), uuid.New().String(), customerID.String(), entryType, amount, customerID.String(), entryType, amount, amount, description, uuid.Nil, time.Now().UTC()); err != nil {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT ?, ?, ?, 'ADJUSTMENT', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + ?, ?, ?, ?`), uuid.New().String(), customerID.String(), entryType, amount, customerID.String(), ledgerDelta, description, uuid.Nil, time.Now().UTC()); err != nil {
 			return fmt.Errorf("create customer adjustment ledger entry: %w", err)
 		}
 	} else {
-		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at) SELECT ?, ?, ?, ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + CASE WHEN ? = 'debit' THEN ? ELSE -? END, ?, ?, ?`), uuid.New(), customerID, entryType, amount, customerID, entryType, amount, amount, description, uuid.Nil, time.Now().UTC()); err != nil {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at) SELECT ?, ?, ?, ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + ?, ?, ?, ?`), uuid.New(), customerID, entryType, amount, customerID, ledgerDelta, description, uuid.Nil, time.Now().UTC()); err != nil {
 			return fmt.Errorf("create customer adjustment ledger entry: %w", err)
 		}
 	}

@@ -241,6 +241,13 @@ func TestCustomerManualDebtAdjustmentReconcilesBalanceSQLite(t *testing.T) {
 	if creditCount != 1 {
 		t.Fatalf("manual-credit ledger entries = %d, want 1", creditCount)
 	}
+	var creditAmount, ledgerBalance float64
+	if err := db.QueryRowx(`SELECT amount, balance FROM customer_ledger WHERE customer_id = ? AND type = 'credit' AND description = 'manual reduction'`, customerID).Scan(&creditAmount, &ledgerBalance); err != nil {
+		t.Fatal(err)
+	}
+	if creditAmount != 30 || ledgerBalance != 90 {
+		t.Fatalf("manual-credit ledger amount/balance = %v/%v, want 30/90", creditAmount, ledgerBalance)
+	}
 }
 
 func TestDeleteCustomerArchivesAndPreservesFinancialRowsSQLite(t *testing.T) {
