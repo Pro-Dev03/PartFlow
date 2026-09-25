@@ -21,20 +21,36 @@ export const CLOUD_API_URL_OVERRIDE_KEY = 'partflow-cloud-api-url';
 export type ConnectionMode = 'local' | 'cloud';
 export const CONNECTION_MODE_KEY = 'partflow-connection-mode';
 
+export function isElectronRuntime(): boolean {
+  if (typeof window === 'undefined') return false;
+  return Boolean(window.partflowDesktop)
+    || window.location.protocol === 'file:'
+    || /Electron/i.test(window.navigator.userAgent);
+}
+
 export function getConnectionMode(): ConnectionMode {
   if (typeof window === 'undefined') return 'cloud';
+  // Packaged desktop builds always use the device connection mode. Business
+  // requests still go to Render and keep the same cloud auth/subscription gate.
+  if (isElectronRuntime()) {
+    if (localStorage.getItem(CONNECTION_MODE_KEY) !== 'local') {
+      localStorage.setItem(CONNECTION_MODE_KEY, 'local');
+    }
+    return 'local';
+  }
+
   const savedMode = localStorage.getItem(CONNECTION_MODE_KEY);
   if (savedMode === 'cloud' || savedMode === 'local') return savedMode;
 
-  const isElectron = window.location.protocol === 'file:' || /Electron/i.test(window.navigator.userAgent);
   const isLocalHost = /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(window.location.hostname);
-  return isElectron || isLocalHost ? 'local' : 'cloud';
+  return isLocalHost ? 'local' : 'cloud';
 }
 
 export function setConnectionMode(mode: ConnectionMode): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(CONNECTION_MODE_KEY, mode);
-  window.dispatchEvent(new CustomEvent('partflow:connection-mode-changed', { detail: { mode } }));
+  const effectiveMode = isElectronRuntime() ? 'local' : mode;
+  localStorage.setItem(CONNECTION_MODE_KEY, effectiveMode);
+  window.dispatchEvent(new CustomEvent('partflow:connection-mode-changed', { detail: { mode: effectiveMode } }));
 }
 
 /** Local APIs are used only for device-owned SQLite synchronization/setup. */

@@ -4,6 +4,7 @@ import { CLOUD_API_URL_OVERRIDE_KEY, getActiveApiUrl, getBusinessApiUrl, getClou
 describe('app config', () => {
   beforeEach(() => {
     localStorage.clear();
+    delete window.partflowDesktop;
     vi.restoreAllMocks();
   });
 
@@ -24,6 +25,17 @@ describe('app config', () => {
     expect(getConnectionMode()).toBe('cloud');
     expect(getActiveApiUrl()).toBe('https://partflow-api.onrender.com/api/v1');
     expect(shouldUseLocalApi('localhost')).toBe(false);
+  });
+
+  it('forces Electron into local device mode even if cloud mode was saved by an older build', () => {
+    window.partflowDesktop = { appVersion: 'test', platform: 'win32' };
+    localStorage.setItem('partflow-connection-mode', 'cloud');
+
+    expect(getConnectionMode()).toBe('local');
+    setConnectionMode('cloud');
+    expect(getConnectionMode()).toBe('local');
+    expect(localStorage.getItem('partflow-connection-mode')).toBe('local');
+    expect(getBusinessApiUrl()).toBe('https://partflow-api.onrender.com/api/v1');
   });
 
   it('keeps the cloud API pinned to the production Render service', () => {

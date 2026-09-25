@@ -436,7 +436,12 @@ func (s *Service) UpdatePurchase(ctx context.Context, id uuid.UUID, req *Purchas
 		return nil, err
 	}
 	updateQuery := `UPDATE purchases SET supplier_id = $1, invoice_number = $2, purchase_date = $3, expected_delivery_date = $4, status = $5, notes = $6, tax_amount = $7, total_amount = $8, remaining_amount = CASE WHEN $8 - paid_amount > 0 THEN $8 - paid_amount ELSE 0 END, updated_at = $9 WHERE id = $10`
-	if _, err := tx.ExecContext(ctx, updateQuery, purchase.SupplierID, purchase.InvoiceNumber, purchaseDate, purchase.ExpectedDeliveryDate, purchase.Status, purchase.Notes, purchase.TaxAmount, purchase.TotalAmount, purchase.UpdatedAt, purchase.ID); err != nil {
+	updateArgs := []interface{}{purchase.SupplierID, purchase.InvoiceNumber, purchaseDate, purchase.ExpectedDeliveryDate, purchase.Status, purchase.Notes, purchase.TaxAmount, purchase.TotalAmount, purchase.UpdatedAt, purchase.ID}
+	if !dbutil.IsSQLite(s.db) {
+		updateQuery = `UPDATE purchases SET supplier_id = $1, invoice_number = $2, purchase_date = $3, expected_delivery_date = $4, status = $5, notes = $6, subtotal = $7, tax_amount = $8, total_amount = $9, remaining_amount = CASE WHEN $9 - paid_amount > 0 THEN $9 - paid_amount ELSE 0 END, updated_at = $10 WHERE id = $11`
+		updateArgs = []interface{}{purchase.SupplierID, purchase.InvoiceNumber, purchaseDate, purchase.ExpectedDeliveryDate, purchase.Status, purchase.Notes, purchase.Subtotal, purchase.TaxAmount, purchase.TotalAmount, purchase.UpdatedAt, purchase.ID}
+	}
+	if _, err := tx.ExecContext(ctx, updateQuery, updateArgs...); err != nil {
 		return nil, fmt.Errorf("failed to update purchase: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

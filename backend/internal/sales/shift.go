@@ -44,7 +44,64 @@ func ensurePosShiftTable(db *sqlx.DB) error {
 			sales_total REAL NOT NULL DEFAULT 0,
 			sale_count INTEGER NOT NULL DEFAULT 0
 		)`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Older deployments may already have pos_shifts but lack fields added by
+	// later versions. CREATE TABLE IF NOT EXISTS does not update that schema,
+	// which made even GET /shifts/current fail with an undefined-column error.
+	columns := []struct {
+		name    string
+		typeSQL string
+	}{
+		{name: "opening_cash", typeSQL: "NUMERIC(15,2) NOT NULL DEFAULT 0"},
+		{name: "closed_at", typeSQL: "TIMESTAMPTZ"},
+		{name: "closing_cash", typeSQL: "NUMERIC(15,2)"},
+		{name: "sales_total", typeSQL: "NUMERIC(15,2) NOT NULL DEFAULT 0"},
+		{name: "sale_count", typeSQL: "BIGINT NOT NULL DEFAULT 0"},
+	}
+
+	if dbutil.IsSQLite(db) {
+		rows, err := db.Queryx(`PRAGMA table_info(pos_shifts)`)
+		if err != nil {
+			return fmt.Errorf("inspect POS shift columns: %w", err)
+		}
+		existing := make(map[string]bool, len(columns)+4)
+		for rows.Next() {
+			var cid, notNull, primaryKey int
+			var name, columnType string
+			var defaultValue any
+			if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+				_ = rows.Close()
+				return fmt.Errorf("read POS shift column: %w", err)
+			}
+			existing[name] = true
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("iterate POS shift columns: %w", err)
+		}
+		if err := rows.Close(); err != nil {
+			return fmt.Errorf("close POS shift schema query: %w", err)
+		}
+		for _, column := range columns {
+			if existing[column.name] {
+				continue
+			}
+			if _, err := db.Exec(`ALTER TABLE pos_shifts ADD COLUMN ` + column.name + ` ` + column.typeSQL); err != nil {
+				return fmt.Errorf("add POS shift column %s: %w", column.name, err)
+			}
+		}
+		return nil
+	}
+
+	for _, column := range columns {
+		if _, err := db.Exec(`ALTER TABLE pos_shifts ADD COLUMN IF NOT EXISTS ` + column.name + ` ` + column.typeSQL); err != nil {
+			return fmt.Errorf("add POS shift column %s: %w", column.name, err)
+		}
+	}
+	return nil
 }
 
 func currentShift(ctx context.Context, db *sqlx.DB, userID uuid.UUID) (*PosShift, error) {
@@ -66,7 +123,7 @@ func currentShiftFrom(ctx context.Context, exec sqlx.ExtContext, userID uuid.UUI
 
 	err := sqlx.GetContext(ctx, exec, &row, `
 		SELECT id, user_id, status, opened_at, opening_cash, closed_at, closing_cash, sales_total, sale_count
-		FROM pos_shifts WHERE user_id = $1 AND status = 'open' ORDER BY opened_at DESC LIMIT 1`, userID.String())
+		FROM pos_shifts WHERE CAST(user_id AS TEXT) = $1 AND status = 'open' ORDER BY opened_at DESC LIMIT 1`, userID.String())
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -256,7 +313,7 @@ func closeShiftHandler(db *sqlx.DB) gin.HandlerFunc {
 }
 
 func refreshShiftSummary(ctx context.Context, exec sqlx.ExtContext, shiftID, userID string, openedAt time.Time, closedAt *time.Time) error {
-	query := `SELECT COALESCE(SUM(total_amount), 0) AS sales_total, COUNT(*) AS sale_count FROM sales WHERE user_id = $1 AND LOWER(COALESCE(status, 'completed')) = 'completed' AND created_at >= $2`
+	query := `SELECT COALESCE(SUM(total_amount), 0) AS sales_total, COUNT(*) AS sale_count FROM sales WHERE CAST(user_id AS TEXT) = $1 AND LOWER(COALESCE(status, 'completed')) = 'completed' AND created_at >= $2`
 	args := []interface{}{userID, openedAt.UTC().Format(time.RFC3339Nano)}
 	if closedAt != nil {
 		query += ` AND created_at < $3`

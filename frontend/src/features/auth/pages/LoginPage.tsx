@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../../stores/authStore';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { Cloud, HardDrive } from 'lucide-react';
-import { getConnectionMode, setConnectionMode, type ConnectionMode } from '../../../lib/config/app';
+import { getConnectionMode, isElectronRuntime, setConnectionMode, type ConnectionMode } from '../../../lib/config/app';
 
 // Components
 import { LoginBackground } from '../components/LoginBackground';
@@ -23,6 +23,11 @@ export function LoginPage() {
   const setTheme = useUIStore((state) => state.setTheme);
   const isDark = theme === 'dark';
   const [connectionMode, setSelectedConnectionMode] = useState<ConnectionMode>(getConnectionMode);
+  const isElectron = isElectronRuntime();
+  const connectionOptions = [
+    { mode: 'local' as const, label: 'محلي', description: 'بيانات على الجهاز', Icon: HardDrive },
+    ...(!isElectron ? [{ mode: 'cloud' as const, label: 'سحابي Online', description: 'بيانات سحابية مباشرة', Icon: Cloud }] : []),
+  ];
 
   useEffect(() => {
     sessionStorage.removeItem('partflow-login-error');
@@ -134,7 +139,7 @@ export function LoginPage() {
                   aria-label="طريقة الاتصال"
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
+                    gridTemplateColumns: isElectron ? '1fr' : '1fr 1fr',
                     gap: '7px',
                     padding: '5px',
                     borderRadius: '12px',
@@ -142,10 +147,7 @@ export function LoginPage() {
                     background: isDark ? 'rgba(15, 23, 42, 0.72)' : 'rgba(243, 244, 246, 0.82)',
                   }}
                 >
-                  {([
-                    { mode: 'local' as const, label: 'محلي', description: 'بيانات على الجهاز', Icon: HardDrive },
-                    { mode: 'cloud' as const, label: 'سحابي Online', description: 'بيانات سحابية مباشرة', Icon: Cloud },
-                  ]).map(({ mode, label, description, Icon }) => {
+                  {connectionOptions.map(({ mode, label, description, Icon }) => {
                     const selected = connectionMode === mode;
                     return (
                       <button
