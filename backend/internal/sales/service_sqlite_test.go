@@ -11,6 +11,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestParseSaleTimePostgresTimestampWithSpaceAndUTCOffset(t *testing.T) {
+	parsed, err := parseSaleTime("2026-09-25 11:24:32.414013+00")
+	if err != nil {
+		t.Fatalf("parseSaleTime() error = %v", err)
+	}
+	if parsed.UTC().Format(time.RFC3339Nano) != "2026-09-25T11:24:32.414013Z" {
+		t.Fatalf("parsed timestamp = %s", parsed.UTC().Format(time.RFC3339Nano))
+	}
+}
+
 func TestCurrentShiftParsesTextTimestamps(t *testing.T) {
 	db, err := sqlx.Open("sqlite", ":memory:")
 	if err != nil {
