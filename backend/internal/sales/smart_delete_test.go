@@ -106,6 +106,56 @@ func TestSmartDeleteCompletedSaleReversesAndPhysicallyDeletesAtomically(t *testi
 	}
 }
 
+func TestSmartDeleteRecalculatesAffectedShiftTotals(t *testing.T) {
+	db, saleID, _, _ := newSaleDeleteTestDB(t)
+	userID := uuid.NewString()
+	if _, err := db.Exec(`ALTER TABLE sales ADD COLUMN user_id TEXT`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`ALTER TABLE sales ADD COLUMN created_at TEXT`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE sales SET user_id=?, created_at=? WHERE id=?`, userID, "2026-09-25T10:00:00Z", saleID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO sales (id, invoice_number, customer_id, status, total_amount, paid_amount, user_id, created_at) VALUES (?, 'INV-KEEP', NULL, 'completed', 45, 0, ?, ?)`, uuid.NewString(), userID, "2026-09-25T11:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE pos_shifts (id TEXT PRIMARY KEY, user_id TEXT, opened_at TEXT, closed_at TEXT, sales_total REAL, sale_count INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	shiftID, unrelatedShiftID := uuid.NewString(), uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO pos_shifts VALUES (?, ?, ?, ?, 165, 2), (?, ?, ?, ?, 999, 9)`,
+		shiftID, userID, "2026-09-25T08:00:00Z", "2026-09-25T12:00:00Z",
+		unrelatedShiftID, userID, "2026-09-25T12:00:00Z", "2026-09-25T16:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewSmartDeleteService(sqlx.NewDb(db, "sqlite")).SmartDelete(context.Background(), uuid.MustParse(saleID), uuid.Nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != "deleted" {
+		t.Fatalf("delete result = %+v, want deleted", result)
+	}
+	var affectedTotal float64
+	var affectedCount int
+	if err := db.QueryRow(`SELECT sales_total, sale_count FROM pos_shifts WHERE id=?`, shiftID).Scan(&affectedTotal, &affectedCount); err != nil {
+		t.Fatal(err)
+	}
+	var unrelatedTotal float64
+	var unrelatedCount int
+	if err := db.QueryRow(`SELECT sales_total, sale_count FROM pos_shifts WHERE id=?`, unrelatedShiftID).Scan(&unrelatedTotal, &unrelatedCount); err != nil {
+		t.Fatal(err)
+	}
+	if affectedTotal != 45 || affectedCount != 1 {
+		t.Fatalf("affected shift = total %v, count %d; want 45/1", affectedTotal, affectedCount)
+	}
+	if unrelatedTotal != 999 || unrelatedCount != 9 {
+		t.Fatalf("unrelated shift changed to total %v, count %d", unrelatedTotal, unrelatedCount)
+	}
+}
+
 func TestSmartDeleteSaleWithReturnIsBlockedWithoutPartialChanges(t *testing.T) {
 	db, saleID, itemID, _ := newSaleDeleteTestDB(t)
 	if _, err := db.Exec(`INSERT INTO returns (id,sale_id) VALUES (?,?)`, uuid.NewString(), saleID); err != nil {

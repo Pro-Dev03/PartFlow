@@ -13,6 +13,7 @@ func (al *AuditLog) ToAuditLogListItem(userName string) map[string]interface{} {
 		"action":      al.Action,
 		"entity_type": al.EntityType,
 		"entity_id":   al.EntityID,
+		"entity_name": al.EntityName,
 		"description": al.Description,
 		"new_values":  al.NewValues,
 		"changes":     al.Changes,

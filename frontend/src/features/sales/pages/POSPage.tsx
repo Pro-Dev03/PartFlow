@@ -61,6 +61,7 @@ import { usePayment } from '../hooks/usePayment';
 import { buildManualProductPayload } from '../utils/manualProductPayload';
 import { clearPosCheckoutAttempt, getPosCheckoutAttempt } from '../utils/posCheckoutAttempt';
 import { createDefaultPosShift, resolvePosShiftState } from '../utils/posShift';
+import { cleanSalesHistoryRecords } from '../utils/cleanSalesHistory';
 import { getCategoryImage } from '../../../services/localCategoryImages';
 
 // Types
@@ -288,6 +289,9 @@ export function POSPage() {
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
   const [isSalesHistoryOpen, setIsSalesHistoryOpen] = useState(false);
   const [salesHistorySearch, setSalesHistorySearch] = useState('');
+  const [showSalesCleanupConfirmation, setShowSalesCleanupConfirmation] = useState(false);
+  const [salesCleanupConfirmationText, setSalesCleanupConfirmationText] = useState('');
+  const [salesCleanupProgress, setSalesCleanupProgress] = useState<{ completed: number; total: number } | null>(null);
   const [loadingHistoricalSaleId, setLoadingHistoricalSaleId] = useState<string | null>(null);
   const [lastSaleData, setLastSaleData] = useState<InvoiceData | null>(null);
   const lastSaleDataRef = useRef<InvoiceData | null>(null);
@@ -487,6 +491,49 @@ export function POSPage() {
     staleTime: 15_000,
   });
 
+  const cleanSalesHistoryMutation = useMutation({
+    mutationFn: () => cleanSalesHistoryRecords(
+      salesApi.list,
+      salesApi.delete,
+      setSalesCleanupProgress,
+    ),
+    onSuccess: async ({ deleted, blocked, total }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['sales'] }),
+        queryClient.invalidateQueries({ queryKey: ['sales-available-for-return'] }),
+        queryClient.invalidateQueries({ queryKey: ['sales-returns-analysis'] }),
+        queryClient.invalidateQueries({ queryKey: ['inventory'] }),
+        queryClient.invalidateQueries({ queryKey: ['products'] }),
+        queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['debts'] }),
+        queryClient.invalidateQueries({ queryKey: ['overdue-debts'] }),
+        queryClient.invalidateQueries({ queryKey: ['customer-purchases-debts'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard-activity'] }),
+        queryClient.invalidateQueries({ queryKey: ['reports'] }),
+      ]);
+      setShowSalesCleanupConfirmation(false);
+      setSalesCleanupConfirmationText('');
+      setSalesCleanupProgress(null);
+      setSalesHistorySearch('');
+      if (deleted === 0 && total === 0) {
+        toast.info('لا توجد سجلات مبيعات لتنظيفها.', 'السجل فارغ');
+      } else {
+        toast.success(`حُذف ${deleted} سجل مبيعات، وتعذّر حذف ${blocked} سجلًا بسبب ارتباط يمنع الحذف أو لأنه لم يعد موجودًا.`, 'اكتمل تنظيف السجل');
+      }
+    },
+    onError: (error: any) => {
+      const deleted = Number(error?.summary?.deleted ?? 0);
+      const blocked = Number(error?.summary?.blocked ?? 0);
+      setSalesCleanupProgress(null);
+      toast.error(
+        `توقف التنظيف بعد حذف ${deleted} سجلًا وتجاوز ${blocked} سجلًا. أُبقيت السجلات المتبقية كما هي؛ يمكنك إعادة المحاولة.`,
+        'توقف تنظيف المبيعات',
+        7000,
+      );
+    },
+  });
+
   const { data: categoriesData } = useQuery({
     queryKey: ['categories'],
     queryFn: () => categoriesApi.list(),
@@ -528,6 +575,7 @@ export function POSPage() {
       ? salesHistoryPayload
       : salesHistoryPayload?.sales ?? salesHistoryPayload?.items ?? salesHistoryPayload?.data ?? []
   ) as Array<Record<string, any>>;
+  const salesHistoryResultCount = Number(salesHistoryPayload?.total ?? historicalSales.length);
 
   const productsWithInventoryFallback = useMemo(() => {
     const query = debouncedSearchQuery.trim().toLowerCase();
@@ -2205,7 +2253,9 @@ export function POSPage() {
 
       <Modal
         isOpen={isSalesHistoryOpen}
-        onClose={() => setIsSalesHistoryOpen(false)}
+        onClose={() => {
+          if (!cleanSalesHistoryMutation.isPending) setIsSalesHistoryOpen(false);
+        }}
         title="المبيعات السابقة"
         variant="modern"
         size="xl"
@@ -2220,9 +2270,73 @@ export function POSPage() {
               <span>ابحث عن فاتورة سابقة لعرضها أو إعادة طباعتها</span>
             </div>
             <span className="pos-history-count" aria-live="polite">
-              {historicalSales.length} فاتورة
+              {Number.isFinite(salesHistoryResultCount) ? salesHistoryResultCount : historicalSales.length} فاتورة
             </span>
+            <Button
+              type="button"
+              variant="danger"
+              size="sm"
+              className="pos-history-clean-button"
+              onClick={() => {
+                setSalesCleanupConfirmationText('');
+                setShowSalesCleanupConfirmation(true);
+              }}
+              disabled={cleanSalesHistoryMutation.isPending}
+              title="حذف كل سجلات المبيعات القابلة للحذف"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              <span>تنظيف السجل</span>
+            </Button>
           </div>
+          {showSalesCleanupConfirmation && (
+            <section className="pos-history-clean-confirm" aria-label="تأكيد تنظيف سجل المبيعات">
+              <div className="pos-history-clean-copy">
+                <strong>حذف كل سجلات المبيعات القابلة للحذف؟</strong>
+                <p>
+                  سيُعكس أثر المبيعات المحذوفة على المخزون وأرصدة العملاء. ستبقى الفواتير المرتبطة بتحصيلات أو مرتجعات كما هي، ولا يمكن التراجع عن الحذف.
+                </p>
+              </div>
+              <label className="pos-history-clean-confirm-input">
+                <span>اكتب «حذف المبيعات» للتأكيد</span>
+                <input
+                  value={salesCleanupConfirmationText}
+                  onChange={(event) => setSalesCleanupConfirmationText(event.target.value)}
+                  disabled={cleanSalesHistoryMutation.isPending}
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label="تأكيد حذف المبيعات"
+                />
+              </label>
+              {salesCleanupProgress && (
+                <p className="pos-history-clean-progress" role="status" aria-live="polite">
+                  جارٍ التنظيف: {salesCleanupProgress.completed} / {salesCleanupProgress.total}
+                </p>
+              )}
+              <div className="pos-history-clean-actions">
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  onClick={() => cleanSalesHistoryMutation.mutate()}
+                  disabled={salesCleanupConfirmationText !== 'حذف المبيعات' || cleanSalesHistoryMutation.isPending}
+                >
+                  {cleanSalesHistoryMutation.isPending ? 'جارٍ حذف السجلات...' : 'حذف المبيعات القابلة للحذف'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setShowSalesCleanupConfirmation(false);
+                    setSalesCleanupConfirmationText('');
+                  }}
+                  disabled={cleanSalesHistoryMutation.isPending}
+                >
+                  إلغاء
+                </Button>
+              </div>
+            </section>
+          )}
           <label className="pos-history-search">
             <Search className="h-4 w-4" aria-hidden="true" />
             <input
@@ -2266,21 +2380,20 @@ export function POSPage() {
                 return (
                   <li key={saleId}>
                     <button
-                    key={saleId}
-                    type="button"
-                    className="pos-history-row"
-                    onClick={() => void handleOpenHistoricalInvoice(sale)}
-                    disabled={Boolean(loadingHistoricalSaleId)}
-                    aria-label={`عرض فاتورة ${invoiceNumber}`}
-                  >
-                    <span className="pos-history-row-main">
-                      <strong>فاتورة {invoiceNumber}</strong>
-                      <small>{customerName} · {saleDate}</small>
-                    </span>
-                    <span className="pos-history-row-total">₪{saleTotal.toLocaleString()}</span>
-                    {loadingHistoricalSaleId === saleId
-                      ? <RefreshCw className="h-4 w-4 animate-spin" aria-label="جارٍ التحميل" />
-                      : <Printer className="h-4 w-4" aria-hidden="true" />}
+                      type="button"
+                      className="pos-history-row"
+                      onClick={() => void handleOpenHistoricalInvoice(sale)}
+                      disabled={Boolean(loadingHistoricalSaleId) || cleanSalesHistoryMutation.isPending}
+                      aria-label={`عرض فاتورة ${invoiceNumber}`}
+                    >
+                      <span className="pos-history-row-main">
+                        <strong>فاتورة {invoiceNumber}</strong>
+                        <small>{customerName} · {saleDate}</small>
+                      </span>
+                      <span className="pos-history-row-total">₪{saleTotal.toLocaleString()}</span>
+                      {loadingHistoricalSaleId === saleId
+                        ? <RefreshCw className="h-4 w-4 animate-spin" aria-label="جارٍ التحميل" />
+                        : <Printer className="h-4 w-4" aria-hidden="true" />}
                     </button>
                   </li>
                 );

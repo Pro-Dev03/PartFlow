@@ -316,6 +316,38 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 		}
 	}
 
+	shiftsExist, err := s.tableExists(ctx, tx, "pos_shifts")
+	if err != nil {
+		return nil, fmt.Errorf("inspect POS shift summaries: %w", err)
+	}
+	if shiftsExist {
+		for _, column := range []struct{ table, name string }{
+			{"sales", "user_id"},
+			{"sales", "created_at"},
+			{"pos_shifts", "user_id"},
+			{"pos_shifts", "opened_at"},
+			{"pos_shifts", "closed_at"},
+			{"pos_shifts", "sales_total"},
+			{"pos_shifts", "sale_count"},
+		} {
+			exists, err := s.columnExists(ctx, tx, column.table, column.name)
+			if err != nil {
+				return nil, fmt.Errorf("inspect POS shift column %s.%s: %w", column.table, column.name, err)
+			}
+			if !exists {
+				return nil, fmt.Errorf("cannot safely reconcile POS shifts: missing column %s.%s", column.table, column.name)
+			}
+		}
+
+		refreshShiftQuery := `UPDATE pos_shifts AS sh SET
+			sales_total=(SELECT COALESCE(SUM(s.total_amount),0) FROM sales s WHERE CAST(s.user_id AS TEXT)=CAST(sh.user_id AS TEXT) AND LOWER(COALESCE(s.status,'completed'))='completed' AND s.created_at>=sh.opened_at AND (sh.closed_at IS NULL OR s.created_at<sh.closed_at) AND s.id<>?),
+			sale_count=(SELECT COUNT(*) FROM sales s WHERE CAST(s.user_id AS TEXT)=CAST(sh.user_id AS TEXT) AND LOWER(COALESCE(s.status,'completed'))='completed' AND s.created_at>=sh.opened_at AND (sh.closed_at IS NULL OR s.created_at<sh.closed_at) AND s.id<>?)
+			WHERE EXISTS (SELECT 1 FROM sales affected WHERE affected.id=? AND CAST(affected.user_id AS TEXT)=CAST(sh.user_id AS TEXT) AND affected.created_at>=sh.opened_at AND (sh.closed_at IS NULL OR affected.created_at<sh.closed_at))`
+		if _, err := tx.ExecContext(ctx, tx.Rebind(refreshShiftQuery), saleID.String(), saleID.String(), saleID.String()); err != nil {
+			return nil, fmt.Errorf("refresh POS shift after sale deletion: %w", err)
+		}
+	}
+
 	if sale.CustomerID.Valid {
 		if exists, err := s.tableExists(ctx, tx, "customers"); err != nil {
 			return nil, err

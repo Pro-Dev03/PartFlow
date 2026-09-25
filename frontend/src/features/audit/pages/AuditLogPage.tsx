@@ -45,6 +45,7 @@ const entityFilters = [
   { value: 'inventory', label: 'المخزون' },
   { value: 'customer', label: 'العملاء' },
   { value: 'supplier', label: 'التجار' },
+  { value: 'supplier_return', label: 'مرتجعات التجار' },
   { value: 'return', label: 'المرتجعات' },
 ];
 
@@ -120,7 +121,7 @@ export function AuditLogPage() {
                     <Badge variant={isFailure ? 'destructive' : 'secondary'}>{isFailure ? 'فشل' : 'نجاح'}</Badge>
                   </div>
                   <p className="mt-1 text-sm text-text-secondary">
-                    {actionLabels[action] || log.action || 'عملية'} · {entityLabels[entity] || log.entity_type || 'سجل'} · {log.entity_id || '-'}
+                    {actionLabels[action] || log.action || 'عملية'} · {entityLabels[entity] || log.entity_type || 'سجل'}{log.entity_name ? ` · ${log.entity_name}` : ` · ${log.entity_id || '-'}`}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
                     <span className="inline-flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" />{log.created_at ? formatStoreDateTime(log.created_at) : '-'}</span>

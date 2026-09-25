@@ -557,7 +557,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 				AND COALESCE(ri.total_refund_amount, 0) >= 0
 				AND date(COALESCE(r.return_date, r.created_at)) >= date(?)
 				AND date(COALESCE(r.return_date, r.created_at)) < date(?)
-			GROUP BY ri.product_id
+			GROUP BY COALESCE(ri.product_id, si2.product_id, ii2.product_id)
 		) returned ON returned.product_id = si.product_id`
 		returnedQuantityExpr = "COALESCE(MAX(returned.quantity), 0)"
 		returnedRefundExpr = "COALESCE(MAX(returned.refund_amount), 0)"
@@ -589,7 +589,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 					AND COALESCE(ri.total_refund_amount, 0) >= 0
 					AND date(r.return_date) >= date(?)
 					AND date(r.return_date) < date(?)
-				GROUP BY ri.product_id
+				GROUP BY COALESCE(ri.product_id, si2.product_id, ii2.product_id)
 			) returned ON returned.product_id = si.product_id`, returnQuantityColumn, returnQuantityColumn, returnCostColumn)
 			returnedQuantityExpr = "COALESCE(MAX(returned.quantity), 0)"
 			returnedRefundExpr = "COALESCE(MAX(returned.refund_amount), 0)"

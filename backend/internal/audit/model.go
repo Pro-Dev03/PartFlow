@@ -13,6 +13,7 @@ type AuditLog struct {
 	Action       string    `json:"action" db:"action"`           // create, update, delete, login, logout, etc.
 	EntityType   string    `json:"entity_type" db:"entity_type"` // product, customer, sale, etc.
 	EntityID     uuid.UUID `json:"entity_id" db:"entity_id"`
+	EntityName   string    `json:"entity_name" db:"entity_name"`
 	IPAddress    string    `json:"ip_address" db:"ip_address"`
 	UserAgent    string    `json:"user_agent" db:"user_agent"`
 	RequestID    string    `json:"request_id" db:"request_id"`

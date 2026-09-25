@@ -5,7 +5,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/audit"
 	"github.com/partflow/smart-store/internal/dashboard"
+	"github.com/partflow/smart-store/pkg/middleware"
 	"github.com/partflow/smart-store/pkg/response"
 )
 
@@ -38,6 +40,9 @@ func (h *Handler) CreateSupplier(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusCreated, supplier, "Supplier created successfully")
+	if actor := middleware.GetUserID(c); actor != uuid.Nil {
+		_ = audit.RecordDirect(c.Request.Context(), h.service.repo.db, actor, "CREATE", "supplier", supplier.ID, "إنشاء تاجر")
+	}
 }
 
 // GetSupplier handles supplier retrieval
@@ -107,6 +112,9 @@ func (h *Handler) UpdateSupplier(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusOK, supplier, "Supplier updated successfully")
+	if actor := middleware.GetUserID(c); actor != uuid.Nil {
+		_ = audit.RecordDirect(c.Request.Context(), h.service.repo.db, actor, "UPDATE", "supplier", supplier.ID, "تعديل تاجر")
+	}
 }
 
 // DeleteSupplier handles supplier deletion
@@ -128,6 +136,9 @@ func (h *Handler) DeleteSupplier(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusOK, nil, "Supplier deactivated successfully")
+	if actor := middleware.GetUserID(c); actor != uuid.Nil {
+		_ = audit.RecordDirect(c.Request.Context(), h.service.repo.db, actor, "DELETE", "supplier", id, "أرشفة تاجر")
+	}
 }
 
 // GetSupplierLedger handles supplier ledger retrieval

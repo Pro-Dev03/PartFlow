@@ -209,6 +209,36 @@ func (r *Repository) ListAuditLogs(ctx context.Context, req AuditLogListRequest)
 	return auditLogs, count, nil
 }
 
+// ResolveEntityName enriches audit rows without making the audit query depend
+// on every business table existing in local test databases.
+func (r *Repository) ResolveEntityName(ctx context.Context, entityType string, entityID uuid.UUID) string {
+	var name string
+	var query string
+	switch strings.ToLower(entityType) {
+	case "sale", "sales":
+		query = `SELECT COALESCE(c.name, '') FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = $1`
+	case "purchase", "purchases":
+		query = `SELECT COALESCE(s.name, '') FROM purchases p LEFT JOIN suppliers s ON s.id = p.supplier_id WHERE p.id = $1`
+	case "customer":
+		query = `SELECT COALESCE(name, '') FROM customers WHERE id = $1`
+	case "supplier", "supplier_return":
+		query = `SELECT COALESCE(name, '') FROM suppliers WHERE id = $1`
+	case "product":
+		query = `SELECT COALESCE(name, '') FROM products WHERE id = $1`
+	case "inventory", "inventory_item":
+		query = `SELECT COALESCE(p.name, '') FROM inventory_items i LEFT JOIN products p ON p.id = i.product_id WHERE i.id = $1`
+	default:
+		return ""
+	}
+	if dbutil.IsSQLite(r.db) {
+		query = strings.ReplaceAll(query, "$1", "?")
+	}
+	if err := r.db.GetContext(ctx, &name, query, entityID); err != nil {
+		return ""
+	}
+	return name
+}
+
 func auditLogFromRecord(record map[string]any) (AuditLog, error) {
 	parseID := func(value any) uuid.UUID {
 		id, err := uuid.Parse(strings.TrimSpace(fmt.Sprint(value)))

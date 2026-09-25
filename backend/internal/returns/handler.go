@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/audit"
 	apperrors "github.com/partflow/smart-store/pkg/errors"
 	"github.com/partflow/smart-store/pkg/middleware"
 )
@@ -58,6 +59,9 @@ func (h *Handler) CreateReturn(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, response)
+	if userID != uuid.Nil {
+		_ = audit.RecordDirect(c.Request.Context(), h.service.repo.db, userID, "CREATE", "return", response.Return.ID, "إنشاء مرتجع عميل")
+	}
 }
 
 // GetReturn handles getting a return by ID

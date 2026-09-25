@@ -66,6 +66,7 @@ func (s *Service) listAuditLogs(ctx context.Context, req AuditLogListRequest, ma
 	// Convert to list items
 	var result []map[string]interface{}
 	for _, auditLog := range auditLogs {
+		auditLog.EntityName = s.repo.ResolveEntityName(ctx, auditLog.EntityType, auditLog.EntityID)
 		userName := "Unknown"
 		if includeUserNames {
 			if resolvedName, err := s.repo.GetUserName(ctx, auditLog.UserID); err == nil {

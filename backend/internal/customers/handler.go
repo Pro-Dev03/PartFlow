@@ -8,8 +8,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/audit"
 	"github.com/partflow/smart-store/internal/dashboard"
 	"github.com/partflow/smart-store/pkg/errors"
+	"github.com/partflow/smart-store/pkg/middleware"
 	"github.com/partflow/smart-store/pkg/response"
 )
 
@@ -94,6 +96,9 @@ func (h *Handler) CreateCustomer(c *gin.Context) {
 	}
 	h.cache.clear()
 
+	if actor := middleware.GetUserID(c); actor != uuid.Nil {
+		_ = audit.RecordDirect(c.Request.Context(), h.service.repo.db, actor, "CREATE", "customer", customer.ID, "إنشاء عميل")
+	}
 	response.Success(c, http.StatusCreated, customer, "Customer created successfully")
 }
 
@@ -192,6 +197,9 @@ func (h *Handler) UpdateCustomer(c *gin.Context) {
 	}
 	h.cache.clear()
 
+	if actor := middleware.GetUserID(c); actor != uuid.Nil {
+		_ = audit.RecordDirect(c.Request.Context(), h.service.repo.db, actor, "UPDATE", "customer", customer.ID, "تعديل عميل")
+	}
 	response.Success(c, http.StatusOK, customer, "Customer updated successfully")
 }
 
@@ -226,6 +234,9 @@ func (h *Handler) DeleteCustomer(c *gin.Context) {
 	}
 	h.cache.clear()
 
+	if actor := middleware.GetUserID(c); actor != uuid.Nil {
+		_ = audit.RecordDirect(c.Request.Context(), h.service.repo.db, actor, "DELETE", "customer", id, "أرشفة عميل")
+	}
 	response.Success(c, http.StatusOK, nil, "Customer archived successfully")
 }
 

@@ -131,10 +131,13 @@ function renderInvoiceHtmlBase(document: InvoiceDocument): string {
 }</style></head><body><main class="invoice"><header class="header"><div class="brand">${escapeHtml(storeName)}<small>نظام إدارة المتجر</small>${storeDetails ? `<small>${storeDetails}</small>` : ''}</div><div class="title"><h1>${escapeHtml(document.title)}</h1><p>رقم الفاتورة: ${bidi(document.invoiceNumber, 'ltr')}</p><p>${escapeHtml(dateText)} · ${escapeHtml(timeText)}</p></div></header><section class="meta"><div class="meta-cell"><span class="label">بيانات ${escapeHtml(document.partyLabel)}</span><span class="value">${escapeHtml(document.partyName)}${document.partyPhone ? ` · ${bidi(document.partyPhone, 'ltr')}` : ''}</span></div><div class="meta-cell"><span class="label">طريقة الدفع</span><span class="value">${escapeHtml(document.paymentMethod || '-')}</span></div><div class="meta-cell"><span class="label">حالة الدفع</span><span class="value">${escapeHtml(document.status)}</span></div></section><h2 class="section-title">تفاصيل المنتجات</h2><table><thead><tr><th>المنتج</th><th>الكمية</th><th>سعر الوحدة</th><th>الخصم</th><th>الضريبة</th><th>الإجمالي</th></tr></thead><tbody>${rows || '<tr><td colspan="6">لا توجد منتجات</td></tr>'}</tbody></table><section class="bottom"><section class="summary"><div class="amount-row"><span>الإجمالي قبل الضريبة</span><strong>₪${bidi(formatAmount(document.subtotal), 'ltr')}</strong></div>${discountRow}<div class="amount-row"><span>الضريبة</span><strong>₪${bidi(formatAmount(document.tax), 'ltr')}</strong></div><div class="amount-row final"><span>الإجمالي النهائي</span><strong>₪${bidi(formatAmount(document.total), 'ltr')}</strong></div></section><section class="payment"><h3>ملخص الدفع</h3><div class="amount-row"><span>المدفوع</span><strong>₪${bidi(formatAmount(document.paid), 'ltr')}</strong></div><div class="amount-row"><span>المتبقي</span><strong>₪${bidi(formatAmount(document.remaining), 'ltr')}</strong></div><div class="amount-row"><span>الحالة</span><strong>${escapeHtml(document.status)}</strong></div></section></section>${document.notes ? `<div class="notes">${escapeHtml(document.notes)}</div>` : ''}<footer class="footer">شكرًا لتعاملكم معنا</footer></main></body></html>`;
 }
 
-export function renderInvoiceHtml(document: InvoiceDocument): string {
+export function renderInvoiceHtml(document: InvoiceDocument, format: 'thermal' | 'a4' = 'thermal'): string {
+  const thermalStyles = format === 'thermal'
+    ? '@page{size:80mm auto;margin:0}html,body{width:80mm;background:#fff;font-size:10px}body{padding:0}.invoice{width:80mm;margin:0;padding:4mm 3mm;box-shadow:none}.header{gap:8px;padding-bottom:6px}.brand{font-size:16px}.brand small{font-size:9px}.title h1{font-size:16px}.title p{font-size:9px}.meta{grid-template-columns:1fr;margin:10px 0}.meta-cell{min-height:auto;padding:5px 6px;border-left:0;border-bottom:1px solid #cbd3da}.meta-cell:last-child{border-bottom:0}.section-title{font-size:11px;margin-bottom:4px}.invoice th,.invoice td{padding:4px 2px;font-size:9px}.product strong{font-size:10px}.product small{font-size:8px}.bottom{display:block}.summary,.payment{width:100%;margin-top:10px}.amount-row{padding:4px 0;font-size:10px}.amount-row.final{font-size:13px}.footer{margin-top:12px;padding-top:8px;font-size:9px}'
+    : '';
   const html = renderInvoiceHtmlBase(document).replace(
     '</style>',
-    '.invoice table{direction:rtl}.invoice th{border-left:1px solid #d0d7dd;text-align:center;white-space:nowrap}.invoice th:first-child{text-align:right}.invoice th:last-child,.invoice td:last-child{border-left:0}.invoice td{border-left:1px solid #edf0f2;text-align:center;vertical-align:middle;white-space:nowrap}.invoice td:first-child{text-align:right;white-space:normal}.invoice .numeric{text-align:center}</style>',
+    `.invoice table{direction:rtl}.invoice th{border-left:1px solid #d0d7dd;text-align:center;white-space:nowrap}.invoice th:first-child{text-align:right}.invoice th:last-child,.invoice td:last-child{border-left:0}.invoice td{border-left:1px solid #edf0f2;text-align:center;vertical-align:middle;white-space:nowrap}.invoice td:first-child{text-align:right;white-space:normal}.invoice .numeric{text-align:center}${thermalStyles}</style>`,
   );
   const cashReceived = Number(document.cashReceived ?? document.paid);
   const changeAmount = Math.max(0, Number(document.changeAmount ?? cashReceived - document.paid));
@@ -162,7 +165,7 @@ const saveBrowserPdf = async (document: InvoiceDocument, fileName: string): Prom
   frame.style.width = '210mm';
   frame.style.height = '297mm';
   frame.style.border = '0';
-  frame.srcdoc = renderInvoiceHtml(document);
+  frame.srcdoc = renderInvoiceHtml(document, 'a4');
   window.document.body.appendChild(frame);
 
   try {
@@ -281,7 +284,7 @@ export function printInvoiceDocument(document: InvoiceDocument): Promise<boolean
 export async function saveInvoiceDocumentPdf(document: InvoiceDocument): Promise<string | null> {
   const fileName = fileNameFor(document);
   if (window.partflowDesktop?.invoice) {
-    const result = await window.partflowDesktop.invoice.savePdf({ html: renderInvoiceHtml(document), fileName });
+    const result = await window.partflowDesktop.invoice.savePdf({ html: renderInvoiceHtml(document, 'a4'), fileName });
     return result.canceled ? null : result.filePath || fileName;
   }
 
