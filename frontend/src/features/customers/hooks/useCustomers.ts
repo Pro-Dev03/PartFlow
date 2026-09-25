@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { customersApi } from '../../../services/api/endpoints';
+import { customersApi, dashboardApi } from '../../../services/api/endpoints';
 import { Customer, CustomerFormData, SortConfig } from '../types/customers.types';
 import { useDebounce } from '../../../hooks/useDebounce';
 
@@ -15,28 +15,37 @@ export function useCustomers() {
   const normalizedSearchQuery = debouncedSearchQuery.trim();
 
   // Fetch customers with debounce search for scalability
-  const { data: customersData, isLoading } = useQuery({
-    queryKey: ['customers', normalizedSearchQuery, page],
+  const { data: customersData, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['customers', normalizedSearchQuery, page, sortConfig.key, sortConfig.direction],
     queryFn: () => {
+      const sortBy = sortConfig.key === 'totalPurchases' ? 'total_purchases' : sortConfig.key;
+      const sortParams = sortConfig.direction && sortBy
+        ? { sort_by: sortBy as 'name' | 'total_purchases', sort_order: sortConfig.direction }
+        : {};
       if (normalizedSearchQuery) {
-        // Search mode - use API search when query exists
         return customersApi.list({
           page,
           per_page: pageSize,
           search: normalizedSearchQuery,
-          is_active: true
+          is_active: true,
+          ...sortParams,
         });
       } else {
-        // Initial load - fetch limited results for performance
-        return customersApi.list({ page, per_page: pageSize, is_active: true });
+        return customersApi.list({ page, per_page: pageSize, is_active: true, ...sortParams });
       }
     },
-    enabled: true, // Always enabled, but will refetch when search changes
+    enabled: true,
+  });
+
+  const { data: dashboardData } = useQuery({
+    queryKey: ['dashboard'],
+    queryFn: () => dashboardApi.getStats(),
+    staleTime: 60_000,
   });
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearchQuery]);
+  }, [debouncedSearchQuery, sortConfig.key, sortConfig.direction]);
 
   const handleSearchQueryChange = (value: string) => {
     setSearchQuery(value);
@@ -50,6 +59,9 @@ export function useCustomers() {
     const rows = Array.isArray(customersData?.data) ? customersData.data : [];
     return rows.map((row: any) => ({
       ...row,
+      name: String(row.name ?? ''),
+      code: String(row.code ?? ''),
+      phone: String(row.phone ?? ''),
       notes: row.notes ?? row.customer_notes ?? '',
       debt_reason: row.debt_reason ?? row.debtReason ?? row.reason ?? '',
       totalPurchases: Number(row.totalPurchases ?? row.total_purchases ?? 0),
@@ -92,6 +104,7 @@ export function useCustomers() {
       customersApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('تم تحديث العميل بنجاح');
     },
     onError: (error: any) => {
@@ -114,6 +127,7 @@ export function useCustomers() {
     mutationFn: (customerId: string) => customersApi.delete(customerId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('تمت أرشفة العميل بنجاح');
     },
     onError: (error: any) => {
@@ -132,43 +146,14 @@ export function useCustomers() {
     },
   });
 
-  // Filter and sort logic
-  const filteredCustomers = useMemo(() => {
-    let result = [...customers];
-    const normalizedQuery = searchQuery.trim().toLowerCase();
-
-    // Search filter
-    if (normalizedQuery) {
-      result = result.filter((customer: Customer) =>
-        customer.name.toLowerCase().includes(normalizedQuery) ||
-        customer.phone.includes(normalizedQuery) ||
-        customer.code.toLowerCase().includes(normalizedQuery)
-      );
-    }
-
-    // Sort
-    if (sortConfig.key && sortConfig.direction) {
-      result.sort((a: Customer, b: Customer) => {
-        const aValue = a[sortConfig.key as keyof Customer];
-        const bValue = b[sortConfig.key as keyof Customer];
-        
-        if (aValue === bValue) return 0;
-        
-        const comparison = aValue < bValue ? -1 : 1;
-        return sortConfig.direction === 'asc' ? comparison : -comparison;
-      });
-    }
-
-    return result;
-  }, [customers, searchQuery, sortConfig]);
-
-  // Stats
+  const filteredCustomers = customers;
+  const dashboardStats = dashboardData?.data ?? dashboardData;
   const stats = useMemo(() => ({
-    totalCustomers: customers.length,
-    activeCustomers: customers.filter((c: Customer) => (c.totalPurchases || 0) > 0).length,
-    customersWithDebt: customers.filter((c: Customer) => (c.outstanding || 0) > 0).length,
-    totalOutstanding: customers.reduce((sum: number, c: Customer) => sum + (c.outstanding || 0), 0),
-  }), [customers]);
+    totalCustomers: Number(customersData?.meta?.total ?? customersData?.total ?? 0),
+    activeCustomers: Number(dashboardStats?.activeCustomers ?? dashboardStats?.active_customers ?? 0),
+    customersWithDebt: Number(dashboardStats?.outstandingDebtorCount ?? dashboardStats?.outstanding_debtor_count ?? 0),
+    totalOutstanding: Number(dashboardStats?.outstandingDebts ?? dashboardStats?.outstanding_debts ?? 0),
+  }), [customersData, dashboardStats]);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' | null = 'asc';
@@ -189,6 +174,9 @@ export function useCustomers() {
     customers,
     filteredCustomers,
     isLoading,
+    isError,
+    error,
+    refetch,
     stats,
     
     // State
@@ -206,7 +194,7 @@ export function useCustomers() {
     handleSort,
     page,
     pageSize,
-    total: Number(customersData?.meta?.total || customersData?.data?.length || 0),
+    total: Number(customersData?.meta?.total ?? customersData?.total ?? customersData?.data?.length ?? 0),
     setPage,
   };
 }

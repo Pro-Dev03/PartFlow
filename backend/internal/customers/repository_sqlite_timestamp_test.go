@@ -71,3 +71,46 @@ func TestRepositoryListHandlesSQLiteTextTimestamps(t *testing.T) {
 		t.Fatal("UpdatedAt is zero after SQLite text timestamp scan")
 	}
 }
+
+func TestRepositoryListSortsCustomersBeforePagination(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE customers (
+			id TEXT PRIMARY KEY, code TEXT NOT NULL, name TEXT NOT NULL,
+			email TEXT, phone TEXT, address TEXT, city TEXT, country TEXT, tax_id TEXT,
+			credit_limit REAL DEFAULT 0, current_balance REAL DEFAULT 0, notes TEXT,
+			is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	createdAt := time.Now().UTC().Format(time.RFC3339)
+	for _, customer := range []struct{ id, code, name string }{
+		{"123e4567-e89b-12d3-a456-426614174001", "C-002", "Zara"},
+		{"123e4567-e89b-12d3-a456-426614174002", "C-001", "Adam"},
+	} {
+		if _, err := db.Exec(`INSERT INTO customers (id, code, name, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)`, customer.id, customer.code, customer.name, createdAt, createdAt); err != nil {
+			t.Fatalf("insert customer %q: %v", customer.name, err)
+		}
+	}
+
+	repo := NewRepository(db)
+	page, total, err := repo.List(context.Background(), &CustomerListRequest{
+		Page: 1, PerPage: 1, SortBy: "name", SortOrder: "asc",
+	})
+	if err != nil {
+		t.Fatalf("List() returned error: %v", err)
+	}
+	if total != 2 || len(page) != 1 {
+		t.Fatalf("List() returned total=%d and %d rows, want total=2 and one row", total, len(page))
+	}
+	if page[0].Name != "Adam" {
+		t.Fatalf("first sorted page name = %q, want Adam", page[0].Name)
+	}
+}

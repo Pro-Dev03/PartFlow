@@ -8,6 +8,7 @@ import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { ReportActions } from '../../../design-system/components/report-actions';
 import { CreditCard, Plus } from 'lucide-react';
 import { getStoreToday } from '../../../utils/store-time';
+import { toast } from 'sonner';
 
 // Custom hooks
 import { useCustomers } from '../hooks/useCustomers';
@@ -25,6 +26,19 @@ const CustomerModals = lazy(() => import('../components/CustomerModals').then(m 
 import { Customer, CustomerFormData } from '../types/customers.types';
 import { customersApi } from '../../../services/api/endpoints';
 
+function getCustomerRows(response: any): any[] {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.data?.customers)) return response.data.customers;
+  if (Array.isArray(response?.data?.data)) return response.data.data;
+  return [];
+}
+
+function getCustomerTotal(response: any): number {
+  const total = Number(response?.meta?.total ?? response?.total ?? response?.data?.meta?.total);
+  return Number.isFinite(total) ? total : getCustomerRows(response).length;
+}
+
 export function CustomersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -40,6 +54,8 @@ export function CustomersPage() {
   const {
     filteredCustomers,
     isLoading,
+    isError,
+    refetch,
     stats,
     searchQuery,
     setSearchQuery,
@@ -81,20 +97,27 @@ export function CustomersPage() {
 
   const handleConfirmDelete = () => {
     if (customerToDelete) {
-      deleteMutation.mutate(customerToDelete);
-      setDeleteDialogOpen(false);
-      setCustomerToDelete(null);
+      deleteMutation.mutate(customerToDelete, {
+        onSuccess: () => {
+          setDeleteDialogOpen(false);
+          setCustomerToDelete(null);
+        },
+      });
     }
   };
 
   const handleSubmit = (data: CustomerFormData) => {
     if (editingCustomer) {
-      updateMutation.mutate({ id: editingCustomer.id, data });
-      setIsModalOpen(false);
-      setEditingCustomer(null);
+      updateMutation.mutate({ id: editingCustomer.id, data }, {
+        onSuccess: () => {
+          setIsModalOpen(false);
+          setEditingCustomer(null);
+        },
+      });
     } else {
-      createMutation.mutate(data);
-      setIsModalOpen(false);
+      createMutation.mutate(data, {
+        onSuccess: () => setIsModalOpen(false),
+      });
     }
   };
 
@@ -115,20 +138,47 @@ export function CustomersPage() {
   };
 
   const loadAllCustomers = async () => {
-    const response = await customersApi.list({ page: 1, per_page: 1000, is_active: true, ...(searchQuery ? { search: searchQuery } : {}) });
-    return (((response as any)?.data ?? []) as any[]).map((row) => ({
+    const perPage = 100;
+    const filters = { is_active: true, ...(searchQuery.trim() ? { search: searchQuery.trim() } : {}) };
+    const firstPage = await customersApi.list({ page: 1, per_page: perPage, ...filters });
+    const totalPages = Math.ceil(getCustomerTotal(firstPage) / perPage);
+    const rows = getCustomerRows(firstPage);
+
+    for (let firstPageNumber = 2; firstPageNumber <= totalPages; firstPageNumber += 5) {
+      const pageNumbers = Array.from(
+        { length: Math.min(5, totalPages - firstPageNumber + 1) },
+        (_, index) => firstPageNumber + index,
+      );
+      const responses = await Promise.all(pageNumbers.map((pageNumber) => customersApi.list({
+        page: pageNumber,
+        per_page: perPage,
+        ...filters,
+      })));
+      responses.forEach((response) => rows.push(...getCustomerRows(response)));
+    }
+
+    return rows.map((row) => ({
       ...row,
+      phone: String(row.phone ?? ''),
       totalPurchases: Number(row.totalPurchases ?? row.total_purchases ?? 0),
       outstanding: Number(row.outstanding ?? row.current_balance ?? 0),
     })) as Customer[];
   };
 
   const handleExportAll = async () => {
-    exportToCSV(getCustomerReportRows(await loadAllCustomers()), `customers-all-${getStoreToday()}`);
+    try {
+      exportToCSV(getCustomerReportRows(await loadAllCustomers()), `customers-all-${getStoreToday()}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تصدير العملاء');
+    }
   };
 
   const handlePrintAll = async () => {
-    printTable(getCustomerReportRows(await loadAllCustomers()), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'الديون'], 'تقرير كل العملاء');
+    try {
+      printTable(getCustomerReportRows(await loadAllCustomers()), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'الديون'], 'تقرير كل العملاء');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذرت طباعة العملاء');
+    }
   };
 
   const handleSortName = () => {
@@ -195,6 +245,8 @@ export function CustomersPage() {
       <CustomerList
         filteredCustomers={filteredCustomers}
         isLoading={isLoading}
+        isError={isError}
+        onRetry={() => { void refetch(); }}
         onViewCustomer={handleViewCustomer}
         onEditCustomer={handleEditCustomer}
         onDeleteCustomer={handleDeleteCustomer}
@@ -214,6 +266,7 @@ export function CustomersPage() {
             selectedCustomer={selectedCustomer}
             setSelectedCustomer={setSelectedCustomer}
             onSubmit={handleSubmit}
+            isSubmitting={createMutation.isPending || updateMutation.isPending}
           />
         </Suspense>
       )}

@@ -88,6 +88,16 @@ func Load() (*Config, error) {
 
 	serverMode := strings.TrimSpace(strings.ToLower(getEnv("SERVER_MODE", getEnv("APP_ENV", "debug"))))
 	isReleaseMode := serverMode == "release" || serverMode == "production"
+	corsAllowedOrigins := strings.Split(getEnv("CORS_ALLOWED_ORIGINS", "https://partflow-hpv7.onrender.com,partflow://app"), ",")
+	for i, origin := range corsAllowedOrigins {
+		corsAllowedOrigins[i] = strings.TrimSpace(origin)
+		if isReleaseMode && corsAllowedOrigins[i] == "*" {
+			return nil, fmt.Errorf("CORS_ALLOWED_ORIGINS must be an explicit origin allowlist in production")
+		}
+		if isReleaseMode && strings.EqualFold(corsAllowedOrigins[i], "null") {
+			return nil, fmt.Errorf("CORS_ALLOWED_ORIGINS must not include the opaque null origin in production")
+		}
+	}
 	logLevel := getEnv("LOG_LEVEL", "")
 	if logLevel == "" {
 		if isReleaseMode {
@@ -101,7 +111,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		// Server
 		ServerPort:   getEnv("SERVER_PORT", getEnv("APP_PORT", "8080")),
-		ServerMode:   getEnv("SERVER_MODE", "debug"),
+		ServerMode:   serverMode,
 		ReadTimeout:  getDurationEnv("READ_TIMEOUT", 15*time.Second),
 		WriteTimeout: getDurationEnv("WRITE_TIMEOUT", 15*time.Second),
 
@@ -124,7 +134,7 @@ func Load() (*Config, error) {
 		CloudAPIURL: getEnv("CLOUD_API_URL", "https://partflow-api.onrender.com/api/v1"),
 
 		// JWT
-		JWTSecret:          getEnv("JWT_SECRET", "change-this-secret-in-production"),
+		JWTSecret:          strings.TrimSpace(getEnv("JWT_SECRET", "change-this-secret-in-production")),
 		JWTAccessTokenTTL:  getDurationEnv("JWT_ACCESS_TOKEN_TTL", 15*time.Minute),
 		JWTRefreshTokenTTL: getDurationEnv("JWT_REFRESH_TOKEN_TTL", 7*24*time.Hour),
 
@@ -139,7 +149,7 @@ func Load() (*Config, error) {
 		RequestLoggingEnabled: requestLoggingEnabled,
 
 		// CORS
-		CORSAllowedOrigins: []string{getEnv("CORS_ALLOWED_ORIGINS", "*")},
+		CORSAllowedOrigins: corsAllowedOrigins,
 		CORSAllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		CORSAllowedHeaders: []string{"Origin", "Content-Type", "Authorization", "X-Request-ID", "X-PartFlow-Cloud-Token"},
 
@@ -172,15 +182,18 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("No database connection configured. Set DATABASE_URL or configure DATABASE_URL_LOCAL / DATABASE_URL_CLOUD together with DB_CONNECTION_MODE")
 	}
 
-	if cfg.JWTSecret == "change-this-secret-in-production" && cfg.ServerMode == "release" {
+	if cfg.JWTSecret == "change-this-secret-in-production" && isReleaseMode {
 		return nil, fmt.Errorf("JWT_SECRET must be changed in production")
 	}
+	if isReleaseMode && len([]byte(cfg.JWTSecret)) < 32 {
+		return nil, fmt.Errorf("JWT_SECRET must contain at least 32 bytes of cryptographically random material in production")
+	}
 
-	if cfg.DisableAuth && cfg.ServerMode == "release" {
+	if cfg.DisableAuth && isReleaseMode {
 		return nil, fmt.Errorf("DISABLE_AUTH must be false in production")
 	}
 
-	if cfg.ServerMode == "release" {
+	if isReleaseMode {
 		cloudAuthRequired := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")))
 		if cloudAuthRequired == "0" || cloudAuthRequired == "false" || cloudAuthRequired == "no" {
 			return nil, fmt.Errorf("PARTFLOW_REQUIRE_CLOUD_AUTH must be true in production")

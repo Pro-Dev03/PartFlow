@@ -351,10 +351,53 @@ func (r *Repository) Update(ctx context.Context, user *User) error {
 	return nil
 }
 
+// UpdateAndRevokeRefreshTokens is used when an administrator changes a user's
+// password. Keeping both operations in one transaction prevents an old refresh
+// token from being renewed in the gap between the password update and revoke.
+func (r *Repository) UpdateAndRevokeRefreshTokens(ctx context.Context, user *User) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin user update: %w", err)
+	}
+	defer tx.Rollback()
+
+	query := `
+		UPDATE users
+		SET email = $2, password_hash = $3, first_name = $4, last_name = $5, phone = $6, avatar_url = $7,
+		    is_active = $8, subscription_status = $9, subscription_expires_at = $10, updated_at = $11
+		WHERE id = $1
+	`
+	result, err := tx.ExecContext(ctx, query,
+		user.ID, user.Email, user.PasswordHash, user.FirstName, user.LastName,
+		user.Phone, user.AvatarURL, user.IsActive, user.SubscriptionStatus, user.SubscriptionExpiresAt, user.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+	if rowsAffected, _ := result.RowsAffected(); rowsAffected == 0 {
+		return ErrUserNotFound
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, user.ID); err != nil {
+		return fmt.Errorf("revoke refresh tokens after password change: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit user update: %w", err)
+	}
+	return nil
+}
+
 // UpdatePassword updates a user's password
 func (r *Repository) UpdatePassword(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	// Password changes and session revocation are one operation: if durable
+	// refresh-token storage is missing or unavailable, do not leave the password
+	// changed while old sessions remain renewable.
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin password update: %w", err)
+	}
+	defer tx.Rollback()
 	query := fmt.Sprintf(`UPDATE users SET password_hash = $2, updated_at = %s WHERE id = $1`, dbutil.NowSQL(r.db))
-	result, err := r.db.ExecContext(ctx, query, id, passwordHash)
+	result, err := tx.ExecContext(ctx, query, id, passwordHash)
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
@@ -363,7 +406,13 @@ func (r *Repository) UpdatePassword(ctx context.Context, id uuid.UUID, passwordH
 	if rowsAffected == 0 {
 		return ErrUserNotFound
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, id); err != nil {
+		return fmt.Errorf("revoke refresh tokens after password change: %w", err)
+	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit password update: %w", err)
+	}
 	return nil
 }
 
@@ -392,17 +441,9 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 // RevokeRefreshTokens invalidates every persistent session for an account.
-// Older local installations may not have the revocation table yet; live
-// account/subscription checks still deny access immediately in that case.
+// Missing revocation storage is an error: callers must not report a successful
+// logout, suspension, deletion, or password change when sessions remain valid.
 func (r *Repository) RevokeRefreshTokens(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, id)
-	if err == nil {
-		return nil
-	}
-	message := strings.ToLower(err.Error())
-	if strings.Contains(message, "refresh_tokens") &&
-		(strings.Contains(message, "no such table") || strings.Contains(message, "does not exist")) {
-		return nil
-	}
 	return err
 }

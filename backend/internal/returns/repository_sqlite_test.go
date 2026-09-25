@@ -14,13 +14,23 @@ import (
 )
 
 type recordingRefundProcessor struct {
-	calls  int
-	fail   bool
-	status string
+	calls   int
+	fail    bool
+	status  string
+	started chan struct{}
+	resume  chan struct{}
 }
 
-func (p *recordingRefundProcessor) RefundForReturn(context.Context, uuid.UUID, uuid.UUID, int64, *uuid.UUID) (paymenttransactions.ReturnRefundResult, error) {
+func (p *recordingRefundProcessor) RefundForReturn(ctx context.Context, _ uuid.UUID, _ uuid.UUID, _ int64, _ *uuid.UUID) (paymenttransactions.ReturnRefundResult, error) {
 	p.calls++
+	if p.started != nil {
+		close(p.started)
+		select {
+		case <-p.resume:
+		case <-ctx.Done():
+			return paymenttransactions.ReturnRefundResult{}, ctx.Err()
+		}
+	}
 	if p.fail {
 		return paymenttransactions.ReturnRefundResult{}, fmt.Errorf("provider refund failed")
 	}
@@ -134,7 +144,7 @@ func TestElectronicReturnCompletesOnceAndRecordsRefundState(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := NewService(NewRepository(db))
-	processor := &recordingRefundProcessor{}
+	processor := &recordingRefundProcessor{started: make(chan struct{}), resume: make(chan struct{})}
 	service.SetElectronicRefundProcessor(processor)
 	response, err := service.CreateReturn(ctx, userID, &ReturnRequest{
 		SaleID: &saleID, ReturnDate: time.Now().UTC(), ReturnType: "FULL", Reason: "CUSTOMER_CHANGED_MIND", ItemConditionAfterReturn: "NOT_FOR_SALE", RefundMethod: "CASH",
@@ -146,10 +156,38 @@ func TestElectronicReturnCompletesOnceAndRecordsRefundState(t *testing.T) {
 	if _, err := service.ApproveReturn(ctx, response.Return.ID); err != nil {
 		t.Fatal(err)
 	}
-	completed, err := service.CompleteReturn(ctx, response.Return.ID, userID)
-	if err != nil {
+	type completionResult struct {
+		response *ReturnResponse
+		err      error
+	}
+	completedCh := make(chan completionResult, 1)
+	go func() {
+		completed, completeErr := service.CompleteReturn(ctx, response.Return.ID, userID)
+		completedCh <- completionResult{response: completed, err: completeErr}
+	}()
+	<-processor.started
+	var status string
+	if err := db.GetContext(ctx, &status, `SELECT status FROM returns WHERE id=?`, response.Return.ID.String()); err != nil {
 		t.Fatal(err)
 	}
+	if status != "COMPLETING" {
+		t.Fatalf("return status during provider request = %s, want COMPLETING", status)
+	}
+	if _, err := service.ReverseReturn(ctx, response.Return.ID, userID); err == nil {
+		t.Fatal("expected a return with an in-flight refund to reject reversal")
+	}
+	if err := service.DeleteReturn(ctx, response.Return.ID); err == nil {
+		t.Fatal("expected a return with an in-flight refund to reject deletion")
+	}
+	if _, err := service.UpdateReturn(ctx, response.Return.ID, &ReturnUpdateRequest{Reason: "OTHER"}); err == nil {
+		t.Fatal("expected a return with an in-flight refund to reject edits")
+	}
+	close(processor.resume)
+	result := <-completedCh
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	completed := result.response
 	if processor.calls != 1 || completed.Return.Status != "COMPLETED" || completed.Return.RefundStatus != "refunded" {
 		t.Fatalf("refund calls/status = %d/%s/%s", processor.calls, completed.Return.Status, completed.Return.RefundStatus)
 	}
@@ -417,7 +455,7 @@ func TestServiceReverseReturnKeepsOriginalReturnNumber(t *testing.T) {
 		ReferenceNumber:          "REF-0002",
 		ReturnDate:               time.Now().UTC(),
 		ReturnType:               "FULL",
-		Status:                   "COMPLETED",
+		Status:                   "APPROVED",
 		TotalRefundAmount:        120,
 		RefundMethod:             "CASH",
 		Reason:                   "CUSTOMER_CHANGED_MIND",
@@ -462,6 +500,33 @@ func TestServiceReverseReturnKeepsOriginalReturnNumber(t *testing.T) {
 	}
 	if updated.Return.ReturnNumber != "RET-0002" {
 		t.Fatalf("expected original return number to be preserved, got %s", updated.Return.ReturnNumber)
+	}
+}
+
+func TestServiceReverseReturnBlocksCompletedReturn(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "reverse-completed-return.db"))
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+	db := sqlx.NewDb(database.DB, "sqlite")
+	ctx := context.Background()
+	returnID := uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := database.DB.Exec(`INSERT INTO returns (id,return_number,return_date,return_type,status,total_refund_amount,refund_method,reason,item_condition_after_return,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, returnID.String(), "RET-POSTED-RETURN", now, "FULL", "COMPLETED", 80, "CASH", "CUSTOMER_CHANGED_MIND", "SELLABLE", now, now); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(NewRepository(db))
+	if _, err := service.ReverseReturn(ctx, returnID, uuid.New()); err == nil {
+		t.Fatal("expected a completed return to reject status-only reversal")
+	}
+	var status string
+	if err := db.GetContext(ctx, &status, `SELECT status FROM returns WHERE id=?`, returnID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if status != "COMPLETED" {
+		t.Fatalf("completed return status changed to %s", status)
 	}
 }
 

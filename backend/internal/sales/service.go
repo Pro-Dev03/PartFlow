@@ -995,6 +995,13 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 			_ = tx.Rollback()
 		}
 	}()
+	if dbutil.IsSQLite(s.db) {
+		// SQLite transactions are deferred. Acquire the writer lock before reading
+		// the sale so a cancellation cannot race a payment update.
+		if _, err := tx.ExecContext(ctx, `UPDATE sales SET updated_at = updated_at WHERE id = ?`, id.String()); err != nil {
+			return fmt.Errorf("failed to lock sale before payment update: %w", err)
+		}
+	}
 
 	// Get sale with row lock
 	saleQuery := `SELECT id, sale_date, customer_id, invoice_number, subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit, paid_amount, payment_method, payment_status, status, notes, created_at, updated_at FROM sales WHERE id = $1`
@@ -1013,6 +1020,9 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 	}
 	if err != nil {
 		return ErrSaleNotFound
+	}
+	if !strings.EqualFold(strings.TrimSpace(sale.Status), "completed") {
+		return ErrInvalidSaleStatus
 	}
 
 	if amount <= 0 {
@@ -1039,9 +1049,13 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 		UPDATE sales SET paid_amount = $1, payment_method = $2, payment_status = $3, updated_at = %s
 		WHERE id = $4
 	`, dbutil.NowSQL(s.db))
-	_, err = tx.ExecContext(ctx, updateSaleQuery, sale.PaidAmount, sale.PaymentMethod, sale.PaymentStatus, sale.ID)
+	var updateResult sql.Result
+	updateResult, err = tx.ExecContext(ctx, updateSaleQuery+` AND LOWER(COALESCE(status,''))='completed'`, sale.PaidAmount, sale.PaymentMethod, sale.PaymentStatus, sale.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update sale: %w", err)
+	}
+	if affected, _ := updateResult.RowsAffected(); affected != 1 {
+		return ErrInvalidSaleStatus
 	}
 
 	// Create payment record
@@ -1129,19 +1143,10 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 	return nil
 }
 
-// CancelSale cancels a sale
-func (s *Service) CancelSale(ctx context.Context, id uuid.UUID) error {
-	sale, err := s.repo.GetSaleByID(ctx, id)
-	if err != nil {
-		return ErrSaleNotFound
-	}
-
-	if sale.Status == "cancelled" {
-		return ErrInvalidSaleStatus
-	}
-
-	sale.Status = "cancelled"
-	return s.repo.UpdateSale(ctx, sale)
+// CancelSale reverses the effects of an unpaid sale atomically before marking
+// it cancelled. Sales with collected payments or return activity are rejected.
+func (s *Service) CancelSale(ctx context.Context, userID uuid.UUID, id uuid.UUID) error {
+	return s.cancelSaleTransaction(ctx, userID, id)
 }
 
 // GetSalesSummary retrieves sales summary for a period

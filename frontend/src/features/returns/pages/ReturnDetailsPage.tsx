@@ -72,7 +72,7 @@ interface ReturnDetailsPageProps {
   onClose?: () => void;
 }
 
-export function ReturnDetailsPage({ returnId, embedded = false, onClose }: ReturnDetailsPageProps = {}) {
+export function ReturnDetailsPage({ returnId, embedded = false }: ReturnDetailsPageProps = {}) {
   const params = useParams<{ id: string }>();
   const id = returnId || params.id;
   const navigate = useNavigate();
@@ -121,26 +121,12 @@ export function ReturnDetailsPage({ returnId, embedded = false, onClose }: Retur
     },
   });
 
-  const reverseReturnMutation = useMutation({
-    mutationFn: (returnId: string) => returnsApi.reverse(returnId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['return-with-items', id] });
-      queryClient.invalidateQueries({ queryKey: ['returns'] });
-      toast.success('تم عكس المرتجع بنجاح!');
-      if (onClose) onClose();
-      else navigate('/app/returns');
-    },
-    onError: (error) => {
-      console.error('Failed to reverse return:', error);
-      toast.error('فشل عكس المرتجع');
-    },
-  });
-
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'secondary' | 'info'; icon: any }> = {
       PENDING: { label: 'قيد الانتظار', variant: 'warning', icon: AlertTriangle },
       APPROVED: { label: 'موافق عليه', variant: 'success', icon: CheckCircle },
       PROCESSING: { label: 'قيد المعالجة', variant: 'info', icon: RefreshCw },
+      COMPLETING: { label: 'جارٍ إكمال المرتجع', variant: 'info', icon: RefreshCw },
       COMPLETED: { label: 'مكتمل', variant: 'success', icon: CheckCircle },
       REJECTED: { label: 'مرفوض', variant: 'danger', icon: XCircle },
       CANCELLED: { label: 'ملغي', variant: 'secondary', icon: XCircle },
@@ -286,7 +272,7 @@ export function ReturnDetailsPage({ returnId, embedded = false, onClose }: Retur
               <RefreshCw className="w-4 h-4" /> بدء المعالجة
             </Button>
           )}
-          {(returnRecord.status === 'APPROVED' || returnRecord.status === 'PROCESSING') && (
+          {(returnRecord.status === 'APPROVED' || returnRecord.status === 'PROCESSING' || returnRecord.status === 'COMPLETING') && (
             <Button
               variant="success"
               onClick={() => completeReturnMutation.mutate(returnRecord.id)}
@@ -296,13 +282,9 @@ export function ReturnDetailsPage({ returnId, embedded = false, onClose }: Retur
             </Button>
           )}
           {returnRecord.status === 'COMPLETED' && (
-            <Button
-              variant="danger"
-              onClick={() => reverseReturnMutation.mutate(returnRecord.id)}
-              disabled={reverseReturnMutation.isPending}
-            >
-              <RefreshCw className="w-4 h-4" /> عكس المرتجع
-            </Button>
+            <span className="text-sm text-text-secondary" role="status">
+              اكتمل المرتجع؛ العكس الآلي بعد تنفيذ الأثر المالي غير متاح.
+            </span>
           )}
         </div>
       )}
@@ -348,7 +330,7 @@ export function ReturnDetailsPage({ returnId, embedded = false, onClose }: Retur
                 بدء الاسترجاع
               </Button>
             )}
-            {(returnRecord.status === 'APPROVED' || returnRecord.status === 'PROCESSING') && (
+            {(returnRecord.status === 'APPROVED' || returnRecord.status === 'PROCESSING' || returnRecord.status === 'COMPLETING') && (
               <Button
                 variant="success"
                 onClick={() => completeReturnMutation.mutate(returnRecord.id)}
@@ -359,14 +341,9 @@ export function ReturnDetailsPage({ returnId, embedded = false, onClose }: Retur
               </Button>
             )}
             {returnRecord.status === 'COMPLETED' && (
-              <Button
-                variant="danger"
-                onClick={() => reverseReturnMutation.mutate(returnRecord.id)}
-                disabled={reverseReturnMutation.isPending}
-              >
-                <RefreshCw className="w-4 h-4 mr-1" />
-                إلغاء الاسترجاع
-              </Button>
+              <span className="self-center text-sm text-text-secondary" role="status">
+                اكتمل المرتجع؛ العكس الآلي بعد تنفيذ الأثر المالي غير متاح.
+              </span>
             )}
           </div>
         }

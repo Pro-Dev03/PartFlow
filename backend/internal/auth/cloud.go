@@ -13,13 +13,22 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"github.com/partflow/smart-store/pkg/offlinegrant"
 )
 
 // CloudAuthService handles cloud token validation and local session creation
 type CloudAuthService struct {
 	cloudAPIURL string
 	httpClient  *http.Client
+}
+
+// CloudValidationError preserves the cloud decision across the local API.
+type CloudValidationError struct {
+	Status int
+	Code   string
+}
+
+func (e *CloudValidationError) Error() string {
+	return fmt.Sprintf("cloud validation rejected the request: %s (HTTP %d)", e.Code, e.Status)
 }
 
 // NewCloudAuthService creates a new cloud auth service
@@ -37,7 +46,6 @@ type CloudValidateResponse struct {
 	Success bool `json:"success"`
 	Data    struct {
 		Valid                 bool   `json:"valid"`
-		OfflineGrant          string `json:"offline_grant"`
 		UserID                string `json:"user_id"`
 		Email                 string `json:"email"`
 		FirstName             string `json:"first_name"`
@@ -118,21 +126,50 @@ func (s *CloudAuthService) ValidateCloudToken(ctx context.Context, cloudToken st
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to call cloud validate: %w", err)
+		return nil, &CloudValidationError{Status: http.StatusServiceUnavailable, Code: "CLOUD_SERVICE_UNAVAILABLE"}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("cloud validation failed with status %d", resp.StatusCode)
+		var rejection struct {
+			Code  string `json:"code"`
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&rejection)
+		code := rejection.Code
+		if code == "" {
+			code = rejection.Error.Code
+		}
+		status := resp.StatusCode
+		switch status {
+		case http.StatusUnauthorized:
+			if code == "" {
+				code = "INVALID_TOKEN"
+			}
+		case http.StatusForbidden:
+			if code == "" {
+				code = "PERMISSION_DENIED"
+			}
+		case http.StatusServiceUnavailable:
+			if code == "" {
+				code = "CLOUD_SERVICE_UNAVAILABLE"
+			}
+		default:
+			status = http.StatusServiceUnavailable
+			code = "CLOUD_SERVICE_UNAVAILABLE"
+		}
+		return nil, &CloudValidationError{Status: status, Code: code}
 	}
 
 	var result CloudValidateResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode cloud validate response: %w", err)
+		return nil, &CloudValidationError{Status: http.StatusServiceUnavailable, Code: "CLOUD_SERVICE_UNAVAILABLE"}
 	}
 
 	if !result.Data.Valid {
-		return nil, fmt.Errorf("cloud token is not valid")
+		return nil, &CloudValidationError{Status: http.StatusUnauthorized, Code: "INVALID_TOKEN"}
 	}
 
 	return &result, nil
@@ -151,7 +188,6 @@ func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *J
 	if err != nil {
 		return nil, fmt.Errorf("invalid user ID from cloud: %w", err)
 	}
-	persistCloudOfflineGrant(ctx, db, userID, validation.Data.OfflineGrant)
 
 	type sessionUserRow struct {
 		ID                    string         `db:"id"`
@@ -331,36 +367,13 @@ func (s *CloudAuthService) CreateLocalSession(ctx context.Context, jwtService *J
 	}, nil
 }
 
-func persistCloudOfflineGrant(ctx context.Context, db *sqlx.DB, userID uuid.UUID, grant string) {
-	if db == nil || strings.TrimSpace(grant) == "" {
-		return
-	}
-	claims, err := offlinegrant.Verify(grant, time.Now().UTC())
-	if err != nil || claims.UserID != userID.String() {
-		return
-	}
-	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS cloud_auth_grants (
-		user_id TEXT PRIMARY KEY,
-		grant_token TEXT NOT NULL,
-		updated_at TEXT NOT NULL
-	)`); err != nil {
-		return
-	}
-	_, _ = db.ExecContext(ctx, `
-		INSERT INTO cloud_auth_grants (user_id, grant_token, updated_at)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (user_id) DO UPDATE SET grant_token = excluded.grant_token, updated_at = excluded.updated_at
-	`, userID.String(), grant, time.Now().UTC().Format(time.RFC3339Nano))
-}
-
 func persistCloudRefreshToken(ctx context.Context, db *sqlx.DB, userID uuid.UUID, token string, lifetime time.Duration) (bool, error) {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO refresh_tokens (id, user_id, token, expires_at, created_at)
 		VALUES ($1, $2, $3, $4, $5)
 	`, uuid.New(), userID, refreshTokenDigest(token), time.Now().Add(lifetime), time.Now())
 	if isMissingRefreshTokenTable(err) {
-		log.Printf("refresh token revocation is disabled until refresh_tokens migration is applied")
-		return false, nil
+		return false, fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", err)
 	}
 	return true, err
 }

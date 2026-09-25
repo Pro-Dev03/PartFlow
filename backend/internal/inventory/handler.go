@@ -127,12 +127,13 @@ func (h *Handler) UpdateInventoryItem(c *gin.Context) {
 		PurchaseCost *float64   `json:"purchase_cost"`
 		SellingPrice *float64   `json:"selling_price"`
 		Notes        *string    `json:"notes"`
+		Barcode      *string    `json:"barcode"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	item, err := h.service.UpdateInventoryItemDetails(c.Request.Context(), id, req.CategoryID, req.PartTypeID, req.SerialNumber, req.Condition, req.Grade, req.PurchaseCost, req.SellingPrice, req.Notes)
+	item, err := h.service.UpdateInventoryItemDetails(c.Request.Context(), id, req.CategoryID, req.PartTypeID, req.SerialNumber, req.Condition, req.Grade, req.PurchaseCost, req.SellingPrice, req.Notes, req.Barcode)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -411,7 +412,6 @@ func (h *Handler) ListInventoryItemsWithSupplierInfo(c *gin.Context) {
 		},
 	})
 }
-
 
 // UpdateItemStatus updates the status of an inventory item
 func (h *Handler) UpdateItemStatus(c *gin.Context) {
@@ -817,7 +817,7 @@ func handleError(c *gin.Context, err error) {
 	case errors.Is(err, ErrItemNotFound), errors.Is(err, ErrLocationNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
-	case errors.Is(err, ErrInvalidStatus), errors.Is(err, ErrInvalidCondition), errors.Is(err, ErrInvalidGrade), errors.Is(err, ErrInvalidQuantity):
+	case errors.Is(err, ErrInvalidStatus), errors.Is(err, ErrInvalidCondition), errors.Is(err, ErrInvalidGrade), errors.Is(err, ErrInvalidQuantity), errors.Is(err, ErrInvalidBarcode):
 		status = http.StatusBadRequest
 		message = err.Error()
 	case errors.Is(err, ErrInsufficientStock), errors.Is(err, ErrItemAlreadyReserved), errors.Is(err, ErrDuplicateBarcode), errors.Is(err, ErrDuplicateSerialNumber):

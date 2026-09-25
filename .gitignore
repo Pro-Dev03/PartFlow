@@ -65,3 +65,4 @@ backend/tmp/
 backend/api
 backend/main
 backend/worker
+.gocache/

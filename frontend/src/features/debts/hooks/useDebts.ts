@@ -1,28 +1,58 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { debtsApi } from '../../../services/api/endpoints';
 import { Debt, DebtStats, DebtSummaryResponse } from '../types/debts.types';
 import { SearchFilters } from '../components/AdvancedSearch';
 import { addStoreDays, getStoreDateKey, getStoreToday } from '../../../utils/store-time';
 
-export function useDebts() {
+export function useDebts(debtTab: 'open' | 'paid' | 'all' = 'open', customerId?: string) {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
   const [page, setPage] = useState(1);
   const pageSize = 10;
-  const { data: overdueCustomersData, isLoading, refetch } = useQuery({
-    queryKey: ['debts', page, pageSize],
-    queryFn: () => debtsApi.list({ page, per_page: pageSize }),
+  const { data: overdueCustomersData, isLoading, isError, refetch } = useQuery({
+    queryKey: ['debts', page, pageSize, searchQuery, searchFilters, debtTab, customerId],
+    queryFn: () => {
+      const today = getStoreToday();
+      const dateRange = searchFilters.dateRange;
+      const dueDateFrom = dateRange === 'today' || dateRange === 'week' || dateRange === 'month' ? today : undefined;
+      const dueDateTo = dateRange === 'today'
+        ? today
+        : dateRange === 'week'
+          ? addStoreDays(today, 7)
+          : dateRange === 'month'
+            ? addStoreDays(today, 30)
+            : undefined;
+
+      return debtsApi.list({
+        page,
+        per_page: pageSize,
+        customer_id: customerId,
+        search: searchQuery.trim() || undefined,
+        search_type: searchFilters.searchType || 'all',
+        status: searchFilters.status && searchFilters.status !== 'all' ? searchFilters.status : undefined,
+        tab: debtTab,
+        min_amount: searchFilters.amountRange?.min,
+        max_amount: searchFilters.amountRange?.max,
+        due_date_from: dueDateFrom,
+        due_date_to: dueDateTo,
+      });
+    },
   });
 
-  useEffect(() => {
+  const updateSearchQuery = useCallback((value: string) => {
+    setSearchQuery(value);
     setPage(1);
-  }, [searchQuery, searchFilters]);
+  }, []);
+  const updateSearchFilters = useCallback((value: SearchFilters) => {
+    setSearchFilters(value);
+    setPage(1);
+  }, []);
 
   const recordPaymentMutation = useMutation({
-    mutationFn: ({ customerId, amount, method }: { customerId: string; amount: number; method: string }) =>
-      debtsApi.recordPayment(customerId, { amount, method }),
+    mutationFn: ({ customerId, amount, method, reference }: { customerId: string; amount: number; method: 'cash' | 'credit' | 'bank_transfer' | 'check'; reference: string }) =>
+      debtsApi.recordPayment(customerId, { amount, method, reference }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['debts'] });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
@@ -184,11 +214,12 @@ export function useDebts() {
     filteredDebts,
     stats,
     isLoading,
+    isError,
     refetch,
     searchQuery,
-    setSearchQuery,
+    setSearchQuery: updateSearchQuery,
     searchFilters,
-    setSearchFilters,
+    setSearchFilters: updateSearchFilters,
     recordPaymentMutation,
     page,
     pageSize,

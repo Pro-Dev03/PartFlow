@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { retrySubscriptionVerification, useAuthStore, validateSubscriptionWithCloud } from '../../stores/authStore';
+import { forceLogoutToLogin, markCloudVerificationPending, retrySubscriptionVerification, useAuthStore, validateSubscriptionWithCloud } from '../../stores/authStore';
 import { authApi } from '../../services/api/endpoints';
 import { CONNECTION_MODE_KEY } from '../../lib/config/app';
 import { TokenManager } from '../../lib/token-manager';
@@ -101,6 +101,35 @@ describe('cloud subscription validation', () => {
     expect(useAuthStore.getState().token).toBe('restored-access-token');
   });
 
+  it('does not restore a cookie session after explicit logout, even after reconnecting', async () => {
+    localStorage.setItem(CONNECTION_MODE_KEY, 'local');
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
+    useAuthStore.setState({
+      isAuthenticated: true,
+      sessionVerified: true,
+      token: 'old-local-token',
+      cloudToken: 'old-cloud-token',
+      user: { id: 'old-user', email: 'old@example.test' } as any,
+    });
+    TokenManager.setToken('old-local-token');
+    TokenManager.setCloudToken('old-cloud-token');
+    vi.spyOn(authApi, 'logout').mockResolvedValue(undefined as any);
+    const refreshSpy = vi.spyOn(authApi, 'refreshToken').mockResolvedValue({
+      token: 'cookie-restored-token',
+    } as any);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    useAuthStore.getState().logout();
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
+    await useAuthStore.getState().checkAuth();
+
+    expect(refreshSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().token).toBeNull();
+    expect(localStorage.getItem('partflow-manual-logout')).toBe('true');
+  });
+
   it('shares one startup refresh when React invokes auth restoration more than once', async () => {
     const user = { id: 'u-restore', email: 'owner@example.test' } as any;
     TokenManager.clearToken();
@@ -143,7 +172,7 @@ describe('cloud subscription validation', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
   });
 
-  it('keeps the owner in the app during a temporary cloud outage', async () => {
+  it('logs out when the cloud service is unavailable', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ error: 'temporary failure' }), { status: 503 })
     );
@@ -151,22 +180,65 @@ describe('cloud subscription validation', () => {
     const valid = await validateSubscriptionWithCloud();
 
     expect(valid).toBe(false);
-    expect(useAuthStore.getState().isAuthenticated).toBe(true);
-    expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
-    expect(TokenManager.getCloudToken()).toBe('cloud-token');
-    expect(window.location.hash).toBe('#/app/dashboard');
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(false);
+    expect(TokenManager.getCloudToken()).toBeNull();
+    expect(window.location.hash).toBe('#/login');
   });
 
-  it('keeps the owner in the app during a temporary network failure', async () => {
+  it('logs out when the network request fails', async () => {
     localStorage.setItem('partflow-cloud-last-validated-at', String(Date.now()));
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('cloud unavailable'));
 
     const valid = await validateSubscriptionWithCloud();
 
     expect(valid).toBe(false);
-    expect(useAuthStore.getState().isAuthenticated).toBe(true);
-    expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
-    expect(localStorage.getItem('partflow-cloud-last-validated-at')).toBe(String(Date.now()));
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(false);
+    expect(TokenManager.getCloudToken()).toBeNull();
+    expect(localStorage.getItem('partflow-cloud-last-validated-at')).toBeNull();
+  });
+
+  it('clears tenant-scoped query state on a forced logout', () => {
+    const sessionCleared = vi.fn();
+    window.addEventListener('partflow:session-cleared', sessionCleared);
+    try {
+      forceLogoutToLogin('Internet connection lost');
+
+      expect(sessionCleared).toHaveBeenCalledTimes(1);
+      expect(useAuthStore.getState().isAuthenticated).toBe(false);
+      expect(window.location.hash).toBe('#/login');
+    } finally {
+      window.removeEventListener('partflow:session-cleared', sessionCleared);
+    }
+  });
+
+  it('does not keep a local session when cloud authorization is pending', () => {
+    localStorage.setItem(CONNECTION_MODE_KEY, 'local');
+
+    markCloudVerificationPending();
+
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(false);
+    expect(TokenManager.getCloudToken()).toBeNull();
+    expect(window.location.hash).toBe('#/login');
+  });
+
+  it('logs out in cloud mode when a live cloud decision is unavailable', () => {
+    localStorage.setItem(CONNECTION_MODE_KEY, 'cloud');
+    const sessionCleared = vi.fn();
+    window.addEventListener('partflow:session-cleared', sessionCleared);
+    try {
+      markCloudVerificationPending();
+
+      expect(useAuthStore.getState().isAuthenticated).toBe(false);
+      expect(useAuthStore.getState().token).toBeNull();
+      expect(TokenManager.getCloudToken()).toBeNull();
+      expect(sessionCleared).toHaveBeenCalledTimes(1);
+      expect(window.location.hash).toBe('#/login');
+    } finally {
+      window.removeEventListener('partflow:session-cleared', sessionCleared);
+    }
   });
 
   it('does not restore access after an explicit subscription expiry response', async () => {
@@ -182,6 +254,16 @@ describe('cloud subscription validation', () => {
     expect(valid).toBe(false);
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     expect(window.location.hash).toBe('#/subscription-expired');
+  });
+
+  it('clears the session after a generic cloud 403 rejection', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 403 }));
+
+    const valid = await validateSubscriptionWithCloud();
+
+    expect(valid).toBe(false);
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(TokenManager.getCloudToken()).toBeNull();
   });
 
   it('clears the session when the refresh token is definitively rejected', async () => {

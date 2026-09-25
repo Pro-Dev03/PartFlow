@@ -99,7 +99,7 @@ func (h *Handler) GetReturn(c *gin.Context) {
 // @Param per_page query int false "Items per page" default(20)
 // @Param customer_id query string false "Customer ID filter"
 // @Param sale_id query string false "Sale ID filter"
-// @Param status query string false "Status filter" Enums(PENDING, APPROVED, PROCESSING, COMPLETED, REJECTED, CANCELLED)
+// @Param status query string false "Status filter" Enums(PENDING, APPROVED, PROCESSING, COMPLETING, COMPLETED, REJECTED, CANCELLED)
 // @Param return_type query string false "Return type filter" Enums(FULL, PARTIAL, QUANTITY_PARTIAL)
 // @Param refund_method query string false "Refund method filter" Enums(CASH, DEBT_ADJUSTMENT)
 // @Param start_date query string false "Start date filter"

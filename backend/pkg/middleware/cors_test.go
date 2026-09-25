@@ -72,7 +72,7 @@ func TestCORSAllowsCloudSessionHeader(t *testing.T) {
 	}
 }
 
-func TestCORSAllowsCloudAPIURLHeader(t *testing.T) {
+func TestCORSDoesNotAllowClientSelectedCloudAPIURL(t *testing.T) {
 	t.Setenv("CORS_ALLOWED_ORIGINS", "http://localhost:5174")
 	router := gin.New()
 	router.Use(CORS())
@@ -88,7 +88,63 @@ func TestCORSAllowsCloudAPIURLHeader(t *testing.T) {
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("expected successful preflight, got %d", response.Code)
 	}
-	if !strings.Contains(strings.ToLower(response.Header().Get("Access-Control-Allow-Headers")), "x-partflow-cloud-api-url") {
-		t.Fatalf("expected cloud API URL header to be allowed, got %q", response.Header().Get("Access-Control-Allow-Headers"))
+	if strings.Contains(strings.ToLower(response.Header().Get("Access-Control-Allow-Headers")), "x-partflow-cloud-api-url") {
+		t.Fatalf("client-selected cloud API URL must not be allowed, got %q", response.Header().Get("Access-Control-Allow-Headers"))
+	}
+}
+
+func TestCORSAllowsHostedRenderFrontendByDefault(t *testing.T) {
+	t.Setenv("CORS_ALLOWED_ORIGINS", "")
+	router := gin.New()
+	router.Use(CORS())
+	router.OPTIONS("/api/v1/health", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	request := httptest.NewRequest(http.MethodOptions, "/api/v1/health", nil)
+	request.Header.Set("Origin", "https://partflow-hpv7.onrender.com")
+	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected successful preflight, got %d", response.Code)
+	}
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "https://partflow-hpv7.onrender.com" {
+		t.Fatalf("expected hosted Render origin to be allowed, got %q", got)
+	}
+}
+
+func TestCORSAllowsRegisteredDesktopOriginByDefault(t *testing.T) {
+	t.Setenv("CORS_ALLOWED_ORIGINS", "")
+	router := gin.New()
+	router.Use(CORS())
+	router.OPTIONS("/api/v1/auth/login", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	request := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/login", nil)
+	request.Header.Set("Origin", "partflow://app")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent || response.Header().Get("Access-Control-Allow-Origin") != "partflow://app" {
+		t.Fatalf("desktop origin was not allowed: status=%d allow-origin=%q", response.Code, response.Header().Get("Access-Control-Allow-Origin"))
+	}
+}
+
+func TestCORSRejectsOpaqueOriginInProduction(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("SERVER_MODE", "production")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://partflow-hpv7.onrender.com,null")
+	router := gin.New()
+	router.Use(CORS())
+	router.OPTIONS("/api/v1/auth/login", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	request := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/login", nil)
+	request.Header.Set("Origin", "null")
+	request.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden || response.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("opaque origin should be denied in production: status=%d allow-origin=%q", response.Code, response.Header().Get("Access-Control-Allow-Origin"))
 	}
 }

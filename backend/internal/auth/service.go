@@ -24,6 +24,9 @@ type Service struct {
 	cloud      *CloudAuthService
 }
 
+var ErrRegistrationDisabled = errors.New("public registration is disabled")
+var ErrPasswordResetUnavailable = errors.New("password reset delivery is not configured")
+
 // refreshTokenDigest stores only a one-way digest in the database. A database
 // read alone must not be enough to replay a refresh token.
 func refreshTokenDigest(token string) string {
@@ -32,55 +35,53 @@ func refreshTokenDigest(token string) string {
 }
 
 func isMissingRefreshTokenTable(err error) bool {
+	return isMissingTable(err, "refresh_tokens")
+}
+
+func isMissingTable(err error, tableName string) bool {
 	if err == nil {
 		return false
 	}
 	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "refresh_tokens") &&
+	return strings.Contains(message, strings.ToLower(tableName)) &&
 		(strings.Contains(message, "does not exist") || strings.Contains(message, "no such table"))
 }
 
-// persistRefreshToken returns false only when running against a legacy
-// database that has not received the refresh-token migration yet. This keeps
-// old installations compatible while enabling revocation as soon as the
-// migration is applied.
-func (s *Service) persistRefreshToken(ctx context.Context, userID uuid.UUID, token string) (bool, error) {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO refresh_tokens (id, user_id, token, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, uuid.New(), userID, refreshTokenDigest(token), time.Now().Add(s.jwtService.refreshTokenT), time.Now())
-	if isMissingRefreshTokenTable(err) {
-		log.Printf("refresh token revocation is disabled until refresh_tokens migration is applied")
-		return false, nil
+func lockUserForSession(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, userID uuid.UUID) (*User, error) {
+	query := `
+		SELECT id, email, password_hash, first_name, last_name,
+		       phone, is_active, last_login_at, created_at, updated_at,
+		       subscription_status, subscription_expires_at
+		FROM users WHERE id = $1
+	`
+	if !strings.EqualFold(db.DriverName(), "sqlite") && !strings.EqualFold(db.DriverName(), "sqlite3") {
+		query += ` FOR UPDATE`
 	}
-	return true, err
-}
-
-// checkPersistedRefreshToken returns whether the store exists and whether the
-// supplied token is currently registered for the user.
-func (s *Service) checkPersistedRefreshToken(ctx context.Context, userID uuid.UUID, token string) (available, exists bool, err error) {
-	var marker int
-	err = s.db.QueryRowContext(ctx, `
-		SELECT 1 FROM refresh_tokens WHERE user_id = $1 AND token = $2 LIMIT 1
-	`, userID, refreshTokenDigest(token)).Scan(&marker)
-	if isMissingRefreshTokenTable(err) {
-		return false, true, nil
+	var row userRow
+	if err := tx.QueryRowxContext(ctx, query, userID).Scan(
+		&row.ID,
+		&row.Email,
+		&row.PasswordHash,
+		&row.FirstName,
+		&row.LastName,
+		&row.Phone,
+		&row.IsActive,
+		&row.LastLoginAt,
+		&row.CreatedAt,
+		&row.UpdatedAt,
+		&row.SubscriptionStatus,
+		&row.SubscriptionExpiresAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
 	}
-	if errors.Is(err, sql.ErrNoRows) {
-		return true, false, nil
-	}
+	user, err := userFromRow(row)
 	if err != nil {
-		return true, false, err
+		return nil, fmt.Errorf("read user profile: %w", err)
 	}
-	return true, true, nil
-}
-
-func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE token = $1`, refreshTokenDigest(token))
-	if isMissingRefreshTokenTable(err) {
-		return nil
-	}
-	return err
+	return &user, nil
 }
 
 // IsSubscriptionExpired reports whether the user's subscription is no longer valid.
@@ -123,6 +124,14 @@ func (s *Service) checkSubscriptionStatus(subscriptionStatus string, expiresAt *
 
 // validatePassword checks password with bcrypt and PostgreSQL crypt fallback (from worktrack)
 func (s *Service) validatePassword(password, storedHash, email string) bool {
+	return s.validatePasswordWithQuery(password, storedHash, email, s.db)
+}
+
+type passwordQueryer interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func (s *Service) validatePasswordWithQuery(password, storedHash, email string, queryer passwordQueryer) bool {
 	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)); err == nil {
 		return true
 	}
@@ -134,7 +143,7 @@ func (s *Service) validatePassword(password, storedHash, email string) bool {
 	}
 
 	var passwordMatches bool
-	err := s.db.QueryRow(`SELECT crypt($1, password_hash) = password_hash FROM users WHERE email = $2`, password, email).Scan(&passwordMatches)
+	err := queryer.QueryRow(`SELECT crypt($1, password_hash) = password_hash FROM users WHERE email = $2`, password, email).Scan(&passwordMatches)
 	if err != nil {
 		log.Printf("Password fallback check failed for %s: %v", email, err)
 		return false
@@ -195,77 +204,11 @@ func (s *Service) IsSubscriptionExpiredFromCloud(status, expiresAt string) bool 
 	return err == nil && time.Now().UTC().After(parsed.UTC())
 }
 
-// Register registers a new admin user
-func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*AuthResponse, error) {
-	// Check if user already exists
-	var existingUser User
-	err := s.db.GetContext(ctx, &existingUser, "SELECT id FROM users WHERE email = $1", req.Email)
-	if err == nil {
-		return nil, ErrUserExists
-	}
-
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
-	}
-
-	// Create owner user with default subscription
-	user := &User{
-		ID:                 uuid.New(),
-		Email:              req.Email,
-		PasswordHash:       string(hashedPassword),
-		FirstName:          req.FirstName,
-		LastName:           req.LastName,
-		Phone:              req.Phone,
-		IsActive:           true,
-		SubscriptionStatus: "active",
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
-	}
-
-	// Set default subscription expiry (1 year from now)
-	expiresAt := time.Now().UTC().AddDate(1, 0, 0)
-	user.SubscriptionExpiresAt = &expiresAt
-
-	// Insert user with fallback for schema differences
-	query := `
-		INSERT INTO users (email, password_hash, first_name, last_name, phone, is_active,
-		                  subscription_status, subscription_expires_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING id, created_at, updated_at
-	`
-
-	err = s.db.QueryRowContext(ctx, query,
-		user.Email, user.PasswordHash, user.FirstName, user.LastName, user.Phone, user.IsActive,
-		user.SubscriptionStatus, user.SubscriptionExpiresAt,
-		user.CreatedAt, user.UpdatedAt,
-	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
-	}
-
-	// Generate tokens with user_id only
-	accessToken, err := s.jwtService.GenerateAccessToken(user.ID.String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate access token: %w", err)
-	}
-
-	refreshToken, err := s.jwtService.GenerateRefreshToken(user.ID.String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
-	}
-	if _, err := s.persistRefreshToken(ctx, user.ID, refreshToken); err != nil {
-		return nil, fmt.Errorf("failed to persist refresh token: %w", err)
-	}
-
-	return &AuthResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		ExpiresIn:    int64(15 * time.Minute / time.Second),
-		User:         *user,
-	}, nil
+// Register is retained for compatibility with older callers, but user
+// accounts are provisioned only through the authenticated administrator API.
+// Public registration must never grant an active subscription.
+func (s *Service) Register(_ context.Context, _ *RegisterRequest) (*AuthResponse, error) {
+	return nil, ErrRegistrationDisabled
 }
 
 // Login authenticates an admin user (from worktrack)
@@ -304,31 +247,55 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 		return nil, fmt.Errorf("read user profile: %w", err)
 	}
 
-	// Check if user is active
-	if !user.IsActive {
-		return nil, ErrInactiveUser
-	}
-
-	// Verify password with fallback support (from worktrack)
+	// Check the password once before opening a transaction so bcrypt work does
+	// not hold a database lock. The password and account state are checked again
+	// under a row lock before any session token is committed.
 	if !s.validatePassword(req.Password, user.PasswordHash, req.Email) {
 		return nil, ErrInvalidCredentials
 	}
 
-	// Check subscription status (from worktrack)
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin login session: %w", err)
+	}
+	defer tx.Rollback()
+
+	lockedUser, err := lockUserForSession(ctx, tx, s.db, user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("lock user for login: %w", err)
+	}
+	user = *lockedUser
+	if !strings.EqualFold(strings.TrimSpace(user.Email), strings.TrimSpace(req.Email)) {
+		return nil, ErrInvalidCredentials
+	}
+	if !s.validatePasswordWithQuery(req.Password, user.PasswordHash, user.Email, tx) {
+		return nil, ErrInvalidCredentials
+	}
+	if !user.IsActive {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, user.ID); err != nil {
+			if isMissingRefreshTokenTable(err) {
+				return nil, fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", err)
+			}
+			return nil, fmt.Errorf("revoke refresh tokens for inactive account: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("commit refresh-token revocation: %w", err)
+		}
+		return nil, ErrInactiveUser
+	}
 	if err := s.checkSubscriptionStatus(user.SubscriptionStatus, user.SubscriptionExpiresAt); err != nil {
-		_ = s.Logout(ctx, user.ID)
+		if _, revokeErr := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, user.ID); revokeErr != nil {
+			if isMissingRefreshTokenTable(revokeErr) {
+				return nil, fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", revokeErr)
+			}
+			return nil, fmt.Errorf("revoke refresh tokens for blocked account: %w", revokeErr)
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			return nil, fmt.Errorf("commit refresh-token revocation: %w", commitErr)
+		}
 		return nil, err
 	}
 
-	// Update last login
-	now := time.Now()
-	_, err = s.db.ExecContext(ctx, "UPDATE users SET last_login_at = $1, updated_at = $2 WHERE id = $3", now, now, user.ID)
-	if err != nil {
-		// Log error but don't fail login
-		log.Printf("failed to update last login: %v", err)
-	}
-
-	// Generate tokens with user_id only
 	accessToken, err := s.jwtService.GenerateAccessToken(user.ID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
@@ -338,9 +305,23 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
-	if _, err := s.persistRefreshToken(ctx, user.ID, refreshToken); err != nil {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO refresh_tokens (id, user_id, token, expires_at, created_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, uuid.New(), user.ID, refreshTokenDigest(refreshToken), time.Now().Add(s.jwtService.refreshTokenT), time.Now()); err != nil {
+		if isMissingRefreshTokenTable(err) {
+			return nil, fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", err)
+		}
 		return nil, fmt.Errorf("failed to persist refresh token: %w", err)
 	}
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET last_login_at = $1 WHERE id = $2`, now, user.ID); err != nil {
+		return nil, fmt.Errorf("failed to update last login: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit login session: %w", err)
+	}
+	user.LastLoginAt = &now
 
 	return &AuthResponse{
 		AccessToken:  accessToken,
@@ -352,7 +333,10 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 
 // RefreshToken refreshes an access token using a refresh token
 func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthResponse, error) {
-	// Validate refresh token
+	// Validate the signed token first, then lock the account and rotate its
+	// persisted digest in one transaction. Password changes and logout update
+	// the same account row before deleting refresh tokens, so exactly one side
+	// of a concurrent refresh/revocation can commit.
 	claims, err := s.jwtService.ValidateToken(refreshToken)
 	if err != nil {
 		return nil, ErrInvalidToken
@@ -361,13 +345,11 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 	if err != nil {
 		return nil, ErrInvalidToken
 	}
-	storeAvailable, tokenExists, err := s.checkPersistedRefreshToken(ctx, userID, refreshToken)
+	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("check refresh token: %w", err)
+		return nil, fmt.Errorf("begin refresh-token rotation: %w", err)
 	}
-	if storeAvailable && !tokenExists {
-		return nil, ErrInvalidToken
-	}
+	defer tx.Rollback()
 
 	query := `
 		SELECT id, email, password_hash, first_name, last_name,
@@ -375,9 +357,12 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 		       subscription_status, subscription_expires_at
 		FROM users WHERE id = $1
 	`
+	if !strings.EqualFold(s.db.DriverName(), "sqlite") && !strings.EqualFold(s.db.DriverName(), "sqlite3") {
+		query += ` FOR UPDATE`
+	}
 
 	var row userRow
-	err = s.db.QueryRowxContext(ctx, query, claims.UserID).Scan(
+	err = tx.QueryRowxContext(ctx, query, userID).Scan(
 		&row.ID,
 		&row.Email,
 		&row.PasswordHash,
@@ -404,36 +389,71 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 	}
 
 	if err := s.checkSubscriptionStatus(user.SubscriptionStatus, user.SubscriptionExpiresAt); err != nil {
-		_ = s.Logout(ctx, user.ID)
+		if _, revokeErr := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, user.ID); revokeErr != nil {
+			if isMissingRefreshTokenTable(revokeErr) {
+				return nil, fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", revokeErr)
+			}
+			return nil, fmt.Errorf("revoke refresh tokens for blocked account: %w", revokeErr)
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			return nil, fmt.Errorf("commit refresh-token revocation: %w", commitErr)
+		}
 		return nil, err
 	}
 
 	if !user.IsActive {
-		_ = s.Logout(ctx, user.ID)
+		if _, revokeErr := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, user.ID); revokeErr != nil {
+			if isMissingRefreshTokenTable(revokeErr) {
+				return nil, fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", revokeErr)
+			}
+			return nil, fmt.Errorf("revoke refresh tokens for inactive account: %w", revokeErr)
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			return nil, fmt.Errorf("commit refresh-token revocation: %w", commitErr)
+		}
 		return nil, ErrInactiveUser
 	}
 
-	// Generate new access token
-	newAccessToken, err := s.jwtService.RefreshAccessToken(refreshToken)
+	var marker int
+	err = tx.QueryRowxContext(ctx, `
+		SELECT 1 FROM refresh_tokens WHERE user_id = $1 AND token = $2 LIMIT 1
+	`, user.ID, refreshTokenDigest(refreshToken)).Scan(&marker)
+	if isMissingRefreshTokenTable(err) {
+		return nil, fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", err)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrInvalidToken
+	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to refresh access token: %w", err)
+		return nil, fmt.Errorf("check refresh token: %w", err)
 	}
 
-	// Rotate the refresh token when durable storage is available. This makes a
-	// stolen token single-use after a successful refresh and lets Logout revoke
-	// all remaining sessions from the cloud database.
-	nextRefreshToken := refreshToken
-	if storeAvailable {
-		nextRefreshToken, err = s.jwtService.GenerateRefreshToken(user.ID.String())
-		if err != nil {
-			return nil, fmt.Errorf("failed to rotate refresh token: %w", err)
+	newAccessToken, err := s.jwtService.GenerateAccessToken(user.ID.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate access token: %w", err)
+	}
+
+	nextRefreshToken, err := s.jwtService.GenerateRefreshToken(user.ID.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to rotate refresh token: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE refresh_tokens
+		SET token = $3, expires_at = $4, created_at = $5
+		WHERE user_id = $1 AND token = $2
+	`, user.ID, refreshTokenDigest(refreshToken), refreshTokenDigest(nextRefreshToken),
+		time.Now().Add(s.jwtService.refreshTokenT), time.Now())
+	if err != nil {
+		if isMissingRefreshTokenTable(err) {
+			return nil, fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", err)
 		}
-		if _, err := s.persistRefreshToken(ctx, user.ID, nextRefreshToken); err != nil {
-			return nil, fmt.Errorf("failed to persist rotated refresh token: %w", err)
-		}
-		if err := s.revokeRefreshToken(ctx, refreshToken); err != nil {
-			return nil, fmt.Errorf("failed to revoke previous refresh token: %w", err)
-		}
+		return nil, fmt.Errorf("rotate persisted refresh token: %w", err)
+	}
+	if rowsAffected, _ := result.RowsAffected(); rowsAffected != 1 {
+		return nil, ErrInvalidToken
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit refresh-token rotation: %w", err)
 	}
 
 	return &AuthResponse{
@@ -502,8 +522,13 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, req *Cha
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Update password
-	result, err := s.db.ExecContext(ctx,
+	// Update the password and revoke every session atomically.
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin password change: %w", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx,
 		fmt.Sprintf("UPDATE users SET password_hash = $1, updated_at = %s WHERE id = $2", dbutil.NowSQL(s.db)),
 		string(hashedPassword), userID)
 	if err != nil {
@@ -512,88 +537,98 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, req *Cha
 	if affected, _ := result.RowsAffected(); affected != 1 {
 		return ErrUserNotFound
 	}
-
-	return nil
+	if _, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID); err != nil {
+		return fmt.Errorf("revoke refresh tokens after password change: %w", err)
+	}
+	return tx.Commit()
 }
 
 // Logout handles user logout
 func (s *Service) Logout(ctx context.Context, userID uuid.UUID) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID)
 	if isMissingRefreshTokenTable(err) {
-		return nil
+		return fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", err)
 	}
 	return err
 }
 
 // RequestPasswordReset initiates a password reset request
 func (s *Service) RequestPasswordReset(ctx context.Context, email string) error {
-	// Check if user exists
-	var user User
-	err := s.db.GetContext(ctx, &user, "SELECT id, email FROM users WHERE email = $1 AND is_active = TRUE", email)
-	if err != nil {
-		// Don't reveal if user exists for security
-		return nil
-	}
-
-	// Generate reset token
-	resetToken := uuid.New().String()
-	expiresAt := time.Now().Add(1 * time.Hour) // Token valid for 1 hour
-
-	// Store reset token
-	query := `
-		INSERT INTO password_reset_tokens (id, user_id, token, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, NOW())
-		ON CONFLICT (user_id) DO UPDATE SET token = $3, expires_at = $4, created_at = NOW()
-	`
-
-	_, err = s.db.ExecContext(ctx, query, uuid.New(), user.ID, resetToken, expiresAt)
-	if err != nil {
-		return fmt.Errorf("failed to create reset token: %w", err)
-	}
-
-	// In production, send email with reset link
-	// For now, we'll just log the token
-	log.Printf("Password reset token for %s: %s (valid until %s)", email, resetToken, expiresAt.Format(time.RFC3339))
-
-	return nil
+	// There is no verified email delivery path. Never create a reset credential
+	// that would need to be exposed through application logs or an unsafe API.
+	return ErrPasswordResetUnavailable
 }
 
 // ResetPassword resets a user's password using a reset token
 func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) error {
-	// Validate reset token
-	var userID uuid.UUID
-
-	query := `
-		SELECT user_id 
-		FROM password_reset_tokens 
-		WHERE token = $1 AND used = FALSE AND expires_at > NOW()
-	`
-
-	err := s.db.GetContext(ctx, &userID, query, token)
-	if err != nil {
-		return fmt.Errorf("invalid or expired reset token")
+	if len(newPassword) < 8 {
+		return ErrPasswordTooShort
 	}
-
-	// Hash new password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
-	// Update user password
-	_, err = s.db.ExecContext(ctx,
-		"UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
-		string(hashedPassword), userID)
+	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to update password: %w", err)
+		return fmt.Errorf("begin password reset: %w", err)
+	}
+	defer tx.Rollback()
+
+	resetQuery := `SELECT user_id FROM password_reset_tokens WHERE token = $1 AND used = FALSE AND expires_at > ` + dbutil.NowSQL(s.db)
+	if !strings.EqualFold(s.db.DriverName(), "sqlite") {
+		resetQuery += ` FOR UPDATE`
+	}
+	var userIDRaw string
+	if err := tx.QueryRowxContext(ctx, resetQuery, token).Scan(&userIDRaw); err != nil {
+		if isMissingTable(err, "password_reset_tokens") {
+			return fmt.Errorf("password reset storage is unavailable: %w", err)
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("invalid or expired reset token")
+		}
+		return fmt.Errorf("check password reset token: %w", err)
+	}
+	userID, err := uuid.Parse(userIDRaw)
+	if err != nil {
+		return fmt.Errorf("invalid password reset account")
 	}
 
-	// Mark token as used
-	_, err = s.db.ExecContext(ctx,
-		"UPDATE password_reset_tokens SET used = TRUE, used_at = NOW() WHERE token = $1",
-		token)
+	lockUserQuery := `SELECT id FROM users WHERE id = $1`
+	if !strings.EqualFold(s.db.DriverName(), "sqlite") {
+		lockUserQuery += ` FOR UPDATE`
+	}
+	var lockedUserID string
+	if err := tx.QueryRowxContext(ctx, lockUserQuery, userID).Scan(&lockedUserID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("invalid or expired reset token")
+		}
+		return fmt.Errorf("lock password reset account: %w", err)
+	}
+	updateUserQuery := fmt.Sprintf(`UPDATE users SET password_hash = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db))
+	if _, err := tx.ExecContext(ctx, updateUserQuery, string(hashedPassword), userID); err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID); err != nil {
+		if isMissingRefreshTokenTable(err) {
+			return fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", err)
+		}
+		return fmt.Errorf("revoke refresh tokens after password reset: %w", err)
+	}
+	markResetUsedQuery := fmt.Sprintf(`
+		UPDATE password_reset_tokens
+		SET used = TRUE, used_at = %s
+		WHERE token = $1 AND used = FALSE AND expires_at > %s
+	`, dbutil.NowSQL(s.db), dbutil.NowSQL(s.db))
+	result, err := tx.ExecContext(ctx, markResetUsedQuery, token)
 	if err != nil {
-		log.Printf("failed to mark reset token as used: %v", err)
+		return fmt.Errorf("failed to consume password reset token: %w", err)
+	}
+	if rowsAffected, _ := result.RowsAffected(); rowsAffected != 1 {
+		return fmt.Errorf("invalid or expired reset token")
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit password reset: %w", err)
 	}
 
 	return nil

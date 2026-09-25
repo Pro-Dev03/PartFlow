@@ -114,3 +114,45 @@ func TestSmartDeleteReceivedPurchaseReversesStockAndRemovesTransaction(t *testin
 		t.Fatalf("purchase=%d item=%d movement=%d ledger=%d audit=%d stock=%d supplier_balance=%v", purchases, inventoryItems, movements, ledgers, audits, quantity, supplierBalance)
 	}
 }
+
+func TestSmartDeleteBlocksCancelledAndReversedPurchases(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.Exec(`
+		CREATE TABLE purchases (id TEXT PRIMARY KEY, status TEXT, total_amount REAL, paid_amount REAL);
+		CREATE TABLE supplier_returns (id TEXT PRIMARY KEY, purchase_id TEXT);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	reversedID, cancelledID := uuid.New(), uuid.New()
+	for _, purchase := range []struct {
+		id     uuid.UUID
+		status string
+	}{{reversedID, "reversed"}, {cancelledID, "cancelled"}} {
+		if _, err := db.Exec(`INSERT INTO purchases (id, status, total_amount, paid_amount) VALUES (?, ?, 100, 0)`, purchase.id, purchase.status); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	service := NewSmartDeleteService(sqlx.NewDb(db, "sqlite"))
+	for _, purchaseID := range []uuid.UUID{reversedID, cancelledID} {
+		result, err := service.SmartDelete(context.Background(), purchaseID, uuid.Nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Action != "blocked" || result.CanProceed {
+			t.Fatalf("purchase %s deletion result = %+v, want blocked", purchaseID, result)
+		}
+	}
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM purchases`).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 2 {
+		t.Fatalf("cancelled/reversed purchases remaining = %d, want 2", remaining)
+	}
+}

@@ -1,6 +1,8 @@
 package database
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -15,6 +17,15 @@ import (
 )
 
 var DB *sqlx.DB
+
+const tenantRuntimeRole = "partflow_runtime"
+
+// TenantIsolationEnabled is deliberately explicit: the migration and runtime
+// role must be installed before a deployment can turn on tenant-scoped RLS.
+func TenantIsolationEnabled() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_TENANT_RLS_ENABLED")))
+	return value == "1" || value == "true" || value == "yes"
+}
 
 // Initialize initializes the database connection
 func Initialize() error {
@@ -61,6 +72,14 @@ func Initialize() error {
 		}
 		pgxConfig.RuntimeParams["timezone"] = "UTC"
 		pgxConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+		if TenantIsolationEnabled() {
+			// Keep the database owner credentials server-side but execute all
+			// application SQL as a non-owner role that is subject to RLS.
+			pgxConfig.RuntimeParams["role"] = tenantRuntimeRole
+			// Never resolve an unqualified application table from a role-named or
+			// attacker-created schema before the trusted public schema.
+			pgxConfig.RuntimeParams["search_path"] = "pg_catalog,public"
+		}
 		DB = sqlx.NewDb(stdlib.OpenDB(*pgxConfig), driver)
 		err = DB.Ping()
 	} else {
@@ -71,8 +90,17 @@ func Initialize() error {
 	}
 
 	// Configure connection pool
-	DB.SetMaxOpenConns(25)
-	DB.SetMaxIdleConns(10)
+	if TenantIsolationEnabled() {
+		// Existing handlers share a database handle and do not all accept a
+		// transaction. TenantScope serializes protected requests and pins the
+		// session tenant through this single connection until every handler has
+		// been migrated to transaction-aware repositories.
+		DB.SetMaxOpenConns(1)
+		DB.SetMaxIdleConns(1)
+	} else {
+		DB.SetMaxOpenConns(25)
+		DB.SetMaxIdleConns(10)
+	}
 	DB.SetConnMaxLifetime(5 * time.Minute)
 	DB.SetConnMaxIdleTime(1 * time.Minute)
 
@@ -80,12 +108,271 @@ func Initialize() error {
 	if err := DB.Ping(); err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
+	if driver == "pgx" && !TenantIsolationEnabled() {
+		var tenantRuntimeRoleExists bool
+		if err := DB.Get(&tenantRuntimeRoleExists,
+			`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, tenantRuntimeRole); err != nil {
+			return fmt.Errorf("verify tenant runtime configuration: %w", err)
+		}
+		if tenantRuntimeRoleExists {
+			return fmt.Errorf("tenant RLS role exists; set PARTFLOW_TENANT_RLS_ENABLED=true on every service using this database")
+		}
+	}
 
-	if err := ensureRequiredSchema(DB); err != nil {
+	if TenantIsolationEnabled() {
+		if driver != "pgx" {
+			return fmt.Errorf("tenant RLS requires PostgreSQL; refusing to start with %s", driver)
+		}
+		if err := validateTenantIsolationSchema(DB); err != nil {
+			return fmt.Errorf("tenant RLS is enabled but the database is not ready: %w", err)
+		}
+	} else if err := ensureRequiredSchema(DB); err != nil {
 		return fmt.Errorf("failed to ensure required schema: %w", err)
 	}
 
 	log.Println("Database connection established successfully using", driver)
+	return nil
+}
+
+func validateTenantIsolationSchema(db *sqlx.DB) error {
+	var roleName string
+	var isSuperuser, bypassRLS, canLogin, canInherit, hasRoleMembership bool
+	var runtimeSessionSafe bool
+	if err := db.QueryRowx(`
+		SELECT current_user, runtime.rolsuper, runtime.rolbypassrls, runtime.rolcanlogin, runtime.rolinherit,
+		       EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member = runtime.oid),
+	       session_login.rolcanlogin
+	           AND NOT session_login.rolsuper
+	           AND NOT session_login.rolbypassrls
+	           AND NOT session_login.rolinherit
+	           AND NOT session_login.rolcreatedb
+			AND NOT session_login.rolcreaterole
+			AND NOT session_login.rolreplication
+			AND db_info.datdba <> session_login.oid
+			AND NOT has_database_privilege(session_login.oid, current_database(), 'CREATE')
+			AND NOT EXISTS (
+			    SELECT 1 FROM pg_namespace owned_schema
+			    WHERE owned_schema.nspname = 'public' AND owned_schema.nspowner = session_login.oid
+			)
+			AND NOT EXISTS (
+			    SELECT 1 FROM pg_class owned_object
+			    JOIN pg_namespace owned_schema ON owned_schema.oid = owned_object.relnamespace
+			    WHERE owned_schema.nspname = 'public' AND owned_object.relowner = session_login.oid
+			)
+			AND NOT EXISTS (
+			    SELECT 1 FROM pg_proc owned_function
+			    JOIN pg_namespace owned_schema ON owned_schema.oid = owned_function.pronamespace
+			    WHERE owned_schema.nspname = 'public' AND owned_function.proowner = session_login.oid
+			)
+			AND EXISTS (
+	               SELECT 1 FROM pg_auth_members m
+	               WHERE m.member = session_login.oid AND m.roleid = runtime.oid AND NOT m.admin_option
+	           )
+	           AND NOT EXISTS (
+	               SELECT 1 FROM pg_auth_members m
+	               WHERE m.member = session_login.oid AND m.roleid <> runtime.oid
+	           )
+		FROM pg_roles runtime
+		JOIN pg_roles session_login ON session_login.rolname = session_user
+		JOIN pg_database db_info ON db_info.datname = current_database()
+		WHERE runtime.rolname = current_user
+	`).Scan(&roleName, &isSuperuser, &bypassRLS, &canLogin, &canInherit, &hasRoleMembership, &runtimeSessionSafe); err != nil {
+		return fmt.Errorf("verify runtime database role: %w", err)
+	}
+	if roleName != tenantRuntimeRole || isSuperuser || bypassRLS || canLogin || canInherit || hasRoleMembership {
+		return fmt.Errorf("runtime database role must be %s with NOLOGIN, NOINHERIT, NOSUPERUSER, NOBYPASSRLS, and no role memberships (current=%s, login=%t, inherit=%t, superuser=%t, bypassrls=%t, memberships=%t)", tenantRuntimeRole, roleName, canLogin, canInherit, isSuperuser, bypassRLS, hasRoleMembership)
+	}
+	if !runtimeSessionSafe {
+		return fmt.Errorf("database session login must be a dedicated NOINHERIT, non-owner, non-superuser login whose only role membership is %s", tenantRuntimeRole)
+	}
+	var tenantMigrationApplied bool
+	if err := db.Get(&tenantMigrationApplied, `
+		SELECT EXISTS (
+			SELECT 1 FROM public.partflow_tenant_schema_migrations WHERE version = 80
+		)
+	`); err != nil {
+		return fmt.Errorf("verify tenant isolation migration marker: %w", err)
+	}
+	if !tenantMigrationApplied {
+		return fmt.Errorf("tenant isolation migration 080 is not recorded as applied")
+	}
+	var membershipPolicyReady bool
+	if err := db.Get(&membershipPolicyReady, `
+		SELECT c.relrowsecurity
+		   AND EXISTS (
+		       SELECT 1 FROM pg_policies p
+		       WHERE p.schemaname = 'public'
+		         AND p.tablename = 'tenant_memberships'
+		         AND p.policyname = 'partflow_membership_self'
+		         AND p.cmd = 'SELECT'
+		         AND position('partflow.user_id' in p.qual) > 0
+		         AND position('user_id' in p.qual) > 0
+		   )
+		   AND NOT EXISTS (
+		       SELECT 1 FROM pg_policies p
+		       WHERE p.schemaname = 'public'
+		         AND p.tablename = 'tenant_memberships'
+		         AND p.policyname <> 'partflow_membership_self'
+	   )
+		   AND NOT has_table_privilege(current_user, 'public.tenant_memberships', 'INSERT')
+		   AND NOT has_table_privilege(current_user, 'public.tenant_memberships', 'UPDATE')
+		   AND NOT has_table_privilege(current_user, 'public.tenant_memberships', 'DELETE')
+		   AND NOT has_table_privilege(current_user, 'public.tenants', 'SELECT')
+			   AND NOT has_table_privilege(current_user, 'public.tenants', 'INSERT')
+			   AND NOT has_table_privilege(current_user, 'public.tenants', 'UPDATE')
+		   AND NOT has_table_privilege(current_user, 'public.tenants', 'DELETE')
+		   AND has_schema_privilege(current_user, 'public', 'USAGE')
+		   AND NOT has_schema_privilege(current_user, 'public', 'CREATE')
+		   AND NOT EXISTS (
+		       SELECT 1
+		       FROM pg_namespace protected_schema
+		       CROSS JOIN LATERAL aclexplode(coalesce(protected_schema.nspacl, acldefault('n', protected_schema.nspowner))) acl
+		       LEFT JOIN pg_roles grantee ON grantee.oid = acl.grantee
+		       WHERE protected_schema.nspname = 'public'
+		         AND (acl.grantee = 0 OR grantee.rolname IN ('anon','authenticated'))
+		         AND acl.privilege_type IN ('USAGE','CREATE')
+		   )
+		   AND NOT EXISTS (
+		       SELECT 1
+		       FROM pg_class protected_table
+		       JOIN pg_namespace protected_schema ON protected_schema.oid = protected_table.relnamespace
+		       CROSS JOIN LATERAL aclexplode(coalesce(protected_table.relacl, acldefault('r', protected_table.relowner))) acl
+		       LEFT JOIN pg_roles grantee ON grantee.oid = acl.grantee
+		       WHERE protected_schema.nspname = 'public'
+		         AND protected_table.relname IN ('tenants','tenant_memberships')
+		         AND (acl.grantee = 0 OR grantee.rolname IN ('anon','authenticated'))
+		         AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+		   )
+		   AND NOT EXISTS (
+		       SELECT 1 FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) acl
+		       WHERE acl.grantee = 0
+		         AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+		   )
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relname = 'tenant_memberships'
+	`); err != nil {
+		return fmt.Errorf("verify tenant membership policy: %w", err)
+	}
+	if !membershipPolicyReady {
+		return fmt.Errorf("tenant_memberships must be read-only to the runtime role and protected by the self-membership policy")
+	}
+
+	var unsafeTable string
+	err := db.Get(&unsafeTable, `
+		SELECT c.relname
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public'
+		  AND c.relkind IN ('r', 'p')
+		  AND NOT EXISTS (
+		      SELECT 1 FROM pg_depend d
+		      WHERE d.classid = 'pg_class'::regclass
+		        AND d.objid = c.oid
+		        AND d.deptype = 'e'
+		  )
+		  AND c.relname NOT IN (
+		      'users', 'refresh_tokens', 'password_reset_tokens',
+		      'schema_migrations', 'tenants', 'tenant_memberships',
+		      'partflow_tenant_schema_migrations'
+		  )
+		  AND (
+		      NOT EXISTS (
+		          SELECT 1 FROM pg_attribute a
+		          WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped
+		      )
+		      OR NOT c.relrowsecurity
+		      OR NOT c.relforcerowsecurity
+		      OR NOT EXISTS (
+		          SELECT 1 FROM pg_policies p
+		          WHERE p.schemaname = 'public'
+		            AND p.tablename = c.relname
+		            AND p.policyname = 'partflow_tenant_isolation'
+		            AND p.cmd = 'ALL'
+		            AND position('tenant_id' in p.qual) > 0
+		            AND position('partflow.tenant_id' in p.qual) > 0
+		            AND position('tenant_id' in p.with_check) > 0
+		            AND position('partflow.tenant_id' in p.with_check) > 0
+		      )
+		      OR EXISTS (
+		          SELECT 1 FROM pg_policies p
+		          WHERE p.schemaname = 'public'
+		            AND p.tablename = c.relname
+		            AND p.policyname <> 'partflow_tenant_isolation'
+		      )
+		      OR EXISTS (
+		          SELECT 1 FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) acl
+		          JOIN pg_roles grantee ON grantee.oid = acl.grantee
+		          WHERE grantee.rolname IN ('anon','authenticated')
+		            AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+		      )
+		      OR EXISTS (
+		          SELECT 1 FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) acl
+		          WHERE acl.grantee = 0
+		            AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+		      )
+		      OR EXISTS (
+		          SELECT 1 FROM pg_roles r
+		          WHERE r.rolname IN ('anon','authenticated')
+		            AND (
+		                has_table_privilege(r.oid, c.oid, 'SELECT')
+		                OR has_table_privilege(r.oid, c.oid, 'INSERT')
+		                OR has_table_privilege(r.oid, c.oid, 'UPDATE')
+		                OR has_table_privilege(r.oid, c.oid, 'DELETE')
+		                OR has_table_privilege(r.oid, c.oid, 'TRUNCATE')
+		                OR has_table_privilege(r.oid, c.oid, 'REFERENCES')
+		                OR has_table_privilege(r.oid, c.oid, 'TRIGGER')
+		            )
+		      )
+		  )
+		ORDER BY c.relname
+		LIMIT 1
+	`)
+	if err == nil {
+		return fmt.Errorf("table public.%s is missing tenant_id, forced RLS, or the PartFlow tenant policy", unsafeTable)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("verify tenant policies: %w", err)
+	}
+
+	var unsafeView string
+	err = db.Get(&unsafeView, `
+		SELECT c.relname
+		FROM pg_class c
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public'
+		  AND c.relkind IN ('v', 'm')
+		  AND NOT EXISTS (
+		      SELECT 1 FROM pg_depend d
+		      WHERE d.classid = 'pg_class'::regclass
+		        AND d.objid = c.oid
+		        AND d.deptype = 'e'
+		  )
+		  AND (
+		      c.relkind = 'm'
+		      OR NOT coalesce(c.reloptions @> ARRAY['security_invoker=true'], false)
+		      OR NOT has_table_privilege(current_user, c.oid, 'SELECT')
+		      OR EXISTS (
+		          SELECT 1 FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) acl
+		          JOIN pg_roles grantee ON grantee.oid = acl.grantee
+		          WHERE grantee.rolname IN ('anon','authenticated')
+		            AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+		      )
+		      OR EXISTS (
+		          SELECT 1 FROM aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) acl
+		          WHERE acl.grantee = 0
+		            AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+		      )
+		  )
+		ORDER BY c.relname
+		LIMIT 1
+	`)
+	if err == nil {
+		return fmt.Errorf("view public.%s is not safe for tenant-scoped access", unsafeView)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("verify tenant views: %w", err)
+	}
 	return nil
 }
 

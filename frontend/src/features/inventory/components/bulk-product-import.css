@@ -1,0 +1,132 @@
+.bulk-product-import-content {
+  min-width: 0;
+}
+
+.bulk-product-import-intro {
+  background: linear-gradient(120deg, var(--color-primary-10), var(--bg-surface));
+  border-color: var(--border-default) !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.bulk-product-import-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.25fr) repeat(3, minmax(72px, 0.8fr)) auto;
+  grid-template-areas:
+    "name barcode cost selling quantity remove"
+    "meta meta meta meta meta meta";
+  gap: 12px;
+  align-items: center;
+  background: var(--bg-surface) !important;
+  border-color: var(--border-default) !important;
+  border-inline-start: 4px solid var(--color-primary-25) !important;
+  color: var(--text-primary);
+}
+
+.bulk-product-import-row > .contents {
+  display: contents;
+}
+
+.bulk-product-import-row > .contents > input:nth-of-type(1) {
+  grid-area: name;
+}
+
+.bulk-product-import-row > .contents > div:nth-of-type(1) {
+  grid-area: barcode;
+  min-width: 0;
+}
+
+.bulk-product-import-row > .contents > input:nth-of-type(2) {
+  grid-area: cost;
+}
+
+.bulk-product-import-row > .contents > input:nth-of-type(3) {
+  grid-area: selling;
+}
+
+.bulk-product-import-row > .contents > div:nth-of-type(2) {
+  grid-area: quantity;
+  min-width: 0;
+  background: var(--bg-surface-elevated) !important;
+  border-color: var(--border-default) !important;
+}
+
+.bulk-product-import-row > .contents > div:nth-of-type(3) {
+  grid-area: meta;
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-default);
+}
+
+.bulk-product-import-row > .contents > button:last-child {
+  grid-area: remove;
+  min-width: 42px;
+  border-color: var(--color-danger-20) !important;
+  background: var(--color-danger-10) !important;
+  color: var(--color-danger) !important;
+}
+
+.bulk-product-import-row input,
+.bulk-product-import-row select {
+  box-sizing: border-box;
+  min-width: 0;
+  color: var(--text-primary) !important;
+  background-color: var(--bg-surface) !important;
+  border-color: var(--border-default) !important;
+}
+
+.bulk-product-import-row input::placeholder {
+  color: var(--text-tertiary);
+  opacity: 1;
+}
+
+.bulk-product-import-row > .contents > div:nth-of-type(2) > button {
+  border-color: var(--border-default) !important;
+  background: var(--bg-surface) !important;
+  color: var(--text-secondary) !important;
+}
+
+.bulk-product-import-row > .contents > div:nth-of-type(2) > button:last-child {
+  border-color: var(--color-primary-25) !important;
+  background: var(--color-primary-10) !important;
+  color: var(--color-primary) !important;
+}
+
+.bulk-product-import-row > .contents > div:nth-of-type(2) > input {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+@media (max-width: 900px) {
+  .bulk-product-import-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas:
+      "name name remove"
+      "barcode barcode remove"
+      "cost selling quantity"
+      "meta meta meta";
+  }
+}
+
+@media (max-width: 560px) {
+  .bulk-product-import-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "name name"
+      "barcode barcode"
+      "cost selling"
+      "quantity remove"
+      "meta meta";
+    gap: 10px;
+    padding: 12px !important;
+  }
+
+  .bulk-product-import-row > .contents > div:nth-of-type(3) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bulk-product-import-row > .contents > div:nth-of-type(3) label {
+    flex-wrap: wrap;
+  }
+}

@@ -14,6 +14,20 @@ import (
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
 
+func lockPurchaseWriteTx(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, id uuid.UUID) error {
+	if !dbutil.IsSQLite(db) {
+		return nil // GetByIDTx uses SELECT ... FOR UPDATE for PostgreSQL.
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE purchases SET updated_at = updated_at WHERE id = ?`, id.String())
+	if err != nil {
+		return fmt.Errorf("failed to lock purchase for update: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		return ErrPurchaseNotFound
+	}
+	return nil
+}
+
 // Import InventoryItem from inventory package
 // We'll define a local struct for the fields we need
 type InventoryItem struct {
@@ -338,7 +352,10 @@ func (s *Service) UpdatePurchase(ctx context.Context, id uuid.UUID, req *Purchas
 		}
 	}()
 
-	purchase, err := s.repo.GetByID(ctx, id)
+	if err := lockPurchaseWriteTx(ctx, tx, s.db, id); err != nil {
+		return nil, err
+	}
+	purchase, err := s.repo.GetByIDTx(ctx, tx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -407,6 +424,9 @@ func (s *Service) UpdatePurchase(ctx context.Context, id uuid.UUID, req *Purchas
 		purchase.Subtotal = newSubtotal
 		purchase.TaxAmount = newSubtotal * taxRate
 		purchase.TotalAmount = newSubtotal + purchase.TaxAmount
+	}
+	if purchase.TotalAmount+0.01 < purchase.PaidAmount {
+		return nil, ErrPaymentExceedsTotal
 	}
 	purchaseDate, err := purchaseDateForStorage(purchase.PurchaseDate)
 	if err != nil {
@@ -913,13 +933,12 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		}
-	}()
+	defer tx.Rollback()
+	if err := lockPurchaseWriteTx(ctx, tx, s.db, id); err != nil {
+		return nil, err
+	}
 
-	purchase, err := s.repo.GetByID(ctx, id)
+	purchase, err := s.repo.GetByIDTx(ctx, tx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -928,8 +947,11 @@ func (s *Service) ReceivePurchase(ctx context.Context, id uuid.UUID, userID uuid
 		return nil, err
 	}
 
-	if purchase.Status == "cancelled" {
+	if purchase.Status == StatusCancelled {
 		return nil, ErrPurchaseCancelled
+	}
+	if purchase.Status == StatusReversed {
+		return nil, ErrPurchaseAlreadyReversed
 	}
 
 	if purchase.Status != "received" && purchase.Status != "completed" && purchase.PaidAmount <= 0 {
@@ -1123,28 +1145,163 @@ func (s *Service) incrementInventoryAggregate(ctx context.Context, tx *sqlx.Tx, 
 	return nil
 }
 
-// CancelPurchase cancels a purchase
-func (s *Service) CancelPurchase(ctx context.Context, id uuid.UUID) (*PurchaseResponse, error) {
-	purchase, err := s.repo.GetByID(ctx, id)
+// CancelPurchase cancels an unpaid draft purchase and records the supplier
+// balance reversal atomically. Purchases with money paid or stock received need
+// an explicit refund/reversal workflow and cannot use this status-only action.
+func (s *Service) CancelPurchase(ctx context.Context, userID, id uuid.UUID) (*PurchaseResponse, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin purchase cancellation: %w", err)
+	}
+	defer tx.Rollback()
+	if err := lockPurchaseWriteTx(ctx, tx, s.db, id); err != nil {
+		return nil, err
+	}
+	purchase, err := s.repo.GetByIDTx(ctx, tx, id)
 	if err != nil {
 		return nil, err
 	}
-
-	if purchase.Status == StatusCancelled {
+	switch purchase.Status {
+	case StatusCancelled:
 		return nil, ErrPurchaseCancelled
-	}
-
-	if purchase.Status == StatusReceived {
+	case StatusReversed:
+		return nil, ErrPurchaseAlreadyReversed
+	case StatusDraft, StatusPending:
+	default:
 		return nil, ErrPurchaseAlreadyReceived
 	}
+	if purchase.PaidAmount > 0 {
+		return nil, ErrInvalidPurchaseStatus
+	}
 
-	purchase.Status = StatusCancelled
-	purchase.UpdatedAt = time.Now()
+	paymentsExist, err := purchaseTableExistsTx(ctx, tx, s.db, "payments")
+	if err != nil {
+		return nil, fmt.Errorf("inspect purchase payments: %w", err)
+	}
+	if paymentsExist {
+		var paymentCount int
+		if err := tx.GetContext(ctx, &paymentCount, `SELECT COUNT(*) FROM payments WHERE purchase_id = $1`, id); err != nil {
+			return nil, fmt.Errorf("check purchase payments: %w", err)
+		}
+		if paymentCount > 0 {
+			return nil, ErrInvalidPurchaseStatus
+		}
+	}
 
-	if err := s.repo.Update(ctx, purchase); err != nil {
+	if inventoryExists, err := purchaseTableExistsTx(ctx, tx, s.db, "inventory_items"); err != nil {
+		return nil, fmt.Errorf("inspect received inventory: %w", err)
+	} else if inventoryExists {
+		pattern := fmt.Sprintf("ITM-%s-%%", id.String()[:8])
+		var receivedCount int
+		if err := tx.GetContext(ctx, &receivedCount, `SELECT COUNT(*) FROM inventory_items WHERE item_code LIKE $1`, pattern); err != nil {
+			return nil, fmt.Errorf("check received purchase inventory: %w", err)
+		}
+		if receivedCount > 0 {
+			return nil, ErrPurchaseAlreadyReceived
+		}
+	}
+
+	ledgerExists, err := purchaseTableExistsTx(ctx, tx, s.db, "supplier_ledger")
+	if err != nil {
+		return nil, fmt.Errorf("inspect supplier ledger: %w", err)
+	}
+	if !ledgerExists {
+		return nil, fmt.Errorf("cannot cancel purchase without its supplier ledger")
+	}
+	hasType, hasTransactionType, hasReferenceType, hasCreatedBy, err := supplierLedgerSchema(ctx, tx, s.db)
+	if err != nil {
+		return nil, fmt.Errorf("inspect supplier ledger schema: %w", err)
+	}
+	purchaseKinds := make([]string, 0, 3)
+	if hasType {
+		purchaseKinds = append(purchaseKinds, "type = 'debit'")
+	}
+	if hasTransactionType {
+		purchaseKinds = append(purchaseKinds, "transaction_type = 'PURCHASE'")
+	}
+	if hasReferenceType {
+		purchaseKinds = append(purchaseKinds, "reference_type = 'purchase'")
+	}
+	if len(purchaseKinds) == 0 {
+		return nil, fmt.Errorf("supplier ledger has no purchase classification column")
+	}
+	var purchaseDebit float64
+	debitQuery := fmt.Sprintf(`SELECT COALESCE(SUM(amount),0) FROM supplier_ledger WHERE supplier_id = $1 AND reference_id = $2 AND (%s)`, strings.Join(purchaseKinds, " OR "))
+	if err := tx.GetContext(ctx, &purchaseDebit, debitQuery, purchase.SupplierID, purchase.ID); err != nil {
+		return nil, fmt.Errorf("read purchase supplier debit: %w", err)
+	}
+	if purchaseDebit <= 0 || purchaseDebit < purchase.TotalAmount-0.01 || purchaseDebit > purchase.TotalAmount+0.01 {
+		return nil, fmt.Errorf("purchase supplier balance does not match its total; cancellation was blocked")
+	}
+
+	ledgerColumns := []string{"id", "supplier_id"}
+	ledgerValues := []interface{}{uuid.New(), purchase.SupplierID}
+	if hasType {
+		ledgerColumns = append(ledgerColumns, "type")
+		ledgerValues = append(ledgerValues, "credit")
+	}
+	if hasTransactionType {
+		ledgerColumns = append(ledgerColumns, "transaction_type")
+		ledgerValues = append(ledgerValues, "ADJUSTMENT")
+	}
+	ledgerColumns = append(ledgerColumns, "amount", "balance")
+	ledgerValues = append(ledgerValues, purchaseDebit, 0.0)
+	if hasReferenceType {
+		ledgerColumns = append(ledgerColumns, "reference_type")
+		ledgerValues = append(ledgerValues, "purchase_cancellation")
+	}
+	ledgerColumns = append(ledgerColumns, "reference_id", "description")
+	ledgerValues = append(ledgerValues, purchase.ID, "Cancellation of purchase "+purchase.InvoiceNumber)
+	if hasCreatedBy {
+		ledgerColumns = append(ledgerColumns, "created_by")
+		ledgerValues = append(ledgerValues, nullableUUID(userID))
+	}
+	ledgerColumns = append(ledgerColumns, "created_at")
+	ledgerValues = append(ledgerValues, time.Now().UTC())
+	placeholders := make([]string, len(ledgerValues))
+	for i := range placeholders {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+	}
+	ledgerInsert := fmt.Sprintf(`INSERT INTO supplier_ledger (%s) VALUES (%s)`, strings.Join(ledgerColumns, ","), strings.Join(placeholders, ","))
+	if _, err := tx.ExecContext(ctx, ledgerInsert, ledgerValues...); err != nil {
+		return nil, fmt.Errorf("record purchase supplier balance reversal: %w", err)
+	}
+	if err := s.recalculateSupplierLedgerTx(ctx, tx, purchase.SupplierID); err != nil {
 		return nil, err
 	}
 
+	updatedAt := time.Now().UTC()
+	result, err := tx.ExecContext(ctx, `UPDATE purchases SET status = 'cancelled', updated_at = $1 WHERE id = $2 AND LOWER(COALESCE(status,'')) IN ('draft','pending') AND COALESCE(paid_amount,0) = 0`, updatedAt, id)
+	if err != nil {
+		return nil, fmt.Errorf("mark purchase cancelled: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return nil, ErrInvalidPurchaseStatus
+	}
+
+	var userExists bool
+	if userID != uuid.Nil {
+		_ = tx.GetContext(ctx, &userExists, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, userID)
+	}
+	if userExists {
+		if auditExists, err := purchaseTableExistsTx(ctx, tx, s.db, "audit_logs"); err != nil {
+			return nil, fmt.Errorf("inspect purchase cancellation audit: %w", err)
+		} else if auditExists {
+			oldValues, _ := json.Marshal(map[string]interface{}{"status": purchase.Status, "total_amount": purchase.TotalAmount})
+			newValues, _ := json.Marshal(map[string]interface{}{"status": StatusCancelled, "supplier_balance_reversed": purchaseDebit})
+			auditQuery := `INSERT INTO audit_logs (id,user_id,action,entity_type,entity_id,old_values,new_values,created_at) VALUES ($1,$2,'CANCEL','purchase',$3,$4,$5,$6)`
+			if !dbutil.IsSQLite(s.db) {
+				auditQuery = `INSERT INTO audit_logs (id,user_id,action,entity_type,entity_id,old_values,new_values,created_at) VALUES ($1,$2,'CANCEL','purchase',$3,$4::jsonb,$5::jsonb,$6)`
+			}
+			if _, err := tx.ExecContext(ctx, auditQuery, uuid.New(), userID, purchase.ID, string(oldValues), string(newValues), updatedAt); err != nil {
+				return nil, fmt.Errorf("record purchase cancellation audit: %w", err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit purchase cancellation: %w", err)
+	}
+	dashboard.InvalidateDashboardCacheWithReason("purchase_cancelled")
 	return s.GetPurchase(ctx, id)
 }
 
@@ -1161,8 +1318,11 @@ func (s *Service) ReversePurchase(ctx context.Context, id uuid.UUID, userID uuid
 			tx.Rollback()
 		}
 	}()
+	if lockErr := lockPurchaseWriteTx(ctx, tx, s.db, id); lockErr != nil {
+		return nil, lockErr
+	}
 
-	purchase, err := s.repo.GetByID(ctx, id)
+	purchase, err := s.repo.GetByIDTx(ctx, tx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1319,11 +1479,10 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-		}
-	}()
+	defer tx.Rollback()
+	if err := lockPurchaseWriteTx(ctx, tx, s.db, id); err != nil {
+		return nil, err
+	}
 
 	if amount <= 0 {
 		return nil, ErrInvalidCost
@@ -1384,13 +1543,16 @@ func (s *Service) AddPayment(ctx context.Context, id uuid.UUID, userID uuid.UUID
 		return nil, err
 	}
 
-	if purchase.Status == "cancelled" {
+	if purchase.Status == StatusCancelled {
 		return nil, ErrPurchaseCancelled
+	}
+	if purchase.Status == StatusReversed {
+		return nil, ErrPurchaseAlreadyReversed
 	}
 
 	// Check if payment exceeds total
 	if purchase.PaidAmount+amount > purchase.TotalAmount {
-		return nil, ErrInvalidCost
+		return nil, ErrPaymentExceedsTotal
 	}
 
 	// Update paid amount

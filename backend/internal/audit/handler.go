@@ -167,7 +167,7 @@ func (h *Handler) ExportAuditLogs(c *gin.Context) {
 	req.PerPage = 10000
 	req.Page = 1
 
-	auditLogs, _, err := h.service.ListAuditLogs(c.Request.Context(), req)
+	auditLogs, _, err := h.service.ListAuditLogsForExport(c.Request.Context(), req)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve audit logs for export", err.Error())
 		return

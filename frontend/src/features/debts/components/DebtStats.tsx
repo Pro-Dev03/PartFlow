@@ -14,7 +14,7 @@ export function DebtStats({ stats }: DebtStatsProps) {
     >
       <StatCard
         title="إجمالي الديون الأصلية"
-        value={<span className="numeric-metric">₪{stats.totalDebt.toLocaleString()}</span>}
+        value={`₪${stats.totalDebt.toLocaleString()}`}
         icon={DollarSign}
         subtitle="قيمة الديون الأصلية على العملاء"
         variant="featured"
@@ -22,7 +22,7 @@ export function DebtStats({ stats }: DebtStatsProps) {
       />
       <StatCard
         title="التحصيل"
-        value={<span className="numeric-metric">₪{stats.paidAmount.toLocaleString()}</span>}
+        value={`₪${stats.paidAmount.toLocaleString()}`}
         icon={Calendar}
         subtitle="ما تم تحصيله من هذه الديون"
         variant="success"
@@ -30,7 +30,7 @@ export function DebtStats({ stats }: DebtStatsProps) {
       />
       <StatCard
         title="غير مسدد"
-        value={<span className="numeric-metric">₪{stats.remainingAmount.toLocaleString()}</span>}
+        value={`₪${stats.remainingAmount.toLocaleString()}`}
         icon={AlertTriangle}
         subtitle="المبلغ الذي ما زال على العملاء"
         variant="warning"
@@ -38,7 +38,7 @@ export function DebtStats({ stats }: DebtStatsProps) {
       />
       <StatCard
         title="العملاء المدينون"
-        value={<span className="numeric-quantity">{stats.customerCount}</span>}
+        value={stats.customerCount}
         icon={Users}
         subtitle="لديهم مبلغ غير مسدد"
         variant="default"

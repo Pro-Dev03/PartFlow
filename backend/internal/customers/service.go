@@ -526,12 +526,11 @@ func (s *Service) ProcessDebtPaymentWithReference(ctx context.Context, customerI
 		return err
 	}
 	if reference != nil {
-		exists, referenceErr := s.repo.HasPaymentReference(ctx, customerID, *reference)
-		if referenceErr != nil {
-			return referenceErr
-		}
-		if exists {
-			return ErrPaymentDuplicate
+		trimmedReference := strings.TrimSpace(*reference)
+		if trimmedReference == "" {
+			reference = nil
+		} else {
+			reference = &trimmedReference
 		}
 	}
 

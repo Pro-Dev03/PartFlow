@@ -77,7 +77,7 @@ export function InventoryFilters({
       const value = searchQuery.trim();
       const startedAt = scanStartedAtRef.current;
       const elapsed = startedAt === null ? Number.POSITIVE_INFINITY : performance.now() - startedAt;
-      const isLikelyUsbScan = Boolean(onBarcodeScan && value.length >= 6 && (elapsed <= 700 || event.key === 'Enter'));
+      const isLikelyUsbScan = Boolean(onBarcodeScan && value.length >= 6 && elapsed <= 700);
       scanStartedAtRef.current = null;
       lastScanKeyAtRef.current = null;
 

@@ -250,6 +250,13 @@ func (r *Repository) ListSales(ctx context.Context, page, perPage int, filters m
 		args = append(args, customerID)
 	}
 
+	if search, ok := filters["search"].(string); ok && strings.TrimSpace(search) != "" {
+		argCount++
+		baseQuery += fmt.Sprintf(" AND LOWER(invoice_number) LIKE LOWER($%d)", argCount)
+		countQuery += fmt.Sprintf(" AND LOWER(invoice_number) LIKE LOWER($%d)", argCount)
+		args = append(args, "%"+strings.TrimSpace(search)+"%")
+	}
+
 	if startDate, ok := filters["start_date"].(string); ok && startDate != "" {
 		argCount++
 		baseQuery += fmt.Sprintf(" AND sale_date >= $%d", argCount)

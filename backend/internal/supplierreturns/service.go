@@ -41,9 +41,11 @@ type SupplierReturn struct {
 }
 
 type CreateRequest struct {
-	PurchaseID uuid.UUID `json:"purchase_id" binding:"required"`
-	Reason     string    `json:"reason" binding:"required"`
-	Notes      string    `json:"notes"`
+	PurchaseID     uuid.UUID `json:"purchase_id" binding:"required"`
+	Reason         string    `json:"reason" binding:"required"`
+	Notes          string    `json:"notes"`
+	PurchaseItemID uuid.UUID `json:"purchase_item_id"`
+	Quantity       int       `json:"quantity" binding:"omitempty,min=1"`
 }
 type AddItemRequest struct {
 	PurchaseItemID uuid.UUID `json:"purchase_item_id" binding:"required"`
@@ -262,6 +264,20 @@ func parseOptionalUUID(value string) (uuid.UUID, error) {
 }
 
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, req CreateRequest) (*SupplierReturn, error) {
+	hasPurchaseItem := req.PurchaseItemID != uuid.Nil
+	if hasPurchaseItem != (req.Quantity > 0) {
+		return nil, fmt.Errorf("purchase item and a positive quantity must be provided together")
+	}
+	if req.Quantity < 0 {
+		return nil, fmt.Errorf("supplier return quantity must be positive")
+	}
+
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin supplier return creation: %w", err)
+	}
+	defer tx.Rollback()
+
 	var r SupplierReturn
 	if strings.EqualFold(s.db.DriverName(), "sqlite") {
 		id := uuid.New()
@@ -270,7 +286,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, req CreateReques
 			(id, purchase_id, supplier_id, return_number, status, reason, notes, created_by, created_at, updated_at)
 			SELECT ?, ?, supplier_id, ?, 'PENDING', ?, ?, ?, datetime('now'), datetime('now')
 			FROM purchases WHERE id = ? AND status IN ('received', 'partially_received', 'completed')`
-		result, err := s.db.ExecContext(ctx, query, id.String(), req.PurchaseID.String(), returnNumber, req.Reason, req.Notes, userID.String(), req.PurchaseID.String())
+		result, err := tx.ExecContext(ctx, query, id.String(), req.PurchaseID.String(), returnNumber, req.Reason, req.Notes, userID.String(), req.PurchaseID.String())
 		if err != nil {
 			return nil, fmt.Errorf("create supplier return: %w", err)
 		}
@@ -300,7 +316,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, req CreateReques
 			CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 		}
 		var supplierID string
-		if err := s.db.GetContext(ctx, &supplierID, `SELECT supplier_id FROM purchases WHERE id = ?`, req.PurchaseID); err != nil {
+		if err := tx.GetContext(ctx, &supplierID, `SELECT supplier_id FROM purchases WHERE id = ?`, req.PurchaseID); err != nil {
 			return nil, fmt.Errorf("fetch supplier id for supplier return: %w", err)
 		}
 		purchaseRow.SupplierID = supplierID
@@ -320,20 +336,28 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, req CreateReques
 		if err != nil {
 			return nil, fmt.Errorf("parse id: %w", err)
 		}
-		return &SupplierReturn{ID: rid, PurchaseID: pid, SupplierID: sid, ReturnNumber: purchaseRow.ReturnNumber, Status: purchaseRow.Status, Reason: purchaseRow.Reason, RefundAmount: purchaseRow.RefundAmount, Notes: purchaseRow.Notes, CreatedAt: createdAt}, nil
+		r = SupplierReturn{ID: rid, PurchaseID: pid, SupplierID: sid, ReturnNumber: purchaseRow.ReturnNumber, Status: purchaseRow.Status, Reason: purchaseRow.Reason, RefundAmount: purchaseRow.RefundAmount, Notes: purchaseRow.Notes, CreatedAt: createdAt}
+	} else {
+		err := tx.GetContext(ctx, &r, `INSERT INTO supplier_returns
+			(purchase_id, supplier_id, return_number, status, reason, notes, created_by)
+			SELECT $1, supplier_id, 'SRET-' || upper(substr(replace(uuid_generate_v4()::text, '-', ''), 1, 10)),
+			'PENDING', $2, $3, $4 FROM purchases WHERE id = $1
+			AND status IN ('received', 'partially_received', 'completed')
+			RETURNING id, purchase_id, supplier_id, return_number, status, reason, refund_amount, COALESCE(notes, '') AS notes, created_at`,
+			req.PurchaseID, req.Reason, req.Notes, userID)
+		if err != nil {
+			return nil, fmt.Errorf("create supplier return: %w", err)
+		}
 	}
 
-	err := s.db.GetContext(ctx, &r, `INSERT INTO supplier_returns
-		(purchase_id, supplier_id, return_number, status, reason, notes, created_by)
-		SELECT $1, supplier_id, 'SRET-' || upper(substr(replace(uuid_generate_v4()::text, '-', ''), 1, 10)),
-		'PENDING', $2, $3, $4 FROM purchases WHERE id = $1
-		AND status IN ('received', 'partially_received', 'completed')
-		RETURNING id, purchase_id, supplier_id, return_number, status, reason, refund_amount, COALESCE(notes, '') AS notes, created_at`,
-		req.PurchaseID, req.Reason, req.Notes, userID)
-	if err != nil {
-		return nil, fmt.Errorf("create supplier return: %w", err)
+	if hasPurchaseItem {
+		if err := addSupplierReturnItem(ctx, tx, r.ID, AddItemRequest{PurchaseItemID: req.PurchaseItemID, Quantity: req.Quantity}); err != nil {
+			return nil, err
+		}
 	}
-
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit supplier return creation: %w", err)
+	}
 	return &r, nil
 }
 
@@ -351,6 +375,37 @@ func parseSQLiteTime(value string) (time.Time, error) {
 }
 
 func (s *Service) AddItem(ctx context.Context, id uuid.UUID, req AddItemRequest) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin supplier return item creation: %w", err)
+	}
+	defer tx.Rollback()
+	if err := addSupplierReturnItem(ctx, tx, id, req); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit supplier return item: %w", err)
+	}
+	return nil
+}
+
+func addSupplierReturnItem(ctx context.Context, tx *sqlx.Tx, id uuid.UUID, req AddItemRequest) error {
+	if req.PurchaseItemID == uuid.Nil || req.Quantity < 1 {
+		return fmt.Errorf("supplier return item and a positive quantity are required")
+	}
+	if !strings.EqualFold(tx.DriverName(), "sqlite") {
+		var lockedPurchaseID string
+		if err := tx.GetContext(ctx, &lockedPurchaseID, `
+			SELECT p.id::text
+			FROM purchases p
+			JOIN supplier_returns sr ON sr.purchase_id = p.id
+			JOIN purchase_items pi ON pi.purchase_id = p.id
+			WHERE sr.id = $1 AND pi.id = $2 AND sr.status IN ('DRAFT', 'PENDING')
+			FOR UPDATE OF p`, id, req.PurchaseItemID); err != nil {
+			return fmt.Errorf("supplier return is not open or purchase item is unavailable: %w", err)
+		}
+	}
+
 	query := `INSERT INTO supplier_return_items
 			(supplier_return_id, purchase_item_id, product_id, quantity, unit_cost)
 			SELECT $1, pi.id, pi.product_id, $3, pi.unit_price
@@ -358,6 +413,7 @@ func (s *Service) AddItem(ctx context.Context, id uuid.UUID, req AddItemRequest)
 			JOIN supplier_returns sr ON sr.purchase_id = pi.purchase_id
 			JOIN purchases p ON p.id = pi.purchase_id
 			WHERE sr.id = $1 AND pi.id = $2
+			AND sr.status IN ('DRAFT', 'PENDING')
 			AND p.status IN ('received', 'partially_received', 'completed')
 			AND $3 <= (
 				SELECT COUNT(*) FROM inventory_items ii
@@ -367,9 +423,11 @@ func (s *Service) AddItem(ctx context.Context, id uuid.UUID, req AddItemRequest)
 			)
 			- COALESCE((SELECT SUM(sri.quantity) FROM supplier_return_items sri
 				JOIN supplier_returns existing_sr ON existing_sr.id = sri.supplier_return_id
-				WHERE sri.purchase_item_id = pi.id
+				JOIN purchase_items existing_pi ON existing_pi.id = sri.purchase_item_id
+				WHERE existing_pi.purchase_id = pi.purchase_id
+				AND existing_pi.product_id = pi.product_id
 				AND existing_sr.status IN ('PENDING', 'SHIPPED', 'RECEIVED')), 0)`
-	result, err := s.db.ExecContext(ctx, query,
+	result, err := tx.ExecContext(ctx, tx.Rebind(query),
 		id, req.PurchaseItemID, req.Quantity)
 	if err != nil {
 		return fmt.Errorf("add supplier return item: %w", err)

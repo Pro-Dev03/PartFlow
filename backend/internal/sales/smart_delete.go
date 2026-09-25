@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,14 +38,28 @@ type DeleteDetails struct {
 
 func (s *SmartDeleteService) tableExists(ctx context.Context, tx *sqlx.Tx, table string) (bool, error) {
 	var exists bool
-	query := `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)`
+	query := `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1 UNION ALL SELECT 1 FROM information_schema.views WHERE table_schema = current_schema() AND table_name = $1)`
 	if dbutil.IsSQLite(s.db) {
-		query = `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name=$1)`
+		query = `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name=$1)`
 	}
 	if err := tx.GetContext(ctx, &exists, query, table); err != nil {
 		return false, err
 	}
 	return exists, nil
+}
+
+func (s *SmartDeleteService) columnExists(ctx context.Context, tx *sqlx.Tx, table, column string) (bool, error) {
+	var exists bool
+	query := `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2)`
+	if dbutil.IsSQLite(s.db) {
+		// Table names here are internal constants; SQLite does not accept a bind
+		// parameter as the argument to pragma_table_info on all supported versions.
+		query = `SELECT EXISTS (SELECT 1 FROM pragma_table_info('` + table + `') WHERE name = $1)`
+		err := tx.GetContext(ctx, &exists, query, column)
+		return exists, err
+	}
+	err := tx.GetContext(ctx, &exists, query, table, column)
+	return exists, err
 }
 
 func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, userID uuid.UUID) (*DeleteResult, error) {
@@ -58,20 +73,49 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 		InvoiceNumber string         `db:"invoice_number"`
 		CustomerID    sql.NullString `db:"customer_id"`
 		Status        string         `db:"status"`
+		PaymentStatus string         `db:"payment_status"`
 		Total         float64        `db:"total_amount"`
+		PaidAmount    float64        `db:"paid_amount"`
 	}
 	lock := ""
 	if !dbutil.IsSQLite(s.db) {
 		lock = " FOR UPDATE"
+	} else {
+		result, err := tx.ExecContext(ctx, `UPDATE sales SET updated_at = updated_at WHERE id = ?`, saleID.String())
+		if err != nil {
+			return nil, fmt.Errorf("lock sale before deletion: %w", err)
+		}
+		if affected, _ := result.RowsAffected(); affected == 0 {
+			return &DeleteResult{Action: "not_found", Message: "عملية البيع غير موجودة", CanProceed: false}, nil
+		}
 	}
-	if err := tx.GetContext(ctx, &sale, tx.Rebind(`SELECT invoice_number, customer_id, status, total_amount FROM sales WHERE id = ?`)+lock, saleID.String()); err != nil {
+	paidColumnExists, err := s.columnExists(ctx, tx, "sales", "paid_amount")
+	if err != nil {
+		return nil, fmt.Errorf("inspect sale payment amount: %w", err)
+	}
+	paidAmountExpr := `0 AS paid_amount`
+	if paidColumnExists {
+		paidAmountExpr = `COALESCE(paid_amount,0) AS paid_amount`
+	}
+	paymentStatusExpr := `'' AS payment_status`
+	if paymentStatusColumnExists, err := s.columnExists(ctx, tx, "sales", "payment_status"); err != nil {
+		return nil, fmt.Errorf("inspect sale payment status: %w", err)
+	} else if paymentStatusColumnExists {
+		paymentStatusExpr = `COALESCE(payment_status,'') AS payment_status`
+	}
+	if err := tx.GetContext(ctx, &sale, tx.Rebind(`SELECT invoice_number, customer_id, status, `+paymentStatusExpr+`, total_amount, `+paidAmountExpr+` FROM sales WHERE id = ?`)+lock, saleID.String()); err != nil {
 		if err == sql.ErrNoRows {
 			return &DeleteResult{Action: "not_found", Message: "عملية البيع غير موجودة", CanProceed: false}, nil
 		}
 		return nil, fmt.Errorf("load sale for deletion: %w", err)
 	}
+	paymentStatus := strings.ToLower(strings.TrimSpace(sale.PaymentStatus))
+	if sale.PaidAmount > 0 || paymentStatus == "paid" || paymentStatus == "partial" || paymentStatus == "refunded" {
+		return &DeleteResult{Action: "blocked", Message: "لا يمكن حذف بيع سُجل عليه تحصيل", CanProceed: false,
+			Details: &DeleteDetails{Reason: "يوجد مبلغ مدفوع مسجل على الفاتورة", SuggestedAction: "استخدم مسار عكس التحصيلات قبل حذف البيع"}}, nil
+	}
 
-	for _, table := range []string{"returns", "payment_transactions"} {
+	for _, table := range []string{"returns", "accounting_returns", "payment_transactions"} {
 		exists, tableErr := s.tableExists(ctx, tx, table)
 		if tableErr != nil {
 			return nil, fmt.Errorf("inspect %s dependencies: %w", table, tableErr)
@@ -105,6 +149,21 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 				Action: "blocked", Message: "لا يمكن حذف بيع سُدد جزء من دينه", CanProceed: false,
 				Details: &DeleteDetails{Reason: "تم تسجيل تحصيلات على دين البيع", SuggestedAction: "اعكس التحصيلات المرتبطة أولاً"},
 			}, nil
+		}
+	}
+
+	salePaymentsExist, err := s.tableExists(ctx, tx, "payments")
+	if err != nil {
+		return nil, fmt.Errorf("inspect sale payments: %w", err)
+	}
+	if salePaymentsExist {
+		var paymentCount int
+		if err := tx.GetContext(ctx, &paymentCount, tx.Rebind(`SELECT COUNT(*) FROM payments WHERE sale_id=?`), saleID.String()); err != nil {
+			return nil, fmt.Errorf("check sale payments: %w", err)
+		}
+		if paymentCount > 0 {
+			return &DeleteResult{Action: "blocked", Message: "لا يمكن حذف بيع له دفعات مسجلة", CanProceed: false,
+				Details: &DeleteDetails{Reason: "توجد دفعات مرتبطة بالفاتورة", SuggestedAction: "عالج الدفعات أو اعكسها قبل حذف البيع"}}, nil
 		}
 	}
 

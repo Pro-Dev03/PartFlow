@@ -45,6 +45,9 @@ func main() {
 	}
 
 	logger.Info("Starting PartFlow Worker Service...", nil)
+	if database.TenantIsolationEnabled() {
+		logger.Fatal("Tenant RLS is enabled, but background jobs are not yet executed inside per-tenant scopes", nil, nil)
+	}
 
 	if err := database.Initialize(); err != nil {
 		logger.Fatal("Failed to initialize database", err, nil)

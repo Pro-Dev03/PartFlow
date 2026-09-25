@@ -156,7 +156,7 @@
 
 :root {
   /* Font Families */
-  --font-family-arabic: 'Cairo', 'Tajawal', system-ui, -apple-system, sans-serif;
+  --font-family-arabic: 'Noto Naskh Arabic', Tahoma, system-ui, -apple-system, sans-serif;
   --font-family-latin: 'Inter', system-ui, -apple-system, sans-serif;
   --font-family-base: var(--font-family-arabic);
   --font-family-monospace: ui-monospace, 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace';
@@ -616,7 +616,7 @@
   --shadow-card: var(--card-shadow);
   --shadow-glow: none;
   --shadow-glow-soft: none;
-  --font-family-arabic: 'IBM Plex Sans Arabic', 'Segoe UI', Tahoma, Arial, sans-serif;
+  --font-family-arabic: 'Noto Naskh Arabic', 'Segoe UI', Tahoma, Arial, sans-serif;
   --font-family-base: var(--font-family-arabic);
 }
 

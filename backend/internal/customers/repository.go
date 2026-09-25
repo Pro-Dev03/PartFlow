@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -421,7 +422,22 @@ func (r *Repository) List(ctx context.Context, req *CustomerListRequest) ([]Cust
 
 	// Add pagination
 	paramNum := len(args) + 1
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", paramNum, paramNum+1)
+	sortColumns := map[string]string{
+		"name":            "name",
+		"total_purchases": "total_purchases",
+	}
+	sortColumn := sortColumns[req.SortBy]
+	if sortColumn == "" {
+		sortColumn = "created_at"
+	}
+	if sortColumn == "total_purchases" && !withFinancialSummary {
+		sortColumn = "created_at"
+	}
+	sortDirection := "DESC"
+	if strings.EqualFold(req.SortOrder, "asc") {
+		sortDirection = "ASC"
+	}
+	query += fmt.Sprintf(" ORDER BY %s %s, id ASC LIMIT $%d OFFSET $%d", sortColumn, sortDirection, paramNum, paramNum+1)
 	args = append(args, perPage, offset)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -756,9 +772,10 @@ func (r *Repository) AddPayment(ctx context.Context, payment *PaymentResponse) e
 	return r.RecordPaymentTransaction(ctx, payment, false)
 }
 
-// RecordPaymentTransaction commits the payment, customer ledger, debt allocation,
-// and denormalized customer balance as one operation. strictDebtCoverage is used
-// by explicit debt collection so concurrent collections cannot over-allocate.
+// RecordPaymentTransaction commits the payment, customer ledger, visible debt
+// allocation, and denormalized customer balance as one operation.
+// strictDebtCoverage prevents explicit collection from exceeding the debt rows
+// returned by the debts screen, including when concurrent collections race.
 func (r *Repository) RecordPaymentTransaction(ctx context.Context, payment *PaymentResponse, strictDebtCoverage bool) error {
 	if payment.Amount <= 0 {
 		return ErrPaymentAmountInvalid
@@ -780,22 +797,29 @@ func (r *Repository) RecordPaymentTransaction(ctx context.Context, payment *Paym
 		}
 		return fmt.Errorf("lock customer balance: %w", err)
 	}
-	if payment.Amount > currentBalance+0.000001 {
-		return ErrPaymentExceedsBalance
-	}
-
 	if payment.Reference != nil && strings.TrimSpace(*payment.Reference) != "" {
 		column := "reference_number"
 		if dbutil.IsSQLite(r.db) {
 			column = "reference"
 		}
-		var duplicate bool
-		if err := tx.GetContext(ctx, &duplicate, tx.Rebind(`SELECT EXISTS (SELECT 1 FROM payments WHERE customer_id = ? AND `+column+` = ?)`), payment.CustomerID.String(), strings.TrimSpace(*payment.Reference)); err != nil {
-			return fmt.Errorf("check duplicate customer payment reference: %w", err)
+		var existing struct {
+			Amount float64 `db:"amount"`
+			Method string  `db:"payment_method"`
 		}
-		if duplicate {
+		query := `SELECT amount, COALESCE(payment_method, '') AS payment_method FROM payments WHERE customer_id = ? AND ` + column + ` = ?`
+		err := tx.GetContext(ctx, &existing, tx.Rebind(query), payment.CustomerID.String(), strings.TrimSpace(*payment.Reference))
+		if err == nil {
+			if math.Abs(existing.Amount-payment.Amount) <= 0.000001 && existing.Method == payment.Method {
+				return nil
+			}
 			return ErrPaymentDuplicate
 		}
+		if err != sql.ErrNoRows {
+			return fmt.Errorf("check duplicate customer payment reference: %w", err)
+		}
+	}
+	if payment.Amount > currentBalance+0.000001 {
+		return ErrPaymentExceedsBalance
 	}
 
 	type debtRow struct {
@@ -804,24 +828,10 @@ func (r *Repository) RecordPaymentTransaction(ctx context.Context, payment *Paym
 		Paid   float64 `db:"paid_amount"`
 	}
 	var debts []debtRow
-	usesSalesDebts := dbutil.IsSQLite(r.db) || !strictDebtCoverage
-	debtQuery := `SELECT id, amount, COALESCE(paid_amount, 0) AS paid_amount FROM customer_debts
-		WHERE customer_id = ? AND COALESCE(is_paid, FALSE) = FALSE AND amount > COALESCE(paid_amount, 0)
+	debtQuery := `SELECT id, amount, COALESCE(paid_amount, 0) AS paid_amount FROM debts
+		WHERE customer_id = ? AND COALESCE(status, 'pending') IN ('pending', 'partial', 'overdue')
+		AND amount > COALESCE(paid_amount, 0)
 		ORDER BY due_date, created_at, id`
-	if dbutil.IsSQLite(r.db) {
-		debtQuery = `SELECT id, amount, COALESCE(paid_amount, 0) AS paid_amount FROM debts
-			WHERE customer_id = ? AND COALESCE(status, 'pending') IN ('pending', 'partial', 'overdue')
-			AND amount > COALESCE(paid_amount, 0)
-			ORDER BY due_date, created_at, id`
-	} else if !strictDebtCoverage {
-		// Ordinary account payments have historically been applied to POS sale
-		// debts, which live in `debts`; explicit debt collection uses
-		// `customer_debts` on PostgreSQL.
-		debtQuery = `SELECT id, amount, COALESCE(paid_amount, 0) AS paid_amount FROM debts
-			WHERE customer_id = ? AND COALESCE(status, 'pending') IN ('pending', 'partial', 'overdue')
-			AND amount > COALESCE(paid_amount, 0)
-			ORDER BY due_date, created_at, id`
-	}
 	if !dbutil.IsSQLite(r.db) {
 		debtQuery += ` FOR UPDATE`
 	}
@@ -853,36 +863,19 @@ func (r *Repository) RecordPaymentTransaction(ctx context.Context, payment *Paym
 		}
 		paid := debt.Paid + applied
 		remaining := debt.Amount - paid
-		var update string
-		if usesSalesDebts {
-			status := "partial"
-			if remaining <= 0.000001 {
-				status = "paid"
-				remaining = 0
-				paid = debt.Amount
-			}
-			update = `UPDATE debts SET paid_amount = ?, remaining_amount = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND customer_id = ?`
-			result, err := tx.ExecContext(ctx, tx.Rebind(update), paid, remaining, status, debt.ID, payment.CustomerID.String())
-			if err != nil {
-				return fmt.Errorf("allocate customer payment to debt: %w", err)
-			}
-			if affected, _ := result.RowsAffected(); affected != 1 {
-				return fmt.Errorf("customer debt changed during payment allocation")
-			}
-		} else {
-			isPaid := remaining <= 0.000001
-			if isPaid {
-				remaining = 0
-				paid = debt.Amount
-			}
-			update = `UPDATE customer_debts SET paid_amount = ?, is_paid = ? WHERE id = ? AND customer_id = ?`
-			result, err := tx.ExecContext(ctx, tx.Rebind(update), paid, isPaid, debt.ID, payment.CustomerID.String())
-			if err != nil {
-				return fmt.Errorf("allocate customer payment to debt: %w", err)
-			}
-			if affected, _ := result.RowsAffected(); affected != 1 {
-				return fmt.Errorf("customer debt changed during payment allocation")
-			}
+		status := "partial"
+		if remaining <= 0.000001 {
+			status = "paid"
+			remaining = 0
+			paid = debt.Amount
+		}
+		update := `UPDATE debts SET paid_amount = ?, remaining_amount = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND customer_id = ?`
+		result, err := tx.ExecContext(ctx, tx.Rebind(update), paid, remaining, status, debt.ID, payment.CustomerID.String())
+		if err != nil {
+			return fmt.Errorf("allocate customer payment to debt: %w", err)
+		}
+		if affected, _ := result.RowsAffected(); affected != 1 {
+			return fmt.Errorf("customer debt changed during payment allocation")
 		}
 		remainingPayment -= applied
 	}
@@ -932,22 +925,6 @@ func (r *Repository) ApplyPaymentToOldestDebt(ctx context.Context, customerID uu
 	}
 	_, err := r.db.ExecContext(ctx, `WITH ordered_debts AS (SELECT id FROM debts WHERE customer_id = $1 AND status IN ('pending', 'partial', 'overdue') AND remaining_amount > 0 ORDER BY due_date ASC LIMIT 1) UPDATE debts SET remaining_amount = GREATEST(0, remaining_amount - $2), paid_amount = LEAST(amount, paid_amount + $2), updated_at = NOW(), status = CASE WHEN remaining_amount - $2 <= 0 THEN 'paid' ELSE status END WHERE id = (SELECT id FROM ordered_debts)`, customerID, amount)
 	return err
-}
-
-func (r *Repository) HasPaymentReference(ctx context.Context, customerID uuid.UUID, reference string) (bool, error) {
-	if strings.TrimSpace(reference) == "" {
-		return false, nil
-	}
-	column := "reference_number"
-	if dbutil.IsSQLite(r.db) {
-		column = "reference"
-	}
-	query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM payments WHERE customer_id = $1 AND %s = $2)`, column)
-	var exists bool
-	if err := r.db.GetContext(ctx, &exists, query, customerID, reference); err != nil {
-		return false, fmt.Errorf("failed to check customer payment reference: %w", err)
-	}
-	return exists, nil
 }
 
 // AddLedgerEntry adds a ledger entry

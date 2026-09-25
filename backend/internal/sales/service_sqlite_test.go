@@ -74,6 +74,66 @@ func TestGenerateInvoiceNumberIncludesUniqueSuffix(t *testing.T) {
 	}
 }
 
+func TestListSalesSearchFiltersBeforePagination(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE customers (id TEXT PRIMARY KEY, name TEXT);
+		CREATE TABLE sales (
+			id TEXT PRIMARY KEY, sale_date TEXT, customer_id TEXT, invoice_number TEXT,
+			subtotal REAL DEFAULT 0, tax_amount REAL DEFAULT 0, discount_amount REAL DEFAULT 0, total_amount REAL DEFAULT 0,
+			cost_amount REAL DEFAULT 0, gross_profit REAL DEFAULT 0, net_profit REAL DEFAULT 0, paid_amount REAL DEFAULT 0,
+			payment_method TEXT, payment_status TEXT DEFAULT '', status TEXT DEFAULT '', notes TEXT,
+			created_at TEXT, updated_at TEXT
+		);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	customerID := uuid.New()
+	otherCustomerID := uuid.New()
+	if _, err = db.Exec(`INSERT INTO customers (id, name) VALUES ($1, 'Target'), ($2, 'Other')`, customerID, otherCustomerID); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, sale := range []struct {
+		invoice  string
+		customer uuid.UUID
+	}{
+		{invoice: "INV-AB-001", customer: customerID},
+		{invoice: "INV-AB-002", customer: customerID},
+		{invoice: "INV-XYZ-003", customer: customerID},
+		{invoice: "INV-AB-004", customer: otherCustomerID},
+	} {
+		if _, err := db.Exec(`INSERT INTO sales (id, sale_date, customer_id, invoice_number, created_at, updated_at) VALUES ($1, $2, $3, $4, $2, $2)`, uuid.New(), now, sale.customer, sale.invoice); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	repo := NewRepository(db)
+	rows, total, err := repo.ListSales(context.Background(), 1, 1, map[string]interface{}{
+		"customer_id": customerID,
+		"search":      "ab-00",
+	})
+	if err != nil {
+		t.Fatalf("ListSales() error = %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("total = %d, want 2 matching invoices for selected customer", total)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want one paginated result", len(rows))
+	}
+	if !strings.Contains(strings.ToLower(rows[0].InvoiceNumber), "ab-00") {
+		t.Fatalf("invoice = %q, want search match", rows[0].InvoiceNumber)
+	}
+}
+
 func TestGetSaleItemsIncludesProductName(t *testing.T) {
 	db, err := sqlx.Open("sqlite", ":memory:")
 	if err != nil {

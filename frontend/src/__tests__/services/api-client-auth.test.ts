@@ -30,7 +30,8 @@ describe('apiClient auth propagation', () => {
     expect(TokenManager.getRefreshToken()).toBeNull();
   });
 
-  it('adds both local Authorization and cloud token headers to protected requests', async () => {
+  it('sends business requests to the cloud using the cloud bearer token', async () => {
+    localStorage.setItem('partflow-connection-mode', 'local');
     TokenManager.setToken('local-token');
     TokenManager.setCloudToken('cloud-token');
     apiClient.setToken('local-token');
@@ -51,8 +52,70 @@ describe('apiClient auth propagation', () => {
         method: 'GET',
         credentials: 'include',
         headers: expect.objectContaining({
-          Authorization: 'Bearer local-token',
+          Authorization: 'Bearer cloud-token',
           'X-PartFlow-Cloud-Token': 'cloud-token',
+        }),
+      })
+    );
+    expect(fetchSpy.mock.calls[0][0]).toContain('partflow-api.onrender.com');
+  });
+
+  it('keeps device database maintenance on the local API in local mode', async () => {
+    localStorage.setItem('partflow-connection-mode', 'local');
+    TokenManager.setToken('local-token');
+    apiClient.setToken('local-token');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { deleted: true } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await apiClient.delete('/settings/database', { target: 'offline' });
+
+    expect(fetchSpy.mock.calls[0][0]).toBe('http://localhost:8080/api/v1/settings/database?target=offline');
+  });
+
+  it('never routes local SQLite maintenance to Render in cloud mode', async () => {
+    localStorage.setItem('partflow-connection-mode', 'cloud');
+    TokenManager.setToken('local-token');
+    TokenManager.setCloudToken('cloud-token');
+    apiClient.setToken('local-token');
+    apiClient.setCloudToken('cloud-token');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { deleted: true } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    await apiClient.delete('/settings/database', { target: 'offline' });
+
+    expect(fetchSpy.mock.calls[0][0]).toContain('http://localhost:8080/api/v1/settings/database');
+    expect(fetchSpy.mock.calls[0][0]).not.toContain('partflow-api.onrender.com');
+  });
+
+  it('downloads CSV through the shared authenticated client', async () => {
+    TokenManager.setToken('local-token');
+    TokenManager.setCloudToken('cloud-token');
+    apiClient.setToken('local-token');
+    apiClient.setCloudToken('cloud-token');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('id,action\n1,create', { status: 200, headers: { 'Content-Type': 'text/csv' } })
+    );
+
+    const exported = await apiClient.getBlob('/audit/export');
+
+    expect(await exported.text()).toBe('id,action\n1,create');
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining('/audit/export'),
+      expect.objectContaining({
+        method: 'GET',
+        credentials: 'include',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer cloud-token',
+          'X-PartFlow-Cloud-Token': 'cloud-token',
+          accept: 'text/csv',
         }),
       })
     );
@@ -70,6 +133,21 @@ describe('apiClient auth propagation', () => {
     await expect(apiClient.post('/payments', { amount: 125 })).rejects.toMatchObject({ status: 503 });
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates the local desktop session when the cloud business API cannot be reached', async () => {
+    localStorage.setItem('partflow-connection-mode', 'local');
+    TokenManager.setToken('local-token');
+    TokenManager.setCloudToken('cloud-token');
+    apiClient.setToken('local-token');
+    apiClient.setCloudToken('cloud-token');
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const pending = vi.fn();
+    window.addEventListener('partflow:cloud-verification-pending', pending);
+    await expect(apiClient.post('/sales', { items: [] })).rejects.toThrow();
+    expect(pending).toHaveBeenCalledTimes(1);
+    window.removeEventListener('partflow:cloud-verification-pending', pending);
   });
 
   it('keeps the session credentials when a 401 cannot be refreshed', async () => {
@@ -102,7 +180,9 @@ describe('apiClient auth propagation', () => {
 
   it('retries refresh after a temporary refresh endpoint failure', async () => {
     TokenManager.setToken('expired-local-token');
+    TokenManager.setCloudToken('expired-cloud-token');
     apiClient.setToken('expired-local-token');
+    apiClient.setCloudToken('expired-cloud-token');
     const unauthorized = () => new Response(JSON.stringify({ code: 'INVALID_TOKEN', error: 'invalid token' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
@@ -111,7 +191,7 @@ describe('apiClient auth propagation', () => {
       .mockResolvedValueOnce(unauthorized())
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'temporary failure' }), { status: 503 }))
       .mockResolvedValueOnce(unauthorized())
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { access_token: 'fresh-local-token' } }), {
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { access_token: 'fresh-cloud-token' } }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }))
@@ -123,7 +203,7 @@ describe('apiClient auth propagation', () => {
     await expect(apiClient.get('/products', undefined, false)).rejects.toMatchObject({ code: 'AUTH_REFRESH_PENDING' });
     await expect(apiClient.get('/products', undefined, false)).resolves.toMatchObject({ data: { ok: true } });
     expect(fetchSpy).toHaveBeenCalledTimes(5);
-    expect(TokenManager.getToken()).toBe('fresh-local-token');
+    expect(TokenManager.getCloudToken()).toBe('fresh-cloud-token');
   });
 
   it('does not log an expected unknown-barcode lookup as a server error', async () => {
@@ -162,7 +242,7 @@ describe('apiClient auth propagation', () => {
       expect.stringContaining('/auth/admin-check'),
       expect.objectContaining({
         headers: expect.objectContaining({
-          Authorization: 'Bearer local-token',
+          Authorization: 'Bearer cloud-token',
           'X-PartFlow-Cloud-Token': 'cloud-token',
         }),
       })

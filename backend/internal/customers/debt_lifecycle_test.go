@@ -100,8 +100,13 @@ func TestCustomerDebtLifecyclePaymentAndReturnCreditSQLite(t *testing.T) {
 	assertCustomerDebtBalance(t, db, customerID, 125)
 	assertDebtRemaining(t, db, debtID, 125)
 
-	if err := service.ProcessDebtPaymentWithReference(ctx, customerID, 75, "cash", &partialReference); err != ErrPaymentDuplicate {
-		t.Fatalf("duplicate payment error = %v, want ErrPaymentDuplicate", err)
+	if err := service.ProcessDebtPaymentWithReference(ctx, customerID, 75, "cash", &partialReference); err != nil {
+		t.Fatalf("idempotent payment retry: %v", err)
+	}
+	assertCustomerDebtBalance(t, db, customerID, 125)
+	assertDebtRemaining(t, db, debtID, 125)
+	if err := service.ProcessDebtPaymentWithReference(ctx, customerID, 50, "cash", &partialReference); err != ErrPaymentDuplicate {
+		t.Fatalf("reused reference with different amount error = %v, want ErrPaymentDuplicate", err)
 	}
 	assertCustomerDebtBalance(t, db, customerID, 125)
 	assertDebtRemaining(t, db, debtID, 125)

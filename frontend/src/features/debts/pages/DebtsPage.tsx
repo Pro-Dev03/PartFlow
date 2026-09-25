@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation as useTranslationHook } from '../../../hooks/useTranslation';
 import { Button } from '../../../design-system/components/button';
@@ -44,12 +44,14 @@ export function DebtsPage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'bank_transfer' | 'check'>('cash');
+  const [paymentReference, setPaymentReference] = useState('');
   const [selectedDebt, setSelectedDebt] = useState<any>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [lastPayment, setLastPayment] = useState<any>(null);
   const [debtTab, setDebtTab] = useState<'open' | 'paid' | 'all'>('open');
+  const customerIdFromRoute = new URLSearchParams(location.search).get('customer_id') || undefined;
 
   // Custom hook
   const {
@@ -64,18 +66,16 @@ export function DebtsPage() {
     pageSize,
     total,
     setPage,
-  } = useDebts();
+    isError,
+    refetch,
+  } = useDebts(debtTab, customerIdFromRoute);
 
-  const displayedDebts = filteredDebts.filter((debt: any) => {
-    const isPaid = Number(debt.remainingAmount ?? debt.remaining_amount ?? 0) <= 0 || debt.status === 'paid';
-    return debtTab === 'all' || (debtTab === 'paid' ? isPaid : !isPaid);
-  });
+  const displayedDebts = filteredDebts;
 
   // Get current language for receipt
   const { currentLanguage } = useTranslationHook();
 
   const handleRecordPayment = (customerId: string, customerName: string) => {
-    console.log('handleRecordPayment called', { customerId, customerName });
     const customerDebt = debts.find((debt: any) => debt.customer?.id === customerId);
     setSelectedCustomer({
       id: customerId,
@@ -84,6 +84,7 @@ export function DebtsPage() {
     });
     setPaymentAmount('');
     setPaymentMethod('cash');
+    setPaymentReference(crypto.randomUUID());
     setPaymentModalOpen(true);
   };
 
@@ -99,7 +100,6 @@ export function DebtsPage() {
   }, [debts, isLoading, location.search, navigate, paymentModalOpen]);
 
   const handlePaymentSubmit = () => {
-    console.log('handlePaymentSubmit called', { paymentAmount, selectedCustomer, paymentMethod });
     if (paymentAmount && !isNaN(parseFloat(paymentAmount))) {
       const paymentAmountNum = parseFloat(paymentAmount);
       
@@ -115,6 +115,7 @@ export function DebtsPage() {
         customerId: selectedCustomer.id,
         amount: paymentAmountNum,
         method: paymentMethod,
+        reference: paymentReference,
       };
       
       recordPaymentMutation.mutate(paymentData, {
@@ -130,22 +131,21 @@ export function DebtsPage() {
           });
           setSuccessModalOpen(true);
           setPaymentModalOpen(false);
+          setPaymentReference('');
         },
+        onError: () => toast.error('تعذر تسجيل الدفعة. بقي النموذج مفتوحًا؛ أعد المحاولة دون إعادة إدخال البيانات.'),
       });
     }
   };
 
-  const handleSearchAdvanced = (query: string, filters: SearchFilters) => {
+  const handleSearchAdvanced = useCallback((query: string, filters: SearchFilters) => {
     setSearchQuery(query);
     setSearchFilters(filters);
-  };
+  }, [setSearchFilters, setSearchQuery]);
 
   const handleViewDebt = (debt: Debt) => {
-    console.log('handleViewDebt called', debt);
     setSelectedDebt(debt);
-    console.log('Setting isViewModalOpen to true');
     setIsViewModalOpen(true);
-    console.log('isViewModalOpen after set:', true);
   };
 
   const handlePrintReceipt = () => {
@@ -226,7 +226,7 @@ export function DebtsPage() {
 
       {/* Stats Cards + Advanced Search - side by side on desktop */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px', marginBottom: '12px', alignItems: 'start' }}>
-        <DebtStats stats={stats} />
+        {!isLoading && !isError && <DebtStats stats={stats} />}
         <AdvancedSearch
           onSearch={handleSearchAdvanced}
           customers={debts.map(debt => debt.customer).filter(Boolean)}
@@ -242,7 +242,7 @@ export function DebtsPage() {
             </span>
             <div>
               <h3 className="text-sm font-extrabold text-[var(--text-primary)]">قائمة الديون</h3>
-                    <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">{debtTab === 'open' ? 'الديون المفتوحة والمتأخرة' : debtTab === 'paid' ? 'الديون المسددة' : 'كل سجلات الديون'} · {displayedDebts.length} سجل</p>
+              <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">{debtTab === 'open' ? 'الديون المفتوحة والمتأخرة' : debtTab === 'paid' ? 'الديون المسددة' : 'كل سجلات الديون'} · {total} سجل</p>
             </div>
           </div>
                 <div className="flex flex-wrap gap-2" role="tablist" aria-label="تصفية الديون">
@@ -270,6 +270,12 @@ export function DebtsPage() {
         {isLoading ? (
           <div className="flex h-64 items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        ) : isError ? (
+          <div className="flex flex-col items-center gap-3 px-4 py-12 text-center" role="alert">
+            <AlertTriangle className="h-9 w-9 text-red-600" />
+            <p className="text-sm text-text-secondary">تعذر تحميل الديون. تحقق من الاتصال ثم أعد المحاولة.</p>
+            <Button type="button" variant="secondary" onClick={() => { void refetch(); }}>إعادة المحاولة</Button>
           </div>
         ) : displayedDebts.length === 0 ? (
           <div className="px-4 py-12 text-center">
@@ -493,6 +499,8 @@ export function DebtsPage() {
               <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>تسجيل دفعة</h3>
               <button 
                 onClick={() => setPaymentModalOpen(false)}
+                disabled={recordPaymentMutation.isPending}
+                aria-label="إغلاق نافذة الدفع"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '24px', color: 'var(--text-secondary)' }}
               >
                 ×
@@ -517,6 +525,7 @@ export function DebtsPage() {
                   placeholder="أدخل المبلغ..."
                   value={paymentAmount}
                   onChange={(e) => setPaymentAmount(e.target.value)}
+                  disabled={recordPaymentMutation.isPending}
                   autoFocus
                 />
               </div>
@@ -543,7 +552,8 @@ export function DebtsPage() {
                 </label>
                 <select
                   value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}
+                  disabled={recordPaymentMutation.isPending}
                   style={{
                     width: '100%',
                     padding: '8px 12px',
@@ -565,6 +575,7 @@ export function DebtsPage() {
                   variant="secondary"
                   size={getButtonSize('debts', 'modalAction')}
                   onClick={() => setPaymentModalOpen(false)}
+                  disabled={recordPaymentMutation.isPending}
                 >
                   إلغاء
                 </Button>

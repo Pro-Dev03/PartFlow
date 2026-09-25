@@ -183,7 +183,7 @@ export function SuppliersPage() {
   };
 
   return (
-    <div>
+    <div data-next-disabled>
       {/* Page Header */}
       <PageHeader
         title={t('suppliers.title')}

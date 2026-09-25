@@ -24,6 +24,7 @@ interface CustomerModalsProps {
   selectedCustomer: Customer | null;
   setSelectedCustomer: (customer: Customer | null) => void;
   onSubmit: (data: CustomerFormData) => void;
+  isSubmitting: boolean;
 }
 
 export function CustomerModals({
@@ -35,6 +36,7 @@ export function CustomerModals({
   setEditingCustomer,
   selectedCustomer,
   onSubmit,
+  isSubmitting,
 }: CustomerModalsProps) {
   const navigate = useNavigate();
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
@@ -216,6 +218,7 @@ export function CustomerModals({
         <CustomerForm
           initialData={editingCustomer}
           onSubmit={onSubmit}
+          isSubmitting={isSubmitting}
           onCancel={() => {
             setIsModalOpen(false);
             setEditingCustomer(null);

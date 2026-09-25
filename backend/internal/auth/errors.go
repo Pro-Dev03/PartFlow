@@ -19,7 +19,8 @@ var (
 	ErrTokenExpired = errors.New("token expired")
 
 	// ErrInvalidPassword is returned when password is invalid
-	ErrInvalidPassword = errors.New("invalid password")
+	ErrInvalidPassword  = errors.New("invalid password")
+	ErrPasswordTooShort = errors.New("password must be at least 8 characters")
 
 	// ErrInactiveUser is returned when user is inactive
 	ErrInactiveUser = errors.New("user is inactive")

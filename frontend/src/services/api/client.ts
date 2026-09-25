@@ -1,5 +1,5 @@
 import { getArabicErrorMessage, isNetworkError, isRetryableError } from '../../lib/error-messages';
-import { appConfig, getActiveApiUrl, getCloudApiUrl, getConnectionMode, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
+import { appConfig, getBusinessApiUrl, getCloudApiUrl, getConnectionMode, getLocalApiUrl } from '../../lib/config/app';
 import { TokenManager } from '../../lib/token-manager';
 
 const API_BASE_URL = appConfig.apiUrl;
@@ -102,14 +102,15 @@ class ApiClient {
     }));
   }
 
-  private getBaseURL(): string {
-    const nextBaseUrl = getActiveApiUrl() || this.baseURL;
+  private getBaseURL(endpoint = ''): string {
+    const isDeviceDatabaseOperation = endpoint.split('?')[0].startsWith('/settings/database');
+    const nextBaseUrl = isDeviceDatabaseOperation ? getLocalApiUrl() : getBusinessApiUrl();
     this.baseURL = nextBaseUrl;
     return nextBaseUrl;
   }
 
   private getCacheKey(endpoint: string, options: RequestInit): string {
-    return `${this.getBaseURL()}:${endpoint}:${JSON.stringify(options)}`;
+    return `${this.getBaseURL(endpoint)}:${endpoint}:${JSON.stringify(options)}`;
   }
 
   private getFromCache<T>(key: string): ApiResponse<T> | null {
@@ -146,7 +147,7 @@ class ApiClient {
    * burst can send one refresh request per endpoint and invalidate the same
    * refresh token repeatedly.
    */
-  private async refreshAccessToken(): Promise<string | null> {
+  private async refreshAccessToken(baseUrl = getBusinessApiUrl()): Promise<string | null> {
     if (this.refreshFailedForSession) {
       return null;
     }
@@ -156,10 +157,6 @@ class ApiClient {
     }
 
     const refreshPromise = (async () => {
-      const baseUrl = typeof window !== 'undefined' && shouldUseLocalApi(window.location.hostname)
-        ? getLocalApiUrl()
-        : getCloudApiUrl();
-
       const refreshResponse = await fetch(`${baseUrl}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
@@ -244,10 +241,11 @@ class ApiClient {
   private async requestWithRetry<T>(
     endpoint: string,
     options: RequestInit = {},
-    retryCount: number = 0
+    retryCount: number = 0,
+    responseType: 'json' | 'blob' = 'json'
   ): Promise<ApiResponse<T>> {
     try {
-      return await this.request<T>(endpoint, options);
+      return await this.request<T>(endpoint, options, responseType);
     } catch (error: any) {
       // Don't retry abort errors or timeout errors
       if (error.name === 'AbortError' || error.message?.includes('timeout')) {
@@ -287,7 +285,7 @@ class ApiClient {
       if (isReadOnlyRequest && isRetryableError(error) && retryCount < MAX_RETRIES) {
         console.log(`Retrying request (${retryCount + 1}/${MAX_RETRIES})...`);
         await this.sleep(RETRY_DELAY * (retryCount + 1)); // Exponential backoff
-        return this.requestWithRetry<T>(endpoint, options, retryCount + 1);
+        return this.requestWithRetry<T>(endpoint, options, retryCount + 1, responseType);
       }
       throw error;
     }
@@ -298,7 +296,11 @@ class ApiClient {
    * وإلا يعيد خطأً يحمل نص الاستجابة الخام (مثل "404 page not found"
    * التي تُرجعها gin افتراضياً) بدل إطلاق SyntaxError.
    */
-  private async parseResponse<T>(response: Response): Promise<ApiResponse<T>> {
+  private async parseResponse<T>(response: Response, responseType: 'json' | 'blob' = 'json'): Promise<ApiResponse<T>> {
+    if (response.ok && responseType === 'blob') {
+      return { success: true, data: await response.blob() as T };
+    }
+
     if (typeof response.text === 'function') {
       const text = await response.text();
       if (!text) {
@@ -324,12 +326,15 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    responseType: 'json' | 'blob' = 'json'
   ): Promise<ApiResponse<T>> {
     this.syncSessionFromStorage();
 
-    const baseURL = this.getBaseURL();
+    const baseURL = this.getBaseURL(endpoint);
     const url = `${baseURL}${endpoint}`;
+    const isCloudRequest = baseURL.replace(/\/+$/, '') === getCloudApiUrl().replace(/\/+$/, '');
+    const isDeviceDatabaseOperation = endpoint.split('?')[0].startsWith('/settings/database');
     const authHeader = TokenManager.getToken();
 
     if (authHeader && !this.token) {
@@ -345,14 +350,14 @@ class ApiClient {
       headers[key] = value;
     });
 
-    if (this.token) {
+    const cloudToken = this.getCloudAccessToken();
+    if (this.token && !isCloudRequest) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const cloudToken = this.getCloudAccessToken();
     if (cloudToken) {
       headers['X-PartFlow-Cloud-Token'] = cloudToken;
-      if (getConnectionMode() === 'cloud' || (options.method === 'POST' && endpoint.startsWith('/settings/sync'))) {
+      if (isCloudRequest) {
         headers['Authorization'] = `Bearer ${cloudToken}`;
       }
     }
@@ -362,6 +367,10 @@ class ApiClient {
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
     try {
+      if (isDeviceDatabaseOperation && !isCloudRequest && !this.token && cloudToken) {
+        await this.createLocalSessionFromCloud();
+        if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+      }
       const response = await fetch(url, {
         ...options,
         headers,
@@ -371,21 +380,20 @@ class ApiClient {
 
       clearTimeout(timeoutId);
 
-      const data: ApiResponse<T> = await this.parseResponse<T>(response);
+      const data: ApiResponse<T> = await this.parseResponse<T>(response, responseType);
 
       if (!response.ok) {
-        // Local JWT 401s refresh against the local API; when the local backend
-        // also validates the cloud session before accepting the request, the
-        // stale cloud token must be refreshed and re-attached before retrying.
+        // Cloud business requests refresh only the cloud credential. Local
+        // refresh is reserved for device database maintenance endpoints.
         if (response.status === 401 && (this.token || this.getCloudAccessToken())) {
           try {
             let newToken: string | null = null;
-            let refreshAttempted = false;
+            let refreshAttempted = isCloudRequest;
             const cloudTokenBeforeRefresh = this.getCloudAccessToken();
 
-            if (this.token) {
+            if (this.token && !isCloudRequest) {
               refreshAttempted = true;
-              newToken = await this.refreshAccessToken().catch(async refreshError => {
+              newToken = await this.refreshAccessToken(baseURL).catch(async refreshError => {
                 if (refreshError?.status === 401 && this.getCloudAccessToken() && getConnectionMode() === 'local') {
                   return this.createLocalSessionFromCloud();
                 }
@@ -399,6 +407,7 @@ class ApiClient {
 
             let refreshedCloudToken: string | null = null;
             if (cloudTokenBeforeRefresh) {
+              if (isCloudRequest) refreshAttempted = true;
               refreshedCloudToken = await this.refreshCloudAccessToken();
               if (refreshedCloudToken) {
                 headers['X-PartFlow-Cloud-Token'] = refreshedCloudToken;
@@ -407,13 +416,19 @@ class ApiClient {
                 // secret even when the cloud session refresh succeeds. Rebuild
                 // the local session from the fresh cloud token so local
                 // middleware and the retried request use the same issuer.
-                if (getConnectionMode() === 'local') {
+                if (getConnectionMode() === 'local' && !isCloudRequest) {
                   const localSessionToken = await this.createLocalSessionFromCloud();
                   if (localSessionToken) {
                     newToken = localSessionToken;
                     this.setToken(localSessionToken);
                     headers['Authorization'] = `Bearer ${localSessionToken}`;
                   }
+                } else if (getConnectionMode() === 'local' && isCloudRequest) {
+                  // Keep the local token for device sync; cloud business
+                  // requests use the refreshed cloud token directly.
+                  newToken = refreshedCloudToken;
+                  this.setCloudToken(refreshedCloudToken);
+                  headers['Authorization'] = `Bearer ${refreshedCloudToken}`;
                 } else {
                   newToken = refreshedCloudToken;
                   this.setToken(refreshedCloudToken);
@@ -443,7 +458,7 @@ class ApiClient {
                 headers,
                 credentials: 'include',
               });
-              const retryData: ApiResponse<T> = await this.parseResponse<T>(retryResponse);
+              const retryData: ApiResponse<T> = await this.parseResponse<T>(retryResponse, responseType);
 
               if (!retryResponse.ok) {
                 const error: any = new Error(typeof retryData.error === 'string' ? retryData.error : retryData.error?.message || 'An error occurred');
@@ -506,6 +521,9 @@ class ApiClient {
         error.status = response.status;
         error.code = data.error?.code || (data as any).code;
         error.response = data;
+		if (error.code === 'CLOUD_CONNECTION_REQUIRED') {
+		  this.notifyAuthInvalidated('Cloud connection is required', true, error.code);
+		}
 
         // A 403 is not always a subscription expiry (for example, the
         // administrator-only settings routes intentionally return
@@ -549,6 +567,9 @@ class ApiClient {
       }
       if (error?.code === 'AUTH_REFRESH_PENDING') {
         this.notifyCloudVerificationPending('Cloud session refresh is temporarily unavailable');
+      }
+      if (isNetworkError(error) && getConnectionMode() === 'local') {
+        this.notifyCloudVerificationPending('Cloud business API is unreachable');
       }
       if (error?.code === 'OFFLINE_GRACE_EXPIRED' || error?.code === 'CLOUD_AUTH_REQUIRED') {
         this.notifyCloudVerificationPending('Cloud authorization is unavailable or the offline grace period has ended');
@@ -629,9 +650,8 @@ class ApiClient {
   }
 
   private async ensureMutationAllowed(endpoint: string): Promise<void> {
-    // Every protected API request is checked by the backend. The local API
-    // applies the signed, bounded offline grant when the cloud is unreachable;
-    // a frontend preflight would reject those valid grace-period requests.
+    // Every business request goes to the cloud API, which checks both the
+    // subscription and tenant membership on the server.
     void endpoint;
   }
 
@@ -666,6 +686,15 @@ class ApiClient {
     }
     
     return result;
+  }
+
+  async getBlob(endpoint: string): Promise<Blob> {
+    const response = await this.requestWithRetry<Blob>(endpoint, {
+      method: 'GET',
+      headers: { Accept: 'text/csv' },
+      cache: 'no-store',
+    }, 0, 'blob');
+    return response.data;
   }
 
   async post<T = any>(endpoint: string, body: any, idempotencyKey?: string): Promise<ApiResponse<T>> {

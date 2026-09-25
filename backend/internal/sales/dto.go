@@ -48,6 +48,7 @@ type SalesListRequest struct {
 	PerPage    int    `form:"per_page" binding:"min=1,max=100"`
 	Status     string `form:"status"`
 	CustomerID string `form:"customer_id"`
+	Search     string `form:"search"`
 	StartDate  string `form:"start_date"`
 	EndDate    string `form:"end_date"`
 }

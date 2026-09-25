@@ -4,7 +4,6 @@ import { toast } from 'sonner';
 import { Button } from '../../../design-system/components/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
 import { settingsApi } from '../../../services/api/endpoints';
-import { getConnectionMode } from '../../../lib/config/app';
 
 type UploadOperation = {
   id: string;
@@ -40,9 +39,8 @@ const entityLabels: Record<string, string> = {
   debts: 'ديون',
 };
 
-export function SubscriberSyncSettings() {
+export function SubscriberSyncSettings({ canUpload = false }: { canUpload?: boolean }) {
   const queryClient = useQueryClient();
-  const connectionMode = getConnectionMode();
   const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
 
   const downloadMutation = useMutation({
@@ -70,10 +68,13 @@ export function SubscriberSyncSettings() {
     },
   });
 
-  const uploadResult = uploadMutation.data as { data?: UploadResult } | undefined;
-  const uploadSummary = uploadResult?.data;
-
+  const uploadSummary = canUpload
+    ? (uploadMutation.data as { data?: UploadResult } | undefined)?.data
+    : undefined;
   const isBusy = downloadMutation.isPending || uploadMutation.isPending;
+
+  // Cloud-hosted browsers have no device SQLite service to synchronize.
+  if (typeof window === 'undefined' || !window.partflowDesktop) return null;
 
   return (
     <Card className="border-sky-200 bg-sky-50/50">
@@ -85,15 +86,14 @@ export function SubscriberSyncSettings() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm leading-6 text-slate-600">
-          احتفظ بنسخة محلية للعمل السريع، وحدثها من السحابة أو ارفع التغييرات المحلية عند توفر الإنترنت.
-          يتم التحقق من الاشتراك قبل تنفيذ أي مزامنة.
+          عمليات البيع والمخزون تُنفَّذ على الخادم السحابي فقط. يمكن تنزيل نسخة إلى SQLite على هذا الجهاز، لكن لا تُرفع التغييرات المحلية كعمليات تجارية.
         </p>
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-sky-200 bg-white p-3">
           <div>
             <div className="text-xs text-slate-500">مصدر البيانات الحالي</div>
             <div className="mt-1 text-sm font-semibold text-slate-800">
-              {connectionMode === 'cloud' ? 'السحابة مباشرة' : 'SQLite المحلية'}
+              مصدر العمليات هو الخادم السحابي
             </div>
           </div>
           {isOffline ? (
@@ -106,7 +106,7 @@ export function SubscriberSyncSettings() {
           )}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className={`grid gap-3 ${canUpload ? 'sm:grid-cols-2' : 'sm:grid-cols-1'}`}>
           <Button
             variant="secondary"
             className="min-h-11 justify-center gap-2"
@@ -116,15 +116,17 @@ export function SubscriberSyncSettings() {
             <Download className="h-4 w-4" />
             {downloadMutation.isPending ? 'جارٍ تنزيل البيانات...' : 'تنزيل البيانات'}
           </Button>
-          <Button
-            variant="secondary"
-            className="min-h-11 justify-center gap-2"
-            onClick={() => uploadMutation.mutate()}
-            disabled={isBusy || isOffline}
-          >
-            <Upload className="h-4 w-4" />
-            {uploadMutation.isPending ? 'جارٍ رفع البيانات...' : 'رفع البيانات'}
-          </Button>
+          {canUpload && (
+            <Button
+              variant="secondary"
+              className="min-h-11 justify-center gap-2"
+              onClick={() => uploadMutation.mutate()}
+              disabled={isBusy || isOffline}
+            >
+              <Upload className="h-4 w-4" />
+              {uploadMutation.isPending ? 'جارٍ رفع البيانات...' : 'رفع البيانات'}
+            </Button>
+          )}
         </div>
 
         {uploadSummary && (

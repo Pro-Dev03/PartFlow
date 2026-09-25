@@ -10,6 +10,7 @@ import type {
   CustomerCreateRequest,
   CustomerUpdateRequest,
   CustomerListParams,
+  PaginationParams,
   SupplierCreateRequest,
   SupplierUpdateRequest,
   InventoryCreateRequest,
@@ -17,7 +18,7 @@ import type {
   InventoryUpdateRequest,
   InventoryListParams,
   SaleCreateRequest,
-  DebtPayment,
+  CustomerDebtPaymentRequest,
   PaymentCreateRequest,
   PurchaseCreateRequest,
   ExpenseCreateRequest,
@@ -46,7 +47,7 @@ export const authApi = {
     if (!response.ok) {
       const error: any = new Error(payload?.error?.message || payload?.error || 'تعذر تسجيل الدخول.');
       error.status = response.status;
-      error.code = payload?.code || payload?.error?.code || (response.status === 403 ? 'SUBSCRIPTION_EXPIRED' : undefined);
+      error.code = payload?.code || payload?.error?.code || (response.status === 403 ? 'PERMISSION_DENIED' : undefined);
       error.response = payload;
       throw error;
     }
@@ -342,10 +343,20 @@ export const customersApi = {
 
 // Debts endpoints - Note: Debts are managed under customers in the backend
 export const debtsApi = {
-  list: (params?: PaginationParams) => 
+  list: (params?: PaginationParams & {
+    customer_id?: string;
+    search?: string;
+    search_type?: 'all' | 'name' | 'code' | 'phone' | 'amount';
+    status?: 'paid' | 'overdue' | 'partial';
+    tab?: 'open' | 'paid' | 'all';
+    min_amount?: number;
+    max_amount?: number;
+    due_date_from?: string;
+    due_date_to?: string;
+  }) =>
     apiClient.get('/debts', params, false),
   get: (customerId: string, debtId: string) => apiClient.get(`/customers/${customerId}/debts/${debtId}`),
-  recordPayment: (customerId: string, data: DebtPayment) => apiClient.post(`/customers/${customerId}/debt-payments`, data),
+  recordPayment: (customerId: string, data: CustomerDebtPaymentRequest) => apiClient.post(`/customers/${customerId}/debt-payments`, data),
   getDebtEntries: (customerId: string) => apiClient.get(`/customers/${customerId}/debts`),
   getDebtCollections: (customerId: string) => apiClient.get(`/customers/${customerId}/debt-collections`),
   getPendingCollections: () => apiClient.get('/debt-collections/pending'),
@@ -388,7 +399,7 @@ export const purchasesApi = {
 
 // Expenses endpoints
 export const expensesApi = {
-  list: (params?: PaginationParams & { search?: string }) => 
+  list: (params?: PaginationParams & { search?: string; category_id?: string; start_date?: string; end_date?: string }) =>
     apiClient.get('/expenses', params, false),
   get: (id: string) => apiClient.get(`/expenses/${id}`),
   create: (data: ExpenseCreateRequest) => apiClient.post('/expenses', data),
@@ -481,7 +492,6 @@ const localSyncRequest = async <T>(endpoint: string, options: RequestInit = {}) 
       'Content-Type': 'application/json',
       Authorization: `Bearer ${localToken}`,
       'X-PartFlow-Cloud-Token': cloudToken,
-      'X-PartFlow-Cloud-API-URL': getCloudApiUrl(),
       ...(options.headers ?? {}),
     },
   });
@@ -535,8 +545,12 @@ export const settingsApi = {
   listPaymentProviders: () => apiClient.get('/payment-providers'),
   // The desktop application owns the operational SQLite database. Never expose
   // a client-side option that can target the cloud database for deletion.
-  deleteAllData: (confirmation: string) =>
-    apiClient.delete('/settings/database', { confirmation_token: confirmation, target: 'offline' }),
+  deleteAllData: (confirmation: string) => {
+    if (typeof window === 'undefined' || !window.partflowDesktop) {
+      throw new Error('Local SQLite cleanup is available only in the desktop application.');
+    }
+    return apiClient.delete('/settings/database', { confirmation_token: confirmation, target: 'offline' });
+  },
   deleteCloudData: async (confirmation: string) => {
     const cloudToken = TokenManager.getCloudToken();
     if (!cloudToken) throw new Error('No active cloud session');
@@ -666,10 +680,10 @@ export const returnsApi = {
   create: (data: any) => apiClient.post('/returns', data),
   update: (id: string, data: any) => apiClient.put(`/returns/${id}`, data),
   delete: (id: string) => apiClient.delete(`/returns/${id}`),
-  approve: (id: string) => apiClient.post(`/returns/${id}/approve`),
-  reject: (id: string) => apiClient.post(`/returns/${id}/reject`),
-  processRefund: (id: string) => apiClient.post(`/returns/${id}/refund`),
-  complete: (id: string) => apiClient.post(`/returns/${id}/complete`),
+  approve: (id: string) => apiClient.post(`/returns/${id}/approve`, {}),
+  reject: (id: string) => apiClient.post(`/returns/${id}/reject`, {}),
+  processRefund: (id: string) => apiClient.post(`/returns/${id}/refund`, {}),
+  complete: (id: string) => apiClient.post(`/returns/${id}/complete`, {}),
   getBySale: (saleId: string) => apiClient.get(`/returns/sale/${saleId}`),
   getByCustomer: (customerId: string) => apiClient.get(`/returns/customer/${customerId}`),
   getPending: () => apiClient.get('/returns/pending'),
@@ -682,18 +696,18 @@ export const returnsApi = {
   validateQuantity: (saleItemId: string, quantity: number) => 
     apiClient.get(`/returns/validate/${saleItemId}`, { quantity }),
   getSummary: () => apiClient.get('/returns/summary'),
-  reverse: (id: string) => apiClient.post(`/returns/${id}/reverse`),
+  reverse: (id: string) => apiClient.post(`/returns/${id}/reverse`, {}),
 };
 
 export const supplierReturnsApi = {
   list: (status?: string) => apiClient.get('/supplier-returns', status ? { status } : undefined),
-  create: (data: { purchase_id: string; reason: string; notes?: string }) =>
+  create: (data: { purchase_id: string; reason: string; notes?: string; purchase_item_id?: string; quantity?: number }) =>
     apiClient.post('/supplier-returns', data),
   addItem: (id: string, data: { purchase_item_id: string; quantity: number }) =>
     apiClient.post(`/supplier-returns/${id}/items`, data),
   delete: (id: string, force = false) => apiClient.delete(`/supplier-returns/${id}${force ? '?force=true' : ''}`),
   reject: (id: string) => apiClient.post(`/supplier-returns/${id}/reject`, {}),
-  complete: (id: string) => apiClient.post(`/supplier-returns/${id}/complete`),
+  complete: (id: string) => apiClient.post(`/supplier-returns/${id}/complete`, {}),
 };
 
 // Acquisitions endpoints (USED-PARTS-ACQUISITION.md)
@@ -743,17 +757,7 @@ export const auditApi = {
   list: (params?: PaginationParams & { entity_type?: string; action?: string; search?: string }) =>
     apiClient.get('/audit', params),
   get: (id: string) => apiClient.get(`/audit/${id}`),
-  exportCsv: async (): Promise<Blob> => {
-    const response = await fetch(`${getActiveApiUrl()}/audit/export`, {
-      method: 'GET',
-      credentials: 'include',
-      headers: TokenManager.getAuthHeader(),
-    });
-    if (!response.ok) {
-      throw new Error('تعذر تصدير سجل التدقيق');
-    }
-    return response.blob();
-  },
+  exportCsv: (): Promise<Blob> => apiClient.getBlob('/audit/export'),
 };
 
 // Global search endpoint

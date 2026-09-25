@@ -129,11 +129,11 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 
 		// Protected routes (auth required)
 		protected := v1.Group("")
-		// middleware.Auth enforces cloud subscription state for local SQLite
-		// requests and the database state for cloud requests. A second CloudGuard
-		// here duplicated the remote check and made a valid bounded offline grant
-		// unusable when the cloud was temporarily unreachable.
+		// middleware.Auth enforces a live cloud subscription decision for local
+		// SQLite requests and the subscription state from the database for cloud
+		// requests. Local requests have no offline authorization grace period.
 		protected.Use(middleware.Auth())
+		protected.Use(middleware.TenantScope())
 		paymentTransactionsHandler.RegisterRoutes(v1, protected)
 		{
 			protected.POST("/assistant/reply", assistantHandler.Reply)
@@ -415,19 +415,16 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			// Sync routes
 			sync := protected.Group("/sync")
 			{
-				// AuthMiddleware and the cloud guard already verify the active
-				// subscriber session. Sync is limited to queue entries and the
-				// authenticated store snapshot; destructive/admin operations remain
-				// protected separately below.
 				sync.GET("/initial-data", syncHandler.GetInitialData)
-				sync.POST("/push", syncHandler.PushData)
+				// Generic queued business mutations bypass domain validation. Keep
+				// this legacy import path restricted to the configured operator.
+				sync.POST("/push", middleware.Admin(), syncHandler.PushData)
 			}
 
 			// Settings routes
 			settings := protected.Group("/settings")
 			{
 				settings.POST("/sync", localDatabaseHandler.SyncCloudData)
-				settings.POST("/sync/push", localDatabaseHandler.SyncLocalDataToCloud)
 				settings.GET("/sync/conflicts", localDatabaseHandler.GetSyncConflicts)
 				settings.DELETE("/sync/conflicts", localDatabaseHandler.ClearSyncConflicts)
 				settings.POST("/sync/conflicts/:id/resolve", localDatabaseHandler.ResolveSyncConflict)
@@ -445,6 +442,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				// actions. Keep ordinary subscribers out even when authenticated.
 				adminSettings := settings.Group("")
 				adminSettings.Use(middleware.Admin())
+				adminSettings.POST("/sync/push", localDatabaseHandler.SyncLocalDataToCloud)
 				adminSettings.DELETE("/database", databaseHandler.DeleteAllData)
 				adminSettings.POST("/migrate", databaseHandler.ApplyMigration)
 			}

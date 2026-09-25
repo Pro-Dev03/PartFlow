@@ -116,6 +116,7 @@ export function ReturnsPage() {
       PENDING: { label: 'قيد الانتظار', variant: 'warning', icon: AlertTriangle },
       APPROVED: { label: 'موافق عليه', variant: 'success', icon: CheckCircle },
       PROCESSING: { label: 'قيد المعالجة', variant: 'info', icon: RefreshCw },
+      COMPLETING: { label: 'جارٍ إكمال المرتجع', variant: 'info', icon: RefreshCw },
       COMPLETED: { label: 'مكتمل', variant: 'success', icon: CheckCircle },
       REJECTED: { label: 'مرفوض', variant: 'danger', icon: XCircle },
       CANCELLED: { label: 'ملغي', variant: 'secondary', icon: XCircle },
@@ -332,6 +333,7 @@ export function ReturnsPage() {
                   { value: 'PENDING', label: 'قيد الانتظار' },
                   { value: 'APPROVED', label: 'موافق عليه' },
                   { value: 'PROCESSING', label: 'قيد المعالجة' },
+                  { value: 'COMPLETING', label: 'جارٍ إكمال المرتجع' },
                   { value: 'COMPLETED', label: 'مكتمل' },
                   { value: 'REJECTED', label: 'مرفوض' },
                 ]}
@@ -457,12 +459,13 @@ export function ReturnsPage() {
                       variant="danger"
                       size="icon"
                       onClick={() => setReturnToDelete(returnItem)}
+                      disabled={returnItem.status === 'COMPLETING'}
                       aria-label={`حذف المرتجع ${returnItem.return_number || ''}`}
-                      title="حذف سجل المرتجع نهائياً"
+                      title={returnItem.status === 'COMPLETING' ? 'لا يمكن حذف مرتجع جارٍ إكماله' : 'حذف سجل المرتجع نهائياً'}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
-                    {returnItem.status === 'APPROVED' && (
+                    {(returnItem.status === 'APPROVED' || returnItem.status === 'PROCESSING' || returnItem.status === 'COMPLETING') && (
                       <Button
                         variant="success"
                         size="sm"

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,34 @@ func TestNewServiceRejectsUnsupportedSupabaseAuth(t *testing.T) {
 	}
 }
 
+func TestServiceRegistrationCannotCreateFreeActiveAccount(t *testing.T) {
+	service, db, _ := newRefreshTokenTestService(t)
+
+	response, err := service.Register(context.Background(), &RegisterRequest{
+		Email:     "attacker@example.test",
+		Password:  "AttackerPassword123!",
+		FirstName: "Free",
+		LastName:  "Account",
+	})
+	if !errors.Is(err, ErrRegistrationDisabled) {
+		t.Fatalf("Register error = %v, want ErrRegistrationDisabled", err)
+	}
+	if response != nil {
+		t.Fatalf("Register response = %#v, want nil", response)
+	}
+
+	var users, tokens int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE email = ?`, "attacker@example.test").Scan(&users); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM refresh_tokens`).Scan(&tokens); err != nil {
+		t.Fatal(err)
+	}
+	if users != 0 || tokens != 0 {
+		t.Fatalf("public registration side effects: users=%d refresh_tokens=%d, want both zero", users, tokens)
+	}
+}
+
 func TestLoginWorksWithSQLiteUserTimestamps(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -50,6 +79,9 @@ func TestLoginWorksWithSQLiteUserTimestamps(t *testing.T) {
         subscription_expires_at TEXT
     )`)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE refresh_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, created_at TEXT NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -108,6 +140,9 @@ func TestLoginHandlesSQLiteGoTimeStringFormat(t *testing.T) {
         subscription_expires_at TEXT
     )`)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE refresh_tokens (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, token TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, created_at TEXT NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
 

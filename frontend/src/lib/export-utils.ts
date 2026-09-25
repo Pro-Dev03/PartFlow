@@ -5,6 +5,14 @@
 import { printHtmlDocument } from '../services/documents/print-html';
 import { formatStoreDate } from '../utils/store-time';
 
+const escapeHtml = (value: unknown): string => String(value ?? '').replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+})[character] || character);
+
 // تصدير البيانات إلى CSV
 export const exportToCSV = (data: any[], filename: string, headers?: string[]) => {
   if (!data || data.length === 0) {
@@ -19,26 +27,20 @@ export const exportToCSV = (data: any[], filename: string, headers?: string[]) =
 // توليد محتوى CSV
 const generateCSV = (data: any[], headers?: string[]): string => {
   const csvRows: string[] = [];
+  const escapeCell = (value: unknown): string => {
+    const isNumber = typeof value === 'number' && Number.isFinite(value);
+    let stringValue = String(value ?? '');
+    if (!isNumber && /^[\s\u0000-\u001f]*[=+\-@]/u.test(stringValue)) {
+      stringValue = `'${stringValue}`;
+    }
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  };
 
-  // إضافة الرؤوس
-  if (headers) {
-    csvRows.push(headers.join(','));
-  } else {
-    const keys = Object.keys(data[0]);
-    csvRows.push(keys.join(','));
-  }
+  const columnHeaders = headers || Object.keys(data[0]);
+  csvRows.push(columnHeaders.map(escapeCell).join(','));
 
-  // إضافة البيانات
   for (const row of data) {
-    const values = Object.values(row).map((value) => {
-      const stringValue = String(value ?? '');
-      // Escape quotes and wrap in quotes if contains comma
-      if (stringValue.includes(',') || stringValue.includes('"')) {
-        return `"${stringValue.replace(/"/g, '""')}"`;
-      }
-      return stringValue;
-    });
-    csvRows.push(values.join(','));
+    csvRows.push(Object.values(row).map(escapeCell).join(','));
   }
 
   return csvRows.join('\n');
@@ -138,17 +140,17 @@ export const printContent = (elementId: string) => {
 export const printTable = (data: any[], headers: string[], title: string) => {
   const tableRows = data.map(row => {
     const cells = Object.values(row).map(value => 
-      `<td>${String(value ?? '')}</td>`
+      `<td>${escapeHtml(value)}</td>`
     ).join('');
     return `<tr>${cells}</tr>`;
   }).join('');
 
   const headerRow = headers.map(header => 
-    `<th>${header}</th>`
+    `<th>${escapeHtml(header)}</th>`
   ).join('');
 
   const printContent = `
-    <h1 style="text-align: center; margin-bottom: 20px;">${title}</h1>
+    <h1 style="text-align: center; margin-bottom: 20px;">${escapeHtml(title)}</h1>
     <table>
       <thead>
         <tr>${headerRow}</tr>
@@ -194,7 +196,7 @@ export const printTable = (data: any[], headers: string[], title: string) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>${title}</title>
+      <title>${escapeHtml(title)}</title>
       ${printStyles}
     </head>
     <body>
@@ -217,13 +219,7 @@ export const printPaymentReceipt = (paymentData: {
   const storeName = paymentData.storeName
     || (typeof window !== 'undefined' ? localStorage.getItem('partflow-store-name') : null)
     || 'PartFlow';
-  const safeStoreName = storeName.replace(/[&<>"']/g, (character) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  })[character] || character);
+  const safeStoreName = escapeHtml(storeName);
   const isRTL = language === 'ar';
 
   // تحويل طريقة الدفع للعربية
@@ -445,7 +441,7 @@ export const printPaymentReceipt = (paymentData: {
             <div class="section-title">${isRTL ? 'معلومات العميل' : 'Customer Information'}</div>
             <div class="info-row">
               <span class="info-label">${isRTL ? 'الاسم:' : 'Name:'}</span>
-              <span class="info-value">${customerName}</span>
+              <span class="info-value">${escapeHtml(customerName)}</span>
             </div>
           </div>
 
@@ -454,11 +450,11 @@ export const printPaymentReceipt = (paymentData: {
             <div class="section-title">${isRTL ? 'تفاصيل الدفع' : 'Payment Details'}</div>
             <div class="info-row">
               <span class="info-label">${isRTL ? 'طريقة الدفع:' : 'Method:'}</span>
-              <span class="info-value">${paymentMethod}</span>
+              <span class="info-value">${escapeHtml(paymentMethod)}</span>
             </div>
             <div class="info-row">
               <span class="info-label">${isRTL ? 'التاريخ:' : 'Date:'}</span>
-              <span class="info-value">${date}</span>
+              <span class="info-value">${escapeHtml(date)}</span>
             </div>
           </div>
 

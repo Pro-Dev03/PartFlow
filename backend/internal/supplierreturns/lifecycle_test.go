@@ -47,11 +47,24 @@ func TestSupplierReturnCreditsLedgerAndRemovesInventorySQLite(t *testing.T) {
 	}
 
 	service := NewService(db)
-	created, err := service.Create(ctx, uuid.New(), CreateRequest{PurchaseID: purchaseID, Reason: "defective"})
-	if err != nil {
+	_, err = service.Create(ctx, uuid.New(), CreateRequest{
+		PurchaseID: purchaseID, Reason: "defective", PurchaseItemID: uuid.New(), Quantity: 1,
+	})
+	if err == nil {
+		t.Fatal("creating a return with an unavailable purchase item should fail")
+	}
+	var returnCount int
+	if err := db.Get(&returnCount, `SELECT COUNT(*) FROM supplier_returns WHERE purchase_id = ?`, purchaseID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.AddItem(ctx, created.ID, AddItemRequest{PurchaseItemID: purchaseItemID, Quantity: 1}); err != nil {
+	if returnCount != 0 {
+		t.Fatalf("failed supplier return creation left %d header rows, want 0", returnCount)
+	}
+
+	created, err := service.Create(ctx, uuid.New(), CreateRequest{
+		PurchaseID: purchaseID, Reason: "defective", PurchaseItemID: purchaseItemID, Quantity: 1,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := service.Complete(ctx, created.ID, uuid.Nil); err != nil {

@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryProvider } from './app/providers/QueryProvider';
 import { AppLayout, AuthLayout } from './layouts';
@@ -17,8 +16,8 @@ import { initializeProductImages } from './services/localProductImages';
 import { initializePartTypeImages } from './services/localPartTypeImages';
 import { initializeCategoryImages } from './services/localCategoryImages';
 import { RegionalProfileLoader } from './components/RegionalProfileLoader';
-import { AlertTriangle, LogOut, RefreshCw } from 'lucide-react';
 import { LoginPage } from './features/auth/pages/LoginPage';
+import { NextFieldNavigator } from './components/navigation/NextFieldNavigator';
 
 // Lazy load auth pages separately
 const SubscriptionExpiredPage = lazy(() => import('./features/auth/pages/SubscriptionExpiredPage').then(m => ({ default: m.default })));
@@ -97,23 +96,13 @@ function InitialSyncController() {
 
 function App() {
   const checkAuth = useAuthStore((state) => state.checkAuth);
-  const { isAuthenticated, sessionVerified, sessionRestorePending, cloudVerificationPending, isLoading, isPostLoginVerifying } = useAuthStore();
-  const [isRetryingCloudVerification, setIsRetryingCloudVerification] = useState(false);
+  const { isAuthenticated, sessionVerified, sessionRestorePending, isLoading, isPostLoginVerifying } = useAuthStore();
 
   useEffect(() => {
     void initializeProductImages();
     void initializePartTypeImages();
     void initializeCategoryImages();
   }, []);
-
-  const retryCloudVerification = async () => {
-    setIsRetryingCloudVerification(true);
-    try {
-      await retrySubscriptionVerification();
-    } finally {
-      setIsRetryingCloudVerification(false);
-    }
-  };
 
   // HashRouter is required by the packaged Electron build, but a normal
   // browser can still open a deep link such as /app/sales directly. Normalize
@@ -135,9 +124,9 @@ function App() {
     checkAuth();
   }, [checkAuth]);
 
-  // Keep cloud subscription authority active even while business data remains
-  // local. A browser/Electron "online" event is only a trigger; the cloud
-  // response is the actual authority.
+  // Keep the cloud subscription authority active for cloud business traffic.
+  // A browser/Electron "online" event is only a trigger; the cloud response
+  // is the actual authority.
   useEffect(() => {
     const validate = () => {
       const state = useAuthStore.getState();
@@ -154,7 +143,7 @@ function App() {
     const handleOffline = () => {
       const state = useAuthStore.getState();
       if (state.isAuthenticated || state.token || state.cloudToken) {
-        markCloudVerificationPending();
+        forceLogoutToLogin('Internet connection lost');
       }
     };
     const handleAuthInvalidated = (event: Event) => {
@@ -166,6 +155,8 @@ function App() {
         'ACCOUNT_DELETED',
       ].includes(detail.code)) {
         void validateSubscriptionWithCloud();
+      } else if (detail?.code === 'CLOUD_CONNECTION_REQUIRED') {
+        forceLogoutToLogin('Internet connection lost');
       } else if (detail?.definitive) {
         forceLogoutToLogin('Session expired');
       } else {
@@ -225,41 +216,6 @@ function App() {
       <QueryProvider>
         <InitialSyncController />
         {isAuthenticated && sessionVerified && <RegionalProfileLoader />}
-        {isAuthenticated && sessionVerified && cloudVerificationPending && typeof document !== 'undefined' && createPortal(
-          <div role="status" className="fixed inset-x-0 top-0 z-[100] px-3 pt-3" dir="rtl">
-            <div className="mx-auto flex max-w-[64rem] flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950 shadow-lg">
-              <div className="flex min-w-0 items-start gap-3">
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
-                <div>
-                  <p className="text-sm font-bold">تعذر الاتصال بخدمة الاشتراكات</p>
-                  <p className="mt-1 text-xs leading-5 text-amber-900">
-                    بقيت جلسة الدخول محفوظة. يتحقق الخادم المحلي من مهلة السماح الموقعة، ويمنع العمليات عند انتهائها أو عند استلام إيقاف من السحابة.
-                  </p>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-amber-700 px-4 text-xs font-bold text-white transition hover:bg-amber-800 disabled:opacity-60"
-                  onClick={() => void retryCloudVerification()}
-                  disabled={isRetryingCloudVerification}
-                >
-                  <RefreshCw className={`h-4 w-4 ${isRetryingCloudVerification ? 'animate-spin' : ''}`} aria-hidden="true" />
-                  إعادة التحقق
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-amber-300 px-3 text-xs font-semibold text-amber-950 transition hover:bg-amber-100"
-                  onClick={() => forceLogoutToLogin('Session expired')}
-                >
-                  <LogOut className="h-4 w-4" aria-hidden="true" />
-                  خروج
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
         <Router>
           <PagePreloader />
           <Routes>
@@ -327,6 +283,7 @@ function App() {
           </Routes>
         </Router>
         <ToastContainer />
+        <NextFieldNavigator />
       </QueryProvider>
     </ErrorBoundary>
   );

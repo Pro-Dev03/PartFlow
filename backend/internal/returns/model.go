@@ -22,7 +22,7 @@ type Return struct {
 	// Return details
 	ReturnDate time.Time `json:"return_date" db:"return_date"`
 	ReturnType string    `json:"return_type" db:"return_type"` // FULL, PARTIAL, QUANTITY_PARTIAL
-	Status     string    `json:"status" db:"status"`           // PENDING, APPROVED, PROCESSING, COMPLETED, REJECTED, CANCELLED
+	Status     string    `json:"status" db:"status"`           // PENDING, APPROVED, PROCESSING, COMPLETING, COMPLETED, REJECTED, CANCELLED
 
 	// Financial details
 	TotalRefundAmount    float64    `json:"total_refund_amount" db:"total_refund_amount"`
@@ -148,7 +148,7 @@ type ReturnItemRequest struct {
 
 // ReturnUpdateRequest represents return update request
 type ReturnUpdateRequest struct {
-	Status                   string     `json:"status" binding:"omitempty,oneof=PENDING APPROVED PROCESSING COMPLETED REJECTED CANCELLED"`
+	Status                   string     `json:"status" binding:"omitempty,oneof=PENDING APPROVED PROCESSING REJECTED CANCELLED"`
 	Reason                   string     `json:"reason" binding:"omitempty,oneof=DEFECTIVE WRONG_ITEM COMPATIBILITY_ISSUE CUSTOMER_CHANGED_MIND DAMAGED WARRANTY INCORRECT_SPECIFICATION OTHER"`
 	TotalRefundAmount        *float64   `json:"total_refund_amount" binding:"omitempty,min=0"`
 	RefundMethod             string     `json:"refund_method" binding:"omitempty,oneof=CASH DEBT_ADJUSTMENT"`
@@ -197,7 +197,7 @@ type ReturnListRequest struct {
 	PerPage      int        `form:"per_page" binding:"min=1,max=100"`
 	CustomerID   *uuid.UUID `form:"customer_id"`
 	SaleID       *uuid.UUID `form:"sale_id"`
-	Status       string     `form:"status" binding:"omitempty,oneof=PENDING APPROVED PROCESSING COMPLETED REJECTED CANCELLED"`
+	Status       string     `form:"status" binding:"omitempty,oneof=PENDING APPROVED PROCESSING COMPLETING COMPLETED REJECTED CANCELLED"`
 	ReturnType   string     `form:"return_type" binding:"omitempty,oneof=FULL PARTIAL QUANTITY_PARTIAL"`
 	RefundMethod string     `form:"refund_method" binding:"omitempty,oneof=CASH DEBT_ADJUSTMENT"`
 	StartDate    *time.Time `form:"start_date"`

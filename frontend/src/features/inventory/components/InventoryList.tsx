@@ -26,6 +26,8 @@ interface InventoryListProps {
   onEditMinimumStock: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
   onDeleteInventoryItem?: (itemId: string) => void;
+  onEditInventoryItem?: (item: InventoryItem) => void;
+  onViewInventoryItem?: (item: InventoryItem) => void;
   onClearSearch: () => void;
   onViewInventoryLedger?: (productId: string) => void;
   pagination?: { page: number; pageSize: number; total: number; onPageChange: (page: number) => void };
@@ -41,7 +43,10 @@ function RowActionMenu({
   onEditMinimumStock,
   onDeleteProduct,
   onDeleteInventoryItem,
+  onEditInventoryItem,
+  onViewInventoryItem,
   onViewInventoryLedger,
+  inventoryItem,
 }: {
   product: Product;
   onViewProduct: (product: Product) => void;
@@ -50,20 +55,31 @@ function RowActionMenu({
   onEditMinimumStock: (product: Product) => void;
   onDeleteProduct: (productId: string) => void;
   onDeleteInventoryItem?: (itemId: string) => void;
+  onEditInventoryItem?: (item: InventoryItem) => void;
+  onViewInventoryItem?: (item: InventoryItem) => void;
   onViewInventoryLedger?: (productId: string) => void;
+  inventoryItem?: InventoryItem;
 }) {
-  return (
-    <ActionMenu
-      label="خيارات المنتج"
-      widthClassName="w-48"
-      items={[
+  const items = inventoryItem
+    ? [
+        { label: 'عرض العنصر', icon: Eye, onClick: () => onViewInventoryItem?.(inventoryItem) },
+        { label: 'تعديل الباركود', icon: PencilLine, onClick: () => onEditInventoryItem?.(inventoryItem) },
+        { label: 'حذف العنصر', icon: Trash, onClick: () => (onDeleteInventoryItem ? onDeleteInventoryItem(inventoryItem.id) : onDeleteProduct(inventoryItem.id)), danger: true },
+      ]
+    : [
         { label: 'عرض', icon: Eye, onClick: () => onViewProduct(product) },
         { label: 'إضافة فاتورة', icon: Plus, onClick: () => onAddPurchase(product) },
         { label: 'تعديل', icon: PencilLine, onClick: () => onEditProduct(product) },
         { label: 'حد الأدنى', icon: SlidersHorizontal, onClick: () => onEditMinimumStock(product) },
-          ...(onViewInventoryLedger ? [{ label: 'سجل الحركات', icon: FileText, onClick: () => onViewInventoryLedger(product.id) }] : []),
-        { label: 'حذف', icon: Trash, onClick: () => (onDeleteInventoryItem ? onDeleteInventoryItem(product.id) : onDeleteProduct(product.id)), danger: true },
-      ]}
+        ...(onViewInventoryLedger ? [{ label: 'سجل الحركات', icon: FileText, onClick: () => onViewInventoryLedger(product.id) }] : []),
+        { label: 'حذف', icon: Trash, onClick: () => onDeleteProduct(product.id), danger: true },
+      ];
+
+  return (
+    <ActionMenu
+      label={inventoryItem ? 'خيارات العنصر' : 'خيارات المنتج'}
+      widthClassName="w-48"
+      items={items}
     />
   );
 }
@@ -130,6 +146,8 @@ export function InventoryList({
   onEditMinimumStock,
   onDeleteProduct,
   onDeleteInventoryItem,
+  onEditInventoryItem,
+  onViewInventoryItem,
   onClearSearch,
   onViewInventoryLedger,
   pagination,
@@ -492,7 +510,13 @@ export function InventoryList({
                         <TableCell><Badge variant={condBadge.variant} size="sm">{condBadge.label}</Badge></TableCell>
                         <TableCell className="text-end">
                           <div className="flex items-center justify-end gap-2">
-                            <Button type="button" variant="ghost" size="icon" onClick={() => onViewProduct({
+                            <Button type="button" variant="ghost" size="icon" onClick={() => onViewInventoryItem?.(item)}
+                              aria-label="عرض العنصر" title="عرض العنصر">
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                            {/* Inventory item actions use the item's own ID and fields. */}
+                            <RowActionMenu
+                              product={{
                               id: item.id,
                               name: item.product_name || item.product?.name || '-',
                               sku: item.product?.sku || item.sku || '',
@@ -507,25 +531,6 @@ export function InventoryList({
                               barcode: item.barcode || '',
                               supplier_id: item.supplier_id || '',
                               supplier_name: item.supplier_name || '',
-                            } as Product)} aria-label="عرض العنصر" title="عرض العنصر">
-                              <Eye className="h-3.5 w-3.5" />
-                            </Button>
-                            <RowActionMenu
-                              product={{
-                                id: item.id,
-                                name: item.product_name || item.product?.name || '-',
-                                sku: item.product?.sku || item.sku || '',
-                                condition: item.condition || '',
-                                category_name: item.category_name || '',
-                                stock: item.quantity ?? 0,
-                                price: item.price ?? 0,
-                                sellingPrice: item.selling_price ?? item.price ?? 0,
-                                category: '',
-                                categoryName: '',
-                                status: item.status || 'AVAILABLE',
-                                barcode: item.barcode || '',
-                                supplier_id: item.supplier_id || '',
-                                supplier_name: item.supplier_name || '',
                               } as Product}
                               onViewProduct={onViewProduct}
                               onAddPurchase={onAddPurchase}
@@ -533,6 +538,9 @@ export function InventoryList({
                               onEditMinimumStock={onEditMinimumStock}
                               onDeleteProduct={onDeleteProduct}
                               onDeleteInventoryItem={onDeleteInventoryItem}
+                              onEditInventoryItem={onEditInventoryItem}
+                              onViewInventoryItem={onViewInventoryItem}
+                              inventoryItem={item}
                               onViewInventoryLedger={onViewInventoryLedger}
                             />
                           </div>
@@ -595,20 +603,7 @@ export function InventoryList({
                       </div>
 
                       <div className="compact-product-actions">
-                        <Button type="button" variant="primary" size="sm" onClick={() => onViewProduct({
-                          id: item.id,
-                          name: item.product_name || item.product?.name || '-',
-                          sku: item.product?.sku || item.sku || '',
-                          condition: item.condition || '',
-                          category_name: item.category_name || '',
-                          stock: item.quantity ?? 0,
-                          price: item.price ?? 0,
-                          sellingPrice: item.selling_price ?? item.price ?? 0,
-                          category: '',
-                          categoryName: '',
-                          status: item.status || 'AVAILABLE',
-                          barcode: item.barcode || '',
-                        } as Product)} className="h-8 px-3 text-[11px]">
+                        <Button type="button" variant="primary" size="sm" onClick={() => onViewInventoryItem?.(item)} className="h-8 px-3 text-[11px]">
                           <Eye className="h-3.5 w-3.5" />
                           عرض
                         </Button>
@@ -633,6 +628,9 @@ export function InventoryList({
                           onEditMinimumStock={onEditMinimumStock}
                           onDeleteProduct={onDeleteProduct}
                           onDeleteInventoryItem={onDeleteInventoryItem}
+                          onEditInventoryItem={onEditInventoryItem}
+                          onViewInventoryItem={onViewInventoryItem}
+                          inventoryItem={item}
                           onViewInventoryLedger={onViewInventoryLedger}
                         />
                       </div>

@@ -19,7 +19,7 @@ func newSaleDeleteTestDB(t *testing.T) (*sql.DB, string, string, string) {
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 	_, err = db.Exec(`
-		CREATE TABLE sales (id TEXT PRIMARY KEY, invoice_number TEXT, customer_id TEXT, status TEXT, total_amount REAL);
+		CREATE TABLE sales (id TEXT PRIMARY KEY, invoice_number TEXT, customer_id TEXT, status TEXT, total_amount REAL, paid_amount REAL DEFAULT 0, updated_at TEXT);
 		CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, quantity INTEGER);
 		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT, status TEXT, sold_at TEXT, updated_at TEXT);
 		CREATE TABLE inventory_movements (id TEXT PRIMARY KEY, item_id TEXT, product_id TEXT, movement_type TEXT, quantity INTEGER, reference_type TEXT, reference_id TEXT);
@@ -39,7 +39,7 @@ func newSaleDeleteTestDB(t *testing.T) (*sql.DB, string, string, string) {
 		t.Fatal(err)
 	}
 	saleID, productID, itemID, customerID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
-	_, err = db.Exec(`INSERT INTO sales VALUES (?, 'INV-DEL-01', ?, 'completed', 120)`, saleID, customerID)
+	_, err = db.Exec(`INSERT INTO sales (id, invoice_number, customer_id, status, total_amount, paid_amount) VALUES (?, 'INV-DEL-01', ?, 'completed', 120, 0)`, saleID, customerID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,5 +161,40 @@ func TestSmartDeleteSaleWithMismatchedStockMovementsIsBlocked(t *testing.T) {
 	}
 	if saleCount != 1 || stock != 2 || itemStatus != "SOLD" {
 		t.Fatalf("blocked deletion changed data: sale=%d stock=%d item=%s", saleCount, stock, itemStatus)
+	}
+}
+
+func TestSmartDeleteSaleWithRecordedPaymentIsBlockedWithoutPartialChanges(t *testing.T) {
+	db, saleID, itemID, _ := newSaleDeleteTestDB(t)
+	if _, err := db.Exec(`UPDATE sales SET paid_amount=20 WHERE id=?`, saleID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO payments (id,sale_id) VALUES (?,?)`, uuid.NewString(), saleID); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := NewSmartDeleteService(sqlx.NewDb(db, "sqlite")).SmartDelete(context.Background(), uuid.MustParse(saleID), uuid.Nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != "blocked" || result.CanProceed {
+		t.Fatalf("delete result = %+v, want blocked", result)
+	}
+	var saleCount, paymentCount, stock int
+	var itemStatus string
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sales WHERE id=?`, saleID).Scan(&saleCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM payments WHERE sale_id=?`, saleID).Scan(&paymentCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT quantity FROM inventory`).Scan(&stock); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT status FROM inventory_items WHERE id=?`, itemID).Scan(&itemStatus); err != nil {
+		t.Fatal(err)
+	}
+	if saleCount != 1 || paymentCount != 1 || stock != 2 || itemStatus != "SOLD" {
+		t.Fatalf("blocked deletion changed data: sale=%d payments=%d stock=%d item=%s", saleCount, paymentCount, stock, itemStatus)
 	}
 }

@@ -8,14 +8,12 @@ import { Badge } from '../../../design-system/components/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
 import { PageHeader } from '../../../design-system/components/page-header';
 import { Modal } from '../../../design-system/components/modal';
-import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
 import { Product, Supplier, Category } from '../../../types/models';
 import {
   Search,
   Scan,
   Trash2,
   ShoppingCart,
-  Truck,
   CheckCircle2,
   Package,
   FileText,
@@ -23,7 +21,6 @@ import {
   Sparkles,
   DollarSign,
   Box,
-  Edit,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
@@ -33,6 +30,7 @@ import { PurchaseItem } from '../types/purchases.types';
 import { toast } from 'sonner';
 import { generateSku } from '../../../utils/sku';
 import { getStoreDateKey, getStoreToday, storeDateToUTCISOString } from '../../../utils/store-time';
+import './edit-purchase.css';
 
 interface LineItem extends PurchaseItem {
   key: string;
@@ -47,15 +45,16 @@ export function EditPurchasePage() {
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [productPage, setProductPage] = useState(1);
   const [barcodeInput, setBarcodeInput] = useState('');
-  const [activeTab, setActiveTab] = useState<'scan' | 'manual'>('manual');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [purchaseDate, setPurchaseDate] = useState(getStoreToday());
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [receiveImmediately, setReceiveImmediately] = useState(false);
-  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const quantityInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const unitCostInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const sellingPriceInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const barcodeInputRef = useRef<HTMLInputElement | null>(null);
   
   // Manual product addition states
   const [isManualProductModalOpen, setIsManualProductModalOpen] = useState(false);
@@ -71,7 +70,7 @@ export function EditPurchasePage() {
   });
 
   // Fetch purchase data
-  const { data: purchaseData, isLoading: purchaseLoading } = useQuery({
+  const { data: purchaseData, isLoading: purchaseLoading, isError: purchaseError, refetch: refetchPurchase } = useQuery({
     queryKey: ['purchase', id],
     queryFn: () => purchasesApi.get(id || ''),
     enabled: !!id,
@@ -79,12 +78,13 @@ export function EditPurchasePage() {
 
   const { data: suppliersData, isLoading: suppliersLoading } = useQuery({
     queryKey: ['suppliers'],
-    queryFn: () => suppliersApi.list({ page: 1, per_page: 10 }),
+    queryFn: () => suppliersApi.list({ page: 1, per_page: 100 }),
   });
 
   const { data: productsData } = useQuery({
-    queryKey: ['products', productSearchQuery],
+    queryKey: ['products', productSearchQuery, productPage],
     queryFn: () => productsApi.list({ search: productSearchQuery, page: productPage, per_page: 10 }),
+    enabled: Boolean(productSearchQuery.trim()),
   });
 
   const productTotal = Number(productsData?.data?.total ?? 0);
@@ -130,21 +130,7 @@ export function EditPurchasePage() {
         min_stock: '',
         description: '',
       });
-    },
-  });
-
-  const deleteProductMutation = useMutation({
-    mutationFn: (productId: string) => productsApi.delete(productId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['inventory'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['reports'] });
-      toast.success('تم حذف المنتج بنجاح');
-    },
-    onError: (error) => {
-      console.error('Error deleting product:', error);
-      toast.error('حدث خطأ أثناء حذف المنتج');
+      requestAnimationFrame(() => barcodeInputRef.current?.focus());
     },
   });
 
@@ -154,7 +140,41 @@ export function EditPurchasePage() {
 
   const { updatePurchaseMutation, receivePurchaseMutation } = usePurchases();
   const purchaseRecord = purchaseData?.data?.purchase || purchaseData?.purchase || purchaseData?.data;
+  const storedPurchaseItems = purchaseData?.data?.items || purchaseData?.items || purchaseRecord?.items || [];
   const purchasePaid = Number(purchaseRecord?.paid_amount || 0);
+  const purchaseTotal = Number(purchaseRecord?.total_amount || 0);
+  const purchaseRemaining = Math.max(0, Number(purchaseRecord?.remaining_amount ?? purchaseRecord?.remaining ?? (purchaseTotal - purchasePaid)));
+
+  const purchaseHasUnsavedChanges = useMemo(() => {
+    if (!purchaseRecord) return false;
+    const normalizeItems = (list: any[]) => list.map((item) => ({
+      id: item.id || '',
+      product_id: item.product_id || '',
+      quantity: Number(item.quantity) || 0,
+      unit_cost: Number(item.unit_cost) || 0,
+      selling_price: Number(item.selling_price) || 0,
+      category_id: item.category_id || '',
+      condition: item.condition || 'new',
+    }));
+    const draft = {
+      supplier_id: selectedSupplier,
+      invoice_number: invoiceNumber,
+      purchase_date: purchaseDate,
+      expected_delivery_date: expectedDate,
+      notes,
+      items: normalizeItems(items),
+    };
+    const stored = {
+      supplier_id: purchaseRecord.supplier_id || '',
+      invoice_number: purchaseRecord.invoice_number || '',
+      purchase_date: purchaseRecord.purchase_date ? getStoreDateKey(purchaseRecord.purchase_date) ?? getStoreToday() : getStoreToday(),
+      expected_delivery_date: purchaseRecord.expected_delivery_date ? getStoreDateKey(purchaseRecord.expected_delivery_date) ?? '' : '',
+      notes: purchaseRecord.notes || '',
+      items: normalizeItems(storedPurchaseItems),
+    };
+    return JSON.stringify(draft) !== JSON.stringify(stored);
+  }, [purchaseRecord, storedPurchaseItems, selectedSupplier, invoiceNumber, purchaseDate, expectedDate, notes, items]);
+
   const paymentMutation = useMutation({
     mutationFn: (amount: number) => purchasesApi.addPayment(id || '', { amount, paymentMethod: 'cash' }),
     onSuccess: () => {
@@ -164,7 +184,14 @@ export function EditPurchasePage() {
       void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('تم تسجيل الدفعة وتحديث المتبقي');
     },
-    onError: (error: any) => toast.error(error?.message || 'تعذر تسجيل الدفعة'),
+    onError: (error: any) => {
+      if (error?.message === 'payment amount exceeds remaining balance') {
+        void queryClient.invalidateQueries({ queryKey: ['purchase', id] });
+        toast.error('تغيّر الرصيد المحفوظ؛ تم تحديث الفاتورة. راجع المتبقي ثم أعد إدخال الدفعة.');
+        return;
+      }
+      toast.error(error?.message || 'تعذر تسجيل الدفعة');
+    },
   });
 
   // Load purchase data when available
@@ -200,9 +227,6 @@ export function EditPurchasePage() {
     () => items.reduce((sum, item) => sum + item.quantity * item.unit_cost, 0),
     [items]
   );
-  const purchaseTotal = totalCost;
-  const purchaseRemaining = Math.max(0, purchaseTotal - purchasePaid);
-
   const totalQuantity = useMemo(
     () => items.reduce((sum, item) => sum + item.quantity, 0),
     [items]
@@ -239,9 +263,15 @@ export function EditPurchasePage() {
       });
 
       setBarcodeInput('');
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.status === 404) {
+        setManualProductData((current) => ({ ...current, sku: generateSku(), barcode: barcodeInput.trim() }));
+        setIsManualProductModalOpen(true);
+        setBarcodeInput('');
+        return;
+      }
       console.error('Error scanning barcode:', error);
-      toast.error('لم يتم العثور على منتج بهذا الباركود. يمكنك إنشاء قطعة جديدة.');
+      toast.error(error?.message || 'تعذر البحث عن الباركود. تحقق من الاتصال ثم أعد المحاولة.');
     }
   }, [barcodeInput]);
 
@@ -266,6 +296,7 @@ export function EditPurchasePage() {
       ];
     });
     setProductSearchQuery('');
+    requestAnimationFrame(() => barcodeInputRef.current?.focus());
   }, []);
 
   const handleRemoveItem = useCallback((key: string) => {
@@ -340,8 +371,8 @@ export function EditPurchasePage() {
       purchase_date: storeDateToUTCISOString(purchaseDate) ?? new Date().toISOString(),
       expected_delivery_date: expectedDate ? storeDateToUTCISOString(expectedDate) ?? undefined : undefined,
       notes: notes || undefined,
-        items: items.map((item) => ({
-          id: item.id,
+      items: items.map((item) => ({
+        id: item.id,
         product_id: item.product_id,
         quantity: item.quantity,
         unit_cost: item.unit_cost,
@@ -357,7 +388,7 @@ export function EditPurchasePage() {
           response?.purchase?.id ||
           response?.data?.purchase?.id ||
           response?.data?.id ||
-          response?.id;
+          response?.id || id;
         if (purchaseId && receiveImmediately) {
           receivePurchaseMutation.mutate(purchaseId, {
             onSuccess: () => {
@@ -368,12 +399,10 @@ export function EditPurchasePage() {
             },
           });
         } else {
-          if (receiveImmediately && !purchaseId) {
-            toast.error('تم حفظ الشراء لكن تعذر تحديده للاستلام. أعد تحميل الصفحة وتحقق من حالته.');
-            return;
-          }
-          queryClient.invalidateQueries({ queryKey: ['purchases'] });
-          navigate('/app/purchases');
+          void queryClient.invalidateQueries({ queryKey: ['purchase', id] });
+          void queryClient.invalidateQueries({ queryKey: ['purchases'] });
+          void queryClient.refetchQueries({ queryKey: ['purchase', id], exact: true });
+          toast.success('تم حفظ التعديلات. يمكنك الآن تسجيل الدفعة على الرصيد المحدّث.');
         }
       },
     });
@@ -403,12 +432,28 @@ export function EditPurchasePage() {
     );
   }
 
+  if (purchaseError || !purchaseRecord) {
+    return (
+      <div className="mx-auto flex min-h-64 max-w-xl items-center justify-center p-4">
+        <Card className="w-full">
+          <CardContent className="space-y-4 p-6 text-center">
+            <p className="font-semibold">تعذر تحميل بيانات الشراء</p>
+            <p className="text-sm text-text-muted">تحقق من الاتصال أو حالة الفاتورة، ثم أعد المحاولة.</p>
+            <div className="flex justify-center gap-2">
+              <Button variant="secondary" onClick={() => navigate('/app/purchases')}>العودة للمشتريات</Button>
+              <Button variant="primary" onClick={() => void refetchPurchase()} disabled={!id}>إعادة المحاولة</Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <PageHeader
         title="تعديل الشراء"
-        description="تعديل طلب شراء موجود"
+        description="عدّل الفاتورة وأدخل المنتجات بسرعة باستخدام الباركود أو البحث."
         actions={
           <Button variant="secondary" onClick={() => navigate('/app/purchases')}>
             عودة للمشتريات
@@ -416,487 +461,415 @@ export function EditPurchasePage() {
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Main Form */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Supplier and Invoice Info */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-cyan" />
-                معلومات الفاتورة
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-text mb-2">التاجر *</label>
-                  <Select
-                    value={selectedSupplier}
-                    onChange={(e) => setSelectedSupplier(e.target.value)}
-                    loading={suppliersLoading}
-                    options={[
-                      { value: '', label: 'اختر التاجر...' },
-                      ...suppliers.map((s) => ({ value: s.id, label: s.name })),
-                    ]}
-                    emptyMessage="لا يوجد تجار"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text mb-2">رقم الفاتورة</label>
-                  <Input
-                    value={invoiceNumber}
-                    onChange={(e) => setInvoiceNumber(e.target.value)}
-                    placeholder="PO-..."
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text mb-2">تاريخ الشراء</label>
-                  <Input
-                    type="date"
-                    value={purchaseDate}
-                    onChange={(e) => setPurchaseDate(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-text mb-2">تاريخ الاستلام المتوقع</label>
-                  <Input
-                    type="date"
-                    value={expectedDate}
-                    onChange={(e) => setExpectedDate(e.target.value)}
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <FileText className="h-4 w-4 text-cyan" />
+            بيانات الفاتورة
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="xl:col-span-2">
+              <label className="mb-1 block text-xs font-medium text-text-muted">المورد *</label>
+              <Select
+                value={selectedSupplier}
+                onChange={(event) => setSelectedSupplier(event.target.value)}
+                loading={suppliersLoading}
+                options={[
+                  { value: '', label: 'اختر المورد...' },
+                  ...suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name })),
+                ]}
+                emptyMessage="لا يوجد موردون"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-text-muted">رقم الفاتورة</label>
+              <Input value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} placeholder="PO-..." />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-text-muted">تاريخ الشراء</label>
+              <Input type="date" value={purchaseDate} onChange={(event) => setPurchaseDate(event.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-text-muted">الاستلام المتوقع</label>
+              <Input type="date" value={expectedDate} onChange={(event) => setExpectedDate(event.target.value)} />
+            </div>
+          </div>
+          {selectedSupplier && (() => {
+            const supplier = suppliers.find((entry) => entry.id === selectedSupplier);
+            return supplier?.phone ? <p className="mt-2 text-xs text-text-muted">هاتف المورد: {supplier.phone}</p> : null;
+          })()}
+        </CardContent>
+      </Card>
 
-          {/* Items Section */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <ShoppingCart className="w-5 h-5 text-cyan" />
-                  إضافة القطع
-                </CardTitle>
-                <Badge variant="secondary">
-                  {items.length} عنصر • {totalQuantity} قطعة
-                </Badge>
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ShoppingCart className="h-4 w-4 text-cyan" />
+              إدخال المنتجات
+            </CardTitle>
+            <Badge variant="secondary">{items.length} صنف · {totalQuantity} قطعة</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3 pt-0">
+          <div className="grid grid-cols-1 items-end gap-2 lg:grid-cols-[minmax(240px,1fr)_minmax(240px,1fr)_auto]">
+            <form onSubmit={handleBarcodeScan} className="flex min-w-0 gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Scan className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyan" />
+                <Input
+                  ref={barcodeInputRef}
+                  placeholder="امسح الباركود ثم اضغط Enter"
+                  value={barcodeInput}
+                  onChange={(event) => setBarcodeInput(event.target.value)}
+                  className="pr-10"
+                  autoFocus
+                  aria-label="مسح باركود المنتج"
+                />
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Tab Selection */}
-              <div className="flex gap-2">
-                <Button
-                  variant={activeTab === 'scan' ? 'primary' : 'secondary'}
-                  size="sm"
-                  onClick={() => setActiveTab('scan')}
-                  className="flex-1"
+              <Button type="submit" variant="primary" disabled={!barcodeInput.trim()}>
+                إضافة
+              </Button>
+            </form>
+
+            <div className="relative min-w-0">
+              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+              <Input
+                placeholder="ابحث بالاسم أو الباركود..."
+                value={productSearchQuery}
+                onChange={(event) => setProductSearchQuery(event.target.value)}
+                className="pr-10"
+                aria-label="البحث عن منتج"
+              />
+            </div>
+
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setManualProductData((current) => ({ ...current, sku: generateSku() }));
+                setIsManualProductModalOpen(true);
+              }}
+              className="gap-2"
+            >
+              <Sparkles className="h-4 w-4" />
+              منتج جديد
+            </Button>
+          </div>
+
+          {productSearchQuery.trim() && (
+            <div className="max-h-48 overflow-y-auto rounded-xl border border-border" role="region" aria-label="نتائج المنتجات">
+              {searchedProducts.length ? searchedProducts.map((product) => (
+                <button
+                  key={product.id}
+                  type="button"
+                  onClick={() => handleManualAdd(product)}
+                  className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-right last:border-b-0 hover:bg-surface/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan"
                 >
-                  <Scan className="w-4 h-4 ml-2" />
-                  مسح الباركود
-                </Button>
-
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => {
-                    setManualProductData((current) => ({ ...current, sku: generateSku() }));
-                    setIsManualProductModalOpen(true);
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  إضافة قطعة جديدة
-                </Button>
-              </div>
-
-              {/* Scan Tab */}
-              {activeTab === 'scan' ? (
-                <form onSubmit={handleBarcodeScan} className="pf-barcode-row">
-                  <Input
-                    placeholder="امسح أو اكتب الباركود ثم اضغط Enter..."
-                    value={barcodeInput}
-                    onChange={(e) => setBarcodeInput(e.target.value)}
-                    className="min-w-0 flex-1"
-                    autoFocus
-                    aria-label="الباركود أو الإدخال اليدوي"
-                  />
-                  <Button type="submit" variant="primary" className="pf-barcode-submit">
-                    <Scan className="w-4 h-4" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">{product.name}</span>
+                    <span className="block truncate text-xs text-text-muted">
+                      {product.barcode ? 'باركود: ' + product.barcode : 'بدون باركود'}
+                      {product.sku ? ' · SKU: ' + product.sku : ''}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-sm font-semibold text-cyan">
+                    ₪{Number(product.cost_price || 0).toFixed(2)} <span aria-hidden="true">+</span>
+                  </span>
+                </button>
+              )) : (
+                <p className="px-3 py-4 text-center text-sm text-text-muted">لا توجد نتائج مطابقة.</p>
+              )}
+              {productTotalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-border px-2 py-1">
+                  <Button type="button" variant="ghost" size="sm" disabled={productPage <= 1} onClick={() => setProductPage((page) => page - 1)}>
+                    السابق <ChevronRight className="h-4 w-4" />
                   </Button>
-                </form>
-              ) : (
-                /* Manual Tab */
-                <div className="space-y-3">
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-                      <Input
-                        placeholder="ابحث عن المنتج بالاسم أو الباركود..."
-                        value={productSearchQuery}
-                        onChange={(e) => setProductSearchQuery(e.target.value)}
-                        className="pr-10"
-                        autoFocus
-                      />
-                    </div>
-                  </div>
-                  {searchedProducts.length > 0 ? (
-                    <>
-                    <div className="border border-border rounded-lg max-h-64 overflow-y-auto">
-                      {searchedProducts.map((product) => (
-                        <div
-                          key={product.id}
-                          className="p-4 hover:bg-surface/30 cursor-pointer border-b border-border last:border-b-0 flex justify-between items-center"
-                          onClick={() => handleManualAdd(product)}
-                        >
-                          <div className="flex-1">
-                            <div className="font-medium">{product.name}</div>
-                            <div className="text-sm text-text-muted">
-                              {`الباركود: ${product.barcode || 'لا يوجد باركود'}${product.sku ? ` · SKU: ${product.sku}` : ''}`}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <div className="text-sm font-medium text-cyan">
-                              ₪{product.cost_price?.toFixed(2) || '0.00'}
-                            </div>
-                            <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  navigate(`/app/inventory`, { state: { editProduct: product } });
-                                }}
-                                className="text-blue-600 hover:text-blue-700"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setProductToDelete(product);
-                                }}
-                                className="text-red-600 hover:text-red-700"
-                                title="حذف المنتج نهائياً وتنظيف سجله المرتبط"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    {productTotalPages > 1 && (
-                      <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs text-text-muted">
-                        <Button type="button" variant="ghost" size="sm" disabled={productPage <= 1} onClick={() => setProductPage((page) => page - 1)}>
-                          <ChevronRight className="h-4 w-4" /> السابق
-                        </Button>
-                        <span>صفحة {productPage} من {productTotalPages}</span>
-                        <Button type="button" variant="ghost" size="sm" disabled={productPage >= productTotalPages} onClick={() => setProductPage((page) => page + 1)}>
-                          التالي <ChevronLeft className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
-                    </>
-                  ) : (
-                    <div className="text-center py-8 text-text-muted">
-                      {productSearchQuery ? 'لا توجد نتائج للبحث' : 'ابحث عن منتج للإضافة'}
-                    </div>
-                  )}
+                  <span className="text-xs text-text-muted">صفحة {productPage} من {productTotalPages}</span>
+                  <Button type="button" variant="ghost" size="sm" disabled={productPage >= productTotalPages} onClick={() => setProductPage((page) => page + 1)}>
+                    <ChevronLeft className="h-4 w-4" /> التالي
+                  </Button>
                 </div>
               )}
-            </CardContent>
-          </Card>
-
-          {/* Items Table */}
-          {items.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>العناصر المضافة ({items.length})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-surface/30">
-                      <tr>
-                        <th className="text-right p-3 text-sm font-medium">المنتج</th>
-                        <th className="text-right p-3 text-sm font-medium">الحالة</th>
-                        <th className="text-right p-3 text-sm font-medium">التصنيف</th>
-                        <th className="text-right p-3 text-sm font-medium">الكمية</th>
-                        <th className="text-right p-3 text-sm font-medium">سعر الوحدة</th>
-                        <th className="text-right p-3 text-sm font-medium">سعر البيع</th>
-                        <th className="text-right p-3 text-sm font-medium">الإجمالي</th>
-                        <th className="text-right p-3 text-sm font-medium">إجراء</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map((item) => (
-                        <tr key={item.key} className="border-t border-border">
-                          <td className="p-3">
-                            <div>
-                              <div className="font-medium">{item.product_name}</div>
-                              <div className="text-xs text-text-muted">{item.product_id}</div>
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <Select
-                              value={item.condition}
-                              onChange={(e) => handleUpdateCondition(item.key, e.target.value as 'new' | 'used' | 'refurbished')}
-                              options={[
-                                { value: 'new', label: 'جديد' },
-                                { value: 'used', label: 'مستعمل' },
-                                { value: 'refurbished', label: 'مجدد' },
-                              ]}
-                              className="w-28"
-                              style={{ minWidth: '7rem' }}
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Select
-                              value={item.category_id ?? ''}
-                              onChange={(e) => setItems((prev) => prev.map((current) => current.key === item.key ? { ...current, category_id: e.target.value } : current))}
-                              options={[
-                                { value: '', label: 'بدون تصنيف' },
-                                ...categories.map((category) => ({ value: category.id, label: category.name })),
-                              ]}
-                              className="w-36"
-                              style={{ minWidth: '9rem' }}
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              ref={(element) => { quantityInputRefs.current[item.key] = element; }}
-                              type="number"
-                              value={item.quantity}
-                              onChange={(e) => handleUpdateQuantity(item.key, parseInt(e.target.value) || 0)}
-                              className="w-20"
-                              min="1"
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              value={item.unit_cost}
-                              onChange={(e) => handleUpdateUnitCost(item.key, parseFloat(e.target.value) || 0)}
-                              className="w-28"
-                              min="0"
-                              step="0.01"
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              value={item.selling_price ?? 0}
-                              onChange={(e) => setItems((prev) => prev.map((current) => current.key === item.key ? { ...current, selling_price: parseFloat(e.target.value) || 0 } : current))}
-                              className="w-28"
-                              min="0"
-                              step="0.01"
-                            />
-                          </td>
-                          <td className="p-3 font-medium">
-                            ₪{(item.quantity * item.unit_cost).toFixed(2)}
-                          </td>
-                          <td className="p-3">
-                            <div className="flex gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  const input = quantityInputRefs.current[item.key];
-                                  input?.focus();
-                                  input?.select();
-                                }}
-                                className="text-blue-600 hover:text-blue-700"
-                                title="تعديل العنصر"
-                                aria-label={`تعديل ${item.product_name}`}
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleRemoveItem(item.key)}
-                                className="text-red-600 hover:text-red-700"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
+            </div>
           )}
 
-          {/* Notes */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-cyan" />
-                ملاحظات
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={4}
-                placeholder="ملاحظات على طلب الشراء..."
-                className="w-full px-4 py-3 border border-border rounded-xl focus:ring-2 focus:ring-cyan/30 focus:border-cyan/50 transition-all"
-              />
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Right Column - Summary and Actions */}
-        <div className="space-y-6">
-          {/* Quick Stats */}
-          <Card className="border-cyan/30 bg-cyan/5">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="w-5 h-5 text-cyan" />
-                ملخص الطلب
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-text-muted">عدد العناصر</span>
-                <span className="font-semibold">{items.length}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-text-muted">إجمالي القطع</span>
-                <span className="font-semibold">{totalQuantity}</span>
-              </div>
-              <div className="border-t border-border pt-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-text-muted">إجمالي التكلفة</span>
-                  <span className="text-2xl font-bold text-cyan">₪{totalCost.toFixed(2)}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-emerald-200 bg-emerald-50/40">
-            <CardHeader>
-              <CardTitle>المدفوعات</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-text-muted">المدفوع</span>
-                <span className="font-semibold">₪{Number(purchaseRecord?.paid_amount || 0).toLocaleString('en-US')}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-text-muted">المتبقي</span>
-                <span className="font-semibold">₪{purchaseRemaining.toLocaleString('en-US')}</span>
-              </div>
-              <Input
-                type="number"
-                min="0.01"
-                max={purchaseRemaining}
-                step="0.01"
-                value={paymentAmount}
-                onChange={(event) => setPaymentAmount(event.target.value)}
-                placeholder="مبلغ الدفعة"
-                disabled={purchaseRemaining <= 0 || paymentMutation.isPending}
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                className="w-full"
-                onClick={() => paymentMutation.mutate(Number(paymentAmount))}
-                disabled={!Number(paymentAmount) || Number(paymentAmount) <= 0 || Number(paymentAmount) > purchaseRemaining || paymentMutation.isPending}
-              >
-                {paymentMutation.isPending ? 'جاري تسجيل الدفعة...' : 'تسجيل الدفعة'}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Receive Immediately */}
-          <Card className="border-green-30 bg-green-5">
-            <CardContent className="p-4">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={receiveImmediately}
-                  onChange={(e) => setReceiveImmediately(e.target.checked)}
-                  className="w-5 h-5 rounded border-gray-300 text-green focus:ring-green"
-                />
-                <div>
-                  <div className="font-medium flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-green" />
-                    استلام مباشر
-                  </div>
-                  <div className="text-sm text-text-muted">
-                    عند التفعيل، سيتم استلام البضاعة وإنشاء عناصر المخزون تلقائياً
-                  </div>
-                </div>
-              </label>
-            </CardContent>
-          </Card>
-
-          {/* Actions */}
-          <Card>
-            <CardContent className="p-4 space-y-3">
-              <Button
-                variant="primary"
-                onClick={handleUpdatePurchase}
-                disabled={isSubmitting}
-                className="w-full gap-2"
-                size="lg"
-              >
-                {isSubmitting ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                    جاري التحديث...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    {receiveImmediately ? 'تحديث واستلام' : 'تحديث الشراء'}
-                  </>
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full min-w-[920px] text-sm">
+              <thead className="bg-surface/40 text-text-muted">
+                <tr>
+                  <th className="px-3 py-2 text-right font-medium">المنتج</th>
+                  <th className="w-24 px-2 py-2 text-right font-medium">الكمية</th>
+                  <th className="w-32 px-2 py-2 text-right font-medium">تكلفة الوحدة</th>
+                  <th className="w-32 px-2 py-2 text-right font-medium">سعر البيع</th>
+                  <th className="w-32 px-2 py-2 text-right font-medium">الحالة</th>
+                  <th className="w-40 px-2 py-2 text-right font-medium">التصنيف</th>
+                  <th className="w-28 px-2 py-2 text-right font-medium">الإجمالي</th>
+                  <th className="w-14 px-2 py-2 text-center font-medium">حذف</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item, index) => (
+                  <tr key={item.key} className="border-t border-border">
+                    <td className="max-w-[260px] px-3 py-2">
+                      <span className="block truncate font-medium" title={item.product_name}>{item.product_name}</span>
+                      <span className="block truncate text-xs text-text-muted" title={item.product_id}>{item.product_id}</span>
+                    </td>
+                    <td className="px-2 py-2">
+                      <Input
+                        ref={(element) => { quantityInputRefs.current[item.key] = element; }}
+                        type="number"
+                        min="1"
+                        step="1"
+                        size="sm"
+                        value={item.quantity}
+                        aria-label={'كمية ' + item.product_name}
+                        onChange={(event) => {
+                          const value = Number.parseInt(event.target.value, 10);
+                          if (Number.isInteger(value) && value > 0) handleUpdateQuantity(item.key, value);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            const next = unitCostInputRefs.current[item.key];
+                            next?.focus();
+                            next?.select();
+                          }
+                        }}
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Input
+                        ref={(element) => { unitCostInputRefs.current[item.key] = element; }}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        size="sm"
+                        value={item.unit_cost}
+                        aria-label={'تكلفة ' + item.product_name}
+                        onChange={(event) => handleUpdateUnitCost(item.key, Number.parseFloat(event.target.value) || 0)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            const next = sellingPriceInputRefs.current[item.key];
+                            next?.focus();
+                            next?.select();
+                          }
+                        }}
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Input
+                        ref={(element) => { sellingPriceInputRefs.current[item.key] = element; }}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        size="sm"
+                        value={item.selling_price ?? 0}
+                        aria-label={'سعر بيع ' + item.product_name}
+                        onChange={(event) => setItems((previous) => previous.map((current) => current.key === item.key ? { ...current, selling_price: Number.parseFloat(event.target.value) || 0 } : current))}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            const nextItem = items[index + 1];
+                            if (nextItem) {
+                              const next = quantityInputRefs.current[nextItem.key];
+                              next?.focus();
+                              next?.select();
+                            } else {
+                              barcodeInputRef.current?.focus();
+                            }
+                          }
+                        }}
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Select
+                        value={item.condition}
+                        onChange={(event) => handleUpdateCondition(item.key, event.target.value as 'new' | 'used' | 'refurbished')}
+                        options={[
+                          { value: 'new', label: 'جديد' },
+                          { value: 'used', label: 'مستعمل' },
+                          { value: 'refurbished', label: 'مجدد' },
+                        ]}
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <Select
+                        value={item.category_id ?? ''}
+                        onChange={(event) => setItems((previous) => previous.map((current) => current.key === item.key ? { ...current, category_id: event.target.value } : current))}
+                        options={[
+                          { value: '', label: 'بدون تصنيف' },
+                          ...categories.map((category) => ({ value: category.id, label: category.name })),
+                        ]}
+                      />
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-2 font-semibold">₪{(item.quantity * item.unit_cost).toFixed(2)}</td>
+                    <td className="px-2 py-2 text-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemoveItem(item.key)}
+                        aria-label={'حذف ' + item.product_name + ' من الشراء'}
+                        title="حذف الصنف من الفاتورة"
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {items.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-10 text-center text-sm text-text-muted">
+                      امسح باركود منتج أو ابحث عنه لإضافته إلى الفاتورة.
+                    </td>
+                  </tr>
                 )}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => navigate('/app/purchases')}
-                className="w-full"
-              >
-                إلغاء
-              </Button>
-            </CardContent>
-          </Card>
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
-          {/* Supplier Info */}
-          {selectedSupplier && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <Truck className="w-4 h-4 text-cyan" />
-                  معلومات المورد
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {(() => {
-                  const supplier = suppliers.find(s => s.id === selectedSupplier);
-                  if (!supplier) return null;
-                  return (
-                    <div className="space-y-2 text-sm">
-                      <div><span className="text-text-muted">الاسم:</span> {supplier.name}</div>
-                      {supplier.phone && <div><span className="text-text-muted">الهاتف:</span> {supplier.phone}</div>}
-                      {supplier.email && <div><span className="text-text-muted">البريد:</span> {supplier.email}</div>}
-                      {supplier.address && <div><span className="text-text-muted">العنوان:</span> {supplier.address}</div>}
-                    </div>
-                  );
-                })()}
-              </CardContent>
-            </Card>
-          )}
-        </div>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)]">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileText className="h-4 w-4 text-cyan" />
+              ملاحظات
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              rows={2}
+              placeholder="ملاحظات على طلب الشراء..."
+              className="w-full rounded-xl border border-border bg-[var(--input-bg)] px-3 py-2 text-sm text-text focus:border-cyan/50 focus:outline-none focus:ring-2 focus:ring-cyan/20"
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="border-cyan/30 bg-cyan/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Package className="h-4 w-4 text-cyan" />
+              إجمالي الفاتورة
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-3 gap-2 pt-0 text-center">
+            <div>
+              <p className="text-xs text-text-muted">الأصناف</p>
+              <p className="font-semibold">{items.length}</p>
+            </div>
+            <div>
+              <p className="text-xs text-text-muted">القطع</p>
+              <p className="font-semibold">{totalQuantity}</p>
+            </div>
+            <div>
+              <p className="text-xs text-text-muted">قيمة العناصر</p>
+              <p className="font-bold text-cyan">₪{totalCost.toFixed(2)}</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <DollarSign className="h-4 w-4 text-cyan" />
+            الدفعات المسجلة
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 pt-0">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <div className="rounded-lg bg-surface/40 px-3 py-2">
+              <span className="block text-xs text-text-muted">إجمالي الفاتورة المحفوظ</span>
+              <span className="font-semibold">₪{purchaseTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+            <div className="rounded-lg bg-surface/40 px-3 py-2">
+              <span className="block text-xs text-text-muted">المدفوع</span>
+              <span className="font-semibold">₪{purchasePaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+            <div className="rounded-lg bg-surface/40 px-3 py-2">
+              <span className="block text-xs text-text-muted">المتبقي</span>
+              <span className="font-semibold">₪{purchaseRemaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              type="number"
+              min="0.01"
+              max={purchaseRemaining}
+              step="0.01"
+              size="sm"
+              value={paymentAmount}
+              onChange={(event) => setPaymentAmount(event.target.value)}
+              placeholder="مبلغ الدفعة"
+              aria-label="مبلغ الدفعة"
+              disabled={purchaseRemaining <= 0 || purchaseHasUnsavedChanges || paymentMutation.isPending}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              data-next-action
+              className="shrink-0"
+              onClick={() => paymentMutation.mutate(Number(paymentAmount))}
+              disabled={!Number(paymentAmount) || Number(paymentAmount) <= 0 || Number(paymentAmount) > purchaseRemaining || purchaseHasUnsavedChanges || paymentMutation.isPending}
+            >
+              {paymentMutation.isPending ? 'جاري تسجيل الدفعة...' : 'تسجيل الدفعة'}
+            </Button>
+          </div>
+          {purchaseHasUnsavedChanges && (
+            <p className="text-xs text-amber-700 dark:text-amber-300" role="status">
+              احفظ تعديلات الفاتورة أولًا ليُحدّث الرصيد قبل تسجيل الدفعة.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="sticky bottom-2 z-20 flex flex-col gap-3 rounded-2xl border border-border bg-[var(--card-bg)] p-3 shadow-lg sm:flex-row sm:items-center sm:justify-between">
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={receiveImmediately}
+            onChange={(event) => setReceiveImmediately(event.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-emerald-600"
+          />
+          <span>
+            <span className="flex items-center gap-1 font-medium">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              استلام مباشر بعد الحفظ
+            </span>
+            <span className="block text-xs text-text-muted">ينشئ عناصر المخزون بعد حفظ الفاتورة.</span>
+          </span>
+        </label>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => navigate('/app/purchases')}>إلغاء</Button>
+          <Button
+            variant="primary"
+            data-next-action
+            onClick={handleUpdatePurchase}
+            disabled={isSubmitting}
+            className="min-w-36 gap-2"
+          >
+            {isSubmitting ? (
+              <>
+                <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-white" />
+                جاري التحديث...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4" />
+                {receiveImmediately ? 'تحديث واستلام' : 'حفظ التعديلات'}
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
       {/* Manual Product Creation Modal */}
       <Modal
         isOpen={isManualProductModalOpen}
@@ -904,6 +877,7 @@ export function EditPurchasePage() {
         title="إضافة قطعة جديدة"
         variant="modern"
         size="lg"
+        className="purchase-manual-product-modal"
       >
         <div className="space-y-4">
           {/* Basic Information */}
@@ -1188,7 +1162,7 @@ export function EditPurchasePage() {
           </div>
 
           {/* Actions */}
-          <div className="flex gap-3 justify-end pt-4">
+          <div className="purchase-manual-product-actions flex gap-3 justify-end pt-4">
             <Button
               variant="secondary"
               onClick={() => setIsManualProductModalOpen(false)}
@@ -1198,6 +1172,7 @@ export function EditPurchasePage() {
             </Button>
             <Button
               variant="primary"
+              data-next-action
               onClick={handleManualProductCreate}
               disabled={createProductMutation.isPending}
               className="gap-2"
@@ -1217,21 +1192,6 @@ export function EditPurchasePage() {
           </div>
         </div>
       </Modal>
-      <ConfirmDialog
-        isOpen={productToDelete !== null}
-        onClose={() => setProductToDelete(null)}
-        onConfirm={() => {
-          if (productToDelete) {
-            deleteProductMutation.mutate(productToDelete.id);
-          }
-          setProductToDelete(null);
-        }}
-        title="حذف المنتج"
-        message="سيُحذف المنتج نهائيًا مع تنظيف المبيعات والمشتريات والمرتجعات المرتبطة به من البطاقات والتقارير. هل تريد المتابعة؟"
-        confirmText="حذف المنتج"
-        isLoading={deleteProductMutation.isPending}
-        variant="danger"
-      />
     </div>
   );
 }

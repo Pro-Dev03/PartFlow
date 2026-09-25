@@ -25,12 +25,14 @@ export function DatabaseSettings() {
 
   const [localApiUrl] = useState(getLocalApiUrl());
   const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [isTestingCloudConnection, setIsTestingCloudConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'unknown' | 'testing' | 'connected' | 'failed'>('unknown');
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [cloudUrl, setCloudUrl] = useState(getCloudApiUrl());
   const [isSavingCloudUrl, setIsSavingCloudUrl] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const isDesktop = typeof window !== 'undefined' && Boolean(window.partflowDesktop);
 
   const createLocalBackup = async () => {
     const backup = window.partflowDesktop?.database?.backup;
@@ -87,10 +89,14 @@ export function DatabaseSettings() {
       toast.error('يجب أن يبدأ رابط الخادم السحابي بـ https://');
       return;
     }
+    if (normalized !== getCloudApiUrl()) {
+      toast.error('رابط API السحابي مثبت على خادم Render المعتمد.');
+      return;
+    }
 
     setIsSavingCloudUrl(true);
     try {
-      const response = await fetch(`${normalized}/health`, { headers: { Accept: 'application/json' } });
+      const response = await fetch(getHealthUrl(normalized), { headers: { Accept: 'application/json' } });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       setCloudApiUrl(normalized);
       setCloudUrl(normalized);
@@ -99,6 +105,19 @@ export function DatabaseSettings() {
       toast.error(`تعذر الاتصال بالخادم السحابي: ${error?.message || 'تحقق من الرابط'}`);
     } finally {
       setIsSavingCloudUrl(false);
+    }
+  };
+
+  const testCloudConnection = async () => {
+    setIsTestingCloudConnection(true);
+    try {
+      const response = await fetch(getHealthUrl(getCloudApiUrl()), { headers: { Accept: 'application/json' } });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      toast.success('اتصال Render السحابي يعمل.');
+    } catch (error: any) {
+      toast.error(`تعذر الاتصال بـ Render: ${error?.message || 'تحقق من الاتصال'}`);
+    } finally {
+      setIsTestingCloudConnection(false);
     }
   };
 
@@ -206,8 +225,8 @@ export function DatabaseSettings() {
   };
 
   useEffect(() => {
-    void testLocalConnection();
-  }, []);
+    if (isDesktop) void testLocalConnection();
+  }, [isDesktop]);
 
   return (
     <div className="space-y-6">
@@ -220,11 +239,11 @@ export function DatabaseSettings() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-gray-600">
-            تسجيل الدخول والتحقق من الاشتراك يتمان عبر الخادم السحابي. عمليات المتجر تُحفظ في قاعدة SQLite المحلية، مع إمكانية المزامنة عبر الخادم السحابي عند الحاجة.
+            تسجيل الدخول والتحقق من الاشتراك وجميع عمليات المتجر تتم عبر Render. قاعدة SQLite على الجهاز نسخة محلية احتياطية فقط.
           </p>
           <div className="flex items-center justify-between gap-3 pt-2">
             <p className="text-xs text-gray-500">
-              قاعدة البيانات التشغيلية: SQLite محلية
+              API السحابي: <span dir="ltr" className="font-mono">{getCloudApiUrl()}</span>
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -235,28 +254,35 @@ export function DatabaseSettings() {
               >
                 {validateSubscriptionMutation.isPending ? 'جارِ التحقق...' : 'تحقق من الاشتراك'}
               </Button>
-              <Button
-                variant="secondary"
-                className="min-h-10"
-                onClick={() => syncMutation.mutate()}
-                disabled={syncMutation.isPending || typeof navigator !== 'undefined' && !navigator.onLine}
-              >
-                {syncMutation.isPending ? 'جارِ المزامنة...' : 'مزامنة سحابية الآن'}
+              <Button variant="secondary" className="min-h-10" onClick={() => void testCloudConnection()} disabled={isTestingCloudConnection}>
+                {isTestingCloudConnection ? 'جارِ فحص Render...' : 'فحص اتصال Render'}
               </Button>
-              <Button
-                variant="secondary"
-                className="min-h-10"
-                onClick={() => pushSyncMutation.mutate()}
-                disabled={pushSyncMutation.isPending || typeof navigator !== 'undefined' && !navigator.onLine}
-              >
-                {pushSyncMutation.isPending ? 'جارِ رفع التغييرات...' : 'رفع التغييرات المحلية'}
-              </Button>
+              {isDesktop && (
+                <>
+                  <Button
+                    variant="secondary"
+                    className="min-h-10"
+                    onClick={() => syncMutation.mutate()}
+                    disabled={syncMutation.isPending || typeof navigator !== 'undefined' && !navigator.onLine}
+                  >
+                    {syncMutation.isPending ? 'جارِ التنزيل...' : 'تنزيل نسخة SQLite'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="min-h-10"
+                    onClick={() => pushSyncMutation.mutate()}
+                    disabled={pushSyncMutation.isPending || typeof navigator !== 'undefined' && !navigator.onLine}
+                  >
+                    {pushSyncMutation.isPending ? 'جارِ رفع الاستيراد...' : 'استيراد سجلات قديمة (مسؤول فقط)'}
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {(
+      {isDesktop && (
         <Card className="border-amber-200 bg-amber-50/50">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
@@ -266,7 +292,7 @@ export function DatabaseSettings() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-gray-600">
-              يتم تخزين البيانات محلياً على جهازك في SQLite. يمكن التحقق والمزامنة مع الخادم السحابي عند الحاجة.
+              قاعدة SQLite تخص هذا الجهاز وتُستخدم للنسخ الاحتياطي المحلي. عمليات المتجر الجديدة تعتمد على Render.
             </p>
 
             <div className="rounded-lg bg-white p-3 border border-amber-200">
@@ -413,13 +439,15 @@ export function DatabaseSettings() {
                     >
                       {deleteCloudDataMutation.isPending ? 'جارِ الحذف...' : 'حذف نهائي من السحابة'}
                     </Button>
-                    <Button
-                      variant="destructive"
-                      onClick={() => deleteLocalDataMutation.mutate()}
-                      disabled={confirmationText !== 'DELETE ALL DATA' || deleteCloudDataMutation.isPending || deleteLocalDataMutation.isPending}
-                    >
-                      {deleteLocalDataMutation.isPending ? 'جارِ الحذف...' : 'حذف نهائي من SQLite المحلية'}
-                    </Button>
+                    {isDesktop && (
+                      <Button
+                        variant="destructive"
+                        onClick={() => deleteLocalDataMutation.mutate()}
+                        disabled={confirmationText !== 'DELETE ALL DATA' || deleteCloudDataMutation.isPending || deleteLocalDataMutation.isPending}
+                      >
+                        {deleteLocalDataMutation.isPending ? 'جارِ الحذف...' : 'حذف نهائي من SQLite المحلية'}
+                      </Button>
+                    )}
                     <Button
                       variant="secondary"
                       onClick={() => {

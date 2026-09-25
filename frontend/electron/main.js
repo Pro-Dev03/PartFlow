@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, Tray, Menu, nativeImage, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, shell, Tray, Menu, nativeImage, ipcMain, dialog, protocol, net } from 'electron';
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,6 +7,21 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const isDev = !app.isPackaged;
+
+// A standard secure origin lets the desktop app use an exact CORS allowlist.
+// Serving the renderer as file:// would give it the opaque "null" origin,
+// which is also available to sandboxed web content and must not be trusted.
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'partflow',
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    corsEnabled: true,
+    allowServiceWorkers: true,
+    codeCache: true,
+  },
+}]);
 
 // PartFlow is a data-management desktop app and does not require GPU
 // acceleration. Disabling it before the app is ready avoids a hard Electron
@@ -141,16 +156,6 @@ function getCategoryImagesPath() {
 
 function getBackendLogPath() {
   return getUserDataPath('logs', 'backend.log');
-}
-
-function getOfflineGrantPublicKey() {
-  const fromEnvironment = String(process.env.PARTFLOW_OFFLINE_GRANT_PUBLIC_KEY || '').trim();
-  if (fromEnvironment) return fromEnvironment;
-  try {
-    return fs.readFileSync(getUserDataPath('offline-grant-public-key.txt'), 'utf8').trim();
-  } catch {
-    return '';
-  }
 }
 
 function appendBackendLog(message) {
@@ -745,7 +750,6 @@ async function startBackend() {
       DB_CONNECTION_MODE: 'local',
       PARTFLOW_REQUIRE_CLOUD_AUTH: 'true',
       PARTFLOW_CLOUD_API_URL: 'https://partflow-api.onrender.com/api/v1',
-      PARTFLOW_OFFLINE_GRANT_PUBLIC_KEY: getOfflineGrantPublicKey(),
       PARTFLOW_LOCAL_DB_PATH: getLocalDatabasePath(),
     };
     appState.backendEnv = backendEnv;
@@ -991,7 +995,7 @@ function createWindow() {
 
   const loadRenderer = isDev
     ? mainWindow.loadURL('http://localhost:5174')
-    : mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    : mainWindow.loadURL('partflow://app/');
 
   loadRenderer.catch(() => {
     console.error('Failed to load PartFlow desktop app.');
@@ -1065,6 +1069,38 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
+  if (!isDev) {
+    const rendererRoot = path.resolve(__dirname, '..', 'dist');
+    protocol.handle('partflow', async (request) => {
+      const requestURL = new URL(request.url);
+      if (requestURL.host !== 'app') {
+        return new Response('Not found', { status: 404 });
+      }
+
+      let requestPath;
+      try {
+        requestPath = decodeURIComponent(requestURL.pathname);
+      } catch {
+        return new Response('Bad path', { status: 400 });
+      }
+      if (!requestPath || requestPath === '/') requestPath = '/index.html';
+
+      const assetPath = path.resolve(rendererRoot, `.${requestPath}`);
+      const relativePath = path.relative(rendererRoot, assetPath);
+      if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+        return new Response('Bad path', { status: 400 });
+      }
+
+      try {
+        const stats = await fs.promises.stat(assetPath);
+        if (!stats.isFile()) return new Response('Not found', { status: 404 });
+      } catch {
+        return new Response('Not found', { status: 404 });
+      }
+
+      return net.fetch(pathToFileURL(assetPath).toString());
+    });
+  }
   await fs.promises.mkdir(getProductImagesPath(), { recursive: true });
   while (true) {
     try {

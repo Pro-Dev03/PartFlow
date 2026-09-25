@@ -3,6 +3,7 @@ package purchases
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -548,6 +549,16 @@ func TestPurchaseLifecycleSupplierBalanceAndReturnLedgerSQLite(t *testing.T) {
 	}
 	if full.Purchase.PaidAmount != 300 || full.Remaining != 0 {
 		t.Fatalf("full payment projection = paid %.2f remaining %.2f, want 300/0", full.Purchase.PaidAmount, full.Remaining)
+	}
+	if _, err := purchaseSvc.AddPayment(ctx, response.Purchase.ID, userID, 0.01, "cash"); !errors.Is(err, ErrPaymentExceedsTotal) {
+		t.Fatalf("overpayment error = %v, want %v", err, ErrPaymentExceedsTotal)
+	}
+	var paymentCount int
+	if err := xdb.Get(&paymentCount, `SELECT COUNT(*) FROM payments WHERE purchase_id = ?`, response.Purchase.ID); err != nil {
+		t.Fatalf("read payments after rejected overpayment: %v", err)
+	}
+	if paymentCount != 2 {
+		t.Fatalf("rejected overpayment created a payment: count=%d, want 2", paymentCount)
 	}
 	if _, err := purchaseSvc.ReceivePurchase(ctx, response.Purchase.ID, userID); err != nil {
 		t.Fatalf("receive purchase: %v", err)

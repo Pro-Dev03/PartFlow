@@ -8,6 +8,7 @@ import { clearBarcodeLookupFields, lookupProductByBarcode } from '../../../lib/p
 import { createProductCsvTemplate, parseProductCsv } from '../utils/productCsvImport';
 import { inventoryApi } from '../../../services/api/endpoints';
 import { Check, Download, Minus, Plus, Search, Tag, Trash2, Upload, X } from 'lucide-react';
+import './bulk-product-import.css';
 
 interface BulkProductImportModalProps {
   isOpen: boolean;
@@ -147,8 +148,8 @@ export function BulkProductImportModal({ isOpen, onClose, onImported }: BulkProd
     URL.revokeObjectURL(url);
   };
 
-  const parseRows = () => {
-    return rows
+  const parseRows = (sourceRows: BulkProductRow[] = rows) => {
+    return sourceRows
       .filter((row) => row.name.trim() || row.barcode || row.costPrice || row.sellingPrice)
       .map((row) => {
         const name = row.name.trim();
@@ -171,7 +172,8 @@ export function BulkProductImportModal({ isOpen, onClose, onImported }: BulkProd
   };
 
   const handleImport = async () => {
-    const items = parseRows();
+    const rowsForImport = rows.filter((row) => row.name.trim() || row.barcode || row.costPrice || row.sellingPrice);
+    const items = parseRows(rowsForImport);
     if (!categoryId) {
       toast.error('يرجى اختيار تصنيف أولاً');
       return;
@@ -191,19 +193,42 @@ export function BulkProductImportModal({ isOpen, onClose, onImported }: BulkProd
     try {
       const response = await productsApi.bulkCreate({ items });
       const payload = response?.data ?? response;
-      const createdProducts = payload?.created ?? [];
-      const created = payload?.created_count ?? createdProducts.length ?? 0;
-      const failed = payload?.failed ?? [];
-      const quantitiesByBarcode = new Map(items.map((item) => [item.barcode, item.quantity]));
-      await Promise.all(createdProducts.map((product: { id?: string; barcode?: string }) => {
-        const quantity = quantitiesByBarcode.get(product.barcode || '') ?? 0;
-        if (!product.id || quantity <= 0) return Promise.resolve();
-        return inventoryApi.adjustProductQuantity(product.id, quantity, 'bulk product import');
-      }));
+      const createdProducts: Array<{ id?: string }> = Array.isArray(payload?.created) ? payload.created : [];
+      const created = Number(payload?.created_count ?? createdProducts.length) || 0;
+      const failed: Array<{ index?: number }> = Array.isArray(payload?.failed) ? payload.failed : [];
+      const failedIndexes = new Set(failed
+        .map((failure) => Number(failure.index))
+        .filter((index) => Number.isInteger(index) && index >= 0 && index < items.length));
+      const successfulItems = items.filter((_, index) => !failedIndexes.has(index));
+      const responseMappingIsValid = successfulItems.length === createdProducts.length;
+      const stockUpdates = responseMappingIsValid
+        ? createdProducts.map((product, index) => {
+            const quantity = successfulItems[index]?.quantity ?? 0;
+            if (!product.id || quantity <= 0) return Promise.resolve();
+            return inventoryApi.adjustProductQuantity(product.id, quantity, 'bulk product import');
+          })
+        : [];
+      const stockUpdateResults = await Promise.allSettled(stockUpdates);
+      const failedStockUpdates = stockUpdateResults.filter((result) => result.status === 'rejected').length;
+      const hasUnmappedRejectedRows = failed.length !== failedIndexes.size;
+      const rowsToRetry = hasUnmappedRejectedRows
+        ? rowsForImport
+        : Array.from(failedIndexes, (index) => rowsForImport[index]).filter(Boolean);
       if (failed.length > 0) {
         toast.error(`تمت إضافة ${created} منتج، ورفضت ${failed.length} صفوف بسبب بيانات غير صالغة.`);
       } else {
         toast.success(`تمت إضافة ${created} منتج بنجاح`);
+      }
+      if (failed.length > 0) {
+        setRows(rowsToRetry.length > 0 ? rowsToRetry : rowsForImport);
+        if (created > 0) onImported?.();
+        if (failedStockUpdates > 0 || !responseMappingIsValid) {
+          toast.error('تم إنشاء المنتجات، لكن تعذر تحديث كمية المخزون لبعضها. راجع الكميات في صفحة المخزون.');
+        }
+        return;
+      }
+      if (failedStockUpdates > 0 || !responseMappingIsValid) {
+        toast.error('تم إنشاء المنتجات، لكن تعذر تحديث كمية المخزون لبعضها. راجع الكميات في صفحة المخزون.');
       }
       onImported?.();
       onClose();
@@ -218,8 +243,8 @@ export function BulkProductImportModal({ isOpen, onClose, onImported }: BulkProd
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="إضافة منتجات متعددة" size="xl" variant="modern">
-      <div className="space-y-4" style={{ maxHeight: '72vh', overflowY: 'auto', padding: '2px 4px 4px' }}>
-        <div className="rounded-2xl border border-primary/15 bg-gradient-to-l from-primary/10 via-white to-white px-5 py-4" style={{ boxShadow: '0 8px 24px rgba(15, 23, 42, 0.05)' }}>
+      <div className="bulk-product-import-content space-y-4" style={{ padding: '2px 4px 4px' }}>
+        <div className="bulk-product-import-intro rounded-2xl border border-primary/15 px-5 py-4">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-semibold text-text-primary">أضف مخزونك دفعة واحدة</p>
@@ -250,7 +275,7 @@ export function BulkProductImportModal({ isOpen, onClose, onImported }: BulkProd
 
         <div className="space-y-3">
           {rows.map((row, index) => (
-            <div key={row.id} className="rounded-2xl border border-border bg-white p-4 shadow-sm transition-shadow hover:shadow-md" style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1.35fr) minmax(160px, 1.15fr) minmax(105px, 0.9fr) minmax(105px, 0.9fr) minmax(110px, 0.8fr) auto', gap: '12px', alignItems: 'center', borderInlineStart: '4px solid rgba(37, 99, 235, 0.25)' }}>
+            <div key={row.id} className="bulk-product-import-row rounded-2xl border border-border p-4 shadow-sm transition-shadow hover:shadow-md">
               <div className="contents">
                 <span className="sr-only">المنتج {index + 1}</span>
               <input
@@ -336,7 +361,7 @@ export function BulkProductImportModal({ isOpen, onClose, onImported }: BulkProd
                   onClick={() => updateRow(row.id, 'quantity', String(Number(row.quantity || 0) + 1))}
                 ><Plus size={15} /></button>
               </div>
-              <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'minmax(150px, 0.8fr) minmax(220px, 1.2fr)', gap: 12, paddingTop: 4, borderTop: '1px solid #f1f5f9' }}>
+              <div className="bulk-import-meta">
                 <label className="flex items-center gap-2 text-xs text-text-secondary">
                   الحد الأدنى
                   <input

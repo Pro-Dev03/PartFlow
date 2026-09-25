@@ -80,7 +80,8 @@ func (s *Service) UpdateUser(ctx context.Context, id uuid.UUID, email, passwordH
 	if email != "" {
 		user.Email = email
 	}
-	if passwordHash != "" {
+	passwordChanged := passwordHash != ""
+	if passwordChanged {
 		user.PasswordHash = passwordHash
 	}
 	if firstName != "" {
@@ -94,15 +95,14 @@ func (s *Service) UpdateUser(ctx context.Context, id uuid.UUID, email, passwordH
 	user.IsActive = isActive
 	user.UpdatedAt = time.Now()
 
-	if err := s.repo.Update(ctx, user); err != nil {
+	if passwordChanged || !user.IsActive {
+		err = s.repo.UpdateAndRevokeRefreshTokens(ctx, user)
+	} else {
+		err = s.repo.Update(ctx, user)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("failed to update user: %w", err)
 	}
-	if !user.IsActive {
-		if err := s.repo.RevokeRefreshTokens(ctx, id); err != nil {
-			return nil, fmt.Errorf("failed to revoke disabled user's sessions: %w", err)
-		}
-	}
-
 	return user, nil
 }
 
@@ -119,18 +119,17 @@ func (s *Service) UpdateSubscription(ctx context.Context, id uuid.UUID, status s
 	}
 	user.SubscriptionExpiresAt = expiresAt
 	user.UpdatedAt = time.Now().UTC()
-	if err := s.repo.Update(ctx, user); err != nil {
-		return nil, fmt.Errorf("failed to update subscription: %w", err)
-	}
 	normalizedStatus := strings.ToLower(strings.TrimSpace(status))
 	accessBlocked := normalizedStatus != "active" && normalizedStatus != "trial"
 	if expiresAt != nil && !time.Now().UTC().Before(expiresAt.UTC()) {
 		accessBlocked = true
 	}
 	if accessBlocked {
-		if err := s.repo.RevokeRefreshTokens(ctx, id); err != nil {
-			return nil, fmt.Errorf("failed to revoke suspended subscriber sessions: %w", err)
+		if err := s.repo.UpdateAndRevokeRefreshTokens(ctx, user); err != nil {
+			return nil, fmt.Errorf("failed to suspend subscriber and revoke sessions: %w", err)
 		}
+	} else if err := s.repo.Update(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to update subscription: %w", err)
 	}
 	return user, nil
 }
@@ -222,7 +221,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, currentP
 	}
 
 	if err := s.repo.UpdatePassword(ctx, userID, string(hashedPassword)); err != nil {
-		return fmt.Errorf("failed to update password: %w", err)
+		return fmt.Errorf("failed to update password and revoke sessions: %w", err)
 	}
 
 	return nil

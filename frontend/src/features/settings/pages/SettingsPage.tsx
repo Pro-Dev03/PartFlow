@@ -234,7 +234,7 @@ export function SettingsPage() {
               <div className="settings-card-stack">
                 <StoreSettings />
                 <RegionalSettings canManageRegionalSettings={isActiveSubscription} />
-                {isActiveSubscription && <SubscriberSyncSettings />}
+                {isActiveSubscription && <SubscriberSyncSettings canUpload={isAdmin} />}
               </div>
             )}
             {activeTab === 'financial' && <FinancialSettings />}

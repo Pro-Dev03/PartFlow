@@ -24,6 +24,14 @@ import {
 } from 'lucide-react';
 import { formatDateTime } from '../../../utils/format';
 
+const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+})[character] || character);
+
 const returnReasonLabels: Record<string, string> = {
   DAMAGED: 'منتج تالف',
   DEFECTIVE: 'منتج معيب',
@@ -75,13 +83,13 @@ export function SupplierReturnsPage() {
   const availableQuantity = Number(selectedItem?.available_for_return || 0);
   const createMutation = useMutation({
     mutationFn: async () => {
-      const created = await supplierReturnsApi.create({ purchase_id: purchaseId, reason, notes });
-      const returnId = created?.data?.id || created?.id;
-      await supplierReturnsApi.addItem(returnId, {
+      return supplierReturnsApi.create({
+        purchase_id: purchaseId,
+        reason,
+        notes,
         purchase_item_id: purchaseItemId,
         quantity: Number(quantity),
       });
-      return created;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['supplier-returns'] });
@@ -144,17 +152,17 @@ export function SupplierReturnsPage() {
   const printReturn = (item: any) => {
     const returnItem = item.items?.[0] || item.item;
     void printHtmlDocument(`
-      <html dir="rtl" lang="ar"><head><title>مرتجع مورد ${item.return_number}</title>
+      <html dir="rtl" lang="ar"><head><title>مرتجع مورد ${escapeHtml(item.return_number)}</title>
       <style>body{font-family:Arial,sans-serif;padding:32px;color:#111}h1{margin-bottom:24px}p{margin:10px 0}.line{border-bottom:1px solid #ddd;padding:12px 0}</style>
       </head><body>
       <h1>طلب مرتجع مورد</h1>
-      <p><strong>رقم المرتجع:</strong> ${item.return_number}</p>
-      <p><strong>رقم الشراء:</strong> ${item.purchase_id}</p>
-      <p><strong>الحالة:</strong> ${item.status}</p>
-      <p><strong>السبب:</strong> ${item.reason}</p>
-      ${returnItem ? `<p><strong>الصنف:</strong> ${returnItem.product_name || returnItem.product?.name || '-'} | الكمية: ${returnItem.quantity || 0} | تكلفة الوحدة: ₪${Number(returnItem.unit_cost || 0).toLocaleString('en-US')}</p>` : ''}
+      <p><strong>رقم المرتجع:</strong> ${escapeHtml(item.return_number)}</p>
+      <p><strong>رقم الشراء:</strong> ${escapeHtml(item.purchase_id)}</p>
+      <p><strong>الحالة:</strong> ${escapeHtml(item.status)}</p>
+      <p><strong>السبب:</strong> ${escapeHtml(item.reason)}</p>
+      ${returnItem ? `<p><strong>الصنف:</strong> ${escapeHtml(returnItem.product_name || returnItem.product?.name || '-')} | الكمية: ${Number(returnItem.quantity || 0)} | تكلفة الوحدة: ₪${Number(returnItem.unit_cost || 0).toLocaleString('en-US')}</p>` : ''}
       <p><strong>قيمة الاسترداد:</strong> ₪${Number(item.refund_amount || 0).toLocaleString('en-US')}</p>
-      <p class="line"><strong>ملاحظة:</strong> ${item.notes || '-'}</p>
+      <p class="line"><strong>ملاحظة:</strong> ${escapeHtml(item.notes || '-')}</p>
       </body></html>
     `).catch(() => toast.error('تعذر فتح نافذة الطباعة'));
   };

@@ -123,6 +123,8 @@ export interface CustomerUpdateRequest extends Partial<CustomerCreateRequest> {}
 
 export interface CustomerListParams extends PaginationParams {
   search?: string;
+  sort_by?: 'name' | 'total_purchases';
+  sort_order?: 'asc' | 'desc';
 }
 
 // Supplier Types
@@ -198,7 +200,9 @@ export interface OpeningStockCreateRequest {
   notes?: string;
 }
 
-export interface InventoryUpdateRequest extends Partial<InventoryCreateRequest> {}
+export interface InventoryUpdateRequest extends Partial<InventoryCreateRequest> {
+  barcode?: string;
+}
 
 export interface InventoryListParams extends PaginationParams {
   search?: string;
@@ -299,6 +303,12 @@ export interface DebtPayment {
   amount: number;
   payment_method: 'cash' | 'card' | 'transfer';
   notes?: string;
+}
+
+export interface CustomerDebtPaymentRequest {
+  amount: number;
+  method: 'cash' | 'credit' | 'bank_transfer' | 'check';
+  reference?: string;
 }
 
 export interface PaymentCreateRequest {

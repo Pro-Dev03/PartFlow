@@ -484,11 +484,6 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
       return;
     }
 
-    // Debug logging (can be removed in production)
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Sending purchase data:', JSON.stringify(formData, null, 2));
-    }
-
     createPurchaseMutation.mutate(formData, {
       onSuccess: async (response) => {
         let latestResponse = response;
@@ -621,6 +616,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
       <div
         key={currentStep}
         className="space-y-5 pb-2"
+        data-next-disabled
         onKeyDown={(event) => {
           if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
           const target = event.target as HTMLElement;

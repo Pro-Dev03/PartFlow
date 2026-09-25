@@ -137,6 +137,21 @@ func TestPurchaseUpdateSynchronizesItemsInventorySupplierAndLedgerSQLite(t *test
 	assertSupplierBalance(t, db, supplierOne, 140)
 	assertSupplierBalance(t, db, supplierTwo, 0)
 
+	_, err = service.UpdatePurchase(ctx, created.Purchase.ID, &PurchaseUpdateRequest{Items: []PurchaseItemRequest{{
+		ID: &productOneItemID, ProductID: productOne, Quantity: 2, UnitCost: 40, SellingPrice: 240, Condition: "new",
+	}}})
+	if err != ErrPaymentExceedsTotal {
+		t.Fatalf("expected update below paid amount to fail with ErrPaymentExceedsTotal, got %v", err)
+	}
+	unchangedPaidPurchase, err := service.GetPurchase(ctx, created.Purchase.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchangedPaidPurchase.Purchase.TotalAmount != 240 || unchangedPaidPurchase.Purchase.PaidAmount != 100 || unchangedPaidPurchase.Items[0].UnitCost != 120 {
+		t.Fatalf("rejected edit changed paid purchase: total=%v paid=%v unit_cost=%v", unchangedPaidPurchase.Purchase.TotalAmount, unchangedPaidPurchase.Purchase.PaidAmount, unchangedPaidPurchase.Items[0].UnitCost)
+	}
+	assertSupplierBalance(t, db, supplierOne, 140)
+
 	if _, err := db.Exec(`UPDATE inventory_items SET status = 'SOLD' WHERE product_id = ?`, productOne); err != nil {
 		t.Fatal(err)
 	}
@@ -163,5 +178,80 @@ func assertSupplierBalance(t *testing.T, db *sqlx.DB, supplierID uuid.UUID, want
 	}
 	if got != want {
 		t.Fatalf("supplier %s balance=%v, want %v", supplierID, got, want)
+	}
+}
+
+func TestCancelPurchaseReversesSupplierBalanceAndBlocksPaidOrReceivedPurchases(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "purchase-cancel.sqlite"))
+	local, err := localdb.Open()
+	if err != nil {
+		t.Fatalf("open local database: %v", err)
+	}
+	defer local.DB.Close()
+	db := sqlx.NewDb(local.DB, "sqlite")
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	supplierID, productID := uuid.New(), uuid.New()
+	if _, err := db.Exec(`INSERT INTO suppliers (id,code,name,current_balance,is_active,created_at,updated_at) VALUES (?,?,?,?,1,?,?)`, supplierID, "SUP-CANCEL", "Supplier Cancel", 0, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO products (id,sku,name,cost_price,selling_price,is_active,created_at,updated_at) VALUES (?,?,?,0,200,1,?,?)`, productID, "PUR-CANCEL", "Product Cancel", now, now); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(NewRepository(db), db)
+	createPurchase := func(invoice string) *PurchaseResponse {
+		t.Helper()
+		created, err := service.CreatePurchase(ctx, uuid.Nil, &PurchaseRequest{
+			SupplierID: supplierID, InvoiceNumber: invoice, PurchaseDate: time.Now().UTC(),
+			Items: []PurchaseItemRequest{{ProductID: productID, Quantity: 2, UnitCost: 100, Condition: "new"}},
+		})
+		if err != nil {
+			t.Fatalf("create purchase %s: %v", invoice, err)
+		}
+		return created
+	}
+
+	unpaid := createPurchase("CANCEL-UNPAID")
+	if _, err := service.CancelPurchase(ctx, uuid.Nil, unpaid.Purchase.ID); err != nil {
+		t.Fatalf("cancel unpaid purchase: %v", err)
+	}
+	var ledgerRows int
+	if err := db.Get(&ledgerRows, `SELECT COUNT(*) FROM supplier_ledger WHERE reference_id = ?`, unpaid.Purchase.ID); err != nil {
+		t.Fatal(err)
+	}
+	if ledgerRows != 2 {
+		t.Fatalf("supplier ledger rows = %d, want original debit and cancellation credit", ledgerRows)
+	}
+	assertSupplierBalance(t, db, supplierID, 0)
+
+	paid := createPurchase("CANCEL-PAID")
+	if _, err := service.AddPayment(ctx, paid.Purchase.ID, uuid.Nil, 40, "cash"); err != nil {
+		t.Fatalf("add partial purchase payment: %v", err)
+	}
+	if _, err := service.CancelPurchase(ctx, uuid.Nil, paid.Purchase.ID); err != ErrInvalidPurchaseStatus {
+		t.Fatalf("cancel paid purchase error = %v, want ErrInvalidPurchaseStatus", err)
+	}
+	paidAfter, err := service.GetPurchase(ctx, paid.Purchase.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paidAfter.Purchase.Status != StatusPending || paidAfter.Purchase.PaidAmount != 40 {
+		t.Fatalf("blocked paid purchase changed: status=%s paid=%v", paidAfter.Purchase.Status, paidAfter.Purchase.PaidAmount)
+	}
+	assertSupplierBalance(t, db, supplierID, 160)
+
+	partiallyReceived := createPurchase("CANCEL-PARTIAL")
+	if _, err := db.Exec(`UPDATE purchases SET status='partially_received' WHERE id=?`, partiallyReceived.Purchase.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CancelPurchase(ctx, uuid.Nil, partiallyReceived.Purchase.ID); err != ErrPurchaseAlreadyReceived {
+		t.Fatalf("cancel partially received purchase error = %v, want ErrPurchaseAlreadyReceived", err)
+	}
+	partialAfter, err := service.GetPurchase(ctx, partiallyReceived.Purchase.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if partialAfter.Purchase.Status != StatusPartiallyReceived {
+		t.Fatalf("blocked partial receipt changed status to %s", partialAfter.Purchase.Status)
 	}
 }

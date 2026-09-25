@@ -27,13 +27,17 @@ interface QueryProviderProps {
 
 export function QueryProvider({ children }: QueryProviderProps) {
   useEffect(() => {
-    const handleAuthInvalidated = () => {
+    const clearTenantData = () => {
       void queryClient.cancelQueries();
       queryClient.clear();
     };
 
-    window.addEventListener('partflow:auth-invalidated', handleAuthInvalidated);
-    return () => window.removeEventListener('partflow:auth-invalidated', handleAuthInvalidated);
+    window.addEventListener('partflow:auth-invalidated', clearTenantData);
+    window.addEventListener('partflow:session-cleared', clearTenantData);
+    return () => {
+      window.removeEventListener('partflow:auth-invalidated', clearTenantData);
+      window.removeEventListener('partflow:session-cleared', clearTenantData);
+    };
   }, []);
 
   return (

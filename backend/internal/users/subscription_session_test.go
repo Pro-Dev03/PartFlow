@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
 
@@ -80,5 +81,142 @@ func TestDeletingSubscriberRevokesRefreshTokens(t *testing.T) {
 	var tokenCount int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM refresh_tokens`).Scan(&tokenCount); err != nil || tokenCount != 0 {
 		t.Fatalf("refresh token count=%d err=%v, want 0 after deletion", tokenCount, err)
+	}
+}
+
+func TestDisablingUserAtomicallyRevokesRefreshTokens(t *testing.T) {
+	service, db, userID := newSubscriptionSessionDB(t)
+	user, err := service.UpdateUser(context.Background(), userID, "", "", "", "", nil, nil, false)
+	if err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+	if user.IsActive {
+		t.Fatal("user remains active after disable")
+	}
+	var tokenCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM refresh_tokens WHERE user_id = ?`, userID.String()).Scan(&tokenCount); err != nil || tokenCount != 0 {
+		t.Fatalf("refresh token count=%d err=%v, want 0 after disabling", tokenCount, err)
+	}
+}
+
+func TestChangingPasswordAtomicallyRevokesEveryRefreshToken(t *testing.T) {
+	service, db, userID := newSubscriptionSessionDB(t)
+	oldHash, err := bcrypt.GenerateFromPassword([]byte("OldPassword123!"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(oldHash), userID.String()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.ChangePassword(context.Background(), userID, "OldPassword123!", "NewPassword123!"); err != nil {
+		t.Fatalf("change password: %v", err)
+	}
+	var passwordHash string
+	if err := db.QueryRow(`SELECT password_hash FROM users WHERE id = ?`, userID.String()).Scan(&passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("NewPassword123!")); err != nil {
+		t.Fatalf("password hash was not changed: %v", err)
+	}
+	var tokenCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM refresh_tokens WHERE user_id = ?`, userID.String()).Scan(&tokenCount); err != nil || tokenCount != 0 {
+		t.Fatalf("refresh token count=%d err=%v, want 0 after password change", tokenCount, err)
+	}
+}
+
+func TestAdministratorPasswordUpdateAtomicallyRevokesEveryRefreshToken(t *testing.T) {
+	service, db, userID := newSubscriptionSessionDB(t)
+	newHash, err := bcrypt.GenerateFromPassword([]byte("AdminSetPassword123!"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.UpdateUser(context.Background(), userID, "", string(newHash), "", "", nil, nil, true); err != nil {
+		t.Fatalf("administrator password update: %v", err)
+	}
+	var tokenCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM refresh_tokens WHERE user_id = ?`, userID.String()).Scan(&tokenCount); err != nil || tokenCount != 0 {
+		t.Fatalf("refresh token count=%d err=%v, want 0 after administrator password update", tokenCount, err)
+	}
+	var storedHash string
+	if err := db.QueryRow(`SELECT password_hash FROM users WHERE id = ?`, userID.String()).Scan(&storedHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte("AdminSetPassword123!")); err != nil {
+		t.Fatalf("administrator password update did not persist: %v", err)
+	}
+}
+
+func TestAdministratorPasswordUpdateFailsClosedWithoutRefreshTokenTable(t *testing.T) {
+	service, db, userID := newSubscriptionSessionDB(t)
+	if _, err := db.Exec(`DROP TABLE refresh_tokens`); err != nil {
+		t.Fatal(err)
+	}
+	newHash, err := bcrypt.GenerateFromPassword([]byte("AdminSetPassword123!"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UpdateUser(context.Background(), userID, "", string(newHash), "", "", nil, nil, true); err == nil {
+		t.Fatal("administrator password update succeeded without refresh-token revocation storage")
+	}
+	var passwordHash string
+	if err := db.QueryRow(`SELECT password_hash FROM users WHERE id = ?`, userID.String()).Scan(&passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	if passwordHash != "" {
+		t.Fatal("administrator password changed despite missing refresh-token storage")
+	}
+}
+
+func TestPasswordChangeFailsClosedWhenRefreshTokenTableIsMissing(t *testing.T) {
+	service, db, userID := newSubscriptionSessionDB(t)
+	oldHash, err := bcrypt.GenerateFromPassword([]byte("OldPassword123!"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(oldHash), userID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DROP TABLE refresh_tokens`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.ChangePassword(context.Background(), userID, "OldPassword123!", "NewPassword123!"); err == nil {
+		t.Fatal("password change succeeded without durable refresh-token revocation storage")
+	}
+	var passwordHash string
+	if err := db.QueryRow(`SELECT password_hash FROM users WHERE id = ?`, userID.String()).Scan(&passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("OldPassword123!")); err != nil {
+		t.Fatalf("password changed despite failed session revocation: %v", err)
+	}
+}
+
+func TestRefreshTokenRevocationFailsWhenTableIsMissing(t *testing.T) {
+	service, db, userID := newSubscriptionSessionDB(t)
+	if _, err := db.Exec(`DROP TABLE refresh_tokens`); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.repo.RevokeRefreshTokens(context.Background(), userID); err == nil {
+		t.Fatal("session revocation reported success without refresh-token storage")
+	}
+}
+
+func TestSuspensionDoesNotReportSuccessWhenRefreshTokenStorageIsMissing(t *testing.T) {
+	service, db, userID := newSubscriptionSessionDB(t)
+	if _, err := db.Exec(`DROP TABLE refresh_tokens`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UpdateSubscription(context.Background(), userID, "suspended", nil); err == nil {
+		t.Fatal("suspension reported success without durable session revocation storage")
+	}
+	var status string
+	if err := db.QueryRow(`SELECT subscription_status FROM users WHERE id = ?`, userID.String()).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "active" {
+		t.Fatalf("subscription status=%q, want active after suspension transaction rolls back", status)
 	}
 }

@@ -36,3 +36,20 @@ func TestEnsureRequiredSchemaCreatesMissingObjects(t *testing.T) {
 		t.Fatal("expected held_sales table to be created")
 	}
 }
+
+func TestTenantIsolationEnabledRequiresExplicitOptIn(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  bool
+	}{
+		{value: "", want: false},
+		{value: "false", want: false},
+		{value: "true", want: true},
+		{value: "1", want: true},
+	} {
+		t.Setenv("PARTFLOW_TENANT_RLS_ENABLED", test.value)
+		if got := TenantIsolationEnabled(); got != test.want {
+			t.Errorf("TenantIsolationEnabled() with %q = %t, want %t", test.value, got, test.want)
+		}
+	}
+}

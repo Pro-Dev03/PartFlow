@@ -204,16 +204,29 @@ func createPurchaseSQLite(ctx context.Context, executor sqlx.ExtContext, purchas
 	return nil
 }
 
-// GetByID retrieves a purchase by ID
+type purchaseQueryer interface {
+	GetContext(context.Context, interface{}, string, ...interface{}) error
+}
+
+// GetByID retrieves a purchase by ID.
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Purchase, error) {
+	return r.getByID(ctx, r.db, id, false)
+}
+
+// GetByIDTx retrieves and locks a purchase in the caller's transaction.
+func (r *Repository) GetByIDTx(ctx context.Context, tx *sqlx.Tx, id uuid.UUID) (*Purchase, error) {
+	return r.getByID(ctx, tx, id, true)
+}
+
+func (r *Repository) getByID(ctx context.Context, queryer purchaseQueryer, id uuid.UUID, lock bool) (*Purchase, error) {
 	if dbutil.IsSQLite(r.db) {
 		var row localPurchaseRow
 		purchaseDateColumn := "created_at"
 		var hasPurchaseDate bool
-		if err := r.db.GetContext(ctx, &hasPurchaseDate, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('purchases') WHERE name = 'purchase_date')`); err == nil && hasPurchaseDate {
+		if err := queryer.GetContext(ctx, &hasPurchaseDate, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('purchases') WHERE name = 'purchase_date')`); err == nil && hasPurchaseDate {
 			purchaseDateColumn = "purchase_date"
 		}
-		err := r.db.GetContext(ctx, &row, fmt.Sprintf(`SELECT id, supplier_id, purchase_number AS invoice_number, COALESCE(%s, created_at, datetime('now')) AS purchase_date, NULL AS expected_delivery_date, COALESCE(tax_amount, 0) AS tax_amount, total_amount, paid_amount, status, notes, NULL AS user_id, COALESCE(created_at, datetime('now')) AS created_at, updated_at FROM purchases WHERE id = $1`, purchaseDateColumn), id)
+		err := queryer.GetContext(ctx, &row, fmt.Sprintf(`SELECT id, supplier_id, purchase_number AS invoice_number, COALESCE(%s, created_at, datetime('now')) AS purchase_date, NULL AS expected_delivery_date, COALESCE(tax_amount, 0) AS tax_amount, total_amount, paid_amount, status, notes, NULL AS user_id, COALESCE(created_at, datetime('now')) AS created_at, updated_at FROM purchases WHERE id = $1`, purchaseDateColumn), id)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				return nil, ErrPurchaseNotFound
@@ -268,7 +281,10 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Purchase, erro
 		WHERE id = $1
 	`
 
-	err := r.db.GetContext(ctx, &purchase, query, id)
+	if lock {
+		query += ` FOR UPDATE`
+	}
+	err := queryer.GetContext(ctx, &purchase, query, id)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrPurchaseNotFound

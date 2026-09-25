@@ -231,6 +231,7 @@ func (h *Handler) ListSales(c *gin.Context) {
 
 	req.Status = c.Query("status")
 	req.CustomerID = c.Query("customer_id")
+	req.Search = strings.TrimSpace(c.Query("search"))
 	req.StartDate = c.Query("start_date")
 	req.EndDate = c.Query("end_date")
 	availableForReturn := strings.EqualFold(c.Query("available_for_return"), "true")
@@ -243,6 +244,9 @@ func (h *Handler) ListSales(c *gin.Context) {
 		if id, err := uuid.Parse(req.CustomerID); err == nil {
 			filters["customer_id"] = id
 		}
+	}
+	if req.Search != "" {
+		filters["search"] = req.Search
 	}
 	if req.StartDate != "" {
 		filters["start_date"] = req.StartDate
@@ -306,6 +310,8 @@ func (h *Handler) UpdateSalePayment(c *gin.Context) {
 			errors.HandleError(c, errors.NewNotFoundError("Sale", err))
 		case ErrInvalidPayment:
 			errors.HandleError(c, errors.NewValidationError("invalid payment amount", err))
+		case ErrInvalidSaleStatus:
+			errors.HandleError(c, errors.NewBusinessError("sale is not available for payment", err))
 		default:
 			errors.HandleError(c, errors.WrapError(err, "Failed to update payment"))
 		}
@@ -326,13 +332,23 @@ func (h *Handler) UpdateSalePayment(c *gin.Context) {
 // @Failure 404 {object} response.Response
 // @Router /api/v1/sales/{id}/cancel [post]
 func (h *Handler) CancelSale(c *gin.Context) {
+	userIDValue, exists := c.Get("user_id")
+	if !exists {
+		errors.HandleError(c, errors.NewUnauthorizedError("User not authenticated", nil))
+		return
+	}
+	userID, ok := userIDValue.(uuid.UUID)
+	if !ok {
+		errors.HandleError(c, errors.NewUnauthorizedError("Invalid authenticated user", nil))
+		return
+	}
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		errors.HandleError(c, errors.NewValidationError("invalid sale id", err))
 		return
 	}
 
-	if err := h.service.CancelSale(c.Request.Context(), id); err != nil {
+	if err := h.service.CancelSale(c.Request.Context(), userID, id); err != nil {
 		switch err {
 		case ErrSaleNotFound:
 			errors.HandleError(c, errors.NewNotFoundError("Sale", err))

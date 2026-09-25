@@ -51,8 +51,13 @@ export function CustomerPurchasesPage() {
   });
 
   const salesQuery = useQuery({
-    queryKey: ['customer-purchases', customerId, page, pageSize],
-    queryFn: () => salesApi.list({ customer_id: customerId, page, per_page: pageSize }),
+    queryKey: ['customer-purchases', customerId, page, pageSize, debouncedSearch],
+    queryFn: () => salesApi.list({
+      customer_id: customerId,
+      page,
+      per_page: pageSize,
+      search: debouncedSearch.trim() || undefined,
+    }),
     enabled: Boolean(customerId),
   });
 
@@ -107,14 +112,40 @@ export function CustomerPurchasesPage() {
   const debtsPayload = debtsQuery.data?.data ?? debtsQuery.data;
   const customerDebts = Array.isArray(debtsPayload) ? debtsPayload : (debtsPayload?.debts ?? []);
   const total = Number(payload?.total ?? sales.length);
-  const filteredSales = debouncedSearch
-    ? sales.filter((sale: any) => String(sale.invoice_number || sale.id || '').toLowerCase().includes(debouncedSearch.toLowerCase()))
-    : sales;
   const salesTotal = sales.reduce((sum: number, sale: any) => sum + Number(sale.total_amount ?? 0), 0);
   const customerTotalPurchases = Number(customer?.totalPurchases ?? customer?.total_purchases ?? 0);
   const totalPurchases = customerTotalPurchases > 0 ? customerTotalPurchases : salesTotal;
   const outstanding = Number(lastLedgerEntry?.balance ?? customer?.outstanding ?? customer?.current_balance ?? 0);
   const totalPaid = Math.max(totalPurchases - outstanding, 0);
+  const pageError = customerQuery.isError || ledgerQuery.isError || debtsQuery.isError || salesQuery.isError;
+  const retryPageData = () => {
+    void Promise.all([
+      customerQuery.refetch(),
+      ledgerQuery.refetch(),
+      debtsQuery.refetch(),
+      salesQuery.refetch(),
+    ]);
+  };
+
+  if (!customerId || pageError) {
+    return (
+      <div>
+        <PageHeader title="مشتريات العميل" description="سجل الفواتير والمدفوعات والرصيد المستحق" />
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
+            <AlertTriangle className="h-8 w-8 text-red-600" />
+            <p className="font-semibold text-text-primary">
+              {!customerId ? 'رابط العميل غير مكتمل' : 'تعذر تحميل بيانات مشتريات العميل'}
+            </p>
+            <p className="text-sm text-text-muted">تحقق من الاتصال ثم أعد المحاولة لتحميل بيانات العميل والفواتير والرصيد.</p>
+            <Button type="button" variant="secondary" onClick={retryPageData} disabled={!customerId}>
+              إعادة المحاولة
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -181,15 +212,13 @@ export function CustomerPurchasesPage() {
             </div>
             <div className="relative w-full md:w-80 md:max-w-[40%]">
               <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث برقم الفاتورة..." className="h-10 bg-surface pr-9" />
+              <Input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="ابحث برقم الفاتورة..." className="h-10 bg-surface pr-9" />
             </div>
           </div>
 
             {salesQuery.isLoading || customerQuery.isLoading || ledgerQuery.isLoading || debtsQuery.isLoading ? (
             <div className="p-12 text-center text-text-muted">جاري تحميل مشتريات العميل...</div>
-          ) : salesQuery.isError ? (
-            <div className="p-12 text-center text-red-600">تعذر تحميل مشتريات العميل</div>
-          ) : filteredSales.length === 0 ? (
+          ) : sales.length === 0 ? (
             <div className="p-12 text-center text-text-muted">لا توجد مشتريات مطابقة</div>
           ) : (
             <div className="overflow-x-auto">
@@ -205,7 +234,7 @@ export function CustomerPurchasesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filteredSales.map((sale: any) => {
+                  {sales.map((sale: any) => {
                     const totalAmount = Number(sale.total_amount ?? 0);
                     const debt = customerDebts.find((item: any) => String(item.sale_id || item.reference_id || '') === String(sale.id));
                     const remaining = Math.max(Number(debt?.remaining_amount ?? sale.remaining_amount ?? (totalAmount - Number(sale.paid_amount ?? 0))), 0);
@@ -240,7 +269,12 @@ export function CustomerPurchasesPage() {
         {saleDetailsQuery.isLoading ? (
           <div className="p-10 text-center text-text-muted">جاري تحميل الفاتورة...</div>
         ) : saleDetailsQuery.isError || !invoiceData ? (
-          <div className="p-10 text-center text-red-600">تعذر تحميل تفاصيل الفاتورة</div>
+          <div className="flex flex-col items-center gap-3 p-10 text-center text-red-600">
+            <p>تعذر تحميل تفاصيل الفاتورة</p>
+            <Button type="button" variant="secondary" onClick={() => { void saleDetailsQuery.refetch(); }}>
+              إعادة المحاولة
+            </Button>
+          </div>
         ) : (
           <SalesInvoice saleData={invoiceData} onClose={() => setSelectedSaleId(null)} />
         )}

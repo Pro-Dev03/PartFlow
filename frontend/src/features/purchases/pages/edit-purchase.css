@@ -1,0 +1,37 @@
+.purchase-manual-product-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 1rem) !important;
+}
+
+.purchase-manual-product-modal > div[class*='overflow-y-auto'] {
+  min-height: 0;
+  max-height: calc(100dvh - 7rem) !important;
+  overscroll-behavior: contain;
+}
+
+.purchase-manual-product-actions {
+  position: sticky;
+  bottom: -1.5rem;
+  z-index: 1;
+  margin: 0 -1.5rem -1.5rem;
+  padding: 1rem 1.5rem calc(1rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+@media (max-width: 640px) {
+  .purchase-manual-product-modal {
+    max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 0.5rem) !important;
+  }
+
+  .purchase-manual-product-modal > div[class*='overflow-y-auto'] {
+    max-height: calc(100dvh - 6.5rem) !important;
+    padding: 1rem !important;
+  }
+
+  .purchase-manual-product-actions {
+    margin: 0 -1rem -1rem;
+    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  }
+}

@@ -7,12 +7,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"github.com/partflow/smart-store/pkg/offlinegrant"
 )
 
 type Handler struct {
@@ -211,6 +209,7 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 		handleAuthError(c, err)
 		return
 	}
+	clearRefreshTokenCookie(c)
 
 	c.JSON(http.StatusOK, gin.H{"message": "password changed successfully"})
 }
@@ -238,11 +237,12 @@ func (h *Handler) CloudSession(c *gin.Context) {
 
 	resp, err := h.service.CreateCloudSession(c.Request.Context(), req.CloudToken)
 	if err != nil {
-		status := http.StatusUnauthorized
-		if strings.Contains(err.Error(), "cloud auth is not configured") {
-			status = http.StatusInternalServerError
+		var cloudErr *CloudValidationError
+		if errors.As(err, &cloudErr) {
+			c.JSON(cloudErr.Status, gin.H{"error": cloudErr.Error(), "code": cloudErr.Code})
+			return
 		}
-		c.JSON(status, gin.H{"error": err.Error()})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "local session service unavailable", "code": "AUTH_SERVICE_UNAVAILABLE"})
 		return
 	}
 	setRefreshTokenCookie(c, resp.RefreshToken, refreshTokenCookieAge)
@@ -331,10 +331,6 @@ func (h *Handler) ValidateSubscription(c *gin.Context) {
 		return
 	}
 
-	// The cloud can issue a short, signed offline grant for a local desktop.
-	// It is bounded by both the grace period and the subscription expiry.
-	offlineGrant, _ := offlinegrant.Issue(user.ID.String(), user.SubscriptionExpiresAt, time.Now().UTC())
-
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
@@ -351,7 +347,6 @@ func (h *Handler) ValidateSubscription(c *gin.Context) {
 			},
 			"subscription_status":     user.SubscriptionStatus,
 			"subscription_expires_at": user.SubscriptionExpiresAt,
-			"offline_grant":           offlineGrant,
 		},
 	})
 }

@@ -10,6 +10,8 @@ import { Customer } from '../types/customers.types';
 interface CustomerListProps {
   filteredCustomers: Customer[];
   isLoading: boolean;
+  isError: boolean;
+  onRetry: () => void;
   onViewCustomer: (customer: Customer) => void;
   onEditCustomer: (customer: Customer) => void;
   onDeleteCustomer: (customerId: string) => void;
@@ -19,6 +21,8 @@ interface CustomerListProps {
 export function CustomerList({
   filteredCustomers,
   isLoading,
+  isError,
+  onRetry,
   onViewCustomer,
   onEditCustomer,
   onDeleteCustomer,
@@ -41,6 +45,11 @@ export function CustomerList({
       {isLoading ? (
         <div className="flex h-64 items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      ) : isError ? (
+        <div className="flex min-h-48 flex-col items-center justify-center gap-3 p-6 text-center" role="alert">
+          <p className="text-sm font-semibold text-[var(--color-danger)]">تعذر تحميل قائمة العملاء</p>
+          <Button type="button" variant="secondary" onClick={onRetry}>إعادة المحاولة</Button>
         </div>
       ) : filteredCustomers.length === 0 ? (
         <EmptyState

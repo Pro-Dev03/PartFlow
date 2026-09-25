@@ -16,11 +16,12 @@ import { EmptyState } from '../../../design-system/components/empty-state';
 import { Modal } from '../../../design-system/components/modal';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { ReportActions } from '../../../design-system/components/report-actions';
-import { formatStoreDate, getStoreDateKey, getStoreToday } from '../../../utils/store-time';
+import { formatStoreDate, getStoreDateKey, getStoreMonthBounds, getStoreToday, storeDateToUTCISOString } from '../../../utils/store-time';
+import { useDebounce } from '../../../hooks/useDebounce';
+import { toast } from 'sonner';
 import { 
   Search, 
   Plus, 
-  Filter,
   Edit,
   Trash2,
   CheckCircle2,
@@ -76,6 +77,33 @@ export function isExpenseInCurrentMonth(value: string, referenceDate = new Date(
   return datePart === currentMonth;
 }
 
+function getExpenseRows(response: any): any[] {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.data?.data)) return response.data.data;
+  return [];
+}
+
+function getExpenseTotal(response: any): number {
+  const total = Number(response?.meta?.total ?? response?.data?.meta?.total);
+  return Number.isFinite(total) ? total : getExpenseRows(response).length;
+}
+
+async function fetchAllExpensePages(filters: { search?: string; category_id?: string; start_date?: string; end_date?: string } = {}) {
+  const perPage = 100;
+  const firstPage = await expensesApi.list({ page: 1, per_page: perPage, ...filters });
+  const total = getExpenseTotal(firstPage);
+  const pages = Math.ceil(total / perPage);
+  const results = getExpenseRows(firstPage);
+
+  for (let first = 2; first <= pages; first += 5) {
+    const batch = Array.from({ length: Math.min(5, pages - first + 1) }, (_, index) => first + index);
+    const responses = await Promise.all(batch.map((page) => expensesApi.list({ page, per_page: perPage, ...filters })));
+    responses.forEach((response) => results.push(...getExpenseRows(response)));
+  }
+  return results.map(normalizeExpenseForDisplay);
+}
+
 function getExpenseCategoryErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : '';
   if (message.toLowerCase().includes('expense category already exists')) {
@@ -88,6 +116,7 @@ export function ExpensesPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebounce(searchQuery.trim(), 250);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
@@ -96,6 +125,10 @@ export function ExpensesPage() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  const monthBounds = getStoreMonthBounds();
+  const monthStart = storeDateToUTCISOString(monthBounds.start);
+  const monthEnd = storeDateToUTCISOString(monthBounds.end);
+  const monthEndInclusive = monthEnd ? new Date(new Date(monthEnd).getTime() - 1).toISOString() : undefined;
   const [newExpense, setNewExpense] = useState({
     description: '',
     amount: '',
@@ -106,8 +139,22 @@ export function ExpensesPage() {
   });
 
   const { data: expensesData, isLoading } = useQuery({
-    queryKey: ['expenses', page, pageSize],
-    queryFn: () => expensesApi.list({ page, per_page: pageSize }),
+    queryKey: ['expenses', page, pageSize, debouncedSearchQuery, categoryFilter],
+    queryFn: () => expensesApi.list({
+      page,
+      per_page: pageSize,
+      ...(debouncedSearchQuery ? { search: debouncedSearchQuery } : {}),
+      ...(categoryFilter ? { category_id: categoryFilter } : {}),
+    }),
+  });
+
+  const { data: thisMonthExpenses = [] } = useQuery({
+    queryKey: ['expenses', 'month-summary', monthBounds.start],
+    queryFn: () => fetchAllExpensePages({
+      ...(monthStart ? { start_date: monthStart } : {}),
+      ...(monthEndInclusive ? { end_date: monthEndInclusive } : {}),
+    }),
+    enabled: Boolean(monthStart && monthEndInclusive),
   });
 
   const { data: expenseCategoriesData, isLoading: isLoadingExpenseCategories } = useQuery({
@@ -197,36 +244,17 @@ export function ExpensesPage() {
     },
   });
 
-  const nestedExpenseRows = (expensesData?.data as { data?: unknown } | undefined)?.data;
-  const expenseRows = Array.isArray(expensesData)
-    ? expensesData
-    : Array.isArray(expensesData?.data)
-    ? expensesData.data
-    : Array.isArray(nestedExpenseRows)
-      ? nestedExpenseRows
-      : [];
-  const expenses = expenseRows.map(normalizeExpenseForDisplay);
-
-  const filteredExpenses = expenses.filter((expense: any) => {
-    const searchText = `${expense.description || ''} ${expense.category || ''}`.toLowerCase();
-    const matchesSearch = searchText.includes(searchQuery.toLowerCase());
-    const matchesCategory = !categoryFilter
-      || expense.category_id === categoryFilter
-      || expense.category === categoryFilter;
-    return matchesSearch && matchesCategory;
-  });
-
-  const totalExpenses = Number(expensesData?.meta?.total || expensesData?.data?.total || expenses.length);
+  const expenses = getExpenseRows(expensesData).map(normalizeExpenseForDisplay);
+  const filteredExpenses = expenses;
+  const totalExpenses = getExpenseTotal(expensesData);
 
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, categoryFilter]);
-
-  const thisMonthExpenses = expenses.filter((e: any) => isExpenseInCurrentMonth(e.date));
+  }, [debouncedSearchQuery, categoryFilter]);
 
   const thisMonthTotal = thisMonthExpenses.reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
 
-  const categoryTotals = expenses.reduce((acc: Record<string, number>, expense: any) => {
+  const categoryTotals = thisMonthExpenses.reduce((acc: Record<string, number>, expense: any) => {
     const categoryKey = String(expense.category || 'other');
     acc[categoryKey] = (acc[categoryKey] || 0) + Number(expense.amount || 0);
     return acc;
@@ -257,18 +285,25 @@ export function ExpensesPage() {
     printTable(getExpenseReportRows(filteredExpenses), ['التاريخ', 'الوصف', 'الفئة', 'المبلغ'], 'تقرير المصروفات');
   };
 
-  const loadAllExpenses = async () => {
-    const response = await expensesApi.list({ page: 1, per_page: 1000, ...(searchQuery ? { search: searchQuery } : {}) });
-    const allExpenses = (((response as any)?.data ?? []) as any[]).map(normalizeExpenseForDisplay);
-    return allExpenses.filter((expense) => !categoryFilter || expense.category_id === categoryFilter || expense.category === categoryFilter);
-  };
+  const loadAllExpenses = () => fetchAllExpensePages({
+    ...(debouncedSearchQuery ? { search: debouncedSearchQuery } : {}),
+    ...(categoryFilter ? { category_id: categoryFilter } : {}),
+  });
 
   const handleExportAll = async () => {
-    exportToCSV(getExpenseReportRows(await loadAllExpenses()), `expenses-all-${getStoreToday()}`);
+    try {
+      exportToCSV(getExpenseReportRows(await loadAllExpenses()), `expenses-all-${getStoreToday()}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر تصدير المصروفات');
+    }
   };
 
   const handlePrintAll = async () => {
-    printTable(getExpenseReportRows(await loadAllExpenses()), ['التاريخ', 'الوصف', 'الفئة', 'المبلغ'], 'تقرير كل المصروفات');
+    try {
+      printTable(getExpenseReportRows(await loadAllExpenses()), ['التاريخ', 'الوصف', 'الفئة', 'المبلغ'], 'تقرير كل المصروفات');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر طباعة المصروفات');
+    }
   };
 
   const handleEdit = (expense: any) => {
@@ -359,7 +394,7 @@ export function ExpensesPage() {
           onSubmit={(event) => {
             event.preventDefault();
             const amount = Number(newExpense.amount);
-            if (!newExpense.description.trim() || !Number.isInteger(amount) || amount <= 0) return;
+            if (!newExpense.description.trim() || !Number.isFinite(amount) || amount <= 0 || !newExpense.category) return;
             if (editingExpenseId) {
               updateExpenseMutation.mutate();
             } else {
@@ -385,8 +420,8 @@ export function ExpensesPage() {
                 label="المبلغ"
                 fullWidth
                 type="number"
-                min="1"
-                step="1"
+                min="0.01"
+                step="0.01"
                 value={newExpense.amount}
                 onChange={(event) => setNewExpense((current) => ({ ...current, amount: event.target.value }))}
                 placeholder="0"
@@ -572,10 +607,6 @@ export function ExpensesPage() {
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 options={categories}
               />
-              <Button variant="secondary" className="gap-2">
-                <Filter className="w-4 h-4" />
-                {t('common.filter')}
-              </Button>
             </div>
           </div>
         </CardContent>

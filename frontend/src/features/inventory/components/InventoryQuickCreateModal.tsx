@@ -74,6 +74,7 @@ export function InventoryQuickCreateModal({ mode, isOpen, onClose, onCreated }: 
     >
       <div
         className="space-y-4"
+        data-next-disabled={mode === 'category' ? true : undefined}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
           event.preventDefault();

@@ -49,11 +49,51 @@ export function ActionMenu({ items, label = 'خيارات', widthClassName = 'w-
     if (!triggerRef.current) return;
     const rect = triggerRef.current.getBoundingClientRect();
     const menuHeight = Math.min(items.length * 40 + 8, 280);
-    const openBelow = rect.top < menuHeight + 16;
     const menuWidth = 176;
+    const maxLeft = Math.max(8, window.innerWidth - menuWidth - 8);
+    const clampLeft = (left: number) => Math.max(8, Math.min(left, maxLeft));
+    let openBelow = rect.top < menuHeight + 16;
+    let top = openBelow ? rect.bottom + 8 : rect.top - 8;
+    let left = clampLeft(rect.left);
+
+    const assistant = document.querySelector<HTMLElement>('[aria-label="فتح مساعد PartFlow"]')?.getBoundingClientRect();
+    if (assistant) {
+      const overlapsAssistant = (candidateLeft: number, candidateTop: number, candidateBelow: boolean) => {
+        const candidateMenuTop = candidateBelow ? candidateTop : candidateTop - menuHeight;
+        return candidateLeft < assistant.right
+          && candidateLeft + menuWidth > assistant.left
+          && candidateMenuTop < assistant.bottom
+          && candidateMenuTop + menuHeight > assistant.top;
+      };
+
+      if (overlapsAssistant(left, top, openBelow)) {
+        const alternateLefts = [
+          assistant.right + 8,
+          assistant.left - menuWidth - 8,
+        ].map(clampLeft);
+        const clearLeft = alternateLefts.find((candidateLeft) =>
+          !overlapsAssistant(candidateLeft, top, openBelow)
+        );
+
+        if (clearLeft !== undefined) {
+          left = clearLeft;
+        } else {
+          const aboveTop = assistant.top - 8;
+          const belowTop = assistant.bottom + 8;
+          if (aboveTop - menuHeight >= 8) {
+            openBelow = false;
+            top = aboveTop;
+          } else if (belowTop + menuHeight <= window.innerHeight - 8) {
+            openBelow = true;
+            top = belowTop;
+          }
+        }
+      }
+    }
+
     setPosition({
-      top: openBelow ? rect.bottom + 8 : rect.top - 8,
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8)),
+      top,
+      left,
       openBelow,
     });
     setOpen((current) => !current);

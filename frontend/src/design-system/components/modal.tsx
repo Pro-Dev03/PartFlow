@@ -312,6 +312,8 @@ export const Modal = forwardRef<HTMLDivElement, ModalProps>(
             </div>
           )}
 
+          <div className="pf-modal-navigation-slot" />
+
           <div 
             className="p-6 overflow-y-auto"
             style={{ 

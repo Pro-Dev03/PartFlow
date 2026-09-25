@@ -101,7 +101,11 @@ func main() {
 	defer sqliteDB.DB.Close()
 
 	// Set Gin mode
-	gin.SetMode(cfg.ServerMode)
+	ginMode := cfg.ServerMode
+	if ginMode == "production" {
+		ginMode = gin.ReleaseMode
+	}
+	gin.SetMode(ginMode)
 
 	// Create router
 	router := gin.New()

@@ -617,6 +617,15 @@ tbody tr:last-child td {
   box-shadow: var(--shadow-xl) !important;
 }
 
+.pf-modal-navigation-slot {
+  display: flex;
+  min-height: 48px;
+  box-sizing: border-box;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 4px 20px 0;
+}
+
 .pf-modal-surface > div[class*="border-b"] {
   min-height: 60px;
   padding: 15px 20px !important;

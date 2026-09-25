@@ -97,131 +97,203 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 func (h *Handler) ListDebts(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
+	if page < 1 || perPage < 1 || perPage > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid pagination"})
+		return
+	}
 	summary, err := h.loadDebtSummary()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
-	offset := (page - 1) * perPage
-	if dbutil.IsSQLite(h.db) {
-		var rows []struct {
-			ID              string  `db:"id"`
-			CustomerID      string  `db:"customer_id"`
-			CustomerName    string  `db:"customer_name"`
-			InvoiceNumber   string  `db:"invoice_number"`
-			Amount          float64 `db:"amount"`
-			RemainingAmount float64 `db:"remaining_amount"`
-			DueDate         string  `db:"due_date"`
-			Status          string  `db:"status"`
-			CreatedAt       string  `db:"created_at"`
+	query, countQuery, filterArgs, err := buildDebtListQueries(h.db, c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	placeholder := func(index int) string {
+		if dbutil.IsSQLite(h.db) {
+			return "?"
 		}
-		query := `SELECT MIN(d.id) AS id, d.customer_id AS customer_id, c.name AS customer_name,
+		return fmt.Sprintf("$%d", index)
+	}
+
+	listArgs := append([]interface{}{}, filterArgs...)
+	listArgs = append(listArgs, perPage, (page-1)*perPage)
+	query += fmt.Sprintf(" ORDER BY due_date DESC, created_at DESC LIMIT %s OFFSET %s", placeholder(len(filterArgs)+1), placeholder(len(filterArgs)+2))
+
+	var rows []struct {
+		ID              string  `db:"id"`
+		CustomerID      string  `db:"customer_id"`
+		CustomerName    string  `db:"customer_name"`
+		CustomerCode    string  `db:"customer_code"`
+		CustomerPhone   string  `db:"customer_phone"`
+		InvoiceNumber   string  `db:"invoice_number"`
+		Amount          float64 `db:"amount"`
+		RemainingAmount float64 `db:"remaining_amount"`
+		DueDate         string  `db:"due_date"`
+		Status          string  `db:"status"`
+		CreatedAt       string  `db:"created_at"`
+	}
+	if err := h.db.Select(&rows, query, listArgs...); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	var total int
+	if err := h.db.Get(&total, countQuery, filterArgs...); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	data := make([]gin.H, 0, len(rows))
+	for _, row := range rows {
+		data = append(data, gin.H{
+			"id": row.ID, "customer_id": row.CustomerID, "customer_name": row.CustomerName,
+			"customer_code": row.CustomerCode, "customer_phone": row.CustomerPhone, "invoice_number": row.InvoiceNumber,
+			"amount": row.Amount, "remaining_amount": row.RemainingAmount, "due_date": row.DueDate,
+			"status": row.Status, "created_at": row.CreatedAt,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data, "meta": gin.H{"page": page, "per_page": perPage, "total": total, "summary": summary}})
+}
+
+func buildDebtListQueries(db *sqlx.DB, c *gin.Context) (string, string, []interface{}, error) {
+	placeholder := func(index int) string {
+		if dbutil.IsSQLite(db) {
+			return "?"
+		}
+		return fmt.Sprintf("$%d", index)
+	}
+	idExpression := "(array_agg(d.id ORDER BY d.due_date DESC))[1]"
+	if dbutil.IsSQLite(db) {
+		idExpression = "MIN(d.id)"
+	}
+	groupedQuery := fmt.Sprintf(`
+		SELECT %s AS id, d.customer_id AS customer_id, c.name AS customer_name,
+			c.code AS customer_code, COALESCE(c.phone, '') AS customer_phone,
 			CASE WHEN COUNT(*) = 1 THEN COALESCE(MAX(s.invoice_number), '') ELSE 'عدة ديون' END AS invoice_number,
 			SUM(d.amount) AS amount, SUM(d.remaining_amount) AS remaining_amount,
-			COALESCE(MIN(CASE WHEN d.remaining_amount > 0 THEN d.due_date END), MAX(d.due_date)) AS due_date,
+			COALESCE(MIN(CASE WHEN d.remaining_amount > 0 THEN CAST(d.due_date AS TEXT) END), MAX(CAST(d.due_date AS TEXT))) AS due_date,
 			CASE WHEN SUM(d.remaining_amount) <= 0 THEN 'paid'
 				WHEN SUM(CASE WHEN d.status = 'overdue' THEN 1 ELSE 0 END) > 0 THEN 'overdue'
 				WHEN SUM(d.remaining_amount) < SUM(d.amount) THEN 'partial' ELSE 'pending' END AS status,
-			MAX(d.created_at) AS created_at
-			FROM debts d JOIN customers c ON d.customer_id = c.id LEFT JOIN sales s ON d.sale_id = s.id
-			GROUP BY d.customer_id, c.name
-			ORDER BY MAX(d.due_date) DESC LIMIT ? OFFSET ?`
-		if err := h.db.Select(&rows, query, perPage, offset); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		data := make([]gin.H, 0, len(rows))
-		for _, row := range rows {
-			data = append(data, gin.H{"id": row.ID, "customer_id": row.CustomerID, "customer_name": row.CustomerName, "invoice_number": row.InvoiceNumber,
-				"amount": row.Amount, "remaining_amount": row.RemainingAmount, "due_date": row.DueDate,
-				"status": row.Status, "created_at": row.CreatedAt})
-		}
-		var total int
-		if err := h.db.Get(&total, "SELECT COUNT(DISTINCT customer_id) FROM debts"); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		response := gin.H{"success": true, "data": data, "meta": gin.H{"page": page, "per_page": perPage, "total": total, "summary": summary}}
-		c.JSON(http.StatusOK, response)
-		return
-	}
-
-	var debts []struct {
-		ID              uuid.UUID `json:"id"`
-		CustomerID      uuid.UUID `json:"customer_id"`
-		CustomerName    string    `json:"customer_name"`
-		InvoiceNumber   string    `json:"invoice_number"`
-		Amount          float64   `json:"amount"`
-		RemainingAmount float64   `json:"remaining_amount"`
-		DueDate         string    `json:"due_date"`
-		Status          string    `json:"status"`
-		CreatedAt       string    `json:"created_at"`
-	}
-
-	query := `
-		SELECT (array_agg(d.id ORDER BY d.due_date DESC))[1] AS id, d.customer_id AS customer_id, c.name AS customer_name,
-		       CASE WHEN COUNT(*) = 1 THEN COALESCE(MAX(s.invoice_number), '') ELSE 'عدة ديون' END AS invoice_number,
-		       SUM(d.amount) AS amount, SUM(d.remaining_amount) AS remaining_amount,
-		       COALESCE(MIN(CASE WHEN d.remaining_amount > 0 THEN d.due_date END), MAX(d.due_date)) AS due_date,
-		       CASE WHEN SUM(d.remaining_amount) <= 0 THEN 'paid'
-			       WHEN SUM(CASE WHEN d.status = 'overdue' THEN 1 ELSE 0 END) > 0 THEN 'overdue'
-			       WHEN SUM(d.remaining_amount) < SUM(d.amount) THEN 'partial' ELSE 'pending' END AS status,
-		       MAX(d.created_at) AS created_at
+			MAX(CAST(d.created_at AS TEXT)) AS created_at
 		FROM debts d
 		JOIN customers c ON d.customer_id = c.id
 		LEFT JOIN sales s ON d.sale_id = s.id
-		GROUP BY d.customer_id, c.name
-		ORDER BY MAX(d.due_date) DESC
-		LIMIT $1 OFFSET $2
-	`
+		GROUP BY d.customer_id, c.name, c.code, c.phone
+	`, idExpression)
 
-	rows, err := h.db.Query(query, perPage, offset)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	conditions := make([]string, 0, 6)
+	args := make([]interface{}, 0, 8)
+	addArg := func(value interface{}) string {
+		args = append(args, value)
+		return placeholder(len(args))
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var debt struct {
-			ID              uuid.UUID `json:"id"`
-			CustomerID      uuid.UUID `json:"customer_id"`
-			CustomerName    string    `json:"customer_name"`
-			InvoiceNumber   string    `json:"invoice_number"`
-			Amount          float64   `json:"amount"`
-			RemainingAmount float64   `json:"remaining_amount"`
-			DueDate         string    `json:"due_date"`
-			Status          string    `json:"status"`
-			CreatedAt       string    `json:"created_at"`
+	search := strings.TrimSpace(c.Query("search"))
+	searchType := strings.ToLower(strings.TrimSpace(c.DefaultQuery("search_type", "all")))
+	if search != "" {
+		escaped := strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(search)
+		pattern := "%" + escaped + "%"
+		var searchFields []string
+		switch searchType {
+		case "all":
+			searchFields = []string{"LOWER(customer_name) LIKE LOWER(%s) ESCAPE '!'", "LOWER(customer_code) LIKE LOWER(%s) ESCAPE '!'", "LOWER(customer_phone) LIKE LOWER(%s) ESCAPE '!'"}
+		case "name":
+			searchFields = []string{"LOWER(customer_name) LIKE LOWER(%s) ESCAPE '!'"}
+		case "code":
+			searchFields = []string{"LOWER(customer_code) LIKE LOWER(%s) ESCAPE '!'"}
+		case "phone":
+			searchFields = []string{"LOWER(customer_phone) LIKE LOWER(%s) ESCAPE '!'"}
+		case "amount":
+			searchFields = []string{"CAST(amount AS TEXT) LIKE %s ESCAPE '!'"}
+		default:
+			return "", "", nil, fmt.Errorf("invalid search_type")
 		}
-		if err := rows.Scan(&debt.ID, &debt.CustomerID, &debt.CustomerName, &debt.InvoiceNumber, &debt.Amount, &debt.RemainingAmount, &debt.DueDate, &debt.Status, &debt.CreatedAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+		parts := make([]string, 0, len(searchFields))
+		for _, field := range searchFields {
+			parts = append(parts, fmt.Sprintf(field, addArg(pattern)))
 		}
-		debts = append(debts, debt)
+		conditions = append(conditions, "("+strings.Join(parts, " OR ")+")")
+	}
+	if customerIDValue := strings.TrimSpace(c.Query("customer_id")); customerIDValue != "" {
+		customerID, err := uuid.Parse(customerIDValue)
+		if err != nil {
+			return "", "", nil, fmt.Errorf("invalid customer_id")
+		}
+		conditions = append(conditions, "customer_id = "+addArg(customerID.String()))
 	}
 
-	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	status := strings.ToLower(strings.TrimSpace(c.Query("status")))
+	if status != "" && status != "all" {
+		if status != "paid" && status != "overdue" && status != "partial" {
+			return "", "", nil, fmt.Errorf("invalid debt status")
+		}
+		conditions = append(conditions, "status = "+addArg(status))
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Query("tab"))) {
+	case "", "all":
+	case "open":
+		conditions = append(conditions, "status <> 'paid'")
+	case "paid":
+		conditions = append(conditions, "status = 'paid'")
+	default:
+		return "", "", nil, fmt.Errorf("invalid debt tab")
 	}
 
-	var total int
-	h.db.Get(&total, "SELECT COUNT(DISTINCT customer_id) FROM debts")
-
-	response := gin.H{
-		"success": true,
-		"data":    debts,
-		"meta": gin.H{
-			"page":     page,
-			"per_page": perPage,
-			"total":    total,
-			"summary":  summary,
-		},
+	for _, field := range []struct {
+		name string
+		op   string
+	}{
+		{name: "min_amount", op: ">="},
+		{name: "max_amount", op: "<="},
+	} {
+		value := strings.TrimSpace(c.Query(field.name))
+		if value == "" {
+			continue
+		}
+		amount, err := strconv.ParseFloat(value, 64)
+		if err != nil || amount < 0 {
+			return "", "", nil, fmt.Errorf("invalid %s", field.name)
+		}
+		conditions = append(conditions, "amount "+field.op+" "+addArg(amount))
+	}
+	if minValue, maxValue := c.Query("min_amount"), c.Query("max_amount"); minValue != "" && maxValue != "" {
+		minAmount, _ := strconv.ParseFloat(minValue, 64)
+		maxAmount, _ := strconv.ParseFloat(maxValue, 64)
+		if minAmount > maxAmount {
+			return "", "", nil, fmt.Errorf("min_amount cannot exceed max_amount")
+		}
 	}
 
-	c.JSON(http.StatusOK, response)
+	for _, field := range []struct {
+		name string
+		op   string
+	}{
+		{name: "due_date_from", op: ">="},
+		{name: "due_date_to", op: "<="},
+	} {
+		value := strings.TrimSpace(c.Query(field.name))
+		if value == "" {
+			continue
+		}
+		if _, err := time.Parse("2006-01-02", value); err != nil {
+			return "", "", nil, fmt.Errorf("invalid %s", field.name)
+		}
+		conditions = append(conditions, "SUBSTR(CAST(due_date AS TEXT), 1, 10) "+field.op+" "+addArg(value))
+	}
+	if from, to := c.Query("due_date_from"), c.Query("due_date_to"); from != "" && to != "" && from > to {
+		return "", "", nil, fmt.Errorf("due_date_from cannot exceed due_date_to")
+	}
+
+	listQuery := "SELECT * FROM (" + groupedQuery + ") AS grouped_debts"
+	countQuery := "SELECT COUNT(*) FROM (" + groupedQuery + ") AS grouped_debts"
+	if len(conditions) > 0 {
+		where := " WHERE " + strings.Join(conditions, " AND ")
+		listQuery += where
+		countQuery += where
+	}
+	return listQuery, countQuery, args, nil
 }
 
 // GetDebt retrieves a debt by ID

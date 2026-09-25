@@ -204,7 +204,6 @@ const requiredPathContracts = [
   "getUserDataPath('data', 'part-type-images')",
   "getUserDataPath('data', 'category-images')",
   "getUserDataPath('logs', 'backend.log')",
-  "getUserDataPath('offline-grant-public-key.txt')",
   "PARTFLOW_LOCAL_DB_PATH: getLocalDatabasePath()",
   "path.join(process.resourcesPath, 'backend', 'partflow-api.exe')",
 ];
@@ -287,9 +286,8 @@ The embedded backend is partflow-api.exe and also appears in win-unpacked\resour
 The SQLite database is %APPDATA%\PartFlow\data\partflow.db.
 Persistent images use %APPDATA%\PartFlow\data\product-images, category-images, and part-type-images.
 Backend logs use %APPDATA%\PartFlow\logs\backend.log.
-For offline access, the public key file is %APPDATA%\PartFlow\offline-grant-public-key.txt.
 User data remains under %APPDATA%\PartFlow and is not removed by uninstall.
-For offline access, install the public offline-grant key as documented in SUBSCRIPTION-OFFLINE-STRATEGY.md.
+Subscription authorization requires a live connection to the PartFlow cloud API.
 This internally signed package trusts the PartFlow internal certificate on the current Windows user only.
 "@ | Set-Content -LiteralPath (Join-Path $bundleStage 'README.txt') -Encoding UTF8
 

@@ -41,8 +41,8 @@ func isLocalDatabaseMode() bool {
 	return true
 }
 
-// CloudGuard optionally enforces the cloud authority for local API requests.
-// Local operation remains available unless the deployment explicitly opts in.
+// CloudGuard enforces the cloud authority for protected requests backed by a
+// local SQLite database. Local mode has no offline authorization window.
 func CloudGuard(service *Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !requiresCloudAuthForLocalMode() || !isLocalDatabaseMode() {

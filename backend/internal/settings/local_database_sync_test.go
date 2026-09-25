@@ -74,6 +74,7 @@ func TestSyncCloudDataMergesCloudSnapshotIntoSQLite(t *testing.T) {
 	ctx.Request = request
 	ctx.Request.Header.Set("Authorization", "Bearer test-token")
 	ctx.Request.Header.Set("X-PartFlow-Cloud-Token", "cloud-token")
+	ctx.Request.Header.Set("X-PartFlow-Cloud-API-URL", "https://attacker.example/api/v1")
 	NewLocalDatabaseHandler().SyncCloudData(ctx)
 
 	if recorder.Code != http.StatusOK {

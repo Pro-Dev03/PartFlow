@@ -29,7 +29,7 @@ import { ConfirmDialog } from '../../../design-system/components/confirm-dialog'
 import { ReportActions } from '../../../design-system/components/report-actions';
 
 // Types
-import { ViewMode, Product } from '../types/inventory.types';
+import { ViewMode, Product, InventoryItem } from '../types/inventory.types';
 import { categoriesApi, inventoryApi, productsApi } from '../../../services/api/endpoints';
 import { toast } from 'sonner';
 import { getLocalProductImage } from '../../../services/localProductImages';
@@ -39,6 +39,8 @@ import { InventoryQuickCreateModal } from '../components/InventoryQuickCreateMod
 import { BulkProductImportModal } from '../components/BulkProductImportModal';
 import { CreatePurchasePage } from '../../purchases/pages/CreatePurchasePage';
 import { SupplierInvoiceModal } from '../../purchases/components/SupplierInvoiceModal';
+import { EditInventoryItemBarcodeModal } from '../components/EditInventoryItemBarcodeModal';
+import { InventoryItemDetailsModal } from '../components/InventoryItemDetailsModal';
 
 interface InventoryMovementResponse {
   id: string;
@@ -83,6 +85,8 @@ export function InventoryPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<string | null>(null);
   const [inventoryItemToDelete, setInventoryItemToDelete] = useState<string | null>(null);
+  const [inventoryItemToEdit, setInventoryItemToEdit] = useState<InventoryItem | null>(null);
+  const [inventoryItemToView, setInventoryItemToView] = useState<InventoryItem | null>(null);
   const [minimumStockProduct, setMinimumStockProduct] = useState<Product | null>(null);
   const [minimumStockValue, setMinimumStockValue] = useState('0');
   const [reportLoading, setReportLoading] = useState(false);
@@ -380,6 +384,20 @@ export function InventoryPage() {
     setIsEditModalOpen(true);
   };
 
+  const handleSaveInventoryItemBarcode = async (barcode: string): Promise<boolean> => {
+    if (!inventoryItemToEdit) return false;
+    try {
+      await inventoryApi.update(inventoryItemToEdit.id, { barcode });
+      await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      toast.success('تم تحديث باركود العنصر');
+      setInventoryItemToEdit(null);
+      return true;
+    } catch (error: any) {
+      toast.error(error?.arabicMessage || error?.message || 'تعذر تحديث باركود العنصر');
+      return false;
+    }
+  };
+
   const handleDeleteProduct = (productId: string) => {
     setProductToDelete(productId);
     setDeleteDialogOpen(true);
@@ -458,7 +476,7 @@ export function InventoryPage() {
         condition: productData.condition,
         category_id: productData.category_id || null,
         preferred_supplier_id: productData.supplier_id || null,
-        barcode: productData.barcode,
+        barcode,
       };
       try {
         const currentStockResponse = await productsApi.getStock(selectedProduct.id);
@@ -772,7 +790,7 @@ export function InventoryPage() {
         variant="modern"
         size="sm"
       >
-        <div className="space-y-4">
+        <div className="space-y-4" data-next-disabled>
           <p className="text-sm text-text-secondary">المنتج جزء من منظومة التصنيف. اختر تصنيفًا قبل إدخال بياناته.</p>
           <select
             autoFocus
@@ -919,6 +937,8 @@ export function InventoryPage() {
         onEditMinimumStock={handleEditMinimumStock}
         onDeleteProduct={handleDeleteProduct}
         onDeleteInventoryItem={(itemId) => { setInventoryItemToDelete(itemId); setDeleteDialogOpen(true); }}
+        onEditInventoryItem={setInventoryItemToEdit}
+        onViewInventoryItem={setInventoryItemToView}
         onClearSearch={handleClearSearch}
         onViewInventoryLedger={handleViewInventoryLedger}
         pagination={viewMode === 'products'
@@ -957,6 +977,18 @@ export function InventoryPage() {
         onSaveProductAndReturnToSales={returnToSalesAfterSave ? handleSaveProductAndReturnToSales : undefined}
       />
 
+      <EditInventoryItemBarcodeModal
+        item={inventoryItemToEdit}
+        isOpen={Boolean(inventoryItemToEdit)}
+        onClose={() => setInventoryItemToEdit(null)}
+        onSave={handleSaveInventoryItemBarcode}
+      />
+      <InventoryItemDetailsModal
+        item={inventoryItemToView}
+        isOpen={Boolean(inventoryItemToView)}
+        onClose={() => setInventoryItemToView(null)}
+      />
+
       <Modal
         isOpen={Boolean(minimumStockProduct)}
         onClose={() => setMinimumStockProduct(null)}
@@ -975,7 +1007,7 @@ export function InventoryPage() {
           />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setMinimumStockProduct(null)}>إلغاء</Button>
-            <Button variant="primary" onClick={handleSaveMinimumStock} disabled={updateMinimumStockMutation.isPending}>
+            <Button variant="primary" data-next-action onClick={handleSaveMinimumStock} disabled={updateMinimumStockMutation.isPending}>
               {updateMinimumStockMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
             </Button>
           </div>

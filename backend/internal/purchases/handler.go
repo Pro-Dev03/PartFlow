@@ -265,7 +265,7 @@ func (h *Handler) CancelPurchase(c *gin.Context) {
 		return
 	}
 
-	response, err := h.service.CancelPurchase(c.Request.Context(), id)
+	response, err := h.service.CancelPurchase(c.Request.Context(), middleware.GetUserID(c), id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

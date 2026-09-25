@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -15,14 +17,115 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	partflowdb "github.com/partflow/smart-store/pkg/database"
 	"github.com/partflow/smart-store/pkg/logger"
-	"github.com/partflow/smart-store/pkg/offlinegrant"
 )
 
 var jwtSecret = []byte("your-secret-key-change-in-production")
 
 var db *sqlx.DB
 var disableAuth = false
+
+// The current repositories share one *sqlx.DB and many do not bind a
+// transaction to the request. Until that is refactored, a single PostgreSQL
+// session plus this gate keeps a tenant setting from leaking between requests.
+var tenantRequestMu sync.Mutex
+
+type tenantContextKey struct{}
+
+func TenantIDFromContext(ctx context.Context) (uuid.UUID, bool) {
+	tenantID, ok := ctx.Value(tenantContextKey{}).(uuid.UUID)
+	return tenantID, ok && tenantID != uuid.Nil
+}
+
+// TenantScope resolves tenant ownership only from the authenticated account,
+// applies the RLS session setting for the full request, and always clears it.
+// The database package limits the pool to one connection while this mode is on.
+func TenantScope() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !partflowdb.TenantIsolationEnabled() {
+			// The deployed schema has global business tables until migration 080
+			// is applied. Do not let ordinary subscribers reach that shared data
+			// during the rollout window.
+			if !isLocalDatabaseMode() && !IsConfiguredAdmin(c, GetUserID(c)) {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Tenant isolation must be installed before subscriber business access", "code": "TENANT_ISOLATION_REQUIRED"})
+				c.Abort()
+				return
+			}
+			c.Next()
+			return
+		}
+		if isLocalDatabaseMode() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Tenant isolation requires the cloud PostgreSQL database", "code": "TENANT_DATABASE_REQUIRED"})
+			c.Abort()
+			return
+		}
+		if db == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Tenant database is unavailable", "code": "TENANT_DATABASE_UNAVAILABLE"})
+			c.Abort()
+			return
+		}
+
+		userID := GetUserID(c)
+		if userID == uuid.Nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authenticated account is required", "code": "AUTHENTICATION_REQUIRED"})
+			c.Abort()
+			return
+		}
+
+		tenantRequestMu.Lock()
+		defer tenantRequestMu.Unlock()
+		defer func() {
+			resetContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			var cleared string
+			if err := db.GetContext(resetContext, &cleared,
+				`SELECT set_config('partflow.tenant_id', '', false) || set_config('partflow.user_id', '', false)`); err != nil {
+				// A session with an unknown tenant must never return to the pool.
+				log.Printf("failed to clear tenant RLS session context; closing database pool: %v", err)
+				_ = db.Close()
+			}
+		}()
+
+		var appliedUser string
+		if err := db.GetContext(c.Request.Context(), &appliedUser,
+			`SELECT set_config('partflow.user_id', $1, false)`, userID.String()); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to establish account access", "code": "TENANT_SCOPE_UNAVAILABLE"})
+			c.Abort()
+			return
+		}
+
+		var tenantID uuid.UUID
+		if err := db.GetContext(c.Request.Context(), &tenantID,
+			`SELECT tenant_id FROM tenant_memberships WHERE user_id = $1`, userID); err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Account is not assigned to a store", "code": "TENANT_NOT_CONFIGURED"})
+			} else {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to resolve store access", "code": "TENANT_LOOKUP_UNAVAILABLE"})
+			}
+			c.Abort()
+			return
+		}
+		if tenantID == uuid.Nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Account is not assigned to a store", "code": "TENANT_NOT_CONFIGURED"})
+			c.Abort()
+			return
+		}
+
+		var applied string
+		if err := db.GetContext(c.Request.Context(), &applied,
+			`SELECT set_config('partflow.tenant_id', $1, false)`, tenantID.String()); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to establish store access", "code": "TENANT_SCOPE_UNAVAILABLE"})
+			c.Abort()
+			return
+		}
+
+		c.Set("tenant_id", tenantID)
+		requestContext := context.WithValue(c.Request.Context(), tenantContextKey{}, tenantID)
+		c.Request = c.Request.WithContext(requestContext)
+		c.Next()
+	}
+}
 
 func allowLocalAuthBypass() bool {
 	mode := strings.TrimSpace(strings.ToLower(os.Getenv("SERVER_MODE")))
@@ -66,12 +169,9 @@ var cloudValidationMu sync.Mutex
 var cloudValidationInFlight = make(map[string]*cloudValidationCall)
 
 func requiresCloudAuth() bool {
-	// Local SQLite sessions still require an active cloud subscription. The
-	// local database is only an operational cache and must not become an auth
-	// bypass when the environment omits the flag.
+	// A local database is an operational cache, not an authentication bypass.
 	if isLocalDatabaseMode() {
-		value := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")))
-		return value != "false" && value != "0" && value != "no"
+		return true
 	}
 
 	mode := strings.TrimSpace(strings.ToLower(os.Getenv("SERVER_MODE")))
@@ -172,9 +272,8 @@ func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString strin
 
 	var envelope struct {
 		Data struct {
-			Valid        bool   `json:"valid"`
-			OfflineGrant string `json:"offline_grant"`
-			User         struct {
+			Valid bool `json:"valid"`
+			User  struct {
 				ID    string `json:"id"`
 				Email string `json:"email"`
 			} `json:"user"`
@@ -190,55 +289,7 @@ func validateWithCloudRemoteOnce(ctx context.Context, baseURL, tokenString strin
 	if err != nil {
 		return uuid.Nil, "", &cloudAuthError{status: http.StatusUnauthorized, err: fmt.Errorf("cloud response did not contain a valid user id")}
 	}
-	if envelope.Data.OfflineGrant != "" {
-		claims, verifyErr := offlinegrant.Verify(envelope.Data.OfflineGrant, time.Now().UTC())
-		if verifyErr == nil && claims.UserID == userID.String() {
-			persistOfflineGrant(ctx, userID, envelope.Data.OfflineGrant)
-		}
-	}
 	return userID, strings.TrimSpace(envelope.Data.User.Email), nil
-}
-
-func persistOfflineGrant(ctx context.Context, userID uuid.UUID, grant string) {
-	if db == nil || !isLocalDatabaseMode() || strings.TrimSpace(grant) == "" {
-		return
-	}
-	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS cloud_auth_grants (
-		user_id TEXT PRIMARY KEY,
-		grant_token TEXT NOT NULL,
-		updated_at TEXT NOT NULL
-	)`)
-	if err != nil {
-		return
-	}
-	_, _ = db.ExecContext(ctx, `
-		INSERT INTO cloud_auth_grants (user_id, grant_token, updated_at)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (user_id) DO UPDATE SET grant_token = excluded.grant_token, updated_at = excluded.updated_at
-	`, userID.String(), grant, time.Now().UTC().Format(time.RFC3339Nano))
-}
-
-func clearOfflineGrant(ctx context.Context, userID uuid.UUID) {
-	if db == nil || !isLocalDatabaseMode() {
-		return
-	}
-	_, _ = db.ExecContext(ctx, `DELETE FROM cloud_auth_grants WHERE user_id = $1`, userID.String())
-}
-
-func hasValidOfflineGrant(ctx context.Context, userID uuid.UUID) bool {
-	if db == nil || !isLocalDatabaseMode() {
-		return false
-	}
-	var token string
-	if err := db.QueryRowContext(ctx, `SELECT grant_token FROM cloud_auth_grants WHERE user_id = $1`, userID.String()).Scan(&token); err != nil {
-		return false
-	}
-	claims, err := offlinegrant.Verify(token, time.Now().UTC())
-	if err != nil || claims.UserID != userID.String() {
-		clearOfflineGrant(ctx, userID)
-		return false
-	}
-	return true
 }
 
 func parseSubscriptionExpiry(value interface{}) (*time.Time, error) {
@@ -280,6 +331,46 @@ func parseSubscriptionExpiry(value interface{}) (*time.Time, error) {
 	}
 
 	return nil, fmt.Errorf("unsupported subscription expiry format %q", raw)
+}
+
+const accessTokenTimestampTolerance = 5 * time.Second
+
+// accessTokenIsCurrent rejects access JWTs minted before the account's latest
+// update. Password changes update users.updated_at in the same transaction as
+// refresh-token revocation, so already-issued access tokens stop working too.
+// The small tolerance accounts for JWT NumericDate's second precision and
+// minor clock skew between the API process and PostgreSQL.
+func accessTokenIsCurrent(claims jwt.MapClaims, updatedAtRaw interface{}) (bool, error) {
+	issuedAtRaw, exists := claims["iat"]
+	if !exists {
+		return false, nil
+	}
+
+	var issuedAt time.Time
+	switch value := issuedAtRaw.(type) {
+	case float64:
+		issuedAt = time.Unix(int64(value), 0)
+	case int64:
+		issuedAt = time.Unix(value, 0)
+	case json.Number:
+		seconds, err := value.Int64()
+		if err != nil {
+			return false, nil
+		}
+		issuedAt = time.Unix(seconds, 0)
+	default:
+		return false, nil
+	}
+
+	updatedAt, err := parseSubscriptionExpiry(updatedAtRaw)
+	if err != nil {
+		return false, err
+	}
+	if updatedAt == nil || issuedAt.After(time.Now().Add(accessTokenTimestampTolerance)) {
+		return false, nil
+	}
+
+	return !issuedAt.Add(accessTokenTimestampTolerance).Before(*updatedAt), nil
 }
 
 // SetDatabase sets the database connection for middleware
@@ -328,7 +419,7 @@ func isLoopbackRequest(c *gin.Context) bool {
 
 func ensureUserAuthorized(ctx context.Context, userUUID uuid.UUID) (bool, error) {
 	if db == nil {
-		return true, nil
+		return false, fmt.Errorf("authentication database is unavailable")
 	}
 
 	var userExists bool
@@ -349,6 +440,16 @@ func ensureUserAuthorized(ctx context.Context, userUUID uuid.UUID) (bool, error)
 // CORS middleware
 func CORS() gin.HandlerFunc {
 	allowedOrigins := configuredCORSOrigins()
+	if isReleaseOrProductionMode() {
+		productionOrigins := make([]string, 0, len(allowedOrigins))
+		for _, origin := range allowedOrigins {
+			if origin == "*" || strings.EqualFold(origin, "null") {
+				continue
+			}
+			productionOrigins = append(productionOrigins, origin)
+		}
+		allowedOrigins = productionOrigins
+	}
 	return func(c *gin.Context) {
 		origin := strings.TrimSpace(c.Request.Header.Get("Origin"))
 		allowed := origin == "" || corsOriginAllowed(origin, allowedOrigins)
@@ -359,7 +460,7 @@ func CORS() gin.HandlerFunc {
 			c.Writer.Header().Add("Vary", "Origin")
 		}
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-PartFlow-Cloud-Token, X-PartFlow-Cloud-API-URL, Idempotency-Key, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, X-PartFlow-Cloud-Token, Idempotency-Key, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
 		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
 
@@ -376,12 +477,20 @@ func CORS() gin.HandlerFunc {
 	}
 }
 
+func isReleaseOrProductionMode() bool {
+	mode := strings.TrimSpace(strings.ToLower(os.Getenv("SERVER_MODE")))
+	if mode == "" {
+		mode = strings.TrimSpace(strings.ToLower(os.Getenv("APP_ENV")))
+	}
+	return mode == "release" || mode == "production"
+}
+
 func configuredCORSOrigins() []string {
 	raw := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
 	if raw == "" {
 		// Development and Electron defaults. Production should set an explicit
 		// comma-separated allowlist in Render/environment configuration.
-		raw = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:3000,http://127.0.0.1:3000,null"
+		raw = "https://partflow-hpv7.onrender.com,partflow://app,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:3000,http://127.0.0.1:3000"
 	}
 	origins := make([]string, 0)
 	for _, value := range strings.Split(raw, ",") {
@@ -406,7 +515,7 @@ func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip authentication if disabled (development mode)
 		if disableAuth {
-			if !allowLocalAuthBypass() {
+			if (requiresCloudAuth() && isLocalDatabaseMode()) || !allowLocalAuthBypass() {
 				c.JSON(http.StatusForbidden, gin.H{
 					"error": "authentication is disabled only for local development; set PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS=true in non-production",
 					"code":  "AUTH_DISABLED",
@@ -442,56 +551,35 @@ func Auth() gin.HandlerFunc {
 			return
 		}
 
-		// Local SQLite mode is the default for the desktop/offline-first app, so an
-		// unset cloud-auth flag must not silently block the local checkout path. The
-		// cloud gate stays enforced only when the app explicitly opts into it.
+		// Local sessions must match an active cloud account before protected
+		// operations are authorized.
 		cloudToken := strings.TrimSpace(c.GetHeader("X-PartFlow-Cloud-Token"))
 
 		if requiresCloudAuth() && isLocalDatabaseMode() {
 			localUserID, localTokenValid := localJWTUserID(tokenString)
+			if !localTokenValid {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid local session", "code": "INVALID_TOKEN"})
+				c.Abort()
+				return
+			}
 			if cloudToken == "" {
-				if localTokenValid && hasValidOfflineGrant(c.Request.Context(), localUserID) {
-					c.Set("user_id", localUserID)
-					c.Set("user_id_string", localUserID.String())
-					c.Set("offline_grace", true)
-					c.Next()
-					return
-				}
-				c.JSON(http.StatusServiceUnavailable, gin.H{
-					"error": "يلزم الاتصال بالخدمة السحابية للتحقق من الاشتراك",
-					"code":  "OFFLINE_GRACE_EXPIRED",
-				})
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Cloud connection is required", "code": "CLOUD_CONNECTION_REQUIRED"})
 				c.Abort()
 				return
 			}
 			userUUID, cloudEmail, cloudErr := validateWithCloud(c.Request.Context(), cloudToken)
 			if cloudErr != nil {
-				if cloudErr.status == http.StatusServiceUnavailable && localTokenValid && hasValidOfflineGrant(c.Request.Context(), localUserID) {
-					c.Set("user_id", localUserID)
-					c.Set("user_id_string", localUserID.String())
-					c.Set("offline_grace", true)
-					c.Next()
-					return
-				}
-				if cloudErr.status == http.StatusUnauthorized || cloudErr.status == http.StatusForbidden {
-					clearOfflineGrant(c.Request.Context(), localUserID)
-				}
-				message := "تعذر التحقق من الحساب عبر الخادم السحابي"
-				code := "CLOUD_AUTH_REQUIRED"
-				switch cloudErr.status {
-				case http.StatusUnauthorized:
-					message = "جلسة الدخول غير صالحة"
-					code = "INVALID_TOKEN"
-				case http.StatusForbidden:
-					message = "الحساب غير نشط أو أن الاشتراك غير صالح"
-					code = cloudErr.code
-					if code == "" {
-						code = "SUBSCRIPTION_EXPIRED"
-					}
-				case http.StatusServiceUnavailable:
-					code = "OFFLINE_GRACE_EXPIRED"
+				message := "Cloud account validation failed"
+				code := cloudErr.code
+				if code == "" || cloudErr.status == http.StatusServiceUnavailable {
+					code = "CLOUD_CONNECTION_REQUIRED"
 				}
 				c.JSON(cloudErr.status, gin.H{"error": message, "code": code})
+				c.Abort()
+				return
+			}
+			if localUserID != userUUID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Local and cloud sessions do not match", "code": "SESSION_IDENTITY_MISMATCH"})
 				c.Abort()
 				return
 			}
@@ -568,11 +656,23 @@ func Auth() gin.HandlerFunc {
 				var isActive bool
 				var subscriptionStatus string
 				var subscriptionExpiresAtRaw interface{}
+				var userUpdatedAtRaw interface{}
 				err = db.QueryRowContext(c.Request.Context(),
-					"SELECT is_active, subscription_status, subscription_expires_at FROM users WHERE id = $1", userUUID).
-					Scan(&isActive, &subscriptionStatus, &subscriptionExpiresAtRaw)
+					"SELECT is_active, subscription_status, subscription_expires_at, updated_at FROM users WHERE id = $1", userUUID).
+					Scan(&isActive, &subscriptionStatus, &subscriptionExpiresAtRaw, &userUpdatedAtRaw)
 				if err != nil {
 					c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify subscription status", "code": "AUTH_SERVICE_UNAVAILABLE"})
+					c.Abort()
+					return
+				}
+				currentSession, sessionCheckErr := accessTokenIsCurrent(claims, userUpdatedAtRaw)
+				if sessionCheckErr != nil {
+					c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify session state", "code": "AUTH_SERVICE_UNAVAILABLE"})
+					c.Abort()
+					return
+				}
+				if !currentSession {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Session has been revoked", "code": "SESSION_REVOKED"})
 					c.Abort()
 					return
 				}

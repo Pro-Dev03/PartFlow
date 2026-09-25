@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/partflow/smart-store/internal/auth"
@@ -56,14 +57,31 @@ func AuthMiddleware(jwtService *auth.JWTService, db *sqlx.DB) gin.HandlerFunc {
 		var userActive bool
 		var subscriptionStatus string
 		var subscriptionExpiresAtRaw interface{}
+		var userUpdatedAtRaw interface{}
 		err = db.QueryRowContext(c.Request.Context(),
-			"SELECT is_active, COALESCE(subscription_status, 'active'), subscription_expires_at FROM users WHERE id = $1", userID).Scan(&userActive, &subscriptionStatus, &subscriptionExpiresAtRaw)
+			"SELECT is_active, COALESCE(subscription_status, 'active'), subscription_expires_at, updated_at FROM users WHERE id = $1", userID).Scan(&userActive, &subscriptionStatus, &subscriptionExpiresAtRaw, &userUpdatedAtRaw)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found", "code": "ACCOUNT_DELETED"})
 			} else {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "unable to verify account", "code": "AUTH_SERVICE_UNAVAILABLE"})
 			}
+			c.Abort()
+			return
+		}
+		if claims.IssuedAt == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session has been revoked", "code": "SESSION_REVOKED"})
+			c.Abort()
+			return
+		}
+		currentSession, sessionCheckErr := accessTokenIsCurrent(jwt.MapClaims{"iat": float64(claims.IssuedAt.Unix())}, userUpdatedAtRaw)
+		if sessionCheckErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify session state", "code": "AUTH_SERVICE_UNAVAILABLE"})
+			c.Abort()
+			return
+		}
+		if !currentSession {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session has been revoked", "code": "SESSION_REVOKED"})
 			c.Abort()
 			return
 		}

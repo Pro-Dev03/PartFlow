@@ -190,7 +190,7 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} data-next-disabled>
         {/* Email Input */}
         <div style={{ marginBottom: '18px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>

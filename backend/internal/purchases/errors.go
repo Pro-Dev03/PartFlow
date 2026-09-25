@@ -39,6 +39,9 @@ var (
 	// ErrInvalidCost is returned when cost is invalid
 	ErrInvalidCost = errors.New("invalid cost")
 
+	// ErrPaymentExceedsTotal is returned when a payment exceeds the persisted purchase balance.
+	ErrPaymentExceedsTotal = errors.New("payment amount exceeds remaining balance")
+
 	// ErrInvalidCondition is returned when condition is invalid
 	ErrInvalidCondition = errors.New("invalid condition")
 

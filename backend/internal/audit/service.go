@@ -41,10 +41,20 @@ func (s *Service) GetAuditLog(ctx context.Context, id uuid.UUID) (*AuditLog, err
 
 // ListAuditLogs retrieves audit logs with pagination and filters
 func (s *Service) ListAuditLogs(ctx context.Context, req AuditLogListRequest) ([]map[string]interface{}, int, error) {
+	return s.listAuditLogs(ctx, req, 100, true)
+}
+
+// ListAuditLogsForExport retrieves a bounded export page without issuing one
+// user lookup per row. User names are not part of the CSV export columns.
+func (s *Service) ListAuditLogsForExport(ctx context.Context, req AuditLogListRequest) ([]map[string]interface{}, int, error) {
+	return s.listAuditLogs(ctx, req, 10000, false)
+}
+
+func (s *Service) listAuditLogs(ctx context.Context, req AuditLogListRequest, maxPerPage int, includeUserNames bool) ([]map[string]interface{}, int, error) {
 	if req.Page <= 0 {
 		req.Page = 1
 	}
-	if req.PerPage <= 0 || req.PerPage > 100 {
+	if req.PerPage <= 0 || req.PerPage > maxPerPage {
 		req.PerPage = 20
 	}
 
@@ -56,9 +66,11 @@ func (s *Service) ListAuditLogs(ctx context.Context, req AuditLogListRequest) ([
 	// Convert to list items
 	var result []map[string]interface{}
 	for _, auditLog := range auditLogs {
-		userName, err := s.repo.GetUserName(ctx, auditLog.UserID)
-		if err != nil {
-			userName = "Unknown"
+		userName := "Unknown"
+		if includeUserNames {
+			if resolvedName, err := s.repo.GetUserName(ctx, auditLog.UserID); err == nil {
+				userName = resolvedName
+			}
 		}
 		result = append(result, auditLog.ToAuditLogListItem(userName))
 	}

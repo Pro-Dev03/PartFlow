@@ -145,12 +145,10 @@ export function PurchasesPage() {
       },
       {
         showConfirmation: false,
-        onSuccess: (result) => {
-          console.log('Delete successful:', result);
+        onSuccess: () => {
           setPurchaseToDelete(null);
         },
-        onBlocked: (result) => {
-          console.log('Delete blocked:', result);
+        onBlocked: () => {
           setPurchaseToDelete(null);
         },
         onError: (error) => {
@@ -336,7 +334,7 @@ export function PurchasesPage() {
                       <TableCell className="text-center font-black text-[var(--text-primary)]">₪{purchase.total_amount?.toLocaleString() || '0'}</TableCell>
                       <TableCell className="text-center font-black text-[var(--color-success)]">₪{purchase.paid_amount?.toLocaleString() || '0'}</TableCell>
                       <TableCell className="text-center"><Badge variant={Number(purchase.remaining || 0) > 0 ? 'warning' : 'success'} size="sm" className="min-w-[82px] justify-center rounded-full">₪{purchase.remaining?.toLocaleString() || '0'}</Badge></TableCell>
-                      <TableCell className="font-semibold text-[var(--text-secondary)]">{purchase.expected_delivery_date ? formatStoreDate(purchase.expected_delivery_date, 'en-US') : '-'}</TableCell>
+                      <TableCell className="font-semibold text-[var(--text-secondary)]">{purchase.purchase_date ? formatStoreDate(purchase.purchase_date, 'en-US') : purchase.expected_delivery_date ? formatStoreDate(purchase.expected_delivery_date, 'en-US') : '-'}</TableCell>
                       <TableCell><Badge variant={statusBadge.variant} size="sm" className="whitespace-nowrap rounded-full">{statusBadge.label}</Badge></TableCell>
                       <TableCell className="text-end">
                         <div className="flex items-center justify-end gap-1">

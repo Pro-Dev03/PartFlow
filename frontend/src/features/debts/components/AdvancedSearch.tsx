@@ -10,7 +10,7 @@ interface AdvancedSearchProps {
 
 export interface SearchFilters {
   status?: 'all' | 'paid' | 'overdue' | 'partial';
-  dateRange?: 'today' | 'week' | 'month' | 'custom';
+  dateRange?: 'all' | 'today' | 'week' | 'month' | 'custom';
   amountRange?: { min?: number; max?: number };
   searchType?: 'name' | 'code' | 'phone' | 'amount' | 'all';
 }
@@ -25,9 +25,15 @@ export function AdvancedSearch({ onSearch, customers = [] }: AdvancedSearchProps
 
   // تحميل تاريخ البحث من localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('debtSearchHistory');
-    if (saved) {
-      setSearchHistory(JSON.parse(saved));
+    try {
+      const saved = localStorage.getItem('debtSearchHistory');
+      if (!saved) return;
+      const parsed: unknown = JSON.parse(saved);
+      setSearchHistory(Array.isArray(parsed)
+        ? parsed.filter((entry): entry is string => typeof entry === 'string').slice(0, 5)
+        : []);
+    } catch {
+      setSearchHistory([]);
     }
   }, []);
 
@@ -37,7 +43,11 @@ export function AdvancedSearch({ onSearch, customers = [] }: AdvancedSearchProps
     
     setSearchHistory(prev => {
       const updated = [searchQuery, ...prev.filter(q => q !== searchQuery)].slice(0, 5);
-      localStorage.setItem('debtSearchHistory', JSON.stringify(updated));
+      try {
+        localStorage.setItem('debtSearchHistory', JSON.stringify(updated));
+      } catch {
+        // Keep search history usable for the current session if storage is unavailable.
+      }
       return updated;
     });
   }, []);
@@ -179,7 +189,7 @@ export function AdvancedSearch({ onSearch, customers = [] }: AdvancedSearchProps
                 setTimeout(() => setShowSuggestions(false), 200);
               }}
               onKeyDown={(e) => {
-                if (e.key !== 'Enter' || e.isComposing) return;
+                if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
                 e.preventDefault();
                 handleSearch();
               }}

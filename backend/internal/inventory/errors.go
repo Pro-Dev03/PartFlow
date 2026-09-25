@@ -33,6 +33,9 @@ var (
 	// ErrDuplicateBarcode is returned when barcode already exists
 	ErrDuplicateBarcode = errors.New("barcode already exists")
 
+	// ErrInvalidBarcode is returned when a barcode does not meet validation rules
+	ErrInvalidBarcode = errors.New("barcode cannot exceed 100 characters")
+
 	// ErrDuplicateSerialNumber is returned when serial number already exists
 	ErrDuplicateSerialNumber = errors.New("serial number already exists")
 

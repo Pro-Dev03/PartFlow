@@ -1,13 +1,20 @@
 package api
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/partflow/smart-store/internal/auth"
 	"github.com/partflow/smart-store/internal/localdb"
+	"github.com/partflow/smart-store/pkg/middleware"
 )
 
 func TestSetupRoutesRegistersCustomerDebtRoutes(t *testing.T) {
@@ -47,5 +54,60 @@ func TestSetupRoutesRegistersCustomerDebtRoutes(t *testing.T) {
 	}
 	if !paths["/api/v1/customers/:id/debt-payments"] {
 		t.Fatalf("missing POST /api/v1/customers/:id/debt-payments in registered routes")
+	}
+}
+
+func TestCloudBusinessAccessFailsClosedUntilTenantIsolationIsEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "sync-admin-test.db"))
+	t.Setenv("DB_CONNECTION_MODE", "cloud")
+	t.Setenv("PARTFLOW_ADMIN_EMAILS", "admin@example.test")
+	middleware.SetDisableAuth(false)
+	middleware.SetJWTSecret("sync-admin-test-secret")
+	t.Cleanup(func() {
+		middleware.SetDisableAuth(false)
+		middleware.SetJWTSecret("your-secret-key-change-in-production")
+		middleware.SetDatabase(nil)
+	})
+
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatalf("open local database: %v", err)
+	}
+	defer database.DB.Close()
+	db := sqlx.NewDb(database.DB, "sqlite")
+	userID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO users (id, email, password_hash, first_name, last_name, created_at, updated_at, is_active, subscription_status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'active')`, userID.String(), "subscriber@example.test", "unused", "Regular", "Subscriber", time.Now().UTC(), time.Now().UTC()); err != nil {
+		t.Fatalf("insert subscriber: %v", err)
+	}
+	service, err := auth.NewService(db, "sync-admin-test-secret", false, "", "", "")
+	if err != nil {
+		t.Fatalf("new auth service: %v", err)
+	}
+	middleware.SetDatabase(db)
+	router := gin.New()
+	SetupRoutes(router, db, service)
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": userID.String(),
+		"iat":     time.Now().Unix(),
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	})
+	tokenString, err := token.SignedString([]byte("sync-admin-test-secret"))
+	if err != nil {
+		t.Fatalf("sign subscriber token: %v", err)
+	}
+	for _, target := range []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/sync/initial-data"},
+		{http.MethodPost, "/api/v1/sync/push"},
+	} {
+		request := httptest.NewRequest(target.method, target.path, nil)
+		request.Header.Set("Authorization", "Bearer "+tokenString)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "TENANT_ISOLATION_REQUIRED") {
+			t.Fatalf("%s %s status=%d body=%s; want rollout isolation denial", target.method, target.path, response.Code, response.Body.String())
+		}
 	}
 }

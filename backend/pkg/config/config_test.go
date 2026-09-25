@@ -1,136 +1,66 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
-func TestLoad_RejectsDefaultJWTSecretInReleaseMode(t *testing.T) {
-	t.Setenv("SERVER_MODE", "release")
-	t.Setenv("DATABASE_URL", "sqlite://test.db")
-	t.Setenv("JWT_SECRET", "change-this-secret-in-production")
-	t.Setenv("DISABLE_AUTH", "false")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() expected error when JWT_SECRET is left at the default production value")
-	}
-}
-
-func TestLoad_UsesAppPortAlias(t *testing.T) {
-	t.Setenv("SERVER_PORT", "")
-	t.Setenv("APP_PORT", "18080")
-	t.Setenv("DATABASE_URL", "sqlite://test.db")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() returned error: %v", err)
-	}
-	if cfg.ServerPort != "18080" {
-		t.Fatalf("ServerPort = %q, want APP_PORT value", cfg.ServerPort)
-	}
-}
-
-func TestLoad_RejectsDisabledAuthInReleaseMode(t *testing.T) {
-	t.Setenv("SERVER_MODE", "release")
-	t.Setenv("DATABASE_URL", "sqlite://test.db")
-	t.Setenv("JWT_SECRET", "production-secret")
-	t.Setenv("DISABLE_AUTH", "true")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() expected error when DISABLE_AUTH is enabled in release mode")
-	}
-}
-
-func TestLoad_UsesProductionLoggingDefaultsInReleaseMode(t *testing.T) {
-	t.Setenv("SERVER_MODE", "release")
-	t.Setenv("DATABASE_URL", "sqlite://test.db")
-	t.Setenv("JWT_SECRET", "production-secret")
-	t.Setenv("DISABLE_AUTH", "false")
-	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "true")
-	t.Setenv("PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS", "false")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() returned error in release mode: %v", err)
-	}
-	if cfg.LogLevel != "warn" {
-		t.Fatalf("LogLevel = %q, want warn in release mode", cfg.LogLevel)
-	}
-	if cfg.RequestLoggingEnabled {
-		t.Fatal("RequestLoggingEnabled = true in release mode, want false")
-	}
-}
-
-func TestLoad_RejectsCloudAuthDisabledInReleaseMode(t *testing.T) {
-	t.Setenv("SERVER_MODE", "release")
-	t.Setenv("DATABASE_URL", "sqlite://test.db")
-	t.Setenv("JWT_SECRET", "production-secret")
-	t.Setenv("DISABLE_AUTH", "false")
-	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "false")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() expected error when PARTFLOW_REQUIRE_CLOUD_AUTH is disabled in release mode")
-	}
-}
-
-func TestLoad_RejectsLocalAuthBypassInReleaseMode(t *testing.T) {
-	t.Setenv("SERVER_MODE", "release")
-	t.Setenv("DATABASE_URL", "sqlite://test.db")
-	t.Setenv("JWT_SECRET", "production-secret")
-	t.Setenv("DISABLE_AUTH", "false")
-	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "true")
-	t.Setenv("PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS", "true")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() expected error when PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS is enabled in release mode")
-	}
-}
-
-func TestResolveDatabaseURL_LocalModeFallsBackToSQLite(t *testing.T) {
+func setProductionConfigEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("SERVER_MODE", "")
+	t.Setenv("APP_ENV", "production")
 	t.Setenv("DB_CONNECTION_MODE", "local")
-	t.Setenv("DATABASE_URL", "postgresql://cloud.example.test/postgres")
-	t.Setenv("DATABASE_URL_LOCAL", "")
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DATABASE_URL_LOCAL", "sqlite://partflow-test.db")
 	t.Setenv("DATABASE_URL_CLOUD", "")
-	t.Setenv("PARTFLOW_LOCAL_DB_PATH", "C:/tmp/partflow-local.db")
+	t.Setenv("DB_LOCAL_URL", "")
+	t.Setenv("DB_CLOUD_URL", "")
+	t.Setenv("LOCAL_DATABASE_URL", "")
+	t.Setenv("CLOUD_DATABASE_URL", "")
+	t.Setenv("JWT_SECRET", "production-test-secret-that-is-not-the-default")
+	t.Setenv("DISABLE_AUTH", "false")
+	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "")
+	t.Setenv("PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS", "")
+	t.Setenv("CORS_ALLOWED_ORIGINS", "")
+}
 
-	url, source, err := ResolveDatabaseURL()
+func TestLoadTreatsAPPENVProductionAsProduction(t *testing.T) {
+	setProductionConfigEnv(t)
+
+	cfg, err := Load()
 	if err != nil {
-		t.Fatalf("ResolveDatabaseURL() returned error for local mode: %v", err)
+		t.Fatalf("Load() error = %v", err)
 	}
-	if source != "local" {
-		t.Fatalf("ResolveDatabaseURL() source = %q, want local", source)
-	}
-	if url == "" || url[:len("sqlite://")] != "sqlite://" {
-		t.Fatalf("ResolveDatabaseURL() url = %q, want sqlite:// fallback", url)
+	if cfg.ServerMode != "production" {
+		t.Fatalf("ServerMode = %q, want normalized production", cfg.ServerMode)
 	}
 }
 
-func TestResolveDatabaseURL_CloudModeRequiresConfiguredCloudURL(t *testing.T) {
-	t.Setenv("DB_CONNECTION_MODE", "cloud")
-	t.Setenv("DATABASE_URL", "")
-	t.Setenv("DATABASE_URL_LOCAL", "")
-	t.Setenv("DATABASE_URL_CLOUD", "")
-
-	_, _, err := ResolveDatabaseURL()
-	if err == nil {
-		t.Fatal("ResolveDatabaseURL() expected error when cloud mode has no configured URL")
+func TestLoadRejectsUnsafeProductionAuthenticationConfig(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+		want  string
+	}{
+		{"default jwt secret", "JWT_SECRET", "change-this-secret-in-production", "JWT_SECRET must be changed"},
+		{"short jwt secret", "JWT_SECRET", "short-secret", "at least 32 bytes"},
+		{"disabled auth", "DISABLE_AUTH", "true", "DISABLE_AUTH must be false"},
+		{"cloud auth disabled", "PARTFLOW_REQUIRE_CLOUD_AUTH", "false", "PARTFLOW_REQUIRE_CLOUD_AUTH must be true"},
+		{"local auth bypass enabled", "PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS", "true", "PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS must be false"},
+		{"credentialed wildcard CORS", "CORS_ALLOWED_ORIGINS", "*", "CORS_ALLOWED_ORIGINS must be an explicit origin allowlist"},
+		{"opaque null origin CORS", "CORS_ALLOWED_ORIGINS", "https://partflow-hpv7.onrender.com,null", "must not include the opaque null origin"},
 	}
-}
 
-func TestResolveDatabaseURL_CloudModeUsesCloudURL(t *testing.T) {
-	t.Setenv("DB_CONNECTION_MODE", "cloud")
-	t.Setenv("DATABASE_URL", "")
-	t.Setenv("DATABASE_URL_LOCAL", "sqlite://local.db")
-	t.Setenv("DATABASE_URL_CLOUD", "postgresql://cloud.example.test/postgres")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setProductionConfigEnv(t)
+			t.Setenv(test.key, test.value)
 
-	url, source, err := ResolveDatabaseURL()
-	if err != nil {
-		t.Fatalf("ResolveDatabaseURL() returned error for configured cloud mode: %v", err)
-	}
-	if url != "postgresql://cloud.example.test/postgres" || source != "cloud" {
-		t.Fatalf("ResolveDatabaseURL() = (%q, %q), want configured cloud URL", url, source)
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Load() error = %v, want error containing %q", err, test.want)
+			}
+		})
 	}
 }

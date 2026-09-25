@@ -86,7 +86,13 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, purchaseID uuid.UU
 		}
 		return s.deleteReceivedPurchase(ctx, purchaseID, userID)
 	}
-	return s.deleteDraftPurchase(ctx, purchaseID, userID)
+	if status == StatusDraft || status == StatusPending {
+		return s.deleteDraftPurchase(ctx, purchaseID, userID)
+	}
+	return &SmartDeleteResult{
+		Action: "blocked", Message: "لا يمكن حذف شراء ملغى أو معكوس؛ احتفظ بسجله للمراجعة", CanProceed: false,
+		Details: &SmartDeleteDetails{Reason: "حالة الشراء لا تسمح بالحذف المباشر", SuggestedAction: "راجع سجل الشراء أو أنشئ عملية جديدة"},
+	}, nil
 }
 
 func (s *SmartDeleteService) tableExists(ctx context.Context, tx *sqlx.Tx, name string) (bool, error) {
@@ -132,6 +138,18 @@ func (s *SmartDeleteService) deleteReceivedPurchase(ctx context.Context, purchas
 		return nil, fmt.Errorf("begin received purchase deletion: %w", err)
 	}
 	defer tx.Rollback()
+	guardResult, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE purchases SET status=status WHERE id=? AND LOWER(TRIM(COALESCE(status,''))) IN ('received','partially_received','completed')`), purchaseID.String())
+	if err != nil {
+		return nil, fmt.Errorf("lock received purchase for deletion: %w", err)
+	}
+	if affected, err := guardResult.RowsAffected(); err != nil {
+		return nil, fmt.Errorf("verify received purchase for deletion: %w", err)
+	} else if affected != 1 {
+		return &SmartDeleteResult{
+			Action: "blocked", Message: "تغيرت حالة الشراء قبل الحذف؛ حدّث القائمة وحاول مجددًا", CanProceed: false,
+			Details: &SmartDeleteDetails{Reason: "لم تعد حالة الشراء تسمح بعكسه", SuggestedAction: "حدّث البيانات قبل إعادة المحاولة"},
+		}, nil
+	}
 	var purchase struct {
 		SupplierID uuid.UUID `db:"supplier_id"`
 		Invoice    string    `db:"invoice_number"`
@@ -293,6 +311,18 @@ func (s *SmartDeleteService) deleteDraftPurchase(ctx context.Context, purchaseID
 		return nil, fmt.Errorf("failed to begin purchase deletion: %w", err)
 	}
 	defer tx.Rollback()
+	guardResult, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE purchases SET status=status WHERE id=? AND LOWER(TRIM(COALESCE(status,''))) IN ('draft','pending')`), purchaseID.String())
+	if err != nil {
+		return nil, fmt.Errorf("lock draft purchase for deletion: %w", err)
+	}
+	if affected, err := guardResult.RowsAffected(); err != nil {
+		return nil, fmt.Errorf("verify draft purchase for deletion: %w", err)
+	} else if affected != 1 {
+		return &SmartDeleteResult{
+			Action: "blocked", Message: "تغيرت حالة الشراء قبل الحذف؛ حدّث القائمة وحاول مجددًا", CanProceed: false,
+			Details: &SmartDeleteDetails{Reason: "لم تعد حالة الشراء تسمح بالحذف المباشر", SuggestedAction: "حدّث البيانات قبل إعادة المحاولة"},
+		}, nil
+	}
 
 	var purchase struct {
 		SupplierID uuid.UUID `db:"supplier_id"`

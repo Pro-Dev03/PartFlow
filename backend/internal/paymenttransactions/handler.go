@@ -10,6 +10,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/partflow/smart-store/internal/paymentproviders"
 	"github.com/partflow/smart-store/internal/secrets"
+	partflowdb "github.com/partflow/smart-store/pkg/database"
 	"github.com/partflow/smart-store/pkg/middleware"
 )
 
@@ -174,6 +175,17 @@ func (h *Handler) ListProviders(c *gin.Context) {
 }
 
 func (h *Handler) Webhook(c *gin.Context) {
+	// A provider callback has no authenticated account context. Until callbacks
+	// carry a verifiable per-tenant route and scope their database context, do
+	// not let an unscoped request inherit another request's session tenant.
+	usesCloudDatabase := h.db != nil && !strings.EqualFold(h.db.DriverName(), "sqlite")
+	if partflowdb.TenantIsolationEnabled() || usesCloudDatabase {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "payment webhook routing must be configured for tenant isolation",
+			"code":  "PAYMENT_WEBHOOK_TENANT_ROUTING_REQUIRED",
+		})
+		return
+	}
 	providerName := paymentproviders.ProviderName(strings.ToLower(strings.TrimSpace(c.Param("provider"))))
 	adapter, err := h.adapter(providerName)
 	if err != nil {

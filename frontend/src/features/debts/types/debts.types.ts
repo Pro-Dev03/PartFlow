@@ -7,11 +7,13 @@ export interface Debt {
   notes?: string;
   debt_reason?: string;
   status: 'pending' | 'partial' | 'paid' | 'overdue';
+  dueDate?: string;
   created_at: string;
   customer?: {
     id: string;
     name: string;
     code: string;
+    phone?: string;
     notes?: string;
   };
 }

@@ -3,9 +3,11 @@ package inventory
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -135,7 +137,7 @@ func (s *Service) GetInventoryItem(ctx context.Context, id uuid.UUID) (*Inventor
 	return s.repo.GetInventoryItemByID(ctx, id)
 }
 
-func (s *Service) UpdateInventoryItemDetails(ctx context.Context, id uuid.UUID, categoryID, partTypeID *uuid.UUID, serialNumber, condition, grade *string, purchaseCost, sellingPrice *float64, notes *string) (*InventoryItem, error) {
+func (s *Service) UpdateInventoryItemDetails(ctx context.Context, id uuid.UUID, categoryID, partTypeID *uuid.UUID, serialNumber, condition, grade *string, purchaseCost, sellingPrice *float64, notes, barcode *string) (*InventoryItem, error) {
 	item, err := s.repo.GetInventoryItemByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -175,6 +177,24 @@ func (s *Service) UpdateInventoryItemDetails(ctx context.Context, id uuid.UUID, 
 	}
 	if notes != nil {
 		item.Notes = notes
+	}
+	if barcode != nil {
+		normalizedBarcode := strings.TrimSpace(*barcode)
+		if utf8.RuneCountInString(normalizedBarcode) > 100 {
+			return nil, ErrInvalidBarcode
+		}
+		if normalizedBarcode == "" {
+			item.Barcode = nil
+		} else {
+			existingItem, lookupErr := s.repo.GetInventoryItemByBarcode(ctx, normalizedBarcode)
+			if lookupErr == nil && existingItem.ID != id {
+				return nil, ErrDuplicateBarcode
+			}
+			if lookupErr != nil && !errors.Is(lookupErr, ErrItemNotFound) {
+				return nil, fmt.Errorf("failed to validate inventory item barcode: %w", lookupErr)
+			}
+			item.Barcode = &normalizedBarcode
+		}
 	}
 	item.UpdatedAt = time.Now()
 	if err := s.repo.UpdateInventoryItem(ctx, item); err != nil {

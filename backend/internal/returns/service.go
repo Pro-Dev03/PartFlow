@@ -296,12 +296,18 @@ func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, req *ReturnUpd
 	if returnRecord.Status == "COMPLETED" {
 		return nil, ErrReturnAlreadyCompleted
 	}
+	if returnRecord.Status == "COMPLETING" {
+		return nil, ErrInvalidReturnStatus
+	}
 
 	// Update fields
 	if req.Reason != "" {
 		returnRecord.Reason = req.Reason
 	}
 	if req.Status != "" {
+		if strings.EqualFold(req.Status, "COMPLETING") || strings.EqualFold(req.Status, "COMPLETED") {
+			return nil, ErrInvalidReturnStatus
+		}
 		// Validate status transition
 		if returnRecord.Status == "APPROVED" && req.Status == "PENDING" {
 			return nil, ErrInvalidReturnStatus
@@ -485,6 +491,9 @@ func (s *Service) AddReturnItem(ctx context.Context, returnID uuid.UUID, req Ret
 		return nil, fmt.Errorf("failed to begin return item transaction: %w", err)
 	}
 	defer tx.Rollback()
+	if err := lockReturnForItemEdit(ctx, tx, s.repo.db, returnID); err != nil {
+		return nil, err
+	}
 	if err := s.repo.CreateReturnItemTx(ctx, tx, item); err != nil {
 		return nil, err
 	}
@@ -566,6 +575,9 @@ func (s *Service) UpdateReturnItem(ctx context.Context, itemID uuid.UUID, req Re
 		return nil, fmt.Errorf("failed to begin return item transaction: %w", err)
 	}
 	defer tx.Rollback()
+	if err := lockReturnForItemEdit(ctx, tx, s.repo.db, item.ReturnID); err != nil {
+		return nil, err
+	}
 	if err := s.repo.UpdateReturnItemTx(ctx, tx, item); err != nil {
 		return nil, err
 	}
@@ -601,6 +613,9 @@ func (s *Service) DeleteReturnItem(ctx context.Context, itemID uuid.UUID) error 
 		return fmt.Errorf("failed to begin return item transaction: %w", err)
 	}
 	defer tx.Rollback()
+	if err := lockReturnForItemEdit(ctx, tx, s.repo.db, item.ReturnID); err != nil {
+		return err
+	}
 	returnIDArg := interface{}(item.ReturnID)
 	if dbutil.IsSQLite(s.repo.db) {
 		returnIDArg = item.ReturnID.String()
@@ -628,6 +643,36 @@ func (s *Service) DeleteReturnItem(ctx context.Context, itemID uuid.UUID) error 
 func returnCanEditItems(status string) bool {
 	status = strings.ToUpper(strings.TrimSpace(status))
 	return status == "PENDING" || status == "APPROVED"
+}
+
+func lockReturnForItemEdit(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, returnID uuid.UUID) error {
+	returnIDArg := interface{}(returnID)
+	isSQLite := dbutil.IsSQLite(db)
+	if isSQLite {
+		returnIDArg = returnID.String()
+		result, err := tx.ExecContext(ctx, `UPDATE returns SET updated_at = updated_at WHERE id = ?`, returnIDArg)
+		if err != nil {
+			return fmt.Errorf("lock return before item change: %w", err)
+		}
+		if affected, _ := result.RowsAffected(); affected == 0 {
+			return ErrReturnNotFound
+		}
+	}
+	query := `SELECT status FROM returns WHERE id = ?`
+	if !isSQLite {
+		query += ` FOR UPDATE`
+	}
+	var status string
+	if err := tx.GetContext(ctx, &status, tx.Rebind(query), returnIDArg); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrReturnNotFound
+		}
+		return fmt.Errorf("read return before item change: %w", err)
+	}
+	if !returnCanEditItems(status) {
+		return ErrInvalidReturnStatus
+	}
+	return nil
 }
 
 func (s *Service) recalculateReturnTotalTx(ctx context.Context, tx *sqlx.Tx, returnID uuid.UUID) error {
@@ -663,15 +708,55 @@ func (s *Service) CompleteReturn(ctx context.Context, id uuid.UUID, approvedBy u
 	if err != nil {
 		return nil, err
 	}
-	if err := s.loadRefundState(ctx, returnRecord); err != nil {
-		return nil, fmt.Errorf("failed to load return refund state: %w", err)
-	}
-
 	if strings.EqualFold(returnRecord.Status, "COMPLETED") {
 		return nil, ErrReturnAlreadyCompleted
 	}
 	if !strings.EqualFold(returnRecord.Status, "APPROVED") && !strings.EqualFold(returnRecord.Status, "PROCESSING") {
+		if !strings.EqualFold(returnRecord.Status, "COMPLETING") {
+			return nil, ErrInvalidReturnStatus
+		}
+	}
+
+	// Claim completion before contacting a payment provider. This prevents a
+	// concurrent cancellation from racing an external refund and makes a failed
+	// provider attempt safely retryable from COMPLETING.
+	if !strings.EqualFold(returnRecord.Status, "COMPLETING") {
+		query := `UPDATE returns SET status = ?, updated_at = ? WHERE id = ? AND UPPER(COALESCE(status, '')) IN ('APPROVED', 'PROCESSING')`
+		returnIDArg := interface{}(id)
+		updatedAtArg := interface{}(time.Now().UTC())
+		if dbutil.IsSQLite(s.repo.db) {
+			returnIDArg = id.String()
+			updatedAtArg = time.Now().UTC().Format(time.RFC3339Nano)
+		}
+		result, err := s.repo.db.ExecContext(ctx, s.repo.db.Rebind(query), "COMPLETING", updatedAtArg, returnIDArg)
+		if err != nil {
+			return nil, fmt.Errorf("claim return completion: %w", err)
+		}
+		if affected, _ := result.RowsAffected(); affected != 1 {
+			latest, loadErr := s.repo.GetReturnByID(ctx, id)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			if strings.EqualFold(latest.Status, "COMPLETED") {
+				return nil, ErrReturnAlreadyCompleted
+			}
+			if !strings.EqualFold(latest.Status, "COMPLETING") {
+				return nil, ErrInvalidReturnStatus
+			}
+		}
+		returnRecord.Status = "COMPLETING"
+	}
+	// Reload after claiming so an edit committed just before the claim is
+	// reflected in the refund amount and inventory effects.
+	returnRecord, err = s.repo.GetReturnByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(returnRecord.Status, "COMPLETING") {
 		return nil, ErrInvalidReturnStatus
+	}
+	if err := s.loadRefundState(ctx, returnRecord); err != nil {
+		return nil, fmt.Errorf("failed to load return refund state: %w", err)
 	}
 
 	items, err := s.repo.GetReturnItems(ctx, id)
@@ -816,10 +901,10 @@ func (s *Service) saveRefundState(ctx context.Context, returnID, transactionID u
 		refundArg = *refundID
 	}
 	amountMinor := int64(amount*100 + 0.5)
-	query := `INSERT INTO return_payment_refunds (id, return_id, payment_transaction_id, payment_refund_id, status, amount_minor, idempotency_key, error_message, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9) ON CONFLICT (return_id) DO UPDATE SET payment_refund_id=EXCLUDED.payment_refund_id, status=EXCLUDED.status, amount_minor=EXCLUDED.amount_minor, error_message=EXCLUDED.error_message, updated_at=EXCLUDED.updated_at`
+	query := `INSERT INTO return_payment_refunds (id, return_id, payment_transaction_id, payment_refund_id, status, amount_minor, idempotency_key, error_message, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9) ON CONFLICT (return_id) DO UPDATE SET payment_refund_id=EXCLUDED.payment_refund_id, status=EXCLUDED.status, amount_minor=EXCLUDED.amount_minor, error_message=EXCLUDED.error_message, updated_at=EXCLUDED.updated_at WHERE return_payment_refunds.status NOT IN ('refunded','succeeded') OR EXCLUDED.status IN ('refunded','succeeded')`
 	args := []interface{}{uuid.New(), returnArg, transactionArg, refundArg, status, amountMinor, "return-refund:" + returnID.String(), nullableString(errorMessage), time.Now().UTC()}
 	if dbutil.IsSQLite(s.repo.db) {
-		query = `INSERT INTO return_payment_refunds (id, return_id, payment_transaction_id, payment_refund_id, status, amount_minor, idempotency_key, error_message, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(return_id) DO UPDATE SET payment_refund_id=excluded.payment_refund_id, status=excluded.status, amount_minor=excluded.amount_minor, error_message=excluded.error_message, updated_at=excluded.updated_at`
+		query = `INSERT INTO return_payment_refunds (id, return_id, payment_transaction_id, payment_refund_id, status, amount_minor, idempotency_key, error_message, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(return_id) DO UPDATE SET payment_refund_id=excluded.payment_refund_id, status=excluded.status, amount_minor=excluded.amount_minor, error_message=excluded.error_message, updated_at=excluded.updated_at WHERE return_payment_refunds.status NOT IN ('refunded','succeeded') OR excluded.status IN ('refunded','succeeded')`
 		for index, arg := range args {
 			if value, ok := arg.(uuid.UUID); ok {
 				args[index] = value.String()
@@ -840,18 +925,20 @@ func nullableString(value string) interface{} {
 }
 
 func updateCompletedReturnTx(ctx context.Context, tx *sqlx.Tx, driver string, returnRecord *Return) error {
+	var result sql.Result
+	var err error
 	if driver == "sqlite" {
-		_, err := tx.ExecContext(ctx, `UPDATE returns SET status=?, processed_by=?, approved_by=?, approved_at=?, debt_id=?, debt_adjustment=?, refund_date=?, updated_at=? WHERE id=?`,
+		result, err = tx.ExecContext(ctx, `UPDATE returns SET status=?, processed_by=?, approved_by=?, approved_at=?, debt_id=?, debt_adjustment=?, refund_date=?, updated_at=? WHERE id=? AND UPPER(COALESCE(status,''))='COMPLETING'`,
 			returnRecord.Status, idArgPtr(returnRecord.ProcessedBy), idArgPtr(returnRecord.ApprovedBy), returnRecord.ApprovedAt, idArgPtr(returnRecord.DebtID), returnRecord.DebtAdjustment, returnRecord.RefundDate, returnRecord.UpdatedAt.Format(time.RFC3339Nano), returnRecord.ID.String())
-		if err != nil {
-			return fmt.Errorf("failed to complete return: %w", err)
-		}
-		return nil
+	} else {
+		result, err = tx.ExecContext(ctx, `UPDATE returns SET status=$1, processed_by=$2, approved_by=$3, approved_at=$4, debt_id=$5, debt_adjustment=$6, refund_date=$7, updated_at=$8 WHERE id=$9 AND UPPER(COALESCE(status,''))='COMPLETING'`,
+			returnRecord.Status, returnRecord.ProcessedBy, returnRecord.ApprovedBy, returnRecord.ApprovedAt, returnRecord.DebtID, returnRecord.DebtAdjustment, returnRecord.RefundDate, returnRecord.UpdatedAt, returnRecord.ID)
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE returns SET status=$1, processed_by=$2, approved_by=$3, approved_at=$4, debt_id=$5, debt_adjustment=$6, refund_date=$7, updated_at=$8 WHERE id=$9`,
-		returnRecord.Status, returnRecord.ProcessedBy, returnRecord.ApprovedBy, returnRecord.ApprovedAt, returnRecord.DebtID, returnRecord.DebtAdjustment, returnRecord.RefundDate, returnRecord.UpdatedAt, returnRecord.ID)
 	if err != nil {
 		return fmt.Errorf("failed to complete return: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return ErrInvalidReturnStatus
 	}
 	return nil
 }
@@ -1464,15 +1551,13 @@ func (s *Service) ReverseReturn(ctx context.Context, id uuid.UUID, userID uuid.U
 		return nil, err
 	}
 
-	if returnRecord.Status == "REVERSED" || returnRecord.Status == "CANCELLED" {
+	if returnRecord.Status == "REVERSED" || returnRecord.Status == "CANCELLED" || returnRecord.Status == "COMPLETED" || returnRecord.Status == "COMPLETING" {
 		return nil, ErrInvalidReturnStatus
 	}
-
-	returnRecord.Status = "CANCELLED"
-	returnRecord.ProcessedBy = &userID
-	returnRecord.InternalNotes = "Cancelled without creating a new return record."
-	returnRecord.UpdatedAt = time.Now()
-	if err := s.repo.UpdateReturn(ctx, returnRecord); err != nil {
+	if returnRecord.Status != "PENDING" && returnRecord.Status != "APPROVED" && returnRecord.Status != "PROCESSING" {
+		return nil, ErrInvalidReturnStatus
+	}
+	if err := s.repo.ReverseReturn(ctx, id, userID); err != nil {
 		return nil, fmt.Errorf("failed to cancel original return: %w", err)
 	}
 	dashboard.InvalidateDashboardCacheWithReason("return_reversed")

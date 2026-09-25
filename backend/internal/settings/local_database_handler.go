@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	stdsync "sync"
@@ -72,14 +71,8 @@ type bidirectionalSyncOperation struct {
 	IdempotencyKey string `json:"idempotency_key"`
 }
 
-func cloudSyncBaseURL(c *gin.Context) string {
-	configured := strings.TrimRight(strings.TrimSpace(c.GetHeader("X-PartFlow-Cloud-API-URL")), "/")
-	if configured != "" {
-		if parsed, err := url.Parse(configured); err == nil && parsed.Scheme == "https" && parsed.Host != "" {
-			return configured
-		}
-	}
-	configured = strings.TrimRight(strings.TrimSpace(os.Getenv("PARTFLOW_CLOUD_API_URL")), "/")
+func cloudSyncBaseURL() string {
+	configured := strings.TrimRight(strings.TrimSpace(os.Getenv("PARTFLOW_CLOUD_API_URL")), "/")
 	if configured == "" {
 		return "https://partflow-api.onrender.com/api/v1"
 	}
@@ -113,7 +106,7 @@ func (h *LocalDatabaseHandler) SyncCloudData(c *gin.Context) {
 		return
 	}
 
-	cloudBaseURL := cloudSyncBaseURL(c)
+	cloudBaseURL := cloudSyncBaseURL()
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, cloudBaseURL+"/sync/initial-data", nil)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "تعذر تجهيز طلب المزامنة السحابية", "details": err.Error()})
@@ -238,7 +231,7 @@ func (h *LocalDatabaseHandler) SyncLocalDataToCloud(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تجهيز طابور المزامنة", "details": err.Error()})
 		return
 	}
-	cloudBaseURL := cloudSyncBaseURL(c)
+	cloudBaseURL := cloudSyncBaseURL()
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, cloudBaseURL+"/sync/push", strings.NewReader(string(payload)))
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "تعذر تجهيز طلب رفع المزامنة", "details": err.Error()})
@@ -346,7 +339,7 @@ func reconcileLocalAndCloud(c *gin.Context, sqliteDB *sql.DB, cloudToken string)
 	if cloudToken == "" {
 		return nil, fmt.Errorf("رمز السحابة غير موجود")
 	}
-	cloudBaseURL := cloudSyncBaseURL(c)
+	cloudBaseURL := cloudSyncBaseURL()
 	cloudSnapshot, err := fetchCloudSnapshot(c, cloudBaseURL, cloudToken)
 	if err != nil {
 		return nil, err
@@ -767,7 +760,7 @@ func (h *LocalDatabaseHandler) applyCloudSnapshot(c *gin.Context, sqliteDB *sql.
 	if authorization == "" {
 		return fmt.Errorf("missing authorization")
 	}
-	cloudBaseURL := cloudSyncBaseURL(c)
+	cloudBaseURL := cloudSyncBaseURL()
 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, cloudBaseURL+"/sync/initial-data", nil)
 	if err != nil {
 		return err

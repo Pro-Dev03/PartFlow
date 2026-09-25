@@ -27,10 +27,15 @@ export interface InventoryItem {
   product_name?: string;
   product?: {
     name: string;
+    sku?: string;
+    barcode?: string;
   };
   condition: string;
+  serial_number?: string;
+  item_code?: string;
   selling_price: number;
   purchase_cost?: number;
+  barcode?: string | null;
   price?: number;
   stock?: number;
   current_quantity?: number;
@@ -42,6 +47,9 @@ export interface InventoryItem {
   purchase_date?: string;
   supplier_name?: string;
   supplier_phone?: string;
+  supplier_id?: string;
+  category_name?: string;
+  purchase_date?: string;
 }
 
 export interface InventoryStats {

@@ -13,20 +13,22 @@ const localApiUrl = getEnvValue(
   'http://localhost:8080/api/v1',
 );
 
-// Cloud API endpoint - connects to Render's centralized API
-// No database credentials here, those stay in Render's environment
-const cloudApiUrl = getEnvValue(
-  ['VITE_API_BASE_URL_CLOUD', 'VITE_API_URL_CLOUD'],
-  'https://partflow-api.onrender.com/api/v1',
-);
+// Business authorization and writes are pinned to the production Render API.
+// Database credentials remain in Render's server-side environment.
+const cloudApiUrl = 'https://partflow-api.onrender.com/api/v1';
 export const CLOUD_API_URL_OVERRIDE_KEY = 'partflow-cloud-api-url';
 
 export type ConnectionMode = 'local' | 'cloud';
 export const CONNECTION_MODE_KEY = 'partflow-connection-mode';
 
 export function getConnectionMode(): ConnectionMode {
-  if (typeof window === 'undefined') return 'local';
-  return localStorage.getItem(CONNECTION_MODE_KEY) === 'cloud' ? 'cloud' : 'local';
+  if (typeof window === 'undefined') return 'cloud';
+  const savedMode = localStorage.getItem(CONNECTION_MODE_KEY);
+  if (savedMode === 'cloud' || savedMode === 'local') return savedMode;
+
+  const isElectron = window.location.protocol === 'file:' || /Electron/i.test(window.navigator.userAgent);
+  const isLocalHost = /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(window.location.hostname);
+  return isElectron || isLocalHost ? 'local' : 'cloud';
 }
 
 export function setConnectionMode(mode: ConnectionMode): void {
@@ -35,10 +37,7 @@ export function setConnectionMode(mode: ConnectionMode): void {
   window.dispatchEvent(new CustomEvent('partflow:connection-mode-changed', { detail: { mode } }));
 }
 
-/**
- * Business operations always use the local SQLite API. The cloud URL is used
- * only by authentication/subscription validation helpers.
- */
+/** Local APIs are used only for device-owned SQLite synchronization/setup. */
 export function shouldUseLocalApi(hostname = typeof window !== 'undefined' ? window.location.hostname : ''): boolean {
   if (getConnectionMode() === 'cloud') return false;
 
@@ -54,22 +53,27 @@ export function getActiveApiUrl(): string {
   return getConnectionMode() === 'cloud' ? getCloudApiUrl() : localApiUrl;
 }
 
+/** Business records and authorization always belong to the cloud API. */
+export function getBusinessApiUrl(): string {
+  return getCloudApiUrl();
+}
+
 /**
  * Get the cloud API URL for connecting to Render
  */
 export function getCloudApiUrl(): string {
-  if (typeof window !== 'undefined') {
-    const override = localStorage.getItem(CLOUD_API_URL_OVERRIDE_KEY)?.trim();
-    if (override) return override.replace(/\/+$/, '');
-  }
   return cloudApiUrl;
 }
 
 export function setCloudApiUrl(url: string): void {
-  if (typeof window === 'undefined') return;
   const normalized = url.trim().replace(/\/+$/, '');
-  localStorage.setItem(CLOUD_API_URL_OVERRIDE_KEY, normalized);
-  window.dispatchEvent(new CustomEvent('partflow:cloud-api-url-changed', { detail: { url: normalized } }));
+  if (normalized !== cloudApiUrl) {
+    throw new Error('The cloud API is fixed to the configured Render service');
+  }
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(CLOUD_API_URL_OVERRIDE_KEY);
+    window.dispatchEvent(new CustomEvent('partflow:cloud-api-url-changed', { detail: { url: cloudApiUrl } }));
+  }
 }
 
 /**
@@ -82,7 +86,7 @@ export function getLocalApiUrl(): string {
 export const appConfig = {
   name: 'PartFlow',
   version: '1.0.0',
-  apiUrl: getActiveApiUrl(),
+  apiUrl: getBusinessApiUrl(),
   defaultLanguage: 'ar',
   supportedLanguages: ['ar', 'en'],
   currency: 'ILS',

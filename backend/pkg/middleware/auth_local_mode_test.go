@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -13,7 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func TestAuthAllowsValidJWTWhenLocalSQLiteHasNoUserRecords(t *testing.T) {
+func TestAuthRequiresCloudWhenLocalSQLiteHasNoUserRecords(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Use a SQLite DB without the users table to simulate the local sync-only database.
@@ -43,16 +44,12 @@ func TestAuthAllowsValidJWTWhenLocalSQLiteHasNoUserRecords(t *testing.T) {
 
 	Auth()(c)
 
-	if w.Code == 401 {
-		t.Fatalf("expected JWT to be accepted in local mode even when users table is empty")
-	}
-
-	if got := GetUserID(c); got.String() != userID {
-		t.Fatalf("expected user_id=%s in context, got %s", userID, got.String())
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "CLOUD_CONNECTION_REQUIRED") {
+		t.Fatalf("local JWT without live cloud validation was accepted: status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 
-func TestAuthAllowsLocalJWTWhenCloudRequirementIsUnset(t *testing.T) {
+func TestAuthCannotDisableCloudRequirementInLocalMode(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	t.Setenv("DB_CONNECTION_MODE", "local")
@@ -73,8 +70,8 @@ func TestAuthAllowsLocalJWTWhenCloudRequirementIsUnset(t *testing.T) {
 
 	Auth()(c)
 
-	if w.Code == http.StatusUnauthorized {
-		t.Fatalf("expected local JWT to be accepted when cloud auth is unset in local mode, got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "CLOUD_CONNECTION_REQUIRED") {
+		t.Fatalf("local auth opt-out bypassed cloud check: status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 
@@ -95,7 +92,7 @@ func TestAuthUsesCloudTokenHeaderWhenLocalJWTIsPresent(t *testing.T) {
 	t.Setenv("PARTFLOW_CLOUD_API_URL", cloud.URL)
 	SetDisableAuth(false)
 
-	localToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": uuid.NewString()})
+	localToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": userID.String()})
 	localTokenString, err := localToken.SignedString([]byte("test-secret"))
 	if err != nil {
 		t.Fatal(err)
@@ -150,41 +147,34 @@ func TestAuthRejectsLocalJWTWhenCloudHeaderMissing(t *testing.T) {
 	}
 }
 
-func TestAuthAcceptsLegacySubjectClaimWhenUserIDMissing(t *testing.T) {
+func TestAuthDisableFlagCannotBypassRequiredCloudSubscription(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-
-	db, err := sqlx.Connect("sqlite", ":memory:")
-	if err != nil {
-		t.Fatalf("connect sqlite: %v", err)
-	}
-	defer db.Close()
-
+	t.Setenv("SERVER_MODE", "debug")
 	t.Setenv("DB_CONNECTION_MODE", "local")
-	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "false")
-	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "false")
-	SetJWTSecret("test-secret")
-	SetDatabase(db)
+	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "true")
+	SetDisableAuth(true)
+	t.Cleanup(func() { SetDisableAuth(false) })
 
-	userID := uuid.NewString()
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": userID})
+	router := gin.New()
+	router.Use(Auth())
+	router.GET("/test", func(c *gin.Context) { c.Status(http.StatusOK) })
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/test", nil))
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "AUTH_DISABLED") {
+		t.Fatalf("disabled auth bypassed required cloud check: status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestLocalJWTReadsLegacySubjectClaim(t *testing.T) {
+	SetJWTSecret("test-secret")
+	userID := uuid.New()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": userID.String()})
 	tokenString, err := token.SignedString([]byte("test-secret"))
 	if err != nil {
-		t.Fatalf("sign token: %v", err)
+		t.Fatal(err)
 	}
-
-	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("Authorization", "Bearer "+tokenString)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = req
-
-	Auth()(c)
-
-	if w.Code == http.StatusUnauthorized {
-		t.Fatalf("expected subject claim to be accepted in local mode, got %d body=%s", w.Code, w.Body.String())
-	}
-
-	if got := GetUserID(c); got.String() != userID {
-		t.Fatalf("expected user_id=%s in context, got %s", userID, got.String())
+	parsedID, valid := localJWTUserID(tokenString)
+	if !valid || parsedID != userID {
+		t.Fatalf("legacy subject id=%s valid=%t", parsedID, valid)
 	}
 }

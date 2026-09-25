@@ -510,13 +510,20 @@ func (r *Repository) ListReturns(ctx context.Context, req ReturnListRequest) ([]
 func (r *Repository) UpdateReturn(ctx context.Context, returnRecord *Return) error {
 	if dbutil.IsSQLite(r.db) {
 		now := time.Now().UTC()
-		result, err := r.db.ExecContext(ctx, `UPDATE returns SET return_date=?,return_type=?,status=?,total_refund_amount=?,refund_method=?,refund_date=?,refund_reference=?,debt_id=?,debt_adjustment=?,customer_credit=?,reason=?,reason_detail=?,item_condition_after_return=?,is_warranty_claim=?,warranty_id=?,warranty_valid_until=?,processed_by=?,approved_by=?,approved_at=?,notes=?,internal_notes=?,updated_at=? WHERE id=?`, returnRecord.ReturnDate.Format(time.RFC3339Nano), returnRecord.ReturnType, returnRecord.Status, returnRecord.TotalRefundAmount, returnRecord.RefundMethod, returnRecord.RefundDate, returnRecord.RefundReference, idArgPtr(returnRecord.DebtID), returnRecord.DebtAdjustment, returnRecord.CustomerCredit, returnRecord.Reason, returnRecord.ReasonDetail, returnRecord.ItemConditionAfterReturn, returnRecord.IsWarrantyClaim, idArgPtr(returnRecord.WarrantyID), returnRecord.WarrantyValidUntil, idArgPtr(returnRecord.ProcessedBy), idArgPtr(returnRecord.ApprovedBy), returnRecord.ApprovedAt, returnRecord.Notes, returnRecord.InternalNotes, now.Format(time.RFC3339Nano), returnRecord.ID.String())
+		result, err := r.db.ExecContext(ctx, `UPDATE returns SET return_date=?,return_type=?,status=?,total_refund_amount=?,refund_method=?,refund_date=?,refund_reference=?,debt_id=?,debt_adjustment=?,customer_credit=?,reason=?,reason_detail=?,item_condition_after_return=?,is_warranty_claim=?,warranty_id=?,warranty_valid_until=?,processed_by=?,approved_by=?,approved_at=?,notes=?,internal_notes=?,updated_at=? WHERE id=? AND UPPER(COALESCE(status,'')) IN ('PENDING','APPROVED','PROCESSING')`, returnRecord.ReturnDate.Format(time.RFC3339Nano), returnRecord.ReturnType, returnRecord.Status, returnRecord.TotalRefundAmount, returnRecord.RefundMethod, returnRecord.RefundDate, returnRecord.RefundReference, idArgPtr(returnRecord.DebtID), returnRecord.DebtAdjustment, returnRecord.CustomerCredit, returnRecord.Reason, returnRecord.ReasonDetail, returnRecord.ItemConditionAfterReturn, returnRecord.IsWarrantyClaim, idArgPtr(returnRecord.WarrantyID), returnRecord.WarrantyValidUntil, idArgPtr(returnRecord.ProcessedBy), idArgPtr(returnRecord.ApprovedBy), returnRecord.ApprovedAt, returnRecord.Notes, returnRecord.InternalNotes, now.Format(time.RFC3339Nano), returnRecord.ID.String())
 		if err != nil {
 			return fmt.Errorf("failed to update return: %w", err)
 		}
 		affected, _ := result.RowsAffected()
 		if affected == 0 {
-			return ErrReturnNotFound
+			var exists bool
+			if err := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM returns WHERE id=?)`, returnRecord.ID.String()); err != nil {
+				return fmt.Errorf("check return after update conflict: %w", err)
+			}
+			if !exists {
+				return ErrReturnNotFound
+			}
+			return ErrInvalidReturnStatus
 		}
 		returnRecord.UpdatedAt = now
 		return nil
@@ -528,7 +535,7 @@ func (r *Repository) UpdateReturn(ctx context.Context, returnRecord *Return) err
 			customer_credit = $11, reason = $12, reason_detail = $13, item_condition_after_return = $14,
 			is_warranty_claim = $15, warranty_id = $16, warranty_valid_until = $17, processed_by = $18,
 			approved_by = $19, approved_at = $20, notes = $21, internal_notes = $22, updated_at = $23
-		WHERE id = $1
+		WHERE id = $1 AND UPPER(COALESCE(status,'')) IN ('PENDING','APPROVED','PROCESSING')
 		RETURNING updated_at
 	`
 
@@ -542,7 +549,14 @@ func (r *Repository) UpdateReturn(ctx context.Context, returnRecord *Return) err
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return ErrReturnNotFound
+			var exists bool
+			if checkErr := r.db.GetContext(ctx, &exists, `SELECT EXISTS(SELECT 1 FROM returns WHERE id=$1)`, returnRecord.ID); checkErr != nil {
+				return fmt.Errorf("check return after update conflict: %w", checkErr)
+			}
+			if !exists {
+				return ErrReturnNotFound
+			}
+			return ErrInvalidReturnStatus
 		}
 		return fmt.Errorf("failed to update return: %w", err)
 	}
@@ -560,8 +574,18 @@ func (r *Repository) DeleteReturn(ctx context.Context, id uuid.UUID) error {
 	defer tx.Rollback()
 
 	returnID := interface{}(id)
-	if dbutil.IsSQLite(r.db) {
+	isSQLite := dbutil.IsSQLite(r.db)
+	if isSQLite {
 		returnID = id.String()
+		// SQLite's deferred transaction does not lock a row on SELECT. Acquire
+		// its write lock before inspecting status so completion cannot race delete.
+		result, err := tx.ExecContext(ctx, `UPDATE returns SET updated_at = updated_at WHERE id = ?`, returnID)
+		if err != nil {
+			return fmt.Errorf("lock return before delete: %w", err)
+		}
+		if affected, _ := result.RowsAffected(); affected == 0 {
+			return ErrReturnNotFound
+		}
 	}
 	var record struct {
 		ReturnNumber   string  `db:"return_number"`
@@ -571,11 +595,18 @@ func (r *Repository) DeleteReturn(ctx context.Context, id uuid.UUID) error {
 		DebtID         *string `db:"debt_id"`
 		DebtAdjustment float64 `db:"debt_adjustment"`
 	}
-	if err := tx.GetContext(ctx, &record, tx.Rebind(`SELECT return_number, status, COALESCE(refund_method,'') AS refund_method, COALESCE(customer_id,'') AS customer_id, debt_id, COALESCE(debt_adjustment,0) AS debt_adjustment FROM returns WHERE id = ?`), returnID); err != nil {
+	loadQuery := `SELECT return_number, status, COALESCE(refund_method,'') AS refund_method, COALESCE(customer_id,'') AS customer_id, debt_id, COALESCE(debt_adjustment,0) AS debt_adjustment FROM returns WHERE id = ?`
+	if !isSQLite {
+		loadQuery += ` FOR UPDATE`
+	}
+	if err := tx.GetContext(ctx, &record, tx.Rebind(loadQuery), returnID); err != nil {
 		if err == sql.ErrNoRows {
 			return ErrReturnNotFound
 		}
 		return fmt.Errorf("load return before delete: %w", err)
+	}
+	if strings.EqualFold(strings.TrimSpace(record.Status), "COMPLETING") {
+		return ErrInvalidReturnStatus
 	}
 	isCompleted := strings.EqualFold(strings.TrimSpace(record.Status), "COMPLETED")
 	if isCompleted {
@@ -1612,33 +1643,28 @@ func (r *Repository) GetReturnSummary(ctx context.Context) ([]map[string]interfa
 
 // ReverseReturn cancels the original return instead of creating a second return record.
 func (r *Repository) ReverseReturn(ctx context.Context, id uuid.UUID, reversedBy uuid.UUID) error {
+	updatedAt := interface{}(time.Now().UTC())
+	returnID := interface{}(id)
+	userID := interface{}(reversedBy)
 	if dbutil.IsSQLite(r.db) {
-		result, err := r.db.ExecContext(ctx, `UPDATE returns SET status='CANCELLED', processed_by=?, internal_notes=?, updated_at=? WHERE id=?`, idArgPtr(&reversedBy), "Cancelled without creating a new return record.", time.Now().UTC().Format(time.RFC3339Nano), id.String())
-		if err != nil {
-			return fmt.Errorf("failed to reverse return: %w", err)
-		}
-		affected, _ := result.RowsAffected()
-		if affected == 0 {
-			return ErrReturnNotFound
-		}
-		return nil
+		updatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		returnID = id.String()
+		userID = idArgPtr(&reversedBy)
 	}
-	query := `
-		UPDATE returns 
-		SET status = 'CANCELLED',
-		    processed_by = $2,
-		    internal_notes = $3,
-		    updated_at = NOW() 
-		WHERE id = $1
-		RETURNING updated_at
-	`
-
-	err := r.db.QueryRowContext(ctx, query, id, reversedBy, "Cancelled without creating a new return record.").Scan(new(time.Time))
+	query := `UPDATE returns SET status = ?, processed_by = ?, internal_notes = ?, updated_at = ? WHERE id = ? AND UPPER(COALESCE(status,'')) IN ('PENDING','APPROVED','PROCESSING')`
+	result, err := r.db.ExecContext(ctx, r.db.Rebind(query), "CANCELLED", userID, "Cancelled before return completion.", updatedAt, returnID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		return fmt.Errorf("failed to reverse return: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected == 0 {
+		var exists bool
+		if err := r.db.GetContext(ctx, &exists, r.db.Rebind(`SELECT EXISTS(SELECT 1 FROM returns WHERE id = ?)`), returnID); err != nil {
+			return fmt.Errorf("check return after failed reverse: %w", err)
+		}
+		if !exists {
 			return ErrReturnNotFound
 		}
-		return fmt.Errorf("failed to reverse return: %w", err)
+		return ErrInvalidReturnStatus
 	}
 	return nil
 }

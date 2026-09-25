@@ -10,9 +10,10 @@ interface CustomerFormProps {
   onSubmit: (data: CustomerFormData) => void;
   onCancel: () => void;
   initialData?: Partial<CustomerFormData>;
+  isSubmitting?: boolean;
 }
 
-export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormProps) {
+export function CustomerForm({ onSubmit, onCancel, initialData, isSubmitting = false }: CustomerFormProps) {
   const [formData, setFormData] = useState<CustomerFormData>({
     code: initialData?.code || generateCustomerCode(),
     name: initialData?.name || '',
@@ -38,7 +39,7 @@ export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormPr
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <Input
                 label="كود العميل"
@@ -77,12 +78,7 @@ export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormPr
 
             <div
               className="col-span-2"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                gap: '16px',
-                alignItems: 'start',
-              }}
+              className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-4"
             >
               <Input
                 label="العنوان"
@@ -134,11 +130,12 @@ export function CustomerForm({ onSubmit, onCancel, initialData }: CustomerFormPr
               type="button"
               variant="outline"
               onClick={onCancel}
+              disabled={isSubmitting}
             >
               إلغاء
             </Button>
-            <Button type="submit">
-              {initialData ? 'حفظ التغييرات' : 'إضافة العميل'}
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'جاري الحفظ...' : initialData ? 'حفظ التغييرات' : 'إضافة العميل'}
             </Button>
           </div>
         </form>

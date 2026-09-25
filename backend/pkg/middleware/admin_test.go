@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
@@ -29,6 +30,7 @@ func TestAdminAllowsConfiguredCloudEmailWithoutLocalUserRow(t *testing.T) {
 	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "true")
 	t.Setenv("PARTFLOW_CLOUD_API_URL", cloud.URL)
 	t.Setenv("PARTFLOW_ADMIN_EMAILS", "admin@example.test")
+	SetJWTSecret("test-secret")
 	SetDisableAuth(false)
 	previousDB := db
 	SetDatabase(nil)
@@ -44,7 +46,12 @@ func TestAdminAllowsConfiguredCloudEmailWithoutLocalUserRow(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 	req := httptest.NewRequest("GET", "/admin", nil)
-	req.Header.Set("Authorization", "Bearer local-jwt-token")
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"user_id": userID.String()})
+	tokenString, err := token.SignedString([]byte("test-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tokenString)
 	req.Header.Set("X-PartFlow-Cloud-Token", "cloud-access-token")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -105,6 +112,7 @@ func TestAdminAllowsConfiguredEmail(t *testing.T) {
 	SetDatabase(testDB)
 	t.Cleanup(func() { SetDatabase(previousDB) })
 	t.Setenv("PARTFLOW_ADMIN_EMAILS", "admin@example.test")
+	SetJWTSecret("test-secret")
 	SetDisableAuth(false)
 
 	router := gin.New()
