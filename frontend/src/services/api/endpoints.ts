@@ -137,7 +137,7 @@ export const authApi = {
 // Dashboard endpoints
 export const dashboardApi = {
   getStats: () => apiClient.get('/dashboard/stats', undefined, false),
-  getActivity: (params?: { page?: number; per_page?: number; type?: string }) =>
+  getActivity: (params?: { page?: number; per_page?: number; type?: string; search?: string; start_date?: string; end_date?: string }) =>
     apiClient.get('/dashboard/activity', params, false),
   getLowStockItems: () => apiClient.get('/dashboard/low-stock-items', undefined, false),
   getOverdueDebts: () => apiClient.get('/dashboard/overdue-debts', undefined, false),

@@ -45,7 +45,7 @@ func (h *Handler) GetRecentActivity(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	perPage, _ := strconv.Atoi(c.DefaultQuery("per_page", "20"))
 	activityType := strings.ToLower(strings.TrimSpace(c.Query("type")))
-	activity, err := h.service.GetActivity(c.Request.Context(), page, perPage, activityType)
+	activity, err := h.service.GetActivityWithFilters(c.Request.Context(), page, perPage, activityType, c.Query("search"), c.Query("start_date"), c.Query("end_date"))
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "Failed to retrieve activity", err.Error())
 		return

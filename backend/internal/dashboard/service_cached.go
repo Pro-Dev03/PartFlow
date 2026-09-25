@@ -674,6 +674,10 @@ func (s *CachedService) fetchRecentActivity(ctx context.Context) []RecentActivit
 }
 
 func (s *CachedService) GetActivity(ctx context.Context, page, perPage int, activityType string) (*ActivityPage, error) {
+	return s.GetActivityWithFilters(ctx, page, perPage, activityType, "", "", "")
+}
+
+func (s *CachedService) GetActivityWithFilters(ctx context.Context, page, perPage int, activityType, search, startDate, endDate string) (*ActivityPage, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -725,7 +729,7 @@ func (s *CachedService) GetActivity(ctx context.Context, page, perPage int, acti
 		       r.total_refund_amount AS amount, %s AS activity_time, '' AS sale_date, %s,
 		       '' AS seller_name
 		FROM returns r
-		WHERE UPPER(COALESCE(r.status, '')) = 'COMPLETED' AND COALESCE(r.total_refund_amount, 0) >= 0`, returnTimeExpr, returnStatusExpr))
+		WHERE COALESCE(r.total_refund_amount, 0) >= 0`, returnTimeExpr, returnStatusExpr))
 	}
 	if len(activityParts) == 0 {
 		return &ActivityPage{
@@ -738,6 +742,19 @@ func (s *CachedService) GetActivity(ctx context.Context, page, perPage int, acti
 	if activityType == "sale" || activityType == "purchase" || activityType == "return" {
 		where = " WHERE type = ?"
 		args = append(args, activityType)
+	}
+	if strings.TrimSpace(search) != "" {
+		where += func() string { if where == "" { return " WHERE" }; return " AND" }() + " (LOWER(title) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR CAST(id AS TEXT) LIKE ? OR LOWER(COALESCE(seller_name, '')) LIKE LOWER(?))"
+		pattern := "%" + strings.TrimSpace(search) + "%"
+		args = append(args, pattern, pattern, pattern, pattern)
+	}
+	if strings.TrimSpace(startDate) != "" {
+		where += func() string { if where == "" { return " WHERE" }; return " AND" }() + " date(activity_time) >= date(?)"
+		args = append(args, strings.TrimSpace(startDate))
+	}
+	if strings.TrimSpace(endDate) != "" {
+		where += func() string { if where == "" { return " WHERE" }; return " AND" }() + " date(activity_time) <= date(?)"
+		args = append(args, strings.TrimSpace(endDate))
 	}
 
 	var total int
