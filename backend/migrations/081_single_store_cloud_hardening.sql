@@ -76,8 +76,24 @@ BEGIN
 END;
 $$;
 
+-- Keep untrusted Supabase API roles from adding objects to a schema used by
+-- SECURITY DEFINER routines. Revoke explicit CREATE grants as well as PUBLIC.
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+DO $$
+DECLARE
+    role_name TEXT;
+BEGIN
+    FOR role_name IN
+        SELECT rolname FROM pg_roles
+        WHERE rolname = ANY (ARRAY['anon', 'authenticated', 'service_role'])
+    LOOP
+        EXECUTE format('REVOKE CREATE ON SCHEMA public FROM %I', role_name);
+    END LOOP;
+END;
+$$;
+
 -- Pin the search path for legacy application routines to prevent objects in
--- writable schemas from shadowing the tables/functions they resolve.
+-- writable schemas or temporary tables from shadowing referenced objects.
 DO $$
 DECLARE
     function_record RECORD;
@@ -98,7 +114,7 @@ BEGIN
               'update_daily_sales_summary', 'update_monthly_sales_summary'
           ])
     LOOP
-        EXECUTE format('ALTER FUNCTION %s SET search_path TO pg_catalog, public', function_record.signature);
+        EXECUTE format('ALTER FUNCTION %s SET search_path TO pg_catalog, public, pg_temp', function_record.signature);
     END LOOP;
 END;
 $$;
@@ -121,6 +137,9 @@ BEGIN
         END IF;
         IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
             EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM authenticated', function_record.signature);
+        END IF;
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+            EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM service_role', function_record.signature);
         END IF;
     END LOOP;
 END;

@@ -193,6 +193,11 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("DISABLE_AUTH must be false in production")
 	}
 
+	tenantIsolation := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_TENANT_RLS_ENABLED")))
+	if tenantIsolation == "1" || tenantIsolation == "true" || tenantIsolation == "yes" {
+		return nil, fmt.Errorf("PARTFLOW_TENANT_RLS_ENABLED is unsupported in the single-store deployment")
+	}
+
 	if isReleaseMode {
 		cloudAuthRequired := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_REQUIRE_CLOUD_AUTH")))
 		if cloudAuthRequired == "0" || cloudAuthRequired == "false" || cloudAuthRequired == "no" {

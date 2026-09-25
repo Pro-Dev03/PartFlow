@@ -9,9 +9,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	authmw "github.com/partflow/smart-store/pkg/middleware"
 	_ "modernc.org/sqlite"
 )
 
@@ -98,5 +102,49 @@ func TestPushDataRejectsOversizedBatch(t *testing.T) {
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+}
+
+func TestSubscriberCannotPushLegacySyncOperations(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	userID := uuid.New()
+	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/auth/validate" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"data":{"valid":true,"user":{"id":%q,"email":"subscriber@example.test"}}}`, userID.String())
+	}))
+	defer cloud.Close()
+
+	t.Setenv("DB_CONNECTION_MODE", "local")
+	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "true")
+	t.Setenv("PARTFLOW_CLOUD_API_URL", cloud.URL)
+	t.Setenv("PARTFLOW_ADMIN_EMAILS", "")
+	authmw.SetDisableAuth(false)
+	authmw.SetJWTSecret("sync-subscriber-route-test-secret")
+	authmw.SetDatabase(nil)
+
+	localToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": userID.String(),
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	}).SignedString([]byte("sync-subscriber-route-test-secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	router := gin.New()
+	router.Use(authmw.Auth())
+	router.POST("/sync/push", authmw.Admin(), NewHandler(nil).PushData)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/sync/push", strings.NewReader(`{"operations":[{"id":"legacy-1","entity_type":"customers","entity_id":"customer-1","operation":"upsert","payload":"{}"}]}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer "+localToken)
+	request.Header.Set("X-PartFlow-Cloud-Token", "live-subscriber-cloud-token")
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "ADMIN_REQUIRED") {
+		t.Fatalf("subscriber legacy sync push status=%d body=%s; want ADMIN_REQUIRED", recorder.Code, recorder.Body.String())
 	}
 }

@@ -92,10 +92,6 @@ export const errorMessages = {
 export type ErrorMessageKey = keyof typeof errorMessages;
 
 export function getArabicErrorMessage(error: any): string {
-  if (error?.code === 'TENANT_ISOLATION_REQUIRED') {
-    return 'لم يكتمل إعداد عزل بيانات المتجر على الخادم بعد. يرجى المحاولة لاحقًا.';
-  }
-
   // If error is already a string in Arabic, return it
   if (typeof error === 'string' && /[\u0600-\u06FF]/.test(error)) {
     return error;

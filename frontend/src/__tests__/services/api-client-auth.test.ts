@@ -135,34 +135,6 @@ describe('apiClient auth propagation', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('does not retry protected reads while tenant isolation is awaiting deployment', async () => {
-    localStorage.setItem('partflow-connection-mode', 'local');
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({
-        error: 'Tenant isolation must be installed before subscriber business access',
-        code: 'TENANT_ISOLATION_REQUIRED',
-      }), {
-        status: 503,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
-    const verificationPending = vi.fn();
-    window.addEventListener('partflow:cloud-verification-pending', verificationPending);
-
-    try {
-      await expect(apiClient.get('/products', undefined, false)).rejects.toMatchObject({
-        status: 503,
-        code: 'TENANT_ISOLATION_REQUIRED',
-        arabicMessage: 'لم يكتمل إعداد عزل بيانات المتجر على الخادم بعد. يرجى المحاولة لاحقًا.',
-      });
-
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-      expect(verificationPending).not.toHaveBeenCalled();
-    } finally {
-      window.removeEventListener('partflow:cloud-verification-pending', verificationPending);
-    }
-  });
-
   it('invalidates the local desktop session when the cloud business API cannot be reached', async () => {
     localStorage.setItem('partflow-connection-mode', 'local');
     TokenManager.setToken('local-token');

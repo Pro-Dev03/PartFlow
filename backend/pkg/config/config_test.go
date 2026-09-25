@@ -21,6 +21,7 @@ func setProductionConfigEnv(t *testing.T) {
 	t.Setenv("DISABLE_AUTH", "false")
 	t.Setenv("PARTFLOW_REQUIRE_CLOUD_AUTH", "")
 	t.Setenv("PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS", "")
+	t.Setenv("PARTFLOW_TENANT_RLS_ENABLED", "")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "")
 }
 
@@ -48,6 +49,7 @@ func TestLoadRejectsUnsafeProductionAuthenticationConfig(t *testing.T) {
 		{"disabled auth", "DISABLE_AUTH", "true", "DISABLE_AUTH must be false"},
 		{"cloud auth disabled", "PARTFLOW_REQUIRE_CLOUD_AUTH", "false", "PARTFLOW_REQUIRE_CLOUD_AUTH must be true"},
 		{"local auth bypass enabled", "PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS", "true", "PARTFLOW_ALLOW_LOCAL_AUTH_BYPASS must be false"},
+		{"tenant isolation enabled", "PARTFLOW_TENANT_RLS_ENABLED", "true", "PARTFLOW_TENANT_RLS_ENABLED is unsupported in the single-store deployment"},
 		{"credentialed wildcard CORS", "CORS_ALLOWED_ORIGINS", "*", "CORS_ALLOWED_ORIGINS must be an explicit origin allowlist"},
 		{"opaque null origin CORS", "CORS_ALLOWED_ORIGINS", "https://partflow-hpv7.onrender.com,null", "must not include the opaque null origin"},
 	}
@@ -62,5 +64,15 @@ func TestLoadRejectsUnsafeProductionAuthenticationConfig(t *testing.T) {
 				t.Fatalf("Load() error = %v, want error containing %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestLoadRejectsTenantIsolationInDevelopmentToo(t *testing.T) {
+	setProductionConfigEnv(t)
+	t.Setenv("SERVER_MODE", "development")
+	t.Setenv("PARTFLOW_TENANT_RLS_ENABLED", "true")
+
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "unsupported in the single-store deployment") {
+		t.Fatalf("Load() error = %v, want tenant isolation rejected in all modes", err)
 	}
 }

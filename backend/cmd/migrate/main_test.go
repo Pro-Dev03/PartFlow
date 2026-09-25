@@ -2,6 +2,9 @@ package main
 
 import (
 	"database/sql"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -49,5 +52,52 @@ func TestSingleStoreDefaultSkipsTenantIsolationMigration(t *testing.T) {
 	}
 	if shouldSkipDefaultMigration("081_single_store_cloud_hardening.sql") {
 		t.Fatal("single-store cloud hardening migration must remain in the default run")
+	}
+}
+
+func TestSingleStoreHardeningMigrationCoversSupabaseFindings(t *testing.T) {
+	path := filepath.Join("..", "..", "migrations", "081_single_store_cloud_hardening.sql")
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read single-store hardening migration: %v", err)
+	}
+	sql := string(contents)
+
+	for _, view := range []string{
+		"customer_ledger_view", "supplier_ledger_view", "inventory_ledger_view",
+		"seller_balances", "customer_acquisition_summary", "used_parts_aging",
+		"returns_summary", "monthly_returns_analysis", "sales_returns_analysis",
+	} {
+		if !strings.Contains(sql, "'"+view+"'") {
+			t.Errorf("migration does not include linter-reported view %q", view)
+		}
+	}
+	for _, function := range []string{
+		"update_updated_at_column", "generate_item_code", "generate_internal_barcode",
+		"cleanup_expired_idempotency_keys", "sync_role_permissions", "update_customer_balance",
+		"update_supplier_balance", "update_inventory_quantity", "calculate_acquisition_total",
+		"create_item_history_entry", "generate_return_number", "handle_return_debt_adjustment",
+		"validate_return_quantity", "update_return_item_inventory_status",
+		"update_inventory_current_state", "update_daily_sales_summary", "update_monthly_sales_summary",
+	} {
+		if !strings.Contains(sql, "'"+function+"'") {
+			t.Errorf("migration does not include linter-reported function %q", function)
+		}
+	}
+
+	for _, required := range []string{
+		"security_invoker = true",
+		"REVOKE ALL PRIVILEGES ON TABLE public.%I FROM anon",
+		"REVOKE ALL PRIVILEGES ON TABLE public.%I FROM authenticated",
+		"SET search_path TO pg_catalog, public, pg_temp",
+		"REVOKE CREATE ON SCHEMA public FROM PUBLIC",
+		"REVOKE EXECUTE ON FUNCTION %s FROM service_role",
+	} {
+		if !strings.Contains(sql, required) {
+			t.Errorf("migration is missing security hardening %q", required)
+		}
+	}
+	if !strings.Contains(sql, "p.proname = 'rls_auto_enable'") {
+		t.Fatal("migration does not include the exposed rls_auto_enable function")
 	}
 }
