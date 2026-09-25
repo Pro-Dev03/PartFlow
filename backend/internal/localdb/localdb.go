@@ -198,6 +198,7 @@ CREATE TABLE IF NOT EXISTS users (
     last_login_at TEXT,
     subscription_status TEXT DEFAULT 'active',
     subscription_expires_at TEXT,
+    session_version INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -705,6 +706,9 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("initialize local database schema: %w", err)
 	}
+	if err := ensureSQLiteColumn(db, "users", "session_version", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("upgrade local user sessions: %w", err)
+	}
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS inventory (
 		id TEXT PRIMARY KEY,
@@ -861,6 +865,39 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 	}
 
 	return nil
+}
+
+func ensureSQLiteColumn(db *sql.DB, tableName, columnName, definition string) error {
+	rows, err := db.Query("PRAGMA table_info('" + tableName + "')")
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull, primaryKey int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if strings.EqualFold(name, columnName) {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	_, err = db.Exec("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + definition)
+	return err
 }
 
 // ensureTradeInsInventoryItemNullable upgrades databases created by older

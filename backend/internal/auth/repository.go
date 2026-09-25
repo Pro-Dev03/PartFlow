@@ -178,12 +178,25 @@ func (r *Repository) DeleteUserRefreshTokens(ctx context.Context, userID uuid.UU
 
 // UpdatePassword updates user password
 func (r *Repository) UpdatePassword(ctx context.Context, userID uuid.UUID, passwordHash string) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	query := `
 		UPDATE users
-		SET password_hash = $1, updated_at = $2
+		SET password_hash = $1, session_version = session_version + 1, updated_at = $2
 		WHERE id = $3
 	`
-	now := time.Now()
-	_, err := r.db.ExecContext(ctx, query, passwordHash, now, userID)
-	return err
+	result, err := tx.ExecContext(ctx, query, passwordHash, time.Now().UTC(), userID)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return sql.ErrNoRows
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

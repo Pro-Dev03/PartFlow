@@ -223,9 +223,27 @@ describe('cloud subscription validation', () => {
       expect(sessionCleared).toHaveBeenCalledTimes(1);
       expect(useAuthStore.getState().isAuthenticated).toBe(false);
       expect(window.location.hash).toBe('#/login');
+      expect(localStorage.getItem('partflow-reauth-required')).toBe('true');
     } finally {
       window.removeEventListener('partflow:session-cleared', sessionCleared);
     }
+  });
+
+  it('does not restore a cloud refresh cookie after an automatic offline logout', async () => {
+    localStorage.setItem('auth-storage', JSON.stringify({
+      state: { isAuthenticated: true, user: { id: 'old-user' } },
+      version: 0,
+    }));
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
+    const refreshSpy = vi.spyOn(authApi, 'refreshToken').mockResolvedValue({ token: 'old-cookie-session' } as any);
+
+    forceLogoutToLogin('Internet connection lost');
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
+    await useAuthStore.getState().checkAuth();
+
+    expect(refreshSpy).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(localStorage.getItem('partflow-reauth-required')).toBe('true');
   });
 
   it('does not keep a local session when cloud authorization is pending', () => {

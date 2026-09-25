@@ -24,7 +24,8 @@ func newSubscriptionSessionDB(t *testing.T) (*Service, *sql.DB, uuid.UUID) {
 		first_name TEXT NOT NULL, last_name TEXT NOT NULL, phone TEXT, avatar_url TEXT,
 		is_active INTEGER NOT NULL DEFAULT 1, is_verified INTEGER NOT NULL DEFAULT 0,
 		last_login_at TEXT, subscription_status TEXT DEFAULT 'active', subscription_expires_at TEXT,
-		created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+		created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+		session_version INTEGER NOT NULL DEFAULT 0
 	)`)
 	if err != nil {
 		t.Fatal(err)
@@ -118,6 +119,10 @@ func TestChangingPasswordAtomicallyRevokesEveryRefreshToken(t *testing.T) {
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("NewPassword123!")); err != nil {
 		t.Fatalf("password hash was not changed: %v", err)
+	}
+	var sessionVersion int64
+	if err := db.QueryRow(`SELECT session_version FROM users WHERE id = ?`, userID.String()).Scan(&sessionVersion); err != nil || sessionVersion != 1 {
+		t.Fatalf("session_version=%d err=%v, want 1 after password change", sessionVersion, err)
 	}
 	var tokenCount int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM refresh_tokens WHERE user_id = ?`, userID.String()).Scan(&tokenCount); err != nil || tokenCount != 0 {

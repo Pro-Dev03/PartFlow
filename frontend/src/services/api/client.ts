@@ -20,6 +20,18 @@ function isExpectedBarcodeMiss(error: any): boolean {
   return error?.code === '404' || message.includes('barcode not found');
 }
 
+function isCloudTransportFailure(error: any): boolean {
+  if (!isNetworkError(error)) return false;
+  const status = Number(error?.status);
+  const code = String(error?.code || error?.cause?.code || '').toUpperCase();
+  return error?.name === 'AbortError'
+    || !Number.isFinite(status)
+    || status === 0
+    || status === 408
+    || [502, 503, 504].includes(status)
+    || ['NETWORK_ERROR', 'TIMEOUT', 'TIMEOUT_ERROR', 'CONNECTION_FAILED', 'ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT'].includes(code);
+}
+
 const SUBSCRIPTION_BLOCK_CODES = new Set([
   'SUBSCRIPTION_EXPIRED',
   'SUBSCRIPTION_SUSPENDED',
@@ -568,14 +580,16 @@ class ApiClient {
       if (error?.code === 'AUTH_REFRESH_PENDING') {
         this.notifyCloudVerificationPending('Cloud session refresh is temporarily unavailable');
       }
-      if (isNetworkError(error) && isCloudRequest) {
+      if (isCloudTransportFailure(error) && isCloudRequest) {
         this.notifyCloudVerificationPending('Cloud business API is unreachable');
       }
       if (error?.code === 'OFFLINE_GRACE_EXPIRED' || error?.code === 'CLOUD_AUTH_REQUIRED') {
         this.notifyCloudVerificationPending('Cloud authorization is unavailable or the offline grace period has ended');
       }
-      if (error?.code === 'AUTH_SERVICE_UNAVAILABLE'
-        || [408, 429, 500, 502, 503, 504].includes(Number(error?.status))) {
+      // Business endpoints can fail independently of the authenticated session.
+      // In particular, a 500 while loading the current POS shift must not log
+      // the user out; only an explicit auth verification failure locks access.
+      if (error?.code === 'AUTH_SERVICE_UNAVAILABLE') {
         this.notifyCloudVerificationPending('Authentication service is temporarily unavailable');
       }
 

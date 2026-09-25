@@ -51,7 +51,7 @@ func lockUserForSession(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, userID uu
 	query := `
 		SELECT id, email, password_hash, first_name, last_name,
 		       phone, is_active, last_login_at, created_at, updated_at,
-		       subscription_status, subscription_expires_at
+		       subscription_status, subscription_expires_at, session_version
 		FROM users WHERE id = $1
 	`
 	if !strings.EqualFold(db.DriverName(), "sqlite") && !strings.EqualFold(db.DriverName(), "sqlite3") {
@@ -71,6 +71,7 @@ func lockUserForSession(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, userID uu
 		&row.UpdatedAt,
 		&row.SubscriptionStatus,
 		&row.SubscriptionExpiresAt,
+		&row.SessionVersion,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUserNotFound
@@ -296,12 +297,12 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*AuthResponse, 
 		return nil, err
 	}
 
-	accessToken, err := s.jwtService.GenerateAccessToken(user.ID.String())
+	accessToken, err := s.jwtService.GenerateAccessTokenForSession(user.ID.String(), user.SessionVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
-	refreshToken, err := s.jwtService.GenerateRefreshToken(user.ID.String())
+	refreshToken, err := s.jwtService.GenerateRefreshTokenForSession(user.ID.String(), user.SessionVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
@@ -354,7 +355,7 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 	query := `
 		SELECT id, email, password_hash, first_name, last_name,
 		       phone, is_active, last_login_at, created_at, updated_at,
-		       subscription_status, subscription_expires_at
+		       subscription_status, subscription_expires_at, session_version
 		FROM users WHERE id = $1
 	`
 	if !strings.EqualFold(s.db.DriverName(), "sqlite") && !strings.EqualFold(s.db.DriverName(), "sqlite3") {
@@ -375,6 +376,7 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 		&row.UpdatedAt,
 		&row.SubscriptionStatus,
 		&row.SubscriptionExpiresAt,
+		&row.SessionVersion,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -386,6 +388,9 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 	user, err := userFromRow(row)
 	if err != nil {
 		return nil, fmt.Errorf("read user profile: %w", err)
+	}
+	if claims.SessionVersion != user.SessionVersion {
+		return nil, ErrInvalidToken
 	}
 
 	if err := s.checkSubscriptionStatus(user.SubscriptionStatus, user.SubscriptionExpiresAt); err != nil {
@@ -428,12 +433,12 @@ func (s *Service) RefreshToken(ctx context.Context, refreshToken string) (*AuthR
 		return nil, fmt.Errorf("check refresh token: %w", err)
 	}
 
-	newAccessToken, err := s.jwtService.GenerateAccessToken(user.ID.String())
+	newAccessToken, err := s.jwtService.GenerateAccessTokenForSession(user.ID.String(), user.SessionVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
-	nextRefreshToken, err := s.jwtService.GenerateRefreshToken(user.ID.String())
+	nextRefreshToken, err := s.jwtService.GenerateRefreshTokenForSession(user.ID.String(), user.SessionVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to rotate refresh token: %w", err)
 	}
@@ -484,7 +489,7 @@ func (s *Service) GetUserByID(ctx context.Context, userID uuid.UUID) (*User, err
 	query := `
 		SELECT id, email, password_hash, first_name, last_name,
 		       phone, is_active, last_login_at, created_at, updated_at,
-		       subscription_status, subscription_expires_at
+		       subscription_status, subscription_expires_at, session_version
 		FROM users WHERE id = $1
 	`
 
@@ -529,7 +534,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, req *Cha
 	}
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx,
-		fmt.Sprintf("UPDATE users SET password_hash = $1, updated_at = %s WHERE id = $2", dbutil.NowSQL(s.db)),
+		fmt.Sprintf("UPDATE users SET password_hash = $1, session_version = session_version + 1, updated_at = %s WHERE id = $2", dbutil.NowSQL(s.db)),
 		string(hashedPassword), userID)
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
@@ -545,11 +550,24 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, req *Cha
 
 // Logout handles user logout
 func (s *Service) Logout(ctx context.Context, userID uuid.UUID) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID)
-	if isMissingRefreshTokenTable(err) {
-		return fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", err)
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin logout revocation: %w", err)
 	}
-	return err
+	defer tx.Rollback()
+	if _, err := lockUserForSession(ctx, tx, s.db, userID); err != nil {
+		return fmt.Errorf("lock user for logout: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET session_version = session_version + 1 WHERE id = $1`, userID); err != nil {
+		return fmt.Errorf("revoke access sessions: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID); err != nil {
+		if isMissingRefreshTokenTable(err) {
+			return fmt.Errorf("refresh token storage is unavailable: apply the refresh_tokens migration: %w", err)
+		}
+		return fmt.Errorf("revoke refresh tokens: %w", err)
+	}
+	return tx.Commit()
 }
 
 // RequestPasswordReset initiates a password reset request
@@ -605,7 +623,7 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		}
 		return fmt.Errorf("lock password reset account: %w", err)
 	}
-	updateUserQuery := fmt.Sprintf(`UPDATE users SET password_hash = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db))
+	updateUserQuery := fmt.Sprintf(`UPDATE users SET password_hash = $1, session_version = session_version + 1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db))
 	if _, err := tx.ExecContext(ctx, updateUserQuery, string(hashedPassword), userID); err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}

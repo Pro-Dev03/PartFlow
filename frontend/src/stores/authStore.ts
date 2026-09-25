@@ -58,6 +58,7 @@ const CLOUD_LAST_VALIDATED_AT_KEY = 'partflow-cloud-last-validated-at';
 const CLOUD_REFRESH_FAILED_KEY = 'partflow-cloud-refresh-failed';
 const CLOUD_REFRESH_LOCK_KEY = 'partflow-cloud-refresh-lock';
 const MANUAL_LOGOUT_KEY = 'partflow-manual-logout';
+const REAUTH_REQUIRED_KEY = 'partflow-reauth-required';
 const CLOUD_REFRESH_LOCK_TTL_MS = 15_000;
 
 function createAuthRefreshController(): AbortController {
@@ -479,6 +480,10 @@ export function forceLogoutToLogin(reason = 'Session expired') {
           ? 'cloud-rejected'
           : 'session-expired';
   saveAutoLogoutReason(logoutReason);
+  // A cloud refresh cookie can survive a local forced logout when the device
+  // is offline. Require an explicit credential login instead of restoring it
+  // automatically after the network returns.
+  localStorage.setItem(REAUTH_REQUIRED_KEY, 'true');
   stopTokenRefresh();
   apiClient.logout();
   window.dispatchEvent(new Event('partflow:session-cleared'));
@@ -608,6 +613,7 @@ export const useAuthStore = create<AuthState>()(
               throw new Error('Cloud subscription verification failed');
             }
             localStorage.removeItem(MANUAL_LOGOUT_KEY);
+            localStorage.removeItem(REAUTH_REQUIRED_KEY);
             startTokenRefresh();
             return;
           }
@@ -637,6 +643,7 @@ export const useAuthStore = create<AuthState>()(
           }
 
           localStorage.removeItem(MANUAL_LOGOUT_KEY);
+          localStorage.removeItem(REAUTH_REQUIRED_KEY);
 
           set({
             isAuthenticated: true,
@@ -723,7 +730,8 @@ export const useAuthStore = create<AuthState>()(
         const checkPromise = (async () => {
         set({ isLoading: true, sessionVerified: false, sessionRestorePending: false });
 
-        if (localStorage.getItem(MANUAL_LOGOUT_KEY) === 'true') {
+        if (localStorage.getItem(MANUAL_LOGOUT_KEY) === 'true'
+          || localStorage.getItem(REAUTH_REQUIRED_KEY) === 'true') {
           apiClient.logout();
           window.dispatchEvent(new Event('partflow:session-cleared'));
           clearPersistedAuthStorage();

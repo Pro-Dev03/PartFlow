@@ -421,15 +421,18 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			sync := protected.Group("/sync")
 			{
 				sync.GET("/initial-data", syncHandler.GetInitialData)
-				// Generic queued business mutations bypass domain validation. Keep
-				// this legacy import path restricted to the configured operator.
-				sync.POST("/push", middleware.Admin(), syncHandler.PushData)
+				// Subscribers can synchronize their store data from desktop clients.
+				// Authentication and the active-subscription check are enforced by
+				// the protected group above; PushData still validates the entity and
+				// field allowlists before writing.
+				sync.POST("/push", syncHandler.PushData)
 			}
 
 			// Settings routes
 			settings := protected.Group("/settings")
 			{
 				settings.POST("/sync", localDatabaseHandler.SyncCloudData)
+				settings.POST("/sync/push", localDatabaseHandler.SyncLocalDataToCloud)
 				settings.GET("/sync/conflicts", localDatabaseHandler.GetSyncConflicts)
 				settings.DELETE("/sync/conflicts", localDatabaseHandler.ClearSyncConflicts)
 				settings.POST("/sync/conflicts/:id/resolve", localDatabaseHandler.ResolveSyncConflict)
@@ -447,7 +450,6 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				// actions. Keep ordinary subscribers out even when authenticated.
 				adminSettings := settings.Group("")
 				adminSettings.Use(middleware.Admin())
-				adminSettings.POST("/sync/push", localDatabaseHandler.SyncLocalDataToCloud)
 				adminSettings.DELETE("/database", databaseHandler.DeleteAllData)
 				adminSettings.POST("/migrate", databaseHandler.ApplyMigration)
 			}

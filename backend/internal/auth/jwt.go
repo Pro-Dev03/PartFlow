@@ -10,7 +10,8 @@ import (
 
 // Claims represents JWT claims (based on worktrack)
 type Claims struct {
-	UserID string `json:"user_id"`
+	UserID         string `json:"user_id"`
+	SessionVersion int64  `json:"sv,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -32,8 +33,15 @@ func NewJWTService(secret string, accessTokenT, refreshTokenT time.Duration) *JW
 
 // GenerateAccessToken generates a new access token (based on worktrack)
 func (s *JWTService) GenerateAccessToken(userID string) (string, error) {
+	return s.GenerateAccessTokenForSession(userID, 0)
+}
+
+// GenerateAccessTokenForSession binds an access token to the account's current
+// server-side session version so logout and password changes revoke it at once.
+func (s *JWTService) GenerateAccessTokenForSession(userID string, sessionVersion int64) (string, error) {
 	claims := Claims{
-		UserID: userID,
+		UserID:         userID,
+		SessionVersion: sessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessTokenT)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -49,8 +57,13 @@ func (s *JWTService) GenerateAccessToken(userID string) (string, error) {
 
 // GenerateRefreshToken generates a new refresh token (based on worktrack)
 func (s *JWTService) GenerateRefreshToken(userID string) (string, error) {
+	return s.GenerateRefreshTokenForSession(userID, 0)
+}
+
+func (s *JWTService) GenerateRefreshTokenForSession(userID string, sessionVersion int64) (string, error) {
 	claims := Claims{
-		UserID: userID,
+		UserID:         userID,
+		SessionVersion: sessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.refreshTokenT)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -100,7 +113,8 @@ func (s *JWTService) RefreshAccessToken(refreshTokenString string) (string, erro
 
 	// Create new access token with same claims but new expiration
 	newClaims := Claims{
-		UserID: claims.UserID,
+		UserID:         claims.UserID,
+		SessionVersion: claims.SessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessTokenT)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

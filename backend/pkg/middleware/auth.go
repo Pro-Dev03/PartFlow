@@ -58,14 +58,20 @@ func AuthMiddleware(jwtService *auth.JWTService, db *sqlx.DB) gin.HandlerFunc {
 		var subscriptionStatus string
 		var subscriptionExpiresAtRaw interface{}
 		var userUpdatedAtRaw interface{}
+		var sessionVersion int64
 		err = db.QueryRowContext(c.Request.Context(),
-			"SELECT is_active, COALESCE(subscription_status, 'active'), subscription_expires_at, updated_at FROM users WHERE id = $1", userID).Scan(&userActive, &subscriptionStatus, &subscriptionExpiresAtRaw, &userUpdatedAtRaw)
+			"SELECT is_active, COALESCE(subscription_status, 'active'), subscription_expires_at, updated_at, session_version FROM users WHERE id = $1", userID).Scan(&userActive, &subscriptionStatus, &subscriptionExpiresAtRaw, &userUpdatedAtRaw, &sessionVersion)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "account not found", "code": "ACCOUNT_DELETED"})
 			} else {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "unable to verify account", "code": "AUTH_SERVICE_UNAVAILABLE"})
 			}
+			c.Abort()
+			return
+		}
+		if claims.SessionVersion != sessionVersion {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session has been revoked", "code": "SESSION_REVOKED"})
 			c.Abort()
 			return
 		}

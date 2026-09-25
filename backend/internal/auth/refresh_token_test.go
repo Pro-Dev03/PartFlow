@@ -26,7 +26,8 @@ func newRefreshTokenTestService(t *testing.T) (*Service, *sql.DB, uuid.UUID) {
 		first_name TEXT NOT NULL, last_name TEXT NOT NULL, phone TEXT,
 		is_active INTEGER NOT NULL DEFAULT 1, last_login_at TEXT,
 		created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-		subscription_status TEXT DEFAULT 'active', subscription_expires_at TEXT
+		subscription_status TEXT DEFAULT 'active', subscription_expires_at TEXT,
+		session_version INTEGER NOT NULL DEFAULT 0
 	)`)
 	if err != nil {
 		t.Fatal(err)
@@ -177,6 +178,46 @@ func TestChangePasswordRevokesAllRefreshTokens(t *testing.T) {
 	}
 	if _, err := service.RefreshToken(ctx, login.RefreshToken); !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("old token error=%v, want ErrInvalidToken", err)
+	}
+	claims, err := service.jwtService.ValidateToken(login.AccessToken)
+	if err != nil {
+		t.Fatalf("parse access token after password change: %v", err)
+	}
+	var version int64
+	if err := db.QueryRow(`SELECT session_version FROM users WHERE id = ?`, userID.String()).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != claims.SessionVersion+1 {
+		t.Fatalf("current session version=%d token version=%d, want token revoked by one version increment", version, claims.SessionVersion)
+	}
+}
+
+func TestLogoutRevokesAccessAndRefreshTokens(t *testing.T) {
+	service, db, userID := newRefreshTokenTestService(t)
+	ctx := context.Background()
+	login, err := service.Login(ctx, &LoginRequest{Email: "refresh@example.test", Password: "TestOwnerPassword123!"})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if err := service.Logout(ctx, userID); err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+	var version int64
+	if err := db.QueryRow(`SELECT session_version FROM users WHERE id = ?`, userID.String()).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 1 {
+		t.Fatalf("session_version=%d, want 1 after logout", version)
+	}
+	if _, err := service.RefreshToken(ctx, login.RefreshToken); !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("refresh after logout error=%v, want ErrInvalidToken", err)
+	}
+	claims, err := service.jwtService.ValidateToken(login.AccessToken)
+	if err != nil {
+		t.Fatalf("parse access token after logout: %v", err)
+	}
+	if claims.SessionVersion == version {
+		t.Fatal("logout left the existing access token on the current session version")
 	}
 }
 

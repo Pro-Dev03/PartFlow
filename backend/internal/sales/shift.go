@@ -12,7 +12,6 @@ import (
 	"github.com/jmoiron/sqlx"
 	dbutil "github.com/partflow/smart-store/internal/database"
 	"github.com/partflow/smart-store/pkg/errors"
-	"github.com/partflow/smart-store/pkg/middleware"
 	"github.com/partflow/smart-store/pkg/response"
 )
 
@@ -279,8 +278,9 @@ func registerShiftRoutes(router *gin.RouterGroup, db *sqlx.DB) error {
 		return fmt.Errorf("initialize POS shifts: %w", err)
 	}
 	shifts := router.Group("/sales/shifts")
-	shifts.Use(middleware.ShiftManager(db))
 	shifts.GET("/current", getCurrentShiftHandler(db))
+	// Shift operations are store workflows for every authenticated subscriber.
+	// The account-level subscription middleware protects this entire route group.
 	shifts.POST("/open", openShiftHandler(db))
 	shifts.POST("/close", closeShiftHandler(db))
 	return nil

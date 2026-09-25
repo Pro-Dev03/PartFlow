@@ -23,6 +23,7 @@ type User struct {
 	UpdatedAt             time.Time  `json:"updated_at" db:"updated_at"`
 	SubscriptionStatus    string     `json:"subscription_status" db:"subscription_status"`
 	SubscriptionExpiresAt *time.Time `json:"subscription_expires_at" db:"subscription_expires_at"`
+	SessionVersion        int64      `json:"-" db:"session_version"`
 }
 
 type userRow struct {
@@ -38,6 +39,7 @@ type userRow struct {
 	UpdatedAt             string         `db:"updated_at"`
 	SubscriptionStatus    sql.NullString `db:"subscription_status"`
 	SubscriptionExpiresAt sql.NullString `db:"subscription_expires_at"`
+	SessionVersion        int64          `db:"session_version"`
 }
 
 func parseSQLiteTimestamp(raw string) (time.Time, error) {
@@ -83,6 +85,7 @@ func userFromRow(row userRow) (User, error) {
 		LastName:           row.LastName,
 		IsActive:           row.IsActive,
 		SubscriptionStatus: "active",
+		SessionVersion:     row.SessionVersion,
 	}
 	if row.Phone.Valid {
 		user.Phone = row.Phone.String

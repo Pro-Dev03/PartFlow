@@ -76,7 +76,8 @@ func TestLoginWorksWithSQLiteUserTimestamps(t *testing.T) {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         subscription_status TEXT DEFAULT 'active',
-        subscription_expires_at TEXT
+        subscription_expires_at TEXT,
+        session_version INTEGER NOT NULL DEFAULT 0
     )`)
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +138,8 @@ func TestLoginHandlesSQLiteGoTimeStringFormat(t *testing.T) {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         subscription_status TEXT DEFAULT 'active',
-        subscription_expires_at TEXT
+        subscription_expires_at TEXT,
+        session_version INTEGER NOT NULL DEFAULT 0
     )`)
 	if err != nil {
 		t.Fatal(err)

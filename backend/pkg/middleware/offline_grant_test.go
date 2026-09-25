@@ -129,7 +129,7 @@ func TestCloudAuthRejectsSuspendedAccountOnEveryRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer rawDB.Close()
-	if _, err := rawDB.Exec(`CREATE TABLE users (id TEXT PRIMARY KEY, is_active INTEGER NOT NULL, subscription_status TEXT, subscription_expires_at TEXT, updated_at TEXT NOT NULL)`); err != nil {
+	if _, err := rawDB.Exec(`CREATE TABLE users (id TEXT PRIMARY KEY, is_active INTEGER NOT NULL, subscription_status TEXT, subscription_expires_at TEXT, updated_at TEXT NOT NULL, session_version INTEGER NOT NULL DEFAULT 0)`); err != nil {
 		t.Fatal(err)
 	}
 	userID := uuid.New()

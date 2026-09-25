@@ -113,18 +113,33 @@ func TestCloudBusinessAccessUsesAuthenticatedSingleStoreModeWithoutTenantIsolati
 		t.Fatalf("authenticated active subscriber status=%d body=%s; want single-store access without tenant-isolation rollout gate", response.Code, response.Body.String())
 	}
 
-	// Exercise the actual route tree: ordinary subscribers may use cloud-backed
-	// business APIs, but neither legacy queue import nor full local SQLite
-	// reconciliation may accept their data.
+	// Exercise the actual route tree: subscribers can download and synchronize
+	// store data, while the destructive database settings remain administrator-only.
+	initialDataRequest := httptest.NewRequest(http.MethodGet, "/api/v1/sync/initial-data", nil)
+	initialDataRequest.Header.Set("Authorization", "Bearer "+tokenString)
+	initialDataResponse := httptest.NewRecorder()
+	router.ServeHTTP(initialDataResponse, initialDataRequest)
+	if initialDataResponse.Code != http.StatusOK {
+		t.Fatalf("subscriber GET /sync/initial-data status=%d body=%s; want authenticated data download", initialDataResponse.Code, initialDataResponse.Body.String())
+	}
+
 	for _, path := range []string{"/api/v1/sync/push", "/api/v1/settings/sync/push"} {
 		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"operations":[{"id":"legacy-1","entity_type":"customers","entity_id":"customer-1","operation":"upsert","payload":"{}"}]}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+tokenString)
 		pushResponse := httptest.NewRecorder()
 		router.ServeHTTP(pushResponse, req)
-		if pushResponse.Code != http.StatusForbidden || !strings.Contains(pushResponse.Body.String(), "ADMIN_REQUIRED") {
-			t.Fatalf("subscriber POST %s status=%d body=%s; want ADMIN_REQUIRED", path, pushResponse.Code, pushResponse.Body.String())
+		if pushResponse.Code == http.StatusForbidden && strings.Contains(pushResponse.Body.String(), "ADMIN_REQUIRED") {
+			t.Fatalf("subscriber POST %s was blocked by administrator role: %s", path, pushResponse.Body.String())
 		}
+	}
+
+	deleteDatabaseRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/settings/database?confirmation_token=DELETE%20ALL%20DATA", nil)
+	deleteDatabaseRequest.Header.Set("Authorization", "Bearer "+tokenString)
+	deleteDatabaseResponse := httptest.NewRecorder()
+	router.ServeHTTP(deleteDatabaseResponse, deleteDatabaseRequest)
+	if deleteDatabaseResponse.Code != http.StatusForbidden || !strings.Contains(deleteDatabaseResponse.Body.String(), "ADMIN_REQUIRED") {
+		t.Fatalf("subscriber database deletion status=%d body=%s; want destructive database settings to remain administrator-only", deleteDatabaseResponse.Code, deleteDatabaseResponse.Body.String())
 	}
 
 	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
@@ -133,5 +148,13 @@ func TestCloudBusinessAccessUsesAuthenticatedSingleStoreModeWithoutTenantIsolati
 	router.ServeHTTP(logoutResponse, logoutRequest)
 	if logoutResponse.Code != http.StatusOK {
 		t.Fatalf("authenticated logout status=%d body=%s; want session revocation to remain available before tenant migration", logoutResponse.Code, logoutResponse.Body.String())
+	}
+
+	reusedTokenRequest := httptest.NewRequest(http.MethodGet, "/api/v1/auth/admin-check", nil)
+	reusedTokenRequest.Header.Set("Authorization", "Bearer "+tokenString)
+	reusedTokenResponse := httptest.NewRecorder()
+	router.ServeHTTP(reusedTokenResponse, reusedTokenRequest)
+	if reusedTokenResponse.Code != http.StatusUnauthorized || !strings.Contains(reusedTokenResponse.Body.String(), "SESSION_REVOKED") {
+		t.Fatalf("access token reused after logout status=%d body=%s; want immediate session revocation", reusedTokenResponse.Code, reusedTokenResponse.Body.String())
 	}
 }

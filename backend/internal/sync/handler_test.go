@@ -105,7 +105,7 @@ func TestPushDataRejectsOversizedBatch(t *testing.T) {
 	}
 }
 
-func TestSubscriberCannotPushLegacySyncOperations(t *testing.T) {
+func TestSubscriberCanPushValidatedSyncOperations(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	userID := uuid.New()
 	cloud := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,15 +136,15 @@ func TestSubscriberCannotPushLegacySyncOperations(t *testing.T) {
 
 	router := gin.New()
 	router.Use(authmw.Auth())
-	router.POST("/sync/push", authmw.Admin(), NewHandler(nil).PushData)
+	router.POST("/sync/push", NewHandler(nil).PushData)
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/sync/push", strings.NewReader(`{"operations":[{"id":"legacy-1","entity_type":"customers","entity_id":"customer-1","operation":"upsert","payload":"{}"}]}`))
+	request := httptest.NewRequest(http.MethodPost, "/sync/push", strings.NewReader(`{"operations":[{"id":"subscriber-1","entity_type":"unsupported-entity","entity_id":"item-1","operation":"upsert","payload":"{\"id\":\"item-1\"}"}]}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+localToken)
 	request.Header.Set("X-PartFlow-Cloud-Token", "live-subscriber-cloud-token")
 	router.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "ADMIN_REQUIRED") {
-		t.Fatalf("subscriber legacy sync push status=%d body=%s; want ADMIN_REQUIRED", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"failed":1`) || !strings.Contains(recorder.Body.String(), "unsupported entity type") {
+		t.Fatalf("authenticated subscriber sync push status=%d body=%s; want request to reach sync validation", recorder.Code, recorder.Body.String())
 	}
 }

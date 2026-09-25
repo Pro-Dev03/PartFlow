@@ -364,7 +364,8 @@ func (r *Repository) UpdateAndRevokeRefreshTokens(ctx context.Context, user *Use
 	query := `
 		UPDATE users
 		SET email = $2, password_hash = $3, first_name = $4, last_name = $5, phone = $6, avatar_url = $7,
-		    is_active = $8, subscription_status = $9, subscription_expires_at = $10, updated_at = $11
+		    is_active = $8, subscription_status = $9, subscription_expires_at = $10,
+		    session_version = session_version + 1, updated_at = $11
 		WHERE id = $1
 	`
 	result, err := tx.ExecContext(ctx, query,
@@ -396,7 +397,7 @@ func (r *Repository) UpdatePassword(ctx context.Context, id uuid.UUID, passwordH
 		return fmt.Errorf("begin password update: %w", err)
 	}
 	defer tx.Rollback()
-	query := fmt.Sprintf(`UPDATE users SET password_hash = $2, updated_at = %s WHERE id = $1`, dbutil.NowSQL(r.db))
+	query := fmt.Sprintf(`UPDATE users SET password_hash = $2, session_version = session_version + 1, updated_at = %s WHERE id = $1`, dbutil.NowSQL(r.db))
 	result, err := tx.ExecContext(ctx, query, id, passwordHash)
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)

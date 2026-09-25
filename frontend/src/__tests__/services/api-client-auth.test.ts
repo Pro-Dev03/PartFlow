@@ -165,6 +165,35 @@ describe('apiClient auth propagation', () => {
     window.removeEventListener('partflow:cloud-verification-pending', pending);
   });
 
+  it.each(['cloud', 'local'])('keeps the %s session when a business request returns 500', async (mode) => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(apiClient as any, 'sleep').mockResolvedValue(undefined);
+    localStorage.setItem('partflow-connection-mode', mode);
+    TokenManager.setToken('access-token');
+    TokenManager.setCloudToken('cloud-token');
+    apiClient.setToken('access-token');
+    apiClient.setCloudToken('cloud-token');
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(JSON.stringify({ success: false, error: { code: 'INTERNAL_ERROR', message: 'temporary failure' } }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const pending = vi.fn();
+    const invalidated = vi.fn();
+    window.addEventListener('partflow:cloud-verification-pending', pending);
+    window.addEventListener('partflow:auth-invalidated', invalidated);
+    await expect(apiClient.get('/sales/shifts/current')).rejects.toMatchObject({ status: 500 });
+
+    expect(pending).not.toHaveBeenCalled();
+    expect(invalidated).not.toHaveBeenCalled();
+    expect(TokenManager.getToken()).toBe('access-token');
+    expect(TokenManager.getCloudToken()).toBe('cloud-token');
+    window.removeEventListener('partflow:cloud-verification-pending', pending);
+    window.removeEventListener('partflow:auth-invalidated', invalidated);
+  });
+
   it('keeps the session credentials when a 401 cannot be refreshed', async () => {
     TokenManager.setToken('local-token');
     TokenManager.setCloudToken('cloud-token');

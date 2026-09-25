@@ -368,6 +368,26 @@ func accessTokenIsCurrent(claims jwt.MapClaims, updatedAtRaw interface{}) (bool,
 	return !issuedAt.Add(accessTokenTimestampTolerance).Before(*updatedAt), nil
 }
 
+func sessionVersionIsCurrent(claims jwt.MapClaims, currentVersion int64) bool {
+	value, exists := claims["sv"]
+	if !exists {
+		return currentVersion == 0
+	}
+	switch version := value.(type) {
+	case float64:
+		return version >= 0 && version == float64(currentVersion)
+	case int64:
+		return version == currentVersion
+	case int:
+		return int64(version) == currentVersion
+	case json.Number:
+		parsed, err := version.Int64()
+		return err == nil && parsed == currentVersion
+	default:
+		return false
+	}
+}
+
 // SetDatabase sets the database connection for middleware
 func SetDatabase(database *sqlx.DB) {
 	db = database
@@ -652,11 +672,17 @@ func Auth() gin.HandlerFunc {
 				var subscriptionStatus string
 				var subscriptionExpiresAtRaw interface{}
 				var userUpdatedAtRaw interface{}
+				var sessionVersion int64
 				err = db.QueryRowContext(c.Request.Context(),
-					"SELECT is_active, subscription_status, subscription_expires_at, updated_at FROM users WHERE id = $1", userUUID).
-					Scan(&isActive, &subscriptionStatus, &subscriptionExpiresAtRaw, &userUpdatedAtRaw)
+					"SELECT is_active, subscription_status, subscription_expires_at, updated_at, session_version FROM users WHERE id = $1", userUUID).
+					Scan(&isActive, &subscriptionStatus, &subscriptionExpiresAtRaw, &userUpdatedAtRaw, &sessionVersion)
 				if err != nil {
 					c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Unable to verify subscription status", "code": "AUTH_SERVICE_UNAVAILABLE"})
+					c.Abort()
+					return
+				}
+				if !sessionVersionIsCurrent(claims, sessionVersion) {
+					c.JSON(http.StatusUnauthorized, gin.H{"error": "Session has been revoked", "code": "SESSION_REVOKED"})
 					c.Abort()
 					return
 				}
