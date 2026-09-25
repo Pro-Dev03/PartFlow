@@ -194,6 +194,9 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Payment, error
 	}
 	record := map[string]any{}
 	if err := row.MapScan(record); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrPaymentNotFound
+		}
 		return nil, fmt.Errorf("failed to get payment: %w", err)
 	}
 	payment, err := parsePaymentMap(record)
