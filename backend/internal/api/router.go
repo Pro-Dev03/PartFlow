@@ -127,6 +127,13 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 		cloudValidation.Use(middleware.Auth())
 		cloudValidation.POST("/auth/validate", authHandler.ValidateSubscription)
 
+		// Logout only revokes the caller's session and must stay available while
+		// tenant data access is blocked awaiting the RLS migration. It is
+		// authenticated, but does not read or mutate store business data.
+		sessionRoutes := v1.Group("")
+		sessionRoutes.Use(middleware.Auth())
+		sessionRoutes.POST("/auth/logout", authHandler.Logout)
+
 		// Protected routes (auth required)
 		protected := v1.Group("")
 		// middleware.Auth enforces a live cloud subscription decision for local
@@ -162,7 +169,6 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			// Auth routes
 			auth := protected.Group("/auth")
 			{
-				auth.POST("/logout", authHandler.Logout)
 				auth.GET("/admin-check", func(c *gin.Context) {
 					userID := middleware.GetUserID(c)
 					if userID == uuid.Nil {

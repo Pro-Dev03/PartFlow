@@ -262,6 +262,12 @@ class ApiClient {
         throw error;
       }
 
+      // This is a deployment gate, not a temporary database outage. Retrying
+      // every dashboard read only floods Render until tenant RLS is installed.
+      if (error?.code === 'TENANT_ISOLATION_REQUIRED') {
+        throw error;
+      }
+
       // Don't retry 400 Bad Request (client errors) - these won't succeed on retry
       if (error?.status === 400) {
         throw error;
@@ -568,14 +574,16 @@ class ApiClient {
       if (error?.code === 'AUTH_REFRESH_PENDING') {
         this.notifyCloudVerificationPending('Cloud session refresh is temporarily unavailable');
       }
-      if (isNetworkError(error) && getConnectionMode() === 'local') {
+      if (error?.code !== 'TENANT_ISOLATION_REQUIRED'
+        && isNetworkError(error) && getConnectionMode() === 'local') {
         this.notifyCloudVerificationPending('Cloud business API is unreachable');
       }
       if (error?.code === 'OFFLINE_GRACE_EXPIRED' || error?.code === 'CLOUD_AUTH_REQUIRED') {
         this.notifyCloudVerificationPending('Cloud authorization is unavailable or the offline grace period has ended');
       }
       if (error?.code === 'AUTH_SERVICE_UNAVAILABLE'
-        || [408, 429, 500, 502, 503, 504].includes(Number(error?.status))) {
+        || (error?.code !== 'TENANT_ISOLATION_REQUIRED'
+          && [408, 429, 500, 502, 503, 504].includes(Number(error?.status)))) {
         this.notifyCloudVerificationPending('Authentication service is temporarily unavailable');
       }
 
@@ -586,7 +594,8 @@ class ApiClient {
         || error?.code === 'CLOUD_AUTH_REQUIRED'
         || error?.code === 'OFFLINE_GRACE_EXPIRED'
         || error?.code === 'AUTH_SERVICE_UNAVAILABLE'
-        || error?.code === 'AUTH_REFRESH_PENDING';
+        || error?.code === 'AUTH_REFRESH_PENDING'
+        || error?.code === 'TENANT_ISOLATION_REQUIRED';
       const isExpectedLocalLoginFallback = getConnectionMode() === 'local'
         && endpoint === '/auth/login'
         && error?.status === 401;

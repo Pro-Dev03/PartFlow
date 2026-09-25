@@ -22,10 +22,11 @@ export default defineConfig({
     ...(process.env.NODE_ENV === 'production' ? [
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+        includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
         manifest: {
           name: 'PartFlow',
           short_name: 'PartFlow',
+          lang: 'ar',
           description: 'نظام إدارة ذكي لمحل قطع الحاسوب',
           theme_color: '#2563eb',
           background_color: '#ffffff',

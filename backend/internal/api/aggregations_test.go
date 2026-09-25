@@ -38,6 +38,30 @@ func TestMonthlySalesSummaryQueryUsesSQLiteSafeSyntax(t *testing.T) {
 	}
 }
 
+func TestPostgresDailySalesRefreshIsFocusedAndUsesOfficialSaleCost(t *testing.T) {
+	query := strings.ToLower(postgresDailySalesSummaryUpsert)
+	for _, fragment := range []string{
+		"insert into daily_sales_summary",
+		"on conflict (date)",
+		"case when s2.cost_amount is not null then s2.cost_amount",
+		"left join inventory_items ii on ii.id=si.inventory_item_id",
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("daily PostgreSQL sales refresh is missing %q", fragment)
+		}
+	}
+	for _, unrelatedSummary := range []string{
+		"daily_inventory_summary",
+		"daily_debt_summary",
+		"daily_profit_summary",
+		"monthly_sales_summary",
+	} {
+		if strings.Contains(query, unrelatedSummary) {
+			t.Fatalf("daily sales refresh must not depend on %s", unrelatedSummary)
+		}
+	}
+}
+
 func TestAggregationQueriesExecuteOnSQLite(t *testing.T) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {

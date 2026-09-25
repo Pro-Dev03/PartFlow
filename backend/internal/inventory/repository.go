@@ -717,8 +717,8 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 	supplierOnly, _ := filters["supplier_only"].(bool)
 	filterPrefix := "ii"
 	baseQuery := fmt.Sprintf(`
-		SELECT 
-			ii.id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
+		SELECT
+			CAST(ii.id AS TEXT) AS id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
 			ii.condition, ii.grade, ii.purchase_cost, ii.selling_price, ii.status, ii.location_id,
 			ii.supplier_id, ii.purchase_date, ii.sold_at, ii.notes, ii.created_at, ii.updated_at,
 			%s AS current_quantity,
@@ -749,7 +749,7 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 		filterPrefix = "manual_inventory"
 		unionQuery := fmt.Sprintf(`
 			SELECT
-				ii.id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
+				CAST(ii.id AS TEXT) AS id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
 				ii.condition, ii.grade, ii.purchase_cost, ii.selling_price, ii.status, ii.location_id,
 				ii.supplier_id, ii.purchase_date, ii.sold_at, ii.notes, ii.created_at, ii.updated_at,
 				%s AS current_quantity,
@@ -818,7 +818,7 @@ func (r *Repository) ListInventoryItemsWithSupplierInfo(ctx context.Context, lim
 		filterPrefix = "combined_inventory"
 		unionQuery := fmt.Sprintf(`
 			SELECT
-				ii.id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
+				CAST(ii.id AS TEXT) AS id, ii.product_id, ii.part_type_id, ii.item_code, ii.barcode, ii.serial_number,
 				ii.condition, ii.grade, ii.purchase_cost, ii.selling_price, ii.status, ii.location_id,
 				ii.supplier_id, ii.purchase_date, ii.sold_at, ii.notes, ii.created_at, ii.updated_at,
 				%s AS current_quantity,

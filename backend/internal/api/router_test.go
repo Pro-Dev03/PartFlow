@@ -62,6 +62,7 @@ func TestCloudBusinessAccessFailsClosedUntilTenantIsolationIsEnabled(t *testing.
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "sync-admin-test.db"))
 	t.Setenv("DB_CONNECTION_MODE", "cloud")
 	t.Setenv("PARTFLOW_ADMIN_EMAILS", "admin@example.test")
+	t.Setenv("PARTFLOW_TENANT_RLS_ENABLED", "false")
 	middleware.SetDisableAuth(false)
 	middleware.SetJWTSecret("sync-admin-test-secret")
 	t.Cleanup(func() {
@@ -109,5 +110,13 @@ func TestCloudBusinessAccessFailsClosedUntilTenantIsolationIsEnabled(t *testing.
 		if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "TENANT_ISOLATION_REQUIRED") {
 			t.Fatalf("%s %s status=%d body=%s; want rollout isolation denial", target.method, target.path, response.Code, response.Body.String())
 		}
+	}
+
+	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	logoutRequest.Header.Set("Authorization", "Bearer "+tokenString)
+	logoutResponse := httptest.NewRecorder()
+	router.ServeHTTP(logoutResponse, logoutRequest)
+	if logoutResponse.Code != http.StatusOK {
+		t.Fatalf("authenticated logout status=%d body=%s; want session revocation to remain available before tenant migration", logoutResponse.Code, logoutResponse.Body.String())
 	}
 }

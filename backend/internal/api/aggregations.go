@@ -265,6 +265,13 @@ func buildMonthlySalesSummaryQueryForDB(db *sqlx.DB) string {
 	`
 }
 
+func (h *AggregationHandler) refreshDailySalesSummary(ctx context.Context, date time.Time) error {
+	if dbutil.IsSQLite(h.db) {
+		return h.refreshSQLiteSummaries(ctx, date, date)
+	}
+	return h.refreshPostgresDailySalesSummary(ctx, date.Format("2006-01-02"))
+}
+
 // GetDailySalesSummary returns daily sales summary
 func (h *AggregationHandler) GetDailySalesSummary(c *gin.Context) {
 	dateStr := c.DefaultQuery("date", storeNow().Format("2006-01-02"))
@@ -278,7 +285,7 @@ func (h *AggregationHandler) GetDailySalesSummary(c *gin.Context) {
 		Date: date.Format("2006-01-02"),
 	}
 	dateValue := date.Format("2006-01-02")
-	if err := h.refreshSQLiteSummaries(c.Request.Context(), date, date); err != nil {
+	if err := h.refreshDailySalesSummary(c.Request.Context(), date); err != nil {
 		log.Printf("daily sales summary refresh failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update sales summary"})
 		return
@@ -290,6 +297,7 @@ func (h *AggregationHandler) GetDailySalesSummary(c *gin.Context) {
 	}
 	err = h.db.GetContext(c.Request.Context(), &summary, query, args...)
 	if err != nil {
+		log.Printf("daily sales summary read failed for %s: %v", dateValue, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve daily sales summary"})
 		return
 	}
@@ -754,6 +762,19 @@ func (h *AggregationHandler) sqliteReturnProfitAvailable(ctx context.Context) bo
 // SQLite store. The previous trigger-based implementation was removed because
 // legacy and current schemas used different column names; explicit upserts are
 // deterministic and keep dashboard values tied to the source tables.
+const postgresDailySalesSummaryUpsert = `INSERT INTO daily_sales_summary (summary_date,date,total_sales,total_revenue,total_profit,total_customers,average_order_value,total_items_sold,cash_sales,card_sales,debt_sales,updated_at)
+	 SELECT $1::date,$1::date,COUNT(s.id),COALESCE(SUM(s.total_amount-COALESCE(s.tax_amount,0)),0),COALESCE(SUM(s.total_amount-COALESCE(s.tax_amount,0)-COALESCE(cost.total_cost,0)),0),COUNT(DISTINCT s.customer_id),COALESCE(SUM(s.total_amount-COALESCE(s.tax_amount,0))/NULLIF(COUNT(s.id),0),0),COALESCE(SUM(cost.total_items),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('cash','cash_payment') THEN s.total_amount-COALESCE(s.tax_amount,0) ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('card','credit_card') THEN s.total_amount-COALESCE(s.tax_amount,0) ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('debt','credit','on_account') THEN s.total_amount-COALESCE(s.tax_amount,0) ELSE 0 END),0),NOW()
+	 FROM sales s LEFT JOIN (SELECT s2.id AS sale_id,SUM(si.quantity) AS total_items,CASE WHEN s2.cost_amount IS NOT NULL THEN s2.cost_amount ELSE COALESCE(SUM(si.quantity*COALESCE(ii.purchase_cost,p.cost_price,0)),0) END AS total_cost FROM sales s2 LEFT JOIN sale_items si ON si.sale_id=s2.id LEFT JOIN inventory_items ii ON ii.id=si.inventory_item_id LEFT JOIN products p ON p.id=si.product_id GROUP BY s2.id,s2.cost_amount) cost ON cost.sale_id=s.id
+	 WHERE s.sale_date::date=$1::date AND LOWER(COALESCE(s.status,'completed'))='completed'
+	 ON CONFLICT (date) DO UPDATE SET total_sales=EXCLUDED.total_sales,total_revenue=EXCLUDED.total_revenue,total_profit=EXCLUDED.total_profit,total_customers=EXCLUDED.total_customers,average_order_value=EXCLUDED.average_order_value,total_items_sold=EXCLUDED.total_items_sold,cash_sales=EXCLUDED.cash_sales,card_sales=EXCLUDED.card_sales,debt_sales=EXCLUDED.debt_sales,updated_at=NOW()`
+
+func (h *AggregationHandler) refreshPostgresDailySalesSummary(ctx context.Context, date string) error {
+	if _, err := h.db.ExecContext(ctx, postgresDailySalesSummaryUpsert, date); err != nil {
+		return fmt.Errorf("refresh PostgreSQL daily sales summary for %s: %w", date, err)
+	}
+	return nil
+}
+
 func (h *AggregationHandler) refreshPostgresSummaries(ctx context.Context, startDate, endDate time.Time) error {
 	location := storeLocation()
 	localStart := startDate.In(location)
@@ -763,11 +784,6 @@ func (h *AggregationHandler) refreshPostgresSummaries(ctx context.Context, start
 	for ; !day.After(endDay); day = day.AddDate(0, 0, 1) {
 		date := day.Format("2006-01-02")
 		queries := []string{
-			`INSERT INTO daily_sales_summary (summary_date,date,total_sales,total_revenue,total_profit,total_customers,average_order_value,total_items_sold,cash_sales,card_sales,debt_sales,updated_at)
-				 SELECT $1::date,$1::date,COUNT(s.id),COALESCE(SUM(s.total_amount-COALESCE(s.tax_amount,0)),0),COALESCE(SUM(s.total_amount-COALESCE(s.tax_amount,0)-COALESCE(cost.total_cost,0)),0),COUNT(DISTINCT s.customer_id),COALESCE(SUM(s.total_amount-COALESCE(s.tax_amount,0))/NULLIF(COUNT(s.id),0),0),COALESCE(SUM(cost.total_items),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('cash','cash_payment') THEN s.total_amount-COALESCE(s.tax_amount,0) ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('card','credit_card') THEN s.total_amount-COALESCE(s.tax_amount,0) ELSE 0 END),0),COALESCE(SUM(CASE WHEN LOWER(COALESCE(s.payment_method,'')) IN ('debt','credit','on_account') THEN s.total_amount-COALESCE(s.tax_amount,0) ELSE 0 END),0),NOW()
-				 FROM sales s LEFT JOIN (SELECT si.sale_id,SUM(si.quantity) AS total_items,SUM(si.quantity*COALESCE(si.unit_cost,p.cost_price,0)) AS total_cost FROM sale_items si LEFT JOIN products p ON p.id=si.product_id GROUP BY si.sale_id) cost ON cost.sale_id=s.id
-				 WHERE s.sale_date::date=$1::date AND LOWER(COALESCE(s.status,'completed'))='completed'
-			 ON CONFLICT (date) DO UPDATE SET total_sales=EXCLUDED.total_sales,total_revenue=EXCLUDED.total_revenue,total_profit=EXCLUDED.total_profit,total_customers=EXCLUDED.total_customers,average_order_value=EXCLUDED.average_order_value,total_items_sold=EXCLUDED.total_items_sold,cash_sales=EXCLUDED.cash_sales,card_sales=EXCLUDED.card_sales,debt_sales=EXCLUDED.debt_sales,updated_at=NOW()`,
 			`INSERT INTO daily_inventory_summary (summary_date,date,total_items,total_value,low_stock_count,out_of_stock_count,new_items_added,items_sold,items_returned,items_damaged,updated_at)
 				 SELECT $1::date,(SELECT COUNT(*) FROM inventory_items WHERE UPPER(COALESCE(status,'')) NOT IN ('SOLD','ARCHIVED')),(SELECT COALESCE(SUM(purchase_cost),0) FROM inventory_items WHERE UPPER(COALESCE(status,'')) NOT IN ('SOLD','ARCHIVED')),(SELECT COUNT(*) FROM products p WHERE p.is_active AND p.min_stock_level>0 AND (SELECT COUNT(*) FROM inventory_items i WHERE i.product_id=p.id AND UPPER(i.status)='AVAILABLE') BETWEEN 1 AND p.min_stock_level),(SELECT COUNT(*) FROM products p WHERE p.is_active AND (SELECT COUNT(*) FROM inventory_items i WHERE i.product_id=p.id AND UPPER(i.status)='AVAILABLE')=0),(SELECT COUNT(*) FROM inventory_items WHERE created_at::date=$1::date),(SELECT COALESCE(SUM(si.quantity),0) FROM sale_items si JOIN sales s ON s.id=si.sale_id WHERE s.sale_date::date=$1::date AND LOWER(COALESCE(s.status,'completed'))='completed'),(SELECT COALESCE(SUM(ri.quantity_returned),0) FROM accounting_return_items ri JOIN accounting_returns r ON r.id=ri.return_id WHERE COALESCE(r.return_date,r.created_at)::date=$1::date AND LOWER(COALESCE(r.status,'completed'))='completed'),(SELECT COUNT(*) FROM inventory_movements WHERE created_at::date=$1::date AND UPPER(movement_type)='DAMAGE'),NOW()
 			 ON CONFLICT (date) DO UPDATE SET total_items=EXCLUDED.total_items,total_value=EXCLUDED.total_value,low_stock_count=EXCLUDED.low_stock_count,out_of_stock_count=EXCLUDED.out_of_stock_count,new_items_added=EXCLUDED.new_items_added,items_sold=EXCLUDED.items_sold,items_returned=EXCLUDED.items_returned,items_damaged=EXCLUDED.items_damaged,updated_at=NOW()`,
@@ -778,13 +794,14 @@ func (h *AggregationHandler) refreshPostgresSummaries(ctx context.Context, start
 				 SELECT $1::date,COALESCE(SUM(s.total_amount-COALESCE(s.tax_amount,0)-COALESCE(cost.total_cost,0)),0),COALESCE(SUM(s.total_amount-COALESCE(s.tax_amount,0)-COALESCE(cost.total_cost,0)),0)-COALESCE((SELECT SUM(amount) FROM expenses WHERE expense_date::date=$1::date AND LOWER(COALESCE(status,'approved')) IN ('approved','paid','completed')),0),COALESCE(SUM(s.total_amount-COALESCE(s.tax_amount,0)),0),COALESCE(SUM(cost.total_cost),0),CASE WHEN COALESCE(SUM(s.total_amount-COALESCE(s.tax_amount,0)),0)=0 THEN 0 ELSE ((COALESCE(SUM(s.total_amount-COALESCE(s.tax_amount,0)-COALESCE(cost.total_cost,0)),0)-COALESCE((SELECT SUM(amount) FROM expenses WHERE expense_date::date=$1::date AND LOWER(COALESCE(status,'approved')) IN ('approved','paid','completed')),0))/SUM(s.total_amount-COALESCE(s.tax_amount,0)))*100 END,NOW() FROM sales s LEFT JOIN (SELECT si.sale_id,SUM(si.quantity*COALESCE(si.unit_cost,p.cost_price,0)) AS total_cost FROM sale_items si LEFT JOIN products p ON p.id=si.product_id GROUP BY si.sale_id) cost ON cost.sale_id=s.id WHERE s.sale_date::date=$1::date AND LOWER(COALESCE(s.status,'completed'))='completed'
 			 ON CONFLICT (date) DO UPDATE SET gross_profit=EXCLUDED.gross_profit,net_profit=EXCLUDED.net_profit,total_revenue=EXCLUDED.total_revenue,total_cost=EXCLUDED.total_cost,profit_margin=EXCLUDED.profit_margin,updated_at=NOW()`,
 		}
+		if err := h.refreshPostgresDailySalesSummary(ctx, date); err != nil {
+			return err
+		}
 		for index, query := range queries {
-			if index > 0 {
-				query = strings.Replace(query, "SELECT $1::date,", "SELECT $1::date,$1::date,", 1)
-			}
+			query = strings.Replace(query, "SELECT $1::date,", "SELECT $1::date,$1::date,", 1)
 			query = h.applyOfficialSaleCostSQL(ctx, query)
 			if _, err := h.db.ExecContext(ctx, query, date); err != nil {
-				return fmt.Errorf("refresh PostgreSQL summaries for %s: %w", date, err)
+				return fmt.Errorf("refresh PostgreSQL daily summary statement %d for %s: %w", index+2, date, err)
 			}
 		}
 	}
