@@ -33,6 +33,11 @@ func (r *Repository) CreateAuditLog(ctx context.Context, auditLog *AuditLog) err
 			ip_address, user_agent, request_id, changes, description, status, error_message, metadata, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
+	if !dbutil.IsSQLite(r.db) {
+		query = strings.ReplaceAll(query, "NULLIF(user_id, '')", "NULLIF(user_id::text, '')")
+		query = strings.ReplaceAll(query, "NULLIF(entity_id, '')", "NULLIF(entity_id::text, '')")
+		query = strings.ReplaceAll(query, "COALESCE(new_values, changes, '')", "COALESCE(new_values::text, changes, '')")
+	}
 
 	_, err := r.db.ExecContext(ctx, query,
 		auditLog.ID, auditLog.UserID, auditLog.Action, auditLog.EntityType, auditLog.EntityID,
@@ -81,6 +86,11 @@ func (r *Repository) ListAuditLogs(ctx context.Context, req AuditLogListRequest)
 		FROM audit_logs
 		WHERE 1=1
 	`
+	if !dbutil.IsSQLite(r.db) {
+		baseQuery = strings.ReplaceAll(baseQuery, "NULLIF(user_id, '')", "NULLIF(user_id::text, '')")
+		baseQuery = strings.ReplaceAll(baseQuery, "NULLIF(entity_id, '')", "NULLIF(entity_id::text, '')")
+		baseQuery = strings.ReplaceAll(baseQuery, "COALESCE(new_values, changes, '')", "COALESCE(new_values::text, changes, '')")
+	}
 
 	countQuery := `
 		SELECT COUNT(*)

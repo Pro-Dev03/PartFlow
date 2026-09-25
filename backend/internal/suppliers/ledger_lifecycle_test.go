@@ -90,6 +90,17 @@ func TestSupplierLedgerPaymentLifecycleSQLite(t *testing.T) {
 	}
 	assertSupplierBalance(t, xdb, supplierID, 0)
 
+	suppliers, total, err := service.ListSuppliers(ctx, 1, 20, "", func() *bool { value := true; return &value }())
+	if err != nil {
+		t.Fatalf("list suppliers after full payment: %v", err)
+	}
+	if total != 1 || len(suppliers) != 1 {
+		t.Fatalf("supplier list = %d items, total %d; want one supplier", len(suppliers), total)
+	}
+	if suppliers[0].PaidAmount != 100 || suppliers[0].Outstanding != 0 {
+		t.Fatalf("supplier summary = paid %.2f outstanding %.2f; want paid 100 outstanding 0", suppliers[0].PaidAmount, suppliers[0].Outstanding)
+	}
+
 	if _, err := service.AddPayment(ctx, supplierID, &PaymentRequest{Amount: 1, Method: "cash", Reference: func() *string { value := "PAY-LIFE-003"; return &value }()}); err != ErrPaymentExceedsBalance {
 		t.Fatalf("overpayment error = %v, want ErrPaymentExceedsBalance", err)
 	}

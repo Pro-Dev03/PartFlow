@@ -4,7 +4,7 @@ import { Select } from '../../../design-system/components/select';
 import { Button } from '../../../design-system/components/button';
 import { Product } from '../types/inventory.types';
 import { Package, Plus, Sparkles, Tag, DollarSign, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { barcodeApi, categoriesApi, settingsApi, suppliersApi } from '../../../services/api/endpoints';
 import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../utils/pricing';
@@ -71,6 +71,7 @@ export function InventoryModals({
     ? configuredMargin
     : DEFAULT_PROFIT_MARGIN;
   const [productStep, setProductStep] = useState<1 | 2 | 3 | 4>(1);
+  const autoFilledNameRef = useRef('');
   const [additionalBarcode, setAdditionalBarcode] = useState('');
   const productBarcodesQuery = useQuery({
     queryKey: ['barcodes', 'product', selectedProduct?.id],
@@ -124,6 +125,7 @@ export function InventoryModals({
 
   useEffect(() => {
     if (!isEditModalOpen || !isCreatingProduct) return;
+    autoFilledNameRef.current = '';
     setProductStep(1);
     requestAnimationFrame(() => {
       document.querySelector<HTMLElement>('.product-create-stage input:not([disabled]), .product-create-stage select:not([disabled])')?.focus();
@@ -137,7 +139,16 @@ export function InventoryModals({
     if (!barcode) return;
 
     let active = true;
-    setSelectedProduct((prev) => prev ? clearBarcodeLookupFields(prev) : prev);
+    const previousAutoFilledName = autoFilledNameRef.current;
+    autoFilledNameRef.current = '';
+    setSelectedProduct((prev) => {
+      if (!prev) return prev;
+      const cleared = clearBarcodeLookupFields(prev);
+      return {
+        ...cleared,
+        name: previousAutoFilledName && prev.name === previousAutoFilledName ? '' : prev.name,
+      };
+    });
     const timer = window.setTimeout(() => {
       void (async () => {
         const match = await lookupProductByBarcode(barcode);
@@ -149,6 +160,7 @@ export function InventoryModals({
 
         setSelectedProduct((prev) => {
           if (!prev) return prev;
+          if (!prev.name && match.name) autoFilledNameRef.current = match.name;
           return {
             ...prev,
             name: prev.name || match.name || prev.name,

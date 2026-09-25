@@ -147,7 +147,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		}
 		productNames[itemReq.ProductID] = productName
 
-		if len(availableItems) < itemReq.Quantity {
+		if len(availableItems) < itemReq.Quantity && (itemReq.InventoryItemID != nil || len(availableItems) == 0) {
 			// Quantity-based products may be represented by a single inventory row while the
 			// true available balance lives in the aggregate inventory table.
 			var aggregateQuantity int
@@ -754,20 +754,16 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 	// Create payment record if payment is provided
 	if paymentAmount > 0 && req.PaymentTransactionID == nil {
-		paymentQuery := `
-			INSERT INTO payments (id, sale_id, customer_id, amount,
-				payment_method, payment_status, created_by, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		`
 		paymentID := uuid.New()
 		paymentTime := time.Now()
 		var paymentErr error
 		if dbutil.IsSQLite(s.db) {
 			_, paymentErr = tx.ExecContext(ctx, `INSERT INTO payments (id, transaction_number, sale_id, customer_id, amount, payment_method, payment_status, created_by, payment_date, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9)`, paymentID, paymentID.String(), sale.ID, req.CustomerID, paymentAmount, req.PaymentMethod, "completed", userID, paymentTime)
 		} else {
-			_, paymentErr = tx.ExecContext(ctx, paymentQuery,
-				paymentID, sale.ID, req.CustomerID, paymentAmount,
-				req.PaymentMethod, "completed", userID, paymentTime)
+			_, paymentErr = tx.ExecContext(ctx, `INSERT INTO payments (id, reference_number, sale_id, customer_id, amount, payment_method, payment_date, status, created_by, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $7, $7)`,
+				paymentID, paymentID.String(), sale.ID, req.CustomerID, paymentAmount,
+				req.PaymentMethod, paymentTime, "completed", userID)
 		}
 		if paymentErr != nil {
 			return nil, fmt.Errorf("failed to create payment: %w", paymentErr)
@@ -1074,19 +1070,15 @@ func (s *Service) UpdateSalePayment(ctx context.Context, userID uuid.UUID, id uu
 	}
 
 	// Create payment record
-	paymentQuery := `
-		INSERT INTO payments (id, sale_id, customer_id, amount,
-			payment_method, payment_status, created_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`
 	paymentID := uuid.New()
 	paymentTime := time.Now()
 	if dbutil.IsSQLite(s.db) {
 		_, err = tx.ExecContext(ctx, `INSERT INTO payments (id, transaction_number, sale_id, customer_id, amount, payment_method, payment_status, created_by, payment_date, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9)`, paymentID, paymentID.String(), sale.ID, sale.CustomerID, amount, paymentMethod, "completed", userID, paymentTime)
 	} else {
-		_, err = tx.ExecContext(ctx, paymentQuery,
-			paymentID, sale.ID, sale.CustomerID, amount,
-			paymentMethod, "completed", userID, paymentTime, paymentTime)
+		_, err = tx.ExecContext(ctx, `INSERT INTO payments (id, reference_number, sale_id, customer_id, amount, payment_method, payment_date, status, created_by, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $7, $7)`,
+			paymentID, paymentID.String(), sale.ID, sale.CustomerID, amount,
+			paymentMethod, paymentTime, "completed", userID)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to create payment: %w", err)

@@ -33,9 +33,9 @@ func (r *Repository) salesDateExpression(alias string) string {
 		return fmt.Sprintf("date(%s.sale_date)", alias)
 	}
 	if alias == "" {
-		return "date(COALESCE(sale_date, created_at))"
+		return "date(sale_date)"
 	}
-	return fmt.Sprintf("date(COALESCE(%s.sale_date, %s.created_at))", alias, alias)
+	return fmt.Sprintf("date(%s.sale_date)", alias)
 }
 
 func reportsSQLiteHasColumns(db *sqlx.DB, table string, required ...string) bool {
@@ -428,7 +428,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 	} else {
 		itemCOGSQuery := r.historicalCOGSTotalSQL("$1", "$2")
 		err = r.db.GetContext(ctx, &totals, fmt.Sprintf(`
-			SELECT st.total_sales, st.total_revenue, st.total_tax, it.total_cogs, it.total_items_sold,
+			SELECT st.total_sales, st.total_revenue, st.total_tax, st.total_paid, st.cash_received, st.change_amount, it.total_cogs, it.total_items_sold,
 				st.cash_revenue, st.credit_revenue
 			FROM (
 				SELECT COUNT(*) AS total_sales,

@@ -659,7 +659,7 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 		`SELECT COALESCE(SUM(total_amount), 0) AS total,
 		        COALESCE(SUM(paid_amount), 0) AS paid,
 		        COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE status = 'COMPLETED'), 0) AS returns,
-		        COALESCE((SELECT SUM(amount) FROM supplier_ledger WHERE type = 'credit' AND transaction_type = 'PAYMENT'), 0) AS payments,
+				COALESCE(SUM(paid_amount), 0) + COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND NOT EXISTS (SELECT 1 FROM purchases p2 WHERE p2.id = sl.reference_id)), 0) AS payments,
 		        0 AS open
 		 FROM purchases
 		 WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`); err == nil {
@@ -678,8 +678,8 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 	rows, err := h.repo.db.QueryContext(c.Request.Context(), `
 			SELECT COALESCE(s.name, 'مورد غير معروف'),
 				COALESCE(SUM(p.total_amount), 0),
-				COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = p.supplier_id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0),
-				COALESCE(SUM(p.total_amount), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = p.supplier_id AND sr.status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = p.supplier_id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0)
+				COALESCE(SUM(p.paid_amount), 0) + COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = p.supplier_id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND NOT EXISTS (SELECT 1 FROM purchases p2 WHERE p2.id = sl.reference_id)), 0),
+				COALESCE(SUM(p.total_amount), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = p.supplier_id AND sr.status = 'COMPLETED'), 0) - (COALESCE(SUM(p.paid_amount), 0) + COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = p.supplier_id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND NOT EXISTS (SELECT 1 FROM purchases p2 WHERE p2.id = sl.reference_id)), 0))
 			FROM purchases p
 			LEFT JOIN suppliers s ON s.id = p.supplier_id
 			WHERE LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
@@ -706,8 +706,8 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 	rows, err = h.repo.db.QueryContext(c.Request.Context(),
 		`SELECT s.id, s.name,
 		        COALESCE(SUM(p.total_amount), 0) AS total_purchases,
-		        COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) AS total_paid,
-		        COALESCE(SUM(p.total_amount), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = s.id AND sr.status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) AS balance
+		        COALESCE(SUM(p.paid_amount), 0) + COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND NOT EXISTS (SELECT 1 FROM purchases p2 WHERE p2.id = sl.reference_id)), 0) AS total_paid,
+		        COALESCE(SUM(p.total_amount), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = s.id AND sr.status = 'COMPLETED'), 0) - (COALESCE(SUM(p.paid_amount), 0) + COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND NOT EXISTS (SELECT 1 FROM purchases p2 WHERE p2.id = sl.reference_id)), 0)) AS balance
 				FROM suppliers s
 				JOIN purchases p ON p.supplier_id = s.id
 				WHERE LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')

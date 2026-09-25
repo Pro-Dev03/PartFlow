@@ -314,6 +314,7 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 		query = strings.ReplaceAll(query, "COALESCE(sr.purchase_id, '')", "COALESCE(sr.purchase_id::text, '')")
 		query = strings.ReplaceAll(query, "COALESCE(sr.supplier_id, '')", "COALESCE(sr.supplier_id::text, '')")
 		query = strings.ReplaceAll(query, "COALESCE((SELECT sri.inventory_item_id", "COALESCE((SELECT sri.inventory_item_id::text")
+		query = strings.ReplaceAll(query, "COALESCE((SELECT ri.inventory_item_id", "COALESCE((SELECT ri.inventory_item_id::text")
 	}
 	args := []interface{}{}
 	if status != "" {

@@ -6,8 +6,11 @@ const apiBase = 'https://partflow-api.onrender.com/api/v1';
 
 test.use({ serviceWorkers: 'block' });
 test.skip(
-  !email || !password || process.env.E2E_BASE_URL !== 'https://partflow-hpv7.onrender.com',
-  'Live QA credentials and E2E_BASE_URL=https://partflow-hpv7.onrender.com are required',
+  !email || !password || (
+    process.env.E2E_BASE_URL !== 'https://partflow-hpv7.onrender.com'
+    && process.env.E2E_ALLOW_LOCAL_CLOUD_UI !== 'true'
+  ),
+  'QA credentials and the live site URL are required unless local cloud UI testing is explicitly enabled',
 );
 
 test('cloud product create, search, edit, cancel, and delete persist correctly', async ({ page, request }) => {
@@ -55,6 +58,7 @@ test('cloud product create, search, edit, cancel, and delete persist correctly',
     await createDialog.getByPlaceholder('امسح أو أدخل الباركود').fill(barcode);
     await page.waitForTimeout(400);
     await createDialog.getByPlaceholder('أدخل اسم المنتج').fill(name);
+    await expect(createDialog.getByPlaceholder('مثال: CPU-001')).toHaveValue(sku);
     await createDialog.getByRole('button', { name: 'التالي', exact: true }).click();
     const pricingInputs = createDialog.locator('.product-create-stage input[type="number"]');
     await pricingInputs.nth(0).fill('17');
@@ -67,6 +71,9 @@ test('cloud product create, search, edit, cancel, and delete persist correctly',
     );
     await createDialog.getByRole('button', { name: 'إضافة المنتج' }).click();
     const created = await createdResponse;
+    const submitted = created.request().postDataJSON();
+    console.log(JSON.stringify({ qaRequestedSku: submitted?.sku, qaRequestedName: submitted?.name }));
+    expect(submitted?.sku).toBe(sku);
     expect(created.status()).toBeGreaterThanOrEqual(200);
     expect(created.status()).toBeLessThan(300);
     const createdPayload = await created.json();
@@ -132,4 +139,29 @@ test('cloud product create, search, edit, cancel, and delete persist correctly',
       console.log(JSON.stringify({ qaCleanupStatus: cleanup.status(), qaProductId: productId }));
     }
   }
+});
+
+test('typing a barcode after a manual product name preserves the name', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('partflow-connection-mode', 'cloud'));
+  await page.goto('/#/login', { waitUntil: 'domcontentloaded' });
+  await page.locator('#email').fill(email!);
+  await page.locator('#password').fill(password!);
+  await page.locator('form button[type="submit"]').click();
+  await expect(page).toHaveURL(/#\/app(?:\/|$)/, { timeout: 30_000 });
+  await page.goto('/#/app/inventory', { waitUntil: 'domcontentloaded' });
+
+  await page.getByRole('button', { name: 'إضافة', exact: true }).first().click();
+  await page.locator('.pf-entry-option').filter({ hasText: 'إنشاء صنف جديد' }).click();
+  const categoryDialog = page.getByRole('dialog', { name: 'اختر تصنيف المنتج' });
+  await expect.poll(() => categoryDialog.locator('select option').count()).toBeGreaterThan(1);
+  await categoryDialog.locator('select').selectOption({ index: 1 });
+  await categoryDialog.getByRole('button', { name: 'متابعة للمنتج' }).click();
+
+  const createDialog = page.getByRole('dialog', { name: 'إضافة منتج جديد' });
+  await createDialog.getByRole('button', { name: 'التالي', exact: true }).click();
+  const nameInput = createDialog.getByPlaceholder('أدخل اسم المنتج');
+  await nameInput.fill('QA-MANUAL-NAME-UNSAVED');
+  await createDialog.getByPlaceholder('امسح أو أدخل الباركود').fill(`98${Date.now().toString().slice(-11)}`);
+  await expect(nameInput).toHaveValue('QA-MANUAL-NAME-UNSAVED');
+  await createDialog.getByRole('button', { name: 'إغلاق' }).first().click();
 });
