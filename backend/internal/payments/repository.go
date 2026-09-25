@@ -184,7 +184,7 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Payment, error
 			amount, payment_date, COALESCE(method, payment_method) AS method,
 			COALESCE(reference, reference_number) AS reference, notes, COALESCE(status, 'completed') AS status,
 			COALESCE(created_by, '00000000-0000-0000-0000-000000000000') AS created_by, created_at, updated_at,
-			COALESCE(is_reversed, 0) AS is_reversed, reversed_at, reversed_by, reversal_reason, reversal_payment_id
+			COALESCE(is_reversed, FALSE) AS is_reversed, reversed_at, reversed_by, reversal_reason, reversal_payment_id
 		FROM payments
 		WHERE id = $1
 	`
@@ -278,7 +278,7 @@ func (r *Repository) List(ctx context.Context, page, perPage int, filters map[st
 			amount, payment_date, COALESCE(method, payment_method) AS method,
 			COALESCE(reference, reference_number) AS reference, notes, COALESCE(status, 'completed') AS status,
 			COALESCE(created_by, '00000000-0000-0000-0000-000000000000') AS created_by, created_at, updated_at,
-			COALESCE(is_reversed, 0) AS is_reversed, reversed_at, reversed_by, reversal_reason, reversal_payment_id
+			COALESCE(is_reversed, FALSE) AS is_reversed, reversed_at, reversed_by, reversal_reason, reversal_payment_id
 		FROM payments
 		WHERE 1=1
 	`
