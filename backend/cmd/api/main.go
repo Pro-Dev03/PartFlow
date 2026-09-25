@@ -73,13 +73,13 @@ func main() {
 	// Initialize structured logger
 	logConfig := logger.DefaultConfig()
 	logConfig.Level = cfg.LogLevel
-	logConfig.EnableConsole = cfg.RequestLoggingEnabled
+	// Keep application logs on stdout in every environment. Render captures
+	// stdout for service logs; request access logging remains independently
+	// controlled by REQUEST_LOGGING_ENABLED in the HTTP middleware.
+	logConfig.EnableConsole = true
 	logConfig.EnableFile = true
 	logConfig.EnableCaller = true
 	logConfig.TimeFormat = time.RFC3339
-	if cfg.ServerMode == "release" || cfg.ServerMode == "production" {
-		logConfig.EnableConsole = false
-	}
 	if err := logger.Initialize(logConfig); err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
