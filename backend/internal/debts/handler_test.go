@@ -132,3 +132,70 @@ func TestAddDebtPaymentSynchronizesBalanceAndRejectsOverpaymentSQLite(t *testing
 		t.Fatalf("final debt state = paid %.2f remaining %.2f status %q, want 100/0/paid", finalPaid, finalRemaining, finalStatus)
 	}
 }
+
+func TestUpdateDebtOnlyChangesMetadataAndRejectsFinancialFieldsSQLite(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`CREATE TABLE debts (
+		id TEXT PRIMARY KEY,
+		customer_id TEXT NOT NULL,
+		amount REAL NOT NULL,
+		paid_amount REAL NOT NULL DEFAULT 0,
+		remaining_amount REAL NOT NULL,
+		due_date TEXT NOT NULL,
+		status TEXT NOT NULL,
+		notes TEXT,
+		updated_at TEXT
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	debtID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO debts (id, customer_id, amount, paid_amount, remaining_amount, due_date, status, notes)
+		VALUES (?, ?, 100, 25, 75, '2026-09-25', 'partial', 'original')`, debtID, uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	router.PUT("/debts/:id", NewHandler(sqlx.NewDb(db, "sqlite")).UpdateDebt)
+	request := func(body string) int {
+		t.Helper()
+		response := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/debts/"+debtID.String(), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(response, req)
+		return response.Code
+	}
+	if status := request(`{"due_date":"2026-10-15","notes":"corrected note"}`); status != http.StatusOK {
+		t.Fatalf("metadata update status = %d, want 200", status)
+	}
+	var amount, paid, remaining float64
+	var dueDate, debtStatus, notes string
+	if err := db.QueryRow(`SELECT amount, paid_amount, remaining_amount, due_date, status, notes FROM debts WHERE id = ?`, debtID.String()).Scan(&amount, &paid, &remaining, &dueDate, &debtStatus, &notes); err != nil {
+		t.Fatal(err)
+	}
+	if amount != 100 || paid != 25 || remaining != 75 || dueDate != "2026-10-15" || debtStatus != "partial" || notes != "corrected note" {
+		t.Fatalf("debt after metadata edit = amount %.2f paid %.2f remaining %.2f due %q status %q notes %q", amount, paid, remaining, dueDate, debtStatus, notes)
+	}
+	for _, body := range []string{
+		`{"amount":1}`,
+		`{"remaining_amount":0,"status":"paid"}`,
+		`{"due_date":"not-a-date"}`,
+		`{}`,
+	} {
+		if status := request(body); status != http.StatusBadRequest {
+			t.Errorf("invalid update %s status = %d, want 400", body, status)
+		}
+	}
+	if status := func() int {
+		response := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/debts/"+uuid.NewString(), strings.NewReader(`{"notes":"missing"}`))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(response, req)
+		return response.Code
+	}(); status != http.StatusNotFound {
+		t.Fatalf("missing debt update status = %d, want 404", status)
+	}
+}

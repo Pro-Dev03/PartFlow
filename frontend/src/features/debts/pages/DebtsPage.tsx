@@ -18,7 +18,8 @@ import {
   Printer,
   FileDown,
   ArrowRight,
-  History
+  History,
+  Pencil
 } from 'lucide-react';
 import '../styles/success-modal.css';
 import { printPaymentReceipt } from '../../../lib/export-utils';
@@ -53,6 +54,8 @@ export function DebtsPage() {
   const [debtTab, setDebtTab] = useState<'open' | 'paid' | 'all'>('open');
   const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false);
   const [adjustmentCustomerId, setAdjustmentCustomerId] = useState<string | null>(null);
+  const [adjustmentCustomerName, setAdjustmentCustomerName] = useState('');
+  const [adjustmentCustomerBalance, setAdjustmentCustomerBalance] = useState(0);
   const [adjustmentType, setAdjustmentType] = useState<'debit' | 'credit'>('debit');
   const [adjustmentAmount, setAdjustmentAmount] = useState('');
   const [adjustmentReason, setAdjustmentReason] = useState('');
@@ -149,8 +152,10 @@ export function DebtsPage() {
     setSearchFilters(filters);
   }, [setSearchFilters, setSearchQuery]);
 
-  const handleManualAdjustment = (customerId: string, customerName: string) => {
+  const handleManualAdjustment = (customerId: string, customerName: string, currentBalance: number) => {
     setAdjustmentCustomerId(customerId);
+    setAdjustmentCustomerName(customerName);
+    setAdjustmentCustomerBalance(currentBalance);
     setAdjustmentType('debit');
     setAdjustmentAmount('');
     setAdjustmentReason(`تعديل يدوي - ${customerName}`);
@@ -158,12 +163,15 @@ export function DebtsPage() {
   };
 
   const handleAdjustmentSubmit = () => {
-    if (!adjustmentCustomerId || !adjustmentAmount || isNaN(parseFloat(adjustmentAmount)) || parseFloat(adjustmentAmount) <= 0) {
+    const amount = Number(adjustmentAmount);
+    if (!adjustmentCustomerId || !Number.isFinite(amount) || amount <= 0) {
       toast.error('يرجى إدخال مبلغ صالح للتعديل اليدوي');
       return;
     }
-
-    const amount = parseFloat(adjustmentAmount);
+    if (adjustmentType === 'credit' && amount > adjustmentCustomerBalance + 0.000001) {
+      toast.error(`مبلغ الخصم أكبر من رصيد العميل المتبقي (${adjustmentCustomerBalance.toLocaleString()})`);
+      return;
+    }
     adjustDebtMutation.mutate({
       customerId: adjustmentCustomerId,
       amount,
@@ -175,6 +183,9 @@ export function DebtsPage() {
         setAdjustmentModalOpen(false);
         setAdjustmentAmount('');
         setAdjustmentReason('');
+        setAdjustmentCustomerId(null);
+        setAdjustmentCustomerName('');
+        setAdjustmentCustomerBalance(0);
       },
       onError: () => toast.error('تعذر تطبيق تعديل الدين. تأكد من البيانات وراجع الرصيد الحالي.'),
     });
@@ -256,17 +267,6 @@ export function DebtsPage() {
               <Button variant="secondary" size={getButtonSize('debts', 'headerActions')} onClick={() => navigate('/app/customers')}>
                 <ArrowRight style={{ width: '16px', height: '16px', marginRight: '8px' }} />
                 العودة للزبائن
-              </Button>
-              <Button variant="primary" size={getButtonSize('debts', 'headerActions')} onClick={() => {
-                const customer = debts[0]?.customer;
-                if (customer?.id) {
-                  handleManualAdjustment(customer.id, customer.name);
-                } else {
-                  toast.error('لا توجد بيانات عميل لإجراء تعديل يدوي');
-                }
-              }}>
-                <DollarSign style={{ width: '16px', height: '16px', marginRight: '8px' }} />
-                تعديل يدوي
               </Button>
           </div>
         }
@@ -373,6 +373,20 @@ export function DebtsPage() {
                       <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleViewDebt(debt); }} aria-label="سجل الدفعات" title="سجل الدفعات"><History className="h-4 w-4" /></Button>
                     ) : (
                       <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRecordPayment(debt.customer?.id, debt.customer?.name); }} aria-label="تسجيل دفعة" title="تسجيل دفعة"><DollarSign className="h-4 w-4" /></Button>
+                    )}
+                    {debt.customer?.id && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleManualAdjustment(debt.customer.id, debt.customer.name || '', Number(debt.remainingAmount ?? debt.remaining_amount ?? 0));
+                        }}
+                        aria-label={`تعديل رصيد الدين للعميل ${debt.customer.name || ''}`}
+                        title="تعديل رصيد الدين"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
                     )}
                   </div>
                 </article>
@@ -672,10 +686,14 @@ export function DebtsPage() {
             boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>تعديل يدوي في الدين</h3>
+              <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>تعديل يدوي لرصيد الدين</h3>
               <button onClick={() => setAdjustmentModalOpen(false)} disabled={adjustDebtMutation.isPending} aria-label="إغلاق تعديل الدين" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '24px', color: 'var(--text-secondary)' }}>×</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm">
+                <div className="font-semibold text-[var(--text-primary)]">{adjustmentCustomerName}</div>
+                <div className="mt-1 text-[var(--text-secondary)]">الرصيد المتبقي: ₪{adjustmentCustomerBalance.toLocaleString()}</div>
+              </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">نوع التعديل</label>
                 <select value={adjustmentType} onChange={(e) => setAdjustmentType(e.target.value as 'debit' | 'credit')} disabled={adjustDebtMutation.isPending} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '14px' }}>
@@ -685,7 +703,17 @@ export function DebtsPage() {
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">المبلغ</label>
-                <Input type="number" placeholder="أدخل المبلغ..." value={adjustmentAmount} onChange={(e) => setAdjustmentAmount(e.target.value)} disabled={adjustDebtMutation.isPending} autoFocus />
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  max={adjustmentType === 'credit' ? adjustmentCustomerBalance : undefined}
+                  placeholder="أدخل المبلغ..."
+                  value={adjustmentAmount}
+                  onChange={(e) => setAdjustmentAmount(e.target.value)}
+                  disabled={adjustDebtMutation.isPending}
+                  autoFocus
+                />
               </div>
               <div>
                 <label className="text-small font-medium text-text mb-sm block">السبب</label>
@@ -693,7 +721,7 @@ export function DebtsPage() {
               </div>
               <div className="flex gap-sm justify-end">
                 <Button variant="secondary" size={getButtonSize('debts', 'modalAction')} onClick={() => setAdjustmentModalOpen(false)} disabled={adjustDebtMutation.isPending}>إلغاء</Button>
-                <Button variant="primary" size={getButtonSize('debts', 'modalAction')} onClick={handleAdjustmentSubmit} disabled={adjustDebtMutation.isPending || !adjustmentAmount || isNaN(parseFloat(adjustmentAmount)) || parseFloat(adjustmentAmount) <= 0}>
+                <Button variant="primary" size={getButtonSize('debts', 'modalAction')} onClick={handleAdjustmentSubmit} disabled={adjustDebtMutation.isPending || !Number.isFinite(Number(adjustmentAmount)) || Number(adjustmentAmount) <= 0}>
                   {adjustDebtMutation.isPending ? 'جارٍ التعديل...' : 'تطبيق التعديل'}
                 </Button>
               </div>

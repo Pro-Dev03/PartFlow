@@ -1,7 +1,9 @@
 package debts
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"strconv"
@@ -409,37 +411,65 @@ func (h *Handler) UpdateDebt(c *gin.Context) {
 		return
 	}
 
+	// Debt amounts and payment state must change through financial transactions,
+	// not by overwriting the debt row. This endpoint only edits descriptive data.
 	var req struct {
-		Amount          float64 `json:"amount"`
-		RemainingAmount float64 `json:"remaining_amount"`
-		DueDate         string  `json:"due_date"`
-		Status          string  `json:"status"`
-		Notes           string  `json:"notes"`
+		DueDate *string `json:"due_date"`
+		Notes   *string `json:"notes"`
 	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "only due_date and notes can be updated"})
+		return
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "request body must contain one JSON object"})
+		return
+	}
+	if req.DueDate == nil && req.Notes == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "provide due_date or notes"})
+		return
+	}
+	if req.DueDate != nil {
+		if _, err := time.Parse("2006-01-02", strings.TrimSpace(*req.DueDate)); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "due_date must use YYYY-MM-DD"})
+			return
+		}
+	}
+	if req.Notes != nil && len([]rune(*req.Notes)) > 5000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "notes must not exceed 5000 characters"})
 		return
 	}
 
-	query := fmt.Sprintf(`
-		UPDATE debts 
-		SET amount = COALESCE($2, amount),
-		    remaining_amount = COALESCE($3, remaining_amount),
-		    due_date = COALESCE($4, due_date),
-		    status = COALESCE($5, status),
-		    notes = COALESCE($6, notes),
-		    updated_at = %s
-		WHERE id = $1
-	`, dbutil.NowSQL(h.db))
-
-	_, err = h.db.Exec(query, id, req.Amount, req.RemainingAmount, req.DueDate, req.Status, req.Notes)
+	updates := make([]string, 0, 2)
+	args := make([]any, 0, 3)
+	if req.DueDate != nil {
+		updates = append(updates, "due_date = ?")
+		args = append(args, strings.TrimSpace(*req.DueDate))
+	}
+	if req.Notes != nil {
+		updates = append(updates, "notes = ?")
+		args = append(args, *req.Notes)
+	}
+	query := fmt.Sprintf("UPDATE debts SET %s, updated_at = %s WHERE id = ?", strings.Join(updates, ", "), dbutil.NowSQL(h.db))
+	args = append(args, id.String())
+	result, err := h.db.ExecContext(c.Request.Context(), h.db.Rebind(query), args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update debt details"})
+		return
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to confirm debt update"})
+		return
+	}
+	if affected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "debt not found"})
 		return
 	}
 	h.cache.set(nil, 0)
-	dashboard.InvalidateDashboardCache()
+	dashboard.InvalidateDashboardCacheWithReason("debt_details_updated")
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
