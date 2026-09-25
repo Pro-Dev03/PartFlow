@@ -6,7 +6,9 @@ import { TokenManager } from '../lib/token-manager';
 import { User } from '../types/models';
 import { getCloudApiUrl, getConnectionMode } from '../lib/config/app';
 import { isNetworkError } from '../lib/error-messages';
-import { saveAutoLogoutReason, type AutoLogoutReason } from '../features/auth/sessionReason';
+import { saveAutoLogoutReason } from '../features/auth/sessionReason';
+import { extractAuthErrorCode, refreshSessionCookie } from '../services/api/session-refresh';
+import { getLogoutCaller, logSessionDiagnostic } from '../services/api/sessionDiagnostics';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -27,15 +29,12 @@ interface AuthState {
   refreshToken: () => Promise<void>;
 }
 
-const SUBSCRIPTION_BLOCK_CODES = new Set([
-  'SUBSCRIPTION_EXPIRED',
-  'SUBSCRIPTION_SUSPENDED',
-  'ACCOUNT_SUSPENDED',
-  'ACCOUNT_DELETED',
-]);
+function getAuthErrorCode(error: unknown): string {
+  return extractAuthErrorCode(error) ?? '';
+}
 
-function isSubscriptionBlockCode(value: unknown): boolean {
-  return SUBSCRIPTION_BLOCK_CODES.has(String(value ?? ''));
+function isExplicitAccountBlockCode(code: unknown): boolean {
+  return ['ACCOUNT_DELETED', 'ACCOUNT_SUSPENDED'].includes(String(code ?? ''));
 }
 
 function isTemporaryAuthFailure(error: unknown): boolean {
@@ -56,10 +55,8 @@ let cloudValidationInFlight: Promise<boolean> | null = null;
 // used to authorize a session after a failed cloud validation.
 const CLOUD_LAST_VALIDATED_AT_KEY = 'partflow-cloud-last-validated-at';
 const CLOUD_REFRESH_FAILED_KEY = 'partflow-cloud-refresh-failed';
-const CLOUD_REFRESH_LOCK_KEY = 'partflow-cloud-refresh-lock';
 const MANUAL_LOGOUT_KEY = 'partflow-manual-logout';
 const REAUTH_REQUIRED_KEY = 'partflow-reauth-required';
-const CLOUD_REFRESH_LOCK_TTL_MS = 15_000;
 
 function createAuthRefreshController(): AbortController {
   const controller = new AbortController();
@@ -128,9 +125,8 @@ export function markCloudVerificationPending(): void {
   );
   if (!hasActiveSession) return;
 
-  // Cloud authorization is mandatory in every connection mode. Keep no
-  // authenticated UI session when the cloud cannot provide a current decision.
-  forceLogoutToLogin('Internet connection lost');
+  logSessionDiagnostic('cloud-verification.pending', { source: 'auth-store' });
+  useAuthStore.setState({ cloudVerificationPending: true });
 }
 
 function clearCloudVerificationPending(): void {
@@ -138,6 +134,7 @@ function clearCloudVerificationPending(): void {
 }
 
 function clearSessionForSubscriptionBlock(): void {
+  logSessionDiagnostic('logout.confirmed', { code: 'SUBSCRIPTION_EXPIRED', caller: getLogoutCaller() });
   authSessionGeneration += 1;
   checkAuthInFlight = null;
   abortPendingAuthRefreshes();
@@ -162,24 +159,53 @@ function clearSessionForSubscriptionBlock(): void {
   goToSubscriptionExpiredPage();
 }
 
+function clearSessionForAccountBlock(code: string): void {
+  logSessionDiagnostic('logout.confirmed', { code, caller: getLogoutCaller() });
+  authSessionGeneration += 1;
+  checkAuthInFlight = null;
+  abortPendingAuthRefreshes();
+  stopTokenRefresh();
+  apiClient.logout();
+  window.dispatchEvent(new Event('partflow:session-cleared'));
+  TokenManager.clearToken();
+  TokenManager.clearRefreshToken();
+  TokenManager.clearCloudToken();
+  useAuthStore.setState({
+    isAuthenticated: false,
+    sessionVerified: false,
+    sessionRestorePending: false,
+    user: null,
+    token: null,
+    refreshTokenValue: null,
+    cloudToken: null,
+    cloudVerificationPending: false,
+    isLoading: false,
+  });
+  clearPersistedAuthStorage();
+  saveAutoLogoutReason(code === 'ACCOUNT_DELETED' ? 'account-deleted' : 'account-suspended');
+  const currentUrl = new URL(window.location.href);
+  currentUrl.pathname = '/';
+  currentUrl.hash = '#/login';
+  window.history.replaceState({}, '', currentUrl.toString());
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+}
+
+export function handleConfirmedAuthBlock(code: string): void {
+  if (code === 'SUBSCRIPTION_EXPIRED') {
+    clearSessionForSubscriptionBlock();
+  } else if (isExplicitAccountBlockCode(code)) {
+    clearSessionForAccountBlock(code);
+  } else {
+    logSessionDiagnostic('auth-block.ignored-unclassified', { code });
+    markCloudVerificationPending();
+  }
+}
+
 export function shouldRedirectToSubscriptionExpired(error: unknown, pathname = window.location.pathname): boolean {
   if (!error || typeof error !== 'object') return false;
   if (pathname.includes('/subscription-expired')) return false;
 
-  const anyError = error as {
-    status?: number;
-    code?: string;
-    message?: string;
-    response?: { status?: number; error?: { code?: string; message?: string } };
-  };
-
-  const code = String(anyError.code ?? anyError.response?.error?.code ?? '');
-  const message = (anyError.message ?? anyError.response?.error?.message ?? '').toLowerCase();
-  const combined = `${code} ${message}`.toLowerCase();
-
-  if (isSubscriptionBlockCode(code)) return true;
-
-  return /subscription.*expired|expired.*subscription|اشتراك.*منتهي|اشتراك.*منتهية/.test(combined);
+  return getAuthErrorCode(error) === 'SUBSCRIPTION_EXPIRED';
 }
 
 /**
@@ -190,86 +216,28 @@ async function refreshCloudAccessToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
   const refreshGeneration = authSessionGeneration;
   if (localStorage.getItem(CLOUD_REFRESH_FAILED_KEY) === 'true') return null;
-
-  const lockOwner = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const lockIsActive = () => {
-    const rawLock = localStorage.getItem(CLOUD_REFRESH_LOCK_KEY);
-    if (!rawLock) return false;
-    try {
-      const lock = JSON.parse(rawLock) as { owner?: string; expiresAt?: number };
-      return Boolean(lock.owner && lock.owner !== lockOwner && Number(lock.expiresAt) > Date.now());
-    } catch {
-      return false;
-    }
-  };
-
-  const waitForOtherRefresh = async () => {
-    const deadline = Date.now() + CLOUD_REFRESH_LOCK_TTL_MS;
-    while (lockIsActive() && Date.now() < deadline) {
-      await new Promise((resolve) => window.setTimeout(resolve, 250));
-    }
-  };
-
-  if (lockIsActive()) {
-    await waitForOtherRefresh();
-    if (refreshGeneration !== authSessionGeneration) return null;
-    return TokenManager.getCloudToken();
-  }
-
-  localStorage.setItem(CLOUD_REFRESH_LOCK_KEY, JSON.stringify({
-    owner: lockOwner,
-    expiresAt: Date.now() + CLOUD_REFRESH_LOCK_TTL_MS,
-  }));
-  if (lockIsActive()) {
-    await waitForOtherRefresh();
-    if (refreshGeneration !== authSessionGeneration) return null;
-    return TokenManager.getCloudToken();
-  }
-
-  const controller = createAuthRefreshController();
   try {
-    const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    });
-    const refreshData = await refreshResponse.json().catch(() => ({}));
+    const payload = await refreshSessionCookie(getCloudApiUrl());
     if (refreshGeneration !== authSessionGeneration) return null;
-    if (!refreshResponse.ok) {
-      if (refreshResponse.status === 401) {
-        localStorage.setItem(CLOUD_REFRESH_FAILED_KEY, 'true');
-        markCloudVerificationPending();
-      } else {
-        const error = new Error('Cloud token refresh is temporarily unavailable') as Error & { status?: number };
-        error.status = refreshResponse.status;
-        (error as Error & { code?: string }).code = refreshData?.code || refreshData?.error?.code;
-        throw error;
-      }
-      return null;
-    }
-
-    const payload = refreshData?.data && typeof refreshData.data === 'object'
-      ? refreshData.data
-      : refreshData;
     const nextToken = payload?.access_token || payload?.token;
-    if (!nextToken) return null;
+    if (!nextToken) {
+      const error: any = new Error('Refresh response did not include an access token');
+      error.status = 502;
+      error.code = 'AUTH_REFRESH_RESPONSE_INVALID';
+      throw error;
+    }
 
     TokenManager.setCloudToken(nextToken);
+    apiClient.setCloudToken(nextToken);
     localStorage.removeItem(CLOUD_REFRESH_FAILED_KEY);
     useAuthStore.setState({ cloudToken: nextToken });
     return nextToken as string;
-  } finally {
-    pendingAuthRefreshControllers.delete(controller);
-    try {
-      const currentLock = JSON.parse(localStorage.getItem(CLOUD_REFRESH_LOCK_KEY) || '{}') as { owner?: string };
-      if (currentLock.owner === lockOwner) {
-        localStorage.removeItem(CLOUD_REFRESH_LOCK_KEY);
-      }
-    } catch {
-      localStorage.removeItem(CLOUD_REFRESH_LOCK_KEY);
+  } catch (error) {
+    if (refreshGeneration !== authSessionGeneration) return null;
+    if (Number((error as { status?: number } | null)?.status) === 401) {
+      localStorage.setItem(CLOUD_REFRESH_FAILED_KEY, 'true');
     }
+    throw error;
   }
 }
 
@@ -296,7 +264,7 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
   let cloudToken = sessionToken;
 
   if (!navigator.onLine) {
-    forceLogoutToLogin('Internet connection lost');
+    markCloudVerificationPending();
     return false;
   }
 
@@ -319,6 +287,16 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
       let response = await callValidate(cloudToken);
       if (validationGeneration !== authSessionGeneration) return false;
       if (response.status === 401) {
+        const rejectedPayload = await response.clone().json().catch(() => ({}));
+        const rejectionCode = extractAuthErrorCode(rejectedPayload);
+        if (rejectionCode === 'SUBSCRIPTION_EXPIRED') {
+          clearSessionForSubscriptionBlock();
+          return false;
+        }
+        if (isExplicitAccountBlockCode(rejectionCode)) {
+          clearSessionForAccountBlock(rejectionCode);
+          return false;
+        }
         const refreshed = await refreshCloudAccessToken();
         if (validationGeneration !== authSessionGeneration) return false;
         if (refreshed) {
@@ -331,28 +309,20 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
         if (validationGeneration !== authSessionGeneration) return false;
         if (response.status === 403) {
           const rejectedPayload = await response.clone().json().catch(() => ({}));
-          const rejectionCode = rejectedPayload?.code || rejectedPayload?.error?.code || rejectedPayload?.data?.code;
-          if (!isSubscriptionBlockCode(rejectionCode)) {
-            forceLogoutToLogin('Cloud permission denied');
-            return false;
-          }
-          clearSessionForSubscriptionBlock();
+          const rejectionCode = extractAuthErrorCode(rejectedPayload);
+          if (rejectionCode === 'SUBSCRIPTION_EXPIRED') clearSessionForSubscriptionBlock();
+          else if (isExplicitAccountBlockCode(rejectionCode)) clearSessionForAccountBlock(rejectionCode);
+          else markCloudVerificationPending();
           return false;
         } else if (response.status === 401) {
           const rejectedPayload = await response.clone().json().catch(() => ({}));
-          const rejectionCode = rejectedPayload?.code || rejectedPayload?.error?.code || rejectedPayload?.data?.code;
-          if (isSubscriptionBlockCode(rejectionCode)) {
-            clearSessionForSubscriptionBlock();
-          } else if (localStorage.getItem(CLOUD_REFRESH_FAILED_KEY) === 'true') {
-            forceLogoutToLogin('Session expired');
-          } else {
-            markCloudVerificationPending();
-          }
+          const rejectionCode = extractAuthErrorCode(rejectedPayload);
+          if (rejectionCode === 'SUBSCRIPTION_EXPIRED') clearSessionForSubscriptionBlock();
+          else if (isExplicitAccountBlockCode(rejectionCode)) clearSessionForAccountBlock(rejectionCode);
+          else markCloudVerificationPending();
           return false;
         }
-        // Local mode requires a live cloud decision. Network and service
-        // failures therefore end the local session immediately.
-        forceLogoutToLogin('Internet connection lost');
+        markCloudVerificationPending();
         return false;
       }
 
@@ -389,11 +359,11 @@ export async function validateSubscriptionWithCloud(): Promise<boolean> {
       goToAppDashboard();
       return true;
     } catch (error) {
-      if (isSubscriptionBlockCode((error as { code?: string } | null)?.code)) {
+      const code = getAuthErrorCode(error);
+      if (code === 'SUBSCRIPTION_EXPIRED') {
         clearSessionForSubscriptionBlock();
-        return false;
-      }
-      forceLogoutToLogin('Internet connection lost');
+      } else if (isExplicitAccountBlockCode(code)) clearSessionForAccountBlock(code);
+      else markCloudVerificationPending();
       return false;
     }
   })();
@@ -418,19 +388,18 @@ export async function retrySubscriptionVerification(): Promise<boolean> {
       if (refreshedToken) {
         apiClient.setCloudToken(refreshedToken);
       } else if (localStorage.getItem(CLOUD_REFRESH_FAILED_KEY) === 'true') {
-        forceLogoutToLogin('Session expired');
-        return false;
-      }
-    } catch (error) {
-      if (isSubscriptionBlockCode((error as { code?: string } | null)?.code)) {
-        clearSessionForSubscriptionBlock();
-        return false;
-      }
-      if (isTemporaryAuthFailure(error)) {
         markCloudVerificationPending();
         return false;
       }
-      throw error;
+    } catch (error) {
+      const code = getAuthErrorCode(error);
+      if (code === 'SUBSCRIPTION_EXPIRED') {
+        clearSessionForSubscriptionBlock();
+        return false;
+      }
+      if (isExplicitAccountBlockCode(code)) clearSessionForAccountBlock(code);
+      else markCloudVerificationPending();
+      return false;
     }
   }
   return validateSubscriptionWithCloud();
@@ -465,61 +434,17 @@ function goToAppDashboard(): void {
 
 export function forceLogoutToLogin(reason = 'Session expired') {
   if (typeof window === 'undefined') return;
-
-  authSessionGeneration += 1;
-  checkAuthInFlight = null;
-  abortPendingAuthRefreshes();
-
-  const logoutReason: AutoLogoutReason = reason.includes('Internet')
-    ? 'offline'
-    : reason.includes('subscription') || reason.includes('اشتراك')
-      ? 'subscription'
-      : reason.includes('No active')
-        ? 'missing-session'
-        : reason.includes('Cloud')
-          ? 'cloud-rejected'
-          : 'session-expired';
-  saveAutoLogoutReason(logoutReason);
-  // A cloud refresh cookie can survive a local forced logout when the device
-  // is offline. Require an explicit credential login instead of restoring it
-  // automatically after the network returns.
-  localStorage.setItem(REAUTH_REQUIRED_KEY, 'true');
-  stopTokenRefresh();
-  apiClient.logout();
-  window.dispatchEvent(new Event('partflow:session-cleared'));
-  TokenManager.clearToken();
-  TokenManager.clearRefreshToken();
-  TokenManager.clearCloudToken();
-  localStorage.removeItem('cloud_refresh_token');
-  useAuthStore.setState({
-    isAuthenticated: false,
-    user: null,
-    token: null,
-    refreshTokenValue: null,
-    cloudToken: null,
-    sessionVerified: false,
-    sessionRestorePending: false,
-    cloudVerificationPending: false,
-    isLoading: false,
-  });
-  clearPersistedAuthStorage();
-
-  const currentUrl = new URL(window.location.href);
-  const shouldResetPath = currentUrl.pathname !== '/' || !currentUrl.hash.includes('/login');
-
-  if (shouldResetPath) {
-    currentUrl.pathname = '/';
-    currentUrl.hash = '#/login';
-    window.history.replaceState({}, '', currentUrl.toString());
-  } else if (!window.location.hash.includes('/login')) {
-    window.location.hash = '#/login';
+  if (reason === 'SUBSCRIPTION_EXPIRED') {
+    clearSessionForSubscriptionBlock();
+    return;
   }
-
-  if (reason !== 'No active cloud session') {
-    console.warn('Clearing stale auth session:', reason);
+  if (isExplicitAccountBlockCode(reason)) {
+    clearSessionForAccountBlock(reason);
+    return;
   }
+  logSessionDiagnostic('logout.denied-unconfirmed', { reason, caller: getLogoutCaller() });
+  markCloudVerificationPending();
 }
-
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
@@ -689,6 +614,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         const state = useAuthStore.getState();
+        logSessionDiagnostic('logout.manual', { caller: getLogoutCaller(), connectionMode: getConnectionMode() });
         const cloudToken = state.cloudToken || TokenManager.getCloudToken();
         const isLocalMode = getConnectionMode() === 'local';
         // A remote HttpOnly refresh cookie cannot be cleared while offline.
@@ -730,8 +656,10 @@ export const useAuthStore = create<AuthState>()(
         const checkPromise = (async () => {
         set({ isLoading: true, sessionVerified: false, sessionRestorePending: false });
 
-        if (localStorage.getItem(MANUAL_LOGOUT_KEY) === 'true'
-          || localStorage.getItem(REAUTH_REQUIRED_KEY) === 'true') {
+        // Older builds wrote REAUTH_REQUIRED_KEY after temporary outages.
+        // Manual logout is the only persisted local marker that blocks restore.
+        localStorage.removeItem(REAUTH_REQUIRED_KEY);
+        if (localStorage.getItem(MANUAL_LOGOUT_KEY) === 'true') {
           apiClient.logout();
           window.dispatchEvent(new Event('partflow:session-cleared'));
           clearPersistedAuthStorage();
@@ -799,8 +727,7 @@ export const useAuthStore = create<AuthState>()(
                   if (!isTemporaryAuthFailure(error)) throw error;
                 }
                 if (!refreshedCloudToken && localStorage.getItem(CLOUD_REFRESH_FAILED_KEY) === 'true') {
-                  forceLogoutToLogin('Session expired');
-                  return;
+                  markCloudVerificationPending();
                 }
               }
               if (refreshedCloudToken) {
@@ -824,8 +751,16 @@ export const useAuthStore = create<AuthState>()(
                 startTokenRefresh();
                 return;
               }
-              if (getConnectionMode() === 'local' && !refreshedCloudToken) {
+              if (useAuthStore.getState().cloudVerificationPending || !refreshedCloudToken) {
                 markCloudVerificationPending();
+                set({
+                  isAuthenticated: true,
+                  sessionVerified: true,
+                  sessionRestorePending: false,
+                  cloudVerificationPending: true,
+                  isLoading: false,
+                });
+                startTokenRefresh();
                 return;
               }
             }
@@ -872,13 +807,28 @@ export const useAuthStore = create<AuthState>()(
           }
 
           if (checkGeneration !== authSessionGeneration) return;
-          if (isSubscriptionBlockCode((restoreFailure as { code?: string } | null)?.code)) {
+          const restoreCode = getAuthErrorCode(restoreFailure);
+          if (restoreCode === 'SUBSCRIPTION_EXPIRED') {
             clearSessionForSubscriptionBlock();
             return;
           }
+          if (isExplicitAccountBlockCode(restoreCode)) {
+            clearSessionForAccountBlock(restoreCode);
+            return;
+          }
 
-          if (hadSavedSession && (!navigator.onLine || isTemporaryAuthFailure(restoreFailure))) {
-            forceLogoutToLogin('Internet connection lost');
+          if (hadSavedSession) {
+            set({
+              isAuthenticated: false,
+              sessionVerified: false,
+              sessionRestorePending: true,
+              cloudVerificationPending: true,
+              user: persistedState?.user ?? currentState.user ?? null,
+              token: null,
+              refreshTokenValue: null,
+              cloudToken: null,
+              isLoading: false,
+            });
             return;
           }
 
@@ -898,41 +848,48 @@ export const useAuthStore = create<AuthState>()(
               if (checkGeneration !== authSessionGeneration) return;
             } catch (error) {
               if (checkGeneration !== authSessionGeneration) return;
-              if (!isTemporaryAuthFailure(error)) {
-                forceLogoutToLogin('Session expired');
+              const code = getAuthErrorCode(error);
+              if (code === 'SUBSCRIPTION_EXPIRED') {
+                clearSessionForSubscriptionBlock();
                 return;
               }
+              if (isExplicitAccountBlockCode(code)) {
+                clearSessionForAccountBlock(code);
+                return;
+              }
+              markCloudVerificationPending();
             }
             if (cloudToken) {
               TokenManager.setCloudToken(cloudToken);
               apiClient.setCloudToken(cloudToken);
               set({ cloudToken });
             } else if (localStorage.getItem(CLOUD_REFRESH_FAILED_KEY) === 'true') {
-              forceLogoutToLogin('Session expired');
-              return;
+              markCloudVerificationPending();
             } else {
-              forceLogoutToLogin('Internet connection lost');
-              return;
+              markCloudVerificationPending();
             }
           } else {
-            forceLogoutToLogin('No active cloud session');
-            return;
+            cloudToken = token;
+            TokenManager.setCloudToken(token);
+            apiClient.setCloudToken(token);
           }
         }
 
         apiClient.setToken(token);
 
         if (!navigator.onLine) {
-          forceLogoutToLogin('Internet connection lost');
+          markCloudVerificationPending();
+          set({ isAuthenticated: true, sessionVerified: true, cloudVerificationPending: true, isLoading: false });
+          startTokenRefresh();
           return;
         }
 
         const valid = await validateSubscriptionWithCloud();
         if (checkGeneration !== authSessionGeneration) return;
         if (!valid) {
-          apiClient.logout();
-          window.dispatchEvent(new Event('partflow:session-cleared'));
-          set({ isAuthenticated: false, sessionVerified: false, isLoading: false });
+          markCloudVerificationPending();
+          set({ isAuthenticated: true, sessionVerified: true, cloudVerificationPending: true, isLoading: false });
+          startTokenRefresh();
           return;
         }
 
@@ -994,6 +951,16 @@ export const useAuthStore = create<AuthState>()(
           if (refreshGeneration !== authSessionGeneration) return;
           console.error('Failed to refresh token:', error);
 
+          const authCode = getAuthErrorCode(error);
+          if (authCode === 'SUBSCRIPTION_EXPIRED') {
+            clearSessionForSubscriptionBlock();
+            return;
+          }
+          if (isExplicitAccountBlockCode(authCode)) {
+            clearSessionForAccountBlock(authCode);
+            return;
+          }
+
           const currentToken = TokenManager.getToken() || useAuthStore.getState().token;
           if (currentToken) {
             TokenManager.setToken(currentToken);
@@ -1037,34 +1004,23 @@ export const useAuthStore = create<AuthState>()(
                 }
               } catch (refreshError) {
                 if (refreshGeneration !== authSessionGeneration) return;
-                if (isTemporaryAuthFailure(refreshError)) {
-                  markCloudVerificationPending();
-                  return;
-                }
-              }
-
-              if (isTemporaryAuthFailure(error)) {
-                markCloudVerificationPending();
+                const refreshCode = getAuthErrorCode(refreshError);
+                if (refreshCode === 'SUBSCRIPTION_EXPIRED') clearSessionForSubscriptionBlock();
+                else if (isExplicitAccountBlockCode(refreshCode)) clearSessionForAccountBlock(refreshCode);
+                else markCloudVerificationPending();
                 return;
               }
-              forceLogoutToLogin('Session expired');
+
+              markCloudVerificationPending();
               return;
             }
 
-            forceLogoutToLogin('Session expired');
-            return;
-          }
-
-          if (shouldRedirectToSubscriptionExpired(error, window.location.pathname)) {
-            goToSubscriptionExpiredPage();
-            return;
-          }
-
-          if (isTemporaryAuthFailure(error)) {
             markCloudVerificationPending();
             return;
           }
-          throw error;
+
+          markCloudVerificationPending();
+          return;
         }
       },
     }),

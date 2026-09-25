@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { refreshSessionCookie } from './session-refresh';
 import { TokenManager } from '../../lib/token-manager';
 import { getActiveApiUrl, getCloudApiUrl, getConnectionMode, getLocalApiUrl, shouldUseLocalApi } from '../../lib/config/app';
 import type {
@@ -125,47 +126,7 @@ export const authApi = {
     const baseUrl = typeof window !== 'undefined' && shouldUseLocalApi(window.location.hostname)
       ? getLocalApiUrl()
       : getCloudApiUrl();
-
-    const response = await fetch(`${baseUrl}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-      signal,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: '{}',
-    });
-
-    const payload = await (async () => {
-      if (typeof response.json === 'function') {
-        try {
-          const data = await response.json();
-          if (data && typeof data === 'object') return data;
-        } catch {
-          // Fall through to text parsing below.
-        }
-      }
-      if (typeof response.text === 'function') {
-        const text = await response.text();
-        if (!text) return {};
-        try {
-          return JSON.parse(text);
-        } catch {
-          return {};
-        }
-      }
-      return {};
-    })();
-
-    if (!response.ok) {
-      const error: any = new Error(payload?.error?.message || payload?.error || 'تعذر تحديث الجلسة.');
-      error.status = response.status;
-      error.code = payload?.code || payload?.error?.code;
-      error.response = payload;
-      throw error;
-    }
-
-    return payload?.data ?? payload;
+    return refreshSessionCookie(baseUrl, signal);
   },
   forgotPassword: (email: string) =>
     apiClient.post('/auth/forgot-password', { email }),

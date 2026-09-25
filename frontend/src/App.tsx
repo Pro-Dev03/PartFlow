@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryProvider } from './app/providers/QueryProvider';
 import { AppLayout, AuthLayout } from './layouts';
-import { forceLogoutToLogin, markCloudVerificationPending, retrySubscriptionVerification, useAuthStore, validateSubscriptionWithCloud } from './stores/authStore';
+import { handleConfirmedAuthBlock, markCloudVerificationPending, retrySubscriptionVerification, useAuthStore, validateSubscriptionWithCloud } from './stores/authStore';
 import { ErrorBoundary } from './design-system/components/error-boundary';
 import { ToastContainer } from './design-system/components/ToastContainer';
 import { appRoutes, PageLoader } from './app/router';
@@ -143,22 +143,17 @@ function App() {
     const handleOffline = () => {
       const state = useAuthStore.getState();
       if (state.isAuthenticated || state.token || state.cloudToken) {
-        forceLogoutToLogin('Internet connection lost');
+        markCloudVerificationPending();
       }
     };
     const handleAuthInvalidated = (event: Event) => {
       const detail = (event as CustomEvent<{ definitive?: boolean; code?: string }>).detail;
       if (detail?.code && [
         'SUBSCRIPTION_EXPIRED',
-        'SUBSCRIPTION_SUSPENDED',
         'ACCOUNT_SUSPENDED',
         'ACCOUNT_DELETED',
       ].includes(detail.code)) {
-        void validateSubscriptionWithCloud();
-      } else if (detail?.code === 'CLOUD_CONNECTION_REQUIRED') {
-        forceLogoutToLogin('Internet connection lost');
-      } else if (detail?.definitive) {
-        forceLogoutToLogin('Session expired');
+        handleConfirmedAuthBlock(detail.code);
       } else {
         markCloudVerificationPending();
       }
@@ -170,8 +165,8 @@ function App() {
     window.addEventListener('offline', handleOffline);
     window.addEventListener('partflow:auth-invalidated', handleAuthInvalidated);
     window.addEventListener('partflow:cloud-verification-pending', handleCloudVerificationPending);
-    // The cloud is the subscription authority. If connectivity disappears, the
-    // protected route stops new operations until it returns.
+    // The server remains the authorization authority. Connectivity changes
+    // trigger revalidation, but never destroy a session by themselves.
     const interval = window.setInterval(() => {
       const state = useAuthStore.getState();
       if (state.sessionRestorePending && navigator.onLine) {

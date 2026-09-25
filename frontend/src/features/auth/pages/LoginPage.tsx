@@ -42,11 +42,6 @@ export function LoginPage() {
   };
 
   const handleConnectionModeChange = (mode: ConnectionMode) => {
-    if (mode !== connectionMode) {
-      // A connection-mode change starts a new authentication boundary. Clear
-      // credentials only; local SQLite data is intentionally preserved.
-      useAuthStore.getState().logout();
-    }
     setSelectedConnectionMode(mode);
     setConnectionMode(mode);
     setLoginError('');

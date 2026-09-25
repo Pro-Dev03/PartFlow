@@ -201,7 +201,9 @@ describe('apiClient auth propagation', () => {
     apiClient.setCloudToken('cloud-token');
 
     const invalidated = vi.fn();
+    const pending = vi.fn();
     window.addEventListener('partflow:auth-invalidated', invalidated);
+    window.addEventListener('partflow:cloud-verification-pending', pending);
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({
         success: false,
@@ -214,12 +216,14 @@ describe('apiClient auth propagation', () => {
 
     await expect(apiClient.get('/products', undefined, false)).rejects.toMatchObject({
       status: 401,
-      code: 'AUTH_REFRESH_FAILED',
+      code: 'AUTH_REFRESH_PENDING',
     });
 
-    expect(invalidated).toHaveBeenCalledTimes(1);
+    expect(invalidated).not.toHaveBeenCalled();
+    expect(pending).toHaveBeenCalled();
     expect(TokenManager.getToken()).toBe('local-token');
     window.removeEventListener('partflow:auth-invalidated', invalidated);
+    window.removeEventListener('partflow:cloud-verification-pending', pending);
   });
 
   it('retries refresh after a temporary refresh endpoint failure', async () => {
@@ -248,6 +252,72 @@ describe('apiClient auth propagation', () => {
     await expect(apiClient.get('/products', undefined, false)).resolves.toMatchObject({ data: { ok: true } });
     expect(fetchSpy).toHaveBeenCalledTimes(5);
     expect(TokenManager.getCloudToken()).toBe('fresh-cloud-token');
+  });
+
+  it('uses one refresh for concurrent 401 responses', async () => {
+    TokenManager.setToken('expired-access-token');
+    TokenManager.setCloudToken('expired-access-token');
+    apiClient.setToken('expired-access-token');
+    apiClient.setCloudToken('expired-access-token');
+    let refreshCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/auth/refresh')) {
+        refreshCount += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return new Response(JSON.stringify({ data: { access_token: 'fresh-access-token' } }), { status: 200 });
+      }
+      if (url.endsWith('/products') || url.endsWith('/customers')) {
+        const authorization = init?.headers;
+        const bearer = authorization instanceof Headers
+          ? authorization.get('Authorization')
+          : (authorization as Record<string, string> | undefined)?.Authorization;
+        if (bearer !== 'Bearer fresh-access-token') {
+          return new Response(JSON.stringify({ code: 'INVALID_TOKEN', error: 'expired' }), { status: 401 });
+        }
+        return new Response(JSON.stringify({ success: true, data: { ok: true } }), { status: 200 });
+      }
+      return new Response('{}', { status: 404 });
+    });
+
+    const [products, customers] = await Promise.all([
+      apiClient.get('/products', undefined, false),
+      apiClient.get('/customers', undefined, false),
+    ]);
+
+    expect(products.data).toEqual({ ok: true });
+    expect(customers.data).toEqual({ ok: true });
+    expect(refreshCount).toBe(1);
+    expect(TokenManager.getCloudToken()).toBe('fresh-access-token');
+  });
+
+  it.each([
+    { code: 'SUBSCRIPTION_EXPIRED', status: 403 },
+    { code: 'ACCOUNT_DELETED', status: 401 },
+    { code: 'ACCOUNT_SUSPENDED', status: 403 },
+  ])('forces logout for the classified retry response $code', async ({ code, status }) => {
+    TokenManager.setToken('expired-access-token');
+    TokenManager.setCloudToken('expired-access-token');
+    apiClient.setToken('expired-access-token');
+    apiClient.setCloudToken('expired-access-token');
+    const invalidated = vi.fn();
+    window.addEventListener('partflow:auth-invalidated', invalidated);
+    let businessRequest = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/auth/refresh')) {
+        return new Response(JSON.stringify({ data: { access_token: 'fresh-access-token' } }), { status: 200 });
+      }
+      businessRequest += 1;
+      if (businessRequest === 1) return new Response(JSON.stringify({ code: 'INVALID_TOKEN' }), { status: 401 });
+      return new Response(JSON.stringify({ data: { error: { code } } }), { status });
+    });
+
+    await expect(apiClient.get('/products', undefined, false)).rejects.toMatchObject({ status });
+    expect(invalidated).toHaveBeenCalledWith(expect.objectContaining({
+      detail: expect.objectContaining({ code, definitive: true }),
+    }));
+    window.removeEventListener('partflow:auth-invalidated', invalidated);
   });
 
   it('does not log an expected unknown-barcode lookup as a server error', async () => {

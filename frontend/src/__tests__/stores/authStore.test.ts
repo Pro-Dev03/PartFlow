@@ -3,11 +3,13 @@ import { forceLogoutToLogin, markCloudVerificationPending, retrySubscriptionVeri
 import { authApi } from '../../services/api/endpoints';
 import { CONNECTION_MODE_KEY } from '../../lib/config/app';
 import { TokenManager } from '../../lib/token-manager';
+import { readAutoLogoutReason } from '../../features/auth/sessionReason';
 
 describe('cloud subscription validation', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     localStorage.clear();
+    sessionStorage.clear();
     TokenManager.clearToken();
     TokenManager.clearRefreshToken();
     TokenManager.clearCloudToken();
@@ -187,7 +189,7 @@ describe('cloud subscription validation', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
   });
 
-  it('logs out when the cloud service is unavailable', async () => {
+  it('keeps the session when the cloud service is unavailable', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ error: 'temporary failure' }), { status: 503 })
     );
@@ -195,80 +197,72 @@ describe('cloud subscription validation', () => {
     const valid = await validateSubscriptionWithCloud();
 
     expect(valid).toBe(false);
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
-    expect(useAuthStore.getState().cloudVerificationPending).toBe(false);
-    expect(TokenManager.getCloudToken()).toBeNull();
-    expect(window.location.hash).toBe('#/login');
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
+    expect(TokenManager.getCloudToken()).toBe('cloud-token');
+    expect(window.location.hash).toBe('#/app/dashboard');
   });
 
-  it('logs out when the network request fails', async () => {
+  it('keeps the session when the network request fails', async () => {
     localStorage.setItem('partflow-cloud-last-validated-at', String(Date.now()));
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('cloud unavailable'));
 
     const valid = await validateSubscriptionWithCloud();
 
     expect(valid).toBe(false);
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
-    expect(useAuthStore.getState().cloudVerificationPending).toBe(false);
-    expect(TokenManager.getCloudToken()).toBeNull();
-    expect(localStorage.getItem('partflow-cloud-last-validated-at')).toBeNull();
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
+    expect(TokenManager.getCloudToken()).toBe('cloud-token');
+    expect(localStorage.getItem('partflow-cloud-last-validated-at')).toBe(String(Date.now()));
   });
 
-  it('clears tenant-scoped query state on a forced logout', () => {
+  it('does not turn an unclassified force-logout request into a logout', () => {
     const sessionCleared = vi.fn();
     window.addEventListener('partflow:session-cleared', sessionCleared);
     try {
       forceLogoutToLogin('Internet connection lost');
 
-      expect(sessionCleared).toHaveBeenCalledTimes(1);
-      expect(useAuthStore.getState().isAuthenticated).toBe(false);
-      expect(window.location.hash).toBe('#/login');
-      expect(localStorage.getItem('partflow-reauth-required')).toBe('true');
+      expect(sessionCleared).not.toHaveBeenCalled();
+      expect(useAuthStore.getState().isAuthenticated).toBe(true);
+      expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
+      expect(window.location.hash).toBe('#/app/dashboard');
+      expect(localStorage.getItem('partflow-reauth-required')).toBeNull();
     } finally {
       window.removeEventListener('partflow:session-cleared', sessionCleared);
     }
   });
 
-  it('does not restore a cloud refresh cookie after an automatic offline logout', async () => {
-    localStorage.setItem('auth-storage', JSON.stringify({
-      state: { isAuthenticated: true, user: { id: 'old-user' } },
-      version: 0,
-    }));
+  it('retains the active session when connectivity is lost', async () => {
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
-    const refreshSpy = vi.spyOn(authApi, 'refreshToken').mockResolvedValue({ token: 'old-cookie-session' } as any);
-
-    forceLogoutToLogin('Internet connection lost');
-    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
-    await useAuthStore.getState().checkAuth();
-
-    expect(refreshSpy).not.toHaveBeenCalled();
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
-    expect(localStorage.getItem('partflow-reauth-required')).toBe('true');
+    markCloudVerificationPending();
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
+    expect(window.location.hash).toBe('#/app/dashboard');
   });
 
-  it('does not keep a local session when cloud authorization is pending', () => {
+  it('keeps a local-mode session while cloud authorization is pending', () => {
     localStorage.setItem(CONNECTION_MODE_KEY, 'local');
 
     markCloudVerificationPending();
 
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
-    expect(useAuthStore.getState().cloudVerificationPending).toBe(false);
-    expect(TokenManager.getCloudToken()).toBeNull();
-    expect(window.location.hash).toBe('#/login');
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
+    expect(TokenManager.getCloudToken()).toBe('cloud-token');
+    expect(window.location.hash).toBe('#/app/dashboard');
   });
 
-  it('logs out in cloud mode when a live cloud decision is unavailable', () => {
+  it('keeps a cloud-mode session while a live cloud decision is unavailable', () => {
     localStorage.setItem(CONNECTION_MODE_KEY, 'cloud');
     const sessionCleared = vi.fn();
     window.addEventListener('partflow:session-cleared', sessionCleared);
     try {
       markCloudVerificationPending();
 
-      expect(useAuthStore.getState().isAuthenticated).toBe(false);
-      expect(useAuthStore.getState().token).toBeNull();
-      expect(TokenManager.getCloudToken()).toBeNull();
-      expect(sessionCleared).toHaveBeenCalledTimes(1);
-      expect(window.location.hash).toBe('#/login');
+      expect(useAuthStore.getState().isAuthenticated).toBe(true);
+      expect(useAuthStore.getState().token).toBe('local-token');
+      expect(TokenManager.getCloudToken()).toBe('cloud-token');
+      expect(sessionCleared).not.toHaveBeenCalled();
+      expect(window.location.hash).toBe('#/app/dashboard');
     } finally {
       window.removeEventListener('partflow:session-cleared', sessionCleared);
     }
@@ -289,17 +283,18 @@ describe('cloud subscription validation', () => {
     expect(window.location.hash).toBe('#/subscription-expired');
   });
 
-  it('clears the session after a generic cloud 403 rejection', async () => {
+  it('keeps the session after a generic cloud 403 rejection', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 403 }));
 
     const valid = await validateSubscriptionWithCloud();
 
     expect(valid).toBe(false);
-    expect(useAuthStore.getState().isAuthenticated).toBe(false);
-    expect(TokenManager.getCloudToken()).toBeNull();
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
+    expect(TokenManager.getCloudToken()).toBe('cloud-token');
   });
 
-  it('clears the session when the refresh token is definitively rejected', async () => {
+  it('keeps the session when refresh returns an unclassified 401', async () => {
     localStorage.setItem('auth_token', 'expired-access-token');
     localStorage.setItem('refresh_token', 'expired-refresh-token');
     TokenManager.setCloudToken('cloud-token');
@@ -314,10 +309,46 @@ describe('cloud subscription validation', () => {
 
     await useAuthStore.getState().refreshToken();
 
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().sessionVerified).toBe(true);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
+    expect(TokenManager.getToken()).toBe('expired-access-token');
+  });
+
+  it('routes confirmed account deletion to login with a clear reason', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      success: false,
+      data: { error: { code: 'ACCOUNT_DELETED', message: 'User was deleted' } },
+    }), { status: 401 }));
+
+    await validateSubscriptionWithCloud();
+
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
-    expect(useAuthStore.getState().sessionVerified).toBe(false);
-    expect(useAuthStore.getState().cloudVerificationPending).toBe(false);
-    expect(TokenManager.getToken()).toBeNull();
+    expect(window.location.hash).toBe('#/login');
+    expect(readAutoLogoutReason()).toBe('account-deleted');
+  });
+
+  it('routes confirmed account suspension to login with a clear reason', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      error: { data: { code: 'ACCOUNT_SUSPENDED', message: 'User disabled' } },
+    }), { status: 403 }));
+
+    await validateSubscriptionWithCloud();
+
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(window.location.hash).toBe('#/login');
+    expect(readAutoLogoutReason()).toBe('account-suspended');
+  });
+
+  it('keeps the session pending for an unapproved subscription suspension code', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 'SUBSCRIPTION_SUSPENDED' }), { status: 403 }));
+
+    await validateSubscriptionWithCloud();
+
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(useAuthStore.getState().cloudVerificationPending).toBe(true);
+    expect(window.location.hash).toBe('#/app/dashboard');
+    expect(readAutoLogoutReason()).toBeNull();
   });
 
   it('does not process a refresh rejection that arrives after manual logout', async () => {

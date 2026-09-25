@@ -1,6 +1,8 @@
 import { getArabicErrorMessage, isNetworkError, isRetryableError } from '../../lib/error-messages';
 import { appConfig, getBusinessApiUrl, getCloudApiUrl, getConnectionMode, getLocalApiUrl } from '../../lib/config/app';
 import { TokenManager } from '../../lib/token-manager';
+import { classifyAuthFailure, extractAuthErrorCode, refreshSessionCookie, isDefinitiveRefreshRejection } from './session-refresh';
+import { logSessionDiagnostic } from './sessionDiagnostics';
 
 const API_BASE_URL = appConfig.apiUrl;
 
@@ -34,7 +36,6 @@ function isCloudTransportFailure(error: any): boolean {
 
 const SUBSCRIPTION_BLOCK_CODES = new Set([
   'SUBSCRIPTION_EXPIRED',
-  'SUBSCRIPTION_SUSPENDED',
   'ACCOUNT_SUSPENDED',
   'ACCOUNT_DELETED',
 ]);
@@ -101,6 +102,7 @@ class ApiClient {
     if (this.authInvalidationDispatched || typeof window === 'undefined') return;
 
     this.authInvalidationDispatched = true;
+    logSessionDiagnostic('auth.invalidated', { reason, definitive, code, source: 'api-client' });
     window.dispatchEvent(new CustomEvent('partflow:auth-invalidated', {
       detail: { reason, definitive, code },
     }));
@@ -109,6 +111,7 @@ class ApiClient {
   private notifyCloudVerificationPending(reason: string): void {
     if (typeof window === 'undefined') return;
 
+    logSessionDiagnostic('cloud-verification.pending', { reason, source: 'api-client' });
     window.dispatchEvent(new CustomEvent('partflow:cloud-verification-pending', {
       detail: { reason },
     }));
@@ -169,47 +172,31 @@ class ApiClient {
     }
 
     const refreshPromise = (async () => {
-      const refreshResponse = await fetch(`${baseUrl}/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: '{}',
-      });
-
-      const refreshData = await refreshResponse.json().catch(() => ({}));
-      if (!refreshResponse.ok) {
-        this.refreshFailedForSession = refreshResponse.status === 401 || refreshResponse.status === 403;
-        const error: any = new Error(
-          refreshData?.error?.message || refreshData?.error || 'Session refresh failed'
-        );
-        error.status = refreshResponse.status;
-        error.code = refreshData?.code || refreshData?.error?.code;
-        error.response = refreshData;
+      try {
+        const refreshPayload = await refreshSessionCookie(baseUrl);
+        const newToken = refreshPayload?.access_token || refreshPayload?.token;
+        if (!newToken) {
+          const error: any = new Error('Refresh response did not include an access token');
+          error.status = 502;
+          error.code = 'AUTH_REFRESH_RESPONSE_INVALID';
+          throw error;
+        }
+        this.refreshFailedForSession = false;
+        this.setToken(newToken);
+        return newToken as string;
+      } catch (error) {
+        this.refreshFailedForSession = Number((error as { status?: number } | null)?.status) === 401
+          || isDefinitiveRefreshRejection(error);
         throw error;
       }
-
-      const refreshPayload = refreshData?.data && typeof refreshData.data === 'object'
-        ? refreshData.data
-        : refreshData;
-      const newToken = refreshPayload?.access_token || refreshPayload?.token;
-      if (!newToken) {
-        this.refreshFailedForSession = false;
-        return null;
-      }
-
-      this.refreshFailedForSession = false;
-      this.setToken(newToken);
-      return newToken as string;
     })();
 
     this.refreshInFlight = refreshPromise;
     try {
       return await refreshPromise;
     } catch (error) {
-      const status = Number((error as { status?: number })?.status);
-      this.refreshFailedForSession = status === 401 || status === 403;
+      this.refreshFailedForSession = Number((error as { status?: number } | null)?.status) === 401
+        || isDefinitiveRefreshRejection(error);
       throw error;
     } finally {
       if (this.refreshInFlight === refreshPromise) {
@@ -395,9 +382,25 @@ class ApiClient {
       const data: ApiResponse<T> = await this.parseResponse<T>(response, responseType);
 
       if (!response.ok) {
+        const responseAuthCode = extractAuthErrorCode(data);
+        if (response.status === 401 || response.status === 403) {
+          logSessionDiagnostic('api.auth-response', {
+            path: endpoint.split('?')[0],
+            status: response.status,
+            code: responseAuthCode,
+            classification: classifyAuthFailure({ status: response.status, code: responseAuthCode }),
+            connectionMode: getConnectionMode(),
+          });
+        }
+        if ((response.status === 401 || response.status === 403)
+          && isDefinitiveRefreshRejection({ status: response.status, code: responseAuthCode })) {
+          this.notifyAuthInvalidated('Cloud subscription or account authorization was rejected', true, responseAuthCode);
+        }
         // Cloud business requests refresh only the cloud credential. Local
         // refresh is reserved for device database maintenance endpoints.
-        if (response.status === 401 && (this.token || this.getCloudAccessToken())) {
+        if (response.status === 401
+          && !isDefinitiveRefreshRejection({ status: response.status, code: responseAuthCode })
+          && (this.token || this.getCloudAccessToken())) {
           try {
             let newToken: string | null = null;
             let refreshAttempted = isCloudRequest;
@@ -475,9 +478,18 @@ class ApiClient {
               if (!retryResponse.ok) {
                 const error: any = new Error(typeof retryData.error === 'string' ? retryData.error : retryData.error?.message || 'An error occurred');
                 error.status = retryResponse.status;
-                error.code = retryData.error?.code || (retryData as any).code;
+                error.code = extractAuthErrorCode(retryData);
                 error.response = retryData;
                 error.arabicMessage = getArabicErrorMessage(error);
+                logSessionDiagnostic('api.auth-retry-response', {
+                  path: endpoint.split('?')[0],
+                  status: retryResponse.status,
+                  code: error.code,
+                  classification: classifyAuthFailure(error),
+                });
+                if (isDefinitiveRefreshRejection(error)) {
+                  this.notifyAuthInvalidated('Cloud subscription or account authorization was rejected', true, error.code);
+                }
                 throw error;
               }
 
@@ -485,9 +497,8 @@ class ApiClient {
             }
 
             if (refreshAttempted && this.refreshFailedForSession) {
-              throw Object.assign(new Error('Session refresh failed; authentication is required again.'), {
-                status: 401,
-                code: 'AUTH_REFRESH_FAILED',
+              throw Object.assign(new Error('Session refresh was rejected and needs verification.'), {
+                code: 'AUTH_REFRESH_PENDING',
                 response: data,
               });
             }
@@ -497,29 +508,23 @@ class ApiClient {
             if ((Number((refreshError as any)?.status) === 401 || Number((refreshError as any)?.status) === 403)
               && SUBSCRIPTION_BLOCK_CODES.has(String((refreshError as any)?.code || ''))) {
               this.notifyAuthInvalidated('Cloud subscription or account authorization was rejected', true, (refreshError as any)?.code);
-              if (typeof window !== 'undefined' && !window.location.hash.includes('/subscription-expired')) {
-                window.location.hash = '#/subscription-expired';
-              }
               throw refreshError;
             }
 
-            if ((refreshError as any)?.status === 401 || (refreshError as any)?.code === 'INVALID_TOKEN') {
+            if (isDefinitiveRefreshRejection(refreshError)) {
               throw refreshError;
             }
 
-            if (isNetworkError(refreshError) || [408, 429, 500, 502, 503, 504].includes(Number((refreshError as any)?.status))) {
-              throw Object.assign(
-                refreshError instanceof Error ? refreshError : new Error('Cloud session refresh is temporarily unavailable'),
-                { code: 'AUTH_REFRESH_PENDING' },
-              );
-            }
+            throw Object.assign(
+              refreshError instanceof Error ? refreshError : new Error('Cloud session refresh is temporarily unavailable'),
+              { code: 'AUTH_REFRESH_PENDING' },
+            );
           }
 
-          // A rejected refresh proves that the local session cannot be trusted.
-          // Invalidate it immediately instead of leaving a stale session active.
-          const refreshError: any = new Error('Session refresh failed; authentication is required again.');
-          refreshError.status = 401;
-          refreshError.code = 'AUTH_REFRESH_FAILED';
+          // Unclassified refresh failures are verification outages. Keep the
+          // local UI state and let the next online/retry event attempt recovery.
+          const refreshError: any = new Error('Session refresh could not be confirmed.');
+          refreshError.code = 'AUTH_REFRESH_PENDING';
           refreshError.response = data;
           throw refreshError;
         }
@@ -531,30 +536,20 @@ class ApiClient {
           : responseError?.message || 'An error occurred';
         const error: any = new Error(errorMessage);
         error.status = response.status;
-        error.code = data.error?.code || (data as any).code;
+        error.code = responseAuthCode || data.error?.code || (data as any).code;
         error.response = data;
-		if (error.code === 'CLOUD_CONNECTION_REQUIRED') {
-		  this.notifyAuthInvalidated('Cloud connection is required', true, error.code);
-		}
+        if (error.code === 'CLOUD_CONNECTION_REQUIRED') {
+          this.notifyCloudVerificationPending('Cloud connection is required to verify this request');
+        }
 
         // A 403 is not always a subscription expiry (for example, the
         // administrator-only settings routes intentionally return
         // ADMIN_REQUIRED). Redirect only for an explicit subscription/cloud
         // authorization decision and leave ordinary permission errors to the
         // caller.
-        if (response.status === 403 && SUBSCRIPTION_BLOCK_CODES.has(error.code)) {
+        if ((response.status === 401 || response.status === 403) && isDefinitiveRefreshRejection(error)) {
           this.notifyAuthInvalidated('Cloud subscription or account authorization was rejected', true, error.code);
-          if (typeof window !== 'undefined' && !window.location.hash.includes('/subscription-expired')) {
-            try {
-              window.location.hash = '#/subscription-expired';
-              window.dispatchEvent(new HashChangeEvent('hashchange'));
-            } catch {
-              const currentUrl = new URL(window.location.href);
-              currentUrl.hash = '#/subscription-expired';
-              window.location.href = currentUrl.toString();
-            }
-          }
-          error.message = error.code === 'SUBSCRIPTION_SUSPENDED' || error.code === 'ACCOUNT_SUSPENDED'
+          error.message = error.code === 'ACCOUNT_SUSPENDED'
             ? 'تم إيقاف الحساب، يرجى التواصل مع الإدارة لإعادة تفعيله.'
             : error.code === 'ACCOUNT_DELETED'
               ? 'هذا الحساب محذوف ولم يعد مسموحًا له بالدخول.'
@@ -575,7 +570,7 @@ class ApiClient {
 
       if ((error?.status === 401 || error?.code === 'AUTH_REFRESH_FAILED' || error?.code === 'INVALID_TOKEN')
         && (this.token || this.getCloudAccessToken())) {
-        this.notifyAuthInvalidated('Cloud session expired or was revoked', true, error?.code);
+        this.notifyCloudVerificationPending('The server rejected the current access token; refresh/revalidation is required');
       }
       if (error?.code === 'AUTH_REFRESH_PENDING') {
         this.notifyCloudVerificationPending('Cloud session refresh is temporarily unavailable');
@@ -594,7 +589,6 @@ class ApiClient {
       }
 
       const isExpectedAuthInvalidation = error?.code === 'SUBSCRIPTION_EXPIRED'
-        || error?.code === 'SUBSCRIPTION_SUSPENDED'
         || error?.code === 'ACCOUNT_SUSPENDED'
         || error?.code === 'ACCOUNT_DELETED'
         || error?.code === 'CLOUD_AUTH_REQUIRED'
@@ -628,35 +622,14 @@ class ApiClient {
 
   private async refreshCloudAccessToken(): Promise<string | null> {
     if (typeof window === 'undefined') return null;
-    const refreshResponse = await fetch(`${getCloudApiUrl()}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    });
-    const refreshData = await refreshResponse.json().catch(() => ({}));
-    if (!refreshResponse.ok) {
-      if (refreshResponse.status >= 500 || refreshResponse.status === 408 || refreshResponse.status === 429) {
-        const error = new Error('Cloud token refresh is temporarily unavailable') as Error & { status?: number };
-        error.status = refreshResponse.status;
-        (error as Error & { code?: string }).code = refreshData?.code || refreshData?.error?.code;
-        throw error;
-      }
-      if (refreshResponse.status === 403) {
-        const error: any = new Error(refreshData?.error?.message || refreshData?.error || 'Cloud account is not authorized');
-        error.status = refreshResponse.status;
-        error.code = refreshData?.code || refreshData?.error?.code;
-        error.response = refreshData;
-        throw error;
-      }
-      return null;
-    }
-
-    const payload = refreshData?.data && typeof refreshData.data === 'object'
-      ? refreshData.data
-      : refreshData;
+    const payload = await refreshSessionCookie(getCloudApiUrl());
     const nextToken = payload?.access_token || payload?.token;
-    if (!nextToken) return null;
+    if (!nextToken) {
+      const error: any = new Error('Refresh response did not include an access token');
+      error.status = 502;
+      error.code = 'AUTH_REFRESH_RESPONSE_INVALID';
+      throw error;
+    }
 
     TokenManager.setCloudToken(nextToken);
     this.cloudToken = nextToken;

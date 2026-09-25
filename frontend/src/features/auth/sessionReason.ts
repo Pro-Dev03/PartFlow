@@ -1,6 +1,8 @@
 export type AutoLogoutReason =
   | 'offline'
   | 'subscription'
+  | 'account-deleted'
+  | 'account-suspended'
   | 'session-expired'
   | 'missing-session'
   | 'cloud-rejected'
@@ -16,6 +18,14 @@ const reasonMessages: Record<AutoLogoutReason, { title: string; message: string 
   subscription: {
     title: 'انتهى الاشتراك أو تم تعطيل الحساب',
     message: 'لم يعد الحساب مصرحًا له بالوصول. تواصل مع الإدارة لتجديد الاشتراك أو إعادة تفعيل الحساب.',
+  },
+  'account-deleted': {
+    title: 'تم حذف هذا المستخدم',
+    message: 'لم يعد هذا المستخدم موجودًا في النظام. تواصل مع المسؤول إذا كنت تعتقد أن ذلك حدث بالخطأ.',
+  },
+  'account-suspended': {
+    title: 'تم إيقاف هذا الحساب',
+    message: 'أوقف المسؤول هذا الحساب. تواصل مع المسؤول لإعادة تفعيله.',
   },
   'session-expired': {
     title: 'انتهت جلسة الدخول',
