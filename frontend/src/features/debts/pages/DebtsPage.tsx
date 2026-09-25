@@ -33,6 +33,7 @@ import { useDebts } from '../hooks/useDebts';
 // Components
 import { DebtStats } from '../components/DebtStats';
 import { AdvancedSearch, SearchFilters } from '../components/AdvancedSearch';
+import { DebtManagementModal } from '../components/DebtManagementModal';
 
 // Types
 import { Debt } from '../types/debts.types';
@@ -42,23 +43,12 @@ export function DebtsPage() {
   const { t } = useTranslationHook();
   const location = useLocation();
   const navigate = useNavigate();
-  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
-  const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'bank_transfer' | 'check'>('cash');
-  const [paymentReference, setPaymentReference] = useState('');
   const [selectedDebt, setSelectedDebt] = useState<any>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [initialDebtAction, setInitialDebtAction] = useState<'payment' | null>(null);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [lastPayment, setLastPayment] = useState<any>(null);
   const [debtTab, setDebtTab] = useState<'open' | 'paid' | 'all'>('open');
-  const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false);
-  const [adjustmentCustomerId, setAdjustmentCustomerId] = useState<string | null>(null);
-  const [adjustmentCustomerName, setAdjustmentCustomerName] = useState('');
-  const [adjustmentCustomerBalance, setAdjustmentCustomerBalance] = useState(0);
-  const [adjustmentType, setAdjustmentType] = useState<'debit' | 'credit'>('debit');
-  const [adjustmentAmount, setAdjustmentAmount] = useState('');
-  const [adjustmentReason, setAdjustmentReason] = useState('');
   const customerIdFromRoute = new URLSearchParams(location.search).get('customer_id') || undefined;
 
   // Custom hook
@@ -84,117 +74,36 @@ export function DebtsPage() {
   // Get current language for receipt
   const { currentLanguage } = useTranslationHook();
 
-  const handleRecordPayment = (customerId: string, customerName: string) => {
+  const handleViewDebt = useCallback((debt: Debt) => {
+    setSelectedDebt(debt);
+    setInitialDebtAction(null);
+    setIsViewModalOpen(true);
+  }, []);
+
+  const handleRecordPayment = useCallback((customerId: string, customerName: string) => {
     const customerDebt = debts.find((debt: any) => debt.customer?.id === customerId);
-    setSelectedCustomer({
-      id: customerId,
-      name: customerName,
-      outstanding: customerDebt?.remainingAmount || 0,
-    });
-    setPaymentAmount('');
-    setPaymentMethod('cash');
-    setPaymentReference(crypto.randomUUID());
-    setPaymentModalOpen(true);
-  };
+    if (customerDebt) {
+      setSelectedDebt({ ...customerDebt, customer: { ...customerDebt.customer, name: customerName || customerDebt.customer?.name } });
+      setInitialDebtAction('payment');
+      setIsViewModalOpen(true);
+    }
+  }, [debts]);
 
   useEffect(() => {
     const customerId = new URLSearchParams(location.search).get('customer_id');
-    if (!customerId || isLoading || paymentModalOpen) return;
+    if (!customerId || isLoading || isViewModalOpen) return;
 
     const customerDebt = debts.find((debt: any) => debt.customer?.id === customerId);
     if (customerDebt) {
-      handleRecordPayment(customerId, customerDebt.customer.name);
+      handleRecordPayment(customerId, customerDebt.customer?.name || '');
       navigate('/app/debts', { replace: true });
     }
-  }, [debts, isLoading, location.search, navigate, paymentModalOpen]);
-
-  const handlePaymentSubmit = () => {
-    if (paymentAmount && !isNaN(parseFloat(paymentAmount))) {
-      const paymentAmountNum = parseFloat(paymentAmount);
-      
-      // Validate payment doesn't exceed outstanding balance (SALES-PHILOSOPHY.md)
-      const outstandingAmount = selectedCustomer?.outstanding || 0;
-      
-      if (paymentAmountNum > outstandingAmount) {
-        toast.error(`المبلغ أكبر من المبلغ المستحق (₪${outstandingAmount.toLocaleString()})`);
-        return;
-      }
-      
-      const paymentData = {
-        customerId: selectedCustomer.id,
-        amount: paymentAmountNum,
-        method: paymentMethod,
-        reference: paymentReference,
-      };
-      
-      recordPaymentMutation.mutate(paymentData, {
-        onSuccess: () => {
-          const now = getStoreDateKey(new Date()) || '';
-          const [year, month, day] = now.split('-');
-          
-          setLastPayment({
-            ...paymentData,
-            customerId: selectedCustomer.id,
-            customerName: selectedCustomer.name,
-            date: `${day}/${month}/${year}`,
-          });
-          setSuccessModalOpen(true);
-          setPaymentModalOpen(false);
-          setPaymentReference('');
-        },
-        onError: () => toast.error('تعذر تسجيل الدفعة. بقي النموذج مفتوحًا؛ أعد المحاولة دون إعادة إدخال البيانات.'),
-      });
-    }
-  };
+  }, [debts, handleRecordPayment, isLoading, isViewModalOpen, location.search, navigate]);
 
   const handleSearchAdvanced = useCallback((query: string, filters: SearchFilters) => {
     setSearchQuery(query);
     setSearchFilters(filters);
   }, [setSearchFilters, setSearchQuery]);
-
-  const handleManualAdjustment = (customerId: string, customerName: string, currentBalance: number) => {
-    setAdjustmentCustomerId(customerId);
-    setAdjustmentCustomerName(customerName);
-    setAdjustmentCustomerBalance(currentBalance);
-    setAdjustmentType('debit');
-    setAdjustmentAmount('');
-    setAdjustmentReason(`تعديل يدوي - ${customerName}`);
-    setAdjustmentModalOpen(true);
-  };
-
-  const handleAdjustmentSubmit = () => {
-    const amount = Number(adjustmentAmount);
-    if (!adjustmentCustomerId || !Number.isFinite(amount) || amount <= 0) {
-      toast.error('يرجى إدخال مبلغ صالح للتعديل اليدوي');
-      return;
-    }
-    if (adjustmentType === 'credit' && amount > adjustmentCustomerBalance + 0.000001) {
-      toast.error(`مبلغ الخصم أكبر من رصيد العميل المتبقي (${adjustmentCustomerBalance.toLocaleString()})`);
-      return;
-    }
-    adjustDebtMutation.mutate({
-      customerId: adjustmentCustomerId,
-      amount,
-      type: adjustmentType,
-      reason: adjustmentReason || `تعديل يدوي - ${adjustmentType === 'debit' ? 'زيادة' : 'خصم'}`,
-    }, {
-      onSuccess: () => {
-        toast.success(adjustmentType === 'debit' ? 'تمت زيادة الدين بنجاح' : 'تم خصم الدين بنجاح');
-        setAdjustmentModalOpen(false);
-        setAdjustmentAmount('');
-        setAdjustmentReason('');
-        setAdjustmentCustomerId(null);
-        setAdjustmentCustomerName('');
-        setAdjustmentCustomerBalance(0);
-      },
-      onError: () => toast.error('تعذر تطبيق تعديل الدين. تأكد من البيانات وراجع الرصيد الحالي.'),
-    });
-  };
-
-  const handleViewDebt = (debt: Debt) => {
-    setSelectedDebt(debt);
-    setIsViewModalOpen(true);
-  };
 
   const handlePrintReceipt = () => {
     if (!lastPayment) {
@@ -380,10 +289,10 @@ export function DebtsPage() {
                         size="icon"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleManualAdjustment(debt.customer.id, debt.customer.name || '', Number(debt.remainingAmount ?? debt.remaining_amount ?? 0));
+                          handleViewDebt(debt);
                         }}
-                        aria-label={`تعديل رصيد الدين للعميل ${debt.customer.name || ''}`}
-                        title="تعديل رصيد الدين"
+                        aria-label={`إدارة دين العميل ${debt.customer.name || ''}`}
+                        title="إدارة الدين"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
@@ -533,288 +442,30 @@ export function DebtsPage() {
         )}
       </div>
 
-      {/* Payment Modal */}
-      {paymentModalOpen && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 99999,
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg-surface)',
-            padding: '24px',
-            borderRadius: '16px',
-            maxWidth: '500px',
-            width: '100%',
-            margin: '16px',
-            border: '1px solid var(--border-primary)',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>تسجيل دفعة</h3>
-              <button 
-                onClick={() => setPaymentModalOpen(false)}
-                disabled={recordPaymentMutation.isPending}
-                aria-label="إغلاق نافذة الدفع"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '24px', color: 'var(--text-secondary)' }}
-              >
-                ×
-              </button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div>
-                <label className="text-small font-medium text-text mb-sm block">
-                  العميل
-                </label>
-                <Input
-                  value={selectedCustomer?.name || ''}
-                  readOnly
-                />
-              </div>
-              <div>
-                <label className="text-small font-medium text-text mb-sm block">
-                  مبلغ الدفعة
-                </label>
-                <Input
-                  type="number"
-                  placeholder="أدخل المبلغ..."
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
-                  disabled={recordPaymentMutation.isPending}
-                  autoFocus
-                />
-              </div>
-              
-              {/* Automatic balance calculation (SALES-PHILOSOPHY.md) */}
-              {paymentAmount && !isNaN(parseFloat(paymentAmount)) && (
-                <div style={{
-                  padding: '12px',
-                  background: 'linear-gradient(135deg, var(--color-primary-05) 0%, rgba(147, 51, 234, 0.05) 100%)',
-                  border: '1px solid var(--color-primary-10)',
-                  borderRadius: '8px'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>الرصيد الجديد:</span>
-                    <span style={{ fontSize: '18px', fontWeight: '700', color: 'var(--color-info)' }}>
-                      ₪{Math.max(0, (selectedCustomer?.outstanding || 0) - parseFloat(paymentAmount)).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              )}
-              <div>
-                <label className="text-small font-medium text-text mb-sm block">
-                  طريقة الدفع
-                </label>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}
-                  disabled={recordPaymentMutation.isPending}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--border-primary)',
-                    backgroundColor: 'var(--bg-surface)',
-                    color: 'var(--text-primary)',
-                    fontSize: '14px',
-                  }}
-                >
-                  <option value="cash">نقدي</option>
-                  <option value="credit">بطاقة ائتمان</option>
-                  <option value="bank_transfer">تحويل بنكي</option>
-                  <option value="check">شيك</option>
-                </select>
-              </div>
-              <div className="flex gap-sm justify-end">
-                <Button
-                  variant="secondary"
-                  size={getButtonSize('debts', 'modalAction')}
-                  onClick={() => setPaymentModalOpen(false)}
-                  disabled={recordPaymentMutation.isPending}
-                >
-                  إلغاء
-                </Button>
-                <Button
-                  variant="primary"
-                  size={getButtonSize('debts', 'modalAction')}
-                  onClick={handlePaymentSubmit}
-                  disabled={
-                    recordPaymentMutation.isPending ||
-                    !paymentAmount ||
-                    isNaN(parseFloat(paymentAmount)) ||
-                    parseFloat(paymentAmount) <= 0 ||
-                    parseFloat(paymentAmount) > (selectedCustomer?.outstanding || 0)
-                  }
-                >
-                  {recordPaymentMutation.isPending ? 'جارٍ التسجيل...' : 'تسجيل الدفعة'}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Manual Adjustment Modal */}
-      {adjustmentModalOpen && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 99999,
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg-surface)',
-            padding: '24px',
-            borderRadius: '16px',
-            maxWidth: '500px',
-            width: '100%',
-            margin: '16px',
-            border: '1px solid var(--border-primary)',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>تعديل يدوي لرصيد الدين</h3>
-              <button onClick={() => setAdjustmentModalOpen(false)} disabled={adjustDebtMutation.isPending} aria-label="إغلاق تعديل الدين" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '24px', color: 'var(--text-secondary)' }}>×</button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm">
-                <div className="font-semibold text-[var(--text-primary)]">{adjustmentCustomerName}</div>
-                <div className="mt-1 text-[var(--text-secondary)]">الرصيد المتبقي: ₪{adjustmentCustomerBalance.toLocaleString()}</div>
-              </div>
-              <div>
-                <label className="text-small font-medium text-text mb-sm block">نوع التعديل</label>
-                <select value={adjustmentType} onChange={(e) => setAdjustmentType(e.target.value as 'debit' | 'credit')} disabled={adjustDebtMutation.isPending} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '14px' }}>
-                  <option value="debit">زيادة الدين</option>
-                  <option value="credit">خصم من الدين</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-small font-medium text-text mb-sm block">المبلغ</label>
-                <Input
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  max={adjustmentType === 'credit' ? adjustmentCustomerBalance : undefined}
-                  placeholder="أدخل المبلغ..."
-                  value={adjustmentAmount}
-                  onChange={(e) => setAdjustmentAmount(e.target.value)}
-                  disabled={adjustDebtMutation.isPending}
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="text-small font-medium text-text mb-sm block">السبب</label>
-                <Input value={adjustmentReason} onChange={(e) => setAdjustmentReason(e.target.value)} disabled={adjustDebtMutation.isPending} />
-              </div>
-              <div className="flex gap-sm justify-end">
-                <Button variant="secondary" size={getButtonSize('debts', 'modalAction')} onClick={() => setAdjustmentModalOpen(false)} disabled={adjustDebtMutation.isPending}>إلغاء</Button>
-                <Button variant="primary" size={getButtonSize('debts', 'modalAction')} onClick={handleAdjustmentSubmit} disabled={adjustDebtMutation.isPending || !Number.isFinite(Number(adjustmentAmount)) || Number(adjustmentAmount) <= 0}>
-                  {adjustDebtMutation.isPending ? 'جارٍ التعديل...' : 'تطبيق التعديل'}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* View Debt Modal */}
-      {isViewModalOpen && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 99999,
-        }}>
-          <div style={{
-            backgroundColor: 'var(--bg-surface)',
-            padding: '24px',
-            borderRadius: '16px',
-            maxWidth: '500px',
-            width: '100%',
-            margin: '16px',
-            border: '1px solid var(--border-primary)',
-            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>تفاصيل الدين</h3>
-              <button 
-                onClick={() => setIsViewModalOpen(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '24px', color: 'var(--text-secondary)' }}
-              >
-                ×
-              </button>
-            </div>
-            {selectedDebt && (
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-                gap: '16px' 
-              }}>
-                {((selectedDebt.debt_reason || selectedDebt.reason || selectedDebt.notes) && (
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <label className="text-small font-medium text-text mb-sm block">سبب الدين</label>
-                    <div style={{
-                      background: 'rgba(15, 23, 42, 0.02)',
-                      border: '1px solid var(--border-default)',
-                      borderRadius: '10px',
-                      padding: '12px 14px',
-                      fontSize: '13px',
-                      lineHeight: '1.7',
-                      color: 'var(--text-primary)',
-                      whiteSpace: 'pre-wrap',
-                    }}>
-                      {selectedDebt.debt_reason || selectedDebt.reason || selectedDebt.notes || 'لا يوجد سبب محدد'}
-                    </div>
-                  </div>
-                ))}
-                <div>
-                  <label className="text-small font-medium text-text mb-sm block">العميل</label>
-                  <Input value={selectedDebt.customer?.name || ''} readOnly />
-                </div>
-                <div>
-                  <label className="text-small font-medium text-text mb-sm block">مبلغ الدين</label>
-                  <div className="numeric-price" style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text-primary)' }}>
-                    ₪{selectedDebt.amount?.toLocaleString() || 0}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-small font-medium text-text mb-sm block">موعد السداد</label>
-                  <Input value={selectedDebt.dueDate ? formatStoreDate(selectedDebt.dueDate, 'ar-SA') : 'غير محدد'} readOnly />
-                </div>
-                <div>
-                  <label className="text-small font-medium text-text mb-sm block">الحالة</label>
-                  <Input value={Number(selectedDebt.remaining_amount ?? selectedDebt.remainingAmount ?? 0) <= 0 ? 'مدفوع' : selectedDebt.status === 'overdue' ? 'متأخر' : selectedDebt.status === 'partial' ? 'جزئي' : 'معلق'} readOnly />
-                </div>
-                <div className="flex gap-sm justify-end" style={{ gridColumn: '1 / -1' }}>
-                  <Button variant="secondary" size={getButtonSize('debts', 'modalAction')} onClick={() => setIsViewModalOpen(false)}>
-                    إغلاق
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
+      <DebtManagementModal
+        debt={selectedDebt}
+        isOpen={isViewModalOpen && Boolean(selectedDebt)}
+        initialAction={initialDebtAction}
+        onClose={() => {
+          setIsViewModalOpen(false);
+          setSelectedDebt(null);
+          setInitialDebtAction(null);
+        }}
+        onRecordPayment={async (input) => {
+          await recordPaymentMutation.mutateAsync(input);
+          const now = getStoreDateKey(new Date()) || '';
+          const [year, month, day] = now.split('-');
+          setLastPayment({
+            ...input,
+            customerName: selectedDebt?.customer?.name || 'العميل',
+            date: [day, month, year].join('/'),
+          });
+          setSuccessModalOpen(true);
+        }}
+        onAdjustDebt={async (input) => {
+          await adjustDebtMutation.mutateAsync(input);
+        }}
+      />
       {/* Success Modal */}
       {successModalOpen && lastPayment && (
         <div style={{

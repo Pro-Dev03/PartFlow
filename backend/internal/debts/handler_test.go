@@ -2,6 +2,7 @@ package debts
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,6 +68,108 @@ func TestDebtSummaryTracksPartialAndClosedDebt(t *testing.T) {
 	}
 	if summary.TotalDebt != 250 || summary.PaidAmount != 250 || summary.RemainingAmount != 0 || summary.CustomerCount != 0 {
 		t.Fatalf("closed summary = %+v, want total 250, paid 250, remaining 0, customers 0", summary)
+	}
+}
+
+func TestGetCustomerDebtsReturnsInvoiceAndProductHistorySQLite(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	for _, statement := range []string{
+		`CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, sale_id TEXT, amount REAL NOT NULL, paid_amount REAL NOT NULL DEFAULT 0, remaining_amount REAL NOT NULL, due_date TEXT, status TEXT, notes TEXT, created_at TEXT)`,
+		`CREATE TABLE sales (id TEXT PRIMARY KEY, invoice_number TEXT)`,
+		`CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT)`,
+		`CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, quantity INTEGER, unit_price REAL, total_amount REAL, created_at TEXT)`,
+		`CREATE TABLE customer_debts (id TEXT PRIMARY KEY, customer_id TEXT, amount REAL, reference_id TEXT, reference_type TEXT, due_date TEXT, is_paid INTEGER, paid_amount REAL, created_at TEXT)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	customerID, saleID, debtID, manualDebtID, productID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	if _, err := db.Exec(`INSERT INTO sales (id, invoice_number) VALUES (?, ?)`, saleID, "INV-2026-001"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO products (id, name) VALUES (?, ?)`, productID, "بطارية اختبار"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_price, total_amount, created_at) VALUES (?, ?, ?, 2, 35, 70, '2026-09-25')`, uuid.New(), saleID, productID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO debts (id, customer_id, sale_id, amount, paid_amount, remaining_amount, due_date, status, notes, created_at) VALUES (?, ?, ?, 70, 20, 50, '2026-10-25', 'partial', 'Sale: INV-2026-001', '2026-09-25')`, debtID, customerID, saleID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO debts (id, customer_id, amount, paid_amount, remaining_amount, due_date, status, notes, created_at) VALUES (?, ?, 15, 0, 15, '2026-10-25', 'pending', 'رصيد يدوي', '2026-09-24')`, manualDebtID, customerID); err != nil {
+		t.Fatal(err)
+	}
+	openingDebtID, duplicateSaleDebtID := uuid.New(), uuid.New()
+	if _, err := db.Exec(`INSERT INTO customer_debts (id, customer_id, amount, reference_type, due_date, is_paid, paid_amount, created_at) VALUES (?, ?, 40, 'opening_debt', '2026-10-25', 0, 0, '2026-09-23')`, openingDebtID, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO customer_debts (id, customer_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at) VALUES (?, ?, 70, ?, 'sale', '2026-10-25', 0, 0, '2026-09-25')`, duplicateSaleDebtID, customerID, saleID); err != nil {
+		t.Fatal(err)
+	}
+
+	router := gin.New()
+	router.GET("/debts/customer/:customer_id", NewHandler(sqlx.NewDb(db, "sqlite")).GetCustomerDebts)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/debts/customer/"+customerID.String(), nil)
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("history status = %d, body = %s", response.Code, response.Body.String())
+	}
+
+	var payload struct {
+		Data []struct {
+			ID              string  `json:"id"`
+			SaleID          string  `json:"sale_id"`
+			ReferenceType   string  `json:"reference_type"`
+			InvoiceNumber   string  `json:"invoice_number"`
+			Amount          float64 `json:"amount"`
+			PaidAmount      float64 `json:"paid_amount"`
+			RemainingAmount float64 `json:"remaining_amount"`
+			Items           []struct {
+				ProductName string  `json:"product_name"`
+				Quantity    int     `json:"quantity"`
+				UnitPrice   float64 `json:"unit_price"`
+				TotalAmount float64 `json:"total_amount"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Data) != 3 {
+		t.Fatalf("history entries = %d, want 3", len(payload.Data))
+	}
+	var linked, manual, opening bool
+	for _, entry := range payload.Data {
+		if entry.ID == debtID.String() {
+			linked = true
+			if entry.SaleID != saleID.String() || entry.InvoiceNumber != "INV-2026-001" || entry.Amount != 70 || entry.PaidAmount != 20 || entry.RemainingAmount != 50 {
+				t.Fatalf("linked debt summary = %+v", entry)
+			}
+			if len(entry.Items) != 1 || entry.Items[0].ProductName != "بطارية اختبار" || entry.Items[0].Quantity != 2 || entry.Items[0].UnitPrice != 35 || entry.Items[0].TotalAmount != 70 {
+				t.Fatalf("linked debt items = %+v", entry.Items)
+			}
+		}
+		if entry.ID == manualDebtID.String() {
+			manual = true
+			if len(entry.Items) != 0 {
+				t.Fatalf("manual debt unexpectedly has product items: %+v", entry.Items)
+			}
+		}
+		if entry.ID == openingDebtID.String() {
+			opening = entry.ReferenceType == "opening_debt" && entry.SaleID == "" && len(entry.Items) == 0
+		}
+	}
+	if !linked || !manual || !opening {
+		t.Fatalf("linked debt found=%v, manual debt found=%v, opening debt found=%v", linked, manual, opening)
 	}
 }
 

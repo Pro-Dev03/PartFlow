@@ -1,6 +1,7 @@
 package debts
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -506,72 +507,155 @@ func (h *Handler) GetCustomerDebts(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid customer ID"})
 		return
 	}
-	if dbutil.IsSQLite(h.db) {
-		var rows []struct {
-			ID                         string  `db:"id"`
-			Amount, RemainingAmount    float64 `db:"amount"`
-			DueDate, Status, CreatedAt string
-		}
-		if err := h.db.Select(&rows, `SELECT id, amount, remaining_amount, due_date, status, created_at FROM debts WHERE customer_id = ? ORDER BY due_date DESC`, customerID.String()); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		data := make([]gin.H, 0, len(rows))
-		for _, row := range rows {
-			data = append(data, gin.H{"id": row.ID, "amount": row.Amount, "remaining_amount": row.RemainingAmount, "due_date": row.DueDate, "status": row.Status, "created_at": row.CreatedAt})
-		}
-		c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
-		return
+	type debtLineItem struct {
+		ProductID   string  `json:"product_id" db:"product_id"`
+		ProductName string  `json:"product_name" db:"product_name"`
+		Quantity    int     `json:"quantity" db:"quantity"`
+		UnitPrice   float64 `json:"unit_price" db:"unit_price"`
+		TotalAmount float64 `json:"total_amount" db:"total_amount"`
 	}
-
-	var debts []struct {
-		ID              uuid.UUID `json:"id"`
-		Amount          float64   `json:"amount"`
-		RemainingAmount float64   `json:"remaining_amount"`
-		DueDate         string    `json:"due_date"`
-		Status          string    `json:"status"`
-		CreatedAt       string    `json:"created_at"`
+	type customerDebt struct {
+		ID              string         `json:"id" db:"id"`
+		CustomerID      string         `json:"customer_id" db:"customer_id"`
+		SaleID          sql.NullString `json:"-" db:"sale_id"`
+		ReferenceType   string         `json:"reference_type" db:"reference_type"`
+		InvoiceNumber   string         `json:"invoice_number" db:"invoice_number"`
+		Amount          float64        `json:"amount" db:"amount"`
+		PaidAmount      float64        `json:"paid_amount" db:"paid_amount"`
+		RemainingAmount float64        `json:"remaining_amount" db:"remaining_amount"`
+		DueDate         string         `json:"due_date" db:"due_date"`
+		Status          string         `json:"status" db:"status"`
+		Notes           string         `json:"notes" db:"notes"`
+		CreatedAt       string         `json:"created_at" db:"created_at"`
+		Items           []debtLineItem `json:"items" db:"-"`
 	}
 
 	query := `
-		SELECT id, amount, remaining_amount, due_date, status, created_at
-		FROM debts
-		WHERE customer_id = $1
-		ORDER BY due_date DESC
-	`
+		SELECT * FROM (
+			SELECT CAST(d.id AS TEXT) AS id,
+				CAST(d.customer_id AS TEXT) AS customer_id,
+				CAST(d.sale_id AS TEXT) AS sale_id,
+				CASE WHEN d.sale_id IS NOT NULL THEN 'sale'
+					WHEN UPPER(TRIM(COALESCE(d.notes, ''))) = 'MANUAL_ADJUSTMENT' THEN 'manual_adjustment'
+					ELSE 'manual' END AS reference_type,
+				COALESCE(s.invoice_number, '') AS invoice_number,
+				d.amount,
+				COALESCE(d.paid_amount, 0) AS paid_amount,
+				COALESCE(d.remaining_amount, d.amount - COALESCE(d.paid_amount, 0)) AS remaining_amount,
+				CAST(d.due_date AS TEXT) AS due_date,
+				COALESCE(d.status, 'pending') AS status,
+				COALESCE(d.notes, '') AS notes,
+				CAST(d.created_at AS TEXT) AS created_at
+			FROM debts d
+			LEFT JOIN sales s ON s.id = d.sale_id
+			WHERE d.customer_id = ?
 
-	rows, err := h.db.Query(query, customerID)
-	if err != nil {
+			UNION ALL
+
+			SELECT CAST(cd.id AS TEXT) AS id,
+				CAST(cd.customer_id AS TEXT) AS customer_id,
+				CASE WHEN LOWER(TRIM(COALESCE(cd.reference_type, ''))) = 'sale'
+					THEN CAST(cd.reference_id AS TEXT) ELSE '' END AS sale_id,
+				COALESCE(NULLIF(LOWER(TRIM(cd.reference_type)), ''), 'manual') AS reference_type,
+				COALESCE(s.invoice_number, '') AS invoice_number,
+				cd.amount,
+				COALESCE(cd.paid_amount, 0) AS paid_amount,
+				CASE WHEN cd.amount - COALESCE(cd.paid_amount, 0) < 0 THEN 0
+					ELSE cd.amount - COALESCE(cd.paid_amount, 0) END AS remaining_amount,
+				CAST(cd.due_date AS TEXT) AS due_date,
+				CASE WHEN cd.is_paid THEN 'paid'
+					WHEN COALESCE(cd.paid_amount, 0) > 0 THEN 'partial'
+					ELSE 'pending' END AS status,
+				COALESCE(cd.reference_type, '') AS notes,
+				CAST(cd.created_at AS TEXT) AS created_at
+			FROM customer_debts cd
+			LEFT JOIN sales s ON s.id = cd.reference_id
+				AND LOWER(TRIM(COALESCE(cd.reference_type, ''))) = 'sale'
+			WHERE cd.customer_id = ?
+				AND (LOWER(TRIM(COALESCE(cd.reference_type, ''))) <> 'sale'
+					OR NOT EXISTS (SELECT 1 FROM debts d WHERE d.customer_id = cd.customer_id AND d.sale_id = cd.reference_id))
+		) AS customer_debt_history
+		ORDER BY created_at DESC, id DESC
+	`
+	var debts []customerDebt
+	if err := h.db.SelectContext(c.Request.Context(), &debts, h.db.Rebind(query), customerID.String(), customerID.String()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
+	if debts == nil {
+		debts = []customerDebt{}
+	}
 
-	for rows.Next() {
-		var debt struct {
-			ID              uuid.UUID `json:"id"`
-			Amount          float64   `json:"amount"`
-			RemainingAmount float64   `json:"remaining_amount"`
-			DueDate         string    `json:"due_date"`
-			Status          string    `json:"status"`
-			CreatedAt       string    `json:"created_at"`
+	saleIDs := make([]uuid.UUID, 0, len(debts))
+	for i := range debts {
+		debts[i].Items = []debtLineItem{}
+		if !debts[i].SaleID.Valid || strings.TrimSpace(debts[i].SaleID.String) == "" {
+			continue
 		}
-		if err := rows.Scan(&debt.ID, &debt.Amount, &debt.RemainingAmount, &debt.DueDate, &debt.Status, &debt.CreatedAt); err != nil {
+		saleID, parseErr := uuid.Parse(debts[i].SaleID.String)
+		if parseErr != nil {
+			continue
+		}
+		saleIDs = append(saleIDs, saleID)
+	}
+	if len(saleIDs) > 0 {
+		itemsQuery, args, inErr := sqlx.In(`
+			SELECT CAST(si.sale_id AS TEXT) AS sale_id,
+				CAST(si.product_id AS TEXT) AS product_id,
+				COALESCE(p.name, 'منتج محذوف') AS product_name,
+				si.quantity,
+				si.unit_price,
+				COALESCE(si.total_amount, si.unit_price * si.quantity) AS total_amount
+			FROM sale_items si
+		LEFT JOIN products p ON p.id = si.product_id
+		WHERE si.sale_id IN (?)
+		ORDER BY si.created_at, si.id`, saleIDs)
+		if inErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": inErr.Error()})
+			return
+		}
+		var itemQueryRows []struct {
+			SaleID      string  `db:"sale_id"`
+			ProductID   string  `db:"product_id"`
+			ProductName string  `db:"product_name"`
+			Quantity    int     `db:"quantity"`
+			UnitPrice   float64 `db:"unit_price"`
+			TotalAmount float64 `db:"total_amount"`
+		}
+		if err := h.db.SelectContext(c.Request.Context(), &itemQueryRows, h.db.Rebind(itemsQuery), args...); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		debts = append(debts, debt)
+		itemsBySale := make(map[string][]debtLineItem, len(saleIDs))
+		for _, row := range itemQueryRows {
+			itemsBySale[row.SaleID] = append(itemsBySale[row.SaleID], debtLineItem{
+				ProductID: row.ProductID, ProductName: row.ProductName,
+				Quantity: row.Quantity, UnitPrice: row.UnitPrice, TotalAmount: row.TotalAmount,
+			})
+		}
+		for i := range debts {
+			if debts[i].SaleID.Valid {
+				debts[i].Items = itemsBySale[debts[i].SaleID.String]
+				if debts[i].Items == nil {
+					debts[i].Items = []debtLineItem{}
+				}
+			}
+		}
 	}
 
-	if err := rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	data := make([]gin.H, 0, len(debts))
+	for _, debt := range debts {
+		data = append(data, gin.H{
+			"id": debt.ID, "customer_id": debt.CustomerID,
+			"reference_type": debt.ReferenceType,
+			"sale_id":        strings.TrimSpace(debt.SaleID.String), "invoice_number": debt.InvoiceNumber,
+			"amount": debt.Amount, "paid_amount": debt.PaidAmount,
+			"remaining_amount": debt.RemainingAmount, "due_date": debt.DueDate,
+			"status": debt.Status, "notes": debt.Notes, "created_at": debt.CreatedAt,
+			"items": debt.Items,
+		})
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    debts,
-	})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }
 
 // GetOverdueDebts retrieves all overdue debts

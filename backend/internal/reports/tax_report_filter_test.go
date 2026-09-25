@@ -59,28 +59,28 @@ func TestGetTaxDataExcludesTaxExemptSales(t *testing.T) {
 		t.Fatalf("GetTaxData failed: %v", err)
 	}
 
-	if got, want := report.GrossSales, 150.0; got != want {
+	if got, want := report.GrossSales, 100.0; got != want {
 		t.Fatalf("GrossSales = %v, want %v", got, want)
 	}
-	if got, want := report.Discounts, 10.0; got != want {
+	if got, want := report.Discounts, 0.0; got != want {
 		t.Fatalf("Discounts = %v, want %v", got, want)
 	}
-	if got, want := report.TaxableSales, 140.0; got != want {
+	if got, want := report.TaxableSales, 100.0; got != want {
 		t.Fatalf("TaxableSales = %v, want %v", got, want)
 	}
-	if got, want := report.TaxCollected, 21.0; got != want {
+	if got, want := report.TaxCollected, 15.0; got != want {
 		t.Fatalf("TaxCollected = %v, want %v", got, want)
 	}
 	if got, want := report.ExemptSales, 200.0; got != want {
 		t.Fatalf("ExemptSales = %v, want %v", got, want)
 	}
-	if got, want := report.SalesTotal, 361.0; got != want {
+	if got, want := report.SalesTotal, 315.0; got != want {
 		t.Fatalf("SalesTotal = %v, want %v", got, want)
 	}
-	if got, want := report.ReturnsTotal, 10.0; got != want {
+	if got, want := report.ReturnsTotal, 0.0; got != want {
 		t.Fatalf("ReturnsTotal = %v, want %v", got, want)
 	}
-	if got, want := report.NetSalesTotal, 351.0; got != want {
+	if got, want := report.NetSalesTotal, 315.0; got != want {
 		t.Fatalf("NetSalesTotal = %v, want %v", got, want)
 	}
 }

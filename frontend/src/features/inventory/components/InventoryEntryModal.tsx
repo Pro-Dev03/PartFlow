@@ -1,13 +1,13 @@
+import { useState } from 'react';
 import { ArrowLeft, PackagePlus, Plus, ShoppingCart, Tag, Truck } from 'lucide-react';
 import { Modal } from '../../../design-system/components/modal';
 import { Button } from '../../../design-system/components/button';
+import { InventoryQuickCreateModal } from './InventoryQuickCreateModal';
 
 interface InventoryEntryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddProduct: () => void;
-  onAddCategory: () => void;
-  onAddSupplier: () => void;
   onCreatePurchase: () => void;
   onBulkImport?: () => void;
 }
@@ -16,121 +16,122 @@ export function InventoryEntryModal({
   isOpen,
   onClose,
   onAddProduct,
-  onAddCategory,
-  onAddSupplier,
   onCreatePurchase,
   onBulkImport,
 }: InventoryEntryModalProps) {
-  const choose = (action: () => void) => {
+  const [screen, setScreen] = useState<'main' | 'category' | 'supplier'>('main');
+
+  const handleClose = () => {
+    setScreen('main');
     onClose();
+  };
+
+  const choose = (action: () => void) => {
+    handleClose();
     action();
   };
 
+  const quickActionClass =
+    'group flex min-h-14 items-center gap-2.5 rounded-xl border border-border bg-surface px-3 py-2.5 text-start text-sm font-semibold text-text-primary transition-colors hover:border-primary/50 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary';
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="إضافة إلى منظومة المخزون" size="lg">
-      <div className="flex flex-col gap-3">
-        <div className="rounded-xl border border-[var(--color-primary-15)] bg-[var(--color-primary-08)] px-5 py-4">
-          <p className="text-base font-semibold text-text-primary">كيف تريد إضافة المخزون؟</p>
-          <p className="mt-1.5 text-sm leading-6 text-text-secondary">
-            ابدأ من المخزون، وسنحافظ على السياق أثناء انتقالك بين التصنيف والمنتج والتاجر والشراء.
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={screen === 'category' ? 'تصنيف جديد' : screen === 'supplier' ? 'تاجر جديد' : 'إضافة إلى المخزون'}
+      size="lg"
+      autoFocus={false}
+    >
+      <div dir="rtl" className="space-y-4">
+        {screen !== 'main' ? (
+          <InventoryQuickCreateModal
+            mode={screen}
+            isOpen
+            inline
+            onClose={() => setScreen('main')}
+            onCreated={() => setScreen('main')}
+          />
+        ) : (
+          <>
+        <div className="rounded-xl border border-[var(--color-primary-15)] bg-[var(--color-primary-08)] px-4 py-3">
+          <p className="text-sm font-semibold text-text-primary">اختر طريقة الإدخال</p>
+          <p className="mt-1 text-xs leading-5 text-text-secondary">
+            أضف صنفًا مباشرة، أو سجّل فاتورة شراء لتحديث الكميات وحسابات التاجر.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => choose(onAddCategory)}
-          className="pf-entry-option group order-2"
-        >
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
-            <Tag className="h-5 w-5" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="mb-1.5 flex flex-wrap items-center gap-2 text-base">
-              <span className="rounded-md bg-[var(--color-primary-10)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--primary)]">02</span>
-              <span className="font-semibold text-text-primary">إضافة تصنيف</span>
-            </span>
-            <span className="block text-sm leading-6 text-text-secondary">جهّز التصنيف قبل تعريف المنتج.</span>
-          </span>
-          <ArrowLeft className="h-4 w-4 shrink-0 text-text-secondary" />
-        </button>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <section className="rounded-2xl border border-[var(--color-primary-20)] bg-[var(--color-primary-05)] p-4">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
+                <PackagePlus className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-text-primary">إضافة أصناف</h3>
+                <p className="mt-0.5 text-xs text-text-secondary">صنف واحد أو قائمة أصناف</p>
+              </div>
+            </div>
+            <div className={onBulkImport ? 'grid grid-cols-2 gap-2' : ''}>
+              <button
+                type="button"
+                onClick={() => choose(onAddProduct)}
+                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+              >
+                <Plus className="h-4 w-4" />
+                صنف واحد
+              </button>
+              {onBulkImport && (
+                <button
+                  type="button"
+                  onClick={() => choose(onBulkImport)}
+                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface px-2 py-2 text-xs font-semibold text-text-primary transition-colors hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <PackagePlus className="h-4 w-4 shrink-0" />
+                  عدة أصناف
+                </button>
+              )}
+            </div>
+          </section>
 
-        <button
-          type="button"
-          onClick={() => choose(onCreatePurchase)}
-            className="pf-entry-option group order-4 border-primary/30 bg-primary/5 shadow-sm"
-        >
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
-            <ShoppingCart className="h-5 w-5" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="mb-1.5 flex flex-wrap items-center gap-2 text-base">
-              <span className="rounded-md bg-[var(--color-primary-10)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--primary)]">04</span>
-              <span className="font-semibold text-text-primary">شراء جديد</span>
-            </span>
-            <span className="block text-sm leading-6 text-text-secondary">إنشاء فاتورة، تحديث رصيد التاجر، واستلام الكمية.</span>
-          </span>
-          <ArrowLeft className="h-4 w-4 shrink-0 text-text-secondary transition-transform group-hover:-translate-x-1 group-hover:text-[var(--primary)]" />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => choose(onAddSupplier)}
-          className="pf-entry-option group order-3"
-        >
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
-            <Truck className="h-5 w-5" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="mb-1.5 flex flex-wrap items-center gap-2 text-base">
-                <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-primary">03</span>
-              <span className="font-semibold text-text-primary">إضافة تاجر</span>
-            </span>
-            <span className="block text-sm leading-6 text-text-secondary">أضف تاجرًا ليظهر مباشرة في عمليات الشراء.</span>
-          </span>
-          <ArrowLeft className="h-4 w-4 shrink-0 text-text-secondary" />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => choose(onAddProduct)}
-          className="pf-entry-option group order-1"
-        >
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
-            <PackagePlus className="h-5 w-5" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="mb-1.5 flex flex-wrap items-center gap-2 text-base">
-                <span className="rounded-md bg-[var(--color-primary-10)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--primary)]">01</span>
-              <span className="font-semibold text-text-primary">إنشاء صنف جديد</span>
-            </span>
-            <span className="block text-sm leading-6 text-text-secondary">تعريف المنتج أولًا، ثم إضافة رصيده عند الحاجة.</span>
-          </span>
-          <ArrowLeft className="h-4 w-4 shrink-0 text-text-secondary transition-transform group-hover:-translate-x-1 group-hover:text-[var(--primary)]" />
-        </button>
-
-        {onBulkImport && (
           <button
             type="button"
-            onClick={() => choose(onBulkImport)}
-            className="pf-entry-option group order-1.5"
+            onClick={() => choose(onCreatePurchase)}
+            className="group flex min-h-32 w-full items-center gap-3 rounded-2xl border border-border bg-surface p-4 text-start transition-colors hover:border-primary/50 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
-              <Plus className="h-5 w-5" />
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
+              <ShoppingCart className="h-5 w-5" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="mb-1.5 flex flex-wrap items-center gap-2 text-base">
-                <span className="rounded-md bg-[var(--color-primary-10)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--primary)]">01.5</span>
-                <span className="font-semibold text-text-primary">إضافة منتجات متعددة</span>
+              <span className="block text-sm font-bold text-text-primary">تسجيل شراء</span>
+              <span className="mt-1 block text-xs leading-5 text-text-secondary">
+                استلام الكمية وتحديث رصيد التاجر
               </span>
-              <span className="block text-sm leading-6 text-text-secondary">استيراد عدة أصناف في سطر واحد بصيغة اسم | SKU | سعر الشراء | سعر البيع.</span>
             </span>
-            <ArrowLeft className="h-4 w-4 shrink-0 text-text-secondary transition-transform group-hover:-translate-x-1 group-hover:text-[var(--primary)]" />
+            <ArrowLeft className="h-4 w-4 shrink-0 text-text-secondary transition-transform group-hover:-translate-x-0.5 group-hover:text-primary" />
           </button>
-        )}
 
-        <div className="flex justify-end pt-2">
-          <Button variant="secondary" onClick={onClose}>إلغاء</Button>
+          <div className="sm:col-span-2">
+            <p className="mb-2 text-xs font-semibold text-text-secondary">إعدادات سريعة</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setScreen('category')} className={quickActionClass}>
+                <Tag className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">تصنيف جديد</span>
+                <Plus className="h-4 w-4 shrink-0 text-text-secondary" />
+              </button>
+              <button type="button" onClick={() => setScreen('supplier')} className={quickActionClass}>
+                <Truck className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">تاجر جديد</span>
+                <Plus className="h-4 w-4 shrink-0 text-text-secondary" />
+              </button>
+            </div>
+          </div>
         </div>
+
+        <div className="flex justify-start border-t border-border pt-3">
+          <Button variant="secondary" onClick={handleClose}>إلغاء</Button>
+        </div>
+          </>
+        )}
       </div>
     </Modal>
   );

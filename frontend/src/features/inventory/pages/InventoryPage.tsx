@@ -30,12 +30,11 @@ import { ReportActions } from '../../../design-system/components/report-actions'
 
 // Types
 import { ViewMode, Product, InventoryItem } from '../types/inventory.types';
-import { categoriesApi, inventoryApi, productsApi } from '../../../services/api/endpoints';
+import { inventoryApi, productsApi } from '../../../services/api/endpoints';
 import { toast } from 'sonner';
 import { getLocalProductImage } from '../../../services/localProductImages';
 import { getCategoryImage } from '../../../services/localCategoryImages';
 import { generateSku } from '../../../utils/sku';
-import { InventoryQuickCreateModal } from '../components/InventoryQuickCreateModal';
 import { BulkProductImportModal } from '../components/BulkProductImportModal';
 import { CreatePurchasePage } from '../../purchases/pages/CreatePurchasePage';
 import { SupplierInvoiceModal } from '../../purchases/components/SupplierInvoiceModal';
@@ -74,9 +73,6 @@ export function InventoryPage() {
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isPurchaseWorkflowOpen, setIsPurchaseWorkflowOpen] = useState(false);
   const [completedPurchase, setCompletedPurchase] = useState<any | null>(null);
-  const [quickCreateMode, setQuickCreateMode] = useState<'category' | 'supplier' | null>(null);
-  const [isProductCategoryPickerOpen, setIsProductCategoryPickerOpen] = useState(false);
-  const [pendingProductCategoryId, setPendingProductCategoryId] = useState('');
   const [showInventoryLedger, setShowInventoryLedger] = useState(false);
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
   const [inventoryLedgerLoading, setInventoryLedgerLoading] = useState(false);
@@ -123,12 +119,6 @@ export function InventoryPage() {
   const supplierOnly = filters.some((filter) => filter.key === 'supplier_only' && String(filter.value).toLowerCase() === 'true');
   const manualOnly = filters.some((filter) => filter.key === 'manual_only' && String(filter.value).toLowerCase() === 'true');
   const inventorySource = manualOnly ? 'manual' : supplierOnly ? 'supplier' : 'all';
-  const { data: categoriesData } = useQuery({
-    queryKey: ['categories'],
-    queryFn: () => categoriesApi.list(),
-  });
-  const inventoryCategories = (categoriesData?.data as Array<{ id: string; name: string }>) || [];
-
   // Handle edit product from navigation state
   useEffect(() => {
     if (location.state?.editProduct) {
@@ -569,11 +559,6 @@ export function InventoryPage() {
   };
 
   const handleManualAdd = () => {
-    setPendingProductCategoryId('');
-    setIsProductCategoryPickerOpen(true);
-  };
-
-  const openProductWithCategory = (categoryId: string) => {
     setSelectedProduct({
       id: '',
       name: '',
@@ -582,9 +567,8 @@ export function InventoryPage() {
       costPrice: 0,
       stock: 0,
       condition: 'new',
-      category_id: categoryId,
+      category_id: '',
     });
-    setIsProductCategoryPickerOpen(false);
     setIsCreatingProduct(true);
     setIsEditModalOpen(true);
   };
@@ -765,8 +749,6 @@ export function InventoryPage() {
         isOpen={isInventoryEntryModalOpen}
         onClose={() => setIsInventoryEntryModalOpen(false)}
         onAddProduct={handleManualAdd}
-        onAddCategory={() => setQuickCreateMode('category')}
-        onAddSupplier={() => setQuickCreateMode('supplier')}
         onCreatePurchase={handleCreatePurchase}
         onBulkImport={() => setIsBulkImportOpen(true)}
       />
@@ -780,48 +762,6 @@ export function InventoryPage() {
             queryClient.invalidateQueries({ queryKey: ['inventory'] }),
             queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
           ]);
-        }}
-      />
-
-      <Modal
-        isOpen={isProductCategoryPickerOpen}
-        onClose={() => setIsProductCategoryPickerOpen(false)}
-        title="اختر تصنيف المنتج"
-        variant="modern"
-        size="sm"
-      >
-        <div className="space-y-4" data-next-disabled>
-          <p className="text-sm text-text-secondary">المنتج جزء من منظومة التصنيف. اختر تصنيفًا قبل إدخال بياناته.</p>
-          <select
-            autoFocus
-            value={pendingProductCategoryId}
-            onChange={(event) => setPendingProductCategoryId(event.target.value)}
-            className="pf-select-control w-full rounded-xl border border-border bg-surface px-3"
-          >
-            <option value="">اختر التصنيف...</option>
-            {inventoryCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-          </select>
-          <div className="flex items-center justify-between gap-2">
-            <Button variant="ghost" onClick={() => setQuickCreateMode('category')}>+ إضافة تصنيف</Button>
-            <div className="flex gap-2">
-              <Button variant="secondary" onClick={() => setIsProductCategoryPickerOpen(false)}>إلغاء</Button>
-              <Button variant="primary" disabled={!pendingProductCategoryId} onClick={() => openProductWithCategory(pendingProductCategoryId)}>متابعة للمنتج</Button>
-            </div>
-          </div>
-        </div>
-      </Modal>
-
-      <InventoryQuickCreateModal
-        mode={quickCreateMode || 'category'}
-        isOpen={quickCreateMode !== null}
-        onClose={() => setQuickCreateMode(null)}
-        onCreated={(record) => {
-          void queryClient.invalidateQueries({ queryKey: ['categories'] });
-          void queryClient.invalidateQueries({ queryKey: ['suppliers'] });
-          if (quickCreateMode === 'category' && isProductCategoryPickerOpen) {
-            openProductWithCategory(record.id);
-          }
-          setQuickCreateMode(null);
         }}
       />
 

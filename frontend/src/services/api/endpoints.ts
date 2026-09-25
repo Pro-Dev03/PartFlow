@@ -318,6 +318,7 @@ export const debtsApi = {
   }) =>
     apiClient.get('/debts', params, false),
   get: (customerId: string, debtId: string) => apiClient.get(`/customers/${customerId}/debts/${debtId}`),
+  getCustomerHistory: (customerId: string) => apiClient.get(`/debts/customer/${customerId}`),
   recordPayment: (customerId: string, data: CustomerDebtPaymentRequest) => apiClient.post(`/customers/${customerId}/debt-payments`, data),
   adjust: (customerId: string, data: { amount: number; type: 'debit' | 'credit'; reason?: string; due_date?: string }) => apiClient.post(`/customers/${customerId}/debt-adjustments`, data),
   getDebtEntries: (customerId: string) => apiClient.get(`/customers/${customerId}/debts`),

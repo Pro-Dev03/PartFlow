@@ -11,6 +11,7 @@ import { calculateSuggestedSellingPrice, DEFAULT_PROFIT_MARGIN } from '../../../
 import { formatPrice } from '../../../utils/helpers';
 import { clearBarcodeLookupFields, lookupProductByBarcode } from '../../../lib/productBarcodeLookup';
 import { toast } from 'sonner';
+import { InventoryQuickCreateModal } from './InventoryQuickCreateModal';
 
 interface InventoryModalsProps {
   isViewModalOpen: boolean;
@@ -71,6 +72,7 @@ export function InventoryModals({
     ? configuredMargin
     : DEFAULT_PROFIT_MARGIN;
   const [productStep, setProductStep] = useState<1 | 2 | 3 | 4>(1);
+  const [quickCreateMode, setQuickCreateMode] = useState<'category' | 'supplier' | null>(null);
   const autoFilledNameRef = useRef('');
   const [additionalBarcode, setAdditionalBarcode] = useState('');
   const productBarcodesQuery = useQuery({
@@ -126,6 +128,7 @@ export function InventoryModals({
   useEffect(() => {
     if (!isEditModalOpen || !isCreatingProduct) return;
     autoFilledNameRef.current = '';
+    setQuickCreateMode(null);
     setProductStep(1);
     requestAnimationFrame(() => {
       document.querySelector<HTMLElement>('.product-create-stage input:not([disabled]), .product-create-stage select:not([disabled])')?.focus();
@@ -329,7 +332,22 @@ export function InventoryModals({
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset, 0 0 40px rgba(99, 102, 241, 0.1)'
         }}
       >
-        {selectedProduct && !isCreatingProduct ? (
+        {selectedProduct && isCreatingProduct && quickCreateMode ? (
+          <InventoryQuickCreateModal
+            mode={quickCreateMode}
+            isOpen
+            inline
+            onClose={() => setQuickCreateMode(null)}
+            onCreated={(record) => {
+              setSelectedProduct((current) => current
+                ? quickCreateMode === 'category'
+                  ? { ...current, category_id: record.id }
+                  : { ...current, supplier_id: record.id, supplier_name: record.name }
+                : current);
+              setQuickCreateMode(null);
+            }}
+          />
+        ) : selectedProduct && !isCreatingProduct ? (
           <div className="space-y-md">
             {/* Basic Information Section */}
             <div style={{ 
@@ -532,6 +550,18 @@ export function InventoryModals({
                       ...suppliers.map((supplier: any) => ({ value: supplier.id, label: supplier.name })),
                     ]}
                   />
+                  {isCreatingProduct && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => setQuickCreateMode('supplier')}
+                    >
+                      <Plus className="me-1 h-4 w-4" />
+                      إضافة تاجر جديد
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -869,6 +899,18 @@ export function InventoryModals({
                       ...categories.map((cat: any) => ({ value: cat.id, label: cat.name }))
                     ]}
                   />
+                  {isCreatingProduct && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => setQuickCreateMode('category')}
+                    >
+                      <Plus className="me-1 h-4 w-4" />
+                      إضافة تصنيف جديد
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>

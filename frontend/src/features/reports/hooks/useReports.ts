@@ -70,9 +70,17 @@ export function useReports(selectedReport: string, dateRange: string, customStar
             dayMap.set(date, current);
           });
           return {
-            ...sales,
             ...profit,
-            ...netSales,
+            total_sales: Number(sales.total_sales ?? profit.total_sales ?? 0),
+            total_items_sold: Number(sales.total_items_sold ?? 0),
+            total_paid: Number(sales.total_paid ?? 0),
+            cash_received: Number(sales.cash_received ?? 0),
+            change_amount: Number(sales.change_amount ?? 0),
+            cash_revenue: Number(sales.cash_revenue ?? 0),
+            credit_revenue: Number(sales.credit_revenue ?? 0),
+            by_payment_method: sales.by_payment_method ?? {},
+            top_products: sales.top_products ?? [],
+            total_refunded: Number(netSales.total_refunded ?? 0),
             by_day: Array.from(dayMap.values()).sort((left, right) => left.date.localeCompare(right.date)),
             sales_report: sales,
             profit_report: profit,

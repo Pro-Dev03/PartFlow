@@ -576,7 +576,7 @@ func (r *Repository) GetExpenseCategoryByID(ctx context.Context, id uuid.UUID) (
 	}
 	var category ExpenseCategory
 	query := `
-		SELECT id, name, COALESCE(description, ''), COALESCE(color, ''), COALESCE(icon, ''), budget, is_active, created_at, updated_at
+		SELECT id, name, COALESCE(description, '') AS description, COALESCE(color, '') AS color, COALESCE(icon, '') AS icon, budget, is_active, created_at, updated_at
 		FROM expense_categories
 		WHERE id = $1
 	`
@@ -646,7 +646,7 @@ func (r *Repository) ListExpenseCategories(ctx context.Context, req ExpenseCateg
 
 	// Build base query
 	baseQuery := `
-		SELECT id, name, COALESCE(description, ''), COALESCE(color, ''), COALESCE(icon, ''), budget, is_active, created_at, updated_at
+		SELECT id, name, COALESCE(description, '') AS description, COALESCE(color, '') AS color, COALESCE(icon, '') AS icon, budget, is_active, created_at, updated_at
 		FROM expense_categories
 	`
 
