@@ -141,6 +141,9 @@ func (h *Handler) ListExpenses(c *gin.Context) {
 			req.IsRecurring = &val
 		}
 	}
+	if includeArchived := c.Query("include_archived"); includeArchived != "" {
+		req.IncludeArchived, _ = strconv.ParseBool(includeArchived)
+	}
 
 	expenses, total, err := h.service.ListExpenses(c.Request.Context(), req)
 	if err != nil {

@@ -504,6 +504,48 @@ func (h *Handler) GetPendingDebtCollections(c *gin.Context) {
 	response.Success(c, http.StatusOK, collections, "Pending debt collections retrieved successfully")
 }
 
+// AdjustCustomerDebt handles a manual increase/decrease to the customer's debt.
+func (h *Handler) AdjustCustomerDebt(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		errors.HandleError(c, errors.NewValidationError("Invalid customer ID", err))
+		return
+	}
+
+	var req AdjustCustomerDebtRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errors.HandleError(c, errors.ValidateRequest(err))
+		return
+	}
+
+	err = h.service.AdjustCustomerDebt(c.Request.Context(), id, req.Amount, req.Type, req.Reason)
+	if err != nil {
+		if err == ErrCustomerNotFound {
+			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
+			return
+		}
+		if err == ErrPaymentAmountInvalid {
+			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Adjustment amount must be greater than zero", err.Error())
+			return
+		}
+		if err == ErrPaymentExceedsBalance {
+			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Adjustment exceeds the customer balance", err.Error())
+			return
+		}
+		if err == ErrInvalidPaymentMethod {
+			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Adjustment type must be debit or credit", err.Error())
+			return
+		}
+		errors.HandleError(c, errors.WrapError(err, "Failed to adjust customer debt"))
+		return
+	}
+	if service := dashboard.GetGlobalCacheService(); service != nil {
+		service.InvalidateCache()
+	}
+
+	response.Success(c, http.StatusOK, nil, "Customer debt adjusted successfully")
+}
+
 // ProcessDebtPayment handles debt payment processing
 func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))

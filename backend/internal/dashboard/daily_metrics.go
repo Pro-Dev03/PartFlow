@@ -263,7 +263,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 		_ = db.GetContext(ctx, &metrics.Collected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE (sale_id IS NOT NULL OR customer_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'customer' AND reference_id IS NOT NULL)) AND LOWER(COALESCE(status, payment_status, 'completed')) IN ('completed', 'paid') AND COALESCE(payment_date, created_at)::date = $1::date`, date)
 		_ = db.GetContext(ctx, &metrics.DebtCollected, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE sale_id IS NULL AND (customer_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'customer' AND reference_id IS NOT NULL)) AND LOWER(COALESCE(status, payment_status, 'completed')) IN ('completed', 'paid') AND COALESCE(payment_date, created_at)::date = $1::date`, date)
 		_ = db.GetContext(ctx, &metrics.SupplierPaid, `SELECT COALESCE(SUM(amount), 0) FROM payments WHERE (supplier_id IS NOT NULL OR (LOWER(COALESCE(type, '')) = 'supplier' AND reference_id IS NOT NULL)) AND LOWER(COALESCE(status, payment_status, 'completed')) IN ('completed', 'paid') AND COALESCE(payment_date, created_at)::date = $1::date`, date)
-		_ = db.GetContext(ctx, &metrics.Expenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date::date = $1::date AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')`, date)
+		_ = db.GetContext(ctx, &metrics.Expenses, `SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date::date = $1::date AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed', 'archived')`, date)
 	}
 	return metrics, nil
 }

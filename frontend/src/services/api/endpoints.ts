@@ -319,6 +319,7 @@ export const debtsApi = {
     apiClient.get('/debts', params, false),
   get: (customerId: string, debtId: string) => apiClient.get(`/customers/${customerId}/debts/${debtId}`),
   recordPayment: (customerId: string, data: CustomerDebtPaymentRequest) => apiClient.post(`/customers/${customerId}/debt-payments`, data),
+  adjust: (customerId: string, data: { amount: number; type: 'debit' | 'credit'; reason?: string; due_date?: string }) => apiClient.post(`/customers/${customerId}/debt-adjustments`, data),
   getDebtEntries: (customerId: string) => apiClient.get(`/customers/${customerId}/debts`),
   getDebtCollections: (customerId: string) => apiClient.get(`/customers/${customerId}/debt-collections`),
   getPendingCollections: () => apiClient.get('/debt-collections/pending'),
@@ -361,7 +362,7 @@ export const purchasesApi = {
 
 // Expenses endpoints
 export const expensesApi = {
-  list: (params?: PaginationParams & { search?: string; category_id?: string; start_date?: string; end_date?: string }) =>
+  list: (params?: PaginationParams & { search?: string; category_id?: string; start_date?: string; end_date?: string; include_archived?: boolean }) =>
     apiClient.get('/expenses', params, false),
   get: (id: string) => apiClient.get(`/expenses/${id}`),
   create: (data: ExpenseCreateRequest) => apiClient.post('/expenses', data),

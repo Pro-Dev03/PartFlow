@@ -18,7 +18,7 @@ var (
 	storeTimezone   = DefaultStoreTimezone
 )
 
-var accountingExpenseStatuses = "LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')"
+var accountingExpenseStatuses = "LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed', 'archived')"
 
 // StoreLocation returns the calendar timezone used by store business dates.
 func StoreLocation() (*time.Location, error) {
@@ -175,6 +175,17 @@ func StoreDateRange(now time.Time, days int) (string, string, error) {
 // so cash-flow code must not claim that approval proves cash was paid.
 func AccountingExpenseStatusSQL() string {
 	return accountingExpenseStatuses
+}
+
+// IsAccountingExpenseStatus reports whether an expense status contributes to
+// accrual profit and must therefore be treated as financially committed.
+func IsAccountingExpenseStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "approved", "paid", "completed", "archived":
+		return true
+	default:
+		return false
+	}
 }
 
 // TotalExpensesForPeriod returns approved accounting expenses in [start, end).

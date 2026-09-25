@@ -22,7 +22,11 @@ var (
 	ErrInvalidPaymentMethod = errors.New("invalid payment method")
 
 	// ErrInvalidAmount is returned when amount is invalid
-	ErrInvalidAmount = errors.New("invalid amount")
+	ErrInvalidAmount              = errors.New("invalid amount")
+	ErrInvalidExpenseTitle        = errors.New("expense title is required")
+	ErrInvalidExpenseCategoryName = errors.New("expense category name is required")
+	ErrExpenseCategoryInactive    = errors.New("expense category is inactive")
+	ErrExpenseAlreadyArchived     = errors.New("expense is already archived")
 
 	// ErrInvalidCurrency is returned when currency is invalid
 	ErrInvalidCurrency = errors.New("invalid currency")

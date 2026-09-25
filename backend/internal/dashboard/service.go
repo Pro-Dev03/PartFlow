@@ -160,7 +160,7 @@ func (s *Service) GetDashboardStats(ctx context.Context) (*DashboardStats, error
 			(SELECT COUNT(*) FROM sales WHERE status = 'pending') as pending_orders,
 			(SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE status = 'completed') as total_sales,
 			(SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE status = 'received') as total_purchases,
-			(SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE status = 'approved') as total_expenses,
+			(SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed', 'archived')) as total_expenses,
 			(SELECT COUNT(*) FROM products WHERE is_active = true AND deleted_at IS NULL) as total_products,
 			(SELECT COUNT(*) FROM customers) as total_customers,
 			(SELECT COUNT(*) FROM suppliers) as total_suppliers,

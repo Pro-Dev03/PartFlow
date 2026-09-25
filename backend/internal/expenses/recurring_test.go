@@ -72,3 +72,33 @@ func TestEnsureRecurringExpensesMaterializesDueDatesOnce(t *testing.T) {
 		t.Fatalf("generated recurring expenses = %d, want 2", generated)
 	}
 }
+
+func TestRecurringOccurrenceKeepsMonthEndAnchor(t *testing.T) {
+	start := time.Date(2026, time.January, 31, 8, 0, 0, 0, time.UTC)
+	if got := recurringOccurrence(start, "monthly", 1); !got.Equal(time.Date(2026, time.February, 28, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("first monthly occurrence = %s, want 2026-02-28", got.Format(time.RFC3339))
+	}
+	if got := recurringOccurrence(start, "monthly", 2); !got.Equal(time.Date(2026, time.March, 31, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("second monthly occurrence = %s, want 2026-03-31", got.Format(time.RFC3339))
+	}
+}
+
+func TestRecurringOccurrenceClampsLeapDayWithoutDrift(t *testing.T) {
+	start := time.Date(2024, time.February, 29, 8, 0, 0, 0, time.UTC)
+	if got := recurringOccurrence(start, "yearly", 1); !got.Equal(time.Date(2025, time.February, 28, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("first yearly occurrence = %s, want 2025-02-28", got.Format(time.RFC3339))
+	}
+	if got := recurringOccurrence(start, "yearly", 4); !got.Equal(time.Date(2028, time.February, 29, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("fourth yearly occurrence = %s, want 2028-02-29", got.Format(time.RFC3339))
+	}
+}
+
+func TestStoreDateAtNoonUsesStoreCalendarDay(t *testing.T) {
+	storeLocation := time.FixedZone("store", 3*60*60)
+	now := time.Date(2026, time.January, 1, 22, 30, 0, 0, time.UTC)
+	got := storeDateAtNoon(now, storeLocation)
+	want := time.Date(2026, time.January, 2, 12, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("store date = %s, want %s", got.Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+}

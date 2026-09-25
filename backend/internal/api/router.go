@@ -245,6 +245,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				customers.GET("/:id/financial-timeline", customerHandler.GetFinancialTimeline)
 				customers.POST("/:id/payments", customerHandler.AddPayment)
 				customers.POST("/:id/debt-payments", customerHandler.ProcessDebtPayment)
+				customers.POST("/:id/debt-adjustments", customerHandler.AdjustCustomerDebt)
 				customers.GET("/:id/debts", customerHandler.GetDebtEntries)
 				customers.POST("/:id/debts", customerHandler.CreateDebtEntry)
 				customers.GET("/:id/debt-summary", customerHandler.GetCustomerDebtSummary)

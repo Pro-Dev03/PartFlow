@@ -1,12 +1,15 @@
 package expenses
 
 import (
+	"math"
+	"strings"
+
 	"github.com/google/uuid"
 )
 
 // ValidateExpenseAmount validates expense amount
 func ValidateExpenseAmount(amount float64) error {
-	if amount <= 0 {
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
 		return ErrInvalidAmount
 	}
 	return nil
@@ -58,7 +61,7 @@ func ValidateRecurringPeriod(period string) error {
 
 // ValidateCurrency validates currency code
 func ValidateCurrency(currency string) error {
-	if currency == "" {
+	if strings.TrimSpace(currency) == "" {
 		return ErrInvalidCurrency
 	}
 	// Add more validation if needed (e.g., check against ISO 4217)

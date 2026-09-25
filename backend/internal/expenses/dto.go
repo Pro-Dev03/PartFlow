@@ -2,6 +2,7 @@ package expenses
 
 import (
 	"math"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,6 +59,10 @@ func CreateExpense(userID uuid.UUID, req *ExpenseRequest) *Expense {
 
 // CreateExpenseCategory creates an ExpenseCategory from request
 func CreateExpenseCategory(req *ExpenseCategoryRequest) *ExpenseCategory {
+	isActive := true
+	if req.IsActive != nil {
+		isActive = *req.IsActive
+	}
 	return &ExpenseCategory{
 		ID:          uuid.New(),
 		Name:        req.Name,
@@ -65,7 +70,7 @@ func CreateExpenseCategory(req *ExpenseCategoryRequest) *ExpenseCategory {
 		Color:       req.Color,
 		Icon:        req.Icon,
 		Budget:      req.Budget,
-		IsActive:    req.IsActive,
+		IsActive:    isActive,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -73,36 +78,43 @@ func CreateExpenseCategory(req *ExpenseCategoryRequest) *ExpenseCategory {
 
 // ValidateExpenseRequest validates expense request
 func ValidateExpenseRequest(req *ExpenseRequest) error {
+	if req == nil {
+		return ErrInvalidExpenseStatus
+	}
 	if req.CategoryID == uuid.Nil {
 		return ErrExpenseCategoryNotFound
 	}
+	req.Title = strings.TrimSpace(req.Title)
 	if req.Title == "" {
-		return ErrExpenseNotFound
+		return ErrInvalidExpenseTitle
 	}
-	if req.Amount <= 0 || math.Trunc(req.Amount) != req.Amount {
-		return ErrInvalidAmount
+	if err := ValidateExpenseAmount(req.Amount); err != nil {
+		return err
 	}
-	if req.Currency == "" {
-		return ErrInvalidCurrency
+	if err := ValidateCurrency(req.Currency); err != nil {
+		return err
 	}
-	if req.PaymentMethod != "cash" && req.PaymentMethod != "card" &&
-		req.PaymentMethod != "bank_transfer" && req.PaymentMethod != "check" {
-		return ErrInvalidPaymentMethod
+	if err := ValidatePaymentMethod(req.PaymentMethod); err != nil {
+		return err
 	}
-	if req.IsRecurring && (req.RecurringPeriod != "daily" &&
-		req.RecurringPeriod != "weekly" && req.RecurringPeriod != "monthly" &&
-		req.RecurringPeriod != "yearly") {
-		return ErrInvalidRecurringPeriod
+	if req.IsRecurring {
+		if err := ValidateRecurringPeriod(req.RecurringPeriod); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // ValidateExpenseCategoryRequest validates expense category request
 func ValidateExpenseCategoryRequest(req *ExpenseCategoryRequest) error {
-	if req.Name == "" {
-		return ErrExpenseCategoryNotFound
+	if req == nil {
+		return ErrInvalidExpenseStatus
 	}
-	if req.Budget < 0 {
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		return ErrInvalidExpenseCategoryName
+	}
+	if req.Budget < 0 || math.IsNaN(req.Budget) || math.IsInf(req.Budget, 0) {
 		return ErrInvalidAmount
 	}
 	return nil

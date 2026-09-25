@@ -511,6 +511,62 @@ func (s *Service) GetPendingDebtCollections(ctx context.Context) ([]DebtCollecti
 	return s.repo.GetPendingDebtCollections(ctx)
 }
 
+// AdjustCustomerDebt creates a manual adjustment that either increases or
+// reduces a customer's debt while keeping the ledger and balance in sync.
+func (s *Service) AdjustCustomerDebt(ctx context.Context, customerID uuid.UUID, amount float64, adjustmentType string, reason string) error {
+	if amount <= 0 {
+		return ErrPaymentAmountInvalid
+	}
+	customer, err := s.repo.GetByID(ctx, customerID)
+	if err != nil {
+		return err
+	}
+
+	normalizedType := strings.ToLower(strings.TrimSpace(adjustmentType))
+	switch normalizedType {
+	case "debit", "increase":
+		debt := &DebtEntry{
+			ID:            uuid.New(),
+			CustomerID:    customerID,
+			Amount:        amount,
+			ReferenceID:   uuid.Nil,
+			ReferenceType: "MANUAL_ADJUSTMENT",
+			DueDate:       time.Now().UTC().AddDate(0, 0, 30),
+			IsPaid:        false,
+			PaidAmount:    0,
+			CreatedAt:     time.Now().UTC(),
+		}
+		description := strings.TrimSpace(reason)
+		if description == "" {
+			description = "Manual debt adjustment"
+		}
+		if err := s.repo.RecordDebtEntryTransaction(ctx, debt, description, false); err != nil {
+			if stdErrors.Is(err, ErrCustomerNotFound) || stdErrors.Is(err, ErrPaymentAmountInvalid) || stdErrors.Is(err, ErrCreditLimitExceeded) {
+				return err
+			}
+			return fmt.Errorf("create manual debt increase: %w", err)
+		}
+		return nil
+	case "credit", "decrease":
+		if amount > customer.CurrentBalance+0.000001 {
+			return ErrPaymentExceedsBalance
+		}
+		description := strings.TrimSpace(reason)
+		if description == "" {
+			description = "Manual debt reduction"
+		}
+		if err := s.repo.AdjustCustomerBalance(ctx, customerID, amount, description, "credit"); err != nil {
+			if stdErrors.Is(err, ErrCustomerNotFound) || stdErrors.Is(err, ErrPaymentAmountInvalid) || stdErrors.Is(err, ErrPaymentExceedsBalance) {
+				return err
+			}
+			return fmt.Errorf("apply manual debt reduction: %w", err)
+		}
+		return nil
+	default:
+		return ErrInvalidPaymentMethod
+	}
+}
+
 // ProcessDebtPayment processes a payment for specific debts
 func (s *Service) ProcessDebtPayment(ctx context.Context, customerID uuid.UUID, paymentAmount float64, method string) error {
 	return s.ProcessDebtPaymentWithReference(ctx, customerID, paymentAmount, method, nil)

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { expenseCategoriesApi, expensesApi } from '../../../services/api/endpoints';
-import type { ExpenseCategory, ExpenseCategoryCreateRequest } from '../../../services/api/types';
+import type { ExpenseCategory, ExpenseCategoryCreateRequest, ExpenseCreateRequest } from '../../../services/api/types';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
 import { Button } from '../../../design-system/components/button';
 import { Input } from '../../../design-system/components/input';
@@ -19,9 +19,9 @@ import { ReportActions } from '../../../design-system/components/report-actions'
 import { formatStoreDate, getStoreDateKey, getStoreMonthBounds, getStoreToday, storeDateToUTCISOString } from '../../../utils/store-time';
 import { useDebounce } from '../../../hooks/useDebounce';
 import { toast } from 'sonner';
-import { 
-  Search, 
-  Plus, 
+import {
+  Search,
+  Plus,
   Edit,
   Trash2,
   CheckCircle2,
@@ -29,6 +29,47 @@ import {
   ReceiptText,
   Inbox
 } from 'lucide-react';
+
+type ExpensePaymentMethod = ExpenseCreateRequest['payment_method'];
+type ExpenseFormState = {
+  description: string;
+  amount: string;
+  category: string;
+  date: string;
+  paymentMethod: ExpensePaymentMethod;
+  recurring: boolean;
+  recurringPeriod: 'daily' | 'weekly' | 'monthly' | 'yearly';
+};
+
+const createExpenseFormState = (category = ''): ExpenseFormState => ({
+  description: '',
+  amount: '',
+  category,
+  date: getStoreToday(),
+  paymentMethod: 'cash',
+  recurring: false,
+  recurringPeriod: 'monthly',
+});
+
+const expensePaymentMethodLabels: Record<ExpensePaymentMethod, string> = {
+  cash: 'نقدًا',
+  card: 'بطاقة',
+  bank_transfer: 'تحويل بنكي',
+  check: 'شيك',
+};
+
+export function isExpenseAccountingStatus(status: unknown) {
+  return ['approved', 'paid', 'completed', 'archived'].includes(String(status ?? '').trim().toLowerCase());
+}
+
+export function canEditExpenseStatus(status: unknown) {
+  return String(status ?? '').trim().toLowerCase() === 'pending';
+}
+
+export function canDeleteExpenseStatus(status: unknown) {
+  const normalizedStatus = String(status ?? '').trim().toLowerCase();
+  return ['pending', 'rejected', 'approved', 'paid', 'completed'].includes(normalizedStatus);
+}
 
 export function normalizeExpenseForDisplay(expense: any) {
   const description = (expense?.description || expense?.title || '').toString();
@@ -39,6 +80,7 @@ export function normalizeExpenseForDisplay(expense: any) {
     ? expense.recurring
     : Boolean(expense?.is_recurring);
   const recurringPeriod = expense?.recurringPeriod || expense?.recurring_period || '';
+  const status = String(expense?.status || 'unknown').trim().toLowerCase();
   return {
     ...expense,
     description,
@@ -47,6 +89,7 @@ export function normalizeExpenseForDisplay(expense: any) {
     amount,
     recurring,
     recurringPeriod,
+    status,
   };
 }
 
@@ -89,7 +132,7 @@ function getExpenseTotal(response: any): number {
   return Number.isFinite(total) ? total : getExpenseRows(response).length;
 }
 
-async function fetchAllExpensePages(filters: { search?: string; category_id?: string; start_date?: string; end_date?: string } = {}) {
+async function fetchAllExpensePages(filters: { search?: string; category_id?: string; start_date?: string; end_date?: string; include_archived?: boolean } = {}) {
   const perPage = 100;
   const firstPage = await expensesApi.list({ page: 1, per_page: perPage, ...filters });
   const total = getExpenseTotal(firstPage);
@@ -129,16 +172,15 @@ export function ExpensesPage() {
   const monthStart = storeDateToUTCISOString(monthBounds.start);
   const monthEnd = storeDateToUTCISOString(monthBounds.end);
   const monthEndInclusive = monthEnd ? new Date(new Date(monthEnd).getTime() - 1).toISOString() : undefined;
-  const [newExpense, setNewExpense] = useState({
-    description: '',
-    amount: '',
-    category: '',
-    date: getStoreToday(),
-    recurring: false,
-    recurringPeriod: 'monthly',
-  });
+  const [newExpense, setNewExpense] = useState<ExpenseFormState>(() => createExpenseFormState());
 
-  const { data: expensesData, isLoading } = useQuery({
+  const {
+    data: expensesData,
+    isLoading,
+    isError: isExpenseQueryError,
+    error: expenseQueryError,
+    refetch: refetchExpenses,
+  } = useQuery({
     queryKey: ['expenses', page, pageSize, debouncedSearchQuery, categoryFilter],
     queryFn: () => expensesApi.list({
       page,
@@ -148,16 +190,25 @@ export function ExpensesPage() {
     }),
   });
 
-  const { data: thisMonthExpenses = [] } = useQuery({
+  const {
+    data: thisMonthExpenses = [],
+    isLoading: isMonthSummaryLoading,
+    isError: isMonthSummaryError,
+  } = useQuery({
     queryKey: ['expenses', 'month-summary', monthBounds.start],
     queryFn: () => fetchAllExpensePages({
       ...(monthStart ? { start_date: monthStart } : {}),
       ...(monthEndInclusive ? { end_date: monthEndInclusive } : {}),
+      include_archived: true,
     }),
     enabled: Boolean(monthStart && monthEndInclusive),
   });
 
-  const { data: expenseCategoriesData, isLoading: isLoadingExpenseCategories } = useQuery({
+  const {
+    data: expenseCategoriesData,
+    isLoading: isLoadingExpenseCategories,
+    isError: isExpenseCategoriesError,
+  } = useQuery({
     queryKey: ['expense-categories'],
     queryFn: () => expenseCategoriesApi.list({ page: 1, per_page: 100, is_active: true }),
   });
@@ -192,7 +243,7 @@ export function ExpensesPage() {
       amount: Number(newExpense.amount),
       currency: 'ILS',
       expense_date: `${newExpense.date}T12:00:00Z`,
-      payment_method: 'cash',
+      payment_method: newExpense.paymentMethod,
       is_recurring: newExpense.recurring,
       recurring_period: newExpense.recurring ? newExpense.recurringPeriod as 'daily' | 'weekly' | 'monthly' | 'yearly' : undefined,
     }),
@@ -202,7 +253,7 @@ export function ExpensesPage() {
       void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setIsAddModalOpen(false);
       setEditingExpenseId(null);
-      setNewExpense({ description: '', amount: '', category: '', date: getStoreToday(), recurring: false, recurringPeriod: 'monthly' });
+      setNewExpense(createExpenseFormState());
     },
   });
 
@@ -214,13 +265,14 @@ export function ExpensesPage() {
       amount: Number(newExpense.amount),
       currency: 'ILS',
       expense_date: `${newExpense.date}T12:00:00Z`,
-      payment_method: 'cash',
+      payment_method: newExpense.paymentMethod,
       is_recurring: newExpense.recurring,
       recurring_period: newExpense.recurring ? newExpense.recurringPeriod as 'daily' | 'weekly' | 'monthly' | 'yearly' : undefined,
     }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['expenses'] });
       void queryClient.invalidateQueries({ queryKey: ['reports'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setIsAddModalOpen(false);
       setEditingExpenseId(null);
     },
@@ -242,6 +294,7 @@ export function ExpensesPage() {
       void queryClient.invalidateQueries({ queryKey: ['reports'] });
       void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'تعذر اعتماد المصروف'),
   });
 
   const expenses = getExpenseRows(expensesData).map(normalizeExpenseForDisplay);
@@ -252,9 +305,10 @@ export function ExpensesPage() {
     setPage(1);
   }, [debouncedSearchQuery, categoryFilter]);
 
-  const thisMonthTotal = thisMonthExpenses.reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
+  const accountedMonthExpenses = thisMonthExpenses.filter((expense: any) => isExpenseAccountingStatus(expense.status));
+  const thisMonthTotal = accountedMonthExpenses.reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
 
-  const categoryTotals = thisMonthExpenses.reduce((acc: Record<string, number>, expense: any) => {
+  const categoryTotals = accountedMonthExpenses.reduce((acc: Record<string, number>, expense: any) => {
     const categoryKey = String(expense.category || 'other');
     acc[categoryKey] = (acc[categoryKey] || 0) + Number(expense.amount || 0);
     return acc;
@@ -288,6 +342,7 @@ export function ExpensesPage() {
   const loadAllExpenses = () => fetchAllExpensePages({
     ...(debouncedSearchQuery ? { search: debouncedSearchQuery } : {}),
     ...(categoryFilter ? { category_id: categoryFilter } : {}),
+    include_archived: true,
   });
 
   const handleExportAll = async () => {
@@ -313,13 +368,15 @@ export function ExpensesPage() {
       amount: String(expense.amount ?? ''),
       category: expense.category_id || '',
       date: getStoreDateKey(expense.date) || getStoreToday(),
+      paymentMethod: (expense.payment_method || 'cash') as ExpensePaymentMethod,
       recurring: Boolean(expense.recurring),
-      recurringPeriod: expense.recurringPeriod || 'monthly',
+      recurringPeriod: (expense.recurringPeriod || 'monthly') as ExpenseFormState['recurringPeriod'],
     });
     setIsAddModalOpen(true);
   };
 
   const handleDelete = (expense: any) => {
+    deleteExpenseMutation.reset();
     setExpenseToDelete(expense);
   };
 
@@ -333,7 +390,7 @@ export function ExpensesPage() {
           <div style={{ display: 'flex', gap: '10px' }}>
             <Button variant="primary" className="gap-2" onClick={() => {
               setEditingExpenseId(null);
-              setNewExpense({ description: '', amount: '', category: expenseCategories[0]?.id || '', date: getStoreToday(), recurring: false, recurringPeriod: 'monthly' });
+              setNewExpense(createExpenseFormState(expenseCategories[0]?.id || ''));
               setIsAddModalOpen(true);
             }}>
               <Plus className="w-4 h-4" />
@@ -346,9 +403,9 @@ export function ExpensesPage() {
 
 {/* Stats Cards - Futuristic + Clean */}
       <div className="unified-stats-grid supplier-stats grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-md">
-        <StatCard 
-          title={t('expenses.thisMonth')} 
-          value={`₪${thisMonthTotal.toLocaleString()}`} 
+        <StatCard
+          title={t('expenses.thisMonth')}
+          value={isMonthSummaryError ? '—' : isMonthSummaryLoading ? '…' : `₪${thisMonthTotal.toLocaleString()}`}
           icon={Calendar}
           variant="featured"
           size="sm"
@@ -361,8 +418,11 @@ export function ExpensesPage() {
           <CardTitle>توزيع المصروفات حسب الفئة</CardTitle>
         </CardHeader>
         <CardContent className="px-4 py-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {Object.entries(categoryTotals).map(([category, total]) => (
+          {isMonthSummaryError ? (
+            <p className="text-sm text-text-muted" role="alert">تعذر تحميل ملخص المصروفات لهذا الشهر.</p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              {Object.entries(categoryTotals).map(([category, total]) => (
               <div key={category} className="flex min-w-[180px] flex-1 items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 shadow-[0_4px_14px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[var(--color-primary-25)] hover:shadow-[0_8px_20px_rgba(15,23,42,0.08)]">
                 <p className="text-small text-text-muted">
                   {getCategoryLabel(category)}
@@ -371,8 +431,9 @@ export function ExpensesPage() {
                   ₪{(total as number).toLocaleString()}
                 </p>
               </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
       <Modal
@@ -443,6 +504,7 @@ export function ExpensesPage() {
                   إضافة فئة
                 </Button>
               </div>
+              {isExpenseCategoriesError && <p className="mt-2 text-xs text-red-500" role="alert">تعذر تحميل الفئات. أعد المحاولة أو أضف فئة جديدة.</p>}
               <Select
                 fullWidth
                 value={newExpense.category}
@@ -469,6 +531,17 @@ export function ExpensesPage() {
                 required
               />
             </div>
+            <div style={{ width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}>
+              <label className="mb-2 block text-sm font-medium text-text-secondary">طريقة الدفع</label>
+              <Select
+                fullWidth
+                value={newExpense.paymentMethod}
+                onChange={(event) => setNewExpense((current) => ({ ...current, paymentMethod: event.target.value as ExpensePaymentMethod }))}
+                options={Object.entries(expensePaymentMethodLabels).map(([value, label]) => ({ value, label }))}
+                className="w-full min-w-0"
+                style={{ width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box' }}
+              />
+            </div>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" style={{ minWidth: 0 }}>
             <label className="flex items-center gap-2 text-sm font-medium text-text-secondary">
@@ -482,7 +555,7 @@ export function ExpensesPage() {
             {newExpense.recurring && (
               <Select
                 value={newExpense.recurringPeriod}
-                onChange={(event) => setNewExpense((current) => ({ ...current, recurringPeriod: event.target.value }))}
+                onChange={(event) => setNewExpense((current) => ({ ...current, recurringPeriod: event.target.value as ExpenseFormState['recurringPeriod'] }))}
                 options={[
                   { value: 'daily', label: 'يومي' },
                   { value: 'weekly', label: 'أسبوعي' },
@@ -554,12 +627,14 @@ export function ExpensesPage() {
       <Modal
         isOpen={Boolean(expenseToDelete)}
         onClose={() => setExpenseToDelete(null)}
-        title="تأكيد حذف المصروف"
+        title={isExpenseAccountingStatus(expenseToDelete?.status) ? 'تنظيف وأرشفة المصروف' : 'تأكيد حذف المصروف'}
         size="sm"
       >
         <div className="space-y-5">
           <p className="text-sm text-text-secondary">
-            هل تريد حذف المصروف «{expenseToDelete?.description || '-'}»؟ لا يمكن التراجع عن هذا الإجراء.
+            {isExpenseAccountingStatus(expenseToDelete?.status)
+              ? `سيتم إخفاء المصروف «${expenseToDelete?.description || '-'}» من القائمة ونقله إلى الأرشيف. سيبقى محفوظًا ويستمر احتسابه في التقارير المالية.`
+              : `سيتم حذف المصروف «${expenseToDelete?.description || '-'}» نهائيًا لأنه غير معتمد ولا يدخل ضمن الحسابات المالية.`}
           </p>
           <div className="flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={() => setExpenseToDelete(null)}>
@@ -577,7 +652,9 @@ export function ExpensesPage() {
                 }
               }}
             >
-              {deleteExpenseMutation.isPending ? 'جاري الحذف...' : 'حذف المصروف'}
+              {deleteExpenseMutation.isPending
+                ? isExpenseAccountingStatus(expenseToDelete?.status) ? 'جارٍ الأرشفة...' : 'جاري الحذف...'
+                : isExpenseAccountingStatus(expenseToDelete?.status) ? 'أرشفة للتنظيف' : 'حذف المصروف'}
             </Button>
           </div>
           {deleteExpenseMutation.isError && (
@@ -630,6 +707,11 @@ export function ExpensesPage() {
             <div className="flex h-64 items-center justify-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan" />
             </div>
+          ) : isExpenseQueryError ? (
+            <div className="flex min-h-44 flex-col items-center justify-center gap-3 p-6 text-center" role="alert">
+              <p className="text-sm text-text-secondary">تعذر تحميل سجل المصروفات. تحقق من الاتصال ثم أعد المحاولة.</p>
+              <Button type="button" variant="secondary" onClick={() => void refetchExpenses()}>إعادة المحاولة</Button>
+            </div>
           ) : filteredExpenses.length === 0 ? (
             <EmptyState
               icon={<Inbox className="h-5 w-5" />}
@@ -647,13 +729,24 @@ export function ExpensesPage() {
                   <TableHead>الفئة</TableHead>
                   <TableHead>الوصف</TableHead>
                   <TableHead>المبلغ</TableHead>
+                  <TableHead>طريقة الدفع</TableHead>
                   <TableHead>الحالة</TableHead>
                   <TableHead>متكرر</TableHead>
                   <TableHead className="text-start">الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody className="divide-y divide-[var(--border-subtle)]" dir="rtl">
-                {filteredExpenses.map((expense: any) => (
+                {filteredExpenses.map((expense: any) => {
+                  const status = String(expense.status || 'unknown').trim().toLowerCase();
+                  const statusLabel = status === 'approved' ? 'معتمد'
+                    : status === 'paid' ? 'مدفوع'
+                      : status === 'completed' ? 'مكتمل'
+                        : status === 'archived' ? 'مؤرشف'
+                        : status === 'rejected' ? 'مرفوض'
+                          : status === 'pending' ? 'قيد الانتظار' : 'حالة غير معروفة';
+                  const statusVariant = isExpenseAccountingStatus(status) ? 'success' : status === 'rejected' ? 'danger' : 'warning';
+                  const paymentMethod = expense.payment_method as ExpensePaymentMethod | undefined;
+                  return (
                   <TableRow key={expense.id} dir="rtl" className="transition-colors duration-200 hover:bg-[var(--color-primary-05)] [&>td]:h-[68px]">
                     <TableCell className="font-semibold text-[var(--text-secondary)]">
                       {formatExpenseDate(expense.date)}
@@ -667,9 +760,10 @@ export function ExpensesPage() {
                     <TableCell className="font-black text-[var(--primary)]">
                       ₪{Number(expense.amount || 0).toLocaleString()}
                     </TableCell>
+                    <TableCell>{paymentMethod ? expensePaymentMethodLabels[paymentMethod] || '—' : '—'}</TableCell>
                     <TableCell>
-                      <Badge variant={expense.status === 'approved' ? 'success' : expense.status === 'rejected' ? 'danger' : 'warning'} className="rounded-full">
-                        {expense.status === 'approved' ? 'معتمد' : expense.status === 'rejected' ? 'مرفوض' : 'قيد الانتظار'}
+                      <Badge variant={statusVariant} className="rounded-full">
+                        {statusLabel}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -685,7 +779,7 @@ export function ExpensesPage() {
                     </TableCell>
                     <TableCell className="text-start">
                       <div className="flex gap-sm">
-                        {expense.status === 'pending' && (
+                        {canEditExpenseStatus(status) && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -698,16 +792,20 @@ export function ExpensesPage() {
                             <CheckCircle2 className="w-4 h-4 text-green-500" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="sm" tableAction onClick={() => handleEdit(expense)} aria-label="تعديل المصروف">
+                        {canEditExpenseStatus(status) && <Button variant="ghost" size="sm" tableAction onClick={() => handleEdit(expense)} aria-label="تعديل المصروف">
                           <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" tableAction onClick={() => handleDelete(expense)} disabled={deleteExpenseMutation.isPending} aria-label="حذف المصروف">
+                        </Button>}
+                        {canDeleteExpenseStatus(status) && <Button variant="ghost" size="sm" tableAction onClick={() => handleDelete(expense)} disabled={deleteExpenseMutation.isPending} aria-label={isExpenseAccountingStatus(status) ? 'أرشفة المصروف للتنظيف' : 'حذف المصروف'} title={isExpenseAccountingStatus(status) ? 'أرشفة للتنظيف مع إبقائه في التقارير' : 'حذف المصروف'}>
                           <Trash2 className="w-4 h-4 text-red" />
-                        </Button>
+                        </Button>}
+                        {!canEditExpenseStatus(status) && !canDeleteExpenseStatus(status) && (
+                          <span className="text-xs text-text-muted" title="المصروف معتمد ومسجل في التقارير المالية">مسجل ماليًا</span>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
               </Table>
               </div>

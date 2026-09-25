@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/dashboard"
 )
 
@@ -32,6 +33,9 @@ func (s *Service) CreateExpense(ctx context.Context, userID uuid.UUID, req *Expe
 	category, err := s.repo.GetExpenseCategoryByID(ctx, req.CategoryID)
 	if err != nil {
 		return nil, ErrExpenseCategoryNotFound
+	}
+	if !category.IsActive {
+		return nil, ErrExpenseCategoryInactive
 	}
 
 	// Check budget if category has budget
@@ -112,15 +116,22 @@ func (s *Service) EnsureRecurringExpenses(ctx context.Context, now time.Time) er
 	if err != nil {
 		return err
 	}
-	now = dateAtNoon(now.UTC())
+	storeLocation, err := accounting.StoreLocation()
+	if err != nil {
+		return err
+	}
+	now = storeDateAtNoon(now, storeLocation)
 	for _, template := range templates {
 		period := strings.ToLower(strings.TrimSpace(template.RecurringPeriod))
 		if period == "" {
 			continue
 		}
-		nextDate := dateAtNoon(template.ExpenseDate.UTC())
+		if ValidateRecurringPeriod(period) != nil {
+			continue
+		}
+		occurrence := 1
 		for {
-			nextDate = nextRecurringDate(nextDate, period)
+			nextDate := recurringOccurrence(template.ExpenseDate, period, occurrence)
 			if nextDate.After(now) {
 				break
 			}
@@ -143,6 +154,7 @@ func (s *Service) EnsureRecurringExpenses(ctx context.Context, now time.Time) er
 					return fmt.Errorf("create recurring expense for %s: %w", template.ID, err)
 				}
 			}
+			occurrence++
 		}
 	}
 	return nil
@@ -153,16 +165,43 @@ func dateAtNoon(value time.Time) time.Time {
 	return time.Date(value.Year(), value.Month(), value.Day(), 12, 0, 0, 0, time.UTC)
 }
 
+func storeDateAtNoon(value time.Time, location *time.Location) time.Time {
+	local := value.In(location)
+	return time.Date(local.Year(), local.Month(), local.Day(), 12, 0, 0, 0, time.UTC)
+}
+
 func nextRecurringDate(value time.Time, period string) time.Time {
+	return recurringOccurrence(value, period, 1)
+}
+
+func recurringOccurrence(value time.Time, period string, occurrence int) time.Time {
+	value = dateAtNoon(value)
+	if occurrence < 1 {
+		return value
+	}
 	switch period {
 	case "daily":
-		return value.AddDate(0, 0, 1)
+		return value.AddDate(0, 0, occurrence)
 	case "weekly":
-		return value.AddDate(0, 0, 7)
+		return value.AddDate(0, 0, 7*occurrence)
+	case "monthly":
+		month := time.Date(value.Year(), value.Month()+time.Month(occurrence), 1, 12, 0, 0, 0, time.UTC)
+		lastDay := month.AddDate(0, 1, -1).Day()
+		day := value.Day()
+		if day > lastDay {
+			day = lastDay
+		}
+		return time.Date(month.Year(), month.Month(), day, 12, 0, 0, 0, time.UTC)
 	case "yearly":
-		return value.AddDate(1, 0, 0)
+		year := value.Year() + occurrence
+		lastDay := time.Date(year, value.Month()+1, 0, 12, 0, 0, 0, time.UTC).Day()
+		day := value.Day()
+		if day > lastDay {
+			day = lastDay
+		}
+		return time.Date(year, value.Month(), day, 12, 0, 0, 0, time.UTC)
 	default:
-		return value.AddDate(0, 1, 0)
+		return time.Time{}
 	}
 }
 
@@ -173,31 +212,46 @@ func (s *Service) UpdateExpense(ctx context.Context, id uuid.UUID, req *ExpenseU
 		return nil, err
 	}
 
-	// Check if expense can be updated (not approved/rejected)
-	if expense.Status == "approved" || expense.Status == "rejected" {
+	status := strings.ToLower(strings.TrimSpace(expense.Status))
+	if accounting.IsAccountingExpenseStatus(status) {
 		return nil, ErrExpenseAlreadyApproved
+	}
+	if status == "rejected" {
+		return nil, ErrExpenseAlreadyRejected
+	}
+	if status != "pending" {
+		return nil, ErrInvalidExpenseStatus
+	}
+	if req.Status != "" {
+		return nil, ErrInvalidExpenseStatus
 	}
 
 	// Update fields
 	if req.CategoryID != uuid.Nil {
 		// Verify category exists
-		_, err := s.repo.GetExpenseCategoryByID(ctx, req.CategoryID)
+		category, err := s.repo.GetExpenseCategoryByID(ctx, req.CategoryID)
 		if err != nil {
 			return nil, ErrExpenseCategoryNotFound
+		}
+		if !category.IsActive {
+			return nil, ErrExpenseCategoryInactive
 		}
 		expense.CategoryID = req.CategoryID
 	}
 	if req.Title != "" {
-		expense.Title = req.Title
+		expense.Title = strings.TrimSpace(req.Title)
+		if expense.Title == "" {
+			return nil, ErrInvalidExpenseTitle
+		}
 	}
 	if req.Description != "" {
 		expense.Description = req.Description
 	}
-	if req.Amount > 0 && math.Trunc(req.Amount) != req.Amount {
-		return nil, ErrInvalidAmount
-	}
-	if req.Amount > 0 {
-		expense.Amount = req.Amount
+	if req.Amount != nil {
+		if err := ValidateExpenseAmount(*req.Amount); err != nil {
+			return nil, err
+		}
+		expense.Amount = *req.Amount
 	}
 	if req.Currency != "" {
 		expense.Currency = req.Currency
@@ -214,14 +268,12 @@ func (s *Service) UpdateExpense(ctx context.Context, id uuid.UUID, req *ExpenseU
 	if req.ReceiptURL != "" {
 		expense.ReceiptURL = req.ReceiptURL
 	}
-	expense.IsRecurring = req.IsRecurring
+	if req.IsRecurring != nil {
+		expense.IsRecurring = *req.IsRecurring
+	}
 	if req.RecurringPeriod != "" {
 		expense.RecurringPeriod = req.RecurringPeriod
 	}
-	if req.Status != "" {
-		expense.Status = req.Status
-	}
-
 	expense.UpdatedAt = time.Now()
 
 	if err := s.repo.UpdateExpense(ctx, expense); err != nil {
@@ -239,9 +291,21 @@ func (s *Service) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 
-	// Check if expense can be deleted (not approved)
-	if expense.Status == "approved" {
-		return ErrExpenseAlreadyApproved
+	status := strings.ToLower(strings.TrimSpace(expense.Status))
+	if status == "archived" {
+		return ErrExpenseAlreadyArchived
+	}
+	if accounting.IsAccountingExpenseStatus(status) {
+		expense.Status = "archived"
+		expense.UpdatedAt = time.Now()
+		if err := s.repo.UpdateExpense(ctx, expense); err != nil {
+			return err
+		}
+		dashboard.InvalidateDashboardCacheWithReason("expense_archived")
+		return nil
+	}
+	if !canDeleteExpenseStatus(status) {
+		return ErrInvalidExpenseStatus
 	}
 
 	if err := s.repo.DeleteExpense(ctx, id); err != nil {
@@ -251,6 +315,15 @@ func (s *Service) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func canDeleteExpenseStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "pending", "rejected":
+		return true
+	default:
+		return false
+	}
+}
+
 // ApproveExpense approves an expense
 func (s *Service) ApproveExpense(ctx context.Context, id uuid.UUID, approverID uuid.UUID) (*ExpenseResponse, error) {
 	expense, err := s.repo.GetExpenseByID(ctx, id)
@@ -258,12 +331,15 @@ func (s *Service) ApproveExpense(ctx context.Context, id uuid.UUID, approverID u
 		return nil, err
 	}
 
-	if expense.Status == "approved" {
+	if accounting.IsAccountingExpenseStatus(expense.Status) {
 		return nil, ErrExpenseAlreadyApproved
 	}
 
 	if expense.Status == "rejected" {
 		return nil, ErrExpenseAlreadyRejected
+	}
+	if !strings.EqualFold(strings.TrimSpace(expense.Status), "pending") {
+		return nil, ErrInvalidExpenseStatus
 	}
 
 	expense.Status = "approved"
@@ -285,12 +361,15 @@ func (s *Service) RejectExpense(ctx context.Context, id uuid.UUID) (*ExpenseResp
 		return nil, err
 	}
 
-	if expense.Status == "approved" {
+	if accounting.IsAccountingExpenseStatus(expense.Status) {
 		return nil, ErrExpenseAlreadyApproved
 	}
 
 	if expense.Status == "rejected" {
 		return nil, ErrExpenseAlreadyRejected
+	}
+	if !strings.EqualFold(strings.TrimSpace(expense.Status), "pending") {
+		return nil, ErrInvalidExpenseStatus
 	}
 
 	expense.Status = "rejected"
@@ -353,12 +432,16 @@ func (s *Service) UpdateExpenseCategory(ctx context.Context, id uuid.UUID, req *
 
 	// Update fields
 	if req.Name != "" {
+		name := strings.TrimSpace(req.Name)
+		if name == "" {
+			return nil, ErrInvalidExpenseCategoryName
+		}
 		// Check if name already exists for another category
-		existing, err := s.repo.GetExpenseCategoryByName(ctx, req.Name)
+		existing, err := s.repo.GetExpenseCategoryByName(ctx, name)
 		if err == nil && existing != nil && existing.ID != id {
 			return nil, ErrExpenseCategoryExists
 		}
-		category.Name = req.Name
+		category.Name = name
 	}
 	if req.Description != "" {
 		category.Description = req.Description
@@ -369,10 +452,15 @@ func (s *Service) UpdateExpenseCategory(ctx context.Context, id uuid.UUID, req *
 	if req.Icon != "" {
 		category.Icon = req.Icon
 	}
-	if req.Budget >= 0 {
-		category.Budget = req.Budget
+	if req.Budget != nil {
+		if *req.Budget < 0 || math.IsNaN(*req.Budget) || math.IsInf(*req.Budget, 0) {
+			return nil, ErrInvalidAmount
+		}
+		category.Budget = *req.Budget
 	}
-	category.IsActive = req.IsActive
+	if req.IsActive != nil {
+		category.IsActive = *req.IsActive
+	}
 	category.UpdatedAt = time.Now()
 
 	if err := s.repo.UpdateExpenseCategory(ctx, category); err != nil {

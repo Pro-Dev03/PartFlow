@@ -27,6 +27,7 @@ func TestProfitReportIncludesApprovedExpensesFromStoreDay(t *testing.T) {
 		INSERT INTO expenses (id, amount, expense_date, status) VALUES
 			('expense-50', 50, '2026-09-16T12:00:00Z', 'approved'),
 			('expense-1', 1, '2026-09-16T23:59:00+03:00', 'approved'),
+			('expense-archived', 2, '2026-09-16T14:00:00Z', 'archived'),
 			('expense-pending', 100, '2026-09-16T13:00:00Z', 'pending');
 	`)
 	if err != nil {
@@ -39,8 +40,8 @@ func TestProfitReportIncludesApprovedExpensesFromStoreDay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.TotalExpenses != 51 || report.NetProfit != 1497 {
-		t.Fatalf("profit report = expenses %v, net profit %v; want 51 and 1497", report.TotalExpenses, report.NetProfit)
+	if report.TotalExpenses != 53 || report.NetProfit != 1495 {
+		t.Fatalf("profit report = expenses %v, net profit %v; want 53 and 1495", report.TotalExpenses, report.NetProfit)
 	}
 }
 

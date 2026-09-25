@@ -1230,7 +1230,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		               COALESCE(SUM(amount), 0) AS expenses
 		        FROM expenses
 			        WHERE date(expense_date) >= date(?) AND date(expense_date) < date(?)
-		          AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
+		          AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed', 'archived')
 		        GROUP BY DATE_TRUNC('month', expense_date)
 		)
 		SELECT s.month, s.revenue, COALESCE(c.cogs, 0), COALESCE(e.expenses, 0)
@@ -1267,7 +1267,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		               COALESCE(SUM(amount), 0) AS expenses
 		        FROM expenses
 			        WHERE date(expense_date) >= date(?) AND date(expense_date) < date(?)
-		          AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
+		          AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed', 'archived')
 		        GROUP BY strftime('%Y-%m', expense_date)
 		)
 		SELECT s.month || '-01', s.revenue, COALESCE(c.cogs, 0), COALESCE(e.expenses, 0)
@@ -1374,7 +1374,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 		SELECT DATE(expense_date) AS day, COALESCE(SUM(amount), 0) AS expenses
 		FROM expenses
 		WHERE date(expense_date) >= date(?) AND date(expense_date) < date(?)
-		  AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
+		  AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed', 'archived')
 		GROUP BY DATE(expense_date)
 	)
 	SELECT s.day, s.revenue, COALESCE(c.cogs, 0), COALESCE(e.expenses, 0)
@@ -1405,7 +1405,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 			SELECT strftime('%Y-%m-%d', substr(expense_date, 1, 10)) AS day, COALESCE(SUM(amount), 0) AS expenses
 			FROM expenses
 			WHERE date(substr(expense_date, 1, 10)) >= date(?) AND date(substr(expense_date, 1, 10)) < date(?)
-			  AND LOWER(COALESCE(status, 'approved')) NOT IN ('rejected', 'cancelled', 'canceled')
+			  AND LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed', 'archived')
 			GROUP BY strftime('%Y-%m-%d', substr(expense_date, 1, 10))
 		)
 		SELECT s.day, s.revenue, COALESCE(c.cogs, 0), COALESCE(e.expenses, 0)

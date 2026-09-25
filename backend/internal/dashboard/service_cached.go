@@ -100,7 +100,7 @@ func (s *CachedService) fetchFromDatabaseAt(ctx context.Context, now time.Time) 
 			(SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) as total_sales,
 			(SELECT COUNT(*) FROM sales WHERE status = 'pending') as pending_orders,
 			(SELECT COALESCE(SUM(total_amount), 0) FROM purchases WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) as total_purchases,
-			(SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed')) as total_expenses,
+			(SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed', 'archived')) as total_expenses,
 			(SELECT COUNT(*) FROM products WHERE is_active = true AND deleted_at IS NULL) as total_products,
 			(SELECT COUNT(*) FROM customers) as total_customers,
 			(SELECT COUNT(*) FROM suppliers) as total_suppliers,

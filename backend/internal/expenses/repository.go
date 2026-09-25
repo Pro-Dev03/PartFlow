@@ -157,6 +157,44 @@ func boolPtr(value bool) *bool {
 	return &value
 }
 
+func expenseSortClause(sortBy, sortOrder string) (string, string) {
+	columns := map[string]string{
+		"expense_date": "expense_date",
+		"created_at":   "created_at",
+		"amount":       "amount",
+		"status":       "status",
+	}
+	column := columns[sortBy]
+	if column == "" {
+		column = "expense_date"
+	}
+	return column, normalizedSortOrder(sortOrder, "DESC")
+}
+
+func expenseCategorySortClause(sortBy, sortOrder string) (string, string) {
+	columns := map[string]string{
+		"name":       "name",
+		"created_at": "created_at",
+		"budget":     "budget",
+		"is_active":  "is_active",
+	}
+	column := columns[sortBy]
+	if column == "" {
+		column = "name"
+	}
+	return column, normalizedSortOrder(sortOrder, "ASC")
+}
+
+func normalizedSortOrder(sortOrder, defaultOrder string) string {
+	if strings.EqualFold(sortOrder, "asc") {
+		return "ASC"
+	}
+	if strings.EqualFold(sortOrder, "desc") {
+		return "DESC"
+	}
+	return defaultOrder
+}
+
 // CreateExpense creates a new expense
 func (r *Repository) CreateExpense(ctx context.Context, expense *Expense) error {
 	var categoryName string
@@ -255,6 +293,10 @@ func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) (
 		countQuery := `SELECT COUNT(*) FROM expenses WHERE 1=1`
 		args := make([]interface{}, 0, 8)
 		argCount := 0
+		if !req.IncludeArchived {
+			query += ` AND (status IS NULL OR LOWER(status) <> 'archived')`
+			countQuery += ` AND (status IS NULL OR LOWER(status) <> 'archived')`
+		}
 		add := func(condition string, value interface{}) {
 			argCount++
 			query += fmt.Sprintf(" AND %s $%d", condition, argCount)
@@ -294,15 +336,7 @@ func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) (
 		if err := r.db.GetContext(ctx, &count, countQuery, args...); err != nil {
 			return nil, 0, fmt.Errorf("failed to count expenses: %w", err)
 		}
-		sortColumns := map[string]string{"expense_date": "expense_date", "created_at": "created_at", "amount": "amount", "status": "status"}
-		sortBy := sortColumns[req.SortBy]
-		if sortBy == "" {
-			sortBy = "expense_date"
-		}
-		sortOrder := "DESC"
-		if strings.EqualFold(req.SortOrder, "asc") {
-			sortOrder = "ASC"
-		}
+		sortBy, sortOrder := expenseSortClause(req.SortBy, req.SortOrder)
 		query += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", sortBy, sortOrder, argCount+1, argCount+2)
 		args = append(args, req.PerPage, (req.Page-1)*req.PerPage)
 		var rows []localExpenseRow
@@ -363,6 +397,10 @@ func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) (
 		baseQuery += " WHERE 1=1"
 		countQuery += " WHERE 1=1"
 	}
+	if !req.IncludeArchived {
+		baseQuery += ` AND (status IS NULL OR LOWER(status) <> 'archived')`
+		countQuery += ` AND (status IS NULL OR LOWER(status) <> 'archived')`
+	}
 
 	if req.Status != "" {
 		argCount++
@@ -417,15 +455,8 @@ func (r *Repository) ListExpenses(ctx context.Context, req ExpenseListRequest) (
 		return nil, 0, fmt.Errorf("failed to count expenses: %w", err)
 	}
 
-	// Add sorting
-	sortBy := "expense_date"
-	if req.SortBy != "" {
-		sortBy = req.SortBy
-	}
-	sortOrder := "DESC"
-	if req.SortOrder != "" {
-		sortOrder = req.SortOrder
-	}
+	// Sort fields and directions come from allowlists because values cannot be bound as SQL identifiers.
+	sortBy, sortOrder := expenseSortClause(req.SortBy, req.SortOrder)
 	baseQuery += fmt.Sprintf(" ORDER BY %s %s", sortBy, sortOrder)
 
 	// Add pagination
@@ -593,14 +624,7 @@ func (r *Repository) ListExpenseCategories(ctx context.Context, req ExpenseCateg
 		if err := r.db.GetContext(ctx, &count, countQuery, args...); err != nil {
 			return nil, 0, fmt.Errorf("failed to count expense categories: %w", err)
 		}
-		sortBy := "name"
-		if req.SortBy == "created_at" {
-			sortBy = "created_at"
-		}
-		sortOrder := "ASC"
-		if strings.EqualFold(req.SortOrder, "desc") {
-			sortOrder = "DESC"
-		}
+		sortBy, sortOrder := expenseCategorySortClause(req.SortBy, req.SortOrder)
 		query += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", sortBy, sortOrder, argCount+1, argCount+2)
 		args = append(args, req.PerPage, (req.Page-1)*req.PerPage)
 		var rows []localExpenseCategoryRow
@@ -658,15 +682,8 @@ func (r *Repository) ListExpenseCategories(ctx context.Context, req ExpenseCateg
 		return nil, 0, fmt.Errorf("failed to count expense categories: %w", err)
 	}
 
-	// Add sorting
-	sortBy := "name"
-	if req.SortBy != "" {
-		sortBy = req.SortBy
-	}
-	sortOrder := "ASC"
-	if req.SortOrder != "" {
-		sortOrder = req.SortOrder
-	}
+	// Sort fields and directions come from allowlists because values cannot be bound as SQL identifiers.
+	sortBy, sortOrder := expenseCategorySortClause(req.SortBy, req.SortOrder)
 	baseQuery += fmt.Sprintf(" ORDER BY %s %s", sortBy, sortOrder)
 
 	// Add pagination
@@ -804,7 +821,7 @@ func (r *Repository) GetExpenseSummary(ctx context.Context) (*ExpenseSummary, er
 
 	// Approved expenses
 	err = r.db.GetContext(ctx, &summary.ApprovedExpenses,
-		`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE status = 'approved'`)
+		`SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE LOWER(COALESCE(status, 'approved')) IN ('approved', 'paid', 'completed', 'archived')`)
 	if err != nil {
 		if err.Error() == `pq: relation "expenses" does not exist` {
 			summary.ApprovedExpenses = 0

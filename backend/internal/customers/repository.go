@@ -980,6 +980,62 @@ func (r *Repository) CreateDebtEntry(ctx context.Context, debt *DebtEntry) error
 	return nil
 }
 
+// AdjustCustomerBalance records a manual credit or debit adjustment against the
+// customer's current balance and ledger in one atomic transaction.
+func (r *Repository) AdjustCustomerBalance(ctx context.Context, customerID uuid.UUID, amount float64, description string, entryType string) error {
+	if amount <= 0 {
+		return ErrPaymentAmountInvalid
+	}
+	entryType = strings.ToLower(strings.TrimSpace(entryType))
+	if entryType != "credit" && entryType != "debit" {
+		return ErrInvalidPaymentMethod
+	}
+
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin customer adjustment transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	lock := ""
+	if !dbutil.IsSQLite(r.db) {
+		lock = " FOR UPDATE"
+	}
+	var balance float64
+	if err := tx.QueryRowxContext(ctx, tx.Rebind(`SELECT COALESCE(current_balance, 0) FROM customers WHERE id = ?`)+lock, customerID.String()).Scan(&balance); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrCustomerNotFound
+		}
+		return fmt.Errorf("lock customer balance for adjustment: %w", err)
+	}
+	if entryType == "credit" && amount > balance+0.000001 {
+		return ErrPaymentExceedsBalance
+	}
+
+	if dbutil.IsSQLite(r.db) {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, transaction_type, amount, balance, description, reference_id, created_at) SELECT ?, ?, ?, 'ADJUSTMENT', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + CASE WHEN ? = 'debit' THEN ? ELSE -? END, ?, ?, ?`), uuid.New().String(), customerID.String(), entryType, amount, customerID.String(), entryType, amount, amount, description, uuid.Nil, time.Now().UTC()); err != nil {
+			return fmt.Errorf("create customer adjustment ledger entry: %w", err)
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at) SELECT ?, ?, ?, ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + CASE WHEN ? = 'debit' THEN ? ELSE -? END, ?, ?, ?`), uuid.New(), customerID, entryType, amount, customerID, entryType, amount, amount, description, uuid.Nil, time.Now().UTC()); err != nil {
+			return fmt.Errorf("create customer adjustment ledger entry: %w", err)
+		}
+	}
+
+	update := fmt.Sprintf(`UPDATE customers SET current_balance = COALESCE(current_balance, 0) %s ?, updated_at = %s WHERE id = ?`, map[string]string{"debit": "+", "credit": "-"}[entryType], dbutil.NowSQL(r.db))
+	result, err := tx.ExecContext(ctx, tx.Rebind(update), amount, customerID.String())
+	if err != nil {
+		return fmt.Errorf("update customer adjustment balance: %w", err)
+	}
+	if affected, _ := result.RowsAffected(); affected != 1 {
+		return ErrCustomerNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit customer adjustment transaction: %w", err)
+	}
+	return nil
+}
+
 // RecordDebtEntryTransaction writes the debt entry, customer ledger debit, and
 // customer balance together so a failed step cannot leave accounting drift.
 func (r *Repository) RecordDebtEntryTransaction(ctx context.Context, debt *DebtEntry, description string, enforceCreditLimit bool) error {

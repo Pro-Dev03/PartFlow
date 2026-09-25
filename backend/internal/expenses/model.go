@@ -60,13 +60,13 @@ type ExpenseUpdateRequest struct {
 	CategoryID      uuid.UUID `json:"category_id"`
 	Title           string    `json:"title"`
 	Description     string    `json:"description"`
-	Amount          float64   `json:"amount" binding:"omitempty,min=0"`
+	Amount          *float64  `json:"amount" binding:"omitempty,min=0"`
 	Currency        string    `json:"currency"`
 	ExpenseDate     time.Time `json:"expense_date"`
 	PaymentMethod   string    `json:"payment_method" binding:"omitempty,oneof=cash card bank_transfer check"`
 	Reference       string    `json:"reference"`
 	ReceiptURL      string    `json:"receipt_url"`
-	IsRecurring     bool      `json:"is_recurring"`
+	IsRecurring     *bool     `json:"is_recurring"`
 	RecurringPeriod string    `json:"recurring_period" binding:"omitempty,oneof=daily weekly monthly yearly"`
 	Status          string    `json:"status" binding:"omitempty,oneof=pending approved rejected"`
 }
@@ -78,17 +78,17 @@ type ExpenseCategoryRequest struct {
 	Color       string  `json:"color"`
 	Icon        string  `json:"icon"`
 	Budget      float64 `json:"budget" binding:"omitempty,min=0"`
-	IsActive    bool    `json:"is_active"`
+	IsActive    *bool   `json:"is_active"`
 }
 
 // ExpenseCategoryUpdateRequest represents expense category update request
 type ExpenseCategoryUpdateRequest struct {
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	Color       string  `json:"color"`
-	Icon        string  `json:"icon"`
-	Budget      float64 `json:"budget" binding:"omitempty,min=0"`
-	IsActive    bool    `json:"is_active"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Color       string   `json:"color"`
+	Icon        string   `json:"icon"`
+	Budget      *float64 `json:"budget" binding:"omitempty,min=0"`
+	IsActive    *bool    `json:"is_active"`
 }
 
 // ExpenseResponse represents expense response with related data
@@ -99,17 +99,18 @@ type ExpenseResponse struct {
 
 // ExpenseListRequest represents expense list query parameters
 type ExpenseListRequest struct {
-	Page          int        `form:"page" binding:"min=1"`
-	PerPage       int        `form:"per_page" binding:"min=1,max=100"`
-	CategoryID    *uuid.UUID `form:"category_id"`
-	Status        string     `form:"status" binding:"omitempty,oneof=pending approved rejected"`
-	PaymentMethod string     `form:"payment_method" binding:"omitempty,oneof=cash card bank_transfer check"`
-	StartDate     *time.Time `form:"start_date"`
-	EndDate       *time.Time `form:"end_date"`
-	IsRecurring   *bool      `form:"is_recurring"`
-	Search        string     `form:"search"`
-	SortBy        string     `form:"sort_by"`
-	SortOrder     string     `form:"sort_order"`
+	Page            int        `form:"page" binding:"min=1"`
+	PerPage         int        `form:"per_page" binding:"min=1,max=100"`
+	CategoryID      *uuid.UUID `form:"category_id"`
+	Status          string     `form:"status" binding:"omitempty,oneof=pending approved rejected"`
+	PaymentMethod   string     `form:"payment_method" binding:"omitempty,oneof=cash card bank_transfer check"`
+	StartDate       *time.Time `form:"start_date"`
+	EndDate         *time.Time `form:"end_date"`
+	IsRecurring     *bool      `form:"is_recurring"`
+	IncludeArchived bool       `form:"include_archived"`
+	Search          string     `form:"search"`
+	SortBy          string     `form:"sort_by"`
+	SortOrder       string     `form:"sort_order"`
 }
 
 // ExpenseCategoryListRequest represents expense category list query parameters

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { formatExpenseDate, isExpenseInCurrentMonth, normalizeExpenseForDisplay } from './ExpensesPage';
+import {
+  canDeleteExpenseStatus,
+  canEditExpenseStatus,
+  formatExpenseDate,
+  isExpenseAccountingStatus,
+  isExpenseInCurrentMonth,
+  normalizeExpenseForDisplay,
+} from './ExpensesPage';
 
 describe('formatExpenseDate', () => {
   it('formats Gregorian dates with Latin numerals without timezone conversion', () => {
@@ -63,5 +70,34 @@ describe('normalizeExpenseForDisplay', () => {
     expect(normalized.date).toBe('2026-08-02');
     expect(normalized.recurring).toBe(false);
     expect(normalized.receipt).toBe('legacy.pdf');
+  });
+
+  it('does not treat missing status as pending', () => {
+    const normalized = normalizeExpenseForDisplay({ id: 'exp-3', title: 'Legacy row' });
+    expect(normalized.status).toBe('unknown');
+    expect(canEditExpenseStatus(normalized.status)).toBe(false);
+    expect(canDeleteExpenseStatus(normalized.status)).toBe(false);
+  });
+});
+
+describe('expense status actions', () => {
+  it('locks financially committed statuses from editing and deletion', () => {
+    for (const status of ['approved', 'paid', 'completed', 'archived']) {
+      expect(isExpenseAccountingStatus(status)).toBe(true);
+      expect(canEditExpenseStatus(status)).toBe(false);
+      expect(canDeleteExpenseStatus(status)).toBe(status !== 'archived');
+    }
+  });
+
+  it('allows editing pending expenses and only removes recognized statuses', () => {
+    expect(canEditExpenseStatus('pending')).toBe(true);
+    expect(canDeleteExpenseStatus('pending')).toBe(true);
+    expect(canEditExpenseStatus('rejected')).toBe(false);
+    expect(canDeleteExpenseStatus('rejected')).toBe(true);
+    expect(canDeleteExpenseStatus('completed')).toBe(true);
+    expect(canDeleteExpenseStatus('archived')).toBe(false);
+    expect(isExpenseAccountingStatus('unknown')).toBe(false);
+    expect(canDeleteExpenseStatus('unknown')).toBe(false);
+    expect(canDeleteExpenseStatus('')).toBe(false);
   });
 });

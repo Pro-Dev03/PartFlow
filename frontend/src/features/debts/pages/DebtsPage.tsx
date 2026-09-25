@@ -51,6 +51,11 @@ export function DebtsPage() {
   const [successModalOpen, setSuccessModalOpen] = useState(false);
   const [lastPayment, setLastPayment] = useState<any>(null);
   const [debtTab, setDebtTab] = useState<'open' | 'paid' | 'all'>('open');
+  const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false);
+  const [adjustmentCustomerId, setAdjustmentCustomerId] = useState<string | null>(null);
+  const [adjustmentType, setAdjustmentType] = useState<'debit' | 'credit'>('debit');
+  const [adjustmentAmount, setAdjustmentAmount] = useState('');
+  const [adjustmentReason, setAdjustmentReason] = useState('');
   const customerIdFromRoute = new URLSearchParams(location.search).get('customer_id') || undefined;
 
   // Custom hook
@@ -62,6 +67,7 @@ export function DebtsPage() {
     setSearchQuery,
     setSearchFilters,
     recordPaymentMutation,
+    adjustDebtMutation,
     page,
     pageSize,
     total,
@@ -143,6 +149,37 @@ export function DebtsPage() {
     setSearchFilters(filters);
   }, [setSearchFilters, setSearchQuery]);
 
+  const handleManualAdjustment = (customerId: string, customerName: string) => {
+    setAdjustmentCustomerId(customerId);
+    setAdjustmentType('debit');
+    setAdjustmentAmount('');
+    setAdjustmentReason(`تعديل يدوي - ${customerName}`);
+    setAdjustmentModalOpen(true);
+  };
+
+  const handleAdjustmentSubmit = () => {
+    if (!adjustmentCustomerId || !adjustmentAmount || isNaN(parseFloat(adjustmentAmount)) || parseFloat(adjustmentAmount) <= 0) {
+      toast.error('يرجى إدخال مبلغ صالح للتعديل اليدوي');
+      return;
+    }
+
+    const amount = parseFloat(adjustmentAmount);
+    adjustDebtMutation.mutate({
+      customerId: adjustmentCustomerId,
+      amount,
+      type: adjustmentType,
+      reason: adjustmentReason || `تعديل يدوي - ${adjustmentType === 'debit' ? 'زيادة' : 'خصم'}`,
+    }, {
+      onSuccess: () => {
+        toast.success(adjustmentType === 'debit' ? 'تمت زيادة الدين بنجاح' : 'تم خصم الدين بنجاح');
+        setAdjustmentModalOpen(false);
+        setAdjustmentAmount('');
+        setAdjustmentReason('');
+      },
+      onError: () => toast.error('تعذر تطبيق تعديل الدين. تأكد من البيانات وراجع الرصيد الحالي.'),
+    });
+  };
+
   const handleViewDebt = (debt: Debt) => {
     setSelectedDebt(debt);
     setIsViewModalOpen(true);
@@ -219,6 +256,17 @@ export function DebtsPage() {
               <Button variant="secondary" size={getButtonSize('debts', 'headerActions')} onClick={() => navigate('/app/customers')}>
                 <ArrowRight style={{ width: '16px', height: '16px', marginRight: '8px' }} />
                 العودة للزبائن
+              </Button>
+              <Button variant="primary" size={getButtonSize('debts', 'headerActions')} onClick={() => {
+                const customer = debts[0]?.customer;
+                if (customer?.id) {
+                  handleManualAdjustment(customer.id, customer.name);
+                } else {
+                  toast.error('لا توجد بيانات عميل لإجراء تعديل يدوي');
+                }
+              }}>
+                <DollarSign style={{ width: '16px', height: '16px', marginRight: '8px' }} />
+                تعديل يدوي
               </Button>
           </div>
         }
@@ -592,6 +640,61 @@ export function DebtsPage() {
                   }
                 >
                   {recordPaymentMutation.isPending ? 'جارٍ التسجيل...' : 'تسجيل الدفعة'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Adjustment Modal */}
+      {adjustmentModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-surface)',
+            padding: '24px',
+            borderRadius: '16px',
+            maxWidth: '500px',
+            width: '100%',
+            margin: '16px',
+            border: '1px solid var(--border-primary)',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>تعديل يدوي في الدين</h3>
+              <button onClick={() => setAdjustmentModalOpen(false)} disabled={adjustDebtMutation.isPending} aria-label="إغلاق تعديل الدين" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '24px', color: 'var(--text-secondary)' }}>×</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">نوع التعديل</label>
+                <select value={adjustmentType} onChange={(e) => setAdjustmentType(e.target.value as 'debit' | 'credit')} disabled={adjustDebtMutation.isPending} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '14px' }}>
+                  <option value="debit">زيادة الدين</option>
+                  <option value="credit">خصم من الدين</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">المبلغ</label>
+                <Input type="number" placeholder="أدخل المبلغ..." value={adjustmentAmount} onChange={(e) => setAdjustmentAmount(e.target.value)} disabled={adjustDebtMutation.isPending} autoFocus />
+              </div>
+              <div>
+                <label className="text-small font-medium text-text mb-sm block">السبب</label>
+                <Input value={adjustmentReason} onChange={(e) => setAdjustmentReason(e.target.value)} disabled={adjustDebtMutation.isPending} />
+              </div>
+              <div className="flex gap-sm justify-end">
+                <Button variant="secondary" size={getButtonSize('debts', 'modalAction')} onClick={() => setAdjustmentModalOpen(false)} disabled={adjustDebtMutation.isPending}>إلغاء</Button>
+                <Button variant="primary" size={getButtonSize('debts', 'modalAction')} onClick={handleAdjustmentSubmit} disabled={adjustDebtMutation.isPending || !adjustmentAmount || isNaN(parseFloat(adjustmentAmount)) || parseFloat(adjustmentAmount) <= 0}>
+                  {adjustDebtMutation.isPending ? 'جارٍ التعديل...' : 'تطبيق التعديل'}
                 </Button>
               </div>
             </div>

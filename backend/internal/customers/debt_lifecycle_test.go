@@ -199,6 +199,50 @@ func TestCustomerDebtLifecyclePaymentAndReturnCreditSQLite(t *testing.T) {
 	}
 }
 
+func TestCustomerManualDebtAdjustmentReconcilesBalanceSQLite(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/customer-manual-adjustment.db")
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+
+	db := sqlx.NewDb(database.DB, "sqlite")
+	ctx := context.Background()
+	customerID := uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := db.Exec(`INSERT INTO customers (id, code, name, credit_limit, current_balance, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)`, customerID, "C-MANUAL-ADJ", "Manual Adjustment Customer", 1000, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(NewRepository(db))
+	if err := service.AdjustCustomerDebt(ctx, customerID, 120, "debit", "manual increase"); err != nil {
+		t.Fatalf("increase adjustment: %v", err)
+	}
+	assertCustomerDebtBalance(t, db, customerID, 120)
+
+	var debtCount int
+	if err := db.Get(&debtCount, `SELECT COUNT(*) FROM debts WHERE customer_id = ? AND notes = 'MANUAL_ADJUSTMENT'`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if debtCount != 1 {
+		t.Fatalf("manual-debit debt rows = %d, want 1", debtCount)
+	}
+
+	if err := service.AdjustCustomerDebt(ctx, customerID, 30, "credit", "manual reduction"); err != nil {
+		t.Fatalf("credit adjustment: %v", err)
+	}
+	assertCustomerDebtBalance(t, db, customerID, 90)
+
+	var creditCount int
+	if err := db.Get(&creditCount, `SELECT COUNT(*) FROM customer_ledger WHERE customer_id = ? AND type = 'credit' AND description = 'manual reduction'`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if creditCount != 1 {
+		t.Fatalf("manual-credit ledger entries = %d, want 1", creditCount)
+	}
+}
+
 func TestDeleteCustomerArchivesAndPreservesFinancialRowsSQLite(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/delete-customer-cascade.db")
 	database, err := localdb.Open()

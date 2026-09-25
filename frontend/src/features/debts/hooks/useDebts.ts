@@ -61,6 +61,17 @@ export function useDebts(debtTab: 'open' | 'paid' | 'all' = 'open', customerId?:
     },
   });
 
+  const adjustDebtMutation = useMutation({
+    mutationFn: ({ customerId, amount, type, reason }: { customerId: string; amount: number; type: 'debit' | 'credit'; reason?: string }) =>
+      debtsApi.adjust(customerId, { amount, type, reason }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['debts'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+
   const rawDebts = (overdueCustomersData?.data as any[]) || [];
   const isFlatDebtResponse = rawDebts.some((entry) => entry?.customer_id && !entry?.debts);
   const overdueCustomers = isFlatDebtResponse
@@ -221,6 +232,7 @@ export function useDebts(debtTab: 'open' | 'paid' | 'all' = 'open', customerId?:
     searchFilters,
     setSearchFilters: updateSearchFilters,
     recordPaymentMutation,
+    adjustDebtMutation,
     page,
     pageSize,
     total: Number(overdueCustomersData?.meta?.total || rawDebts.length),

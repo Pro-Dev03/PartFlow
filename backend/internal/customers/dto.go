@@ -163,6 +163,14 @@ type ProcessDebtPaymentRequest struct {
 	Reference *string `json:"reference,omitempty"`
 }
 
+// AdjustCustomerDebtRequest represents a manual customer debt adjustment.
+type AdjustCustomerDebtRequest struct {
+	Amount float64 `json:"amount" binding:"required,gt=0"`
+	Type   string  `json:"type" binding:"required,oneof=debit credit"`
+	Reason string  `json:"reason,omitempty"`
+	DueDate *time.Time `json:"due_date,omitempty"`
+}
+
 // PaymentReceiptRequest represents request to generate payment receipt
 type PaymentReceiptRequest struct {
 	Amount       float64 `json:"amount" binding:"required,gt=0"`
