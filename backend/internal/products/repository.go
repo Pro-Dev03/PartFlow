@@ -1060,25 +1060,28 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 }
 
 func collectProductDeleteIDs(ctx context.Context, tx *sqlx.Tx, query string, args ...any) ([]string, error) {
-	rows, err := tx.QueryxContext(ctx, tx.Rebind(query), args...)
-	if err != nil {
-		if isOptionalProductCleanupError(err) {
-			return nil, nil
+	var ids []string
+	err := runOptionalProductCleanup(ctx, tx, func() error {
+		rows, err := tx.QueryxContext(ctx, tx.Rebind(query), args...)
+		if err != nil {
+			return err
 		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			if strings.TrimSpace(id) != "" {
+				ids = appendUniqueProductDeleteIDs(ids, id)
+			}
+		}
+		return rows.Err()
+	})
+	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(id) != "" {
-			ids = appendUniqueProductDeleteIDs(ids, id)
-		}
-	}
-	return ids, rows.Err()
+	return ids, nil
 }
 
 // collectProductDeleteIDsForIDs is best-effort for optional legacy tables and
@@ -1122,11 +1125,10 @@ func execProductCleanup(ctx context.Context, tx *sqlx.Tx, query string, args ...
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, tx.Rebind(expanded), values...)
-	if isOptionalProductCleanupError(err) {
-		return nil
-	}
-	return err
+	return runOptionalProductCleanup(ctx, tx, func() error {
+		_, err := tx.ExecContext(ctx, tx.Rebind(expanded), values...)
+		return err
+	})
 }
 
 func normalizeProductDeleteArgs(args []any) []any {
@@ -1157,10 +1159,33 @@ func deleteProductRowsByIDs(ctx context.Context, tx *sqlx.Tx, table, column stri
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, tx.Rebind(query), args...)
+	return runOptionalProductCleanup(ctx, tx, func() error {
+		_, err := tx.ExecContext(ctx, tx.Rebind(query), args...)
+		return err
+	})
+}
+
+// PostgreSQL aborts a transaction after a missing optional table or column.
+// Roll back that statement before continuing with the remaining cleanup.
+func runOptionalProductCleanup(ctx context.Context, tx *sqlx.Tx, run func() error) error {
+	const savepoint = "product_cleanup_optional"
+	if _, err := tx.ExecContext(ctx, "SAVEPOINT "+savepoint); err != nil {
+		return err
+	}
+	err := run()
 	if isOptionalProductCleanupError(err) {
+		if _, rollbackErr := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+savepoint); rollbackErr != nil {
+			return fmt.Errorf("restore product cleanup after optional schema error %v: %w", err, rollbackErr)
+		}
+		if _, releaseErr := tx.ExecContext(ctx, "RELEASE SAVEPOINT "+savepoint); releaseErr != nil {
+			return releaseErr
+		}
 		return nil
 	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, "RELEASE SAVEPOINT "+savepoint)
 	return err
 }
 
