@@ -53,6 +53,21 @@ describe('cloud subscription validation', () => {
     vi.useRealTimers();
   });
 
+  it('never persists access or refresh credentials in browser storage', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      token: 'access-token-secret',
+      cloudToken: 'cloud-token-secret',
+      refreshTokenValue: 'refresh-token-secret',
+    });
+
+    const persisted = JSON.parse(localStorage.getItem('auth-storage') || '{}').state;
+    expect(persisted).not.toHaveProperty('token');
+    expect(persisted).not.toHaveProperty('cloudToken');
+    expect(persisted).not.toHaveProperty('refreshTokenValue');
+    expect(JSON.stringify(persisted)).not.toContain('-token-secret');
+  });
+
   it('uses the local backend for local-mode login', async () => {
     localStorage.setItem(CONNECTION_MODE_KEY, 'local');
     const cloudLoginSpy = vi.spyOn(authApi, 'loginWithCloud');
