@@ -1,10 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { Eye, EyeOff, AlertCircle, Headset, X } from 'lucide-react';
 import { clearAutoLogoutReason, getAutoLogoutMessage, readAutoLogoutReason, type AutoLogoutReason } from '../sessionReason';
 
 const SAVED_EMAILS_KEY = 'partflow-saved-login-emails';
 const MAX_SAVED_EMAILS = 5;
+
+interface LoginRipple {
+  id: number;
+  left: number;
+  top: number;
+  size: number;
+}
 
 function readSavedEmails(): string[] {
   try {
@@ -32,6 +39,8 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [savedEmails, setSavedEmails] = useState<string[]>(readSavedEmails);
   const [autoLogoutReason, setAutoLogoutReason] = useState<AutoLogoutReason | null>(readAutoLogoutReason);
+  const [ripples, setRipples] = useState<LoginRipple[]>([]);
+  const nextRippleId = useRef(0);
 
   useEffect(() => {
     if (!showForgotPassword) return;
@@ -66,34 +75,25 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
   const inputStyle = {
     width: '100%',
     boxSizing: 'border-box' as const,
-    paddingTop: '12px',
-    paddingRight: '13px',
-    paddingBottom: '12px',
-    paddingLeft: '13px',
+    padding: '12px 14px',
     color: 'var(--text-primary)',
-    border: '1px solid var(--input-border)',
-    borderRadius: '10px',
+    border: 'none',
+    borderRadius: '11px',
     outline: 'none',
-    background: 'var(--input-bg)',
-    transition: 'border-color 180ms ease, box-shadow 180ms ease, background 180ms ease',
+    background: 'transparent',
     fontSize: '14px',
   };
 
-  const passwordInputStyle = {
-    ...inputStyle,
-    paddingRight: '52px',
-  };
-
-  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-    e.currentTarget.style.borderColor = 'var(--primary)';
-    e.currentTarget.style.background = 'var(--input-bg)';
-    e.currentTarget.style.boxShadow = '0 0 0 3px var(--color-primary-10)';
-  };
-
-  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    e.currentTarget.style.borderColor = 'var(--input-border)';
-    e.currentTarget.style.background = 'var(--input-bg)';
-    e.currentTarget.style.boxShadow = 'none';
+  const addRipple = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const size = Math.max(bounds.width, bounds.height) * 1.6;
+    const ripple = {
+      id: ++nextRippleId.current,
+      left: event.clientX - bounds.left - size / 2,
+      top: event.clientY - bounds.top - size / 2,
+      size,
+    };
+    setRipples((current) => [...current, ripple]);
   };
 
   return (
@@ -198,23 +198,23 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
               style={{ color: isDark ? '#cbd5e1' : '#374151', fontSize: '11px', fontWeight: '650' }}
               htmlFor="email"
             >
-              البريد الإلكتروني
+              {t('auth.email')}
             </label>
           </div>
-          <input
-            id="email"
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            list="partflow-saved-emails"
-            style={inputStyle}
-            className="placeholder:text-[#4f5c70]"
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-          />
+          <div className="pf-login-form-shell">
+            <input
+              id="email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+              list="partflow-saved-emails"
+              style={inputStyle}
+              className="pf-login-form-input placeholder:text-[#4f5c70]"
+            />
+          </div>
           <datalist id="partflow-saved-emails">
             {savedEmails.map((savedEmail) => (
               <option key={savedEmail} value={savedEmail} />
@@ -229,10 +229,10 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
               style={{ color: isDark ? '#cbd5e1' : '#374151', fontSize: '11px', fontWeight: '650' }}
               htmlFor="password"
             >
-              كلمة المرور
+              {t('auth.password')}
             </label>
           </div>
-          <div style={{ position: 'relative' }}>
+          <div className="pf-login-form-shell">
             <input
               id="password"
               type={showPassword ? 'text' : 'password'}
@@ -241,19 +241,14 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
               onChange={(e) => setPassword(e.target.value)}
               required
               autoComplete="current-password"
-              style={passwordInputStyle}
-              className="placeholder:text-[#4f5c70]"
-              onFocus={handleFocus}
-              onBlur={handleBlur}
+              style={inputStyle}
+              className="pf-login-form-input pf-login-password-input placeholder:text-[#4f5c70]"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
+              className="pf-login-password-toggle"
               style={{
-                position: 'absolute',
-                top: '50%',
-                insetInlineStart: '4px',
-                transform: 'translateY(-50%)',
                 width: '40px',
                 height: '40px',
                 minWidth: '40px',
@@ -263,7 +258,6 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
                 background: 'transparent',
                 border: 'none',
                 cursor: 'pointer',
-                transition: 'all 180ms ease',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -271,8 +265,10 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
                 boxShadow: 'none',
               }}
               aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+              aria-pressed={showPassword}
+              title={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
             >
-              {showPassword ? <EyeOff style={{ width: '16px', height: '16px' }} /> : <Eye style={{ width: '16px', height: '16px' }} />}
+              {showPassword ? <EyeOff style={{ width: '18px', height: '18px' }} /> : <Eye style={{ width: '18px', height: '18px' }} />}
             </button>
           </div>
         </div>
@@ -326,22 +322,33 @@ export function LoginForm({ isDark, isLoading, externalError, onSubmit }: LoginF
         <button
           type="submit"
           disabled={isLoading}
+          className="pf-login-submit"
+          onPointerDown={addRipple}
           style={{
             width: '100%',
-            padding: '13px',
-            color: 'var(--text-on-primary)',
+            padding: '14px',
+            color: '#fff',
             border: 'none',
-            borderRadius: '10px',
-            fontSize: '13px',
+            borderRadius: '12px',
+            fontSize: '15px',
             fontWeight: '700',
             cursor: isLoading ? 'not-allowed' : 'pointer',
-            background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)',
-            boxShadow: '0 4px 20px rgba(37, 99, 235, 0.3), 0 0 30px rgba(37, 99, 235, 0.15)',
-            transition: 'all 200ms ease',
             opacity: isLoading ? 0.7 : 1,
           }}
         >
-          {isLoading ? 'جاري تسجيل الدخول...' : t('auth.signIn')}
+          <span className="pf-login-submit-content">
+            {isLoading && <span className="pf-login-submit-spinner" aria-hidden="true" />}
+            <span>{isLoading ? 'جاري تسجيل الدخول...' : t('auth.signIn')}</span>
+          </span>
+          {ripples.map((ripple) => (
+            <span
+              key={ripple.id}
+              className="pf-login-ripple"
+              aria-hidden="true"
+              style={{ left: ripple.left, top: ripple.top, width: ripple.size, height: ripple.size }}
+              onAnimationEnd={() => setRipples((current) => current.filter((item) => item.id !== ripple.id))}
+            />
+          ))}
         </button>
       </form>
 

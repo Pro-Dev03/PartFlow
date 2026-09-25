@@ -670,6 +670,458 @@ tbody tr:last-child td {
   background: var(--bg-surface) !important;
 }
 
+/* Login page recreation: animated canvas layers and the glass login card. */
+.pf-login-page {
+  --pf-login-indigo: #2563eb;
+  --pf-login-teal: #2dd4bf;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: max(32px, env(safe-area-inset-top)) 20px max(32px, env(safe-area-inset-bottom));
+  overflow-x: clip;
+  overflow-y: auto;
+  position: relative;
+  z-index: 2;
+  background: transparent !important;
+}
+
+:root:not(.dark) .pf-login-page {
+  --pf-login-indigo: #2563eb;
+  --pf-login-teal: #0d9488;
+}
+
+.pf-login-background {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  --pf-login-indigo: #2563eb;
+  --pf-login-teal: #2dd4bf;
+  --pf-login-net-line: 120, 150, 190;
+  --pf-login-net-dot: 180, 200, 230;
+}
+
+.pf-login-background[data-theme="light"] {
+  --pf-login-indigo: #2563eb;
+  --pf-login-teal: #0d9488;
+  --pf-login-net-line: 100, 115, 150;
+  --pf-login-net-dot: 55, 70, 105;
+}
+
+.pf-login-wash,
+.pf-login-grid,
+.pf-login-vignette,
+.pf-login-blob,
+.pf-login-network,
+.pf-login-cursor-glow {
+  position: absolute;
+  inset: 0;
+}
+
+.pf-login-wash {
+  background:
+    radial-gradient(1200px 800px at 78% 8%, color-mix(in srgb, var(--pf-login-teal) 14%, transparent), transparent 60%),
+    radial-gradient(1000px 700px at 10% 92%, color-mix(in srgb, var(--pf-login-indigo) 16%, transparent), transparent 60%),
+    linear-gradient(160deg, #080b14 0%, #0c1120 45%, #0f1729 100%);
+  transition: background 400ms ease;
+}
+
+.pf-login-background[data-theme="light"] .pf-login-wash {
+  background:
+    radial-gradient(1200px 800px at 78% 8%, color-mix(in srgb, var(--pf-login-teal) 14%, transparent), transparent 60%),
+    radial-gradient(1000px 700px at 10% 92%, color-mix(in srgb, var(--pf-login-indigo) 16%, transparent), transparent 60%),
+    linear-gradient(160deg, #eef1f7 0%, #e7ebf4 45%, #dde3f0 100%);
+}
+
+.pf-login-grid {
+  inset: -2px;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.2) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.2) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(1300px 850px at 70% 20%, #000 0%, rgba(0, 0, 0, 0.7) 50%, transparent 85%);
+  -webkit-mask-image: radial-gradient(1300px 850px at 70% 20%, #000 0%, rgba(0, 0, 0, 0.7) 50%, transparent 85%);
+  animation: pf-login-grid-drift 20s linear infinite;
+}
+
+.pf-login-background[data-theme="light"] .pf-login-grid {
+  background-image:
+    linear-gradient(rgba(71, 85, 105, 0.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(71, 85, 105, 0.18) 1px, transparent 1px);
+}
+
+.pf-login-blob {
+  inset: auto;
+  border-radius: 50%;
+  filter: blur(55px);
+  opacity: 0.55;
+  will-change: transform;
+}
+
+.pf-login-blob-one {
+  top: -120px;
+  right: -100px;
+  width: 560px;
+  height: 560px;
+  background: radial-gradient(circle at 30% 30%, var(--pf-login-teal), transparent 70%);
+  animation: pf-login-float-one 16s ease-in-out infinite;
+}
+
+.pf-login-blob-two {
+  bottom: -140px;
+  left: -120px;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle at 60% 40%, var(--pf-login-indigo), transparent 70%);
+  animation: pf-login-float-two 19s ease-in-out infinite;
+}
+
+.pf-login-blob-three {
+  top: 38%;
+  left: 52%;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle at 50% 50%, #f0b23c, transparent 72%);
+  opacity: 0.24;
+  animation: pf-login-float-three 22s ease-in-out infinite;
+}
+
+.pf-login-network {
+  width: 100%;
+  height: 100%;
+  opacity: 1;
+}
+
+.pf-login-vignette {
+  background: radial-gradient(1400px 900px at 50% 50%, transparent 55%, rgba(4, 6, 12, 0.55) 100%);
+}
+
+.pf-login-background[data-theme="light"] .pf-login-vignette {
+  background: radial-gradient(1400px 900px at 50% 50%, transparent 55%, rgba(120, 130, 155, 0.14) 100%);
+}
+
+.pf-login-cursor-glow {
+  position: fixed;
+  z-index: 1;
+  background: radial-gradient(420px 420px at var(--pf-login-mx, 50%) var(--pf-login-my, 50%),
+    color-mix(in srgb, var(--pf-login-indigo) 32%, transparent) 0%,
+    color-mix(in srgb, var(--pf-login-teal) 22%, transparent) 38%,
+    transparent 70%);
+  mix-blend-mode: screen;
+  opacity: 0.9;
+}
+
+.pf-login-background[data-theme="light"] .pf-login-cursor-glow {
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}
+
+.pf-login-trail {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.pf-login-trail[data-theme="light"] {
+  mix-blend-mode: multiply;
+  opacity: 0.85;
+}
+
+.pf-login-card {
+  width: min(920px, calc(100% - 32px)) !important;
+  z-index: 2 !important;
+  animation: pf-login-fade-in 600ms ease-out both;
+}
+
+.pf-login-surface {
+  border-radius: 24px !important;
+  background: rgba(17, 24, 39, 0.58) !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45) !important;
+  transition: background 400ms ease, border-color 400ms ease, box-shadow 400ms ease;
+}
+
+:root:not(.dark) .pf-login-surface {
+  background: rgba(255, 255, 255, 0.66) !important;
+  border-color: rgba(15, 23, 42, 0.1) !important;
+  box-shadow: 0 30px 80px rgba(30, 41, 59, 0.16) !important;
+}
+
+.pf-login-form-panel {
+  padding: 40px !important;
+  background: transparent !important;
+}
+
+.pf-login-quick-actions {
+  position: fixed !important;
+  top: max(24px, env(safe-area-inset-top)) !important;
+  left: max(24px, env(safe-area-inset-left)) !important;
+  z-index: 5;
+  display: flex;
+  gap: 10px !important;
+  direction: ltr;
+}
+
+.pf-login-icon-button {
+  width: 40px !important;
+  height: 40px !important;
+  min-width: 40px !important;
+  min-height: 40px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(148, 163, 184, 0.14) !important;
+  background: rgba(17, 24, 39, 0.55) !important;
+  color: #eef2f8 !important;
+  padding: 0;
+  font-family: var(--font-family-base);
+  font-size: 17px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: transform 200ms ease, background 300ms ease !important;
+}
+
+:root:not(.dark) .pf-login-icon-button {
+  border-color: rgba(15, 23, 42, 0.08) !important;
+  background: rgba(255, 255, 255, 0.62) !important;
+  color: #0f172a !important;
+}
+
+.pf-login-icon-button:hover {
+  transform: translateY(-2px);
+}
+
+.pf-login-method {
+  position: relative;
+  overflow: hidden;
+  transition: transform 200ms ease, border-color 200ms ease, background 200ms ease, box-shadow 200ms ease;
+}
+
+.pf-login-method:hover { transform: translateY(-1px); }
+
+.pf-login-method[aria-pressed="true"] {
+  box-shadow: inset 0 0 20px color-mix(in srgb, var(--primary) 10%, transparent), 0 0 18px color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.pf-login-method-dot { animation: pf-login-dot-pulse 1.6s ease-in-out infinite; }
+
+.pf-login-form-shell {
+  position: relative;
+  width: 100%;
+  border: 1px solid var(--input-border);
+  border-radius: 12px;
+  background: var(--input-bg);
+  transition: border-color 250ms ease, box-shadow 250ms ease, transform 200ms ease;
+}
+
+.pf-login-form-shell::after {
+  position: absolute;
+  right: 14px;
+  bottom: 0;
+  left: 14px;
+  height: 2px;
+  content: "";
+  border-radius: 2px;
+  background: var(--pf-login-teal);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 300ms ease;
+}
+
+.pf-login-form-shell:focus-within {
+  border-color: color-mix(in srgb, var(--pf-login-teal) 60%, var(--input-border));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pf-login-teal) 12%, transparent);
+  transform: translateY(-1px);
+}
+
+.pf-login-form-shell:focus-within::after { transform: scaleX(1); }
+
+.pf-login-form-input {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border: 0 !important;
+  border-radius: 11px;
+  outline: none;
+  background: transparent !important;
+  color: var(--text-primary) !important;
+}
+
+.pf-login-form-input::placeholder { color: var(--text-muted); }
+
+.pf-login-form-shell:has(.pf-login-password-input) .pf-login-form-input { padding-left: 52px; }
+
+.pf-login-password-toggle {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: auto;
+  left: 4px;
+  inset-inline-start: auto;
+  transform: translateY(-50%);
+  transition: color 180ms ease, background 180ms ease !important;
+}
+
+.pf-login-password-toggle:hover {
+  color: var(--pf-login-teal) !important;
+  background: color-mix(in srgb, var(--pf-login-teal) 12%, transparent) !important;
+}
+
+.pf-login-password-toggle:focus-visible {
+  outline: 2px solid var(--pf-login-teal);
+  outline-offset: 1px;
+}
+
+.pf-login-submit {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(120deg, var(--pf-login-indigo), var(--pf-login-teal), var(--pf-login-indigo)) !important;
+  background-size: 220% 100% !important;
+  animation: pf-login-gradient-shift 6s ease infinite;
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--pf-login-indigo) 45%, transparent) !important;
+  transition: transform 150ms ease, box-shadow 250ms ease, opacity 200ms ease !important;
+}
+
+.pf-login-submit:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--pf-login-indigo) 55%, transparent) !important;
+}
+
+.pf-login-submit:not(:disabled):active { transform: translateY(0); }
+
+.pf-login-submit::after {
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  content: "";
+  background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  transform: skewX(-20deg);
+  animation: pf-login-shine 3.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.pf-login-submit-content {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.pf-login-submit-spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: pf-login-spinner 700ms linear infinite;
+}
+
+.pf-login-ripple {
+  position: absolute;
+  z-index: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  transform: scale(0);
+  animation: pf-login-ripple 600ms ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes pf-login-grid-drift { to { transform: translate3d(-64px, -64px, 0); } }
+@keyframes pf-login-float-one { 50% { transform: translate(-120px, 90px) scale(1.25); } }
+@keyframes pf-login-float-two { 50% { transform: translate(130px, -80px) scale(1.2); } }
+@keyframes pf-login-float-three { 50% { transform: translate(-90px, -120px) scale(1.3); } }
+@keyframes pf-login-gradient-shift { 50% { background-position: 100% 50%; } }
+@keyframes pf-login-shine { 45%, 100% { left: 130%; } }
+@keyframes pf-login-spinner { to { transform: rotate(360deg); } }
+@keyframes pf-login-ripple { to { transform: scale(1); opacity: 0; } }
+@keyframes pf-login-dot-pulse { 50% { opacity: 0.65; transform: scale(0.85); } }
+@keyframes pf-login-fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 767px) {
+  .pf-login-page {
+    padding: max(76px, env(safe-area-inset-top)) 12px max(24px, env(safe-area-inset-bottom));
+  }
+
+  .pf-login-page .pf-login-card { width: min(480px, 100%) !important; }
+
+  .pf-login-page .pf-login-surface {
+    display: block !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .pf-login-page .pf-login-brand-panel { display: none !important; }
+
+  .pf-login-page .pf-login-form-panel {
+    min-height: 0 !important;
+    padding: 34px 24px 30px !important;
+  }
+
+  .pf-login-quick-actions {
+    top: max(14px, env(safe-area-inset-top)) !important;
+    left: max(14px, env(safe-area-inset-left)) !important;
+  }
+
+  .pf-login-blob-one { width: 390px; height: 390px; right: -180px; }
+  .pf-login-blob-two { width: 360px; height: 360px; left: -170px; }
+  .pf-login-blob-three { width: 280px; height: 280px; }
+}
+
+@media (max-width: 380px) {
+  .pf-login-page .pf-login-form-panel { padding-inline: 16px !important; }
+  .pf-login-page .pf-login-method { padding-inline: 6px !important; }
+  .pf-login-page .pf-login-method > span:last-child > span:last-child {
+    white-space: normal !important;
+    line-height: 1.35;
+  }
+}
+
+@media (max-height: 680px) and (min-width: 761px) {
+  .pf-login-page { padding-block: 20px; }
+  .pf-login-brand-panel { min-height: 540px !important; padding-block: 32px !important; }
+  .pf-login-form-panel { padding-block: 32px !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-login-grid,
+  .pf-login-blob,
+  .pf-login-submit,
+  .pf-login-submit::after,
+  .pf-login-submit-spinner,
+  .pf-login-method-dot,
+  .pf-login-card {
+    animation: none !important;
+  }
+
+  .pf-login-icon-button,
+  .pf-login-method,
+  .pf-login-form-shell,
+  .pf-login-form-shell::after,
+  .pf-login-submit {
+    transition: none !important;
+  }
+
+  .pf-login-cursor-glow,
+  .pf-login-trail {
+    display: none;
+  }
+}
+
 .pf-login-page button {
   font-family: var(--font-family-base);
 }

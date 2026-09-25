@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../../stores/authStore';
 import { useTranslation } from '../../../hooks/useTranslation';
-import { Sun, Moon, Globe, Cloud, HardDrive } from 'lucide-react';
+import { Cloud, HardDrive } from 'lucide-react';
 import { getConnectionMode, setConnectionMode, type ConnectionMode } from '../../../lib/config/app';
 
 // Components
@@ -15,14 +15,13 @@ import { useUIStore } from '../../../stores/uiStore';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { t } = useTranslation();
+  const { t, currentLanguage, changeLanguage } = useTranslation();
   const { login, isLoading, loginError: authLoginError, setPostLoginVerifying } = useAuthStore();
   const [isVerifyingSubscription, setIsVerifyingSubscription] = useState(false);
   const [loginError, setLoginError] = useState('');
   const theme = useUIStore((state) => state.theme);
   const setTheme = useUIStore((state) => state.setTheme);
   const isDark = theme === 'dark';
-  const [language, setLanguage] = useState('ar');
   const [connectionMode, setSelectedConnectionMode] = useState<ConnectionMode>(getConnectionMode);
 
   useEffect(() => {
@@ -34,11 +33,7 @@ export function LoginPage() {
   };
 
   const toggleLanguage = () => {
-    const newLang = language === 'ar' ? 'en' : 'ar';
-    setLanguage(newLang);
-    document.documentElement.setAttribute('dir', newLang === 'ar' ? 'rtl' : 'ltr');
-    // Store preference
-    localStorage.setItem('language', newLang);
+    changeLanguage(currentLanguage === 'ar' ? 'en' : 'ar');
   };
 
   const handleConnectionModeChange = (mode: ConnectionMode) => {
@@ -83,23 +78,34 @@ export function LoginPage() {
 
   return (
     <>
-      <style>{`
-        @keyframes loginFadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(8px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-      `}</style>
-      <div dir="rtl" className="pf-login-page min-h-screen grid place-items-center relative overflow-hidden" style={{ background: 'var(--bg-background)' }}>
-        <LoginBackground isDark={isDark} />
-
+      <LoginBackground isDark={isDark} />
+      <div className="pf-login-quick-actions">
+        <button
+          type="button"
+          onClick={toggleLanguage}
+          className="pf-login-icon-button"
+          title="اللغة"
+          aria-label={currentLanguage === 'ar' ? 'English' : 'العربية'}
+        >
+          🌐
+        </button>
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="pf-login-icon-button"
+          title="الوضع"
+          aria-label={isDark ? 'الوضع الفاتح' : 'الوضع الليلي'}
+        >
+          {isDark ? '🌙' : '☀️'}
+        </button>
+      </div>
+      <div
+        dir={currentLanguage === 'ar' ? 'rtl' : 'ltr'}
+        data-theme={isDark ? 'dark' : 'light'}
+        className="pf-login-page grid place-items-center relative"
+      >
         {/* Main Container - Split Layout */}
-        <div className="pf-login-card" style={{ position: 'relative', zIndex: 2, width: 'min(920px, calc(100% - 32px))', animation: 'loginFadeIn 0.6s ease-out both' }}>
+        <div className="pf-login-card" style={{ position: 'relative' }}>
         <div className="pf-login-surface" style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
@@ -112,59 +118,7 @@ export function LoginPage() {
           <BrandPanel isDark={isDark} />
           
           {/* LOGIN PANEL */}
-          <div style={{ position: 'relative', padding: '92px 46px 46px', display: 'flex', alignItems: 'center' }} className="pf-login-form-panel md:p-[30px]">
-            {/* Theme and Language Toggles */}
-            <div
-              style={{
-                position: 'absolute',
-                top: '20px',
-                left: '20px',
-                display: 'flex',
-                gap: '12px',
-                direction: 'ltr',
-              }}
-            >
-              <button
-                onClick={toggleLanguage}
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '10px',
-                  background: isDark ? 'rgba(17, 24, 39, 0.8)' : 'rgba(255, 255, 255, 0.9)',
-                  border: isDark ? '1px solid rgba(148, 163, 184, 0.13)' : '1px solid rgba(0, 0, 0, 0.08)',
-                  color: isDark ? '#8290a7' : '#6B7280',
-                  cursor: 'pointer',
-                  transition: 'all 180ms ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.1)',
-                }}
-                title={language === 'ar' ? 'English' : 'العربية'}
-              >
-                <Globe style={{ width: '18px', height: '18px' }} />
-              </button>
-              <button
-                onClick={toggleTheme}
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '10px',
-                  background: isDark ? 'rgba(17, 24, 39, 0.8)' : 'rgba(255, 255, 255, 0.9)',
-                  border: isDark ? '1px solid rgba(148, 163, 184, 0.13)' : '1px solid rgba(0, 0, 0, 0.08)',
-                  color: isDark ? '#8290a7' : '#6B7280',
-                  cursor: 'pointer',
-                  transition: 'all 180ms ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.2)' : '0 2px 8px rgba(0, 0, 0, 0.1)',
-                }}
-                title={isDark ? 'الوضع الفاتح' : 'الوضع الليلي'}
-              >
-                {isDark ? <Sun style={{ width: '18px', height: '18px' }} /> : <Moon style={{ width: '18px', height: '18px' }} />}
-              </button>
-            </div>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }} className="pf-login-form-panel">
             <div style={{ width: '100%', maxWidth: '360px', margin: '0 auto' }}>
               <div style={{ marginBottom: '24px' }}>
                 <div style={{
@@ -197,6 +151,7 @@ export function LoginPage() {
                       <button
                         key={mode}
                         type="button"
+                        className="pf-login-method"
                         onClick={() => handleConnectionModeChange(mode)}
                         aria-pressed={selected}
                         style={{
@@ -224,10 +179,10 @@ export function LoginPage() {
                               borderRadius: '50%',
                               background: 'radial-gradient(circle, #a7f3d0 0%, #22c55e 42%, #15803d 100%)',
                               boxShadow: '0 0 0 1px rgba(34, 197, 94, 0.28), 0 0 10px rgba(34, 197, 94, 0.8), 0 0 18px rgba(34, 197, 94, 0.5)',
-                              animation: 'pulse 1.6s ease-in-out infinite',
                               flexShrink: 0,
                               display: 'inline-block',
                             }}
+                            className="pf-login-method-dot"
                           />
                         ) : (
                           <span
@@ -238,10 +193,10 @@ export function LoginPage() {
                               borderRadius: '50%',
                               background: 'radial-gradient(circle, #fde68a 0%, #f59e0b 42%, #b45309 100%)',
                               boxShadow: '0 0 0 1px rgba(245, 158, 11, 0.28), 0 0 10px rgba(245, 158, 11, 0.8), 0 0 18px rgba(245, 158, 11, 0.45)',
-                              animation: 'pulse 1.6s ease-in-out infinite',
                               flexShrink: 0,
                               display: 'inline-block',
                             }}
+                            className="pf-login-method-dot"
                           />
                         )}
                         <Icon aria-hidden="true" style={{ width: '15px', height: '15px', flexShrink: 0 }} />
