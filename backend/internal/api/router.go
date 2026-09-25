@@ -259,6 +259,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			}
 			sales := protected.Group("/sales")
 			{
+				sales.POST("/cleanup", salesHandler.CleanSalesHistory)
 				sales.POST("", middleware.NewIdempotencyMiddleware(db.DB).Idempotency(), salesHandler.CreateSale)
 				sales.GET("/held", salesHandler.ListHeldSales)
 				sales.POST("/held", salesHandler.HoldSale)

@@ -36,6 +36,14 @@ type DeleteDetails struct {
 	SuggestedAction string `json:"suggested_action"`
 }
 
+type SalesCleanupSummary struct {
+	Total        int  `json:"total"`
+	Deleted      int  `json:"deleted"`
+	Blocked      int  `json:"blocked"`
+	Failed       int  `json:"failed"`
+	StoppedEarly bool `json:"stopped_early"`
+}
+
 func (s *SmartDeleteService) tableExists(ctx context.Context, tx *sqlx.Tx, table string) (bool, error) {
 	var exists bool
 	query := `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1 UNION ALL SELECT 1 FROM information_schema.views WHERE table_schema = current_schema() AND table_name = $1)`
@@ -401,4 +409,48 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 
 func (s *Service) DeleteSale(ctx context.Context, saleID, userID uuid.UUID) (*DeleteResult, error) {
 	return NewSmartDeleteService(s.db).SmartDelete(ctx, saleID, userID)
+}
+
+// CleanSalesHistory attempts to remove each sale through the same transactional
+// reversal path used by individual sale deletion. Sales with payments, returns,
+// or inconsistent stock history remain untouched and are reported as blocked.
+func (s *Service) CleanSalesHistory(ctx context.Context, userID uuid.UUID) (*SalesCleanupSummary, error) {
+	const pageSize = 100
+	var saleIDs []uuid.UUID
+	for page := 1; ; page++ {
+		sales, total, err := s.repo.ListSales(ctx, page, pageSize, nil)
+		if err != nil {
+			return nil, fmt.Errorf("load sales for cleanup: %w", err)
+		}
+		for _, sale := range sales {
+			saleIDs = append(saleIDs, sale.ID)
+		}
+		if len(sales) == 0 || page*pageSize >= total {
+			break
+		}
+	}
+
+	summary := &SalesCleanupSummary{Total: len(saleIDs)}
+	for index, saleID := range saleIDs {
+		if err := ctx.Err(); err != nil {
+			summary.Failed += len(saleIDs) - index
+			summary.StoppedEarly = true
+			break
+		}
+
+		result, err := s.DeleteSale(ctx, saleID, userID)
+		if err != nil {
+			summary.Failed++
+			continue
+		}
+		switch result.Action {
+		case "deleted":
+			summary.Deleted++
+		case "blocked", "not_found":
+			summary.Blocked++
+		default:
+			summary.Failed++
+		}
+	}
+	return summary, nil
 }

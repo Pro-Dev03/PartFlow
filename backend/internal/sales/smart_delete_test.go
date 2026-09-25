@@ -156,6 +156,51 @@ func TestSmartDeleteRecalculatesAffectedShiftTotals(t *testing.T) {
 	}
 }
 
+func TestCleanSalesHistoryDeletesEligibleAndReportsBlockedSales(t *testing.T) {
+	db, saleID, _, _ := newSaleDeleteTestDB(t)
+	for _, column := range []string{
+		`sale_date TEXT DEFAULT '2026-09-25'`,
+		`subtotal REAL DEFAULT 0`,
+		`tax_amount REAL DEFAULT 0`,
+		`discount_amount REAL DEFAULT 0`,
+		`cost_amount REAL DEFAULT 0`,
+		`gross_profit REAL DEFAULT 0`,
+		`net_profit REAL DEFAULT 0`,
+		`payment_method TEXT`,
+		`payment_status TEXT DEFAULT 'unpaid'`,
+		`notes TEXT`,
+		`created_at TEXT DEFAULT '2026-09-25T10:00:00Z'`,
+	} {
+		if _, err := db.Exec(`ALTER TABLE sales ADD COLUMN ` + column); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`ALTER TABLE customers ADD COLUMN name TEXT`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE sales SET updated_at='2026-09-25T10:00:00Z' WHERE id=?`, saleID); err != nil {
+		t.Fatal(err)
+	}
+	blockedSaleID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO sales (id, invoice_number, customer_id, status, total_amount, paid_amount, sale_date, created_at, updated_at, payment_status) VALUES (?, 'INV-BLOCKED', NULL, 'completed', 25, 25, '2026-09-25', '2026-09-25T11:00:00Z', '2026-09-25T11:00:00Z', 'paid')`, blockedSaleID); err != nil {
+		t.Fatal(err)
+	}
+
+	sqlxDB := sqlx.NewDb(db, "sqlite")
+	service := NewService(NewRepository(sqlxDB), sqlxDB)
+	summary, err := service.CleanSalesHistory(context.Background(), uuid.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sales`).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if summary.Total != 2 || summary.Deleted != 1 || summary.Blocked != 1 || summary.Failed != 0 || remaining != 1 {
+		t.Fatalf("cleanup summary=%+v remaining sales=%d; want total 2, deleted 1, blocked 1, failed 0, remaining 1", summary, remaining)
+	}
+}
+
 func TestSmartDeleteSaleWithReturnIsBlockedWithoutPartialChanges(t *testing.T) {
 	db, saleID, itemID, _ := newSaleDeleteTestDB(t)
 	if _, err := db.Exec(`INSERT INTO returns (id,sale_id) VALUES (?,?)`, uuid.NewString(), saleID); err != nil {

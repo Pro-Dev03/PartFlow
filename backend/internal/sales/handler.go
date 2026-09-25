@@ -96,6 +96,26 @@ func (h *Handler) DeleteSale(c *gin.Context) {
 	response.OK(c, result, result.Message)
 }
 
+func (h *Handler) CleanSalesHistory(c *gin.Context) {
+	value, exists := c.Get("user_id")
+	if !exists {
+		errors.HandleError(c, errors.NewUnauthorizedError("User not authenticated", nil))
+		return
+	}
+	userID, ok := value.(uuid.UUID)
+	if !ok || userID == uuid.Nil {
+		errors.HandleError(c, errors.NewUnauthorizedError("User not authenticated", nil))
+		return
+	}
+
+	summary, err := h.service.CleanSalesHistory(c.Request.Context(), userID)
+	if err != nil {
+		errors.HandleError(c, errors.WrapError(err, "Failed to clean sales history"))
+		return
+	}
+	response.OK(c, summary, "Sales history cleanup completed")
+}
+
 // CreateSale creates a new sale
 // @Summary Create Sale
 // @Description Create a new sale with profit calculation

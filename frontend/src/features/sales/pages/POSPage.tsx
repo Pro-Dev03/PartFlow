@@ -61,7 +61,6 @@ import { usePayment } from '../hooks/usePayment';
 import { buildManualProductPayload } from '../utils/manualProductPayload';
 import { clearPosCheckoutAttempt, getPosCheckoutAttempt } from '../utils/posCheckoutAttempt';
 import { createDefaultPosShift, resolvePosShiftState } from '../utils/posShift';
-import { cleanSalesHistoryRecords } from '../utils/cleanSalesHistory';
 import { getCategoryImage } from '../../../services/localCategoryImages';
 
 // Types
@@ -291,7 +290,6 @@ export function POSPage() {
   const [salesHistorySearch, setSalesHistorySearch] = useState('');
   const [showSalesCleanupConfirmation, setShowSalesCleanupConfirmation] = useState(false);
   const [salesCleanupConfirmationText, setSalesCleanupConfirmationText] = useState('');
-  const [salesCleanupProgress, setSalesCleanupProgress] = useState<{ completed: number; total: number } | null>(null);
   const [loadingHistoricalSaleId, setLoadingHistoricalSaleId] = useState<string | null>(null);
   const [lastSaleData, setLastSaleData] = useState<InvoiceData | null>(null);
   const lastSaleDataRef = useRef<InvoiceData | null>(null);
@@ -490,14 +488,12 @@ export function POSPage() {
     enabled: isSalesHistoryOpen,
     staleTime: 15_000,
   });
-
   const cleanSalesHistoryMutation = useMutation({
-    mutationFn: () => cleanSalesHistoryRecords(
-      salesApi.list,
-      salesApi.delete,
-      setSalesCleanupProgress,
-    ),
-    onSuccess: async ({ deleted, blocked, total }) => {
+    mutationFn: async () => {
+      const response = await salesApi.cleanHistory();
+      return response?.data ?? response;
+    },
+    onSuccess: async ({ deleted, blocked, total, failed }) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['sales'] }),
         queryClient.invalidateQueries({ queryKey: ['sales-available-for-return'] }),
@@ -514,23 +510,18 @@ export function POSPage() {
       ]);
       setShowSalesCleanupConfirmation(false);
       setSalesCleanupConfirmationText('');
-      setSalesCleanupProgress(null);
       setSalesHistorySearch('');
       if (deleted === 0 && total === 0) {
         toast.info('لا توجد سجلات مبيعات لتنظيفها.', 'السجل فارغ');
+      } else if (failed > 0) {
+        toast.error(`حُذف ${deleted} سجلًا وتعذّر حذف ${blocked + failed} سجلًا. راجع هذه السجلات يدويًا.`, 'اكتمل التنظيف جزئيًا', 7000);
       } else {
         toast.success(`حُذف ${deleted} سجل مبيعات، وتعذّر حذف ${blocked} سجلًا بسبب ارتباط يمنع الحذف أو لأنه لم يعد موجودًا.`, 'اكتمل تنظيف السجل');
       }
     },
     onError: (error: any) => {
-      const deleted = Number(error?.summary?.deleted ?? 0);
-      const blocked = Number(error?.summary?.blocked ?? 0);
-      setSalesCleanupProgress(null);
-      toast.error(
-        `توقف التنظيف بعد حذف ${deleted} سجلًا وتجاوز ${blocked} سجلًا. أُبقيت السجلات المتبقية كما هي؛ يمكنك إعادة المحاولة.`,
-        'توقف تنظيف المبيعات',
-        7000,
-      );
+      setShowSalesCleanupConfirmation(true);
+      toast.error(error instanceof Error ? error.message : 'تعذر تنظيف سجل المبيعات. حاول مجددًا.', 'فشل تنظيف المبيعات', 7000);
     },
   });
 
@@ -2254,7 +2245,11 @@ export function POSPage() {
       <Modal
         isOpen={isSalesHistoryOpen}
         onClose={() => {
-          if (!cleanSalesHistoryMutation.isPending) setIsSalesHistoryOpen(false);
+          if (!cleanSalesHistoryMutation.isPending) {
+            setIsSalesHistoryOpen(false);
+            setShowSalesCleanupConfirmation(false);
+            setSalesCleanupConfirmationText('');
+          }
         }}
         title="المبيعات السابقة"
         variant="modern"
@@ -2307,9 +2302,9 @@ export function POSPage() {
                   aria-label="تأكيد حذف المبيعات"
                 />
               </label>
-              {salesCleanupProgress && (
+              {cleanSalesHistoryMutation.isPending && (
                 <p className="pos-history-clean-progress" role="status" aria-live="polite">
-                  جارٍ التنظيف: {salesCleanupProgress.completed} / {salesCleanupProgress.total}
+                  جارٍ تنظيف السجل على الخادم. لا تغلق هذه النافذة.
                 </p>
               )}
               <div className="pos-history-clean-actions">

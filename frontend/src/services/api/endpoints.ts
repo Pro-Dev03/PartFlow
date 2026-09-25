@@ -259,6 +259,7 @@ export const salesApi = {
   update: (id: string, data: Partial<SaleCreateRequest>) => apiClient.put(`/sales/${id}`, data),
   // SmartDelete - now returns SmartDeleteResult (ARCHITECTURE-PRINCIPLES.md)
   delete: (id: string) => apiClient.delete(`/sales/${id}`),
+  cleanHistory: () => apiClient.post('/sales/cleanup', {}),
   refund: (id: string, data: { reason?: string; refund_amount?: number }) => apiClient.post(`/sales/${id}/refund`, data),
 };
 

@@ -76,10 +76,7 @@ export function CustomerForm({ onSubmit, onCancel, initialData, isSubmitting = f
               />
             </div>
 
-            <div
-              className="col-span-2"
-              className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-4"
-            >
+            <div className="col-span-2 grid grid-cols-1 items-start gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <Input
                 label="العنوان"
                 value={formData.address}
@@ -98,7 +95,7 @@ export function CustomerForm({ onSubmit, onCancel, initialData, isSubmitting = f
                 />
               )}
 
-              <div>
+              <div className="xl:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   ملاحظات العميل
                 </label>
@@ -110,7 +107,7 @@ export function CustomerForm({ onSubmit, onCancel, initialData, isSubmitting = f
                 />
               </div>
 
-              <div>
+              <div className="xl:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   سبب الدين
                 </label>
