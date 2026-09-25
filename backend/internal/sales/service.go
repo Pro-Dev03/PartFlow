@@ -559,30 +559,39 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 				return nil, fmt.Errorf("failed to create inventory movement: %w", err)
 			}
 
-			itemHistoryMetadata, marshalErr := json.Marshal(map[string]interface{}{
-				"sale_id":           sale.ID,
-				"inventory_item_id": itemID,
-				"product_id":        items[i].ProductID,
-				"quantity":          items[i].Quantity,
-				"unit_price":        items[i].UnitPrice,
-				"unit_cost":         items[i].UnitCost,
-				"discount":          items[i].DiscountAmount,
-				"tax":               items[i].TaxAmount,
-				"total":             items[i].TotalAmount,
-				"customer_id":       sale.CustomerID,
-				"invoice_number":    sale.InvoiceNumber,
-			})
-			if marshalErr != nil {
-				return nil, fmt.Errorf("failed to encode item history snapshot: %w", marshalErr)
+			// item_history was retired from newer schemas. Keep recording the
+			// optional snapshot on legacy databases that still have the table, but
+			// do not make the sale depend on that retired workflow being installed.
+			historyExists, historyErr := NewSmartDeleteService(s.db).tableExists(ctx, tx, "item_history")
+			if historyErr != nil {
+				return nil, fmt.Errorf("inspect item history table: %w", historyErr)
 			}
-			_, err = tx.ExecContext(ctx, fmt.Sprintf(`
-				INSERT INTO item_history
-					(inventory_item_id, event_type, event_date, reference_type, reference_id,
-					 description, metadata, created_by, created_at)
-			VALUES ($1, 'sold', %s, 'sale', $2, $3, %s, $5, %s)
-		`, sqlNow, metadataValue, sqlNow), itemID, sale.ID, reason, string(itemHistoryMetadata), userID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create item history: %w", err)
+			if historyExists {
+				itemHistoryMetadata, marshalErr := json.Marshal(map[string]interface{}{
+					"sale_id":           sale.ID,
+					"inventory_item_id": itemID,
+					"product_id":        items[i].ProductID,
+					"quantity":          items[i].Quantity,
+					"unit_price":        items[i].UnitPrice,
+					"unit_cost":         items[i].UnitCost,
+					"discount":          items[i].DiscountAmount,
+					"tax":               items[i].TaxAmount,
+					"total":             items[i].TotalAmount,
+					"customer_id":       sale.CustomerID,
+					"invoice_number":    sale.InvoiceNumber,
+				})
+				if marshalErr != nil {
+					return nil, fmt.Errorf("failed to encode item history snapshot: %w", marshalErr)
+				}
+				_, err = tx.ExecContext(ctx, fmt.Sprintf(`
+					INSERT INTO item_history
+						(inventory_item_id, event_type, event_date, reference_type, reference_id,
+						 description, metadata, created_by, created_at)
+				VALUES ($1, 'sold', %s, 'sale', $2, $3, %s, $5, %s)
+				`, sqlNow, metadataValue, sqlNow), itemID, sale.ID, reason, string(itemHistoryMetadata), userID)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create item history: %w", err)
+				}
 			}
 
 			_, err = tx.ExecContext(ctx, fmt.Sprintf(`
