@@ -150,6 +150,21 @@ describe('apiClient auth propagation', () => {
     window.removeEventListener('partflow:cloud-verification-pending', pending);
   });
 
+  it('invalidates the cloud session when the cloud business API cannot be reached', async () => {
+    localStorage.setItem('partflow-connection-mode', 'cloud');
+    TokenManager.setToken('cloud-token');
+    TokenManager.setCloudToken('cloud-token');
+    apiClient.setToken('cloud-token');
+    apiClient.setCloudToken('cloud-token');
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const pending = vi.fn();
+    window.addEventListener('partflow:cloud-verification-pending', pending);
+    await expect(apiClient.post('/sales', { items: [] })).rejects.toThrow();
+    expect(pending).toHaveBeenCalledTimes(1);
+    window.removeEventListener('partflow:cloud-verification-pending', pending);
+  });
+
   it('keeps the session credentials when a 401 cannot be refreshed', async () => {
     TokenManager.setToken('local-token');
     TokenManager.setCloudToken('cloud-token');

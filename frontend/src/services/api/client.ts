@@ -568,7 +568,7 @@ class ApiClient {
       if (error?.code === 'AUTH_REFRESH_PENDING') {
         this.notifyCloudVerificationPending('Cloud session refresh is temporarily unavailable');
       }
-      if (isNetworkError(error) && getConnectionMode() === 'local') {
+      if (isNetworkError(error) && isCloudRequest) {
         this.notifyCloudVerificationPending('Cloud business API is unreachable');
       }
       if (error?.code === 'OFFLINE_GRACE_EXPIRED' || error?.code === 'CLOUD_AUTH_REQUIRED') {
