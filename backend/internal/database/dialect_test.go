@@ -2,6 +2,7 @@ package database
 
 import (
 	"testing"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
@@ -31,6 +32,16 @@ func TestParseTimestampAcceptsTimezoneLessISOText(t *testing.T) {
 		t.Fatalf("ParseTimestamp() error = %v", err)
 	}
 	if got := parsed.Format("2006-01-02T15:04:05"); got != "2026-09-18T19:54:37" {
+		t.Fatalf("ParseTimestamp() = %q", got)
+	}
+}
+
+func TestParseTimestampAcceptsPostgresSpaceSeparatedUTCText(t *testing.T) {
+	parsed, err := ParseTimestamp("2026-09-25 00:21:21.0201Z")
+	if err != nil {
+		t.Fatalf("ParseTimestamp() error = %v", err)
+	}
+	if got := parsed.UTC().Format(time.RFC3339Nano); got != "2026-09-25T00:21:21.0201Z" {
 		t.Fatalf("ParseTimestamp() = %q", got)
 	}
 }
