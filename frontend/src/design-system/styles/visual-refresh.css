@@ -803,12 +803,19 @@ tbody tr:last-child td {
 .pf-login-cursor-glow {
   position: fixed;
   z-index: 1;
-  background: radial-gradient(420px 420px at var(--pf-login-mx, 50%) var(--pf-login-my, 50%),
+  inset: auto;
+  top: 0;
+  left: 0;
+  width: 840px;
+  height: 840px;
+  background: radial-gradient(circle,
     color-mix(in srgb, var(--pf-login-indigo) 32%, transparent) 0%,
     color-mix(in srgb, var(--pf-login-teal) 22%, transparent) 38%,
     transparent 70%);
   mix-blend-mode: screen;
   opacity: 0.9;
+  transform: translate3d(calc(50vw - 420px), calc(50vh - 420px), 0);
+  will-change: transform;
 }
 
 .pf-login-background[data-theme="light"] .pf-login-cursor-glow {
@@ -1088,6 +1095,29 @@ tbody tr:last-child td {
   .pf-login-page .pf-login-method > span:last-child > span:last-child {
     white-space: normal !important;
     line-height: 1.35;
+  }
+}
+
+@media (pointer: coarse) {
+  .pf-login-grid,
+  .pf-login-blob {
+    animation: none;
+  }
+
+  .pf-login-blob {
+    filter: none;
+    transform: none;
+    will-change: auto;
+  }
+
+  .pf-login-surface {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .pf-login-trail {
+    mix-blend-mode: normal;
+    opacity: 0.78;
   }
 }
 

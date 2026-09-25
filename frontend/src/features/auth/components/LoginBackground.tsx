@@ -22,16 +22,22 @@ export function LoginBackground({ isDark }: LoginBackgroundProps) {
   const backgroundRef = useRef<HTMLDivElement>(null);
   const networkCanvasRef = useRef<HTMLCanvasElement>(null);
   const trailCanvasRef = useRef<HTMLCanvasElement>(null);
+  const cursorGlowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const background = backgroundRef.current;
     const networkCanvas = networkCanvasRef.current;
     const trailCanvas = trailCanvasRef.current;
+    const cursorGlow = cursorGlowRef.current;
     const networkContext = networkCanvas?.getContext('2d');
     const trailContext = trailCanvas?.getContext('2d');
-    if (!background || !networkCanvas || !trailCanvas || !networkContext || !trailContext) return;
+    if (!background || !networkCanvas || !trailCanvas || !cursorGlow || !networkContext || !trailContext) return;
 
     const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const touchOptimized = window.matchMedia('(max-width: 760px)').matches || navigator.maxTouchPoints > 0;
+    const networkFrameInterval = touchOptimized ? 1000 / 24 : 0;
+    const trailFrameInterval = touchOptimized ? 1000 / 30 : 0;
+    const maxTrailPoints = touchOptimized ? 24 : 42;
     const networkPoints: NetworkPoint[] = [];
     const trailPoints: TrailPoint[] = [];
     let width = 0;
@@ -41,20 +47,27 @@ export function LoginBackground({ isDark }: LoginBackgroundProps) {
     let networkFrame = 0;
     let trailFrame = 0;
     let glowFrame = 0;
+    let lastNetworkFrameTime = 0;
+    let lastTrailFrameTime = 0;
     let glowActive = false;
-    let pointerX = 50;
-    let pointerY = 50;
-    let glowX = 50;
-    let glowY = 50;
+    let pointerX = window.innerWidth / 2;
+    let pointerY = window.innerHeight / 2;
+    let glowX = pointerX;
+    let glowY = pointerY;
 
     const cssValue = (name: string, fallback: string) =>
       getComputedStyle(background).getPropertyValue(name).trim() || fallback;
+    const lineColor = cssValue('--pf-login-net-line', '120, 150, 190');
+    const dotColor = cssValue('--pf-login-net-dot', '180, 200, 230');
+    const indigo = cssValue('--pf-login-indigo', '#2563eb');
+    const teal = cssValue('--pf-login-teal', '#2dd4bf');
 
     const resize = () => {
       width = window.innerWidth;
       height = window.innerHeight;
-      networkDpr = Math.min(window.devicePixelRatio || 1, 2);
-      trailDpr = networkDpr;
+      const devicePixelRatio = window.devicePixelRatio || 1;
+      networkDpr = Math.min(devicePixelRatio, touchOptimized ? 1 : 2);
+      trailDpr = Math.min(devicePixelRatio, touchOptimized ? 1 : 2);
 
       networkCanvas.width = Math.round(width * networkDpr);
       networkCanvas.height = Math.round(height * networkDpr);
@@ -76,11 +89,15 @@ export function LoginBackground({ isDark }: LoginBackgroundProps) {
       }
     };
 
-    const drawNetwork = () => {
+    const drawNetwork = (timestamp = performance.now()) => {
+      networkFrame = 0;
+      if (networkFrameInterval > 0 && timestamp - lastNetworkFrameTime < networkFrameInterval) {
+        networkFrame = window.requestAnimationFrame(drawNetwork);
+        return;
+      }
+      lastNetworkFrameTime = timestamp;
       networkContext.clearRect(0, 0, width, height);
       const maxDistance = Math.min(180, Math.max(130, width / 7));
-      const lineColor = cssValue('--pf-login-net-line', '120, 150, 190');
-      const dotColor = cssValue('--pf-login-net-dot', '180, 200, 230');
 
       for (const point of networkPoints) {
         point.x += point.vx;
@@ -123,16 +140,20 @@ export function LoginBackground({ isDark }: LoginBackgroundProps) {
       }
     };
 
-    const drawTrail = () => {
+    const drawTrail = (timestamp = performance.now()) => {
+      trailFrame = 0;
+      if (trailFrameInterval > 0 && timestamp - lastTrailFrameTime < trailFrameInterval) {
+        trailFrame = window.requestAnimationFrame(drawTrail);
+        return;
+      }
+      lastTrailFrameTime = timestamp;
       trailContext.clearRect(0, 0, width, height);
+      for (const point of trailPoints) point.life *= 0.965;
       if (trailPoints.length > 1) {
-        const indigo = cssValue('--pf-login-indigo', '#2563eb');
-        const teal = cssValue('--pf-login-teal', '#2dd4bf');
         for (let index = 1; index < trailPoints.length; index += 1) {
           const previous = trailPoints[index - 1];
           const point = trailPoints[index];
           if (!previous || !point) continue;
-          point.life *= 0.965;
           const progress = index / trailPoints.length;
           const gradient = trailContext.createLinearGradient(previous.x, previous.y, point.x, point.y);
           gradient.addColorStop(0, indigo);
@@ -141,7 +162,7 @@ export function LoginBackground({ isDark }: LoginBackgroundProps) {
           trailContext.globalAlpha = Math.max(0, point.life * progress);
           trailContext.lineWidth = Math.max(1.5, 10 * progress * (0.4 + point.life * 0.6));
           trailContext.lineCap = 'round';
-          trailContext.shadowBlur = 14;
+          trailContext.shadowBlur = touchOptimized ? 3 : 14;
           trailContext.shadowColor = teal;
           trailContext.beginPath();
           trailContext.moveTo(previous.x, previous.y);
@@ -152,14 +173,23 @@ export function LoginBackground({ isDark }: LoginBackgroundProps) {
         trailContext.globalAlpha = 1;
         while (trailPoints.length && (trailPoints[0]?.life ?? 0) <= 0.05) trailPoints.shift();
       }
-      if (!document.hidden) trailFrame = window.requestAnimationFrame(drawTrail);
+      if (trailPoints.length > 1 && !document.hidden) {
+        trailFrame = window.requestAnimationFrame(drawTrail);
+      } else {
+        trailPoints.length = 0;
+      }
+    };
+
+    const scheduleTrail = () => {
+      if (!motionPreference.matches && !document.hidden && !trailFrame) {
+        trailFrame = window.requestAnimationFrame(drawTrail);
+      }
     };
 
     const animateGlow = () => {
       glowX += (pointerX - glowX) * 0.12;
       glowY += (pointerY - glowY) * 0.12;
-      background.style.setProperty('--pf-login-mx', `${glowX}%`);
-      background.style.setProperty('--pf-login-my', `${glowY}%`);
+      cursorGlow.style.transform = `translate3d(${glowX - 420}px, ${glowY - 420}px, 0)`;
       if (Math.abs(pointerX - glowX) > 0.05 || Math.abs(pointerY - glowY) > 0.05) {
         glowFrame = window.requestAnimationFrame(animateGlow);
       } else {
@@ -167,23 +197,38 @@ export function LoginBackground({ isDark }: LoginBackgroundProps) {
       }
     };
 
-    const handlePointerMove = (event: PointerEvent) => {
-      pointerX = (event.clientX / Math.max(window.innerWidth, 1)) * 100;
-      pointerY = (event.clientY / Math.max(window.innerHeight, 1)) * 100;
-      trailPoints.push({ x: event.clientX, y: event.clientY, life: 1 });
-      if (trailPoints.length > 42) trailPoints.shift();
+    const handleMovement = (x: number, y: number) => {
+      pointerX = x;
+      pointerY = y;
+      const previous = trailPoints[trailPoints.length - 1];
+      if (!previous || Math.hypot(x - previous.x, y - previous.y) >= 2) {
+        trailPoints.push({ x, y, life: 1 });
+      }
+      while (trailPoints.length > maxTrailPoints) trailPoints.shift();
+      scheduleTrail();
       if (!glowActive) {
         glowActive = true;
         glowFrame = window.requestAnimationFrame(animateGlow);
       }
     };
 
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') handleMovement(event.clientX, event.clientY);
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const touch = event.touches[0] ?? event.changedTouches[0];
+      if (touch) handleMovement(touch.clientX, touch.clientY);
+    };
+
     const handleVisibilityChange = () => {
       window.cancelAnimationFrame(networkFrame);
       window.cancelAnimationFrame(trailFrame);
+      networkFrame = 0;
+      trailFrame = 0;
       if (document.hidden) return;
       drawNetwork();
-      if (!motionPreference.matches) drawTrail();
+      scheduleTrail();
     };
 
     const handleResize = () => {
@@ -195,22 +240,29 @@ export function LoginBackground({ isDark }: LoginBackgroundProps) {
     const handleMotionPreferenceChange = () => {
       window.cancelAnimationFrame(networkFrame);
       window.cancelAnimationFrame(trailFrame);
+      networkFrame = 0;
+      trailFrame = 0;
       if (motionPreference.matches) {
         window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('touchstart', handleTouchMove);
+        window.removeEventListener('touchmove', handleTouchMove);
         trailContext.clearRect(0, 0, width, height);
         trailPoints.length = 0;
       } else {
         window.addEventListener('pointermove', handlePointerMove, { passive: true });
+        window.addEventListener('touchstart', handleTouchMove, { passive: true });
+        window.addEventListener('touchmove', handleTouchMove, { passive: true });
       }
       drawNetwork();
-      if (!motionPreference.matches && !document.hidden) drawTrail();
+      scheduleTrail();
     };
 
     resize();
     drawNetwork();
     if (!motionPreference.matches) {
       window.addEventListener('pointermove', handlePointerMove, { passive: true });
-      drawTrail();
+      window.addEventListener('touchstart', handleTouchMove, { passive: true });
+      window.addEventListener('touchmove', handleTouchMove, { passive: true });
     }
     window.addEventListener('resize', handleResize);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -221,6 +273,8 @@ export function LoginBackground({ isDark }: LoginBackgroundProps) {
       window.cancelAnimationFrame(trailFrame);
       window.cancelAnimationFrame(glowFrame);
       window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('touchstart', handleTouchMove);
+      window.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       motionPreference.removeEventListener('change', handleMotionPreferenceChange);
       window.removeEventListener('resize', handleResize);
@@ -242,7 +296,7 @@ export function LoginBackground({ isDark }: LoginBackgroundProps) {
         <div className="pf-login-blob pf-login-blob-three" />
         <canvas ref={networkCanvasRef} className="pf-login-network" />
         <div className="pf-login-vignette" />
-        <div className="pf-login-cursor-glow" />
+        <div ref={cursorGlowRef} className="pf-login-cursor-glow" />
       </div>
       <canvas
         ref={trailCanvasRef}
