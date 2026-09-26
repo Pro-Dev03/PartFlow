@@ -24,6 +24,10 @@ var (
 	// ErrInvalidPaymentMethod is returned when payment method is invalid
 	ErrInvalidPaymentMethod = errors.New("invalid payment method")
 
+	// ErrInvalidDebtAdjustmentProduct is returned when an optional product
+	// attached to a debt adjustment does not exist or has an invalid quantity.
+	ErrInvalidDebtAdjustmentProduct = errors.New("invalid debt adjustment product")
+
 	// ErrCreditLimitExceeded is returned when credit limit is exceeded
 	ErrCreditLimitExceeded = errors.New("credit limit exceeded")
 

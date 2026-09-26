@@ -224,9 +224,17 @@ func (s *Service) GetSupplierLedger(ctx context.Context, supplierID uuid.UUID) (
 		TotalPayments:         totalPayments,
 		SupplierPayments:      supplierPayments,
 		SupplierReturnCredits: supplierReturnCredits,
-		CurrentBalance:        currentBalance,
+		CurrentBalance:        maxFloat(currentBalance, 0),
+		CreditBalance:         maxFloat(-currentBalance, 0),
 		Entries:               entries,
 	}, nil
+}
+
+func maxFloat(value, minimum float64) float64 {
+	if value < minimum {
+		return minimum
+	}
+	return value
 }
 
 // AddDebt adds a debt entry to supplier (when we make a purchase on credit)

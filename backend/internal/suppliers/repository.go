@@ -62,6 +62,7 @@ func localSupplierFromRow(row localSupplierRow) (Supplier, error) {
 		lastPurchase = &parsed
 	}
 	s := Supplier{ID: id, Code: row.Code, Name: row.Name, CreditLimit: row.CreditLimit, CurrentBalance: row.CurrentBalance, TotalPurchases: row.TotalPurchases, PaidAmount: row.PaidAmount, Outstanding: row.Outstanding, LastPurchase: lastPurchase, IsActive: row.IsActive != 0, CreatedAt: created, UpdatedAt: updated}
+	normalizeSupplierBalance(&s)
 	for value, target := range map[*sql.NullString]**string{&row.Email: &s.Email, &row.Phone: &s.Phone, &row.Address: &s.Address, &row.City: &s.City, &row.Country: &s.Country, &row.TaxID: &s.TaxID, &row.PaymentTerms: &s.PaymentTerms, &row.Notes: &s.Notes} {
 		if value.Valid && value.String != "" {
 			v := value.String
@@ -69,6 +70,13 @@ func localSupplierFromRow(row localSupplierRow) (Supplier, error) {
 		}
 	}
 	return s, nil
+}
+
+func normalizeSupplierBalance(supplier *Supplier) {
+	if supplier.Outstanding < 0 {
+		supplier.CreditBalance = -supplier.Outstanding
+		supplier.Outstanding = 0
+	}
 }
 
 func localSupplierQuery() string {
@@ -115,6 +123,7 @@ func scanSupplier(row interface{ Scan(...any) error }) (Supplier, error) {
 	if lastPurchase.Valid {
 		supplier.LastPurchase = &lastPurchase.Time
 	}
+	normalizeSupplierBalance(&supplier)
 	return supplier, nil
 }
 
@@ -178,6 +187,7 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*Supplier, erro
 	if err != nil {
 		return nil, ErrSupplierNotFound
 	}
+	normalizeSupplierBalance(&supplier)
 	return &supplier, nil
 }
 
@@ -210,6 +220,7 @@ func (r *Repository) GetByCode(ctx context.Context, code string) (*Supplier, err
 	if err != nil {
 		return nil, ErrSupplierNotFound
 	}
+	normalizeSupplierBalance(&supplier)
 	return &supplier, nil
 }
 

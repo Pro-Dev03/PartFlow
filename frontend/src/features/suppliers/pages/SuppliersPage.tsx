@@ -105,7 +105,8 @@ export function SuppliersPage() {
       'البريد': supplier.email || '-',
       'المشتريات': supplier.totalPurchases,
       'المدفوع': supplier.paidAmount,
-      'صافي المستحق': supplier.outstanding
+      'صافي المستحق': supplier.outstanding,
+      'رصيد دائن': supplier.creditBalance,
     }));
 
   const handleExport = () => {
@@ -113,7 +114,7 @@ export function SuppliersPage() {
   };
 
   const handlePrint = () => {
-    printTable(getSupplierReportRows(filteredSuppliers), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق'], 'تقرير التجار');
+    printTable(getSupplierReportRows(filteredSuppliers), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق', 'رصيد دائن'], 'تقرير التجار');
   };
 
   const loadAllSuppliers = async () => {
@@ -133,7 +134,7 @@ export function SuppliersPage() {
   };
 
   const handlePrintAll = async () => {
-    printTable(getSupplierReportRows(await loadAllSuppliers()), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق'], 'تقرير كل التجار');
+    printTable(getSupplierReportRows(await loadAllSuppliers()), ['الاسم', 'الهاتف', 'البريد', 'المشتريات', 'المدفوع', 'صافي المستحق', 'رصيد دائن'], 'تقرير كل التجار');
   };
 
   const handleSubmitSupplier = async (data: SupplierFormData) => {

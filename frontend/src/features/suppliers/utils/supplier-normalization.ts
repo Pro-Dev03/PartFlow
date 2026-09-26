@@ -9,6 +9,7 @@ export type SupplierSummaryLike = {
   paidAmount?: number;
   paid_amount?: number;
   outstanding?: number;
+  credit_balance?: number;
   current_balance?: number;
   lastPurchase?: string | null;
   last_purchase?: string | null;
@@ -25,7 +26,8 @@ export function normalizeSupplier(raw: SupplierSummaryLike) {
     email: raw.email ?? '',
     totalPurchases: Number(raw.totalPurchases ?? raw.total_purchases ?? 0),
     paidAmount: Number(raw.paidAmount ?? raw.paid_amount ?? 0),
-    outstanding: Number(raw.outstanding ?? raw.current_balance ?? 0),
+    outstanding: Math.max(Number(raw.outstanding ?? raw.current_balance ?? 0), 0),
+    creditBalance: Number(raw.credit_balance ?? Math.max(-Number(raw.outstanding ?? raw.current_balance ?? 0), 0)),
     lastPurchase: raw.lastPurchase ?? raw.last_purchase ?? null,
   };
 }

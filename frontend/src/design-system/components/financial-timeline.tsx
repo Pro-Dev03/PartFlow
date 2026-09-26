@@ -2,6 +2,22 @@ import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { ShoppingCart, DollarSign, RotateCcw, RefreshCw, AlertCircle } from 'lucide-react';
 import { formatStoreDateTime } from '../../utils/store-time';
 
+const linkedAdjustmentProductMarker = '[PARTFLOW_LINKED_PRODUCT_V1]';
+
+const parseLinkedAdjustmentProduct = (description: string) => {
+  const markerIndex = description.lastIndexOf(linkedAdjustmentProductMarker);
+  if (markerIndex < 0) return { reason: description, product: null as { name: string; quantity: number } | null };
+  try {
+    const product = JSON.parse(description.slice(markerIndex + linkedAdjustmentProductMarker.length).trim()) as { name?: string; quantity?: number };
+    if (!product.name || !Number.isFinite(Number(product.quantity)) || Number(product.quantity) <= 0) {
+      return { reason: description, product: null };
+    }
+    return { reason: description.slice(0, markerIndex).trim(), product: { name: product.name, quantity: Number(product.quantity) } };
+  } catch {
+    return { reason: description, product: null };
+  }
+};
+
 export interface LedgerEntry {
   id: string;
   transaction_type?: string;
@@ -194,6 +210,7 @@ export function FinancialTimeline({
             const Icon = getTransactionIcon(transaction.type);
             const color = getTransactionColor(transaction.type);
             const background = getTransactionBackground(transaction.type);
+            const adjustmentDetails = parseLinkedAdjustmentProduct(transaction.description);
             
             return (
               <div
@@ -222,8 +239,17 @@ export function FinancialTimeline({
                     fontWeight: 'var(--font-weight-medium)', 
                     color: 'var(--text-primary)' 
                   }}>
-                    {formatDescription(transaction.description, transaction.type)}
+                    {formatDescription(adjustmentDetails.reason, transaction.type)}
                   </p>
+                  {adjustmentDetails.product ? (
+                    <p style={{
+                      fontSize: 'var(--font-size-caption)',
+                      color: 'var(--text-secondary)',
+                      marginTop: '3px',
+                    }}>
+                      السلعة: {adjustmentDetails.product.name} · الكمية: {adjustmentDetails.product.quantity}
+                    </p>
+                  ) : null}
                   <p style={{ 
                     fontSize: 'var(--font-size-caption)', 
                     color: 'var(--text-secondary)',

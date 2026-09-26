@@ -225,6 +225,7 @@ type PurchasesReport struct {
 	TotalCost             float64             `json:"total_cost"`
 	SupplierReturnCredits float64             `json:"supplier_return_credits"`
 	NetPurchases          float64             `json:"net_purchases"`
+	SupplierCreditBalance float64             `json:"supplier_credit_balance"`
 	UntaxedPurchases      int                 `json:"untaxed_purchases"`
 	UntaxedPurchaseCost   float64             `json:"untaxed_purchase_cost"`
 	BySupplier            []SupplierPurchases `json:"by_supplier"`
@@ -305,20 +306,20 @@ type NetSalesReport struct {
 }
 
 type TaxReport struct {
-	Period        string    `json:"period"`
-	StartDate     time.Time `json:"start_date"`
-	EndDate       time.Time `json:"end_date"`
-	GrossSales    float64   `json:"gross_sales"`
-	Discounts     float64   `json:"discounts"`
-	TaxableSales  float64   `json:"taxable_sales"`
-	TaxCollected  float64   `json:"tax_collected"`
-	ExemptSales   float64   `json:"exempt_sales"`
-	ReturnedTax   float64   `json:"returned_tax"`
-	NetTaxableSales float64 `json:"net_taxable_sales"`
-	NetTaxCollected float64 `json:"net_tax_collected"`
-	SalesTotal    float64   `json:"sales_total"`
-	ReturnsTotal  float64   `json:"returns_total"`
-	NetSalesTotal float64   `json:"net_sales_total"`
+	Period          string    `json:"period"`
+	StartDate       time.Time `json:"start_date"`
+	EndDate         time.Time `json:"end_date"`
+	GrossSales      float64   `json:"gross_sales"`
+	Discounts       float64   `json:"discounts"`
+	TaxableSales    float64   `json:"taxable_sales"`
+	TaxCollected    float64   `json:"tax_collected"`
+	ExemptSales     float64   `json:"exempt_sales"`
+	ReturnedTax     float64   `json:"returned_tax"`
+	NetTaxableSales float64   `json:"net_taxable_sales"`
+	NetTaxCollected float64   `json:"net_tax_collected"`
+	SalesTotal      float64   `json:"sales_total"`
+	ReturnsTotal    float64   `json:"returns_total"`
+	NetSalesTotal   float64   `json:"net_sales_total"`
 }
 
 // DailyNetSales represents daily net sales data

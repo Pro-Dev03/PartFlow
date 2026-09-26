@@ -667,7 +667,9 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 		reportData["supplier_return_credits"] = purchaseTotals.Returns
 		reportData["supplier_payments"] = purchaseTotals.Payments
 		reportData["total_paid"] = purchaseTotals.Payments
-		reportData["total_outstanding"] = purchaseTotals.Total - purchaseTotals.Returns - purchaseTotals.Payments
+		rawOutstanding := purchaseTotals.Total - purchaseTotals.Returns - purchaseTotals.Payments
+		reportData["total_outstanding"] = maxFloat(rawOutstanding, 0)
+		reportData["supplier_credit_balance"] = maxFloat(-rawOutstanding, 0)
 	} else {
 		reportData["total_purchases"] = 0
 		reportData["total_paid"] = 0
@@ -691,9 +693,11 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 			var name string
 			var total, paid, outstanding float64
 			if err := rows.Scan(&name, &total, &paid, &outstanding); err == nil {
+				rawOutstanding := outstanding
 				bySupplier = append(bySupplier, map[string]interface{}{
 					"supplier_name": name, "total_purchases": total,
-					"total_paid": paid, "outstanding": outstanding,
+					"total_paid": paid, "outstanding": maxFloat(outstanding, 0),
+					"credit_balance": maxFloat(-rawOutstanding, 0),
 				})
 			}
 		}
@@ -726,9 +730,11 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 			if err := rows.Scan(&id, &name, &totalPurchases, &totalPaid, &balance); err != nil {
 				continue
 			}
+			rawBalance := balance
 			suppliersWithBalance = append(suppliersWithBalance, map[string]interface{}{
 				"id": id, "name": name, "total_purchases": totalPurchases,
-				"total_paid": totalPaid, "balance": maxFloat(balance, 0),
+				"total_paid": totalPaid, "balance": maxFloat(rawBalance, 0),
+				"credit_balance": maxFloat(-rawBalance, 0),
 			})
 		}
 		_ = rows.Err()

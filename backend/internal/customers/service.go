@@ -3,6 +3,8 @@ package customers
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"encoding/json"
 	stdErrors "errors"
 	"fmt"
 	"strings"
@@ -14,6 +16,14 @@ import (
 	"github.com/partflow/smart-store/internal/dashboard"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
+
+const linkedAdjustmentProductMarker = "[PARTFLOW_LINKED_PRODUCT_V1]"
+
+type linkedAdjustmentProduct struct {
+	ID       uuid.UUID `json:"id"`
+	Name     string    `json:"name"`
+	Quantity float64   `json:"quantity"`
+}
 
 // Service handles customer business logic
 type Service struct {
@@ -257,6 +267,7 @@ func (s *Service) GetFinancialTimeline(ctx context.Context, customerID uuid.UUID
 			BalanceAfter: entry.Balance,
 			Date:         entry.CreatedAt.Format("2006-01-02T15:04:05Z"),
 			Description:  entry.Description,
+			ReferenceID:  entry.ReferenceID,
 			Status:       "completed",
 		}
 	}
@@ -514,8 +525,43 @@ func (s *Service) GetPendingDebtCollections(ctx context.Context) ([]DebtCollecti
 // AdjustCustomerDebt creates a manual adjustment that either increases or
 // reduces a customer's debt while keeping the ledger and balance in sync.
 func (s *Service) AdjustCustomerDebt(ctx context.Context, customerID uuid.UUID, amount float64, adjustmentType string, reason string) error {
+	return s.AdjustCustomerDebtWithProduct(ctx, customerID, amount, adjustmentType, reason, nil, 0)
+}
+
+func (s *Service) AdjustCustomerDebtWithProduct(ctx context.Context, customerID uuid.UUID, amount float64, adjustmentType string, reason string, productID *uuid.UUID, productQuantity float64) error {
 	if amount <= 0 {
 		return ErrPaymentAmountInvalid
+	}
+	linkedProductID := uuid.Nil
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "تصحيح رصيد يدوي"
+	}
+	if productID == nil {
+		if productQuantity != 0 {
+			return ErrInvalidDebtAdjustmentProduct
+		}
+	} else {
+		if *productID == uuid.Nil || productQuantity <= 0 || productQuantity > 1_000_000 {
+			return ErrInvalidDebtAdjustmentProduct
+		}
+		var productName string
+		if err := s.repo.db.GetContext(ctx, &productName, s.repo.db.Rebind(`SELECT name FROM products WHERE id = ?`), productID.String()); err != nil {
+			if stdErrors.Is(err, sql.ErrNoRows) {
+				return ErrInvalidDebtAdjustmentProduct
+			}
+			return fmt.Errorf("load debt adjustment product: %w", err)
+		}
+		productName = strings.Join(strings.Fields(productName), " ")
+		if productName == "" {
+			return ErrInvalidDebtAdjustmentProduct
+		}
+		linkedProductID = *productID
+		metadata, err := json.Marshal(linkedAdjustmentProduct{ID: *productID, Name: productName, Quantity: productQuantity})
+		if err != nil {
+			return fmt.Errorf("encode debt adjustment product details: %w", err)
+		}
+		reason = fmt.Sprintf("%s\n\n%s\n%s", reason, linkedAdjustmentProductMarker, metadata)
 	}
 	customer, err := s.repo.GetByID(ctx, customerID)
 	if err != nil {
@@ -526,15 +572,16 @@ func (s *Service) AdjustCustomerDebt(ctx context.Context, customerID uuid.UUID, 
 	switch normalizedType {
 	case "debit", "increase":
 		debt := &DebtEntry{
-			ID:            uuid.New(),
-			CustomerID:    customerID,
-			Amount:        amount,
-			ReferenceID:   uuid.Nil,
-			ReferenceType: "MANUAL_ADJUSTMENT",
-			DueDate:       time.Now().UTC().AddDate(0, 0, 30),
-			IsPaid:        false,
-			PaidAmount:    0,
-			CreatedAt:     time.Now().UTC(),
+			ID:              uuid.New(),
+			CustomerID:      customerID,
+			Amount:          amount,
+			ReferenceID:     uuid.Nil,
+			ReferenceType:   "MANUAL_ADJUSTMENT",
+			LinkedProductID: linkedProductID,
+			DueDate:         time.Now().UTC().AddDate(0, 0, 30),
+			IsPaid:          false,
+			PaidAmount:      0,
+			CreatedAt:       time.Now().UTC(),
 		}
 		description := strings.TrimSpace(reason)
 		if description == "" {
@@ -555,7 +602,7 @@ func (s *Service) AdjustCustomerDebt(ctx context.Context, customerID uuid.UUID, 
 		if description == "" {
 			description = "Manual debt reduction"
 		}
-		if err := s.repo.AdjustCustomerBalance(ctx, customerID, amount, description, "credit"); err != nil {
+		if err := s.repo.AdjustCustomerBalance(ctx, customerID, amount, description, "credit", linkedProductID); err != nil {
 			if stdErrors.Is(err, ErrCustomerNotFound) || stdErrors.Is(err, ErrPaymentAmountInvalid) || stdErrors.Is(err, ErrPaymentExceedsBalance) {
 				return err
 			}
@@ -573,6 +620,17 @@ func (s *Service) ProcessDebtPayment(ctx context.Context, customerID uuid.UUID, 
 }
 
 func (s *Service) ProcessDebtPaymentWithReference(ctx context.Context, customerID uuid.UUID, paymentAmount float64, method string, reference *string) error {
+	return s.processDebtPayment(ctx, customerID, paymentAmount, method, reference, nil)
+}
+
+func (s *Service) ProcessDebtPaymentForSale(ctx context.Context, customerID uuid.UUID, saleID uuid.UUID, paymentAmount float64, method string, reference *string) error {
+	if saleID == uuid.Nil {
+		return ErrPaymentExceedsBalance
+	}
+	return s.processDebtPayment(ctx, customerID, paymentAmount, method, reference, &saleID)
+}
+
+func (s *Service) processDebtPayment(ctx context.Context, customerID uuid.UUID, paymentAmount float64, method string, reference *string, saleID *uuid.UUID) error {
 	if paymentAmount <= 0 {
 		return fmt.Errorf("payment amount must be greater than zero")
 	}
@@ -593,6 +651,7 @@ func (s *Service) ProcessDebtPaymentWithReference(ctx context.Context, customerI
 	payment := &PaymentResponse{
 		ID:          uuid.New(),
 		CustomerID:  customerID,
+		SaleID:      saleID,
 		Amount:      paymentAmount,
 		PaymentDate: time.Now(),
 		Method:      method,

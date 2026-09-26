@@ -145,8 +145,8 @@ func TestSupplierLedgerPaymentLifecycleSQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get supplier ledger: %v", err)
 	}
-	if ledger.CurrentBalance != -100 {
-		t.Fatalf("computed ledger balance = %v, want -100", ledger.CurrentBalance)
+	if ledger.CurrentBalance != 0 || ledger.CreditBalance != 100 {
+		t.Fatalf("computed ledger balance/credit = %v/%v, want 0/100", ledger.CurrentBalance, ledger.CreditBalance)
 	}
 }
 

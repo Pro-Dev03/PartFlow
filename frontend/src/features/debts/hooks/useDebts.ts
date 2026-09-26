@@ -51,8 +51,8 @@ export function useDebts(debtTab: 'open' | 'paid' | 'all' = 'open', customerId?:
   }, []);
 
   const recordPaymentMutation = useMutation({
-    mutationFn: ({ customerId, amount, method, reference }: { customerId: string; amount: number; method: 'cash' | 'credit' | 'bank_transfer' | 'check'; reference: string }) =>
-      debtsApi.recordPayment(customerId, { amount, method, reference }),
+    mutationFn: ({ customerId, amount, method, reference, saleId }: { customerId: string; amount: number; method: 'cash' | 'credit' | 'bank_transfer' | 'check'; reference: string; saleId?: string }) =>
+      debtsApi.recordPayment(customerId, { amount, method, reference, sale_id: saleId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['debts'] });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
@@ -62,8 +62,8 @@ export function useDebts(debtTab: 'open' | 'paid' | 'all' = 'open', customerId?:
   });
 
   const adjustDebtMutation = useMutation({
-    mutationFn: ({ customerId, amount, type, reason }: { customerId: string; amount: number; type: 'debit' | 'credit'; reason?: string }) =>
-      debtsApi.adjust(customerId, { amount, type, reason }),
+    mutationFn: ({ customerId, amount, type, reason, productId, productQuantity }: { customerId: string; amount: number; type: 'debit' | 'credit'; reason?: string; productId?: string; productQuantity?: number }) =>
+      debtsApi.adjust(customerId, { amount, type, reason, product_id: productId, product_quantity: productQuantity }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['debts'] });
       queryClient.invalidateQueries({ queryKey: ['customers'] });

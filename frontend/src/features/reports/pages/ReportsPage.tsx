@@ -7,13 +7,11 @@ import { PageHeader } from '../../../design-system/components/page-header';
 import { Badge } from '../../../design-system/components/badge';
 import { exportToCSV, printTable } from '../../../lib/export-utils';
 import { ReportActions } from '../../../design-system/components/report-actions';
-import { getButtonSize } from '../../../config/button-sizes';
 import {
   BarChart3,
   Banknote,
   ReceiptText,
   Target,
-  Zap,
   RotateCcw
 } from 'lucide-react';
 import { getStoreToday } from '../../../utils/store-time';
@@ -352,10 +350,6 @@ export function ReportsPage() {
               onPrintAll={handlePrint}
               disabled={!reportData?.data && !reportData}
             />
-            <Button variant="secondary" size={getButtonSize('reports', 'headerActions')} onClick={() => refetch()}>
-              <Zap className="w-4 h-4 mr-2" />
-              تحديث
-            </Button>
           </div>
         }
       />

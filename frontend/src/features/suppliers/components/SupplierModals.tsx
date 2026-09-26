@@ -108,6 +108,10 @@ export function SupplierModals({
                 <Input value={`₪${(normalizedViewingSupplier.outstanding || 0).toLocaleString()}`} readOnly />
               </div>
               <div>
+                <label className="text-small font-medium text-text mb-sm block">الرصيد الدائن</label>
+                <Input value={`₪${(normalizedViewingSupplier.creditBalance || 0).toLocaleString()}`} readOnly />
+              </div>
+              <div>
                 <label className="text-small font-medium text-text mb-sm block">رصيد مرتجعات التاجر</label>
                 <Input value={`-₪${Number(ledger?.supplier_return_credits || 0).toLocaleString()}`} readOnly />
               </div>

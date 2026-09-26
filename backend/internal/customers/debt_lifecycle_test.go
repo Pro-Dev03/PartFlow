@@ -2,6 +2,7 @@ package customers
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -210,13 +211,17 @@ func TestCustomerManualDebtAdjustmentReconcilesBalanceSQLite(t *testing.T) {
 	db := sqlx.NewDb(database.DB, "sqlite")
 	ctx := context.Background()
 	customerID := uuid.New()
+	productID := uuid.New()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err := db.Exec(`INSERT INTO customers (id, code, name, credit_limit, current_balance, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)`, customerID, "C-MANUAL-ADJ", "Manual Adjustment Customer", 1000, now, now); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO products (id, sku, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, productID, "MANUAL-ADJ-001", "اسم المنتج المرتبط", now, now); err != nil {
+		t.Fatal(err)
+	}
 
 	service := NewService(NewRepository(db))
-	if err := service.AdjustCustomerDebt(ctx, customerID, 120, "debit", "manual increase"); err != nil {
+	if err := service.AdjustCustomerDebtWithProduct(ctx, customerID, 120, "debit", "سبب توضيحي للتصحيح", &productID, 2); err != nil {
 		t.Fatalf("increase adjustment: %v", err)
 	}
 	assertCustomerDebtBalance(t, db, customerID, 120)
@@ -228,25 +233,98 @@ func TestCustomerManualDebtAdjustmentReconcilesBalanceSQLite(t *testing.T) {
 	if debtCount != 1 {
 		t.Fatalf("manual-debit debt rows = %d, want 1", debtCount)
 	}
+	var adjustmentDescription, linkedProductID string
+	if err := db.QueryRowx(`SELECT description, reference_id FROM customer_ledger WHERE customer_id = ? AND type = 'debit' AND reference_id = ?`, customerID, productID).Scan(&adjustmentDescription, &linkedProductID); err != nil {
+		t.Fatalf("read product-linked adjustment: %v", err)
+	}
+	if linkedProductID != productID.String() || !strings.Contains(adjustmentDescription, "سبب توضيحي للتصحيح") || !strings.Contains(adjustmentDescription, linkedAdjustmentProductMarker) || !strings.Contains(adjustmentDescription, "اسم المنتج المرتبط") || !strings.Contains(adjustmentDescription, `"quantity":2`) {
+		t.Fatalf("linked adjustment details = %q / %q, want reason, product, quantity, and product reference", adjustmentDescription, linkedProductID)
+	}
 
-	if err := service.AdjustCustomerDebt(ctx, customerID, 30, "credit", "manual reduction"); err != nil {
+	if err := service.AdjustCustomerDebtWithProduct(ctx, customerID, 30, "credit", "manual reduction", &productID, 1.5); err != nil {
 		t.Fatalf("credit adjustment: %v", err)
 	}
 	assertCustomerDebtBalance(t, db, customerID, 90)
 
-	var creditCount int
-	if err := db.Get(&creditCount, `SELECT COUNT(*) FROM customer_ledger WHERE customer_id = ? AND type = 'credit' AND description = 'manual reduction'`, customerID); err != nil {
-		t.Fatal(err)
-	}
-	if creditCount != 1 {
-		t.Fatalf("manual-credit ledger entries = %d, want 1", creditCount)
-	}
 	var creditAmount, ledgerBalance float64
-	if err := db.QueryRowx(`SELECT amount, balance FROM customer_ledger WHERE customer_id = ? AND type = 'credit' AND description = 'manual reduction'`, customerID).Scan(&creditAmount, &ledgerBalance); err != nil {
+	var creditDescription, creditProductID string
+	if err := db.QueryRowx(`SELECT amount, balance, description, reference_id FROM customer_ledger WHERE customer_id = ? AND type = 'credit' AND reference_id = ?`, customerID, productID).Scan(&creditAmount, &ledgerBalance, &creditDescription, &creditProductID); err != nil {
 		t.Fatal(err)
 	}
 	if creditAmount != 30 || ledgerBalance != 90 {
 		t.Fatalf("manual-credit ledger amount/balance = %v/%v, want 30/90", creditAmount, ledgerBalance)
+	}
+	if creditProductID != productID.String() || !strings.Contains(creditDescription, "manual reduction") || !strings.Contains(creditDescription, `"quantity":1.5`) {
+		t.Fatalf("manual-credit linked details = %q / %q, want reason, product reference, and quantity", creditDescription, creditProductID)
+	}
+}
+
+func TestCustomerDebtPaymentCanTargetOneSaleSQLite(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/customer-targeted-payment.db")
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+
+	db := sqlx.NewDb(database.DB, "sqlite")
+	ctx := context.Background()
+	customerID := uuid.New()
+	firstSaleID, secondSaleID := uuid.New(), uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := db.Exec(`INSERT INTO customers (id, code, name, credit_limit, current_balance, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)`, customerID, "C-TARGET-PAY", "Targeted Payment Customer", 1000, now, now); err != nil {
+		t.Fatal(err)
+	}
+	for i, saleID := range []uuid.UUID{firstSaleID, secondSaleID} {
+		number := []string{"TARGET-PAY-1", "TARGET-PAY-2"}[i]
+		if _, err := db.Exec(`INSERT INTO sales (id, sale_number, invoice_number, customer_id, sale_date, total_amount, paid_amount, remaining_amount, payment_method, payment_status, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 100, 0, 100, 'credit', 'debt', 'completed', ?, ?)`, saleID, number, number, customerID, now, now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := NewService(NewRepository(db))
+	if err := service.CreateDebtEntry(ctx, customerID, 100, firstSaleID, "sale", time.Now().AddDate(0, 0, 30)); err != nil {
+		t.Fatalf("create first sale debt: %v", err)
+	}
+	if err := service.CreateDebtEntry(ctx, customerID, 100, secondSaleID, "sale", time.Now().AddDate(0, 0, 30)); err != nil {
+		t.Fatalf("create second sale debt: %v", err)
+	}
+	var firstDebtID, secondDebtID uuid.UUID
+	if err := db.Get(&firstDebtID, `SELECT id FROM debts WHERE customer_id = ? AND sale_id = ?`, customerID, firstSaleID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&secondDebtID, `SELECT id FROM debts WHERE customer_id = ? AND sale_id = ?`, customerID, secondSaleID); err != nil {
+		t.Fatal(err)
+	}
+
+	reference := "TARGETED-INVOICE-PAYMENT-001"
+	if err := service.ProcessDebtPaymentForSale(ctx, customerID, firstSaleID, 40, "cash", &reference); err != nil {
+		t.Fatalf("record payment for first invoice: %v", err)
+	}
+	assertCustomerDebtBalance(t, db, customerID, 160)
+	assertDebtRemaining(t, db, firstDebtID, 60)
+	assertDebtRemaining(t, db, secondDebtID, 100)
+
+	var storedSaleID string
+	if err := db.Get(&storedSaleID, `SELECT sale_id FROM payments WHERE customer_id = ? AND reference = ?`, customerID, reference); err != nil {
+		t.Fatalf("read invoice payment link: %v", err)
+	}
+	if storedSaleID != firstSaleID.String() {
+		t.Fatalf("payment sale_id = %q, want %q", storedSaleID, firstSaleID)
+	}
+	var salePaid, saleRemaining float64
+	var salePaymentStatus string
+	if err := db.QueryRowx(`SELECT paid_amount, remaining_amount, payment_status FROM sales WHERE id = ?`, firstSaleID).Scan(&salePaid, &saleRemaining, &salePaymentStatus); err != nil {
+		t.Fatalf("read updated invoice totals: %v", err)
+	}
+	if salePaid != 40 || saleRemaining != 60 || salePaymentStatus != "partial" {
+		t.Fatalf("updated invoice paid/remaining/status = %v/%v/%q, want 40/60/partial", salePaid, saleRemaining, salePaymentStatus)
+	}
+	var untouchedSalePaid, untouchedSaleRemaining float64
+	if err := db.QueryRowx(`SELECT paid_amount, remaining_amount FROM sales WHERE id = ?`, secondSaleID).Scan(&untouchedSalePaid, &untouchedSaleRemaining); err != nil {
+		t.Fatalf("read untouched invoice totals: %v", err)
+	}
+	if untouchedSalePaid != 0 || untouchedSaleRemaining != 100 {
+		t.Fatalf("unselected invoice paid/remaining = %v/%v, want 0/100", untouchedSalePaid, untouchedSaleRemaining)
 	}
 }
 

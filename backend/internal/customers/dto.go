@@ -79,14 +79,15 @@ type PaymentRequest struct {
 
 // PaymentResponse represents payment response
 type PaymentResponse struct {
-	ID          uuid.UUID `json:"id"`
-	CustomerID  uuid.UUID `json:"customer_id"`
-	Amount      float64   `json:"amount"`
-	PaymentDate time.Time `json:"payment_date"`
-	Method      string    `json:"method"`
-	Reference   *string   `json:"reference,omitempty"`
-	Notes       *string   `json:"notes,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          uuid.UUID  `json:"id"`
+	CustomerID  uuid.UUID  `json:"customer_id"`
+	SaleID      *uuid.UUID `json:"sale_id,omitempty"`
+	Amount      float64    `json:"amount"`
+	PaymentDate time.Time  `json:"payment_date"`
+	Method      string     `json:"method"`
+	Reference   *string    `json:"reference,omitempty"`
+	Notes       *string    `json:"notes,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // LedgerEntry represents a ledger entry
@@ -158,17 +159,20 @@ type CreateDebtCollectionRequest struct {
 
 // ProcessDebtPaymentRequest represents request to process debt payment
 type ProcessDebtPaymentRequest struct {
-	Amount    float64 `json:"amount" binding:"required,gt=0"`
-	Method    string  `json:"method" binding:"required"`
-	Reference *string `json:"reference,omitempty"`
+	Amount    float64    `json:"amount" binding:"required,gt=0"`
+	Method    string     `json:"method" binding:"required"`
+	Reference *string    `json:"reference,omitempty"`
+	SaleID    *uuid.UUID `json:"sale_id,omitempty"`
 }
 
 // AdjustCustomerDebtRequest represents a manual customer debt adjustment.
 type AdjustCustomerDebtRequest struct {
-	Amount float64 `json:"amount" binding:"required,gt=0"`
-	Type   string  `json:"type" binding:"required,oneof=debit credit"`
-	Reason string  `json:"reason,omitempty"`
-	DueDate *time.Time `json:"due_date,omitempty"`
+	Amount          float64    `json:"amount" binding:"required,gt=0"`
+	Type            string     `json:"type" binding:"required,oneof=debit credit"`
+	Reason          string     `json:"reason,omitempty"`
+	ProductID       *uuid.UUID `json:"product_id,omitempty"`
+	ProductQuantity float64    `json:"product_quantity,omitempty"`
+	DueDate         *time.Time `json:"due_date,omitempty"`
 }
 
 // PaymentReceiptRequest represents request to generate payment receipt

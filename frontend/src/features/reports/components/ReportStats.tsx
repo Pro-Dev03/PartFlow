@@ -49,6 +49,7 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
           ['إجمالي المشتريات', value(report.total_cost), DollarSign, 'قبل خصم مرتجعات التجار', 'featured'],
           ['مرتجعات التجار', value(report.supplier_return_credits), RotateCcw, 'قيمة المرتجعات المكتملة', 'warning'],
           ['صافي المشتريات', value(report.net_purchases ?? Number(report.total_cost || 0) - Number(report.supplier_return_credits || 0)), DollarSign, 'بعد مرتجعات التجار', 'success'],
+          ['رصيد دائن للموردين', value(report.supplier_credit_balance), DollarSign, 'مرتجعات أو دفعات تتجاوز المشتريات', 'info'],
           ['المدفوع للتجار', value(report.total_paid), DollarSign, 'دفعات مسجلة', 'info'],
           ['المستحق للتجار', value(report.total_outstanding), DollarSign, 'الرصيد المفتوح', 'warning'],
           ['عدد التجار', count(report.total_suppliers), Database, 'تجار مرتبطون بالمشتريات', 'default'],

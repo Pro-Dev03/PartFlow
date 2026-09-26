@@ -45,7 +45,7 @@ func TestProfitReportIncludesApprovedExpensesFromStoreDay(t *testing.T) {
 	}
 }
 
-func TestProfitReportDoesNotExposeNegativeTotalsAfterReturns(t *testing.T) {
+func TestProfitReportPreservesReturnCreditsWhenTheyExceedCurrentPeriodSales(t *testing.T) {
 	db, err := sqlx.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -78,8 +78,8 @@ func TestProfitReportDoesNotExposeNegativeTotalsAfterReturns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.TotalRevenue != 0 || report.TotalCOGS != 0 || report.NetProfit != 0 || report.ProfitMargin != 0 {
-		t.Fatalf("profit report exposed invalid return-adjusted totals: revenue=%v cogs=%v net=%v margin=%v", report.TotalRevenue, report.TotalCOGS, report.NetProfit, report.ProfitMargin)
+	if report.TotalRevenue != -100 || report.TotalCOGS != -100 || report.GrossProfit != 0 || report.NetProfit != 0 || report.ProfitMargin != 0 {
+		t.Fatalf("profit report failed to preserve return credits: revenue=%v cogs=%v gross=%v net=%v margin=%v", report.TotalRevenue, report.TotalCOGS, report.GrossProfit, report.NetProfit, report.ProfitMargin)
 	}
 }
 

@@ -53,7 +53,11 @@ func TestSuppliersReportPreservesSupplierCreditSQLite(t *testing.T) {
 	if !ok {
 		t.Fatalf("supplier report total_outstanding missing: %#v", payload.Data)
 	}
-	if outstanding != -100.25 {
-		t.Fatalf("supplier report outstanding = %v, want -100.25 supplier credit", outstanding)
+	if outstanding != 0 {
+		t.Fatalf("supplier report outstanding = %v, want 0 when supplier has credit", outstanding)
+	}
+	credit, ok := payload.Data["supplier_credit_balance"].(float64)
+	if !ok || credit != 100.25 {
+		t.Fatalf("supplier report credit_balance = %v, want 100.25", payload.Data["supplier_credit_balance"])
 	}
 }

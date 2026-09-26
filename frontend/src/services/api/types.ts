@@ -309,6 +309,7 @@ export interface CustomerDebtPaymentRequest {
   amount: number;
   method: 'cash' | 'credit' | 'bank_transfer' | 'check';
   reference?: string;
+  sale_id?: string;
 }
 
 export interface PaymentCreateRequest {

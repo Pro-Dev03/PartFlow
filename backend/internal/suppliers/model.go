@@ -23,6 +23,7 @@ type Supplier struct {
 	TotalPurchases float64    `json:"totalPurchases" db:"total_purchases"`
 	PaidAmount     float64    `json:"paidAmount" db:"paid_amount"`
 	Outstanding    float64    `json:"outstanding" db:"outstanding"`
+	CreditBalance  float64    `json:"credit_balance" db:"credit_balance"`
 	LastPurchase   *time.Time `json:"lastPurchase,omitempty" db:"last_purchase"`
 	Notes          *string    `json:"notes,omitempty" db:"notes"`
 	IsActive       bool       `json:"is_active" db:"is_active"`

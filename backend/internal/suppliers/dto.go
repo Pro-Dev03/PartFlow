@@ -94,6 +94,7 @@ type SupplierLedgerResponse struct {
 	SupplierPayments      float64       `json:"supplier_payments"`
 	SupplierReturnCredits float64       `json:"supplier_return_credits"`
 	CurrentBalance        float64       `json:"current_balance"`
+	CreditBalance         float64       `json:"credit_balance"`
 	Entries               []LedgerEntry `json:"entries"`
 }
 

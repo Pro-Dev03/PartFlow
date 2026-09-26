@@ -17,6 +17,7 @@ import {
   Trash2,
   UserRound,
   Wallet,
+  X,
 } from 'lucide-react';
 import { Modal } from '../../../design-system/components/modal';
 import { Button } from '../../../design-system/components/button';
@@ -69,6 +70,35 @@ interface ProductCartLine {
   quantity: number;
 }
 
+interface LinkedAdjustmentProduct {
+  id: string;
+  name: string;
+  quantity: number;
+}
+
+const linkedAdjustmentProductMarker = '[PARTFLOW_LINKED_PRODUCT_V1]';
+
+const readAdjustmentDetails = (description: string) => {
+  const markerIndex = description.lastIndexOf(linkedAdjustmentProductMarker);
+  if (markerIndex < 0) return { reason: description.trim(), product: null as LinkedAdjustmentProduct | null };
+  const reason = description.slice(0, markerIndex).trim();
+  const metadataText = description.slice(markerIndex + linkedAdjustmentProductMarker.length).trim();
+  try {
+    const parsed = JSON.parse(metadataText) as LinkedAdjustmentProduct;
+    if (!parsed?.id || !parsed?.name || !Number.isFinite(Number(parsed.quantity)) || Number(parsed.quantity) <= 0) {
+      return { reason: description.trim(), product: null };
+    }
+    return { reason, product: parsed };
+  } catch {
+    return { reason: description.trim(), product: null };
+  }
+};
+
+const normalizeSearchText = (value: unknown) => String(value ?? '')
+  .toLocaleLowerCase()
+  .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+  .trim();
+
 interface DebtManagementModalProps {
   debt: any;
   isOpen: boolean;
@@ -79,12 +109,15 @@ interface DebtManagementModalProps {
     amount: number;
     method: PaymentMethod;
     reference: string;
+    saleId?: string;
   }) => Promise<void>;
   onAdjustDebt: (input: {
     customerId: string;
     amount: number;
     type: AdjustmentType;
     reason: string;
+    productId?: string;
+    productQuantity?: number;
   }) => Promise<void>;
 }
 
@@ -112,6 +145,10 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
   const [adjustmentAmount, setAdjustmentAmount] = useState('');
   const [adjustmentType, setAdjustmentType] = useState<AdjustmentType>('debit');
   const [adjustmentReason, setAdjustmentReason] = useState('');
+  const [adjustmentProduct, setAdjustmentProduct] = useState<DebtProduct | null>(null);
+  const [adjustmentProductQuantity, setAdjustmentProductQuantity] = useState('1');
+  const [paymentSaleTarget, setPaymentSaleTarget] = useState<{ saleId: string; invoiceLabel: string; remaining: number } | null>(null);
+  const [recordSearch, setRecordSearch] = useState('');
   const debouncedProductSearch = useDebounce(productSearch, 250);
 
   useEffect(() => {
@@ -126,6 +163,10 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
     setAdjustmentAmount('');
     setAdjustmentType('debit');
     setAdjustmentReason(`تصحيح رصيد - ${customerName}`);
+    setAdjustmentProduct(null);
+    setAdjustmentProductQuantity('1');
+    setPaymentSaleTarget(null);
+    setRecordSearch('');
   }, [customerId, customerName, initialAction, isOpen]);
 
   const customerQuery = useQuery({
@@ -150,9 +191,9 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
       page: 1,
       per_page: 12,
       search: debouncedProductSearch.trim(),
-      in_stock_only: true,
+      in_stock_only: actionMode === 'products' ? true : undefined,
     }),
-    enabled: isOpen && actionMode === 'products' && Boolean(debouncedProductSearch.trim()),
+    enabled: isOpen && (actionMode === 'products' || actionMode === 'adjustment') && Boolean(debouncedProductSearch.trim()),
     staleTime: 15_000,
   });
 
@@ -175,6 +216,53 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
     () => [...timeline].sort((left, right) => String(right.date ?? right.created_at ?? '').localeCompare(String(left.date ?? left.created_at ?? ''))),
     [timeline],
   );
+  const normalizedRecordSearch = normalizeSearchText(recordSearch);
+  const filteredHistory = useMemo(() => {
+    if (!normalizedRecordSearch) return history;
+    return history.filter((entry) => {
+      const itemDetails = (entry.items ?? []).flatMap((item) => [
+        item.product_name,
+        item.product_id,
+        item.quantity,
+        item.unit_price,
+        item.total_amount,
+      ]);
+      return normalizeSearchText([
+        entry.invoice_number,
+        entry.sale_id,
+        entry.reference_type,
+        entry.amount,
+        entry.paid_amount,
+        entry.remaining_amount,
+        entry.due_date,
+        entry.status,
+        entry.notes,
+        entry.created_at,
+        ...itemDetails,
+      ].join(' ')).includes(normalizedRecordSearch);
+    });
+  }, [history, normalizedRecordSearch]);
+  const filteredTimeline = useMemo(() => {
+    if (!normalizedRecordSearch) return sortedTimeline;
+    return sortedTimeline.filter((entry) => {
+      const description = String(entry.description ?? '');
+      const adjustment = readAdjustmentDetails(description);
+      return normalizeSearchText([
+        description,
+        adjustment.reason,
+        adjustment.product?.name,
+        adjustment.product?.id,
+        adjustment.product?.quantity,
+        entry.type,
+        entry.transaction_type,
+        entry.amount,
+        entry.balance_after,
+        entry.reference_id,
+        entry.date,
+        entry.created_at,
+      ].join(' ')).includes(normalizedRecordSearch);
+    });
+  }, [normalizedRecordSearch, sortedTimeline]);
 
   const productsPayload = unwrapResponse(productsQuery.data);
   const products = (Array.isArray(productsPayload)
@@ -290,15 +378,16 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
 
   const submitPayment = async () => {
     const amount = Number(paymentAmount);
-    if (!customerId || !Number.isFinite(amount) || amount <= 0 || amount > outstanding + 0.000001) {
+    if (!customerId || !Number.isFinite(amount) || amount <= 0 || amount > paymentLimit + 0.000001) {
       toast.error('أدخل مبلغًا صالحًا لا يتجاوز الرصيد المستحق');
       return;
     }
     try {
-      await onRecordPayment({ customerId, amount, method: paymentMethod, reference: paymentReference });
+      await onRecordPayment({ customerId, amount, method: paymentMethod, reference: paymentReference, saleId: paymentSaleTarget?.saleId });
       await invalidateBusinessData();
       setPaymentAmount('');
       setPaymentReference(crypto.randomUUID());
+      setPaymentSaleTarget(null);
       setActionMode(null);
       toast.success('تم تسجيل الدفعة');
     } catch (error: any) {
@@ -316,15 +405,24 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
       toast.error('مبلغ الخصم أكبر من الرصيد المستحق');
       return;
     }
+    const productQuantity = adjustmentProduct ? Number(adjustmentProductQuantity) : undefined;
+    if (adjustmentProduct && (!Number.isFinite(productQuantity) || Number(productQuantity) <= 0 || Number(productQuantity) > 1_000_000)) {
+      toast.error('أدخل كمية صحيحة للسلعة المرتبطة');
+      return;
+    }
     try {
       await onAdjustDebt({
         customerId,
         amount,
         type: adjustmentType,
         reason: adjustmentReason.trim() || `تصحيح رصيد - ${customerName}`,
+        productId: adjustmentProduct?.id,
+        productQuantity,
       });
       await invalidateBusinessData();
       setAdjustmentAmount('');
+      setAdjustmentProduct(null);
+      setAdjustmentProductQuantity('1');
       setActionMode(null);
       toast.success(adjustmentType === 'debit' ? 'تمت زيادة الدين وتسجيلها في السجل' : 'تم خصم الدين وتسجيله في السجل');
     } catch (error: any) {
@@ -332,7 +430,29 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
     }
   };
 
+  const startPaymentForInvoice = (entry: DebtHistoryEntry, remaining: number) => {
+    if (!entry.sale_id || remaining <= 0) return;
+    setPaymentSaleTarget({
+      saleId: entry.sale_id,
+      invoiceLabel: entry.invoice_number || 'فاتورة بيع',
+      remaining,
+    });
+    setPaymentAmount('');
+    setPaymentReference(crypto.randomUUID());
+    setActionMode('payment');
+  };
+
+  const toggleGeneralPayment = () => {
+    if (actionMode === 'payment' && !paymentSaleTarget) {
+      setActionMode(null);
+      return;
+    }
+    setPaymentSaleTarget(null);
+    setActionMode('payment');
+  };
+
   const isLoadingHistory = historyQuery.isLoading || customerQuery.isLoading;
+  const paymentLimit = paymentSaleTarget?.remaining ?? outstanding;
 
   return (
     <Modal
@@ -361,7 +481,7 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
         </section>
 
         <section className="flex flex-wrap gap-2">
-          <Button type="button" variant={actionMode === 'payment' ? 'primary' : 'secondary'} onClick={() => setActionMode(actionMode === 'payment' ? null : 'payment')} disabled={outstanding <= 0}>
+          <Button type="button" variant={actionMode === 'payment' && !paymentSaleTarget ? 'primary' : 'secondary'} onClick={toggleGeneralPayment} disabled={outstanding <= 0}>
             <CreditCard className="h-4 w-4" /> تسجيل دفعة
           </Button>
           <Button type="button" variant={actionMode === 'products' ? 'primary' : 'secondary'} onClick={() => setActionMode(actionMode === 'products' ? null : 'products')}>
@@ -374,11 +494,17 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
 
         {actionMode === 'payment' && (
           <section className="space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
-            <h4 className="font-bold text-text-primary">تسجيل دفعة للعميل</h4>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h4 className="font-bold text-text-primary">{paymentSaleTarget ? `تسجيل دفعة للفاتورة ${paymentSaleTarget.invoiceLabel}` : 'تسجيل دفعة للعميل'}</h4>
+                <p className="mt-1 text-xs text-text-muted">{paymentSaleTarget ? `سيُخصم المبلغ من هذه الفاتورة فقط. المتبقي: ${formatMoney(paymentSaleTarget.remaining)}` : `المبلغ الأقصى: ${formatMoney(outstanding)}`}</p>
+              </div>
+              {paymentSaleTarget ? <Button type="button" variant="ghost" size="icon" aria-label="إلغاء ربط الدفعة بالفاتورة" title="إلغاء ربط الدفعة بالفاتورة" onClick={() => setPaymentSaleTarget(null)}><X className="h-4 w-4" /></Button> : null}
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-semibold text-text-secondary">مبلغ الدفعة</label>
-                <Input type="number" min="0.01" max={outstanding} step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder="أدخل المبلغ" autoFocus />
+                <Input type="number" min="0.01" max={paymentLimit} step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder="أدخل المبلغ" autoFocus />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-semibold text-text-secondary">طريقة الدفع</label>
@@ -392,7 +518,7 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="secondary" onClick={() => setActionMode(null)}>إلغاء</Button>
-              <Button type="button" onClick={submitPayment} disabled={!paymentAmount || Number(paymentAmount) <= 0 || Number(paymentAmount) > outstanding}>حفظ الدفعة</Button>
+              <Button type="button" onClick={submitPayment} disabled={!paymentAmount || Number(paymentAmount) <= 0 || Number(paymentAmount) > paymentLimit}>حفظ الدفعة</Button>
             </div>
           </section>
         )}
@@ -480,12 +606,62 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
               <label className="mb-1 block text-xs font-semibold text-text-secondary">سبب التصحيح</label>
               <Input value={adjustmentReason} onChange={(event) => setAdjustmentReason(event.target.value)} placeholder="اكتب سببًا واضحًا" />
             </div>
+            <div className="space-y-2 rounded-lg border border-border bg-surface/70 p-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-text-secondary">سلعة مرتبطة (اختياري)</label>
+                <p className="text-[11px] text-text-muted">تُحفظ السلعة وكميتها في تفاصيل التصحيح فقط، دون تغيير المخزون.</p>
+              </div>
+              {adjustmentProduct ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-elevated p-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-text-primary">{adjustmentProduct.name}</div>
+                    <div className="text-xs text-text-muted">{adjustmentProduct.sku || adjustmentProduct.barcode || 'سلعة مرتبطة بالتصحيح'}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="adjustment-product-quantity" className="text-xs text-text-secondary">الكمية</label>
+                    <Input id="adjustment-product-quantity" type="number" min="0.01" max="1000000" step="0.01" className="w-24" value={adjustmentProductQuantity} onChange={(event) => setAdjustmentProductQuantity(event.target.value)} />
+                    <Button type="button" variant="ghost" size="icon" aria-label="إزالة السلعة المرتبطة" title="إزالة السلعة المرتبطة" onClick={() => { setAdjustmentProduct(null); setAdjustmentProductQuantity('1'); }}>
+                      <Trash2 className="h-4 w-4 text-danger" />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                    <Input value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="ابحث باسم السلعة أو رمزها" className="pr-9" />
+                  </div>
+                  {productSearch.trim() ? (
+                    <div className="max-h-40 space-y-1 overflow-y-auto">
+                      {productsQuery.isFetching ? <div className="p-2 text-xs text-text-muted">جارٍ البحث عن السلع...</div>
+                        : products.length === 0 ? <div className="p-2 text-xs text-text-muted">لا توجد سلع مطابقة.</div>
+                          : products.map((product) => (
+                            <button key={product.id} type="button" className="flex w-full items-center justify-between gap-3 rounded-lg border border-border bg-surface px-3 py-2 text-right hover:bg-surface-elevated" onClick={() => { setAdjustmentProduct(product); setAdjustmentProductQuantity('1'); setProductSearch(''); }}>
+                              <span className="min-w-0 truncate text-sm font-medium text-text-primary">{product.name}</span>
+                              <span className="shrink-0 text-xs text-text-muted">{product.sku || product.barcode || ''}</span>
+                            </button>
+                          ))}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="secondary" onClick={() => setActionMode(null)}>إلغاء</Button>
-              <Button type="button" variant="warning" onClick={submitAdjustment} disabled={!adjustmentAmount || Number(adjustmentAmount) <= 0 || (adjustmentType === 'credit' && Number(adjustmentAmount) > outstanding)}>حفظ التصحيح</Button>
+              <Button type="button" variant="warning" onClick={submitAdjustment} disabled={!adjustmentAmount || Number(adjustmentAmount) <= 0 || (adjustmentType === 'credit' && Number(adjustmentAmount) > outstanding) || (Boolean(adjustmentProduct) && (!adjustmentProductQuantity || Number(adjustmentProductQuantity) <= 0 || Number(adjustmentProductQuantity) > 1000000))}>حفظ التصحيح</Button>
             </div>
           </section>
         )}
+
+        <section className="space-y-2 rounded-xl border border-border bg-surface-elevated/60 p-3">
+          <label htmlFor="debt-record-search" className="block text-sm font-semibold text-text-primary">بحث في سجل العميل</label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+            <Input id="debt-record-search" value={recordSearch} onChange={(event) => setRecordSearch(event.target.value)} placeholder="ابحث في الفواتير والسلع والديون والدفعات وأسباب التصحيح" className="h-11 bg-surface pr-9" />
+            {recordSearch ? <Button type="button" variant="ghost" size="icon" className="absolute left-1 top-1/2 -translate-y-1/2" aria-label="مسح البحث" title="مسح البحث" onClick={() => setRecordSearch('')}><X className="h-4 w-4" /></Button> : null}
+          </div>
+          {normalizedRecordSearch ? <div className="text-[11px] text-text-muted">{filteredHistory.length} فاتورة أو دين · {filteredTimeline.length} دفعة أو تعديل مطابق</div> : null}
+        </section>
 
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-3">
@@ -494,9 +670,9 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
           </div>
           {isLoadingHistory ? <div className="rounded-lg bg-surface-elevated p-5 text-center text-sm text-text-muted">جارٍ تحميل سجل الديون...</div>
             : historyQuery.isError ? <div role="alert" className="rounded-lg border border-danger/20 bg-danger/5 p-4 text-sm text-danger">تعذر تحميل تفاصيل الديون. أعد المحاولة.</div>
-              : history.length === 0 ? <div className="rounded-lg border border-dashed border-border p-4 text-sm text-text-muted">لا توجد فواتير دين مرتبطة. راجع سجل الحركات أدناه لأي رصيد يدوي أو افتتاحي.</div>
+              : filteredHistory.length === 0 ? <div className="rounded-lg border border-dashed border-border p-4 text-sm text-text-muted">{normalizedRecordSearch ? 'لا توجد فواتير أو ديون تطابق البحث.' : 'لا توجد فواتير دين مرتبطة. راجع سجل الحركات أدناه لأي رصيد يدوي أو افتتاحي.'}</div>
                 : <div className="max-h-64 space-y-3 overflow-y-auto pr-1">
-                  {history.map((entry) => {
+                  {filteredHistory.map((entry) => {
                     const hasSale = Boolean(entry.sale_id);
                     const referenceType = String(entry.reference_type ?? '').toLowerCase();
                     const remaining = Math.max(0, Number(entry.remaining_amount ?? Number(entry.amount ?? 0) - Number(entry.paid_amount ?? 0)));
@@ -527,6 +703,13 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
                             ))}
                           </div>
                         ) : <div className="mt-2 text-xs text-text-muted">{hasSale ? 'لم تعد تفاصيل السلع متاحة لهذه الفاتورة.' : entry.notes && !['opening_debt', 'manual_adjustment'].includes(referenceType) ? entry.notes : 'لا توجد سلع مرتبطة بهذا الرصيد.'}</div>}
+                        {hasSale && entry.sale_id && remaining > 0 ? (
+                          <div className="mt-3 flex justify-end">
+                            <Button type="button" size="sm" variant="secondary" onClick={() => startPaymentForInvoice(entry, remaining)}>
+                              <CreditCard className="h-4 w-4" /> تسجيل دفعة لهذه الفاتورة
+                            </Button>
+                          </div>
+                        ) : null}
                       </article>
                     );
                   })}
@@ -537,15 +720,17 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
           <h4 className="flex items-center gap-2 font-bold text-text-primary"><History className="h-4 w-4 text-primary" /> سجل الدفعات والتعديلات</h4>
           {timelineQuery.isLoading ? <div className="rounded-lg bg-surface-elevated p-4 text-center text-xs text-text-muted">جارٍ تحميل الحركات...</div>
             : timelineQuery.isError ? <div className="flex items-center justify-between gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs text-text-secondary"><span className="flex items-center gap-2"><AlertCircle className="h-4 w-4" /> تعذر تحميل سجل الحركات</span><Button type="button" variant="ghost" size="sm" onClick={() => void timelineQuery.refetch()}>إعادة المحاولة</Button></div>
-              : sortedTimeline.length === 0 ? <div className="rounded-lg bg-surface-elevated p-4 text-center text-xs text-text-muted">لا توجد حركات مالية سابقة مسجلة.</div>
+              : filteredTimeline.length === 0 ? <div className="rounded-lg bg-surface-elevated p-4 text-center text-xs text-text-muted">{normalizedRecordSearch ? 'لا توجد دفعات أو تعديلات تطابق البحث.' : 'لا توجد حركات مالية سابقة مسجلة.'}</div>
                 : <div className="max-h-48 divide-y divide-border overflow-y-auto rounded-lg border border-border px-3">
-                  {sortedTimeline.slice(0, 40).map((entry, index) => {
+                  {filteredTimeline.slice(0, 40).map((entry, index) => {
                     const isDebit = String(entry.type ?? '').toLowerCase() === 'debit';
+                    const adjustmentDetails = readAdjustmentDetails(String(entry.description ?? ''));
                     return (
                       <div key={String(entry.id ?? index)} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs">
                         <div className="min-w-0 flex-1">
-                          <div className="truncate font-medium text-text-primary">{entry.description || (isDebit ? 'إضافة دين' : 'دفعة أو خصم')}</div>
+                          <div className="truncate font-medium text-text-primary">{adjustmentDetails.product ? adjustmentDetails.reason : entry.description || (isDebit ? 'إضافة دين' : 'دفعة أو خصم')}</div>
                           <div className="mt-0.5 text-text-muted">{formatDate(entry.date ?? entry.created_at)}</div>
+                          {adjustmentDetails.product ? <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 rounded-md bg-surface-elevated px-2 py-1 text-text-secondary"><span>السلعة: <strong className="text-text-primary">{adjustmentDetails.product.name}</strong></span><span>الكمية: <strong className="text-text-primary">{adjustmentDetails.product.quantity}</strong></span></div> : null}
                         </div>
                         <span className={`inline-flex items-center gap-1 font-bold ${isDebit ? 'text-danger' : 'text-success'}`}>
                           {isDebit ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownLeft className="h-3.5 w-3.5" />}

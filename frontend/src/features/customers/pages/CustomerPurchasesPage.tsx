@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, Calendar, CalendarDays, CircleDollarSign, DollarSign, Eye, FileText, Plus, ReceiptText, Search } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Calendar, CalendarDays, CircleDollarSign, CreditCard, DollarSign, Eye, FileText, Plus, ReceiptText, Search } from 'lucide-react';
 import { PageHeader } from '../../../design-system/components/page-header';
 import { Button } from '../../../design-system/components/button';
 import { Card, CardContent } from '../../../design-system/components/card';
@@ -14,6 +14,7 @@ import { salesApi, customersApi, debtsApi } from '../../../services/api/endpoint
 import { useDebounce } from '../../../hooks/useDebounce';
 import { SalesInvoice } from '../../../components/invoice/SalesInvoice';
 import { formatStoreDate } from '../../../utils/store-time';
+import { toast } from 'sonner';
 
 const formatMoney = (value: unknown) => `₪${Number(value || 0).toLocaleString('en-US')}`;
 
@@ -29,6 +30,11 @@ export function CustomerPurchasesPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
+  const [paymentSale, setPaymentSale] = useState<{ id: string; invoiceNumber: string; remaining: number } | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit' | 'bank_transfer' | 'check'>('cash');
+  const [paymentReference, setPaymentReference] = useState('');
+  const queryClient = useQueryClient();
   const pageSize = 20;
   const debouncedSearch = useDebounce(search, 250);
 
@@ -66,6 +72,40 @@ export function CustomerPurchasesPage() {
     queryFn: () => salesApi.get(selectedSaleId || ''),
     enabled: Boolean(selectedSaleId),
   });
+
+  const invoicePaymentMutation = useMutation({
+    mutationFn: (input: { saleId: string; amount: number; method: 'cash' | 'credit' | 'bank_transfer' | 'check'; reference: string }) =>
+      debtsApi.recordPayment(customerId || '', { amount: input.amount, method: input.method, reference: input.reference, sale_id: input.saleId }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['customer-purchases', customerId] }),
+        queryClient.invalidateQueries({ queryKey: ['customer-purchases-debts', customerId] }),
+        queryClient.invalidateQueries({ queryKey: ['customer-purchases-ledger', customerId] }),
+        queryClient.invalidateQueries({ queryKey: ['customer', customerId] }),
+        queryClient.invalidateQueries({ queryKey: ['debts'] }),
+        queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['reports'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+      ]);
+    },
+  });
+
+  const submitInvoicePayment = async () => {
+    const amount = Number(paymentAmount);
+    if (!paymentSale || !Number.isFinite(amount) || amount <= 0 || amount > paymentSale.remaining + 0.000001) {
+      toast.error('أدخل مبلغًا صحيحًا لا يتجاوز المتبقي على الفاتورة');
+      return;
+    }
+    try {
+      await invoicePaymentMutation.mutateAsync({ saleId: paymentSale.id, amount, method: paymentMethod, reference: paymentReference });
+      toast.success('تم تسجيل الدفعة على الفاتورة المحددة');
+      setPaymentSale(null);
+      setPaymentAmount('');
+      setPaymentReference('');
+    } catch (error: any) {
+      toast.error(String(error?.arabicMessage ?? error?.message ?? 'تعذر تسجيل الدفعة؛ بقي النموذج مفتوحًا'));
+    }
+  };
 
   const customer = customerQuery.data?.data ?? customerQuery.data;
   const saleDetailsPayload = saleDetailsQuery.data?.data ?? saleDetailsQuery.data;
@@ -222,7 +262,7 @@ export function CustomerPurchasesPage() {
             <div className="p-12 text-center text-text-muted">لا توجد مشتريات مطابقة</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-[760px] w-full text-sm" dir="rtl">
+              <table className="min-w-[900px] w-full text-sm" dir="rtl">
                 <thead className="border-b border-border bg-surface-muted text-right text-xs font-semibold text-text-muted">
                   <tr>
                     <th className="px-5 py-3.5">الفاتورة</th>
@@ -231,6 +271,7 @@ export function CustomerPurchasesPage() {
                     <th className="px-5 py-3.5">المدفوع</th>
                     <th className="px-5 py-3.5">المتبقي</th>
                     <th className="px-5 py-3.5">الحالة</th>
+                    <th className="px-5 py-3.5">الإجراء</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -254,6 +295,18 @@ export function CustomerPurchasesPage() {
                         <td className="whitespace-nowrap px-5 py-4 font-medium text-green-600">{formatMoney(paidAmount)}</td>
                         <td className="whitespace-nowrap px-5 py-4 font-semibold text-red-600">{formatMoney(remaining)}</td>
                         <td className="px-5 py-4"><Badge variant={remaining > 0 ? 'danger' : 'success'}>{remaining > 0 ? 'متبقي عليها مبلغ' : 'مدفوعة بالكامل'}</Badge></td>
+                        <td className="px-5 py-4">
+                          {remaining > 0 && String(sale.status ?? '').toLowerCase() !== 'cancelled' ? (
+                            <Button type="button" size="sm" variant="secondary" onClick={() => {
+                              setPaymentSale({ id: String(sale.id), invoiceNumber: String(sale.invoice_number || sale.id), remaining });
+                              setPaymentAmount('');
+                              setPaymentMethod('cash');
+                              setPaymentReference(crypto.randomUUID());
+                            }}>
+                              <CreditCard className="h-4 w-4" /> تسجيل دفعة
+                            </Button>
+                          ) : <span className="text-xs text-text-muted">—</span>}
+                        </td>
                       </tr>
                     );
                   })}
@@ -278,6 +331,34 @@ export function CustomerPurchasesPage() {
         ) : (
           <SalesInvoice saleData={invoiceData} onClose={() => setSelectedSaleId(null)} />
         )}
+      </Modal>
+
+      <Modal isOpen={Boolean(paymentSale)} onClose={() => { if (!invoicePaymentMutation.isPending) setPaymentSale(null); }} title="تسجيل دفعة على فاتورة" variant="modern" size="md">
+        {paymentSale ? (
+          <div dir="rtl" className="space-y-4 p-4 sm:p-5">
+            <div className="rounded-lg border border-border bg-surface-elevated p-3 text-sm">
+              <div className="font-semibold text-text-primary">الفاتورة: {paymentSale.invoiceNumber}</div>
+              <div className="mt-1 text-text-muted">المبلغ المتبقي: <strong className="text-danger">{formatMoney(paymentSale.remaining)}</strong></div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-text-secondary">مبلغ الدفعة</label>
+              <Input type="number" min="0.01" max={paymentSale.remaining} step="0.01" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} placeholder="أدخل المبلغ" autoFocus />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-text-secondary">طريقة الدفع</label>
+              <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)} className="h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm text-text-primary">
+                <option value="cash">نقدي</option>
+                <option value="credit">بطاقة</option>
+                <option value="bank_transfer">تحويل بنكي</option>
+                <option value="check">شيك</option>
+              </select>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border pt-3">
+              <Button type="button" variant="secondary" onClick={() => setPaymentSale(null)} disabled={invoicePaymentMutation.isPending}>إلغاء</Button>
+              <Button type="button" onClick={() => void submitInvoicePayment()} disabled={invoicePaymentMutation.isPending || !paymentAmount || Number(paymentAmount) <= 0 || Number(paymentAmount) > paymentSale.remaining} isLoading={invoicePaymentMutation.isPending}>حفظ الدفعة</Button>
+            </div>
+          </div>
+        ) : null}
       </Modal>
     </div>
   );

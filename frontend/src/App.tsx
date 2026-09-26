@@ -17,7 +17,6 @@ import { initializePartTypeImages } from './services/localPartTypeImages';
 import { initializeCategoryImages } from './services/localCategoryImages';
 import { RegionalProfileLoader } from './components/RegionalProfileLoader';
 import { LoginPage } from './features/auth/pages/LoginPage';
-import { NextFieldNavigator } from './components/navigation/NextFieldNavigator';
 
 // Lazy load auth pages separately
 const SubscriptionExpiredPage = lazy(() => import('./features/auth/pages/SubscriptionExpiredPage').then(m => ({ default: m.default })));
@@ -278,7 +277,6 @@ function App() {
           </Routes>
         </Router>
         <ToastContainer />
-        <NextFieldNavigator />
       </QueryProvider>
     </ErrorBoundary>
   );

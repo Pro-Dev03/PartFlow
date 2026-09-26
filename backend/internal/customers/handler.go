@@ -17,13 +17,14 @@ import (
 
 // FinancialTransaction represents a financial transaction for a customer
 type FinancialTransaction struct {
-	ID           string  `json:"id"`
-	Type         string  `json:"type"` // sale, payment, return, refund, adjustment
-	Amount       float64 `json:"amount"`
-	BalanceAfter float64 `json:"balance_after"`
-	Date         string  `json:"date"`
-	Description  string  `json:"description"`
-	Status       string  `json:"status"`
+	ID           string     `json:"id"`
+	Type         string     `json:"type"` // sale, payment, return, refund, adjustment
+	Amount       float64    `json:"amount"`
+	BalanceAfter float64    `json:"balance_after"`
+	Date         string     `json:"date"`
+	Description  string     `json:"description"`
+	ReferenceID  *uuid.UUID `json:"reference_id,omitempty"`
+	Status       string     `json:"status"`
 }
 
 // Handler handles HTTP requests for customers
@@ -518,7 +519,7 @@ func (h *Handler) AdjustCustomerDebt(c *gin.Context) {
 		return
 	}
 
-	err = h.service.AdjustCustomerDebt(c.Request.Context(), id, req.Amount, req.Type, req.Reason)
+	err = h.service.AdjustCustomerDebtWithProduct(c.Request.Context(), id, req.Amount, req.Type, req.Reason, req.ProductID, req.ProductQuantity)
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
@@ -526,6 +527,10 @@ func (h *Handler) AdjustCustomerDebt(c *gin.Context) {
 		}
 		if err == ErrPaymentAmountInvalid {
 			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Adjustment amount must be greater than zero", err.Error())
+			return
+		}
+		if err == ErrInvalidDebtAdjustmentProduct {
+			response.Error(c, http.StatusBadRequest, http.StatusBadRequest, "Invalid adjustment product", err.Error())
 			return
 		}
 		if err == ErrPaymentExceedsBalance {
@@ -560,7 +565,11 @@ func (h *Handler) ProcessDebtPayment(c *gin.Context) {
 		return
 	}
 
-	err = h.service.ProcessDebtPaymentWithReference(c.Request.Context(), id, req.Amount, req.Method, req.Reference)
+	if req.SaleID != nil {
+		err = h.service.ProcessDebtPaymentForSale(c.Request.Context(), id, *req.SaleID, req.Amount, req.Method, req.Reference)
+	} else {
+		err = h.service.ProcessDebtPaymentWithReference(c.Request.Context(), id, req.Amount, req.Method, req.Reference)
+	}
 	if err != nil {
 		if err == ErrCustomerNotFound {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))

@@ -68,4 +68,11 @@ func TestInventoryReportConditionsMatchAvailableStockSQLite(t *testing.T) {
 	if report.Valuation.ByCondition["NEW"] != 90 || report.Valuation.ByCondition["REFURBISHED"] != 20 {
 		t.Fatalf("condition values = %#v", report.Valuation.ByCondition)
 	}
+	categoryTotal := 0
+	for _, count := range report.ByCategory {
+		categoryTotal += count
+	}
+	if categoryTotal != report.TotalItems {
+		t.Fatalf("category stock totals = %d, want total available stock %d (categories %#v)", categoryTotal, report.TotalItems, report.ByCategory)
+	}
 }
