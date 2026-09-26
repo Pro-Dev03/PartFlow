@@ -85,7 +85,7 @@ describe('expense status actions', () => {
     for (const status of ['approved', 'paid', 'completed', 'archived']) {
       expect(isExpenseAccountingStatus(status)).toBe(true);
       expect(canEditExpenseStatus(status)).toBe(false);
-      expect(canDeleteExpenseStatus(status)).toBe(status !== 'archived');
+      expect(canDeleteExpenseStatus(status)).toBe(true);
     }
   });
 
@@ -95,7 +95,7 @@ describe('expense status actions', () => {
     expect(canEditExpenseStatus('rejected')).toBe(false);
     expect(canDeleteExpenseStatus('rejected')).toBe(true);
     expect(canDeleteExpenseStatus('completed')).toBe(true);
-    expect(canDeleteExpenseStatus('archived')).toBe(false);
+    expect(canDeleteExpenseStatus('archived')).toBe(true);
     expect(isExpenseAccountingStatus('unknown')).toBe(false);
     expect(canDeleteExpenseStatus('unknown')).toBe(false);
     expect(canDeleteExpenseStatus('')).toBe(false);

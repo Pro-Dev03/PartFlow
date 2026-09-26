@@ -184,16 +184,16 @@ func (s *CachedService) fetchFromDatabaseAt(ctx context.Context, now time.Time) 
 	stats.TotalRevenue = stats.TotalSales
 	var grossProfit, refunded, returnedCost float64
 	grossProfitQuery := `
-		SELECT COALESCE(SUM(si.total_amount - COALESCE(si.tax_amount, 0) - si.quantity * COALESCE(si.unit_cost, p.cost_price, 0)), 0)
+		SELECT COALESCE(SUM(si.total_amount - COALESCE(si.tax_amount, 0) - si.quantity * COALESCE(NULLIF(si.unit_cost, 0), p.cost_price, 0)), 0)
 		FROM sale_items si JOIN sales sl ON sl.id = si.sale_id JOIN products p ON p.id = si.product_id
 		WHERE LOWER(COALESCE(sl.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`
 	if !isSQLiteDriver(s.db.DriverName()) || sqliteHasColumns(s.db, "sales", "cost_amount") {
 		grossProfitQuery = `
-			SELECT COALESCE(SUM((sale_revenue - sale_tax) - CASE WHEN sale_cost IS NOT NULL THEN sale_cost ELSE line_cost END), 0)
+			SELECT COALESCE(SUM((sale_revenue - sale_tax) - COALESCE(NULLIF(sale_cost, 0), line_cost)), 0)
 			FROM (
 				SELECT sl.id, sl.total_amount AS sale_revenue, COALESCE(sl.tax_amount, 0) AS sale_tax,
 					sl.cost_amount AS sale_cost,
-					COALESCE(SUM(si.total_amount - COALESCE(si.tax_amount, 0) - si.quantity * COALESCE(si.unit_cost, p.cost_price, 0)), 0) AS line_cost
+					COALESCE(SUM(si.total_amount - COALESCE(si.tax_amount, 0) - si.quantity * COALESCE(NULLIF(si.unit_cost, 0), p.cost_price, 0)), 0) AS line_cost
 				FROM sales sl
 				LEFT JOIN sale_items si ON si.sale_id = sl.id
 				LEFT JOIN products p ON p.id = si.product_id
@@ -207,7 +207,7 @@ func (s *CachedService) fetchFromDatabaseAt(ctx context.Context, now time.Time) 
 	if err := s.db.GetContext(ctx, &grossProfit, grossProfitQuery); err == nil {
 		_ = s.db.GetContext(ctx, &refunded, `SELECT COALESCE(SUM(total_refund_amount), 0) FROM accounting_returns WHERE UPPER(COALESCE(status, '')) = 'COMPLETED'`+returnReferenceFilter)
 		_ = s.db.GetContext(ctx, &returnedCost, `
-			SELECT COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0)
+			SELECT COALESCE(SUM(ri.quantity_returned * COALESCE(NULLIF(ri.original_cost, 0), NULLIF(si.unit_cost, 0), p.cost_price, 0)), 0)
 			FROM accounting_return_items ri JOIN accounting_returns r ON r.id = ri.return_id
 			LEFT JOIN sale_items si ON si.id = ri.sale_item_id
 			LEFT JOIN products p ON p.id = ri.product_id
@@ -285,7 +285,10 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 	if isSQLiteDriver(s.db.DriverName()) {
 		return s.fetchSQLiteSalesChart(ctx, chartStart)
 	}
-	productCostExpr := "COALESCE(si.unit_cost, ii.purchase_cost, p.cost_price, 0)"
+	// Zero-valued persisted costs are legacy "unknown" values in sales created
+	// while aggregate inventory had no individual purchase rows. Fall back to
+	// the captured inventory/product cost so gross profit is not overstated.
+	productCostExpr := "COALESCE(NULLIF(si.unit_cost, 0), NULLIF(ii.purchase_cost, 0), p.cost_price, 0)"
 	taxExpr := "COALESCE(s.tax_amount, 0)"
 	if s.db.DriverName() == "sqlite" {
 		unitCostExpr := "0"
@@ -300,7 +303,7 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 		if sqliteHasColumns(s.db, "products", "cost_price") {
 			productCostColumn = "cost_price"
 		}
-		productCostExpr = fmt.Sprintf("COALESCE(%s, %s, p.%s, 0)", unitCostExpr, inventoryCostExpr, productCostColumn)
+		productCostExpr = fmt.Sprintf("COALESCE(NULLIF(%s, 0), NULLIF(%s, 0), p.%s, 0)", unitCostExpr, inventoryCostExpr, productCostColumn)
 		if !sqliteHasColumns(s.db, "sales", "tax_amount") {
 			taxExpr = "0"
 		}
@@ -308,7 +311,7 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 	saleCostExpression := fmt.Sprintf("COALESCE(SUM(%s * COALESCE(si.quantity, 0)), 0)", productCostExpr)
 	saleCostGroup := ""
 	if s.db.DriverName() != "sqlite" || sqliteHasColumns(s.db, "sales", "cost_amount") {
-		saleCostExpression = fmt.Sprintf("CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount ELSE %s END", saleCostExpression)
+		saleCostExpression = fmt.Sprintf("CASE WHEN NULLIF(s.cost_amount, 0) IS NOT NULL THEN s.cost_amount ELSE %s END", saleCostExpression)
 		saleCostGroup = ", s.cost_amount"
 	}
 	query := fmt.Sprintf(`
@@ -346,7 +349,7 @@ func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
 				GROUP BY s.id, s.sale_date, s.total_amount, s.tax_amount%s
 			)
 			SELECT TO_CHAR(DATE(sale_date), 'YYYY-MM-DD') AS name,
-			       COALESCE(SUM(total_amount), 0) AS sales,
+			       COALESCE(SUM(total_amount - tax_amount), 0) AS sales,
 			       COALESCE(SUM(total_amount - tax_amount - cost), 0) AS profit
 			FROM sale_costs
 			GROUP BY DATE(sale_date)
@@ -398,22 +401,63 @@ func (s *CachedService) fetchSQLiteSalesChart(ctx context.Context, chartStart st
 	// for legacy local rows that predate the normalized sale date.
 	saleDateColumn := "NULL"
 	if sqliteHasColumns(s.db, "sales", "sale_date") {
-		saleDateColumn = "sale_date"
+		saleDateColumn = "s.sale_date"
 	}
 	taxExpr := "0"
 	if sqliteHasColumns(s.db, "sales", "tax_amount") {
-		taxExpr = "COALESCE(tax_amount, 0)"
+		taxExpr = "COALESCE(s.tax_amount, 0)"
 	}
-	costExpr := "0"
+	itemJoin := ""
+	lineCostExpr := "0"
+	if sqliteHasColumns(s.db, "sale_items", "sale_id", "quantity") {
+		itemJoin = " LEFT JOIN sale_items si ON si.sale_id = s.id"
+		unitCostExpr := "0"
+		if sqliteHasColumns(s.db, "sale_items", "unit_cost") {
+			unitCostExpr = "si.unit_cost"
+		}
+		productCostExpr := "0"
+		productJoin := ""
+		if sqliteHasColumns(s.db, "sale_items", "product_id") && sqliteHasColumns(s.db, "products", "id") {
+			productCostColumn := "0"
+			if sqliteHasColumns(s.db, "products", "cost_price") {
+				productCostColumn = "p.cost_price"
+			} else if sqliteHasColumns(s.db, "products", "purchase_price") {
+				productCostColumn = "p.purchase_price"
+			}
+			productCostExpr = productCostColumn
+			productJoin = " LEFT JOIN products p ON p.id = si.product_id"
+		}
+		inventoryCostExpr := "0"
+		inventoryJoin := ""
+		if sqliteHasColumns(s.db, "sale_items", "inventory_item_id") && sqliteHasColumns(s.db, "inventory_items", "id", "purchase_cost") {
+			inventoryCostExpr = "ii.purchase_cost"
+			inventoryJoin = " LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id"
+		}
+		lineCostExpr = fmt.Sprintf("COALESCE(SUM(si.quantity * COALESCE(NULLIF(%s, 0), NULLIF(%s, 0), %s, 0)), 0)", unitCostExpr, inventoryCostExpr, productCostExpr)
+		itemJoin += productJoin + inventoryJoin
+	}
+	costExpr := lineCostExpr
+	costGroup := ""
 	if sqliteHasColumns(s.db, "sales", "cost_amount") {
-		costExpr = "COALESCE(cost_amount, 0)"
+		costExpr = fmt.Sprintf("CASE WHEN NULLIF(s.cost_amount, 0) IS NOT NULL THEN s.cost_amount ELSE %s END", lineCostExpr)
+		costGroup = ", s.cost_amount"
 	}
 
+	dateGroupExpr := "NULL"
+	if saleDateColumn != "NULL" {
+		dateGroupExpr = "s.sale_date"
+	}
+	groupBy := fmt.Sprintf("s.id, %s, s.created_at, s.total_amount", dateGroupExpr)
+	if sqliteHasColumns(s.db, "sales", "tax_amount") {
+		groupBy += ", s.tax_amount"
+	}
+	groupBy += costGroup
 	query := fmt.Sprintf(`
-		SELECT COALESCE(%s, '') AS sale_date, created_at, total_amount, %s AS tax_amount, %s AS cost
-		FROM sales
-		WHERE LOWER(COALESCE(status, '')) = 'completed'
-		  AND (%s IS NOT NULL OR created_at IS NOT NULL)`, saleDateColumn, taxExpr, costExpr, saleDateColumn)
+		SELECT COALESCE(%s, '') AS sale_date, s.created_at, s.total_amount, %s AS tax_amount, %s AS cost
+		FROM sales s%s
+		WHERE LOWER(COALESCE(s.status, '')) = 'completed'
+		  AND (%s IS NOT NULL OR s.created_at IS NOT NULL)
+		GROUP BY %s`, saleDateColumn, taxExpr, costExpr, itemJoin, saleDateColumn, groupBy)
 	var rows []struct {
 		SaleDate  string  `db:"sale_date"`
 		CreatedAt string  `db:"created_at"`
@@ -778,16 +822,31 @@ func (s *CachedService) GetActivityWithFilters(ctx context.Context, page, perPag
 		args = append(args, activityType)
 	}
 	if strings.TrimSpace(search) != "" {
-		where += func() string { if where == "" { return " WHERE" }; return " AND" }() + " (LOWER(title) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR CAST(id AS TEXT) LIKE ? OR LOWER(COALESCE(seller_name, '')) LIKE LOWER(?))"
+		where += func() string {
+			if where == "" {
+				return " WHERE"
+			}
+			return " AND"
+		}() + " (LOWER(title) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR CAST(id AS TEXT) LIKE ? OR LOWER(COALESCE(seller_name, '')) LIKE LOWER(?))"
 		pattern := "%" + strings.TrimSpace(search) + "%"
 		args = append(args, pattern, pattern, pattern, pattern)
 	}
 	if strings.TrimSpace(startDate) != "" {
-		where += func() string { if where == "" { return " WHERE" }; return " AND" }() + " date(activity_time) >= date(?)"
+		where += func() string {
+			if where == "" {
+				return " WHERE"
+			}
+			return " AND"
+		}() + " date(activity_time) >= date(?)"
 		args = append(args, strings.TrimSpace(startDate))
 	}
 	if strings.TrimSpace(endDate) != "" {
-		where += func() string { if where == "" { return " WHERE" }; return " AND" }() + " date(activity_time) <= date(?)"
+		where += func() string {
+			if where == "" {
+				return " WHERE"
+			}
+			return " AND"
+		}() + " date(activity_time) <= date(?)"
 		args = append(args, strings.TrimSpace(endDate))
 	}
 

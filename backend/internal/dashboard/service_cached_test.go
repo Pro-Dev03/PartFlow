@@ -234,6 +234,38 @@ func TestSQLiteSalesChartUsesCreatedAtOnlyForLegacyRows(t *testing.T) {
 	}
 }
 
+func TestSQLiteSalesChartFallsBackToProductCostWhenStoredCostIsZero(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE sales (
+			id TEXT PRIMARY KEY, total_amount REAL, tax_amount REAL, cost_amount REAL,
+			status TEXT, sale_date TEXT, created_at TEXT
+		);
+		CREATE TABLE products (id TEXT PRIMARY KEY, cost_price REAL);
+		CREATE TABLE sale_items (
+			id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, inventory_item_id TEXT,
+			quantity REAL, unit_cost REAL
+		);
+		INSERT INTO products (id, cost_price) VALUES ('product', 20);
+		INSERT INTO sales (id, total_amount, tax_amount, cost_amount, status, sale_date, created_at)
+		VALUES ('sale', 27, 2, 0, 'completed', '2026-09-26', '2026-09-26T08:00:00Z');
+		INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_cost)
+		VALUES ('line', 'sale', 'product', 1, 0);
+	`); err != nil {
+		t.Fatalf("seed sale cost fallback: %v", err)
+	}
+
+	chart := (&CachedService{db: sqlx.NewDb(db, "sqlite")}).fetchSQLiteSalesChart(context.Background(), "2026-09-26")
+	if len(chart) != 1 || chart[0].Sales != 25 || chart[0].Profit != 5 {
+		t.Fatalf("gross profit chart = %#v, want sales 25 and gross profit 5 using product cost 20", chart)
+	}
+}
+
 func TestInventoryStatusPresentationSeparatesUsedSold(t *testing.T) {
 	name, _, health := inventoryStatusPresentation("SOLD", "USED")
 	if name != "قطع مستعملة مباعة" || health != "neutral" {

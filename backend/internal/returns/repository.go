@@ -322,7 +322,12 @@ func (r *Repository) GetReturnByID(ctx context.Context, id uuid.UUID) (*Return, 
 	}
 	var returnRecord Return
 	query := `
-		SELECT r.id, r.return_number, r.reference_number, r.sale_id, r.purchase_id, COALESCE(r.customer_id, s.customer_id) AS customer_id, COALESCE(c.name, '') AS customer_name,
+		SELECT r.id, r.return_number, r.reference_number,
+			COALESCE(r.sale_id, '00000000-0000-0000-0000-000000000000'::uuid) AS sale_id,
+			COALESCE(NULLIF(s.invoice_number, ''), NULLIF(s.sale_number, ''), '') AS sale_invoice,
+			COALESCE(r.purchase_id, '00000000-0000-0000-0000-000000000000'::uuid) AS purchase_id,
+			COALESCE(r.customer_id, s.customer_id, '00000000-0000-0000-0000-000000000000'::uuid) AS customer_id,
+			COALESCE(c.name, '') AS customer_name,
 			r.return_date, r.return_type, r.status, r.total_refund_amount, COALESCE(r.refund_method, '') AS refund_method, r.refund_date, COALESCE(r.refund_reference, '') AS refund_reference,
 			r.debt_id, r.debt_adjustment, r.customer_credit, COALESCE(r.reason, '') AS reason, COALESCE(r.reason_detail, '') AS reason_detail, COALESCE(r.item_condition_after_return, '') AS item_condition_after_return,
 			r.is_warranty_claim, r.warranty_id, r.warranty_valid_until, r.created_by, r.processed_by, r.approved_by, r.approved_at,
@@ -1304,13 +1309,13 @@ func (r *Repository) GetReturnItems(ctx context.Context, returnID uuid.UUID) ([]
 			ri.inventory_item_id,
 			COALESCE(NULLIF(ri.serial_number, ''), ii.serial_number, '') AS serial_number,
 			COALESCE(NULLIF(ri.barcode, ''), ii.barcode, '') AS barcode,
-			quantity_returned, COALESCE(ri.original_quantity, (SELECT si.quantity FROM sale_items si JOIN returns rr ON rr.sale_id = si.sale_id WHERE rr.id = ri.return_id AND (ri.product_id IS NULL OR si.product_id = ri.product_id) ORDER BY si.created_at LIMIT 1)) AS original_quantity, unit_price, total_refund_amount,
-			COALESCE(original_condition, '') AS original_condition, COALESCE(returned_condition, '') AS returned_condition,
-			COALESCE(condition_notes, '') AS condition_notes, COALESCE(resolution, '') AS resolution,
-			COALESCE(inventory_status, '') AS inventory_status,
-			inspection_required, inspection_date, COALESCE(inspection_result, '') AS inspection_result,
-			COALESCE(inspection_notes, '') AS inspection_notes,
-			original_cost, repair_cost, created_at, updated_at
+			ri.quantity_returned, COALESCE(ri.original_quantity, (SELECT si.quantity FROM sale_items si JOIN returns rr ON rr.sale_id = si.sale_id WHERE rr.id = ri.return_id AND (ri.product_id IS NULL OR si.product_id = ri.product_id) ORDER BY si.created_at LIMIT 1)) AS original_quantity, ri.unit_price, ri.total_refund_amount,
+			COALESCE(ri.original_condition, '') AS original_condition, COALESCE(ri.returned_condition, '') AS returned_condition,
+			COALESCE(ri.condition_notes, '') AS condition_notes, COALESCE(ri.resolution, '') AS resolution,
+			COALESCE(ri.inventory_status, '') AS inventory_status,
+			ri.inspection_required, ri.inspection_date, COALESCE(ri.inspection_result, '') AS inspection_result,
+			COALESCE(ri.inspection_notes, '') AS inspection_notes,
+			ri.original_cost, ri.repair_cost, ri.created_at, ri.updated_at
 		FROM return_items ri
 		LEFT JOIN inventory_items ii ON ii.id = ri.inventory_item_id
 		LEFT JOIN products p ON p.id = ri.product_id

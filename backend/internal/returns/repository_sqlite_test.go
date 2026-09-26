@@ -82,7 +82,7 @@ func TestSQLiteReturnRoundTrip(t *testing.T) {
 	if _, err := database.DB.Exec(`INSERT INTO customers (id,code,name,created_at,updated_at) VALUES (?,?,?,?,?)`, customerID.String(), "C-RETURN", "Return customer", now, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.DB.Exec(`INSERT INTO sales (id,sale_number,total_amount,created_at,updated_at) VALUES (?,?,?,?,?)`, saleID.String(), "S-RETURN", 100, now, now); err != nil {
+	if _, err := database.DB.Exec(`INSERT INTO sales (id,sale_number,invoice_number,sale_date,subtotal,discount_amount,total_amount,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`, saleID.String(), "S-RETURN", "INV-S-RETURN", now, 100, 0, 100, now, now); err != nil {
 		t.Fatal(err)
 	}
 	repo := NewRepository(db)
@@ -107,6 +107,13 @@ func TestSQLiteReturnRoundTrip(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].ProductID == nil || *items[0].ProductID != productID || items[0].ProductName != "Return product" {
 		t.Fatalf("items mismatch: %#v", items)
+	}
+	detail, detailItems, err := NewService(repo).GetReturnWithItems(ctx, returnRecord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.SaleInvoice != "INV-S-RETURN" || len(detailItems) != 1 || detailItems[0].ProductName != "Return product" {
+		t.Fatalf("return detail invoice/items mismatch: invoice=%q items=%#v", detail.SaleInvoice, detailItems)
 	}
 	listed, count, err := repo.ListReturns(ctx, ReturnListRequest{Page: 1, PerPage: 20, Search: "R-RETURN"})
 	if err != nil {

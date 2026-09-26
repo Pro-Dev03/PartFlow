@@ -823,7 +823,7 @@ func handleError(c *gin.Context, err error) {
 	case errors.Is(err, ErrInsufficientStock), errors.Is(err, ErrItemAlreadyReserved), errors.Is(err, ErrDuplicateBarcode), errors.Is(err, ErrDuplicateSerialNumber):
 		status = http.StatusConflict
 		message = err.Error()
-	case errors.Is(err, ErrCannotDeleteSoldItem):
+	case errors.Is(err, ErrCannotDeleteSoldItem), errors.Is(err, ErrCannotDeleteItemWithHistory):
 		status = http.StatusConflict
 		message = err.Error()
 	}

@@ -297,11 +297,41 @@ func (r *Repository) CreateInventoryItem(ctx context.Context, item *InventoryIte
 }
 
 func (r *Repository) HasProtectedHistory(ctx context.Context, itemID uuid.UUID) (bool, error) {
-	var count int
-	if err := r.db.GetContext(ctx, &count, `SELECT COUNT(*) FROM inventory_movements WHERE item_id = $1`, itemID); err != nil {
-		return false, fmt.Errorf("failed to check inventory item history: %w", err)
+	return r.hasInventoryItemBusinessHistory(ctx, r.db, itemID)
+}
+
+func (r *Repository) hasInventoryItemBusinessHistory(ctx context.Context, db inventoryQueryer, itemID uuid.UUID) (bool, error) {
+	protectedReferences := []struct {
+		table  string
+		column string
+	}{
+		{"inventory_movements", "item_id"},
+		{"sale_items", "inventory_item_id"},
+		{"return_items", "inventory_item_id"},
+		{"supplier_return_items", "inventory_item_id"},
+		{"acquisition_items", "inventory_item_id"},
+		{"trade_ins", "inventory_item_id"},
+		{"item_repair_costs", "inventory_item_id"},
 	}
-	return count > 0, nil
+	for _, ref := range protectedReferences {
+		if !inventoryHasColumn(r.db, ref.table, ref.column) {
+			continue
+		}
+		var exists bool
+		query := fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s WHERE %s = ?)`, ref.table, ref.column)
+		if err := db.GetContext(ctx, &exists, db.Rebind(query), itemID); err != nil {
+			return false, fmt.Errorf("check protected inventory history in %s: %w", ref.table, err)
+		}
+		if exists {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+type inventoryQueryer interface {
+	GetContext(context.Context, any, string, ...any) error
+	Rebind(string) string
 }
 
 func (r *Repository) DeleteInventoryItem(ctx context.Context, itemID uuid.UUID) error {
@@ -343,6 +373,13 @@ func (r *Repository) DeleteUsedInventoryItem(ctx context.Context, itemID, userID
 			return ErrItemNotFound
 		}
 		return fmt.Errorf("failed to load item before permanent delete: %w", err)
+	}
+	protected, err := r.hasInventoryItemBusinessHistory(ctx, tx, itemID)
+	if err != nil {
+		return err
+	}
+	if protected {
+		return ErrCannotDeleteItemWithHistory
 	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM inventory_movements WHERE item_id = $1`, itemID); err != nil {

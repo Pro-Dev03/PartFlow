@@ -68,7 +68,7 @@ export function canEditExpenseStatus(status: unknown) {
 
 export function canDeleteExpenseStatus(status: unknown) {
   const normalizedStatus = String(status ?? '').trim().toLowerCase();
-  return ['pending', 'rejected', 'approved', 'paid', 'completed'].includes(normalizedStatus);
+  return ['pending', 'rejected', 'approved', 'paid', 'completed', 'archived'].includes(normalizedStatus);
 }
 
 export function normalizeExpenseForDisplay(expense: any) {
@@ -279,7 +279,8 @@ export function ExpensesPage() {
   });
 
   const deleteExpenseMutation = useMutation({
-    mutationFn: (id: string) => expensesApi.delete(id),
+    mutationFn: ({ id, permanent }: { id: string; permanent?: boolean }) =>
+      permanent ? expensesApi.deletePermanently(id) : expensesApi.delete(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['expenses'] });
       void queryClient.invalidateQueries({ queryKey: ['reports'] });
@@ -627,34 +628,61 @@ export function ExpensesPage() {
       <Modal
         isOpen={Boolean(expenseToDelete)}
         onClose={() => setExpenseToDelete(null)}
-        title={isExpenseAccountingStatus(expenseToDelete?.status) ? 'تنظيف وأرشفة المصروف' : 'تأكيد حذف المصروف'}
+        title={isExpenseAccountingStatus(expenseToDelete?.status) ? 'إدارة حذف المصروف المالي' : 'تأكيد حذف المصروف'}
         size="sm"
       >
         <div className="space-y-5">
           <p className="text-sm text-text-secondary">
-            {isExpenseAccountingStatus(expenseToDelete?.status)
-              ? `سيتم إخفاء المصروف «${expenseToDelete?.description || '-'}» من القائمة ونقله إلى الأرشيف. سيبقى محفوظًا ويستمر احتسابه في التقارير المالية.`
+            {String(expenseToDelete?.status || '').toLowerCase() === 'archived'
+              ? `سيُحذف المصروف المؤرشف «${expenseToDelete?.description || '-'}» نهائيًا من قاعدة البيانات، وسيُزال مبلغه من التقارير المالية.`
+              : isExpenseAccountingStatus(expenseToDelete?.status)
+                ? `يمكنك أرشفة المصروف «${expenseToDelete?.description || '-'}» مع إبقائه في التقارير، أو حذفه نهائيًا وإزالة أثره من إجماليات المصروفات والأرباح.`
               : `سيتم حذف المصروف «${expenseToDelete?.description || '-'}» نهائيًا لأنه غير معتمد ولا يدخل ضمن الحسابات المالية.`}
           </p>
           <div className="flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={() => setExpenseToDelete(null)}>
               إلغاء
             </Button>
+            {isExpenseAccountingStatus(expenseToDelete?.status) && String(expenseToDelete?.status || '').toLowerCase() !== 'archived' && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={deleteExpenseMutation.isPending}
+                onClick={() => {
+                  if (expenseToDelete?.id) {
+                    deleteExpenseMutation.mutate({ id: expenseToDelete.id, permanent: false }, {
+                      onSuccess: () => {
+                        toast.success('أُرشف المصروف مع إبقائه في التقارير المالية.');
+                        setExpenseToDelete(null);
+                      },
+                    });
+                  }
+                }}
+              >
+                أرشفة مع حفظ التقارير
+              </Button>
+            )}
             <Button
               type="button"
               variant="danger"
               disabled={deleteExpenseMutation.isPending}
               onClick={() => {
                 if (expenseToDelete?.id) {
-                  deleteExpenseMutation.mutate(expenseToDelete.id, {
-                    onSuccess: () => setExpenseToDelete(null),
+                  const permanent = isExpenseAccountingStatus(expenseToDelete?.status);
+                  deleteExpenseMutation.mutate({ id: expenseToDelete.id, permanent }, {
+                    onSuccess: () => {
+                      toast.success(permanent
+                        ? 'حُذف المصروف نهائيًا وأُزيل من التقارير المالية.'
+                        : 'حُذف المصروف غير المعتمد نهائيًا.');
+                      setExpenseToDelete(null);
+                    },
                   });
                 }
               }}
             >
               {deleteExpenseMutation.isPending
-                ? isExpenseAccountingStatus(expenseToDelete?.status) ? 'جارٍ الأرشفة...' : 'جاري الحذف...'
-                : isExpenseAccountingStatus(expenseToDelete?.status) ? 'أرشفة للتنظيف' : 'حذف المصروف'}
+                ? 'جارٍ التنفيذ...'
+                : isExpenseAccountingStatus(expenseToDelete?.status) ? 'حذف نهائيًا' : 'حذف المصروف'}
             </Button>
           </div>
           {deleteExpenseMutation.isError && (
@@ -795,7 +823,7 @@ export function ExpensesPage() {
                         {canEditExpenseStatus(status) && <Button variant="ghost" size="sm" tableAction onClick={() => handleEdit(expense)} aria-label="تعديل المصروف">
                           <Edit className="w-4 h-4" />
                         </Button>}
-                        {canDeleteExpenseStatus(status) && <Button variant="ghost" size="sm" tableAction onClick={() => handleDelete(expense)} disabled={deleteExpenseMutation.isPending} aria-label={isExpenseAccountingStatus(status) ? 'أرشفة المصروف للتنظيف' : 'حذف المصروف'} title={isExpenseAccountingStatus(status) ? 'أرشفة للتنظيف مع إبقائه في التقارير' : 'حذف المصروف'}>
+                        {canDeleteExpenseStatus(status) && <Button variant="ghost" size="sm" tableAction onClick={() => handleDelete(expense)} disabled={deleteExpenseMutation.isPending} aria-label={isExpenseAccountingStatus(status) ? 'إدارة حذف المصروف المالي' : 'حذف المصروف'} title={isExpenseAccountingStatus(status) ? 'أرشفة المصروف أو حذفه نهائيًا' : 'حذف المصروف'}>
                           <Trash2 className="w-4 h-4 text-red" />
                         </Button>}
                         {!canEditExpenseStatus(status) && !canDeleteExpenseStatus(status) && (

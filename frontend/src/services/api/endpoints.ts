@@ -370,6 +370,7 @@ export const expensesApi = {
   update: (id: string, data: Partial<ExpenseCreateRequest>) => apiClient.put(`/expenses/${id}`, data),
   approve: (id: string) => apiClient.post(`/expenses/${id}/approve`, {}),
   delete: (id: string) => apiClient.delete(`/expenses/${id}`),
+  deletePermanently: (id: string) => apiClient.delete(`/expenses/${id}`, { permanent: true }),
 };
 
 export const expenseCategoriesApi = {
@@ -502,6 +503,13 @@ export const settingsApi = {
   deleteUser: (id: string) => cloudSettingsRequest(`/users/${id}`, { method: 'DELETE' }),
   getTaxRate: () => apiClient.get('/settings/tax-rate'),
   updateTaxRate: (taxRate: number) => apiClient.put('/settings/tax-rate', { tax_rate: taxRate }),
+  previewDatabaseCleanup: (target: 'cloud' | 'local' = 'cloud') => apiClient.get(
+    target === 'local' ? '/settings/database/cleanup/preview' : '/settings/cleanup/preview',
+  ),
+  runDatabaseCleanup: (target: 'cloud' | 'local' = 'cloud') => apiClient.post(
+    target === 'local' ? '/settings/database/cleanup' : '/settings/cleanup',
+    {},
+  ),
   getPublicSettings: () => apiClient.get('/settings/public'),
   getSetting: (key: string) => apiClient.get(`/settings/${key}`),
   updateSetting: (key: string, value: string) => apiClient.put(`/settings/${key}`, { value }),

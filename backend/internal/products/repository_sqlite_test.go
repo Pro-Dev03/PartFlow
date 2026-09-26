@@ -198,7 +198,7 @@ func TestGetProductStockCountExcludesUsedItems(t *testing.T) {
 	}
 }
 
-func TestDeleteProductPermanentlyRemovesInventoryItems(t *testing.T) {
+func TestDeleteProductWithHistoryIsBlockedWithoutDeletingLinkedTransactionsSQLite(t *testing.T) {
 	db, err := sqlx.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
@@ -264,8 +264,8 @@ func TestDeleteProductPermanentlyRemovesInventoryItems(t *testing.T) {
 		t.Fatalf("insert supplier return item: %v", err)
 	}
 
-	if err := NewRepository(db).DeleteProduct(context.Background(), productID); err != nil {
-		t.Fatalf("delete product: %v", err)
+	if err := NewRepository(db).DeleteProduct(context.Background(), productID); err != ErrProductHasHistory {
+		t.Fatalf("delete product error = %v, want ErrProductHasHistory", err)
 	}
 
 	var productCount, inventoryCount, itemCount, saleCount, saleItemCount, purchaseCount, purchaseItemCount, returnCount, returnItemCount, supplierReturnCount, supplierReturnItemCount int
@@ -302,8 +302,41 @@ func TestDeleteProductPermanentlyRemovesInventoryItems(t *testing.T) {
 	if err := db.Get(&supplierReturnCount, `SELECT COUNT(*) FROM supplier_returns WHERE id = ?`, supplierReturnID); err != nil {
 		t.Fatal(err)
 	}
-	if productCount != 0 || inventoryCount != 0 || itemCount != 0 || saleCount != 0 || saleItemCount != 0 || purchaseCount != 0 || purchaseItemCount != 0 || returnCount != 0 || returnItemCount != 0 || supplierReturnCount != 0 || supplierReturnItemCount != 0 {
-		t.Fatalf("deleted product remains: products=%d inventory=%d inventory_items=%d sales=%d sale_items=%d purchases=%d purchase_items=%d returns=%d return_items=%d supplier_returns=%d supplier_return_items=%d", productCount, inventoryCount, itemCount, saleCount, saleItemCount, purchaseCount, purchaseItemCount, returnCount, returnItemCount, supplierReturnCount, supplierReturnItemCount)
+	if productCount != 1 || inventoryCount != 1 || itemCount != 1 || saleCount != 1 || saleItemCount != 1 || purchaseCount != 1 || purchaseItemCount != 1 || returnCount != 1 || returnItemCount != 1 || supplierReturnCount != 1 || supplierReturnItemCount != 1 {
+		t.Fatalf("blocked delete changed transaction data: products=%d inventory=%d inventory_items=%d sales=%d sale_items=%d purchases=%d purchase_items=%d returns=%d return_items=%d supplier_returns=%d supplier_return_items=%d", productCount, inventoryCount, itemCount, saleCount, saleItemCount, purchaseCount, purchaseItemCount, returnCount, returnItemCount, supplierReturnCount, supplierReturnItemCount)
+	}
+}
+
+func TestDeleteUnusedProductAndInventorySQLite(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE products (id TEXT PRIMARY KEY); CREATE TABLE inventory (id TEXT PRIMARY KEY, product_id TEXT); CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT);`); err != nil {
+		t.Fatalf("create test schema: %v", err)
+	}
+	productID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO products (id) VALUES (?)`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory (id, product_id) VALUES (?, ?)`, uuid.NewString(), productID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id) VALUES (?, ?)`, uuid.NewString(), productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewRepository(db).DeleteProduct(context.Background(), uuid.MustParse(productID)); err != nil {
+		t.Fatalf("delete unused product: %v", err)
+	}
+	var remaining int
+	for _, table := range []string{"products", "inventory", "inventory_items"} {
+		if err := db.Get(&remaining, `SELECT COUNT(*) FROM `+table+` WHERE `+map[string]string{"products": "id", "inventory": "product_id", "inventory_items": "product_id"}[table]+`=?`, productID); err != nil {
+			t.Fatal(err)
+		}
+		if remaining != 0 {
+			t.Fatalf("%s rows remaining after unused product deletion = %d", table, remaining)
+		}
 	}
 }
 

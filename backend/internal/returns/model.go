@@ -14,7 +14,7 @@ type Return struct {
 
 	// Source information
 	SaleID       uuid.UUID `json:"sale_id" db:"sale_id"`
-	SaleInvoice  string    `json:"sale_invoice,omitempty" db:"-"`
+	SaleInvoice  string    `json:"sale_invoice,omitempty" db:"sale_invoice"`
 	PurchaseID   uuid.UUID `json:"purchase_id" db:"purchase_id"`
 	CustomerID   uuid.UUID `json:"customer_id" db:"customer_id"`
 	CustomerName string    `json:"customer_name,omitempty" db:"customer_name"`

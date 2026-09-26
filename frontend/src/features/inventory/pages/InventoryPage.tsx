@@ -963,7 +963,7 @@ export function InventoryPage() {
         }}
         onConfirm={handleConfirmDelete}
         title="حذف المنتج"
-        message="سيُحذف المنتج نهائيًا مع تنظيف المبيعات والمشتريات والمرتجعات المرتبطة به من البطاقات والتقارير. هل تريد المتابعة؟"
+        message="سيُحذف المنتج ومخزونه إذا لم يرتبط بمعاملات أو حركات تاريخية. يحتفظ PartFlow بالفواتير والدفاتر المالية؛ عطّل المنتج بدل حذفه إذا كان مستخدمًا في سجل سابق."
         confirmText="حذف المنتج"
         cancelText="إلغاء"
         variant="danger"
@@ -974,7 +974,7 @@ export function InventoryPage() {
         onClose={() => setInventoryItemToDelete(null)}
         onConfirm={handleConfirmInventoryItemDelete}
         title="حذف عنصر المخزون"
-        message="سيُحذف العنصر إذا لم يرتبط بتاريخ، أو سيُؤرشف مع حفظ الحركة المحاسبية إذا كان مرتبطًا."
+        message="سيُحذف العنصر ومخزونه فقط إذا لم يرتبط ببيع أو شراء أو مرتجع أو حركة مخزون. إذا كان مرتبطًا، يمنع PartFlow حذفه حتى لا تتغير الفواتير والتقارير؛ احذف العملية الأصلية من سجلها أولًا."
         confirmText="تأكيد الحذف"
         isLoading={deleteInventoryItemMutation.isPending}
       />

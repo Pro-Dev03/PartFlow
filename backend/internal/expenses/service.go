@@ -315,6 +315,25 @@ func (s *Service) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// PermanentlyDeleteExpense removes an explicitly selected expense from the
+// financial history. Reports aggregate from expenses, so deleting this row
+// removes its amount from those totals; dashboard/report caches are invalidated.
+func (s *Service) PermanentlyDeleteExpense(ctx context.Context, id uuid.UUID) error {
+	expense, err := s.repo.GetExpenseByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	status := strings.ToLower(strings.TrimSpace(expense.Status))
+	if status != "pending" && status != "rejected" && !accounting.IsAccountingExpenseStatus(status) {
+		return ErrInvalidExpenseStatus
+	}
+	if err := s.repo.DeleteExpense(ctx, id); err != nil {
+		return err
+	}
+	dashboard.InvalidateDashboardCacheWithReason("expense_permanently_deleted")
+	return nil
+}
+
 func canDeleteExpenseStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "pending", "rejected":

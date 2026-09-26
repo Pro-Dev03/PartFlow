@@ -98,8 +98,8 @@ func reportsSQLiteHasRelation(ctx context.Context, db *sqlx.DB, name string) (bo
 	return count > 0, nil
 }
 
-func profitTrendWithoutStoredSaleCost(query string) string {
-	start := strings.Index(query, "CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount")
+func profitTrendWithoutStoredSaleCost(query, lineCostExpr string) string {
+	start := strings.Index(query, "CASE WHEN NULLIF(s.cost_amount, 0) IS NOT NULL THEN s.cost_amount")
 	if start < 0 {
 		return query
 	}
@@ -108,7 +108,7 @@ func profitTrendWithoutStoredSaleCost(query string) string {
 		return query
 	}
 	end := start + endOffset + len("END AS sale_cost")
-	return query[:start] + "COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, 0)), 0) AS sale_cost" + query[end:]
+	return query[:start] + fmt.Sprintf("COALESCE(SUM(si.quantity * %s), 0) AS sale_cost", lineCostExpr) + query[end:]
 }
 
 // reportTimestamp accepts both PostgreSQL timestamps and the TEXT timestamps
@@ -192,30 +192,68 @@ func ensureSQLiteReportAliasView(db *sqlx.DB, viewName, sourceName string) {
 	_, _ = db.Exec(`CREATE TEMP VIEW ` + viewName + ` AS SELECT * FROM ` + sourceName)
 }
 
-// historicalCOGSTotalSQL returns one COGS value per sale. A stored sale cost
-// is authoritative; line costs are only used for legacy rows without it.
+// historicalSaleItemCostParts returns a schema-aware item-cost expression and
+// joins. Zero line costs are treated as unknown and use the recorded inventory
+// or product cost, which is needed for aggregate-stock sales without unit rows.
+func (r *Repository) historicalSaleItemCostParts() (string, string) {
+	unitCostExpr := "si.unit_cost"
+	inventoryCostExpr := "ii.purchase_cost"
+	productCostExpr := "p.cost_price"
+	joins := " LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id LEFT JOIN products p ON p.id = si.product_id"
+	if dbutil.IsSQLite(r.db) {
+		unitCostExpr = "0"
+		if reportsSQLiteHasColumns(r.db, "sale_items", "unit_cost") {
+			unitCostExpr = "si.unit_cost"
+		}
+		inventoryCostExpr = "0"
+		inventoryJoin := ""
+		if reportsSQLiteHasColumns(r.db, "sale_items", "inventory_item_id") && reportsSQLiteHasColumns(r.db, "inventory_items", "id", "purchase_cost") {
+			inventoryCostExpr = "ii.purchase_cost"
+			inventoryJoin = " LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id"
+		}
+		productCostExpr = "0"
+		productJoin := ""
+		if reportsSQLiteHasColumns(r.db, "sale_items", "product_id") && reportsSQLiteHasColumns(r.db, "products", "id") {
+			if reportsSQLiteHasColumns(r.db, "products", "cost_price") {
+				productCostExpr = "p.cost_price"
+			} else if reportsSQLiteHasColumns(r.db, "products", "purchase_price") {
+				productCostExpr = "p.purchase_price"
+			}
+			productJoin = " LEFT JOIN products p ON p.id = si.product_id"
+		}
+		joins = inventoryJoin + productJoin
+	}
+	return fmt.Sprintf("COALESCE(NULLIF(%s, 0), NULLIF(%s, 0), %s, 0)", unitCostExpr, inventoryCostExpr, productCostExpr), joins
+}
+
+// historicalCOGSTotalSQL returns one COGS value per sale. A nonzero sale cost
+// is authoritative; zero is treated as absent so captured item costs can fill
+// sales created by the old aggregate-inventory path.
 func (r *Repository) historicalCOGSTotalSQL(startPlaceholder, endPlaceholder string) string {
 	saleDateExpr := r.salesDateExpression("s")
+	lineCostExpr, costJoins := r.historicalSaleItemCostParts()
 	if !dbutil.IsSQLite(r.db) || reportsSQLiteHasColumns(r.db, "sales", "cost_amount") {
 		return fmt.Sprintf(`
-			SELECT COALESCE(SUM(CASE WHEN sale_cost IS NOT NULL THEN sale_cost ELSE line_cost END), 0)
+			SELECT COALESCE(SUM(sale_cost), 0)
 			FROM (
-				SELECT s.id, s.cost_amount AS sale_cost,
-					COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, 0)), 0) AS line_cost
+				SELECT s.id, CASE WHEN NULLIF(s.cost_amount, 0) IS NOT NULL THEN s.cost_amount
+					ELSE COALESCE(SUM(si.quantity * %s), 0) END AS sale_cost
 				FROM sales s
 				LEFT JOIN sale_items si ON si.sale_id = s.id
+				%s
 				WHERE %s >= date(%s)
 				  AND %s < date(%s)
 				  AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 				GROUP BY s.id, s.cost_amount
-			) costs`, saleDateExpr, startPlaceholder, saleDateExpr, endPlaceholder)
+			) costs`, lineCostExpr, costJoins, saleDateExpr, startPlaceholder, saleDateExpr, endPlaceholder)
 	}
 	return fmt.Sprintf(`
-		SELECT COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, 0)), 0)
+		SELECT COALESCE(SUM(si.quantity * %s), 0)
 		FROM sale_items si JOIN sales s ON s.id = si.sale_id
+		%s
 		WHERE %s >= date(%s)
 		  AND %s < date(%s)
-		  AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`, saleDateExpr, startPlaceholder, saleDateExpr, endPlaceholder)
+		  AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`, lineCostExpr, costJoins, saleDateExpr, startPlaceholder, saleDateExpr, endPlaceholder)
 }
 
 type returnFinancialAdjustment struct {
@@ -291,16 +329,16 @@ func (r *Repository) returnFinancialAdjustments(ctx context.Context, startDate, 
 			productJoin = " LEFT JOIN products p ON p.id = ri.product_id"
 		}
 		if !dbutil.IsSQLite(r.db) || reportsSQLiteHasColumns(r.db, "accounting_return_items", "original_cost") {
-			costExpr = fmt.Sprintf("COALESCE(ri.original_cost, %s%s, 0)", unitCost, func() string {
+			costExpr = fmt.Sprintf("COALESCE(NULLIF(ri.original_cost, 0), NULLIF(%s, 0)%s, 0)", unitCost, func() string {
 				if productJoin != "" {
 					return ", p.cost_price"
 				}
 				return ""
 			}())
 		} else {
-			costExpr = unitCost
+			costExpr = fmt.Sprintf("NULLIF(%s, 0)", unitCost)
 			if productJoin != "" {
-				costExpr = "COALESCE(" + unitCost + ", p.cost_price, 0)"
+				costExpr = "COALESCE(" + costExpr + ", p.cost_price, 0)"
 			}
 		}
 		lineJoin = fmt.Sprintf(` LEFT JOIN (
@@ -1723,7 +1761,6 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 			monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, "COALESCE(s.sale_date, s.created_at)", "s.sale_date")
 		}
 		if !reportsSQLiteHasColumns(r.db, "sales", "cost_amount") {
-			monthlyProfitsQuery = profitTrendWithoutStoredSaleCost(monthlyProfitsQuery)
 			monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, ", s.cost_amount", "")
 		}
 		monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, "COALESCE(s.sale_date, s.created_at)", r.salesDateExpression("s"))
@@ -1763,6 +1800,14 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 	monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, "LEFT JOIN cogs_by_month c ON c.month = s.month", "LEFT JOIN cogs_by_month c ON c.month = months.month")
 	monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, "LEFT JOIN expenses_by_month e ON e.month = s.month", "LEFT JOIN expenses_by_month e ON e.month = months.month")
 	monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, "ORDER BY s.month", "ORDER BY months.month")
+	lineCostExpr, lineCostJoins := r.historicalSaleItemCostParts()
+	monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, "CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount", "CASE WHEN NULLIF(s.cost_amount, 0) IS NOT NULL THEN s.cost_amount")
+	monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, "COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, 0)), 0)", fmt.Sprintf("COALESCE(SUM(si.quantity * %s), 0)", lineCostExpr))
+	monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, "LEFT JOIN sale_items si ON si.sale_id = s.id", "LEFT JOIN sale_items si ON si.sale_id = s.id"+lineCostJoins)
+	if dbutil.IsSQLite(r.db) && !reportsSQLiteHasColumns(r.db, "sales", "cost_amount") {
+		monthlyProfitsQuery = profitTrendWithoutStoredSaleCost(monthlyProfitsQuery, lineCostExpr)
+		monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, ", s.cost_amount", "")
+	}
 	rows, err := r.db.QueryContext(ctx, r.db.Rebind(monthlyProfitsQuery), monthlyProfitArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve monthly profit trend: %w", err)
@@ -1874,7 +1919,6 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 			dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, "COALESCE(s.sale_date, s.created_at)", "s.sale_date")
 		}
 		if !reportsSQLiteHasColumns(r.db, "sales", "cost_amount") {
-			dailyProfitsQuery = profitTrendWithoutStoredSaleCost(dailyProfitsQuery)
 			dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, ", s.cost_amount", "")
 		}
 		dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, "COALESCE(s.sale_date, s.created_at)", r.salesDateExpression("s"))
@@ -1910,6 +1954,13 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 	dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, "LEFT JOIN cogs_by_day c ON c.day = s.day", "LEFT JOIN cogs_by_day c ON c.day = days.day")
 	dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, "LEFT JOIN expenses_by_day e ON e.day = s.day", "LEFT JOIN expenses_by_day e ON e.day = days.day")
 	dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, "ORDER BY s.day", "ORDER BY days.day")
+	dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, "CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount", "CASE WHEN NULLIF(s.cost_amount, 0) IS NOT NULL THEN s.cost_amount")
+	dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, "COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, 0)), 0)", fmt.Sprintf("COALESCE(SUM(si.quantity * %s), 0)", lineCostExpr))
+	dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, "LEFT JOIN sale_items si ON si.sale_id = s.id", "LEFT JOIN sale_items si ON si.sale_id = s.id"+lineCostJoins)
+	if dbutil.IsSQLite(r.db) && !reportsSQLiteHasColumns(r.db, "sales", "cost_amount") {
+		dailyProfitsQuery = profitTrendWithoutStoredSaleCost(dailyProfitsQuery, lineCostExpr)
+		dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, ", s.cost_amount", "")
+	}
 	dailyRows, dailyErr := r.db.QueryContext(ctx, r.db.Rebind(dailyProfitsQuery), dailyProfitArgs...)
 	if dailyErr != nil {
 		return nil, fmt.Errorf("failed to retrieve daily profit trend: %w", dailyErr)

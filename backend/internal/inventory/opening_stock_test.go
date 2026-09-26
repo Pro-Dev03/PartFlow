@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -98,7 +99,7 @@ func TestHandleError_RecognizesWrappedDuplicateBarcode(t *testing.T) {
 	}
 }
 
-func TestDeleteInventoryItemPermanentAllowsLinkedUsedItem(t *testing.T) {
+func TestDeleteInventoryItemPermanentBlocksAcquiredItemWithoutChangingHistory(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/permanent-delete-linked-item.db")
 	local, err := localdb.Open()
 	if err != nil {
@@ -125,16 +126,16 @@ func TestDeleteInventoryItemPermanentAllowsLinkedUsedItem(t *testing.T) {
 	}
 
 	service := NewService(NewRepository(db), db)
-	if err := service.DeleteInventoryItem(context.Background(), itemID, userID); err != nil {
-		t.Fatalf("DeleteInventoryItem returned unexpected error: %v", err)
+	if err := service.DeleteInventoryItem(context.Background(), itemID, userID); !errors.Is(err, ErrCannotDeleteItemWithHistory) {
+		t.Fatalf("DeleteInventoryItem error = %v, want protected-history error", err)
 	}
 
 	var itemCount int
 	if err := db.Get(&itemCount, `SELECT COUNT(*) FROM inventory_items WHERE id = ?`, itemID); err != nil {
 		t.Fatal(err)
 	}
-	if itemCount != 0 {
-		t.Fatalf("inventory item still exists after permanent delete: count=%d", itemCount)
+	if itemCount != 1 {
+		t.Fatalf("inventory item count after blocked delete = %d, want 1", itemCount)
 	}
 
 	var qty int
@@ -149,12 +150,12 @@ func TestDeleteInventoryItemPermanentAllowsLinkedUsedItem(t *testing.T) {
 	if err := db.Get(&acquisitionCount, `SELECT COUNT(*) FROM acquisition_items WHERE inventory_item_id = ?`, itemID); err != nil {
 		t.Fatal(err)
 	}
-	if acquisitionCount != 0 {
-		t.Fatalf("acquisition link still exists after permanent delete: count=%d", acquisitionCount)
+	if acquisitionCount != 1 {
+		t.Fatalf("acquisition link count after blocked delete = %d, want 1", acquisitionCount)
 	}
 }
 
-func TestDeleteInventoryItemPermanentCleansAllLinkedTables(t *testing.T) {
+func TestDeleteInventoryItemPermanentBlocksSaleAndAcquisitionLinksAtomically(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/permanent-delete-all-links.db")
 	local, err := localdb.Open()
 	if err != nil {
@@ -245,8 +246,8 @@ func TestDeleteInventoryItemPermanentCleansAllLinkedTables(t *testing.T) {
 	}
 
 	service := NewService(NewRepository(db), db)
-	if err := service.DeleteInventoryItem(context.Background(), itemID, userID); err != nil {
-		t.Fatalf("DeleteInventoryItem returned unexpected error: %v", err)
+	if err := service.DeleteInventoryItem(context.Background(), itemID, userID); !errors.Is(err, ErrCannotDeleteItemWithHistory) {
+		t.Fatalf("DeleteInventoryItem error = %v, want protected-history error", err)
 	}
 
 	for _, row := range linkRows {
@@ -255,9 +256,48 @@ func TestDeleteInventoryItemPermanentCleansAllLinkedTables(t *testing.T) {
 		if err := db.Get(&count, query, itemID); err != nil {
 			t.Fatalf("count linked rows in %s: %v", row.tableName, err)
 		}
-		if count != 0 {
-			t.Fatalf("linked rows remain in %s after permanent delete: count=%d", row.tableName, count)
+		if count != 1 {
+			t.Fatalf("linked rows in %s changed after blocked delete: count=%d, want 1", row.tableName, count)
 		}
+	}
+}
+
+func TestDeleteUnusedInventoryItemPermanentlyRemovesItemAndStock(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/permanent-delete-unused-item.db")
+	local, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.DB.Close()
+	db := sqlx.NewDb(local.DB, "sqlite")
+	productID := uuid.New()
+	itemID := uuid.New()
+	userID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO products (id, sku, name, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))`, productID, "UNUSED-DEL-001", "Unused delete product"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, 1, datetime('now'), datetime('now'))`, uuid.New(), productID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, item_code, status, created_at, updated_at) VALUES (?, ?, ?, 'AVAILABLE', datetime('now'), datetime('now'))`, itemID, productID, "UNUSED-ITEM-001"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewService(NewRepository(db), db).DeleteInventoryItem(context.Background(), itemID, userID); err != nil {
+		t.Fatalf("delete unused item: %v", err)
+	}
+	var remaining int
+	if err := db.Get(&remaining, `SELECT COUNT(*) FROM inventory_items WHERE id = ?`, itemID); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("inventory item count = %d, want 0", remaining)
+	}
+	if err := db.Get(&remaining, `SELECT quantity FROM inventory WHERE product_id = ?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("inventory quantity = %d, want 0 after physical delete", remaining)
 	}
 }
 

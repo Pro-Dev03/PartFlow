@@ -21,6 +21,8 @@ type SupplierReturn struct {
 	CustomerReturnID      uuid.UUID `json:"customer_return_id" db:"customer_return_id"`
 	SaleID                uuid.UUID `json:"sale_id" db:"sale_id"`
 	PurchaseID            uuid.UUID `json:"purchase_id" db:"purchase_id"`
+	SaleInvoiceNumber     string    `json:"sale_invoice_number" db:"sale_invoice_number"`
+	PurchaseInvoiceNumber string    `json:"purchase_invoice_number" db:"purchase_invoice_number"`
 	SupplierID            uuid.UUID `json:"supplier_id" db:"supplier_id"`
 	SupplierName          string    `json:"supplier_name" db:"supplier_name"`
 	ProductName           string    `json:"product_name" db:"product_name"`
@@ -213,21 +215,23 @@ func (s *Service) snapshotCompletedSupplierReturn(ctx context.Context, tx *sqlx.
 		return "", fmt.Errorf("snapshot supplier return header: %w", err)
 	}
 	type item struct {
-		ID               string  `db:"id"`
-		CustomerReturnID string  `db:"customer_return_id"`
-		SaleID           string  `db:"sale_id"`
-		SaleItemID       string  `db:"sale_item_id"`
-		InventoryItemID  string  `db:"inventory_item_id"`
-		PurchaseItemID   string  `db:"purchase_item_id"`
-		ProductID        string  `db:"product_id"`
-		Barcode          string  `db:"barcode"`
-		SerialNumber     string  `db:"serial_number"`
-		ReturnReason     string  `db:"return_reason"`
-		ReturnDate       string  `db:"return_date"`
-		CreatedAt        string  `db:"created_at"`
-		Quantity         int     `db:"quantity"`
-		UnitCost         float64 `db:"unit_cost"`
-		PurchaseCost     float64 `db:"purchase_cost"`
+		ID                    string  `db:"id"`
+		CustomerReturnID      string  `db:"customer_return_id"`
+		SaleID                string  `db:"sale_id"`
+		SaleItemID            string  `db:"sale_item_id"`
+		InventoryItemID       string  `db:"inventory_item_id"`
+		PurchaseItemID        string  `db:"purchase_item_id"`
+		ProductID             string  `db:"product_id"`
+		Barcode               string  `db:"barcode"`
+		SerialNumber          string  `db:"serial_number"`
+		ReturnReason          string  `db:"return_reason"`
+		ReturnDate            string  `db:"return_date"`
+		CreatedAt             string  `db:"created_at"`
+		Quantity              int     `db:"quantity"`
+		UnitCost              float64 `db:"unit_cost"`
+		PurchaseCost          float64 `db:"purchase_cost"`
+		SaleInvoiceNumber     string  `db:"sale_invoice_number"`
+		PurchaseInvoiceNumber string  `db:"purchase_invoice_number"`
 	}
 	items := make([]item, 0)
 	itemQuery := `SELECT COALESCE(CAST(id AS TEXT),'') AS id, COALESCE(CAST(customer_return_id AS TEXT),'') AS customer_return_id, COALESCE(CAST(sale_id AS TEXT),'') AS sale_id, COALESCE(CAST(sale_item_id AS TEXT),'') AS sale_item_id, COALESCE(CAST(inventory_item_id AS TEXT),'') AS inventory_item_id, CAST(purchase_item_id AS TEXT) AS purchase_item_id, CAST(product_id AS TEXT) AS product_id, COALESCE(barcode,'') AS barcode, COALESCE(serial_number,'') AS serial_number, COALESCE(return_reason,'') AS return_reason, COALESCE(CAST(return_date AS TEXT),'') AS return_date, CAST(created_at AS TEXT) AS created_at, quantity, unit_cost, COALESCE(purchase_cost,0) AS purchase_cost FROM supplier_return_items WHERE supplier_return_id = ? ORDER BY created_at, id`
@@ -259,33 +263,57 @@ func NewHandler(service *Service) *Handler { return &Handler{service: service} }
 
 func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, error) {
 	var rows []struct {
-		ID               string  `db:"id"`
-		CustomerReturnID string  `db:"customer_return_id"`
-		SaleID           string  `db:"sale_id"`
-		PurchaseID       string  `db:"purchase_id"`
-		SupplierID       string  `db:"supplier_id"`
-		SupplierName     string  `db:"supplier_name"`
-		ProductName      string  `db:"product_name"`
-		InventoryItemID  string  `db:"inventory_item_id"`
-		Barcode          string  `db:"barcode"`
-		SerialNumber     string  `db:"serial_number"`
-		ReturnNumber     string  `db:"return_number"`
-		Status           string  `db:"status"`
-		Reason           string  `db:"reason"`
-		RefundAmount     float64 `db:"refund_amount"`
-		Notes            string  `db:"notes"`
-		CreatedAt        string  `db:"created_at"`
-		SourceStatus     string  `db:"source_status"`
-		ReturnDate       string  `db:"return_date"`
-		ReturnReason     string  `db:"return_reason"`
-		Quantity         int     `db:"quantity"`
-		PurchaseCost     float64 `db:"purchase_cost"`
+		ID                    string  `db:"id"`
+		CustomerReturnID      string  `db:"customer_return_id"`
+		SaleID                string  `db:"sale_id"`
+		PurchaseID            string  `db:"purchase_id"`
+		SupplierID            string  `db:"supplier_id"`
+		SupplierName          string  `db:"supplier_name"`
+		ProductName           string  `db:"product_name"`
+		InventoryItemID       string  `db:"inventory_item_id"`
+		Barcode               string  `db:"barcode"`
+		SerialNumber          string  `db:"serial_number"`
+		ReturnNumber          string  `db:"return_number"`
+		Status                string  `db:"status"`
+		Reason                string  `db:"reason"`
+		RefundAmount          float64 `db:"refund_amount"`
+		Notes                 string  `db:"notes"`
+		CreatedAt             string  `db:"created_at"`
+		SourceStatus          string  `db:"source_status"`
+		ReturnDate            string  `db:"return_date"`
+		ReturnReason          string  `db:"return_reason"`
+		Quantity              int     `db:"quantity"`
+		PurchaseCost          float64 `db:"purchase_cost"`
+		PurchaseInvoiceNumber string  `db:"purchase_invoice_number"`
+		SaleInvoiceNumber     string  `db:"sale_invoice_number"`
 	}
 	useSourceAwareQuery := true
 	if strings.EqualFold(s.db.DriverName(), "sqlite") {
 		useSourceAwareQuery = sqliteTableExists(ctx, s.db, "suppliers") && sqliteTableExists(ctx, s.db, "returns") && sqliteColumnExists(ctx, s.db, "supplier_returns", "source_status")
 	} else {
 		useSourceAwareQuery = tableExists(ctx, s.db, "suppliers") && tableExists(ctx, s.db, "returns") && columnExists(ctx, s.db, "supplier_returns", "source_status")
+	}
+	purchaseInvoiceExpr := "'' AS purchase_invoice_number"
+	purchaseInvoiceJoin := ""
+	saleInvoiceExpr := "'' AS sale_invoice_number"
+	saleInvoiceJoin := ""
+	if useSourceAwareQuery {
+		if tableExists(ctx, s.db, "purchases") && columnExists(ctx, s.db, "purchases", "purchase_number") {
+			purchaseInvoiceExpr = `COALESCE(NULLIF(CAST(p.purchase_number AS TEXT), ''), '') AS purchase_invoice_number`
+			purchaseInvoiceJoin = " LEFT JOIN purchases p ON p.id = sr.purchase_id"
+		}
+		if tableExists(ctx, s.db, "sales") {
+			saleInvoiceParts := make([]string, 0, 2)
+			for _, column := range []string{"invoice_number", "sale_number"} {
+				if columnExists(ctx, s.db, "sales", column) {
+					saleInvoiceParts = append(saleInvoiceParts, "NULLIF(CAST(sale."+column+" AS TEXT), '')")
+				}
+			}
+			if len(saleInvoiceParts) > 0 {
+				saleInvoiceExpr = "COALESCE(" + strings.Join(saleInvoiceParts, ", ") + ", '') AS sale_invoice_number"
+				saleInvoiceJoin = " LEFT JOIN sales sale ON sale.id = sr.sale_id"
+			}
+		}
 	}
 	query := `SELECT sr.id, COALESCE(CAST(sr.customer_return_id AS TEXT), '') AS customer_return_id,
 		COALESCE(CAST(sr.sale_id AS TEXT), '') AS sale_id, COALESCE(CAST(sr.purchase_id AS TEXT), '') AS purchase_id, COALESCE(CAST(sr.supplier_id AS TEXT), '') AS supplier_id,
@@ -303,7 +331,8 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 		COALESCE(sr.return_reason, sr.reason, '') AS return_reason, COALESCE(sr.return_date, sr.created_at) AS return_date,
 		COALESCE((SELECT sri.quantity FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.quantity_returned FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), 0) AS quantity,
 		COALESCE((SELECT sri.purchase_cost FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.original_cost FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), 0) AS purchase_cost,
-		sr.created_at FROM supplier_returns sr LEFT JOIN suppliers s ON s.id = sr.supplier_id`
+		` + purchaseInvoiceExpr + `, ` + saleInvoiceExpr + `,
+		sr.created_at FROM supplier_returns sr LEFT JOIN suppliers s ON s.id = sr.supplier_id` + purchaseInvoiceJoin + saleInvoiceJoin
 	if !useSourceAwareQuery {
 		query = `SELECT sr.id, COALESCE(CAST(sr.customer_return_id AS TEXT), '') AS customer_return_id,
 			COALESCE(CAST(sr.sale_id AS TEXT), '') AS sale_id, COALESCE(CAST(sr.purchase_id AS TEXT), '') AS purchase_id, COALESCE(CAST(sr.supplier_id AS TEXT), '') AS supplier_id,
@@ -311,7 +340,8 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 			COALESCE((SELECT sri.barcode FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS barcode,
 			COALESCE((SELECT sri.serial_number FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS serial_number,
 			sr.return_number, sr.status, '' AS source_status, sr.reason, sr.refund_amount, COALESCE(sr.notes, '') AS notes,
-			'' AS return_reason, sr.created_at AS return_date, 0 AS quantity, 0 AS purchase_cost, sr.created_at
+			'' AS return_reason, sr.created_at AS return_date, 0 AS quantity, 0 AS purchase_cost,
+			'' AS purchase_invoice_number, '' AS sale_invoice_number, sr.created_at
 			FROM supplier_returns sr`
 	}
 	args := []interface{}{}
@@ -364,6 +394,7 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 		out = append(out, SupplierReturn{
 			ID: id, CustomerReturnID: customerReturnID, SaleID: saleID, PurchaseID: purchaseID,
 			SupplierID: supplierID, SupplierName: row.SupplierName, ProductName: row.ProductName, InventoryItemID: inventoryItemID, Barcode: row.Barcode,
+			SaleInvoiceNumber: row.SaleInvoiceNumber, PurchaseInvoiceNumber: row.PurchaseInvoiceNumber,
 			SerialNumber: row.SerialNumber, Quantity: row.Quantity, PurchaseCost: row.PurchaseCost, ReturnReason: row.ReturnReason, ReturnDate: returnDate,
 			ReturnNumber: row.ReturnNumber, Status: row.Status, SourceStatus: row.SourceStatus, NeedsSourceResolution: row.SourceStatus == "NEEDS_SOURCE_DATA" || row.Status == "NEEDS_SOURCE_DATA",
 			Source: func() string {

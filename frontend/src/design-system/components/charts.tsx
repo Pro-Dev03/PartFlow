@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from './card';
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Area, AreaChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 interface SimpleBarChartProps {
   data: { label: string; value: number }[];
@@ -76,179 +76,147 @@ interface SimpleLineChartProps {
   className?: string;
 }
 
-export function SimpleLineChart({ data, title, valueLabel = 'إجمالي الفترة', peakLabel = 'أعلى يوم', summaryValue, secondaryLabel, secondarySummaryValue, secondaryPeakLabel, secondaryColor = '#2563eb', color = '#14b8a6', loading, className }: SimpleLineChartProps) {
+export function SimpleLineChart({ data, title, valueLabel = 'إجمالي الفترة', peakLabel = 'أعلى يوم', summaryValue, secondaryLabel, secondarySummaryValue, secondaryPeakLabel, secondaryColor = '#2563eb', color = '#0f8f6d', loading, className }: SimpleLineChartProps) {
   const safeData = data.map(item => ({
     ...item,
     value: Number.isFinite(Number(item.value)) ? Number(item.value) : 0,
     secondaryValue: item.secondaryValue === undefined ? undefined : Number.isFinite(Number(item.secondaryValue)) ? Number(item.secondaryValue) : 0,
   }));
-  const maxValue = safeData.length > 0 ? Math.max(...safeData.map(d => d.value), 1) : 1;
+  const maxValue = safeData.length > 0 ? Math.max(...safeData.map(item => item.value)) : 0;
   const maxItem = safeData.reduce((highest, item) => item.value > highest.value ? item : highest, safeData[0] || { label: '', value: 0 });
   const maxSecondaryItem = safeData.reduce((highest, item) => (item.secondaryValue ?? 0) > (highest.secondaryValue ?? 0) ? item : highest, safeData[0] || { label: '', value: 0, secondaryValue: 0 });
   const totalValue = safeData.reduce((sum, item) => sum + item.value, 0);
   const totalSecondaryValue = safeData.reduce((sum, item) => sum + (item.secondaryValue ?? 0), 0);
-  const chartWidth = 760;
-  const chartHeight = 210;
-  const leftPadding = 58;
-  const rightPadding = 18;
-  const topPadding = 28;
-  const bottomPadding = 34;
-  const plotWidth = chartWidth - leftPadding - rightPadding;
-  const plotHeight = chartHeight - topPadding - bottomPadding;
-  const coordinates = safeData.map((item, index) => ({
-    ...item,
-    x: leftPadding + (safeData.length > 1 ? (index / (safeData.length - 1)) * plotWidth : plotWidth / 2),
-    y: topPadding + plotHeight - (item.value / maxValue) * plotHeight,
-  }));
-  const secondaryCoordinates = safeData.map((item, index) => ({
-    ...item,
-    x: leftPadding + (safeData.length > 1 ? (index / (safeData.length - 1)) * plotWidth : plotWidth / 2),
-    y: topPadding + plotHeight - ((item.secondaryValue ?? 0) / maxValue) * plotHeight,
-  }));
-  const points = coordinates.map(({ x, y }) => `${x},${y}`).join(' ');
-  const secondaryPoints = secondaryCoordinates.map(({ x, y }) => `${x},${y}`).join(' ');
-  const areaPoints = `${leftPadding},${topPadding + plotHeight} ${points} ${leftPadding + plotWidth},${topPadding + plotHeight}`;
-  const formatValue = (value: number) => value.toLocaleString('ar-SA', { maximumFractionDigits: 0 });
-  const showPointValues = safeData.length > 1;
+  const currency = '\u20AA';
+  const formatValue = (value: number) => Number(value || 0).toLocaleString('ar-SA', { maximumFractionDigits: 0 });
+  const formatAxisValue = (value: number) => `${currency}${new Intl.NumberFormat('ar-SA', { notation: 'compact', maximumFractionDigits: 1 }).format(value)}`;
+  const formatAxisLabel = (label: string) => {
+    const parts = String(label || '').replace(/[\u061c\u200e\u200f]/g, '').match(/[\p{N}]+/gu);
+    if (parts?.length !== 3) return label;
+    return parts[0].length === 4 ? `${parts[2]}/${parts[1]}` : `${parts[0]}/${parts[1]}`;
+  };
+  const xAxisInterval = Math.max(0, Math.ceil(safeData.length / 6) - 1);
+  const summary = summaryValue ?? totalValue;
+  const secondarySummary = secondarySummaryValue ?? totalSecondaryValue;
 
   return (
     <Card className={`pf-report-line-chart ${className || ''}`}>
       {title && (
-        <CardHeader>
+        <CardHeader className="pf-report-line-chart-header">
           <CardTitle>{title}</CardTitle>
+          <span className="pf-report-line-chart-unit">{currency}</span>
         </CardHeader>
       )}
-      <CardContent>
+      <CardContent className="pf-report-line-chart-content">
         {loading ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '200px' }}>
-            <div style={{ animation: 'spin 1s linear infinite', borderRadius: '50%', height: '32px', width: '32px', borderBottom: '2px solid #14b8a6' }} />
+          <div className="pf-report-line-chart-state" role="status">
+            <div className="pf-report-chart-spinner" />
           </div>
         ) : safeData.length === 0 ? (
-          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
-            لا توجد بيانات فعلية للفترة المحددة
-          </div>
+          <div className="pf-report-line-chart-state">لا توجد بيانات فعلية للفترة المحددة</div>
         ) : (
-          <div className="rounded-lg border border-border bg-surface-elevated px-3 py-2" style={{ maxWidth: '1100px', marginInline: 'auto' }}>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs text-text-muted">{valueLabel}</p>
-                <p className="text-lg font-bold text-text-primary">₪{formatValue(summaryValue ?? totalValue)}</p>
+          <>
+            <div className={`pf-report-line-chart-summary ${secondaryLabel ? 'has-secondary' : ''}`}>
+              <div className="pf-report-line-chart-metric primary">
+                <span className="pf-report-line-chart-marker" style={{ background: color }} />
+                <div>
+                  <p>{valueLabel}</p>
+                  <strong>{currency}{formatValue(summary)}</strong>
+                </div>
+              </div>
+              <div className="pf-report-line-chart-metric">
+                <div>
+                  <p>{peakLabel}</p>
+                  <strong>{maxValue !== 0 ? maxItem.label : '—'} <span>{currency}{formatValue(maxValue)}</span></strong>
+                </div>
               </div>
               {secondaryLabel && (
-                <div>
-                  <p className="flex items-center gap-1 text-xs text-text-muted">
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: secondaryColor }} />
-                    {secondaryLabel}
-                  </p>
-                  <p className="text-lg font-bold" style={{ color: secondaryColor }}>₪{formatValue(secondarySummaryValue ?? totalSecondaryValue)}</p>
+                <div className="pf-report-line-chart-metric secondary">
+                  <span className="pf-report-line-chart-marker" style={{ background: secondaryColor }} />
+                  <div>
+                    <p>{secondaryLabel}</p>
+                    <strong>{currency}{formatValue(secondarySummary)}</strong>
+                    <small>{secondaryPeakLabel || secondaryLabel}: {(maxSecondaryItem.secondaryValue ?? 0) !== 0 ? maxSecondaryItem.label : '—'} · {currency}{formatValue(maxSecondaryItem.secondaryValue ?? 0)}</small>
+                  </div>
                 </div>
               )}
-              <div className="flex flex-wrap items-center justify-end gap-2 text-left">
-                <div className="rounded-lg border border-border bg-surface-elevated px-3 py-2">
-                  <p className="text-xs text-text-muted">{peakLabel}: {maxItem.label}</p>
-                  <p className="text-sm font-semibold" style={{ color }}>₪{formatValue(maxValue)}</p>
-                </div>
-                {secondaryLabel && (
-                  <div className="rounded-lg border border-border bg-surface-elevated px-3 py-2">
-                    <p className="flex items-center gap-1 text-xs text-text-muted">
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: secondaryColor }} />
-                      {secondaryPeakLabel || `أعلى ${secondaryLabel}`}: {maxSecondaryItem.label}
-                    </p>
-                    <p className="text-sm font-semibold" style={{ color: secondaryColor }}>₪{formatValue(maxSecondaryItem.secondaryValue ?? 0)}</p>
-                  </div>
-                )}
-              </div>
             </div>
-            <div style={{ position: 'relative', height: '210px', width: '100%' }}>
-            <svg
-              viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-              preserveAspectRatio="none"
-              role="img"
-              aria-label={title || 'اتجاه المبيعات'}
-              style={{ width: '100%', height: '100%', overflow: 'visible' }}
-            >
-              <defs>
-                <linearGradient id="sales-area-gradient" className="pf-report-chart-gradient" x1="0" x2="0" y1="0" y2="1">
-                  <stop className="pf-report-chart-gradient-start" offset="0%" stopColor={color} stopOpacity="0.25" />
-                  <stop className="pf-report-chart-gradient-end" offset="100%" stopColor={color} stopOpacity="0.02" />
-                </linearGradient>
-              </defs>
-              {[0, 1, 2, 3, 4].map((step) => {
-                const y = topPadding + (step / 4) * plotHeight;
-                const value = maxValue - (step / 4) * maxValue;
-                return (
-                  <g key={step}>
-                    <line x1={leftPadding} x2={leftPadding + plotWidth} y1={y} y2={y} stroke="var(--border-subtle)" strokeWidth="1" />
-                    <text x={leftPadding - 10} y={y + 4} textAnchor="end" fontSize="14" fill="var(--text-muted)">
-                      {formatValue(value)}
-                    </text>
-                  </g>
-                );
-              })}
-              <polygon className="sales-chart-area pf-report-chart-area" points={areaPoints} fill="url(#sales-area-gradient)" />
-              <polyline
-                className="sales-chart-line pf-report-chart-line-primary"
-                points={points}
-                fill="none"
-                stroke={color}
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              {secondaryLabel && <polyline
-                className="sales-chart-line pf-report-chart-line-secondary"
-                points={secondaryPoints}
-                fill="none"
-                stroke={secondaryColor}
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeDasharray="7 5"
-              />}
-              {secondaryLabel && secondaryCoordinates.map((item, index) => (
-                <circle className="pf-report-chart-point-secondary" key={`secondary-${index}`} cx={item.x} cy={item.y} r="5" fill="var(--bg-surface)" stroke={secondaryColor} strokeWidth="3" />
-              ))}
-              {coordinates.map((item, index) => {
-                return (
-                  <g className="sales-chart-point pf-report-chart-point-primary" key={index} style={{ animationDelay: `${index * 45}ms` }}>
-                    <circle cx={item.x} cy={item.y} r="6" fill="var(--bg-surface)" stroke={color} strokeWidth="3" />
-                    {showPointValues && (
-                      <text className="sales-chart-value" x={item.x} y={item.y - 14} textAnchor="middle" fontSize="14" fontWeight="600" fill="var(--text-primary)">
-                        {formatValue(item.value)}
-                      </text>
-                    )}
-                  </g>
-                );
-              })}
-            </svg>
-            <div className="relative mt-1 h-5 text-[10px] text-text-muted" style={{ direction: 'ltr', marginLeft: '7.63%', marginRight: '2.37%' }}>
-              {(() => {
-                const step = safeData.length > 6 ? Math.ceil(safeData.length / 6) : 1;
-                return coordinates.filter((_, index) => index % step === 0 || index === coordinates.length - 1)
-                  .map((item, filteredIndex, filteredItems) => {
-                    const originalIndex = coordinates.findIndex((coord) => coord === item);
-                    const ratio = coordinates.length > 1 ? (originalIndex / (coordinates.length - 1)) * 100 : 50;
-                    const isFirst = filteredIndex === 0;
-                    const isLast = filteredIndex === filteredItems.length - 1;
-                    return (
-                      <div
-                        key={originalIndex}
-                        className="absolute whitespace-nowrap text-center"
-                        style={{
-                          direction: 'rtl',
-                          left: `${ratio}%`,
-                          transform: 'translateX(-50%)',
-                          opacity: isFirst || isLast ? 1 : 0.8,
-                        }}
-                      >
-                        {item.label}
-                      </div>
-                    );
-                  });
-              })()}
+            <div className="pf-report-line-chart-plot" role="img" aria-label={title || 'Sales trend'}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={safeData} margin={{ top: 16, right: 18, left: 8, bottom: 4 }}>
+                  <defs>
+                    <linearGradient id="pf-report-sales-area" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={color} stopOpacity={0.2} />
+                      <stop offset="95%" stopColor={color} stopOpacity={0.015} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} stroke="var(--border-default)" strokeDasharray="3 5" />
+                  <XAxis
+                    dataKey="label"
+                    axisLine={false}
+                    tickLine={false}
+                    tickMargin={12}
+                    interval={xAxisInterval}
+                    minTickGap={22}
+                    tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                    tickFormatter={formatAxisLabel}
+                  />
+                  <YAxis
+                    width={66}
+                    axisLine={false}
+                    tickLine={false}
+                    tickMargin={8}
+                    tickCount={5}
+                    domain={['auto', 'auto']}
+                    tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
+                    tickFormatter={formatAxisValue}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--bg-surface-elevated)',
+                      border: '1px solid var(--border-default)',
+                      borderRadius: '12px',
+                      boxShadow: 'var(--shadow-md)',
+                      color: 'var(--text-primary)',
+                    }}
+                    labelStyle={{ color: 'var(--text-secondary)', marginBottom: 5 }}
+                    formatter={(value) => `${currency}${formatValue(Number(value ?? 0))}`}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    name={valueLabel}
+                    stroke={color}
+                    strokeWidth={3}
+                    fill="url(#pf-report-sales-area)"
+                    dot={false}
+                    activeDot={{ r: 5, fill: color, stroke: 'var(--bg-surface)', strokeWidth: 2 }}
+                    isAnimationActive={false}
+                  />
+                  {secondaryLabel && (
+                    <Line
+                      type="monotone"
+                      dataKey="secondaryValue"
+                      name={secondaryLabel}
+                      stroke={secondaryColor}
+                      strokeWidth={2.5}
+                      dot={false}
+                      activeDot={{ r: 5, fill: secondaryColor, stroke: 'var(--bg-surface)', strokeWidth: 2 }}
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {secondaryLabel && (
+                    <Legend
+                      verticalAlign="bottom"
+                      align="center"
+                      iconType="circle"
+                      wrapperStyle={{ paddingTop: 8, fontSize: 11, color: 'var(--text-secondary)' }}
+                    />
+                  )}
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
-          </div>
-          </div>
+          </>
         )}
       </CardContent>
     </Card>

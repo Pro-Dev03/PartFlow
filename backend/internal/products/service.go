@@ -351,8 +351,9 @@ func (s *Service) UpdateMinimumStock(ctx context.Context, id uuid.UUID, minStock
 	return nil
 }
 
-// DeleteProduct permanently deletes a product and cleans all transaction
-// history linked to that product so dashboard and report totals stay aligned.
+// DeleteProduct permanently deletes an unused product. Products referenced by
+// financial, inventory, or service history must be detached through their own
+// operation workflows before they can be removed.
 func (s *Service) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	if err := s.repo.DeleteProduct(ctx, id); err != nil {
 		return err

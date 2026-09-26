@@ -452,6 +452,10 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				// actions. Keep ordinary subscribers out even when authenticated.
 				adminSettings := settings.Group("")
 				adminSettings.Use(middleware.Admin())
+				adminSettings.GET("/cleanup/preview", databaseHandler.PreviewCleanup)
+				adminSettings.POST("/cleanup", databaseHandler.RunCleanup)
+				adminSettings.GET("/database/cleanup/preview", databaseHandler.PreviewLocalCleanup)
+				adminSettings.POST("/database/cleanup", databaseHandler.RunLocalCleanup)
 				adminSettings.DELETE("/database", databaseHandler.DeleteAllData)
 				adminSettings.POST("/migrate", databaseHandler.ApplyMigration)
 			}

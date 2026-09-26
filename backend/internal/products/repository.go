@@ -924,6 +924,36 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("find product supplier returns: %w", err)
 	}
 
+	// Deleting a product must not erase whole invoices that also contain other
+	// products. That older cascade could remove a sale/purchase header while
+	// leaving movements and customer/supplier ledger rows behind. Historical
+	// operations have their own transactional delete/reversal paths; require
+	// those to be resolved first, and only hard-delete an unused product here.
+	if len(saleIDs)+len(purchaseIDs)+len(saleItemIDs)+len(purchaseItemIDs)+len(returnIDs)+len(acquisitionIDs)+len(supplierReturnIDs) > 0 {
+		return ErrProductHasHistory
+	}
+
+	for _, history := range []struct {
+		query string
+		args  []any
+	}{
+		{`SELECT id FROM inventory_movements WHERE product_id = ? OR item_id IN (?)`, []any{id.String(), inventoryItemIDs}},
+		{`SELECT id FROM item_history WHERE inventory_item_id IN (?)`, []any{inventoryItemIDs}},
+		{`SELECT id FROM inspections WHERE product_id = ? OR inventory_item_id IN (?)`, []any{id.String(), inventoryItemIDs}},
+		{`SELECT id FROM warranty_claims WHERE product_id = ?`, []any{id.String()}},
+		{`SELECT id FROM trade_ins WHERE inventory_item_id IN (?)`, []any{inventoryItemIDs}},
+		{`SELECT id FROM financial_transactions WHERE product_id = ?`, []any{id.String()}},
+		{`SELECT id FROM ledger_entries WHERE product_id = ?`, []any{id.String()}},
+	} {
+		rows, err := collectProductDeleteIDsWithArgs(ctx, tx, history.query, history.args...)
+		if err != nil {
+			return fmt.Errorf("check product history before deletion: %w", err)
+		}
+		if len(rows) > 0 {
+			return ErrProductHasHistory
+		}
+	}
+
 	// A return can be linked through a sale/purchase or only through its item.
 	returnIDs = appendUniqueProductDeleteIDs(returnIDs, collectProductDeleteIDsForIDs(ctx, tx, `SELECT id FROM returns WHERE sale_id IN (?)`, saleIDs)...)
 	returnIDs = appendUniqueProductDeleteIDs(returnIDs, collectProductDeleteIDsForIDs(ctx, tx, `SELECT id FROM returns WHERE purchase_id IN (?)`, purchaseIDs)...)
@@ -1082,6 +1112,15 @@ func collectProductDeleteIDs(ctx context.Context, tx *sqlx.Tx, query string, arg
 		return nil, err
 	}
 	return ids, nil
+}
+
+func collectProductDeleteIDsWithArgs(ctx context.Context, tx *sqlx.Tx, query string, args ...any) ([]string, error) {
+	args = normalizeProductDeleteArgs(args)
+	expanded, values, err := sqlx.In(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return collectProductDeleteIDs(ctx, tx, expanded, values...)
 }
 
 // collectProductDeleteIDsForIDs is best-effort for optional legacy tables and

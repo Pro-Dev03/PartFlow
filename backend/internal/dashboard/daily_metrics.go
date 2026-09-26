@@ -46,8 +46,8 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 	query := `
 		WITH sale_costs AS (
 			SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
-				CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount
-				     ELSE COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, ii.purchase_cost, p.cost_price, 0)), 0)
+				CASE WHEN NULLIF(s.cost_amount, 0) IS NOT NULL THEN s.cost_amount
+				     ELSE COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.unit_cost, 0), NULLIF(ii.purchase_cost, 0), p.cost_price, 0)), 0)
 				END AS total_cost
 			FROM sales s
 			LEFT JOIN sale_items si ON si.sale_id = s.id
@@ -61,13 +61,26 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			       COALESCE(SUM(total_amount - tax_amount), 0) AS revenue,
 			       COALESCE(SUM(total_cost), 0) AS cost
 			FROM sale_costs
-		), expenses_total AS (SELECT 0 AS amount), returns_total AS (
-			SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded,
-			       COALESCE(SUM(ri.quantity_returned * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost
-			FROM accounting_returns r
-			JOIN accounting_return_items ri ON ri.return_id = r.id
+		), expenses_total AS (SELECT 0 AS amount), return_lines AS (
+			SELECT ri.return_id,
+			       COALESCE(SUM(COALESCE(ri.total_refund_amount, 0)), 0) AS line_gross,
+			       COALESCE(SUM(COALESCE(ri.total_refund_amount, 0) * CASE
+			           WHEN COALESCE(si.total_amount, 0) > 0 THEN
+			               CASE WHEN COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0) > 0
+			                    THEN (COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) / si.total_amount ELSE 0 END
+			           ELSE 1 END), 0) AS line_net,
+		       COALESCE(SUM(ri.quantity_returned * COALESCE(NULLIF(ri.original_cost, 0), NULLIF(si.unit_cost, 0), p.cost_price, 0)), 0) AS returned_cost
+			FROM accounting_return_items ri
 			LEFT JOIN sale_items si ON si.id = ri.sale_item_id
 			LEFT JOIN products p ON p.id = ri.product_id
+			GROUP BY ri.return_id
+		), returns_total AS (
+			SELECT COALESCE(SUM(CASE WHEN COALESCE(lines.line_gross, 0) > 0
+			                    THEN r.total_refund_amount * lines.line_net / lines.line_gross
+			                    ELSE r.total_refund_amount END), 0) AS refunded,
+			       COALESCE(SUM(COALESCE(lines.returned_cost, 0)), 0) AS returned_cost
+			FROM accounting_returns r
+			LEFT JOIN return_lines lines ON lines.return_id = r.id
 			WHERE r.return_date::date = $1::date
 			  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'` + returnReferenceFilter + `
 		)
@@ -92,10 +105,21 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 		if !sqliteHasColumns(db, "return_items", "product_id") {
 			productJoin = "LEFT JOIN products p ON p.id = si.product_id"
 		}
+		returnItemRefundAmount := "0"
+		if sqliteHasColumns(db, "return_items", "total_refund_amount") {
+			returnItemRefundAmount = "ri.total_refund_amount"
+		}
+		returnTaxRatio := "1"
+		if sqliteHasColumns(db, "sale_items", "total_amount", "tax_amount") {
+			returnTaxRatio = `CASE WHEN COALESCE(si.total_amount, 0) > 0 THEN
+				CASE WHEN COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0) > 0
+					THEN (COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) / si.total_amount ELSE 0 END
+				ELSE 1 END`
+		}
 		query = fmt.Sprintf(`
 			WITH sale_costs AS (
 				SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
-					COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) AS total_cost
+					COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.unit_cost, 0), NULLIF(ii.purchase_cost, 0), p.cost_price, 0)), 0) AS total_cost
 				FROM sales s
 				LEFT JOIN sale_items si ON si.sale_id = s.id
 				LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
@@ -108,20 +132,29 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 				       COALESCE(SUM(total_amount - tax_amount), 0) AS revenue,
 				       COALESCE(SUM(total_cost), 0) AS cost
 				FROM sale_costs
-			), expenses_total AS (SELECT 0 AS amount), returns_total AS (
-				SELECT COALESCE(SUM(r.total_refund_amount), 0) AS refunded,
-				       COALESCE(SUM(%s * COALESCE(ri.original_cost, si.unit_cost, p.cost_price, 0)), 0) AS returned_cost
-				FROM accounting_returns r
-				JOIN accounting_return_items ri ON ri.return_id = r.id
+			), expenses_total AS (SELECT 0 AS amount), return_lines AS (
+				SELECT ri.return_id,
+				       COALESCE(SUM(COALESCE(%s, 0)), 0) AS line_gross,
+				       COALESCE(SUM(COALESCE(%s, 0) * (%s)), 0) AS line_net,
+				       COALESCE(SUM(%s * COALESCE(NULLIF(ri.original_cost, 0), NULLIF(si.unit_cost, 0), p.cost_price, 0)), 0) AS returned_cost
+				FROM accounting_return_items ri
 				LEFT JOIN sale_items si ON si.id = ri.sale_item_id
 				%s
+				GROUP BY ri.return_id
+			), returns_total AS (
+				SELECT COALESCE(SUM(CASE WHEN COALESCE(lines.line_gross, 0) > 0
+				                    THEN r.total_refund_amount * lines.line_net / lines.line_gross
+				                    ELSE r.total_refund_amount END), 0) AS refunded,
+				       COALESCE(SUM(COALESCE(lines.returned_cost, 0)), 0) AS returned_cost
+				FROM accounting_returns r
+				LEFT JOIN return_lines lines ON lines.return_id = r.id
 				WHERE store_date(r.return_date) = ?
 			  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'`+returnReferenceFilter+`
 			)
 			SELECT totals.revenue - returns_total.refunded AS today_sales,
 			       totals.revenue - totals.cost - expenses_total.amount - returns_total.refunded + returns_total.returned_cost AS today_profit
 			FROM totals, expenses_total, returns_total
-		`, returnQuantityColumn, productJoin)
+		`, returnItemRefundAmount, returnItemRefundAmount, returnTaxRatio, returnQuantityColumn, productJoin)
 		args = []any{date, date, date}
 		// Older local databases (and lightweight unit-test schemas) may not
 		// have the returns tables yet. Keep the dashboard usable there while
@@ -130,7 +163,7 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 			query = fmt.Sprintf(`
 				WITH sale_costs AS (
 					SELECT s.id, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
-						COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, %s, 0)), 0) AS total_cost
+					COALESCE(SUM(si.quantity * COALESCE(NULLIF(ii.purchase_cost, 0), %s, 0)), 0) AS total_cost
 					FROM sales s
 					LEFT JOIN sale_items si ON si.sale_id = s.id
 					LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
@@ -155,11 +188,11 @@ func fetchTodayMetrics(ctx context.Context, db *sqlx.DB, now time.Time) (todayMe
 		}
 		if sqliteHasColumns(db, "sales", "cost_amount") {
 			query = strings.ReplaceAll(query,
-				"COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) AS total_cost",
-				"CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount ELSE COALESCE(SUM(si.quantity * COALESCE(si.unit_cost, ii.purchase_cost, p.purchase_price, p.cost_price, 0)), 0) END AS total_cost")
+				"COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.unit_cost, 0), NULLIF(ii.purchase_cost, 0), p.cost_price, 0)), 0) AS total_cost",
+				"CASE WHEN NULLIF(s.cost_amount, 0) IS NOT NULL THEN s.cost_amount ELSE COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.unit_cost, 0), NULLIF(ii.purchase_cost, 0), p.cost_price, 0)), 0) END AS total_cost")
 			query = strings.ReplaceAll(query,
 				fmt.Sprintf("COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, %s, 0)), 0) AS total_cost", productCostRef),
-				fmt.Sprintf("CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount ELSE COALESCE(SUM(si.quantity * COALESCE(ii.purchase_cost, %s, 0)), 0) END AS total_cost", productCostRef))
+				fmt.Sprintf("CASE WHEN NULLIF(s.cost_amount, 0) IS NOT NULL THEN s.cost_amount ELSE COALESCE(SUM(si.quantity * COALESCE(NULLIF(ii.purchase_cost, 0), %s, 0)), 0) END AS total_cost", productCostRef))
 			query = strings.ReplaceAll(query, "GROUP BY s.id, s.total_amount, s.tax_amount", "GROUP BY s.id, s.total_amount, s.tax_amount, s.cost_amount")
 		}
 	}

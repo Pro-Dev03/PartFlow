@@ -666,7 +666,15 @@ func (h *Handler) DeleteProduct(c *gin.Context) {
 	}
 
 	if err := h.service.DeleteProduct(c.Request.Context(), id); err != nil {
-		response.BadRequest(c, err.Error())
+		if err == ErrProductHasHistory {
+			response.Conflict(c, err.Error())
+			return
+		}
+		if err == ErrProductNotFound {
+			response.NotFound(c, err.Error())
+			return
+		}
+		response.InternalError(c, err.Error())
 		return
 	}
 

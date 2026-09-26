@@ -35,6 +35,40 @@ func nullableBarcode(code string) *string {
 	return &code
 }
 
+// productUnitCostSQL selects the best product-level fallback available for
+// aggregate inventory, which does not have one inventory_items row per unit.
+// Older local databases may only have purchase_price, while current schemas
+// use cost_price (and may keep both during migration).
+func productUnitCostSQL(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB) (string, error) {
+	var hasCostPrice, hasPurchasePrice bool
+	if dbutil.IsSQLite(db) {
+		if err := tx.GetContext(ctx, &hasCostPrice, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('products') WHERE name = 'cost_price')`); err != nil {
+			return "", fmt.Errorf("inspect product cost column: %w", err)
+		}
+		if err := tx.GetContext(ctx, &hasPurchasePrice, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('products') WHERE name = 'purchase_price')`); err != nil {
+			return "", fmt.Errorf("inspect product purchase price column: %w", err)
+		}
+	} else {
+		if err := tx.GetContext(ctx, &hasCostPrice, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'products' AND column_name = 'cost_price')`); err != nil {
+			return "", fmt.Errorf("inspect product cost column: %w", err)
+		}
+		if err := tx.GetContext(ctx, &hasPurchasePrice, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'products' AND column_name = 'purchase_price')`); err != nil {
+			return "", fmt.Errorf("inspect product purchase price column: %w", err)
+		}
+	}
+
+	switch {
+	case hasCostPrice && hasPurchasePrice:
+		return `COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.purchase_price, 0), 0)`, nil
+	case hasCostPrice:
+		return `COALESCE(p.cost_price, 0)`, nil
+	case hasPurchasePrice:
+		return `COALESCE(p.purchase_price, 0)`, nil
+	default:
+		return `0`, nil
+	}
+}
+
 // CreateSale creates a new sale with complete business logic automation
 // This is an atomic transaction that ensures data consistency
 func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateSaleRequest) (*Sale, error) {
@@ -103,6 +137,10 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		ID   uuid.UUID `db:"id"`
 		Cost float64   `db:"purchase_cost"`
 	}) // Store available items for each product
+	productCostExpr, err := productUnitCostSQL(ctx, tx, s.db)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, itemReq := range req.Items {
 		if itemReq.Quantity <= 0 {
@@ -141,11 +179,15 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			return nil, fmt.Errorf("failed to check stock: %w", err)
 		}
 
-		var productName string
-		if err := tx.GetContext(ctx, &productName, `SELECT name FROM products WHERE id = $1`, itemReq.ProductID); err != nil {
+		var product struct {
+			Name     string  `db:"name"`
+			UnitCost float64 `db:"unit_cost"`
+		}
+		productQuery := fmt.Sprintf(`SELECT name, %s AS unit_cost FROM products p WHERE p.id = $1`, productCostExpr)
+		if err := tx.GetContext(ctx, &product, productQuery, itemReq.ProductID); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrProductNotFound, err)
 		}
-		productNames[itemReq.ProductID] = productName
+		productNames[itemReq.ProductID] = product.Name
 
 		if len(availableItems) < itemReq.Quantity && (itemReq.InventoryItemID != nil || len(availableItems) == 0) {
 			// Quantity-based products may be represented by a single inventory row while the
@@ -165,7 +207,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 				} else {
 					return nil, &InsufficientStockError{
 						ProductID:   itemReq.ProductID,
-						ProductName: productName,
+						ProductName: product.Name,
 						Requested:   itemReq.Quantity,
 						Available:   aggregateQuantity,
 					}
@@ -173,7 +215,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 			} else {
 				return nil, &InsufficientStockError{
 					ProductID:   itemReq.ProductID,
-					ProductName: productName,
+					ProductName: product.Name,
 					Requested:   itemReq.Quantity,
 					Available:   aggregateQuantity,
 				}
@@ -182,7 +224,7 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 		if len(availableItems) < itemReq.Quantity && aggregateStockMap[itemReq.ProductID] == 0 {
 			return nil, &InsufficientStockError{
 				ProductID:   itemReq.ProductID,
-				ProductName: productName,
+				ProductName: product.Name,
 				Requested:   itemReq.Quantity,
 				Available:   len(availableItems),
 			}
@@ -196,8 +238,19 @@ func (s *Service) CreateSale(ctx context.Context, userID uuid.UUID, req *CreateS
 
 		// Calculate actual cost from available items
 		itemCost := 0.0
-		for i := 0; i < itemReq.Quantity && i < len(availableItems); i++ {
+		costedInventoryUnits := itemReq.Quantity
+		if costedInventoryUnits > len(availableItems) {
+			costedInventoryUnits = len(availableItems)
+		}
+		for i := 0; i < costedInventoryUnits; i++ {
 			itemCost += availableItems[i].Cost
+		}
+		// Aggregate-only units have no inventory_items.purchase_cost. Use the
+		// product's recorded unit cost for those units so the sale does not get
+		// stored as zero-cost and inflate profit.
+		missingUnitCount := itemReq.Quantity - costedInventoryUnits
+		if missingUnitCount > 0 && product.UnitCost > 0 {
+			itemCost += float64(missingUnitCount) * product.UnitCost
 		}
 		inventoryItemID := itemReq.InventoryItemID
 		if inventoryItemID == nil && len(availableItems) > 0 {
@@ -947,7 +1000,9 @@ func (s *Service) calculateProfit(ctx context.Context, items []SaleItem) (float6
 	totalCost := 0.0
 
 	for _, item := range items {
-		itemRevenue := item.TotalAmount
+		// Item totals include collected tax; tax is a liability rather than
+		// earned revenue and must not inflate sale profit.
+		itemRevenue := item.TotalAmount - item.TaxAmount
 		itemCost := float64(item.Quantity) * item.UnitCost
 
 		totalRevenue += itemRevenue

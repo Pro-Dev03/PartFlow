@@ -3,6 +3,7 @@ package expenses
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -218,7 +219,11 @@ func (h *Handler) DeleteExpense(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteExpense(c.Request.Context(), id); err != nil {
+	deleteExpense := h.service.DeleteExpense
+	if strings.EqualFold(c.Query("permanent"), "true") {
+		deleteExpense = h.service.PermanentlyDeleteExpense
+	}
+	if err := deleteExpense(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

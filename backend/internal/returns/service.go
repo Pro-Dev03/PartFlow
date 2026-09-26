@@ -1741,7 +1741,7 @@ func (s *Service) GetReturnWithItems(ctx context.Context, returnID uuid.UUID) (*
 		return nil, nil, err
 	}
 
-	if returnRecord.SaleID != uuid.Nil {
+	if returnRecord.SaleID != uuid.Nil && returnRecord.SaleInvoice == "" {
 		sale, err := s.repo.GetSaleInfo(ctx, returnRecord.SaleID)
 		if err == nil && sale != nil {
 			returnRecord.SaleInvoice = sale.InvoiceNumber

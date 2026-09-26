@@ -64,7 +64,7 @@ func TestGetSalesDataUsesHistoricalCostAndExcludesTaxFromProfit(t *testing.T) {
 	}
 }
 
-func TestReportsUseSaleCostAmountWhenLineCostIsZero(t *testing.T) {
+func TestReportsPreferCapturedSaleCostAndRecoverZeroLegacyCosts(t *testing.T) {
 	db, err := sqlx.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ func TestReportsUseSaleCostAmountWhenLineCostIsZero(t *testing.T) {
 			id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, quantity INTEGER,
 			unit_cost REAL, total_amount REAL, tax_amount REAL
 		);
-		CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT, category_id TEXT);
+		CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT, category_id TEXT, cost_price REAL);
 		CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT);
 		CREATE TABLE expenses (id TEXT PRIMARY KEY, amount REAL, expense_date TEXT, status TEXT);
 	`)
@@ -89,14 +89,16 @@ func TestReportsUseSaleCostAmountWhenLineCostIsZero(t *testing.T) {
 	}
 
 	_, err = db.Exec(`
-		INSERT INTO products (id, name) VALUES ('00000000-0000-0000-0000-000000000001', 'Part 1'), ('00000000-0000-0000-0000-000000000002', 'Part 2');
+		INSERT INTO products (id, name, cost_price) VALUES ('00000000-0000-0000-0000-000000000001', 'Part 1', 20), ('00000000-0000-0000-0000-000000000002', 'Part 2', 10);
 		INSERT INTO sales (id, sale_date, total_amount, tax_amount, payment_method, status, cost_amount) VALUES
 			('00000000-0000-0000-0000-000000000111', '2026-09-16T10:00:00Z', 100, 0, 'cash', 'completed', 60),
-			('00000000-0000-0000-0000-000000000112', '2026-09-16T11:00:00Z', 200, 0, 'cash', 'completed', 120);
+			('00000000-0000-0000-0000-000000000112', '2026-09-16T11:00:00Z', 200, 0, 'cash', 'completed', 120),
+			('00000000-0000-0000-0000-000000000113', '2026-09-16T12:00:00Z', 25, 0, 'cash', 'completed', 0);
 		INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_cost, total_amount, tax_amount) VALUES
 			('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000111', '00000000-0000-0000-0000-000000000001', 1, 0, 100, 0),
 			('00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000112', '00000000-0000-0000-0000-000000000001', 1, 0, 100, 0),
-			('00000000-0000-0000-0000-000000000103', '00000000-0000-0000-0000-000000000112', '00000000-0000-0000-0000-000000000002', 1, 0, 100, 0);
+			('00000000-0000-0000-0000-000000000103', '00000000-0000-0000-0000-000000000112', '00000000-0000-0000-0000-000000000002', 1, 0, 100, 0),
+			('00000000-0000-0000-0000-000000000104', '00000000-0000-0000-0000-000000000113', '00000000-0000-0000-0000-000000000001', 1, 0, 25, 0);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -109,15 +111,21 @@ func TestReportsUseSaleCostAmountWhenLineCostIsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if salesReport.TotalRevenue != 300 || salesReport.TotalCOGS != 180 || salesReport.GrossProfit != 120 {
-		t.Fatalf("sales report used line cost instead of sale cost: revenue=%v cogs=%v gross=%v", salesReport.TotalRevenue, salesReport.TotalCOGS, salesReport.GrossProfit)
+	if salesReport.TotalRevenue != 325 || salesReport.TotalCOGS != 200 || salesReport.GrossProfit != 125 {
+		t.Fatalf("sales report failed cost reconciliation: revenue=%v cogs=%v gross=%v", salesReport.TotalRevenue, salesReport.TotalCOGS, salesReport.GrossProfit)
 	}
 
 	profitReport, err := repo.GetProfitsData(context.Background(), start, end)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profitReport.TotalRevenue != 300 || profitReport.TotalCOGS != 180 || profitReport.NetProfit != 120 {
-		t.Fatalf("profit report used line cost instead of sale cost: revenue=%v cogs=%v net=%v", profitReport.TotalRevenue, profitReport.TotalCOGS, profitReport.NetProfit)
+	if profitReport.TotalRevenue != 325 || profitReport.TotalCOGS != 200 || profitReport.NetProfit != 125 {
+		t.Fatalf("profit report failed cost reconciliation: revenue=%v cogs=%v net=%v", profitReport.TotalRevenue, profitReport.TotalCOGS, profitReport.NetProfit)
+	}
+	if len(profitReport.ByDay) != 1 || profitReport.ByDay[0].COGS != 200 || profitReport.ByDay[0].NetProfit != 125 {
+		t.Fatalf("daily profit trend failed cost reconciliation: %#v", profitReport.ByDay)
+	}
+	if len(profitReport.ByMonth) != 1 || profitReport.ByMonth[0].COGS != 200 || profitReport.ByMonth[0].NetProfit != 125 {
+		t.Fatalf("monthly profit trend failed cost reconciliation: %#v", profitReport.ByMonth)
 	}
 }

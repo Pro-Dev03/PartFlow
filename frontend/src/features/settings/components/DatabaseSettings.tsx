@@ -18,10 +18,19 @@ const getHealthUrl = (baseUrl: string) => {
   }
 };
 
+function formatDatabaseBytes(value: unknown) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function DatabaseSettings() {
   const queryClient = useQueryClient();
   const [confirmationText, setConfirmationText] = useState('');
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [cleanupPreview, setCleanupPreview] = useState<any | null>(null);
+  const [cleanupConfirmation, setCleanupConfirmation] = useState(false);
 
   const [localApiUrl] = useState(getLocalApiUrl());
   const [isTestingConnection, setIsTestingConnection] = useState(false);
@@ -33,6 +42,7 @@ export function DatabaseSettings() {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const isDesktop = typeof window !== 'undefined' && Boolean(window.partflowDesktop);
+  const [cleanupTarget, setCleanupTarget] = useState<'cloud' | 'local'>(isDesktop ? 'local' : 'cloud');
 
   const createLocalBackup = async () => {
     const backup = window.partflowDesktop?.database?.backup;
@@ -190,6 +200,33 @@ export function DatabaseSettings() {
     },
   });
 
+  const previewCleanupMutation = useMutation({
+    mutationFn: () => settingsApi.previewDatabaseCleanup(cleanupTarget),
+    onSuccess: (response: any) => {
+      setCleanupPreview(response?.data?.data ?? response?.data ?? response);
+      setCleanupConfirmation(false);
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || 'تعذر فحص البيانات القابلة للتنظيف');
+    },
+  });
+
+  const runCleanupMutation = useMutation({
+    mutationFn: () => settingsApi.runDatabaseCleanup(cleanupTarget),
+    onSuccess: (response: any) => {
+      const result = response?.data?.data ?? response?.data ?? response;
+      setCleanupConfirmation(false);
+      toast.success(result?.remaining_count
+        ? `نُظفت ${Number(result?.deleted_count || 0).toLocaleString()} سجلات. ما زالت هناك سجلات أخرى؛ أعد الفحص للمتابعة.`
+        : `اكتمل التنظيف: ${Number(result?.deleted_count || 0).toLocaleString()} سجلات.`);
+      void queryClient.invalidateQueries();
+      previewCleanupMutation.mutate();
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || 'تعذر تنظيف البيانات المنتهية');
+    },
+  });
+
   // Test local backend connection
   const testLocalConnection = async () => {
     setIsTestingConnection(true);
@@ -279,6 +316,89 @@ export function DatabaseSettings() {
               )}
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-200">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Trash2 className="h-5 w-5 text-slate-600" />
+            تنظيف البيانات المنتهية
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-gray-600">
+            يعرض PartFlow السجلات التقنية المنتهية قبل حذفها، مثل جلسات الدخول وروابط الاستعادة والإشعارات القديمة والحجوزات المنتهية. لا يشمل هذا التنظيف المبيعات أو المشتريات أو الديون أو الدفعات أو القيود المالية.
+          </p>
+          {isDesktop && (
+            <label className="flex max-w-md flex-col gap-2 text-sm font-medium text-slate-700" dir="rtl">
+              قاعدة البيانات المستهدفة
+              <select
+                className="min-h-10 rounded-md border border-slate-300 bg-white px-3"
+                value={cleanupTarget}
+                onChange={(event) => {
+                  setCleanupTarget(event.target.value as 'cloud' | 'local');
+                  setCleanupPreview(null);
+                  setCleanupConfirmation(false);
+                }}
+                disabled={previewCleanupMutation.isPending || runCleanupMutation.isPending}
+              >
+                <option value="local">قاعدة SQLite على هذا الجهاز</option>
+                <option value="cloud">قاعدة المتجر على Render</option>
+              </select>
+            </label>
+          )}
+          <p className="text-xs text-slate-500" dir="rtl">
+            سيتم فحص وتنظيف: {cleanupTarget === 'local' ? 'قاعدة SQLite على هذا الجهاز' : 'قاعدة المتجر السحابية على Render'}.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => previewCleanupMutation.mutate()}
+              disabled={previewCleanupMutation.isPending || runCleanupMutation.isPending}
+            >
+              {previewCleanupMutation.isPending ? 'جارٍ الفحص...' : 'فحص البيانات القابلة للتنظيف'}
+            </Button>
+            {cleanupPreview && Number(cleanupPreview.total_count || 0) > 0 && !cleanupConfirmation && (
+              <Button variant="destructive" onClick={() => setCleanupConfirmation(true)} disabled={runCleanupMutation.isPending}>
+                تنظيف الآن
+              </Button>
+            )}
+            {cleanupConfirmation && (
+              <>
+                <Button variant="destructive" onClick={() => runCleanupMutation.mutate()} disabled={runCleanupMutation.isPending}>
+                  {runCleanupMutation.isPending ? 'جارٍ التنظيف...' : 'تأكيد التنظيف'}
+                </Button>
+                <Button variant="secondary" onClick={() => setCleanupConfirmation(false)} disabled={runCleanupMutation.isPending}>
+                  إلغاء
+                </Button>
+              </>
+            )}
+          </div>
+          {cleanupPreview && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4" dir="rtl">
+              <div className="mb-3 flex flex-wrap justify-between gap-2 text-sm font-semibold text-slate-800">
+                <span>السجلات المرشحة: {Number(cleanupPreview.total_count || 0).toLocaleString()}</span>
+                <span>حجمها التقريبي: {formatDatabaseBytes(cleanupPreview.estimated_bytes)}</span>
+              </div>
+              <div className="space-y-2">
+                {(cleanupPreview.categories || []).filter((category: any) => Number(category.count || 0) > 0).map((category: any) => (
+                  <div key={category.key} className="flex justify-between gap-3 border-t border-slate-200 pt-2 text-sm">
+                    <span>{category.label}</span>
+                    <span className="whitespace-nowrap text-slate-600">
+                      {Number(category.count).toLocaleString()} · {formatDatabaseBytes(category.estimated_bytes)}
+                    </span>
+                  </div>
+                ))}
+                {Number(cleanupPreview.total_count || 0) === 0 && (
+                  <p className="text-sm text-slate-600">لا توجد سجلات منتهية تحتاج إلى تنظيف.</p>
+                )}
+              </div>
+              <p className="mt-3 text-xs text-slate-500">
+                حجم قاعدة البيانات: {formatDatabaseBytes(cleanupPreview.storage?.database_bytes)}. {cleanupPreview.storage?.note}
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

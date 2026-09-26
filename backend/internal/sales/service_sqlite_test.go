@@ -398,7 +398,7 @@ func TestCreateSaleSQLiteUsesAggregateInventoryWhenSingleRepresentativeRowExists
 	defer db.Close()
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = db.Exec(`
-		CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT NOT NULL, purchase_price REAL DEFAULT 0);
+		CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT NOT NULL, cost_price REAL DEFAULT 0, purchase_price REAL DEFAULT 0);
 		CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, purchase_cost REAL DEFAULT 0, condition TEXT, status TEXT, supplier_id TEXT, serial_number TEXT, sold_at TEXT, created_at TEXT, updated_at TEXT);
 		CREATE TABLE inventory (id TEXT PRIMARY KEY, product_id TEXT, quantity INTEGER DEFAULT 0, updated_at TEXT, created_at TEXT);
 		CREATE TABLE inventory_movements (id TEXT PRIMARY KEY, item_id TEXT, product_id TEXT, movement_type TEXT, quantity INTEGER, before_quantity INTEGER, after_quantity INTEGER, reference_type TEXT, reference_id TEXT, reason TEXT, created_by TEXT, created_at TEXT);
@@ -421,7 +421,7 @@ func TestCreateSaleSQLiteUsesAggregateInventoryWhenSingleRepresentativeRowExists
 		t.Fatal(err)
 	}
 	productID, itemID := uuid.New(), uuid.New()
-	if _, err = db.Exec(`INSERT INTO products (id, name, purchase_price) VALUES ($1, 'Widget', 10); INSERT INTO inventory_items (id, product_id, purchase_cost, status, created_at, updated_at) VALUES ($2, $1, 10, 'AVAILABLE', $3, $3); INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES ($4, $1, 5, $3, $3)`, productID, itemID, now, uuid.New()); err != nil {
+	if _, err = db.Exec(`INSERT INTO products (id, name, cost_price, purchase_price) VALUES ($1, 'Widget', 20, 99); INSERT INTO inventory_items (id, product_id, purchase_cost, status, created_at, updated_at) VALUES ($2, $1, 20, 'AVAILABLE', $3, $3); INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES ($4, $1, 5, $3, $3)`, productID, itemID, now, uuid.New()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -436,6 +436,9 @@ func TestCreateSaleSQLiteUsesAggregateInventoryWhenSingleRepresentativeRowExists
 	}
 	if sale.TotalAmount != 75 {
 		t.Fatalf("total = %v, want 75", sale.TotalAmount)
+	}
+	if sale.CostAmount != 60 || sale.GrossProfit != 15 || sale.NetProfit != 15 {
+		t.Fatalf("representative plus aggregate sale profit = cost %v, gross %v, net %v; want 60, 15, 15", sale.CostAmount, sale.GrossProfit, sale.NetProfit)
 	}
 
 	var qty int
@@ -452,6 +455,43 @@ func TestCreateSaleSQLiteUsesAggregateInventoryWhenSingleRepresentativeRowExists
 	}
 	if status != "SOLD" {
 		t.Fatalf("representative inventory item status = %s, want SOLD", status)
+	}
+
+	// The representative item is now sold, leaving only aggregate stock. The
+	// next sale must fall back to the product's recorded unit cost.
+	aggregateOnlySale, err := svc.CreateSale(context.Background(), uuid.Nil, &CreateSaleRequest{
+		Items:         []SaleItemRequest{{ProductID: productID, Quantity: 1, UnitPrice: 25}},
+		PaymentMethod: stringPtr("cash"),
+		PaymentAmount: 25,
+	})
+	if err != nil {
+		t.Fatalf("CreateSale failed for aggregate-only stock: %v", err)
+	}
+	if aggregateOnlySale.CostAmount != 20 || aggregateOnlySale.GrossProfit != 5 || aggregateOnlySale.NetProfit != 5 {
+		t.Fatalf("aggregate-only sale profit = cost %v, gross %v, net %v; want 20, 5, 5", aggregateOnlySale.CostAmount, aggregateOnlySale.GrossProfit, aggregateOnlySale.NetProfit)
+	}
+	details, err := svc.GetSale(context.Background(), aggregateOnlySale.ID)
+	if err != nil {
+		t.Fatalf("GetSale for aggregate-only sale: %v", err)
+	}
+	if details.Profit != 5 || len(details.Items) != 1 || details.Items[0].UnitCost != 20 {
+		t.Fatalf("aggregate-only sale detail profit/cost = %v/%+v; want profit 5 and unit cost 20", details.Profit, details.Items)
+	}
+}
+
+func TestCalculateSaleDetailProfitExcludesTax(t *testing.T) {
+	service := &Service{}
+	profit, err := service.calculateProfit(context.Background(), []SaleItem{{
+		Quantity:    1,
+		UnitCost:    20,
+		TotalAmount: 27.5,
+		TaxAmount:   2.5,
+	}})
+	if err != nil {
+		t.Fatalf("calculateProfit returned error: %v", err)
+	}
+	if profit != 5 {
+		t.Fatalf("sale detail profit = %v, want 5 after excluding 2.50 tax and 20 cost", profit)
 	}
 }
 

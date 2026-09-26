@@ -12,6 +12,10 @@ var (
 	// ErrProductNotFound is returned when product is not found
 	ErrProductNotFound = errors.New("product not found")
 
+	// ErrProductHasHistory prevents deleting a product from silently deleting
+	// complete sales, purchases, returns, or their accounting effects.
+	ErrProductHasHistory = errors.New("لا يمكن حذف المنتج لأنه مرتبط بمعاملات أو حركات تاريخية. احذف المعاملات المرتبطة أولاً أو عطّل المنتج للاحتفاظ بتاريخها.")
+
 	// ErrCategoryExists is returned when category already exists
 	ErrCategoryExists = errors.New("category already exists")
 

@@ -2045,6 +2045,147 @@ html {
   animation: sales-chart-area-in 900ms ease-out both;
 }
 
+.pf-report-line-chart {
+  overflow: hidden;
+}
+
+.pf-report-line-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 0 !important;
+  padding: 18px 22px !important;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-surface-elevated);
+}
+
+.pf-report-line-chart-header h3 {
+  color: var(--text-primary);
+  font-size: 16px !important;
+  font-weight: 700 !important;
+}
+
+.pf-report-line-chart-unit {
+  display: inline-flex;
+  min-width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pf-report-line-chart-content {
+  padding: 18px 22px 14px !important;
+}
+
+.pf-report-line-chart-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.pf-report-line-chart-metric {
+  display: flex;
+  min-width: 0;
+  min-height: 68px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 13px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--bg-surface-elevated);
+}
+
+.pf-report-line-chart-metric.primary {
+  border-color: color-mix(in srgb, var(--color-success) 30%, var(--border-default));
+  background: color-mix(in srgb, var(--color-success) 5%, var(--bg-surface-elevated));
+}
+
+.pf-report-line-chart-metric p {
+  margin: 0 0 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.pf-report-line-chart-metric strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.pf-report-line-chart-metric strong span {
+  margin-inline-start: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pf-report-line-chart-metric small {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.pf-report-line-chart-marker {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  margin-top: 4px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.pf-report-line-chart-plot {
+  width: 100%;
+  height: clamp(260px, 29vw, 330px);
+  direction: ltr;
+}
+
+.pf-report-line-chart-plot .recharts-cartesian-axis-tick-value {
+  fill: var(--text-muted);
+}
+
+.pf-report-line-chart-plot .recharts-cartesian-grid-horizontal line {
+  stroke: var(--border-subtle);
+}
+
+.pf-report-line-chart-state {
+  display: flex;
+  min-height: 280px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.pf-report-chart-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid var(--border-default);
+  border-bottom-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@media (max-width: 640px) {
+  .pf-report-line-chart-header { padding: 15px 16px !important; }
+  .pf-report-line-chart-content { padding: 14px 10px 10px !important; }
+  .pf-report-line-chart-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .pf-report-line-chart-metric { min-height: 62px; padding: 9px; }
+  .pf-report-line-chart-metric strong { font-size: 13px; }
+  .pf-report-line-chart-plot { height: 260px; }
+}
+
 .sales-chart-line {
   stroke-dasharray: 1200;
   stroke-dashoffset: 1200;

@@ -200,6 +200,40 @@ func TestUnknownExpenseStatusesCannotBeDeleted(t *testing.T) {
 	}
 }
 
+func TestPermanentlyDeleteApprovedExpenseRemovesItFromFinancialTotalsSQLite(t *testing.T) {
+	service, db, _, expenseID := newExpenseServiceTestDB(t)
+	if _, err := db.Exec(`UPDATE expenses SET status = 'approved' WHERE id = ?`, expenseID.String()); err != nil {
+		t.Fatal(err)
+	}
+	dbHandle := sqlx.NewDb(db, "sqlite")
+	start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	before, err := accounting.TotalExpensesForPeriod(context.Background(), dbHandle, start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != 25 {
+		t.Fatalf("expense total before delete = %v, want 25", before)
+	}
+	if err := service.PermanentlyDeleteExpense(context.Background(), expenseID); err != nil {
+		t.Fatalf("permanently delete approved expense: %v", err)
+	}
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM expenses WHERE id = ?`, expenseID.String()).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expense rows remaining = %d, want 0", remaining)
+	}
+	after, err := accounting.TotalExpensesForPeriod(context.Background(), dbHandle, start, end)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != 0 {
+		t.Fatalf("expense total after delete = %v, want 0", after)
+	}
+}
+
 func TestExpenseCategoryDefaultsActiveAndPartialUpdatePreservesBudgetAndStatus(t *testing.T) {
 	service, _, categoryID, _ := newExpenseServiceTestDB(t)
 	created, err := service.CreateExpenseCategory(context.Background(), &ExpenseCategoryRequest{Name: "Office"})
