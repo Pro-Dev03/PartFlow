@@ -14,6 +14,7 @@ import (
 // Config represents application configuration
 type Config struct {
 	// Server
+	ServerHost   string
 	ServerPort   string
 	ServerMode   string // debug, release, test
 	ReadTimeout  time.Duration
@@ -110,6 +111,7 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		// Server
+		ServerHost:   strings.TrimSpace(getEnv("SERVER_HOST", "")),
 		ServerPort:   getEnv("SERVER_PORT", getEnv("APP_PORT", "8080")),
 		ServerMode:   serverMode,
 		ReadTimeout:  getDurationEnv("READ_TIMEOUT", 15*time.Second),

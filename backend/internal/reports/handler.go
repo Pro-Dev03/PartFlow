@@ -137,7 +137,7 @@ func (h *Handler) ListReports(c *gin.Context) {
 	req.SortOrder = c.DefaultQuery("sort_order", "DESC")
 
 	if startDate := c.Query("start_date"); startDate != "" {
-		t, err := parseDate(startDate)
+		t, err := parseReportListBound(startDate, false)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start_date: use RFC3339 or YYYY-MM-DD", "code": "INVALID_DATE"})
 			return
@@ -146,7 +146,7 @@ func (h *Handler) ListReports(c *gin.Context) {
 	}
 
 	if endDate := c.Query("end_date"); endDate != "" {
-		t, err := parseDate(endDate)
+		t, err := parseReportListBound(endDate, true)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end_date: use RFC3339 or YYYY-MM-DD", "code": "INVALID_DATE"})
 			return
@@ -227,6 +227,34 @@ func parseDate(dateStr string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("invalid date format")
 }
 
+func parseReportListBound(dateStr string, upper bool) (time.Time, error) {
+	parsed, err := parseDate(dateStr)
+	if err != nil {
+		return time.Time{}, err
+	}
+	calendarDateFormats := []string{"2006-01-02", "2006/01/02", "01-02-2006", "01/02/2006"}
+	for _, format := range calendarDateFormats {
+		if _, err := time.ParseInLocation(format, dateStr, parsed.Location()); err == nil {
+			dateKey, err := accounting.StoreDate(parsed)
+			if err != nil {
+				return time.Time{}, err
+			}
+			start, end, err := accounting.StoreDateBounds(dateKey)
+			if err != nil {
+				return time.Time{}, err
+			}
+			if upper {
+				return end.In(parsed.Location()), nil
+			}
+			return start.In(parsed.Location()), nil
+		}
+	}
+	if upper {
+		return parsed.Add(time.Nanosecond), nil
+	}
+	return parsed, nil
+}
+
 // parseReportDateRange parses the optional date range used by report endpoints.
 // Invalid dates are rejected instead of silently falling back to the default
 // range, which could otherwise produce a report for the wrong period.
@@ -235,17 +263,26 @@ func parseReportDateRange(c *gin.Context) (time.Time, time.Time, error) {
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
-	now := time.Now().In(location)
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
-	startDate := todayStart.AddDate(0, -1, 0)
-	endDate := todayStart.AddDate(0, 0, 1)
+	todayKey, err := accounting.StoreDate(time.Now())
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	today, err := time.Parse("2006-01-02", todayKey)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("parse store date %q: %w", todayKey, err)
+	}
+	startKey := today.AddDate(0, -1, 0).Format("2006-01-02")
+	endKey := today.AddDate(0, 0, 1).Format("2006-01-02")
 
 	if raw := c.Query("start_date"); raw != "" {
 		parsed, err := parseDate(raw)
 		if err != nil {
 			return time.Time{}, time.Time{}, fmt.Errorf("invalid start_date: use RFC3339 or YYYY-MM-DD")
 		}
-		startDate = parsed
+		startKey, err = accounting.StoreDate(parsed)
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
 	}
 
 	if raw := c.Query("end_date"); raw != "" {
@@ -253,16 +290,32 @@ func parseReportDateRange(c *gin.Context) (time.Time, time.Time, error) {
 		if err != nil {
 			return time.Time{}, time.Time{}, fmt.Errorf("invalid end_date: use RFC3339 or YYYY-MM-DD")
 		}
-		// Date-only end dates are inclusive for callers, so make the upper
-		// bound exclusive by advancing one day as the existing API expects.
-		endDate = parsed.In(location).AddDate(0, 0, 1)
+		localEndKey, err := accounting.StoreDate(parsed)
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
+		localEndDate, err := time.Parse("2006-01-02", localEndKey)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("parse store date %q: %w", localEndKey, err)
+		}
+		endKey = localEndDate.AddDate(0, 0, 1).Format("2006-01-02")
 	}
 
+	startDate, _, err := accounting.StoreDateBounds(startKey)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	endDate, _, err := accounting.StoreDateBounds(endKey)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
 	if !endDate.After(startDate) {
 		return time.Time{}, time.Time{}, fmt.Errorf("end_date must be after start_date")
 	}
 
-	return startDate, endDate, nil
+	// Keep the same instants while retaining the store location for report
+	// descriptions and serialized period labels.
+	return startDate.In(location), endDate.In(location), nil
 }
 
 // GenerateSalesReport handles generating a sales report
@@ -563,11 +616,7 @@ func (h *Handler) GenerateProductsReport(c *gin.Context) {
 	err := h.repo.db.GetContext(c.Request.Context(), &totalProducts,
 		"SELECT COUNT(*) FROM products WHERE is_active = true AND deleted_at IS NULL")
 	if err != nil {
-		// If products table doesn't exist, return empty report
-		reportData["total_products"] = 0
-		reportData["by_category"] = make(map[string]int)
-		reportData["low_stock_count"] = 0
-		c.JSON(http.StatusOK, gin.H{"data": reportData})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve product count"})
 		return
 	}
 	reportData["total_products"] = totalProducts
@@ -580,34 +629,47 @@ func (h *Handler) GenerateProductsReport(c *gin.Context) {
 		 RIGHT JOIN products p ON c.id = p.category_id AND p.is_active = true
 		 WHERE p.is_active = true AND p.deleted_at IS NULL
 		 GROUP BY COALESCE(c.name, 'غير مصنف')`)
-	if err == nil {
-		defer rows.Close()
-
-		for rows.Next() {
-			var category string
-			var count int
-			if err := rows.Scan(&category, &count); err != nil {
-				continue
-			}
-			byCategory[category] = count
-		}
-		_ = rows.Err()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve products by category"})
+		return
 	}
+	for rows.Next() {
+		var category string
+		var count int
+		if err := rows.Scan(&category, &count); err != nil {
+			rows.Close()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read products by category"})
+			return
+		}
+		byCategory[category] = count
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read products by category"})
+		return
+	}
+	rows.Close()
 	reportData["by_category"] = byCategory
 
 	// Get low stock products - simplified
 	var lowStockCount int
 	err = h.repo.db.GetContext(c.Request.Context(), &lowStockCount,
-		`SELECT COUNT(*) FROM (
-			SELECT p.id
-			FROM inventory_items ii
-			JOIN products p ON ii.product_id = p.id
-			WHERE ii.status = 'AVAILABLE' AND p.min_stock_level > 0 AND p.deleted_at IS NULL
-			GROUP BY p.id, p.min_stock_level
-			HAVING COUNT(ii.id) <= p.min_stock_level
-		) low_stock`)
+		`WITH serialized_stock AS (
+			SELECT product_id, COUNT(*) AS quantity
+			FROM inventory_items
+			WHERE status = 'AVAILABLE' AND UPPER(COALESCE(condition, '')) <> 'USED'
+			GROUP BY product_id
+		), product_stock AS (
+			SELECT p.id, p.min_stock_level, COALESCE(inv.quantity, serialized_stock.quantity, 0) AS quantity
+			FROM products p
+			LEFT JOIN (SELECT product_id, SUM(quantity) AS quantity FROM inventory GROUP BY product_id) inv ON inv.product_id = p.id
+			LEFT JOIN serialized_stock ON serialized_stock.product_id = p.id
+			WHERE p.is_active = TRUE AND p.deleted_at IS NULL AND p.min_stock_level > 0
+		)
+		SELECT COUNT(*) FROM product_stock WHERE quantity <= min_stock_level`)
 	if err != nil {
-		lowStockCount = 0
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve low stock count"})
+		return
 	}
 	reportData["low_stock_count"] = lowStockCount
 
@@ -633,11 +695,7 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 	err := h.repo.db.GetContext(c.Request.Context(), &activeSuppliers,
 		"SELECT COUNT(*) FROM suppliers WHERE is_active = true")
 	if err != nil {
-		// If suppliers table doesn't exist, return empty report
-		reportData["total_suppliers"] = 0
-		reportData["inactive_suppliers"] = 0
-		reportData["suppliers_with_balance"] = []map[string]interface{}{}
-		c.JSON(http.StatusOK, gin.H{"data": reportData})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve supplier count"})
 		return
 	}
 	reportData["total_suppliers"] = activeSuppliers
@@ -645,7 +703,8 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 		"SELECT COUNT(*) FROM suppliers WHERE is_active = false"); err == nil {
 		reportData["inactive_suppliers"] = inactiveSuppliers
 	} else {
-		reportData["inactive_suppliers"] = 0
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve inactive supplier count"})
+		return
 	}
 
 	var purchaseTotals struct {
@@ -658,52 +717,68 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 	if err := h.repo.db.GetContext(c.Request.Context(), &purchaseTotals,
 		`SELECT COALESCE(SUM(total_amount), 0) AS total,
 		        COALESCE(SUM(paid_amount), 0) AS paid,
-		        COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE status = 'COMPLETED'), 0) AS returns,
+		        COALESCE((SELECT SUM(refund_amount) FROM supplier_returns WHERE UPPER(COALESCE(status, '')) = 'COMPLETED'), 0) AS returns,
 				COALESCE(SUM(paid_amount), 0) + COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND NOT EXISTS (SELECT 1 FROM purchases p2 WHERE p2.id = sl.reference_id)), 0) AS payments,
 		        0 AS open
 		 FROM purchases
-		 WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`); err == nil {
-		reportData["total_purchases"] = purchaseTotals.Total
-		reportData["supplier_return_credits"] = purchaseTotals.Returns
-		reportData["supplier_payments"] = purchaseTotals.Payments
-		reportData["total_paid"] = purchaseTotals.Payments
-		rawOutstanding := purchaseTotals.Total - purchaseTotals.Returns - purchaseTotals.Payments
-		reportData["total_outstanding"] = maxFloat(rawOutstanding, 0)
-		reportData["supplier_credit_balance"] = maxFloat(-rawOutstanding, 0)
-	} else {
-		reportData["total_purchases"] = 0
-		reportData["total_paid"] = 0
-		reportData["total_outstanding"] = 0
+		 WHERE LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve supplier purchase totals"})
+		return
 	}
+	reportData["total_purchases"] = purchaseTotals.Total
+	reportData["supplier_return_credits"] = purchaseTotals.Returns
+	reportData["supplier_payments"] = purchaseTotals.Payments
+	reportData["total_paid"] = purchaseTotals.Payments
+	var supplierBalances struct {
+		Outstanding float64 `db:"outstanding"`
+		Credit      float64 `db:"credit"`
+	}
+	if err := h.repo.db.GetContext(c.Request.Context(), &supplierBalances, `
+		SELECT COALESCE(SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END), 0) AS outstanding,
+		       COALESCE(SUM(CASE WHEN current_balance < 0 THEN -current_balance ELSE 0 END), 0) AS credit
+		FROM suppliers`); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve supplier balances"})
+		return
+	}
+	reportData["total_outstanding"] = supplierBalances.Outstanding
+	reportData["supplier_credit_balance"] = supplierBalances.Credit
 
 	bySupplier := []map[string]interface{}{}
 	rows, err := h.repo.db.QueryContext(c.Request.Context(), `
 			SELECT COALESCE(s.name, 'مورد غير معروف'),
 				COALESCE(SUM(p.total_amount), 0),
-				COALESCE(SUM(p.paid_amount), 0) + COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = p.supplier_id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND NOT EXISTS (SELECT 1 FROM purchases p2 WHERE p2.id = sl.reference_id)), 0),
-				COALESCE(SUM(p.total_amount), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = p.supplier_id AND sr.status = 'COMPLETED'), 0) - (COALESCE(SUM(p.paid_amount), 0) + COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = p.supplier_id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND NOT EXISTS (SELECT 1 FROM purchases p2 WHERE p2.id = sl.reference_id)), 0))
-			FROM purchases p
-			LEFT JOIN suppliers s ON s.id = p.supplier_id
-			WHERE LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
-			GROUP BY s.name
-			HAVING SUM(p.total_amount) > 0
+				COALESCE(SUM(p.paid_amount), 0) + COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND NOT EXISTS (SELECT 1 FROM purchases p2 WHERE p2.id = sl.reference_id)), 0),
+				COALESCE(s.current_balance, 0)
+			FROM suppliers s
+			LEFT JOIN purchases p ON p.supplier_id = s.id AND LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
+			GROUP BY s.id, s.name, s.current_balance
+			HAVING COALESCE(SUM(p.total_amount), 0) > 0 OR COALESCE(s.current_balance, 0) <> 0
 			ORDER BY SUM(p.total_amount) DESC`)
-	if err == nil {
-		for rows.Next() {
-			var name string
-			var total, paid, outstanding float64
-			if err := rows.Scan(&name, &total, &paid, &outstanding); err == nil {
-				rawOutstanding := outstanding
-				bySupplier = append(bySupplier, map[string]interface{}{
-					"supplier_name": name, "total_purchases": total,
-					"total_paid": paid, "outstanding": maxFloat(outstanding, 0),
-					"credit_balance": maxFloat(-rawOutstanding, 0),
-				})
-			}
-		}
-		_ = rows.Err()
-		rows.Close()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve purchases by supplier"})
+		return
 	}
+	for rows.Next() {
+		var name string
+		var total, paid, outstanding float64
+		if err := rows.Scan(&name, &total, &paid, &outstanding); err != nil {
+			rows.Close()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read purchases by supplier"})
+			return
+		}
+		rawOutstanding := outstanding
+		bySupplier = append(bySupplier, map[string]interface{}{
+			"supplier_name": name, "total_purchases": total,
+			"total_paid": paid, "outstanding": maxFloat(outstanding, 0),
+			"credit_balance": maxFloat(-rawOutstanding, 0),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read purchases by supplier"})
+		return
+	}
+	rows.Close()
 	reportData["by_supplier"] = bySupplier
 
 	suppliersWithBalance := []map[string]interface{}{}
@@ -711,34 +786,39 @@ func (h *Handler) GenerateSuppliersReport(c *gin.Context) {
 		`SELECT s.id, s.name,
 		        COALESCE(SUM(p.total_amount), 0) AS total_purchases,
 		        COALESCE(SUM(p.paid_amount), 0) + COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND NOT EXISTS (SELECT 1 FROM purchases p2 WHERE p2.id = sl.reference_id)), 0) AS total_paid,
-		        COALESCE(SUM(p.total_amount), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = s.id AND sr.status = 'COMPLETED'), 0) - (COALESCE(SUM(p.paid_amount), 0) + COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT' AND NOT EXISTS (SELECT 1 FROM purchases p2 WHERE p2.id = sl.reference_id)), 0)) AS balance
+		        COALESCE(s.current_balance, 0) AS balance
 				FROM suppliers s
-				JOIN purchases p ON p.supplier_id = s.id
-				WHERE LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
-		 GROUP BY s.id, s.name
-			 HAVING COALESCE(SUM(p.total_amount), 0) - COALESCE((SELECT SUM(refund_amount) FROM supplier_returns sr WHERE sr.supplier_id = s.id AND sr.status = 'COMPLETED'), 0) - COALESCE((SELECT SUM(amount) FROM supplier_ledger sl WHERE sl.supplier_id = s.id AND sl.type = 'credit' AND sl.transaction_type = 'PAYMENT'), 0) > 0
-		 ORDER BY balance DESC`)
-	if err == nil {
-		defer rows.Close()
-
-		for rows.Next() {
-			var id uuid.UUID
-			var name string
-			var totalPurchases float64
-			var totalPaid float64
-			var balance float64
-			if err := rows.Scan(&id, &name, &totalPurchases, &totalPaid, &balance); err != nil {
-				continue
-			}
-			rawBalance := balance
-			suppliersWithBalance = append(suppliersWithBalance, map[string]interface{}{
-				"id": id, "name": name, "total_purchases": totalPurchases,
-				"total_paid": totalPaid, "balance": maxFloat(rawBalance, 0),
-				"credit_balance": maxFloat(-rawBalance, 0),
-			})
-		}
-		_ = rows.Err()
+				LEFT JOIN purchases p ON p.supplier_id = s.id AND LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
+				WHERE COALESCE(s.current_balance, 0) > 0
+				GROUP BY s.id, s.name, s.current_balance
+				ORDER BY balance DESC`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve suppliers with balance"})
+		return
 	}
+	for rows.Next() {
+		var id uuid.UUID
+		var name string
+		var totalPurchases float64
+		var totalPaid float64
+		var balance float64
+		if err := rows.Scan(&id, &name, &totalPurchases, &totalPaid, &balance); err != nil {
+			rows.Close()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read suppliers with balance"})
+			return
+		}
+		suppliersWithBalance = append(suppliersWithBalance, map[string]interface{}{
+			"id": id, "name": name, "total_purchases": totalPurchases,
+			"total_paid": totalPaid, "balance": balance,
+			"credit_balance": float64(0),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read suppliers with balance"})
+		return
+	}
+	rows.Close()
 	reportData["suppliers_with_balance"] = suppliersWithBalance
 
 	c.JSON(http.StatusOK, gin.H{"data": reportData})

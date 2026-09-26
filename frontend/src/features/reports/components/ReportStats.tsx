@@ -44,15 +44,20 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
           ['المستحق للتجار', value(report.total_outstanding), DollarSign, 'الرصيد المفتوح', 'warning'],
         ];
       case 'purchases':
-      case 'purchases-suppliers':
         return [
           ['إجمالي المشتريات', value(report.total_cost), DollarSign, 'قبل خصم مرتجعات التجار', 'featured'],
           ['مرتجعات التجار', value(report.supplier_return_credits), RotateCcw, 'قيمة المرتجعات المكتملة', 'warning'],
           ['صافي المشتريات', value(report.net_purchases ?? Number(report.total_cost || 0) - Number(report.supplier_return_credits || 0)), DollarSign, 'بعد مرتجعات التجار', 'success'],
-          ['رصيد دائن للموردين', value(report.supplier_credit_balance), DollarSign, 'مرتجعات أو دفعات تتجاوز المشتريات', 'info'],
-          ['المدفوع للتجار', value(report.total_paid), DollarSign, 'دفعات مسجلة', 'info'],
-          ['المستحق للتجار', value(report.total_outstanding), DollarSign, 'الرصيد المفتوح', 'warning'],
-          ['عدد التجار', count(report.total_suppliers), Database, 'تجار مرتبطون بالمشتريات', 'default'],
+        ];
+      case 'purchases-suppliers':
+        return [
+          ['مشتريات الفترة', value(report.total_cost), DollarSign, 'قبل خصم مرتجعات الموردين', 'featured'],
+          ['مرتجعات الفترة', value(report.supplier_return_credits), RotateCcw, 'المرتجعات المكتملة خلال الفترة', 'warning'],
+          ['صافي مشتريات الفترة', value(report.net_purchases ?? Number(report.total_cost || 0) - Number(report.supplier_return_credits || 0)), DollarSign, 'بعد خصم مرتجعات الفترة', 'success'],
+          ['المدفوع للموردين', value(report.suppliers_report?.total_paid), DollarSign, 'إجمالي الدفعات المسجلة حتى الآن', 'info'],
+          ['المستحق الحالي للموردين', value(report.suppliers_report?.total_outstanding), DollarSign, 'الرصيد المفتوح حاليًا', 'warning'],
+          ['الرصيد الدائن الحالي', value(report.suppliers_report?.supplier_credit_balance), DollarSign, 'رصيد الموردين الدائن حاليًا', 'info'],
+          ['الموردون النشطون', count(report.suppliers_report?.total_suppliers), Database, 'الحسابات النشطة حاليًا', 'default'],
         ];
       case 'expenses':
         return [

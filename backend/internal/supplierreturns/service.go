@@ -281,8 +281,14 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 		Quantity         int     `db:"quantity"`
 		PurchaseCost     float64 `db:"purchase_cost"`
 	}
-	query := `SELECT sr.id, COALESCE(sr.customer_return_id, '') AS customer_return_id,
-		COALESCE(sr.sale_id, '') AS sale_id, COALESCE(sr.purchase_id, '') AS purchase_id, COALESCE(sr.supplier_id, '') AS supplier_id,
+	useSourceAwareQuery := true
+	if strings.EqualFold(s.db.DriverName(), "sqlite") {
+		useSourceAwareQuery = sqliteTableExists(ctx, s.db, "suppliers") && sqliteTableExists(ctx, s.db, "returns") && sqliteColumnExists(ctx, s.db, "supplier_returns", "source_status")
+	} else {
+		useSourceAwareQuery = tableExists(ctx, s.db, "suppliers") && tableExists(ctx, s.db, "returns") && columnExists(ctx, s.db, "supplier_returns", "source_status")
+	}
+	query := `SELECT sr.id, COALESCE(CAST(sr.customer_return_id AS TEXT), '') AS customer_return_id,
+		COALESCE(CAST(sr.sale_id AS TEXT), '') AS sale_id, COALESCE(CAST(sr.purchase_id AS TEXT), '') AS purchase_id, COALESCE(CAST(sr.supplier_id AS TEXT), '') AS supplier_id,
 		COALESCE(s.name, '') AS supplier_name,
 		COALESCE((SELECT p0.name FROM supplier_return_items sri0 JOIN products p0 ON p0.id = sri0.product_id WHERE sri0.supplier_return_id = sr.id ORDER BY sri0.created_at LIMIT 1),
 			(SELECT p1.name FROM supplier_return_items sri1 JOIN purchase_items pi1 ON pi1.id = sri1.purchase_item_id JOIN products p1 ON p1.id = pi1.product_id WHERE sri1.supplier_return_id = sr.id ORDER BY sri1.created_at LIMIT 1),
@@ -290,7 +296,7 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 			(SELECT p3.name FROM return_items ri3 JOIN inventory_items ii3 ON ii3.id = ri3.inventory_item_id JOIN products p3 ON p3.id = ii3.product_id WHERE ri3.return_id = sr.customer_return_id ORDER BY ri3.created_at LIMIT 1),
 			(SELECT p4.name FROM return_items ri4 JOIN inventory_items ii4 ON ii4.barcode = ri4.barcode JOIN products p4 ON p4.id = ii4.product_id WHERE ri4.return_id = sr.customer_return_id ORDER BY ri4.created_at LIMIT 1),
 			(SELECT p5.name FROM return_items ri5 JOIN products p5 ON p5.barcode = ri5.barcode WHERE ri5.return_id = sr.customer_return_id ORDER BY ri5.created_at LIMIT 1), '') AS product_name,
-		COALESCE((SELECT sri.inventory_item_id FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.inventory_item_id FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), '') AS inventory_item_id,
+		COALESCE((SELECT CAST(sri.inventory_item_id AS TEXT) FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT CAST(ri.inventory_item_id AS TEXT) FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), '') AS inventory_item_id,
 		COALESCE((SELECT sri.barcode FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.barcode FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), '') AS barcode,
 		COALESCE((SELECT sri.serial_number FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.serial_number FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), '') AS serial_number,
 		sr.return_number, sr.status, COALESCE(sr.source_status, 'RESOLVED') AS source_status, sr.reason, sr.refund_amount, COALESCE(sr.notes, '') AS notes,
@@ -298,23 +304,15 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 		COALESCE((SELECT sri.quantity FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.quantity_returned FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), 0) AS quantity,
 		COALESCE((SELECT sri.purchase_cost FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id ORDER BY sri.created_at LIMIT 1), (SELECT ri.original_cost FROM return_items ri WHERE ri.return_id = sr.customer_return_id ORDER BY ri.created_at LIMIT 1), 0) AS purchase_cost,
 		sr.created_at FROM supplier_returns sr LEFT JOIN suppliers s ON s.id = sr.supplier_id`
-	if strings.EqualFold(s.db.DriverName(), "sqlite") && (!sqliteTableExists(ctx, s.db, "suppliers") || !sqliteTableExists(ctx, s.db, "returns") || !sqliteColumnExists(ctx, s.db, "supplier_returns", "source_status")) {
-		query = `SELECT sr.id, COALESCE(sr.customer_return_id, '') AS customer_return_id,
-			COALESCE(sr.sale_id, '') AS sale_id, COALESCE(sr.purchase_id, '') AS purchase_id, COALESCE(sr.supplier_id, '') AS supplier_id,
-			'' AS supplier_name, '' AS product_name, COALESCE((SELECT sri.inventory_item_id FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS inventory_item_id,
+	if !useSourceAwareQuery {
+		query = `SELECT sr.id, COALESCE(CAST(sr.customer_return_id AS TEXT), '') AS customer_return_id,
+			COALESCE(CAST(sr.sale_id AS TEXT), '') AS sale_id, COALESCE(CAST(sr.purchase_id AS TEXT), '') AS purchase_id, COALESCE(CAST(sr.supplier_id AS TEXT), '') AS supplier_id,
+			'' AS supplier_name, '' AS product_name, COALESCE((SELECT CAST(sri.inventory_item_id AS TEXT) FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS inventory_item_id,
 			COALESCE((SELECT sri.barcode FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS barcode,
 			COALESCE((SELECT sri.serial_number FROM supplier_return_items sri WHERE sri.supplier_return_id = sr.id LIMIT 1), '') AS serial_number,
 			sr.return_number, sr.status, '' AS source_status, sr.reason, sr.refund_amount, COALESCE(sr.notes, '') AS notes,
 			'' AS return_reason, sr.created_at AS return_date, 0 AS quantity, 0 AS purchase_cost, sr.created_at
 			FROM supplier_returns sr`
-	}
-	if !strings.EqualFold(s.db.DriverName(), "sqlite") {
-		query = strings.ReplaceAll(query, "COALESCE(sr.customer_return_id, '')", "COALESCE(sr.customer_return_id::text, '')")
-		query = strings.ReplaceAll(query, "COALESCE(sr.sale_id, '')", "COALESCE(sr.sale_id::text, '')")
-		query = strings.ReplaceAll(query, "COALESCE(sr.purchase_id, '')", "COALESCE(sr.purchase_id::text, '')")
-		query = strings.ReplaceAll(query, "COALESCE(sr.supplier_id, '')", "COALESCE(sr.supplier_id::text, '')")
-		query = strings.ReplaceAll(query, "COALESCE((SELECT sri.inventory_item_id", "COALESCE((SELECT sri.inventory_item_id::text")
-		query = strings.ReplaceAll(query, "COALESCE((SELECT ri.inventory_item_id", "COALESCE((SELECT ri.inventory_item_id::text")
 	}
 	args := []interface{}{}
 	if status != "" {
@@ -379,26 +377,50 @@ func (s *Service) List(ctx context.Context, status string) ([]SupplierReturn, er
 	return out, nil
 }
 
+func tableExists(ctx context.Context, db *sqlx.DB, table string) bool {
+	if strings.EqualFold(db.DriverName(), "sqlite") {
+		var count int
+		return db.GetContext(ctx, &count, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table) == nil && count > 0
+	}
+
+	var exists bool
+	if err := db.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)`, table); err != nil {
+		return false
+	}
+	return exists
+}
+
+func columnExists(ctx context.Context, db *sqlx.DB, table, column string) bool {
+	if strings.EqualFold(db.DriverName(), "sqlite") {
+		rows, err := db.QueryxContext(ctx, `PRAGMA table_info(`+table+`)`)
+		if err != nil {
+			return false
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var cid, notNull, pk int
+			var name, dataType string
+			var defaultValue interface{}
+			if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err == nil && strings.EqualFold(name, column) {
+				return true
+			}
+		}
+		return false
+	}
+
+	var exists bool
+	if err := db.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2)`, table, column); err != nil {
+		return false
+	}
+	return exists
+}
+
 func sqliteTableExists(ctx context.Context, db *sqlx.DB, table string) bool {
-	var count int
-	return db.GetContext(ctx, &count, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table) == nil && count > 0
+	return tableExists(ctx, db, table)
 }
 
 func sqliteColumnExists(ctx context.Context, db *sqlx.DB, table, column string) bool {
-	rows, err := db.QueryxContext(ctx, `PRAGMA table_info(`+table+`)`)
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid, notNull, pk int
-		var name, dataType string
-		var defaultValue interface{}
-		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err == nil && strings.EqualFold(name, column) {
-			return true
-		}
-	}
-	return false
+	return columnExists(ctx, db, table, column)
 }
 
 func parseOptionalUUID(value string) (uuid.UUID, error) {

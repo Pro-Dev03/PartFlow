@@ -1,5 +1,5 @@
 import { printHtmlDocument } from './print-html';
-import { formatStoreDate, getRegionalProfile, parseBackendTimestamp, STORE_TIMEZONE } from '../../utils/store-time';
+import { formatStoreDate, getRegionalProfile, getStoreTimezone, parseBackendTimestamp } from '../../utils/store-time';
 
 export interface InvoiceDocumentItem {
   name: string;
@@ -108,13 +108,13 @@ function renderInvoiceHtmlBase(document: InvoiceDocument): string {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-    timeZone: STORE_TIMEZONE,
+    timeZone: getStoreTimezone(),
   }).format(date).replace(/\s*\/\s*/g, ' \u00a0/\u00a0 ')}\u00a0\u00a0`;
   const timeText = !date || Number.isNaN(date.valueOf()) ? '-' : `\u00a0\u00a0${new Intl.DateTimeFormat('ar-SA', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: regionalProfile.time_format === '12h',
-    timeZone: STORE_TIMEZONE,
+    timeZone: getStoreTimezone(),
   }).format(date)}`;
   const itemTotal = document.items.reduce((sum, item) => sum + Math.max(0, Number(item.total || 0)), 0);
   const rows = document.items.map((item) => {

@@ -14,6 +14,7 @@ import (
 	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/aggregations"
 	dbutil "github.com/partflow/smart-store/internal/database"
+	"github.com/partflow/smart-store/internal/reports"
 )
 
 // AggregationHandler handles aggregation endpoints (ARCHITECTURE-PRINCIPLES.md)
@@ -33,6 +34,103 @@ func storeNow() time.Time {
 	return time.Now().In(storeLocation())
 }
 
+func storeCalendarDate(year int, month time.Month, day int) (time.Time, error) {
+	dateKey := time.Date(year, month, day, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+	start, _, err := accounting.StoreDateBounds(dateKey)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return start.In(storeLocation()), nil
+}
+
+func parseStoreCalendarDate(dateKey string) (time.Time, error) {
+	parsed, err := time.Parse("2006-01-02", dateKey)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return storeCalendarDate(parsed.Year(), parsed.Month(), parsed.Day())
+}
+
+// reconcileFinancialSummary writes the same tax-exclusive sales, return, COGS,
+// and expense totals used by the financial reports into the dashboard summary
+// tables. This keeps cached summaries from drifting from report calculations.
+func (h *AggregationHandler) reconcileFinancialSummary(ctx context.Context, start, end time.Time, granularity string) error {
+	repository := reports.NewRepository(h.db)
+	sales, err := repository.GetSalesData(ctx, start, end)
+	if err != nil {
+		return fmt.Errorf("recalculate %s sales totals: %w", granularity, err)
+	}
+	profits, err := repository.GetProfitsData(ctx, start, end)
+	if err != nil {
+		return fmt.Errorf("recalculate %s profit totals: %w", granularity, err)
+	}
+
+	if granularity == "day" {
+		dateKey, err := accounting.StoreDate(start)
+		if err != nil {
+			return err
+		}
+		if _, err := h.db.ExecContext(ctx, h.db.Rebind(`UPDATE daily_sales_summary SET total_revenue = ?, total_profit = ? WHERE date = ?`), sales.TotalRevenue, sales.GrossProfit, dateKey); err != nil {
+			return fmt.Errorf("update daily sales financial summary for %s: %w", dateKey, err)
+		}
+		if _, err := h.db.ExecContext(ctx, h.db.Rebind(`UPDATE daily_profit_summary SET total_revenue = ?, total_cost = ?, gross_profit = ?, net_profit = ?, profit_margin = ? WHERE date = ?`), profits.TotalRevenue, profits.TotalCOGS, profits.GrossProfit, profits.NetProfit, profits.ProfitMargin, dateKey); err != nil {
+			return fmt.Errorf("update daily profit financial summary for %s: %w", dateKey, err)
+		}
+		return nil
+	}
+
+	if granularity != "month" {
+		return fmt.Errorf("unsupported financial summary granularity %q", granularity)
+	}
+	monthKey, err := accounting.StoreDate(start)
+	if err != nil {
+		return err
+	}
+	monthDate, err := time.Parse("2006-01-02", monthKey)
+	if err != nil {
+		return fmt.Errorf("parse month key %q: %w", monthKey, err)
+	}
+	args := []any{sales.TotalRevenue, sales.GrossProfit, monthDate.Year(), int(monthDate.Month())}
+	if _, err := h.db.ExecContext(ctx, h.db.Rebind(`UPDATE monthly_sales_summary SET total_revenue = ?, total_profit = ? WHERE year = ? AND month = ?`), args...); err != nil {
+		return fmt.Errorf("update monthly sales financial summary for %s: %w", monthKey[:7], err)
+	}
+	profitArgs := []any{profits.TotalRevenue, profits.TotalCOGS, profits.GrossProfit, profits.NetProfit, profits.ProfitMargin, monthDate.Year(), int(monthDate.Month())}
+	if _, err := h.db.ExecContext(ctx, h.db.Rebind(`UPDATE monthly_profit_summary SET total_revenue = ?, total_cost = ?, gross_profit = ?, net_profit = ?, profit_margin = ? WHERE year = ? AND month = ?`), profitArgs...); err != nil {
+		return fmt.Errorf("update monthly profit financial summary for %s: %w", monthKey[:7], err)
+	}
+	return nil
+}
+
+// applyStoreTimezoneToSummaryQuery corrects timestamp-to-date conversions in
+// the PostgreSQL summary SQL. Date columns such as sale_date and due_date are
+// already store calendar dates and are intentionally left untouched.
+func applyStoreTimezoneToSummaryQuery(query string) string {
+	for _, column := range []string{"created_at", "updated_at"} {
+		localDate := accounting.PostgresStoreDateExpression(column)
+		query = strings.ReplaceAll(query, column+"::date", localDate)
+		query = strings.ReplaceAll(query, column+" >= ", localDate+" >= ")
+		query = strings.ReplaceAll(query, column+" >=", localDate+" >=")
+		query = strings.ReplaceAll(query, column+" < ", localDate+" < ")
+		query = strings.ReplaceAll(query, column+"<", localDate+" <")
+	}
+	localReturnDate := "COALESCE(r.return_date::date, " + accounting.PostgresStoreDateExpression("r.created_at") + ")"
+	query = strings.ReplaceAll(query, "COALESCE(r.return_date,r.created_at)::date", localReturnDate)
+	query = strings.ReplaceAll(query, "COALESCE(r.return_date,r.created_at) >= ", localReturnDate+" >= ")
+	query = strings.ReplaceAll(query, "COALESCE(r.return_date,r.created_at) < ", localReturnDate+" < ")
+	return query
+}
+
+func applySQLiteStoreDateToSummaryQuery(query string) string {
+	query = strings.ReplaceAll(query, "date(created_at)", "store_date(created_at)")
+	query = strings.ReplaceAll(query, "date(updated_at)", "store_date(updated_at)")
+	query = strings.ReplaceAll(query, "date(COALESCE(updated_at, created_at))", "store_date(COALESCE(updated_at, created_at))")
+	query = strings.ReplaceAll(query, "date(COALESCE(r.return_date, r.created_at))", "store_date(COALESCE(r.return_date, r.created_at))")
+	query = strings.ReplaceAll(query, "date(COALESCE(r.return_date,r.created_at))", "store_date(COALESCE(r.return_date,r.created_at))")
+	query = strings.ReplaceAll(query, "date(COALESCE(return_date, created_at))", "store_date(COALESCE(return_date, created_at))")
+	query = strings.ReplaceAll(query, "date(COALESCE(return_date,created_at))", "store_date(COALESCE(return_date,created_at))")
+	return query
+}
+
 // NewAggregationHandler creates a new aggregation handler
 func NewAggregationHandler(db *sqlx.DB) *AggregationHandler {
 	if db != nil && dbutil.IsSQLite(db) {
@@ -48,7 +146,7 @@ func NewAggregationHandler(db *sqlx.DB) *AggregationHandler {
 func (h *AggregationHandler) sqliteSaleDateExpression(ctx context.Context) string {
 	rows, err := h.db.QueryxContext(ctx, "PRAGMA table_info(sales)")
 	if err != nil {
-		return "date(s.created_at)"
+		return "store_date(s.created_at)"
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -56,16 +154,16 @@ func (h *AggregationHandler) sqliteSaleDateExpression(ctx context.Context) strin
 		var name, dataType string
 		var defaultValue sql.NullString
 		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
-			return "date(s.created_at)"
+			return "store_date(s.created_at)"
 		}
 		if strings.EqualFold(name, "sale_date") {
-			return "date(COALESCE(s.sale_date, s.created_at))"
+			return "store_date(COALESCE(s.sale_date, s.created_at))"
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return "date(s.created_at)"
+		return "store_date(s.created_at)"
 	}
-	return "date(s.created_at)"
+	return "store_date(s.created_at)"
 }
 
 func (h *AggregationHandler) sqliteSaleTaxExpression(ctx context.Context) string {
@@ -275,7 +373,7 @@ func (h *AggregationHandler) refreshDailySalesSummary(ctx context.Context, date 
 // GetDailySalesSummary returns daily sales summary
 func (h *AggregationHandler) GetDailySalesSummary(c *gin.Context) {
 	dateStr := c.DefaultQuery("date", storeNow().Format("2006-01-02"))
-	date, err := time.Parse("2006-01-02", dateStr)
+	date, err := parseStoreCalendarDate(dateStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
 		return
@@ -322,7 +420,11 @@ func (h *AggregationHandler) GetMonthlySalesSummary(c *gin.Context) {
 		}
 	}
 	summary := aggregations.MonthlySalesSummary{Year: year, Month: month}
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, storeLocation())
+	start, err := storeCalendarDate(year, time.Month(month), 1)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve store month boundaries"})
+		return
+	}
 	var refreshErr error
 	if dbutil.IsSQLite(h.db) {
 		refreshErr = h.refreshSQLiteSummaries(c.Request.Context(), start, start.AddDate(0, 1, -1))
@@ -338,7 +440,7 @@ func (h *AggregationHandler) GetMonthlySalesSummary(c *gin.Context) {
 	if !dbutil.IsSQLite(h.db) {
 		args = []interface{}{year, month}
 	}
-	err := h.db.GetContext(c.Request.Context(), &summary, query, args...)
+	err = h.db.GetContext(c.Request.Context(), &summary, query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve monthly sales summary"})
 		return
@@ -350,7 +452,7 @@ func (h *AggregationHandler) GetMonthlySalesSummary(c *gin.Context) {
 // GetDailyInventorySummary returns daily inventory summary
 func (h *AggregationHandler) GetDailyInventorySummary(c *gin.Context) {
 	dateStr := c.DefaultQuery("date", storeNow().Format("2006-01-02"))
-	date, err := time.Parse("2006-01-02", dateStr)
+	date, err := parseStoreCalendarDate(dateStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
 		return
@@ -376,7 +478,11 @@ func (h *AggregationHandler) GetMonthlyInventorySummary(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, storeLocation())
+	start, err := storeCalendarDate(year, time.Month(month), 1)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve store month boundaries"})
+		return
+	}
 	end := start.AddDate(0, 1, -1)
 	if err := h.refreshSQLiteSummaries(c.Request.Context(), start, end); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update inventory summary"})
@@ -395,7 +501,7 @@ func (h *AggregationHandler) GetMonthlyInventorySummary(c *gin.Context) {
 // GetDailyDebtSummary returns daily debt summary
 func (h *AggregationHandler) GetDailyDebtSummary(c *gin.Context) {
 	dateStr := c.DefaultQuery("date", storeNow().Format("2006-01-02"))
-	date, err := time.Parse("2006-01-02", dateStr)
+	date, err := parseStoreCalendarDate(dateStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
 		return
@@ -421,7 +527,11 @@ func (h *AggregationHandler) GetMonthlyDebtSummary(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, storeLocation())
+	start, err := storeCalendarDate(year, time.Month(month), 1)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve store month boundaries"})
+		return
+	}
 	end := start.AddDate(0, 1, -1)
 	if err := h.refreshSQLiteSummaries(c.Request.Context(), start, end); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update debt summary"})
@@ -440,7 +550,7 @@ func (h *AggregationHandler) GetMonthlyDebtSummary(c *gin.Context) {
 // GetDailyProfitSummary returns daily profit summary
 func (h *AggregationHandler) GetDailyProfitSummary(c *gin.Context) {
 	dateStr := c.DefaultQuery("date", storeNow().Format("2006-01-02"))
-	date, err := time.Parse("2006-01-02", dateStr)
+	date, err := parseStoreCalendarDate(dateStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format"})
 		return
@@ -466,7 +576,11 @@ func (h *AggregationHandler) GetMonthlyProfitSummary(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, storeLocation())
+	start, err := storeCalendarDate(year, time.Month(month), 1)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve store month boundaries"})
+		return
+	}
 	end := start.AddDate(0, 1, -1)
 	if err := h.refreshSQLiteSummaries(c.Request.Context(), start, end); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profit summary"})
@@ -510,14 +624,14 @@ func (h *AggregationHandler) UpdateAggregations(c *gin.Context) {
 	endDate := storeNow()
 	var err error
 	if req.StartDate != "" {
-		startDate, err = time.Parse("2006-01-02", req.StartDate)
+		startDate, err = parseStoreCalendarDate(req.StartDate)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid start_date format"})
 			return
 		}
 	}
 	if req.EndDate != "" {
-		endDate, err = time.Parse("2006-01-02", req.EndDate)
+		endDate, err = parseStoreCalendarDate(req.EndDate)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid end_date format"})
 			return
@@ -829,9 +943,17 @@ func (h *AggregationHandler) refreshPostgresSummaries(ctx context.Context, start
 		for index, query := range queries {
 			query = strings.Replace(query, "SELECT $1::date,", "SELECT $1::date,$1::date,", 1)
 			query = h.applyOfficialSaleCostSQL(ctx, query)
+			query = applyStoreTimezoneToSummaryQuery(query)
 			if _, err := h.db.ExecContext(ctx, query, date); err != nil {
 				return fmt.Errorf("refresh PostgreSQL daily summary statement %d for %s: %w", index+2, date, err)
 			}
+		}
+		start, end, err := accounting.StoreDateBounds(date)
+		if err != nil {
+			return err
+		}
+		if err := h.reconcileFinancialSummary(ctx, start.In(location), end.In(location), "day"); err != nil {
+			return err
 		}
 	}
 	month := time.Date(localStart.Year(), localStart.Month(), 1, 0, 0, 0, 0, location)
@@ -851,9 +973,21 @@ func (h *AggregationHandler) refreshPostgresSummaries(ctx context.Context, start
 			query = strings.Replace(query, "INSERT INTO monthly_debt_summary (", "INSERT INTO monthly_debt_summary (summary_month,", 1)
 			query = strings.Replace(query, "INSERT INTO monthly_profit_summary (", "INSERT INTO monthly_profit_summary (summary_month,", 1)
 			query = strings.Replace(query, "SELECT $1,$2,", "SELECT make_date($1,$2,1),$1,$2,", 1)
+			query = applyStoreTimezoneToSummaryQuery(query)
 			if _, err := h.db.ExecContext(ctx, query, year, monthNumber, start, next); err != nil {
 				return fmt.Errorf("refresh PostgreSQL monthly summaries for %04d-%02d: %w", year, monthNumber, err)
 			}
+		}
+		monthStart, _, err := accounting.StoreDateBounds(start)
+		if err != nil {
+			return err
+		}
+		monthEnd, _, err := accounting.StoreDateBounds(next)
+		if err != nil {
+			return err
+		}
+		if err := h.reconcileFinancialSummary(ctx, monthStart.In(location), monthEnd.In(location), "month"); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -915,11 +1049,16 @@ func (h *AggregationHandler) refreshSQLiteDay(ctx context.Context, day time.Time
 		query = strings.ReplaceAll(query, "COALESCE(s.tax_amount, 0)", saleTaxExpr)
 		query = strings.ReplaceAll(query, "COALESCE(ii.purchase_cost, p.cost_price, 0)", productCostExpr)
 		query = strings.ReplaceAll(query, "p.cost_price", productPriceRef)
+		query = applySQLiteStoreDateToSummaryQuery(query)
 		if _, err := h.db.ExecContext(ctx, query, item.args...); err != nil {
 			return fmt.Errorf("refresh daily summaries for %s: %w", date, err)
 		}
 	}
-	return nil
+	start, end, err := accounting.StoreDateBounds(date)
+	if err != nil {
+		return err
+	}
+	return h.reconcileFinancialSummary(ctx, start.In(storeLocation()), end.In(storeLocation()), "day")
 }
 
 func (h *AggregationHandler) refreshSQLiteMonth(ctx context.Context, month time.Time) error {
@@ -979,11 +1118,22 @@ func (h *AggregationHandler) refreshSQLiteMonth(ctx context.Context, month time.
 		query = strings.ReplaceAll(query, "COALESCE(s.tax_amount, 0)", saleTaxExpr)
 		query = strings.ReplaceAll(query, "COALESCE(ii.purchase_cost, p.cost_price, 0)", productCostExpr)
 		query = strings.ReplaceAll(query, "p.cost_price", productPriceRef)
+		query = applySQLiteStoreDateToSummaryQuery(query)
 		if _, err := h.db.ExecContext(ctx, query, item.args...); err != nil {
 			return fmt.Errorf("refresh monthly summaries for %04d-%02d: %w", year, monthNumber, err)
 		}
 	}
-	return nil
+	monthKey := time.Date(year, time.Month(monthNumber), 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+	nextMonthKey := time.Date(year, time.Month(monthNumber)+1, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+	monthStart, _, err := accounting.StoreDateBounds(monthKey)
+	if err != nil {
+		return err
+	}
+	_, nextMonthStart, err := accounting.StoreDateBounds(nextMonthKey)
+	if err != nil {
+		return err
+	}
+	return h.reconcileFinancialSummary(ctx, monthStart.In(storeLocation()), nextMonthStart.In(storeLocation()), "month")
 }
 
 func (h *AggregationHandler) getAggregationStatus(ctx context.Context) (aggregations.AggregationStatus, error) {

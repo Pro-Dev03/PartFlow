@@ -1,5 +1,5 @@
 import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { parseBackendTimestamp, STORE_TIMEZONE } from '../../utils/store-time';
+import { getStoreTimezone, parseBackendTimestamp } from '../../utils/store-time';
 
 interface SalesChartProps {
   data: Array<{
@@ -16,7 +16,7 @@ function formatChartDate(value: string) {
   return new Intl.DateTimeFormat('ar', {
     day: 'numeric',
     month: 'short',
-    timeZone: STORE_TIMEZONE,
+    timeZone: getStoreTimezone(),
   }).format(date);
 }
 

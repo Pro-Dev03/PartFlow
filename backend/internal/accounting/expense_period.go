@@ -10,9 +10,9 @@ import (
 )
 
 // AccountingExpensesForPeriod is the canonical accounting expense query.
-// SQLite legacy stores contain Go's timestamp text (for example, " +0000 UTC")
-// that SQLite date functions cannot parse, so their local calendar prefix is
-// used. New stores should persist normalized timestamps.
+// Expense dates are store calendar dates, so both SQL backends compare the
+// normalized store date keys instead of converting them through the database
+// server timezone.
 func AccountingExpensesForPeriod(ctx context.Context, db *sqlx.DB, start, end time.Time) (float64, error) {
 	if db == nil {
 		return 0, fmt.Errorf("accounting database is nil")
@@ -21,21 +21,20 @@ func AccountingExpensesForPeriod(ctx context.Context, db *sqlx.DB, start, end ti
 		return 0, fmt.Errorf("invalid accounting expense range: end must be after start")
 	}
 
+	startDate, endDate, err := StoreDateRangeKeys(start, end)
+	if err != nil {
+		return 0, err
+	}
 	query := fmt.Sprintf(
-		"SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date >= $1 AND expense_date < $2 AND %s",
+		"SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE expense_date >= $1::date AND expense_date < $2::date AND %s",
 		AccountingExpenseStatusSQL(),
 	)
-	args := []any{start, end}
+	args := []any{startDate, endDate}
 	if database.IsSQLite(db) {
-		location, err := StoreLocation()
-		if err != nil {
-			return 0, err
-		}
 		query = fmt.Sprintf(
 			"SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE date(substr(expense_date, 1, 10)) >= date(?) AND date(substr(expense_date, 1, 10)) < date(?) AND %s",
 			AccountingExpenseStatusSQL(),
 		)
-		args = []any{start.In(location).Format("2006-01-02"), end.In(location).Format("2006-01-02")}
 	}
 
 	var total float64

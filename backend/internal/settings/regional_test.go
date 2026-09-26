@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/partflow/smart-store/internal/accounting"
 	_ "modernc.org/sqlite"
 )
 
@@ -33,7 +34,9 @@ func TestRegionalProfileForCountryRejectsUnknownCode(t *testing.T) {
 	}
 }
 
-func TestLegacyStoreTimezoneDoesNotOverrideJerusalem(t *testing.T) {
+func TestRegionalSettingsReturnsPersistedStoreTimezone(t *testing.T) {
+	originalTimezone := accounting.CurrentStoreTimezone()
+	t.Cleanup(func() { _ = accounting.ConfigureStoreTimezone(originalTimezone) })
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +54,67 @@ func TestLegacyStoreTimezoneDoesNotOverrideJerusalem(t *testing.T) {
 	if request.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", request.Code)
 	}
-	if !strings.Contains(request.Body.String(), `"store_timezone":"Asia/Jerusalem"`) {
-		t.Fatalf("response did not use Jerusalem timezone: %s", request.Body.String())
+	if !strings.Contains(request.Body.String(), `"store_timezone":"America/New_York"`) {
+		t.Fatalf("response did not use the persisted store timezone: %s", request.Body.String())
+	}
+}
+
+func TestUpdateRegionalSettingsPersistsAndAppliesCustomTimezone(t *testing.T) {
+	originalTimezone := accounting.CurrentStoreTimezone()
+	t.Cleanup(func() { _ = accounting.ConfigureStoreTimezone(originalTimezone) })
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE settings (
+		key TEXT PRIMARY KEY, value TEXT NOT NULL, value_type TEXT, category TEXT,
+		description TEXT, is_public INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+		updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+	); INSERT INTO settings (key, value) VALUES ('country_code', 'IL'), ('store_timezone', 'Asia/Jerusalem');`); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(db)
+	request := httptest.NewRequest(http.MethodPut, "/settings/regional", strings.NewReader(`{"country_code":"SA","timezone":"America/New_York"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(response)
+	context.Request = request
+	handler.UpdateRegionalSettings(context)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var countryCode, timezone string
+	if err := db.QueryRow(`SELECT value FROM settings WHERE key='country_code'`).Scan(&countryCode); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT value FROM settings WHERE key='store_timezone'`).Scan(&timezone); err != nil {
+		t.Fatal(err)
+	}
+	if countryCode != "SA" || timezone != "America/New_York" {
+		t.Fatalf("persisted country/timezone = %s/%s, want SA/America/New_York", countryCode, timezone)
+	}
+	if got := accounting.CurrentStoreTimezone(); got != timezone {
+		t.Fatalf("active timezone = %s, want %s", got, timezone)
+	}
+}
+
+func TestRegionalCountryProfilesUseTheirOwnTimezones(t *testing.T) {
+	want := map[string]string{
+		"PS": "Asia/Hebron",
+		"IL": "Asia/Jerusalem",
+		"SA": "Asia/Riyadh",
+		"AE": "Asia/Dubai",
+		"JO": "Asia/Amman",
+		"EG": "Africa/Cairo",
+	}
+	for code, timezone := range want {
+		profile, err := RegionalProfileForCountry(code)
+		if err != nil {
+			t.Fatalf("country %s: %v", code, err)
+		}
+		if profile.Timezone != timezone {
+			t.Errorf("country %s timezone = %s, want %s", code, profile.Timezone, timezone)
+		}
 	}
 }

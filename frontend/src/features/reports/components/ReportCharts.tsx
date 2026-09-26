@@ -76,8 +76,9 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
     const supplierData = Array.isArray(report.by_supplier)
       ? report.by_supplier.map((item: any) => ({ label: item.supplier_name || 'تاجر', value: Number(item.total_purchases ?? item.total_cost ?? 0) }))
       : [];
-    const supplierBalanceData = Array.isArray(report.by_supplier)
-      ? report.by_supplier.map((item: any) => ({ label: item.supplier_name || 'تاجر', value: Number(item.outstanding || 0) }))
+    const supplierReport = reportType === 'purchases-suppliers' ? report.suppliers_report || {} : report;
+    const supplierBalanceData = Array.isArray(supplierReport.by_supplier)
+      ? supplierReport.by_supplier.map((item: any) => ({ label: item.supplier_name || 'تاجر', value: Number(item.outstanding || 0) }))
           .filter((item: { value: number }) => Number.isFinite(item.value) && item.value > 0)
       : [];
     const productData = Array.isArray(report.top_products)
@@ -147,8 +148,8 @@ export function ReportCharts({ data, loading, reportType }: ReportChartsProps) {
       color: ['#14b8a6', '#10b981', '#f59e0b', '#ef4444'][index % 4],
     }));
     const supplierSourceData = [
-      { label: 'المدفوع', value: Number(report.total_paid || 0), color: '#10b981' },
-      { label: 'المستحق', value: Number(report.total_outstanding || 0), color: '#f59e0b' },
+      { label: 'المدفوع', value: Number(supplierReport.total_paid || 0), color: '#10b981' },
+      { label: 'المستحق', value: Number(supplierReport.total_outstanding || 0), color: '#f59e0b' },
     ].filter(item => Number.isFinite(item.value) && item.value > 0);
     return {
       trendData: reportType === 'suppliers' || reportType === 'purchases-suppliers'

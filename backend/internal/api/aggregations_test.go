@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/aggregations"
 	_ "modernc.org/sqlite"
 )
@@ -59,6 +60,46 @@ func TestPostgresDailySalesRefreshIsFocusedAndUsesOfficialSaleCost(t *testing.T)
 		if strings.Contains(query, unrelatedSummary) {
 			t.Fatalf("daily sales refresh must not depend on %s", unrelatedSummary)
 		}
+	}
+}
+
+func TestSummaryTimestampFiltersUseConfiguredStoreTimezone(t *testing.T) {
+	original := accounting.CurrentStoreTimezone()
+	t.Cleanup(func() { _ = accounting.ConfigureStoreTimezone(original) })
+	if err := accounting.ConfigureStoreTimezone("America/New_York"); err != nil {
+		t.Fatal(err)
+	}
+	query := applyStoreTimezoneToSummaryQuery(`SELECT created_at::date, updated_at::date, payment_date::date, COALESCE(r.return_date,r.created_at)::date FROM debts WHERE created_at >= $1::date AND created_at < $2::date AND payment_date >= $1::date AND updated_at >= $1::date AND COALESCE(r.return_date,r.created_at) >= $1::date`)
+	for _, fragment := range []string{
+		"(created_at AT TIME ZONE 'America/New_York')::date",
+		"(updated_at AT TIME ZONE 'America/New_York')::date",
+		"COALESCE(r.return_date::date, (r.created_at AT TIME ZONE 'America/New_York')::date)",
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("summary query did not apply store timezone expression %q: %s", fragment, query)
+		}
+	}
+	if !strings.Contains(query, "payment_date::date") || strings.Contains(query, "payment_date AT TIME ZONE") {
+		t.Fatalf("payment_date is a business-date column and must remain a calendar key: %s", query)
+	}
+}
+
+func TestParseStoreCalendarDateKeepsRequestedDayWestOfUTC(t *testing.T) {
+	original := accounting.CurrentStoreTimezone()
+	t.Cleanup(func() { _ = accounting.ConfigureStoreTimezone(original) })
+	if err := accounting.ConfigureStoreTimezone("America/New_York"); err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := parseStoreCalendarDate("2026-09-16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := parsed.Format("2006-01-02"), "2026-09-16"; got != want {
+		t.Fatalf("store calendar date = %s, want %s", got, want)
+	}
+	if got, want := parsed.UTC().Format(time.RFC3339), "2026-09-16T04:00:00Z"; got != want {
+		t.Fatalf("store calendar date instant = %s, want %s", got, want)
 	}
 }
 
@@ -154,8 +195,8 @@ func TestRefreshSQLiteSummariesUsesOperationalData(t *testing.T) {
 	statements := []string{
 		`CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT, purchase_price REAL DEFAULT 0, min_stock_level INTEGER DEFAULT 0, is_active INTEGER DEFAULT 1)`,
 		`CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT, purchase_cost REAL DEFAULT 0, status TEXT, created_at TEXT)`,
-		`CREATE TABLE sales (id TEXT PRIMARY KEY, customer_id TEXT, total_amount REAL, cost_amount REAL, payment_method TEXT, status TEXT, created_at TEXT)`,
-		`CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, inventory_item_id TEXT, quantity INTEGER)`,
+		`CREATE TABLE sales (id TEXT PRIMARY KEY, customer_id TEXT, total_amount REAL, tax_amount REAL DEFAULT 0, sale_date TEXT, cost_amount REAL, payment_method TEXT, status TEXT, created_at TEXT)`,
+		`CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, inventory_item_id TEXT, quantity INTEGER, unit_cost REAL DEFAULT 0, tax_amount REAL DEFAULT 0, total_amount REAL DEFAULT 0)`,
 		`CREATE TABLE returns (id TEXT PRIMARY KEY, return_date TEXT, created_at TEXT, status TEXT)`,
 		`CREATE TABLE return_items (id TEXT PRIMARY KEY, return_id TEXT, quantity INTEGER)`,
 		`CREATE TABLE inventory_movements (id TEXT PRIMARY KEY, movement_type TEXT, created_at TEXT)`,
@@ -176,16 +217,19 @@ func TestRefreshSQLiteSummariesUsesOperationalData(t *testing.T) {
 			t.Fatalf("create test table: %v", err)
 		}
 	}
-	if _, err := db.Exec(`INSERT INTO products (id, name, purchase_price, min_stock_level, is_active) VALUES ('p1', 'Brake pad', 20, 2, 1)`); err != nil {
+	productID := "11111111-1111-4111-8111-111111111111"
+	inventoryID := "22222222-2222-4222-8222-222222222222"
+	saleID := "33333333-3333-4333-8333-333333333333"
+	if _, err := db.Exec(`INSERT INTO products (id, name, purchase_price, min_stock_level, is_active) VALUES (?, 'Brake pad', 20, 2, 1)`, productID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, purchase_cost, status, created_at) VALUES ('i1', 'p1', 20, 'AVAILABLE', '2026-08-30 09:00:00')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, purchase_cost, status, created_at) VALUES (?, ?, 20, 'AVAILABLE', '2026-08-30 09:00:00')`, inventoryID, productID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO sales (id, customer_id, total_amount, cost_amount, payment_method, status, created_at) VALUES ('s1', 'c1', 100, 60, 'cash', 'completed', '2026-08-30 10:00:00')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO sales (id, customer_id, total_amount, tax_amount, sale_date, cost_amount, payment_method, status, created_at) VALUES (?, '44444444-4444-4444-8444-444444444444', 100, 0, '2026-08-30', 60, 'cash', 'completed', '2026-08-30 10:00:00')`, saleID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO sale_items (id, sale_id, product_id, inventory_item_id, quantity) VALUES ('si1', 's1', 'p1', 'i1', 2)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO sale_items (id, sale_id, product_id, inventory_item_id, quantity, unit_cost, tax_amount, total_amount) VALUES ('55555555-5555-4555-8555-555555555555', ?, ?, ?, 2, 20, 0, 100)`, saleID, productID, inventoryID); err != nil {
 		t.Fatal(err)
 	}
 

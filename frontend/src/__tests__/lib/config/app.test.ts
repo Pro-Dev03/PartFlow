@@ -68,6 +68,33 @@ describe('app config', () => {
     expect(getBusinessApiUrl()).toBe('https://partflow-api.onrender.com/api/v1');
   });
 
+  it('routes development business requests locally while keeping cloud auth on Render', async () => {
+    vi.stubEnv('VITE_DEPLOYMENT_MODE', 'development');
+    vi.stubEnv('VITE_DEVELOPMENT_API_URL', 'http://127.0.0.1:8080/api/v1');
+    vi.resetModules();
+
+    const developmentConfig = await import('../../../lib/config/app');
+    expect(developmentConfig.appConfig.developmentMode).toBe(true);
+    expect(developmentConfig.getBusinessApiUrl()).toBe('http://127.0.0.1:8080/api/v1');
+    expect(developmentConfig.getCloudApiUrl()).toBe('https://partflow-api.onrender.com/api/v1');
+
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('keeps production builds pinned to Render even when an API override is present', async () => {
+    vi.stubEnv('VITE_DEPLOYMENT_MODE', 'production');
+    vi.stubEnv('VITE_CLOUD_API_URL', 'http://127.0.0.1:8080/api/v1');
+    vi.resetModules();
+
+    const productionConfig = await import('../../../lib/config/app');
+    expect(productionConfig.appConfig.developmentMode).toBe(false);
+    expect(productionConfig.getBusinessApiUrl()).toBe('https://partflow-api.onrender.com/api/v1');
+
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
   it('never triggers automatic initial sync because cloud sync is manual', async () => {
     const { isInitialSyncNeeded } = await import('../../../hooks/useInitialDataSync');
 

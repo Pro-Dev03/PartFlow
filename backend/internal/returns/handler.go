@@ -705,7 +705,11 @@ func (h *Handler) GetReturnWithItems(c *gin.Context) {
 
 	returnRecord, items, err := h.service.GetReturnWithItems(c.Request.Context(), id)
 	if err != nil {
-		apperrors.HandleError(c, apperrors.NewNotFoundError("Return", err))
+		if stderrors.Is(err, ErrReturnNotFound) {
+			apperrors.HandleError(c, apperrors.NewNotFoundError("Return", err))
+			return
+		}
+		apperrors.HandleError(c, apperrors.NewDatabaseError("Failed to load return details", err))
 		return
 	}
 

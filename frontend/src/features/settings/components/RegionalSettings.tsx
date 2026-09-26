@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system
 import { Select } from '../../../design-system/components/select';
 import { settingsApi } from '../../../services/api/endpoints';
 import { RegionalProfile } from '../../../types/regional';
-import { getDeviceTimezone, setRegionalProfile } from '../../../utils/store-time';
+import { getStoreTimezone, setRegionalProfile } from '../../../utils/store-time';
 import { toast } from 'sonner';
 
 interface RegionalSettingsProps {
@@ -35,7 +35,7 @@ export function RegionalSettings({ canManageRegionalSettings = false }: Regional
 
   useEffect(() => {
     const updateCurrentStoreDateTime = () => {
-      const activeTimezone = timezone || getDeviceTimezone();
+      const activeTimezone = timezone || getStoreTimezone();
       const locale = profile?.locale || 'ar-SA';
       const formatted = new Intl.DateTimeFormat(locale, {
         dateStyle: 'full',
@@ -57,6 +57,7 @@ export function RegionalSettings({ canManageRegionalSettings = false }: Regional
       const nextProfile = response.data?.profile as RegionalProfile | undefined;
       if (nextProfile) setRegionalProfile(nextProfile);
       void queryClient.invalidateQueries({ queryKey: ['settings', 'regional'] });
+      void queryClient.invalidateQueries({ queryKey: ['reports'] });
           toast.success('تم حفظ المنطقة الزمنية للمتجر');
     },
     onError: () => toast.error('تعذر حفظ إعدادات الدولة والمنطقة الزمنية'),
@@ -90,7 +91,7 @@ export function RegionalSettings({ canManageRegionalSettings = false }: Regional
           <div className="flex flex-col gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs text-text-secondary">المنطقة الزمنية الرسمية</p>
-              <strong className="mt-1 block text-sm font-semibold text-text-primary" dir="ltr">{timezone || getDeviceTimezone()}</strong>
+              <strong className="mt-1 block text-sm font-semibold text-text-primary" dir="ltr">{timezone || getStoreTimezone()}</strong>
             </div>
             <Globe2 className="h-5 w-5 shrink-0 text-emerald-600" />
           </div>
@@ -110,7 +111,7 @@ export function RegionalSettings({ canManageRegionalSettings = false }: Regional
             </div>
           )}
           <p className="mt-4 text-xs leading-5 text-text-secondary">
-            تم اكتشافها تلقائيًا من الجهاز عند إعداد المتجر، وتبقى ثابتة عند تغيير الجهاز.
+            تستخدم التقارير والحسابات المنطقة الزمنية المحفوظة للمتجر، وتتغير عند تحديث هذا الإعداد.
           </p>
         </div>
         {canManageRegionalSettings ? (
@@ -134,6 +135,18 @@ export function RegionalSettings({ canManageRegionalSettings = false }: Regional
                   label: `${country.country_name} (${country.timezone})`,
                 }))}
               />
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium text-text-primary">Store timezone (IANA)</span>
+                <input
+                  type="text"
+                  value={timezone}
+                  onChange={(event) => setTimezone(event.target.value)}
+                  placeholder="Asia/Jerusalem"
+                  dir="ltr"
+                  disabled={isLoading || updateMutation.isPending}
+                  className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:ring-2 focus:ring-primary"
+                />
+              </label>
               <Button variant="primary" className="gap-2" onClick={() => {
                 if (window.confirm('تغيير المنطقة الزمنية سيؤثر على الحسابات والتقارير التاريخية. هل تريد المتابعة؟')) updateMutation.mutate();
               }} disabled={isLoading || updateMutation.isPending}>

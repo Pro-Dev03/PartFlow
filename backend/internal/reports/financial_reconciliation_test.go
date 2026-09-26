@@ -163,15 +163,17 @@ func TestDebtReportDoesNotMultiplyDebtByPaymentRows(t *testing.T) {
 	_, err = db.Exec(`
 		CREATE TABLE customers (id TEXT PRIMARY KEY, name TEXT);
 		CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT, amount REAL, remaining_amount REAL, due_date TEXT, status TEXT);
-		CREATE TABLE payments (id TEXT PRIMARY KEY, transaction_number TEXT, customer_id TEXT, amount REAL, payment_method TEXT, reference TEXT, notes TEXT, created_at TEXT);
+		CREATE TABLE payments (id TEXT PRIMARY KEY, transaction_number TEXT, customer_id TEXT, amount REAL, payment_method TEXT, payment_status TEXT, is_reversed INTEGER DEFAULT 0, reference TEXT, notes TEXT, created_at TEXT);
 		INSERT INTO customers (id, name) VALUES ('00000000-0000-0000-0000-000000000001', 'Customer One');
 		INSERT INTO debts (id, customer_id, amount, remaining_amount, due_date, status) VALUES
 			('debt-open', '00000000-0000-0000-0000-000000000001', 100, 70, '2026-09-01', 'partial'),
 			('debt-paid', '00000000-0000-0000-0000-000000000001', 50, 0, '2026-09-01', 'paid'),
 			('debt-cancelled', '00000000-0000-0000-0000-000000000001', 20, 20, '2026-09-01', 'cancelled');
-		INSERT INTO payments (id, transaction_number, customer_id, amount, payment_method, reference, notes, created_at) VALUES
-			('payment-1', 'PAY-1', '00000000-0000-0000-0000-000000000001', 10, 'cash', 'ref-1', 'first', '2026-09-19T10:00:00Z'),
-			('payment-2', 'PAY-2', '00000000-0000-0000-0000-000000000001', 20, 'cash', 'ref-2', 'second', '2026-09-20T10:00:00Z');
+		INSERT INTO payments (id, transaction_number, customer_id, amount, payment_method, payment_status, is_reversed, reference, notes, created_at) VALUES
+			('payment-1', 'PAY-1', '00000000-0000-0000-0000-000000000001', 10, 'cash', 'completed', 0, 'ref-1', 'first', '2026-09-19T10:00:00Z'),
+			('payment-2', 'PAY-2', '00000000-0000-0000-0000-000000000001', 20, 'cash', 'completed', 0, 'ref-2', 'second', '2026-09-20T10:00:00Z'),
+			('payment-pending', 'PAY-PENDING', '00000000-0000-0000-0000-000000000001', 90, 'cash', 'pending', 0, 'ref-pending', 'pending', '2026-09-21T10:00:00Z'),
+			('payment-reversed', 'PAY-REVERSED', '00000000-0000-0000-0000-000000000001', 70, 'cash', 'completed', 1, 'ref-reversed', 'reversed', '2026-09-22T10:00:00Z');
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +193,7 @@ func TestDebtReportDoesNotMultiplyDebtByPaymentRows(t *testing.T) {
 	if customer.TotalDebt != report.TotalDebt || customer.PaidAmount != report.TotalPaid || customer.Outstanding != report.Outstanding || customer.OverdueAmount != report.OverdueDebt {
 		t.Fatalf("customer debt does not reconcile with report totals: %#v vs totals %.2f/%.2f/%.2f/%.2f", customer, report.TotalDebt, report.TotalPaid, report.Outstanding, report.OverdueDebt)
 	}
-	if len(report.PaymentHistory) != 2 || report.PaymentHistory[0].ReferenceNumber != "ref-2" {
+	if len(report.PaymentHistory) != 2 || report.PaymentHistory[0].ReferenceNumber != "ref-2" || report.ByCustomer[0].LastPayment.Format("2006-01-02") != "2026-09-20" {
 		t.Fatalf("payment history missing or malformed: %#v", report.PaymentHistory)
 	}
 }
@@ -234,5 +236,98 @@ func TestProfitTimelineIncludesDaysAndMonthsWithOnlyExpenses(t *testing.T) {
 	}
 	if len(report.ByMonth) != 2 || !closeReportAmount(report.ByMonth[0].NetProfit, 50) || !closeReportAmount(report.ByMonth[1].NetProfit, -20) {
 		t.Fatalf("monthly trend omitted expense-only months: %#v", report.ByMonth)
+	}
+}
+
+func TestProfitReportUsesCreatedAtWhenSaleDateIsMissing(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`
+		CREATE TABLE sales (id TEXT PRIMARY KEY, sale_date TEXT, created_at TEXT, total_amount REAL, tax_amount REAL, status TEXT, cost_amount REAL);
+		CREATE TABLE sale_items (id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, quantity INTEGER, unit_cost REAL, total_amount REAL, tax_amount REAL);
+		CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT, category_id TEXT, cost_price REAL);
+		CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT);
+		CREATE TABLE expenses (id TEXT PRIMARY KEY, amount REAL, expense_date TEXT, status TEXT);
+		INSERT INTO products (id, name, category_id, cost_price) VALUES ('product-1', 'Part', 'category-1', 40);
+		INSERT INTO categories (id, name) VALUES ('category-1', 'Parts');
+		INSERT INTO sales (id, sale_date, created_at, total_amount, tax_amount, status, cost_amount)
+		VALUES ('sale-1', NULL, '2026-09-16T10:00:00Z', 100, 0, 'completed', 40);
+		INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_cost, total_amount, tax_amount)
+		VALUES ('line-1', 'sale-1', 'product-1', 1, 40, 100, 0);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
+	report, err := NewRepository(db).GetProfitsData(context.Background(), start, start.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("GetProfitsData: %v", err)
+	}
+	if !closeReportAmount(report.TotalRevenue, 100) || !closeReportAmount(report.TotalCOGS, 40) || !closeReportAmount(report.NetProfit, 60) {
+		t.Fatalf("profit totals = revenue %.2f cogs %.2f net %.2f", report.TotalRevenue, report.TotalCOGS, report.NetProfit)
+	}
+	if len(report.ByDay) != 1 || !closeReportAmount(report.ByDay[0].NetProfit, report.NetProfit) || len(report.ByMonth) != 1 || !closeReportAmount(report.ByMonth[0].NetProfit, report.NetProfit) {
+		t.Fatalf("profit trends do not reconcile with created_at fallback: days=%#v months=%#v", report.ByDay, report.ByMonth)
+	}
+}
+
+func TestPurchasesReportPreservesReturnCreditsAndReconcilesPeriodTotals(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`
+		CREATE TABLE suppliers (id TEXT PRIMARY KEY, name TEXT);
+		CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT);
+		CREATE TABLE products (id TEXT PRIMARY KEY, name TEXT, category_id TEXT);
+		CREATE TABLE purchases (id TEXT PRIMARY KEY, supplier_id TEXT, purchase_date TEXT, status TEXT, total_amount REAL, paid_amount REAL, tax_amount REAL);
+		CREATE TABLE purchase_items (id TEXT PRIMARY KEY, purchase_id TEXT, product_id TEXT, item_total REAL, quantity INTEGER);
+		CREATE TABLE supplier_returns (id TEXT PRIMARY KEY, supplier_id TEXT, refund_amount REAL, status TEXT, created_at TEXT);
+		INSERT INTO suppliers (id, name) VALUES ('supplier-1', 'Supplier');
+		INSERT INTO categories (id, name) VALUES ('category-1', 'Parts');
+		INSERT INTO products (id, name, category_id) VALUES ('product-1', 'Part', 'category-1');
+		INSERT INTO purchases (id, supplier_id, purchase_date, status, total_amount, paid_amount, tax_amount)
+		VALUES ('purchase-1', 'supplier-1', '2026-09-16', 'received', 50, 0, 10);
+		INSERT INTO purchase_items (id, purchase_id, product_id, item_total, quantity)
+		VALUES ('purchase-line-1', 'purchase-1', 'product-1', 40, 2);
+		INSERT INTO supplier_returns (id, supplier_id, refund_amount, status, created_at)
+		VALUES ('return-1', 'supplier-1', 100, 'COMPLETED', '2026-09-16T12:00:00Z');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, 1)
+	report, err := NewRepository(db).GetPurchasesData(context.Background(), start, end)
+	if err != nil {
+		t.Fatalf("GetPurchasesData: %v", err)
+	}
+	if report.TotalPurchases != 1 || !closeReportAmount(report.TotalCost, 50) || !closeReportAmount(report.TaxAmount, 10) || !closeReportAmount(report.Subtotal, 40) {
+		t.Fatalf("purchase totals = count %d gross %.2f tax %.2f subtotal %.2f", report.TotalPurchases, report.TotalCost, report.TaxAmount, report.Subtotal)
+	}
+	if !closeReportAmount(report.SupplierReturnCredits, 100) || !closeReportAmount(report.NetPurchases, -50) || !closeReportAmount(report.SupplierCreditBalance, 50) {
+		t.Fatalf("purchase return credits were hidden or misreported: returns %.2f net %.2f credit %.2f", report.SupplierReturnCredits, report.NetPurchases, report.SupplierCreditBalance)
+	}
+	if len(report.ByMonth) != 1 || !closeReportAmount(report.ByMonth[0].Cost, report.TotalCost) || report.ByMonth[0].Count != report.TotalPurchases {
+		t.Fatalf("monthly purchase trend does not reconcile: %#v", report.ByMonth)
+	}
+}
+
+func TestPurchasesReportReturnsSchemaErrorsInsteadOfZeroTotals(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE purchases (purchase_date TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
+	if _, err := NewRepository(db).GetPurchasesData(context.Background(), start, start.AddDate(0, 0, 1)); err == nil {
+		t.Fatal("expected purchase schema error instead of a successful zero report")
 	}
 }

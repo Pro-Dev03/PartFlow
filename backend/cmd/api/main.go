@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -162,8 +163,12 @@ func main() {
 	api.SetupRoutes(router, db, authService)
 
 	// Create HTTP server
+	serverAddr := ":" + cfg.ServerPort
+	if cfg.ServerHost != "" {
+		serverAddr = net.JoinHostPort(cfg.ServerHost, cfg.ServerPort)
+	}
 	srv := &http.Server{
-		Addr:         ":" + cfg.ServerPort,
+		Addr:         serverAddr,
 		Handler:      router,
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
@@ -171,7 +176,7 @@ func main() {
 
 	// Start server in a goroutine
 	go func() {
-		logger.Info("Server starting...", map[string]interface{}{"port": cfg.ServerPort})
+		logger.Info("Server starting...", map[string]interface{}{"host": cfg.ServerHost, "port": cfg.ServerPort})
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatal("Failed to start server", err)
 		}

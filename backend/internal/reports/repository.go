@@ -20,6 +20,10 @@ type Repository struct {
 	db *sqlx.DB
 }
 
+func postgresStoreTimestampDateExpression(timestampExpression string) string {
+	return accounting.PostgresStoreDateExpression(timestampExpression)
+}
+
 func (r *Repository) returnDateExpression(alias string) string {
 	columns := []string{"refund_date", "return_date", "created_at"}
 	if dbutil.IsSQLite(r.db) {
@@ -30,24 +34,30 @@ func (r *Repository) returnDateExpression(alias string) string {
 			}
 		}
 		if len(available) == 0 {
-			return fmt.Sprintf("date(%s.return_date)", alias)
+			return fmt.Sprintf("store_date(%s.return_date)", alias)
 		}
-		return "date(COALESCE(" + strings.Join(available, ", ") + "))"
+		return "store_date(COALESCE(" + strings.Join(available, ", ") + "))"
 	}
-	return fmt.Sprintf("date(COALESCE(%s.refund_date, %s.return_date, %s.created_at))", alias, alias, alias)
+	return fmt.Sprintf("date(COALESCE(%s.refund_date::date, %s.return_date::date, %s))", alias, alias, postgresStoreTimestampDateExpression(alias+".created_at"))
 }
 
 func (r *Repository) salesDateExpression(alias string) string {
-	if dbutil.IsSQLite(r.db) && !reportsSQLiteHasColumns(r.db, "sales", "created_at") {
-		if alias == "" {
-			return "date(sale_date)"
+	if dbutil.IsSQLite(r.db) {
+		if !reportsSQLiteHasColumns(r.db, "sales", "created_at") {
+			if alias == "" {
+				return "store_date(sale_date)"
+			}
+			return fmt.Sprintf("store_date(%s.sale_date)", alias)
 		}
-		return fmt.Sprintf("date(%s.sale_date)", alias)
+		if alias == "" {
+			return "store_date(COALESCE(sale_date, created_at))"
+		}
+		return fmt.Sprintf("store_date(COALESCE(%s.sale_date, %s.created_at))", alias, alias)
 	}
 	if alias == "" {
-		return "date(sale_date)"
+		return fmt.Sprintf("date(COALESCE(sale_date::date, %s))", postgresStoreTimestampDateExpression("created_at"))
 	}
-	return fmt.Sprintf("date(%s.sale_date)", alias)
+	return fmt.Sprintf("date(COALESCE(%s.sale_date::date, %s))", alias, postgresStoreTimestampDateExpression(alias+".created_at"))
 }
 
 func reportsSQLiteHasColumns(db *sqlx.DB, table string, required ...string) bool {
@@ -80,6 +90,14 @@ func reportsSQLiteHasColumns(db *sqlx.DB, table string, required ...string) bool
 	return true
 }
 
+func reportsSQLiteHasRelation(ctx context.Context, db *sqlx.DB, name string) (bool, error) {
+	var count int
+	if err := db.GetContext(ctx, &count, `SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?`, name); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func profitTrendWithoutStoredSaleCost(query string) string {
 	start := strings.Index(query, "CASE WHEN s.cost_amount IS NOT NULL THEN s.cost_amount")
 	if start < 0 {
@@ -105,6 +123,48 @@ func (t *reportTimestamp) Scan(value any) error {
 		return err
 	}
 	t.Time = parsed
+	return nil
+}
+
+// reportDate scans SQL DATE/grouping keys as store calendar dates rather than
+// treating midnight UTC as an instant that may belong to the previous store day.
+type reportDate struct{ time.Time }
+
+func (d *reportDate) Scan(value any) error {
+	if value == nil {
+		d.Time = time.Time{}
+		return nil
+	}
+	var dateKey string
+	switch v := value.(type) {
+	case time.Time:
+		dateKey = v.Format("2006-01-02")
+	case string:
+		dateKey = strings.TrimSpace(v)
+	case []byte:
+		dateKey = strings.TrimSpace(string(v))
+	default:
+		parsed, err := dbutil.ParseTimestamp(value)
+		if err != nil {
+			return err
+		}
+		dateKey = parsed.Format("2006-01-02")
+	}
+	if len(dateKey) > len("2006-01-02") {
+		dateKey = dateKey[:len("2006-01-02")]
+	}
+	if _, err := time.Parse("2006-01-02", dateKey); err != nil {
+		return fmt.Errorf("parse store calendar date %q: %w", dateKey, err)
+	}
+	start, _, err := accounting.StoreDateBounds(dateKey)
+	if err != nil {
+		return err
+	}
+	location, err := accounting.StoreLocation()
+	if err != nil {
+		return err
+	}
+	d.Time = start.In(location)
 	return nil
 }
 
@@ -181,21 +241,14 @@ func (r *Repository) returnFinancialAdjustments(ctx context.Context, startDate, 
 		if !reportsSQLiteHasColumns(r.db, "accounting_returns", "status", "total_refund_amount") {
 			return result, nil
 		}
-	}
-
-	returnDateColumns := []string{"r.refund_date", "r.return_date", "r.created_at"}
-	if dbutil.IsSQLite(r.db) {
-		returnDateColumns = nil
-		for _, column := range []string{"refund_date", "return_date", "created_at"} {
-			if reportsSQLiteHasColumns(r.db, "accounting_returns", column) {
-				returnDateColumns = append(returnDateColumns, "r."+column)
-			}
-		}
-		if len(returnDateColumns) == 0 {
+		if !reportsSQLiteHasColumns(r.db, "accounting_returns", "refund_date") &&
+			!reportsSQLiteHasColumns(r.db, "accounting_returns", "return_date") &&
+			!reportsSQLiteHasColumns(r.db, "accounting_returns", "created_at") {
 			return result, nil
 		}
 	}
-	returnDate := "COALESCE(" + strings.Join(returnDateColumns, ", ") + ")"
+
+	returnDate := r.returnDateExpression("r")
 
 	lineJoin := ""
 	lineGross, lineNet, lineTax, lineCost, lineQuantity := "0", "0", "0", "0", "0"
@@ -554,8 +607,8 @@ func (r *Repository) ListReports(ctx context.Context, req ReportListRequest) ([]
 
 	if req.EndDate != nil {
 		argCount++
-		baseQuery += fmt.Sprintf(" AND generated_at <= $%d", argCount)
-		countQuery += fmt.Sprintf(" AND generated_at <= $%d", argCount)
+		baseQuery += fmt.Sprintf(" AND generated_at < $%d", argCount)
+		countQuery += fmt.Sprintf(" AND generated_at < $%d", argCount)
 		args = append(args, *req.EndDate)
 	}
 
@@ -745,7 +798,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 		}
 	} else {
 		itemCOGSQuery := r.historicalCOGSTotalSQL("$1", "$2")
-		err = r.db.GetContext(ctx, &totals, fmt.Sprintf(`
+		salesTotalsQuery := fmt.Sprintf(`
 			SELECT st.total_sales, st.total_revenue, st.total_tax, st.total_paid, st.cash_received, st.change_amount, it.total_cogs, it.total_items_sold,
 				st.cash_revenue, st.credit_revenue
 			FROM (
@@ -768,8 +821,10 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 						 WHERE date(COALESCE(s.sale_date, s.created_at)) >= date($3) AND date(COALESCE(s.sale_date, s.created_at)) < date($4)
 						   AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) AS total_items_sold
 			) it`,
-			itemCOGSQuery),
-			startDateKey, endDateKey, startDateKey, endDateKey)
+			itemCOGSQuery)
+		salesTotalsQuery = strings.ReplaceAll(salesTotalsQuery, "date(COALESCE(sale_date, created_at))", r.salesDateExpression(""))
+		salesTotalsQuery = strings.ReplaceAll(salesTotalsQuery, "date(COALESCE(s.sale_date, s.created_at))", r.salesDateExpression("s"))
+		err = r.db.GetContext(ctx, &totals, salesTotalsQuery, startDateKey, endDateKey, startDateKey, endDateKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve sales totals: %w", err)
 		}
@@ -799,19 +854,20 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 		report.ProfitMargin = 0
 	}
 
-	dailySalesQuery := fmt.Sprintf(`SELECT DATE(sale_date) as date, COUNT(*) as sales, COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) as revenue
+	dailySalesDate := r.salesDateExpression("")
+	dailySalesQuery := fmt.Sprintf(`SELECT %s as date, COUNT(*) as sales, COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) as revenue
 		 FROM sales 
 		 WHERE %s >= date(?) AND %s < date(?)
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
-		GROUP BY DATE(sale_date)
-		ORDER BY date`, r.salesDateExpression(""), r.salesDateExpression(""))
+		GROUP BY %s
+		ORDER BY date`, dailySalesDate, dailySalesDate, dailySalesDate, dailySalesDate)
 	rows, err := r.db.QueryContext(ctx, r.db.Rebind(dailySalesQuery), startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve daily sales trend: %w", err)
 	}
 	for rows.Next() {
 		var daily DailySales
-		var date reportTimestamp
+		var date reportDate
 		if err := rows.Scan(&date, &daily.Sales, &daily.Revenue); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("failed to scan daily sales trend: %w", err)
@@ -961,7 +1017,7 @@ func (r *Repository) GetSalesData(ctx context.Context, startDate, endDate time.T
 		`SELECT COALESCE(NULLIF(TRIM(payment_method), ''), 'غير محدد'),
 			COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0)
 		 FROM sales
-		 WHERE date(sale_date) >= date(?) AND date(sale_date) < date(?)
+		 WHERE `+r.salesDateExpression("")+` >= date(?) AND `+r.salesDateExpression("")+` < date(?)
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY COALESCE(NULLIF(TRIM(payment_method), ''), 'غير محدد')`),
 		startDateKey, endDateKey)
@@ -1019,7 +1075,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		`SELECT COALESCE(SUM(stock), 0) FROM (
 			SELECT p.id, COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0) AS stock
 			FROM products p
-			LEFT JOIN inventory inv ON inv.product_id = p.id
+			LEFT JOIN (SELECT product_id, SUM(quantity) AS quantity FROM inventory GROUP BY product_id) inv ON inv.product_id = p.id
 			LEFT JOIN inventory_items ii ON ii.product_id = p.id
 			WHERE p.deleted_at IS NULL
 			GROUP BY p.id, inv.quantity
@@ -1032,7 +1088,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		`SELECT COALESCE(SUM(stock * p.cost_price), 0) FROM (
 			SELECT p.id, COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0) AS stock
 			FROM products p
-			LEFT JOIN inventory inv ON inv.product_id = p.id
+			LEFT JOIN (SELECT product_id, SUM(quantity) AS quantity FROM inventory GROUP BY product_id) inv ON inv.product_id = p.id
 			LEFT JOIN inventory_items ii ON ii.product_id = p.id
 			WHERE p.deleted_at IS NULL
 			GROUP BY p.id, inv.quantity
@@ -1055,7 +1111,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		            1 AS quantity, COALESCE(p.cost_price, 0) AS unit_cost
 		     FROM inventory_items ii
 		     JOIN products p ON p.id = ii.product_id
-		     LEFT JOIN inventory inv ON inv.product_id = p.id
+		     LEFT JOIN (SELECT product_id, SUM(quantity) AS quantity FROM inventory GROUP BY product_id) inv ON inv.product_id = p.id
 		     LEFT JOIN available_items ai ON ai.product_id = p.id
 		     WHERE ii.status = 'AVAILABLE'
 		       AND UPPER(COALESCE(ii.condition, '')) <> 'USED'
@@ -1067,7 +1123,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		                 THEN inv.quantity - COALESCE(ai.quantity, 0)
 		                 ELSE inv.quantity END AS quantity,
 		            COALESCE(p.cost_price, 0) AS unit_cost
-		     FROM inventory inv
+			 FROM (SELECT product_id, SUM(quantity) AS quantity FROM inventory GROUP BY product_id) inv
 		     JOIN products p ON p.id = inv.product_id
 		     LEFT JOIN available_items ai ON ai.product_id = p.id
 		     WHERE inv.quantity > 0 AND p.deleted_at IS NULL
@@ -1088,14 +1144,17 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		report.ByCondition[condition] = count
 		report.Valuation.ByCondition[condition] = value
 	}
-	_ = rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read inventory conditions: %w", err)
+	}
 	rows.Close()
 	report.Valuation.TotalCost = report.TotalValue
 	err = r.db.GetContext(ctx, &report.Valuation.TotalRetail,
 		`SELECT COALESCE(SUM(stock * p.selling_price), 0) FROM (
 			SELECT p.id, COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0) AS stock
 			FROM products p
-			LEFT JOIN inventory inv ON inv.product_id = p.id
+			LEFT JOIN (SELECT product_id, SUM(quantity) AS quantity FROM inventory GROUP BY product_id) inv ON inv.product_id = p.id
 			LEFT JOIN inventory_items ii ON ii.product_id = p.id
 			WHERE p.deleted_at IS NULL
 			GROUP BY p.id, inv.quantity
@@ -1104,8 +1163,8 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		return nil, fmt.Errorf("failed to retrieve retail inventory value: %w", err)
 	}
 	var taxRate float64
-	if err := r.db.GetContext(ctx, &taxRate, `SELECT COALESCE(CAST(value AS FLOAT), 0) FROM settings WHERE key = 'tax_rate'`); err != nil {
-		taxRate = 0
+	if err := r.db.GetContext(ctx, &taxRate, `SELECT COALESCE((SELECT CAST(value AS FLOAT) FROM settings WHERE key = 'tax_rate' LIMIT 1), 0)`); err != nil {
+		return nil, fmt.Errorf("failed to retrieve inventory tax rate: %w", err)
 	}
 	report.Valuation.TotalRetailWithTax = report.Valuation.TotalRetail * (1 + taxRate/100)
 	report.Valuation.PotentialProfit = report.Valuation.TotalRetail - report.Valuation.TotalCost
@@ -1115,7 +1174,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 				COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0),
 				p.min_stock_level
 		 FROM products p
-		 LEFT JOIN inventory inv ON inv.product_id = p.id
+		 LEFT JOIN (SELECT product_id, SUM(quantity) AS quantity FROM inventory GROUP BY product_id) inv ON inv.product_id = p.id
 		 LEFT JOIN inventory_items ii ON ii.product_id = p.id
 		 WHERE p.is_active = true AND p.deleted_at IS NULL
 		 GROUP BY p.id, p.name, p.min_stock_level, inv.quantity
@@ -1143,7 +1202,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 					 COALESCE(inv.quantity, SUM(CASE WHEN ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED' THEN 1 ELSE 0 END), 0),
 		        p.min_stock_level, p.min_stock_level
 		 FROM products p
-		 LEFT JOIN inventory inv ON inv.product_id = p.id
+		 LEFT JOIN (SELECT product_id, SUM(quantity) AS quantity FROM inventory GROUP BY product_id) inv ON inv.product_id = p.id
 		 LEFT JOIN inventory_items ii ON ii.product_id = p.id
 		 WHERE p.is_active = true AND p.deleted_at IS NULL AND p.min_stock_level > 0
 		 GROUP BY p.id, p.name, p.min_stock_level, inv.quantity
@@ -1160,7 +1219,10 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		}
 		report.LowStockItems = append(report.LowStockItems, item)
 	}
-	_ = rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read low stock items: %w", err)
+	}
 	rows.Close()
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT COALESCE(c.name, 'غير مصنف'), COUNT(*)
@@ -1181,7 +1243,10 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		}
 		report.ByCategory[category] = count
 	}
-	_ = rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read inventory categories: %w", err)
+	}
 	rows.Close()
 
 	// Category totals must use the same product stock source as TotalItems:
@@ -1196,7 +1261,7 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 		), product_stock AS (
 			SELECT p.id, p.category_id, COALESCE(inv.quantity, serialized_stock.quantity, 0) AS quantity
 			FROM products p
-			LEFT JOIN inventory inv ON inv.product_id = p.id
+			LEFT JOIN (SELECT product_id, SUM(quantity) AS quantity FROM inventory GROUP BY product_id) inv ON inv.product_id = p.id
 			LEFT JOIN serialized_stock ON serialized_stock.product_id = p.id
 			WHERE p.deleted_at IS NULL
 		)
@@ -1224,138 +1289,144 @@ func (r *Repository) GetInventoryData(ctx context.Context) (*InventoryReport, er
 	}
 	rows.Close()
 
-	overstockQuery := `SELECT p.id, p.name,
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED'),
-		        (SELECT COALESCE(SUM(si.quantity), 0) / 3 FROM sale_items si
-		         JOIN sales s ON s.id = si.sale_id
-		         WHERE si.product_id = p.id AND s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
-		           AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')),
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') /
-		        GREATEST((SELECT COALESCE(SUM(si.quantity), 0) / 3 FROM sale_items si
-		                  JOIN sales s ON s.id = si.sale_id
-		                  WHERE si.product_id = p.id AND s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
-		                    AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 1)
-		 FROM products p
-		 WHERE p.is_active = true AND p.deleted_at IS NULL
-		   AND (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') > 0
-		   AND ((SELECT COALESCE(SUM(si.quantity), 0) FROM sale_items si
-		         JOIN sales s ON s.id = si.sale_id
-		         WHERE si.product_id = p.id AND s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
-		           AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) = 0 OR
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') /
-		        GREATEST((SELECT COALESCE(SUM(si.quantity), 0) / 3 FROM sale_items si
-		                  JOIN sales s ON s.id = si.sale_id
-		                  WHERE si.product_id = p.id AND s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
-		                    AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 1) >= 6)
-		 ORDER BY 3 DESC`
-	if dbutil.IsSQLite(r.db) {
-		overstockQuery = `SELECT p.id, p.name,
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED'),
-		        (SELECT COALESCE(SUM(si.quantity), 0) / 3.0 FROM sale_items si
-		         JOIN sales s ON s.id = si.sale_id
-				 WHERE si.product_id = p.id AND date(s.sale_date) >= date(?)
-		           AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')),
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') /
-		        MAX((SELECT COALESCE(SUM(si.quantity), 0) / 3.0 FROM sale_items si
-		                  JOIN sales s ON s.id = si.sale_id
-				          WHERE si.product_id = p.id AND date(s.sale_date) >= date(?)
-		                    AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 1)
-		 FROM products p
-		 WHERE p.is_active = 1 AND p.deleted_at IS NULL
-		   AND (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') > 0
-		   AND ((SELECT COALESCE(SUM(si.quantity), 0) FROM sale_items si
-		         JOIN sales s ON s.id = si.sale_id
-			         WHERE si.product_id = p.id AND date(s.sale_date) >= date(?)
-		           AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')) = 0 OR
-		        (SELECT COUNT(*) FROM inventory_items ii WHERE ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED') /
-		        MAX((SELECT COALESCE(SUM(si.quantity), 0) / 3.0 FROM sale_items si
-		                  JOIN sales s ON s.id = si.sale_id
-			          WHERE si.product_id = p.id AND date(s.sale_date) >= date(?)
-		                    AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')), 1) >= 6)
-		 ORDER BY 3 DESC`
-	} else {
-		overstockQuery = strings.ReplaceAll(overstockQuery, "s.sale_date >= CURRENT_DATE - INTERVAL '90 days'", "s.sale_date >= $1::date")
+	overstockQuery := `WITH serialized_stock AS (
+			SELECT product_id, COUNT(*) AS quantity
+			FROM inventory_items
+			WHERE status = 'AVAILABLE' AND UPPER(COALESCE(condition, '')) <> 'USED'
+			GROUP BY product_id
+		), inventory_stock AS (
+			SELECT product_id, SUM(quantity) AS quantity
+			FROM inventory
+			GROUP BY product_id
+		), product_stock AS (
+			SELECT p.id, p.name, COALESCE(inventory_stock.quantity, serialized_stock.quantity, 0) AS quantity
+			FROM products p
+			LEFT JOIN inventory_stock ON inventory_stock.product_id = p.id
+			LEFT JOIN serialized_stock ON serialized_stock.product_id = p.id
+			WHERE p.is_active = true AND p.deleted_at IS NULL
+		), recent_sales AS (
+			SELECT si.product_id, COALESCE(SUM(si.quantity), 0) AS quantity
+			FROM sale_items si
+			JOIN sales s ON s.id = si.sale_id
+			WHERE ` + r.salesDateExpression("s") + ` >= ?
+			  AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
+			GROUP BY si.product_id
+		)
+		SELECT p.id, p.name, p.quantity,
+		       COALESCE(recent_sales.quantity, 0) / 3.0,
+		       p.quantity / NULLIF(COALESCE(recent_sales.quantity, 0) / 3.0, 0)
+		FROM product_stock p
+		LEFT JOIN recent_sales ON recent_sales.product_id = p.id
+		WHERE p.quantity > 0
+		  AND (COALESCE(recent_sales.quantity, 0) = 0 OR p.quantity / NULLIF(COALESCE(recent_sales.quantity, 0) / 3.0, 0) >= 6)
+		ORDER BY p.quantity DESC`
+	if !dbutil.IsSQLite(r.db) {
+		overstockQuery = strings.ReplaceAll(overstockQuery, "?", "$1::date")
 	}
 	overstockArgs := []any{overstockStart}
-	if dbutil.IsSQLite(r.db) {
-		overstockArgs = []any{overstockStart, overstockStart, overstockStart, overstockStart}
-	}
 	rows, err = r.db.QueryContext(ctx, overstockQuery, overstockArgs...)
-	if err == nil {
-		for rows.Next() {
-			var item OverstockItem
-			if err := rows.Scan(&item.ProductID, &item.ProductName, &item.CurrentStock, &item.AvgMonthlySales, &item.MonthsOfSupply); err == nil {
-				report.OverstockItems = append(report.OverstockItems, item)
-			}
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve overstock items: %w", err)
+	}
+	for rows.Next() {
+		var item OverstockItem
+		if err := rows.Scan(&item.ProductID, &item.ProductName, &item.CurrentStock, &item.AvgMonthlySales, &item.MonthsOfSupply); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan overstock item: %w", err)
 		}
-		_ = rows.Err()
+		report.OverstockItems = append(report.OverstockItems, item)
+	}
+	if err := rows.Err(); err != nil {
 		rows.Close()
+		return nil, fmt.Errorf("failed to read overstock items: %w", err)
 	}
+	rows.Close()
 
-	stagnantQuery := `SELECT p.id, p.name, COUNT(ii.id),
-		        CASE WHEN MAX(latest_sale.last_sale_date) IS NULL OR MAX(latest_sale.last_sale_date) < MAX(ii.created_at)::date
-		             THEN MAX(ii.created_at)::date ELSE MAX(latest_sale.last_sale_date) END,
-		        CURRENT_DATE - CASE WHEN MAX(latest_sale.last_sale_date) IS NULL OR MAX(latest_sale.last_sale_date) < MAX(ii.created_at)::date
-		             THEN MAX(ii.created_at)::date ELSE MAX(latest_sale.last_sale_date) END,
-		        COALESCE(SUM(ii.purchase_cost), 0)
-		 FROM products p
-		 JOIN inventory_items ii ON ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED'
-		 LEFT JOIN (
-			SELECT si.product_id, MAX(s.sale_date) AS last_sale_date
-			FROM sale_items si
-			JOIN sales s ON s.id = si.sale_id
-			WHERE LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
-			GROUP BY si.product_id
-		 ) latest_sale ON latest_sale.product_id = p.id
-		 WHERE p.is_active = true AND p.deleted_at IS NULL
-		 GROUP BY p.id, p.name
-		 HAVING CURRENT_DATE - CASE WHEN MAX(latest_sale.last_sale_date) IS NULL OR MAX(latest_sale.last_sale_date) < MAX(ii.created_at)::date
-		             THEN MAX(ii.created_at)::date ELSE MAX(latest_sale.last_sale_date) END >= 30
-		 ORDER BY CURRENT_DATE - CASE WHEN MAX(latest_sale.last_sale_date) IS NULL OR MAX(latest_sale.last_sale_date) < MAX(ii.created_at)::date
-		             THEN MAX(ii.created_at)::date ELSE MAX(latest_sale.last_sale_date) END DESC`
-	if dbutil.IsSQLite(r.db) {
-		stagnantQuery = `SELECT p.id, p.name,
-		        COUNT(ii.id),
-		        CASE WHEN MAX(latest_sale.last_sale_date) IS NULL OR MAX(latest_sale.last_sale_date) < MAX(ii.created_at)
-		             THEN MAX(ii.created_at) ELSE MAX(latest_sale.last_sale_date) END,
-		        CAST(julianday(?) - julianday(CASE WHEN MAX(latest_sale.last_sale_date) IS NULL OR MAX(latest_sale.last_sale_date) < MAX(ii.created_at)
-		             THEN MAX(ii.created_at) ELSE MAX(latest_sale.last_sale_date) END) AS INTEGER),
-		        COALESCE(SUM(ii.purchase_cost), 0)
-		 FROM products p
-		 JOIN inventory_items ii ON ii.product_id = p.id AND ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED'
-		 LEFT JOIN (
-			SELECT si.product_id, MAX(s.sale_date) AS last_sale_date
-			FROM sale_items si
-			JOIN sales s ON s.id = si.sale_id
-			WHERE LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
-			GROUP BY si.product_id
-		 ) latest_sale ON latest_sale.product_id = p.id
-		 WHERE p.is_active = 1 AND p.deleted_at IS NULL
-		 GROUP BY p.id, p.name
-		 HAVING julianday(?) - julianday(CASE WHEN MAX(latest_sale.last_sale_date) IS NULL OR MAX(latest_sale.last_sale_date) < MAX(ii.created_at)
-		             THEN MAX(ii.created_at) ELSE MAX(latest_sale.last_sale_date) END) >= 30
-		 ORDER BY julianday(?) - julianday(CASE WHEN MAX(latest_sale.last_sale_date) IS NULL OR MAX(latest_sale.last_sale_date) < MAX(ii.created_at)
-		             THEN MAX(ii.created_at) ELSE MAX(latest_sale.last_sale_date) END) DESC`
-	} else {
-		stagnantQuery = strings.ReplaceAll(stagnantQuery, "CURRENT_DATE", "$1::date")
+	latestSaleDate := "MAX(" + r.salesDateExpression("s") + ")"
+	latestItemDate := "MAX(store_date(ii.created_at))"
+	latestMovementDate := "MAX(store_date(m.created_at))"
+	inventoryRestockDate := "store_date(inventory_stock.last_restocked_at)"
+	inventoryCreatedDate := "store_date(inventory_stock.created_at)"
+	productCreatedDate := "store_date(p.created_at)"
+	activityDate := "MAX(COALESCE(sales_activity.last_sale_date, '0001-01-01'), COALESCE(item_activity.last_item_date, '0001-01-01'), COALESCE(movement_activity.last_movement_date, '0001-01-01'), COALESCE(" + inventoryRestockDate + ", " + inventoryCreatedDate + ", " + productCreatedDate + ", '0001-01-01'))"
+	daysSinceActivity := "CAST(julianday(?) - julianday(stock_activity.last_activity_date) AS INTEGER)"
+	if !dbutil.IsSQLite(r.db) {
+		latestItemDate = postgresStoreTimestampDateExpression("MAX(ii.created_at)")
+		latestMovementDate = postgresStoreTimestampDateExpression("MAX(m.created_at)")
+		inventoryRestockDate = postgresStoreTimestampDateExpression("inventory_stock.last_restocked_at")
+		inventoryCreatedDate = postgresStoreTimestampDateExpression("inventory_stock.created_at")
+		productCreatedDate = postgresStoreTimestampDateExpression("p.created_at")
+		activityDate = "GREATEST(COALESCE(sales_activity.last_sale_date, DATE '0001-01-01'), COALESCE(item_activity.last_item_date, DATE '0001-01-01'), COALESCE(movement_activity.last_movement_date, DATE '0001-01-01'), COALESCE(" + inventoryRestockDate + ", " + inventoryCreatedDate + ", " + productCreatedDate + ", DATE '0001-01-01'))"
+		daysSinceActivity = "$1::date - stock_activity.last_activity_date"
 	}
+	stagnantQuery := `WITH serialized_stock AS (
+			SELECT product_id, COUNT(*) AS quantity, MAX(created_at) AS latest_item_created_at
+			FROM inventory_items
+			WHERE status = 'AVAILABLE' AND UPPER(COALESCE(condition, '')) <> 'USED'
+			GROUP BY product_id
+		), inventory_stock AS (
+			SELECT product_id, SUM(quantity) AS quantity,
+			       MAX(last_restocked_at) AS last_restocked_at, MAX(created_at) AS created_at
+			FROM inventory
+			GROUP BY product_id
+		), sales_activity AS (
+			SELECT si.product_id, ` + latestSaleDate + ` AS last_sale_date
+			FROM sale_items si
+			JOIN sales s ON s.id = si.sale_id
+			WHERE LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
+			GROUP BY si.product_id
+		), item_activity AS (
+			SELECT ii.product_id, ` + latestItemDate + ` AS last_item_date
+			FROM inventory_items ii
+			WHERE ii.status = 'AVAILABLE' AND UPPER(COALESCE(ii.condition, '')) <> 'USED'
+			GROUP BY ii.product_id
+		), movement_activity AS (
+			SELECT m.product_id, ` + latestMovementDate + ` AS last_movement_date
+			FROM inventory_movements m
+			WHERE m.product_id IS NOT NULL AND m.quantity > 0
+			GROUP BY m.product_id
+		), stock_activity AS (
+			SELECT p.id, p.name,
+			       COALESCE(inventory_stock.quantity, serialized_stock.quantity, 0) AS quantity,
+			       ` + activityDate + ` AS last_activity_date,
+			       COALESCE(p.cost_price, 0) AS unit_cost
+			FROM products p
+			LEFT JOIN inventory_stock ON inventory_stock.product_id = p.id
+			LEFT JOIN serialized_stock ON serialized_stock.product_id = p.id
+			LEFT JOIN sales_activity ON sales_activity.product_id = p.id
+			LEFT JOIN item_activity ON item_activity.product_id = p.id
+			LEFT JOIN movement_activity ON movement_activity.product_id = p.id
+			WHERE p.is_active = true AND p.deleted_at IS NULL
+		)
+		SELECT stock_activity.id, stock_activity.name, stock_activity.quantity,
+		       stock_activity.last_activity_date, ` + daysSinceActivity + `,
+		       stock_activity.quantity * stock_activity.unit_cost
+		FROM stock_activity
+		WHERE stock_activity.quantity > 0 AND ` + daysSinceActivity + ` >= 30
+		ORDER BY ` + daysSinceActivity + ` DESC`
 	stagnantArgs := []any{storeDate}
 	if dbutil.IsSQLite(r.db) {
 		stagnantArgs = []any{storeDate, storeDate, storeDate}
 	}
 	rows, err = r.db.QueryContext(ctx, stagnantQuery, stagnantArgs...)
-	if err == nil {
-		for rows.Next() {
-			var item StagnantItem
-			var lastSale reportTimestamp
-			if err := rows.Scan(&item.ProductID, &item.ProductName, &item.CurrentStock, &lastSale, &item.DaysSinceSale, &item.Value); err == nil {
-				item.LastSaleDate = lastSale.Time
-				report.StagnantItems = append(report.StagnantItems, item)
-			}
-		}
-		_ = rows.Err()
-		rows.Close()
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve stagnant inventory items: %w", err)
 	}
+	for rows.Next() {
+		var item StagnantItem
+		var lastSale reportDate
+		if err := rows.Scan(&item.ProductID, &item.ProductName, &item.CurrentStock, &lastSale, &item.DaysSinceSale, &item.Value); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan stagnant inventory item: %w", err)
+		}
+		item.LastSaleDate = lastSale.Time
+		report.StagnantItems = append(report.StagnantItems, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read stagnant inventory items: %w", err)
+	}
+	rows.Close()
 
 	return &report, nil
 }
@@ -1365,6 +1436,14 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 	var report ExpensesReport
 	report.StartDate = startDate
 	report.EndDate = endDate
+	startDateKey, err := accounting.StoreDate(startDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize expenses report start date: %w", err)
+	}
+	endDateKey, err := accounting.StoreDate(endDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize expenses report end date: %w", err)
+	}
 	report.ByCategory = make(map[string]float64)
 	report.ByPaymentMethod = make(map[string]float64)
 	report.ByMonth = []MonthlyExpenses{}
@@ -1375,7 +1454,6 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 	}
 	expenseStatus := accounting.AccountingExpenseStatusSQL()
 
-	var err error
 	report.TotalExpenses, err = accounting.AccountingExpensesForPeriod(ctx, r.db, startDate, endDate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve expenses total: %w", err)
@@ -1386,7 +1464,7 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 		 FROM expenses
 		 WHERE %s AND %s
 		 GROUP BY category`, expensePeriod, expenseStatus),
-		startDate, endDate)
+		startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve expenses by category: %w", err)
 	}
@@ -1410,7 +1488,7 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 		 FROM expenses
 		 WHERE %s AND %s
 		 GROUP BY payment_method`, expensePeriod, expenseStatus),
-		startDate, endDate)
+		startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve expenses by payment method: %w", err)
 	}
@@ -1441,13 +1519,13 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 		 GROUP BY strftime('%%Y-%%m', substr(expense_date, 1, 10))
 		 ORDER BY strftime('%%Y-%%m', substr(expense_date, 1, 10))`, expensePeriod, expenseStatus)
 	}
-	rows, err = r.db.QueryContext(ctx, monthlyExpensesQuery, startDate, endDate)
+	rows, err = r.db.QueryContext(ctx, monthlyExpensesQuery, startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve monthly expenses: %w", err)
 	}
 	for rows.Next() {
 		var monthly MonthlyExpenses
-		var month reportTimestamp
+		var month reportDate
 		if err := rows.Scan(&month, &monthly.Amount); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("failed to scan monthly expenses: %w", err)
@@ -1468,13 +1546,13 @@ func (r *Repository) GetExpensesData(ctx context.Context, startDate, endDate tim
 		WHERE %s AND %s
 		ORDER BY amount DESC, date(expense_date) DESC
 		LIMIT 20`, expensePeriod, expenseStatus)
-	rows, err = r.db.QueryContext(ctx, topExpensesQuery, startDate, endDate)
+	rows, err = r.db.QueryContext(ctx, topExpensesQuery, startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve top expenses: %w", err)
 	}
 	for rows.Next() {
 		var expense ExpenseItem
-		var expenseDate reportTimestamp
+		var expenseDate reportDate
 		if err := rows.Scan(&expenseDate, &expense.Amount, &expense.Description, &expense.Status); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("failed to scan top expense: %w", err)
@@ -1517,7 +1595,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 			fmt.Sprintf(`SELECT COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) FROM sales
 			 WHERE %s >= date($1) AND %s < date($2)
 			   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`, salesDateExpr, salesDateExpr),
-			startDate, endDate)
+			startDateKey, endDateKey)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve profit revenue: %w", err)
@@ -1526,7 +1604,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 	if dbutil.IsSQLite(r.db) {
 		err = r.db.GetContext(ctx, &report.TotalCOGS, r.historicalCOGSTotalSQL("?", "?"), startDateKey, endDateKey)
 	} else {
-		err = r.db.GetContext(ctx, &report.TotalCOGS, r.historicalCOGSTotalSQL("$1", "$2"), startDate, endDate)
+		err = r.db.GetContext(ctx, &report.TotalCOGS, r.historicalCOGSTotalSQL("$1", "$2"), startDateKey, endDateKey)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve profit cost: %w", err)
@@ -1637,12 +1715,12 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 			monthlyProfitsQuery = profitTrendWithoutStoredSaleCost(monthlyProfitsQuery)
 			monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, ", s.cost_amount", "")
 		}
+		monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, "COALESCE(s.sale_date, s.created_at)", r.salesDateExpression("s"))
+	} else {
+		monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, "COALESCE(s.sale_date, s.created_at)", r.salesDateExpression("s"))
 	}
 	monthlyReturnPeriods := ""
-	monthlyProfitArgs := []any{startDate, endDate, startDate, endDate, startDate, endDate}
-	if dbutil.IsSQLite(r.db) {
-		monthlyProfitArgs = []any{startDateKey, endDateKey, startDateKey, endDateKey, startDateKey, endDateKey}
-	}
+	monthlyProfitArgs := []any{startDateKey, endDateKey, startDateKey, endDateKey, startDateKey, endDateKey}
 	returnReferenceFilter := `AND COALESCE(r.reference_number, '') NOT LIKE 'REV-%'`
 	if dbutil.IsSQLite(r.db) && !reportsSQLiteHasColumns(r.db, "accounting_returns", "reference_number") {
 		returnReferenceFilter = ""
@@ -1661,6 +1739,11 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 				AND date(COALESCE(r.refund_date, r.return_date, r.created_at)) >= date(?)
 				AND date(COALESCE(r.refund_date, r.return_date, r.created_at)) < date(?)`
 		}
+		if !dbutil.IsSQLite(r.db) {
+			monthlyReturnPeriods = strings.ReplaceAll(monthlyReturnPeriods, "COALESCE(r.refund_date, r.return_date, r.created_at)", r.returnDateExpression("r"))
+		} else {
+			monthlyReturnPeriods = strings.ReplaceAll(monthlyReturnPeriods, "COALESCE(r.refund_date, r.return_date, r.created_at)", r.returnDateExpression("r"))
+		}
 		monthlyProfitArgs = append(monthlyProfitArgs, startDateKey, endDateKey)
 	}
 	monthlyProfitsQuery = strings.ReplaceAll(monthlyProfitsQuery, "SELECT s.month, s.revenue", "SELECT months.month, COALESCE(s.revenue, 0)")
@@ -1676,7 +1759,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 	for rows.Next() {
 		var month MonthlyProfit
 		var cogs, expenses float64
-		var monthDate reportTimestamp
+		var monthDate reportDate
 		if err := rows.Scan(&monthDate, &month.Revenue, &cogs, &expenses); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("failed to scan monthly profit trend: %w", err)
@@ -1783,14 +1866,13 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 			dailyProfitsQuery = profitTrendWithoutStoredSaleCost(dailyProfitsQuery)
 			dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, ", s.cost_amount", "")
 		}
+		dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, "COALESCE(s.sale_date, s.created_at)", r.salesDateExpression("s"))
+	} else {
+		dailyProfitsQuery = strings.ReplaceAll(dailyProfitsQuery, "COALESCE(s.sale_date, s.created_at)", r.salesDateExpression("s"))
 	}
 	dailyReturnPeriods := ""
 	dailyProfitArgs := []any{}
-	if dbutil.IsSQLite(r.db) {
-		dailyProfitArgs = []any{startDateKey, endDateKey, startDateKey, endDateKey, startDateKey, endDateKey}
-	} else {
-		dailyProfitArgs = []any{startDate, endDate, startDate, endDate, startDate, endDate}
-	}
+	dailyProfitArgs = []any{startDateKey, endDateKey, startDateKey, endDateKey, startDateKey, endDateKey}
 	if !dbutil.IsSQLite(r.db) || reportsSQLiteHasColumns(r.db, "accounting_returns", "status", "total_refund_amount", "refund_date", "return_date", "created_at") {
 		if dbutil.IsSQLite(r.db) {
 			dailyReturnPeriods = ` UNION SELECT date(substr(COALESCE(r.refund_date, r.return_date, r.created_at), 1, 10))
@@ -1804,6 +1886,11 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 				` + returnReferenceFilter + `
 				AND date(COALESCE(r.refund_date, r.return_date, r.created_at)) >= date(?)
 				AND date(COALESCE(r.refund_date, r.return_date, r.created_at)) < date(?)`
+		}
+		if !dbutil.IsSQLite(r.db) {
+			dailyReturnPeriods = strings.ReplaceAll(dailyReturnPeriods, "COALESCE(r.refund_date, r.return_date, r.created_at)", r.returnDateExpression("r"))
+		} else {
+			dailyReturnPeriods = strings.ReplaceAll(dailyReturnPeriods, "COALESCE(r.refund_date, r.return_date, r.created_at)", r.returnDateExpression("r"))
 		}
 		dailyProfitArgs = append(dailyProfitArgs, startDateKey, endDateKey)
 	}
@@ -1819,7 +1906,7 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 	for dailyRows.Next() {
 		var day DailyProfit
 		var cogs, expenses float64
-		var dayDate reportTimestamp
+		var dayDate reportDate
 		if scanErr := dailyRows.Scan(&dayDate, &day.Revenue, &cogs, &expenses); scanErr != nil {
 			dailyRows.Close()
 			return nil, fmt.Errorf("failed to scan daily profit trend: %w", scanErr)
@@ -1854,33 +1941,52 @@ func (r *Repository) GetProfitsData(ctx context.Context, startDate, endDate time
 	}
 	report.ByCategory = make(map[string]float64)
 	categoryRevenue := make(map[string]float64)
-	categoryStartDate, categoryEndDate := any(startDate), any(endDate)
+	categoryStartDate, categoryEndDate := any(startDateKey), any(endDateKey)
+	categorySchemaAvailable := true
 	if dbutil.IsSQLite(r.db) {
-		categoryStartDate, categoryEndDate = startDateKey, endDateKey
+		productsAvailable, relationErr := reportsSQLiteHasRelation(ctx, r.db, "products")
+		if relationErr != nil {
+			return nil, fmt.Errorf("check profit category schema: %w", relationErr)
+		}
+		categoriesAvailable, relationErr := reportsSQLiteHasRelation(ctx, r.db, "categories")
+		if relationErr != nil {
+			return nil, fmt.Errorf("check profit category schema: %w", relationErr)
+		}
+		categorySchemaAvailable = productsAvailable && categoriesAvailable &&
+			reportsSQLiteHasColumns(r.db, "products", "id", "name", "category_id") &&
+			reportsSQLiteHasColumns(r.db, "categories", "id", "name")
 	}
-	rows, err = r.db.QueryContext(ctx,
-		r.db.Rebind(`SELECT COALESCE(NULLIF(TRIM(c.name), ''), p.name, 'غير مصنف'),
+	if categorySchemaAvailable {
+		rows, err = r.db.QueryContext(ctx,
+			r.db.Rebind(`SELECT COALESCE(NULLIF(TRIM(c.name), ''), p.name, 'غير مصنف'),
 		        COALESCE(SUM(COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)), 0),
 		        COALESCE(SUM((COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) - (si.quantity * COALESCE(si.unit_cost, 0))), 0)
 		 FROM sale_items si
 		 JOIN sales s ON s.id = si.sale_id
 		 JOIN products p ON p.id = si.product_id
 		 LEFT JOIN categories c ON c.id = p.category_id
-		 WHERE date(COALESCE(s.sale_date, s.created_at)) >= date(?) AND date(COALESCE(s.sale_date, s.created_at)) < date(?)
+		 WHERE `+r.salesDateExpression("s")+` >= date(?) AND `+r.salesDateExpression("s")+` < date(?)
 		   AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY COALESCE(NULLIF(TRIM(c.name), ''), p.name, 'غير مصنف')
 		 ORDER BY SUM(COALESCE(si.total_amount, 0) - COALESCE(si.tax_amount, 0)) DESC`,
-		), categoryStartDate, categoryEndDate)
-	if err == nil {
+			), categoryStartDate, categoryEndDate)
+		if err != nil {
+			return nil, fmt.Errorf("failed to retrieve profit by category: %w", err)
+		}
 		for rows.Next() {
 			var category string
 			var revenue, profit float64
-			if err := rows.Scan(&category, &revenue, &profit); err == nil {
-				categoryRevenue[category] += revenue
-				report.ByCategory[category] = profit
+			if err := rows.Scan(&category, &revenue, &profit); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("failed to scan profit category: %w", err)
 			}
+			categoryRevenue[category] += revenue
+			report.ByCategory[category] = profit
 		}
-		_ = rows.Err()
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to read profit categories: %w", err)
+		}
 		rows.Close()
 	}
 	categoryReturns, err := r.returnCategoryAdjustments(ctx, startDate, endDate)
@@ -1929,7 +2035,8 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 		return nil, fmt.Errorf("failed to calculate debt report date: %w", err)
 	}
 	validDebt := `LOWER(COALESCE(status, 'pending')) NOT IN ('cancelled', 'canceled', 'reversed', 'deleted')`
-	openDebt := business.OpenDebtStatusSQL("status")
+	openDebt := business.OpenDebtStatusSQL("LOWER(COALESCE(status, 'pending'))")
+	customerOpenDebt := business.OpenDebtStatusSQL("LOWER(COALESCE(d.status, 'pending'))")
 	if err := r.db.GetContext(ctx, &report.TotalDebt,
 		`SELECT COALESCE(SUM(amount), 0) FROM debts WHERE `+validDebt); err != nil {
 		if dbutil.IsSQLite(r.db) && !reportsSQLiteHasColumns(r.db, "debts", "amount", "remaining_amount") {
@@ -1955,6 +2062,26 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 	}
 
 	paymentTableExists := !dbutil.IsSQLite(r.db) || reportsSQLiteHasColumns(r.db, "payments", "customer_id")
+	paymentStatusColumn := "status"
+	if dbutil.IsSQLite(r.db) {
+		if reportsSQLiteHasColumns(r.db, "payments", "payment_status") {
+			paymentStatusColumn = "payment_status"
+		} else if !reportsSQLiteHasColumns(r.db, "payments", "status") {
+			paymentStatusColumn = ""
+		}
+	}
+	paymentValidityFilter := ""
+	if paymentStatusColumn != "" {
+		paymentValidityFilter += fmt.Sprintf(" AND LOWER(COALESCE(p.%s, 'completed')) IN ('completed', 'paid')", paymentStatusColumn)
+	}
+	if dbutil.IsSQLite(r.db) {
+		if reportsSQLiteHasColumns(r.db, "payments", "is_reversed") {
+			paymentValidityFilter += " AND COALESCE(p.is_reversed, 0) = 0"
+		}
+	} else {
+		paymentValidityFilter += " AND COALESCE(p.is_reversed, FALSE) = FALSE"
+	}
+	paymentValidityFilterWithoutAlias := strings.ReplaceAll(paymentValidityFilter, "p.", "")
 	lastPaymentExpr := "'0001-01-01'"
 	lastPaymentJoin := ""
 	if paymentTableExists {
@@ -1972,19 +2099,19 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 			lastPaymentExpr = "COALESCE(MAX(last_payment), '0001-01-01')"
 			lastPaymentJoin = fmt.Sprintf(`LEFT JOIN (
 				SELECT customer_id, MAX(%s) AS last_payment FROM payments
-				WHERE customer_id IS NOT NULL GROUP BY customer_id
-			) p ON p.customer_id = d.customer_id`, paymentDateColumn)
+				WHERE customer_id IS NOT NULL%s GROUP BY customer_id
+			) p ON p.customer_id = d.customer_id`, paymentDateColumn, paymentValidityFilterWithoutAlias)
 		}
 	}
 	customerQuery := `SELECT d.customer_id, c.name, COALESCE(SUM(d.amount), 0),
 		COALESCE(SUM(CASE WHEN d.amount > d.remaining_amount THEN d.amount - d.remaining_amount ELSE 0 END), 0),
-		COALESCE(SUM(CASE WHEN ` + openDebt + ` AND d.remaining_amount > 0 THEN d.remaining_amount ELSE 0 END), 0),
-		COALESCE(SUM(CASE WHEN ` + openDebt + ` AND d.remaining_amount > 0 AND date(d.due_date) < date(?) THEN d.remaining_amount ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN ` + customerOpenDebt + ` AND d.remaining_amount > 0 THEN d.remaining_amount ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN ` + customerOpenDebt + ` AND d.remaining_amount > 0 AND date(d.due_date) < date(?) THEN d.remaining_amount ELSE 0 END), 0),
 		` + lastPaymentExpr + `
 		FROM debts d JOIN customers c ON c.id = d.customer_id
 		` + lastPaymentJoin + `
 		WHERE ` + strings.ReplaceAll(validDebt, "status", "d.status") + `
-		GROUP BY d.customer_id, c.name ORDER BY SUM(CASE WHEN ` + openDebt + ` THEN d.remaining_amount ELSE 0 END) DESC`
+		GROUP BY d.customer_id, c.name ORDER BY SUM(CASE WHEN ` + customerOpenDebt + ` THEN d.remaining_amount ELSE 0 END) DESC`
 	if !dbutil.IsSQLite(r.db) {
 		customerQuery = strings.Replace(customerQuery, "date(d.due_date) < date(?)", "d.due_date::date < $1::date", 1)
 	}
@@ -2002,7 +2129,10 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 		item.LastPayment = lastPayment.Time
 		report.ByCustomer = append(report.ByCustomer, item)
 	}
-	_ = rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read debt customers: %w", err)
+	}
 	rows.Close()
 	ageQuery := `SELECT CASE
 			WHEN due_date IS NULL OR date(due_date) >= date(?) THEN 'current'
@@ -2028,17 +2158,23 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 		ageArgs = []any{storeDate}
 	}
 	rows, err = r.db.QueryContext(ctx, ageQuery, ageArgs...)
-	if err == nil {
-		for rows.Next() {
-			var age string
-			var count int
-			if err := rows.Scan(&age, &count); err == nil {
-				report.ByAge[age] = count
-			}
-		}
-		_ = rows.Err()
-		rows.Close()
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve debt aging: %w", err)
 	}
+	for rows.Next() {
+		var age string
+		var count int
+		if err := rows.Scan(&age, &count); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan debt aging: %w", err)
+		}
+		report.ByAge[age] = count
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read debt aging: %w", err)
+	}
+	rows.Close()
 	if paymentTableExists {
 		paymentDateColumn := "payment_date"
 		paymentMethodColumn, paymentReferenceColumn, paymentNotesColumn := "payment_method", "reference_number", "notes"
@@ -2071,7 +2207,7 @@ func (r *Repository) GetDebtsData(ctx context.Context) (*DebtsReport, error) {
 		paymentQuery := fmt.Sprintf(`SELECT p.%s, p.customer_id, COALESCE(c.name, 'عميل غير معروف'), p.amount,
 			COALESCE(p.%s, ''), COALESCE(p.%s, ''), COALESCE(p.%s, '')
 			FROM payments p LEFT JOIN customers c ON c.id = p.customer_id
-			WHERE p.customer_id IS NOT NULL ORDER BY p.%s DESC LIMIT 100`, paymentDateColumn, paymentMethodColumn, paymentReferenceColumn, paymentNotesColumn, paymentDateColumn)
+			WHERE p.customer_id IS NOT NULL%s ORDER BY p.%s DESC LIMIT 100`, paymentDateColumn, paymentMethodColumn, paymentReferenceColumn, paymentNotesColumn, paymentValidityFilter, paymentDateColumn)
 		rows, err = r.db.QueryContext(ctx, paymentQuery)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve debt payment history: %w", err)
@@ -2100,68 +2236,96 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 	var report PurchasesReport
 	report.StartDate = startDate
 	report.EndDate = endDate
-	_ = r.db.GetContext(ctx, &report.UsedPartPurchases, `
+	startDateKey, err := accounting.StoreDate(startDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize purchases report start date: %w", err)
+	}
+	endDateKey, err := accounting.StoreDate(endDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize purchases report end date: %w", err)
+	}
+	usedAcquisitionSchemaAvailable := !dbutil.IsSQLite(r.db) ||
+		reportsSQLiteHasColumns(r.db, "acquisitions", "id", "type", "status", "acquisition_date", "total_cost", "paid_amount") &&
+			reportsSQLiteHasColumns(r.db, "acquisition_items", "acquisition_id", "inventory_item_id") &&
+			reportsSQLiteHasColumns(r.db, "inventory_items", "id", "status")
+	if usedAcquisitionSchemaAvailable {
+		if err := r.db.GetContext(ctx, &report.UsedPartPurchases, `
 		SELECT
 		  (SELECT COUNT(*) FROM acquisitions a
 		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed')
 		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
-			 AND date(a.acquisition_date) < date(substr($2, 1, 10))),
+			 AND date(a.acquisition_date) < date(substr($2, 1, 10))) AS acquisition_count,
 		  (SELECT COUNT(*) FROM acquisition_items ai JOIN acquisitions a ON a.id = ai.acquisition_id
 		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed')
 		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
-			 AND date(a.acquisition_date) < date(substr($2, 1, 10))),
+			 AND date(a.acquisition_date) < date(substr($2, 1, 10))) AS item_count,
 		  (SELECT COALESCE(SUM(a.total_cost), 0) FROM acquisitions a
 		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed')
 		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
-			 AND date(a.acquisition_date) < date(substr($2, 1, 10))),
+			 AND date(a.acquisition_date) < date(substr($2, 1, 10))) AS total_cost,
 		  (SELECT COALESCE(SUM(a.paid_amount), 0) FROM acquisitions a
 		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed')
 		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
-			 AND date(a.acquisition_date) < date(substr($2, 1, 10))),
+			 AND date(a.acquisition_date) < date(substr($2, 1, 10))) AS total_paid,
 		  (SELECT COALESCE(SUM(a.total_cost - a.paid_amount), 0) FROM acquisitions a
 		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed')
 		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
-			 AND date(a.acquisition_date) < date(substr($2, 1, 10))),
+			 AND date(a.acquisition_date) < date(substr($2, 1, 10))) AS outstanding,
 		  (SELECT COUNT(*) FROM inventory_items ii JOIN acquisition_items ai ON ai.inventory_item_id = ii.id JOIN acquisitions a ON a.id = ai.acquisition_id
 		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed') AND ii.status = 'AVAILABLE'
 		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
-			 AND date(a.acquisition_date) < date(substr($2, 1, 10))),
+			 AND date(a.acquisition_date) < date(substr($2, 1, 10))) AS available_items,
 		  (SELECT COUNT(*) FROM inventory_items ii JOIN acquisition_items ai ON ai.inventory_item_id = ii.id JOIN acquisitions a ON a.id = ai.acquisition_id
 		   WHERE a.type = 'CUSTOMER' AND a.status NOT IN ('cancelled', 'reversed') AND ii.status = 'SOLD'
 		     AND date(a.acquisition_date) >= date(substr($1, 1, 10))
-			 AND date(a.acquisition_date) < date(substr($2, 1, 10)))`, startDate, endDate)
+			 AND date(a.acquisition_date) < date(substr($2, 1, 10))) AS sold_items`, startDateKey, endDateKey); err != nil {
+			return nil, fmt.Errorf("failed to retrieve used-part acquisitions: %w", err)
+		}
+	}
 	itemTotalColumn := "total_amount"
 	if dbutil.IsSQLite(r.db) {
 		itemTotalColumn = "item_total"
+		exists, err := reportsSQLiteHasRelation(ctx, r.db, "purchases")
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect purchases schema: %w", err)
+		}
+		if !exists {
+			return &report, nil
+		}
 	}
 
-	err := r.db.GetContext(ctx, &report.TotalPurchases,
+	err = r.db.GetContext(ctx, &report.TotalPurchases,
 		`SELECT COUNT(*) FROM purchases
 		 WHERE date(purchase_date) >= date(substr($1, 1, 10)) AND date(purchase_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`,
-		startDate, endDate)
+		startDateKey, endDateKey)
 	if err != nil {
-		// If purchases table doesn't exist, return empty report
-		report.TotalPurchases = 0
-		report.TotalCost = 0
-		report.BySupplier = []SupplierPurchases{}
-		return &report, nil
+		return nil, fmt.Errorf("failed to retrieve purchase count: %w", err)
 	}
 
 	err = r.db.GetContext(ctx, &report.TotalCost,
 		`SELECT COALESCE(SUM(total_amount), 0) FROM purchases
 		 WHERE date(purchase_date) >= date(substr($1, 1, 10)) AND date(purchase_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`,
-		startDate, endDate)
+		startDateKey, endDateKey)
 	if err != nil {
-		report.TotalCost = 0
+		return nil, fmt.Errorf("failed to retrieve purchase total: %w", err)
 	}
-	_ = r.db.GetContext(ctx, &report.SupplierReturnCredits,
-		`SELECT COALESCE(SUM(refund_amount), 0) FROM supplier_returns
-		 WHERE date(created_at) >= date(substr($1, 1, 10)) AND date(created_at) < date(substr($2, 1, 10))
-		   AND status = 'COMPLETED'`, startDate, endDate)
+	returnSchemaAvailable := !dbutil.IsSQLite(r.db) || reportsSQLiteHasColumns(r.db, "supplier_returns", "refund_amount", "created_at", "status")
+	if returnSchemaAvailable {
+		supplierReturnDate := "store_date(created_at)"
+		if !dbutil.IsSQLite(r.db) {
+			supplierReturnDate = "date(" + postgresStoreTimestampDateExpression("created_at") + ")"
+		}
+		query := fmt.Sprintf(`SELECT COALESCE(SUM(refund_amount), 0) FROM supplier_returns
+			 WHERE %s >= date(substr($1, 1, 10)) AND %s < date(substr($2, 1, 10))
+			   AND UPPER(COALESCE(status, '')) = 'COMPLETED'`, supplierReturnDate, supplierReturnDate)
+		if err = r.db.GetContext(ctx, &report.SupplierReturnCredits, query, startDateKey, endDateKey); err != nil {
+			return nil, fmt.Errorf("failed to retrieve supplier return credits: %w", err)
+		}
+	}
 	rawNetPurchases := report.TotalCost - report.SupplierReturnCredits
-	report.NetPurchases = maxFloat(rawNetPurchases, 0)
+	report.NetPurchases = rawNetPurchases
 	report.SupplierCreditBalance = maxFloat(-rawNetPurchases, 0)
 	report.TaxAmount = 0
 	if err := r.db.GetContext(ctx, &report.TaxAmount,
@@ -2172,8 +2336,8 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 			ELSE 0 END), 0) FROM purchases
 		 WHERE date(purchase_date) >= date(substr($1, 1, 10)) AND date(purchase_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`, itemTotalColumn, itemTotalColumn),
-		startDate, endDate); err != nil {
-		report.TaxAmount = 0
+		startDateKey, endDateKey); err != nil {
+		return nil, fmt.Errorf("failed to retrieve purchase tax amount: %w", err)
 	}
 	var taxedPurchases int
 	if err := r.db.GetContext(ctx, &taxedPurchases,
@@ -2185,7 +2349,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 					THEN total_amount - COALESCE((SELECT SUM(%s) FROM purchase_items WHERE purchase_id = purchases.id), total_amount)
 				ELSE 0 END > 0
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`, itemTotalColumn, itemTotalColumn),
-		startDate, endDate); err != nil {
+		startDateKey, endDateKey); err != nil {
 		return nil, fmt.Errorf("failed to calculate taxed purchase count: %w", err)
 	}
 	var taxedPurchaseCost float64
@@ -2198,7 +2362,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 					THEN total_amount - COALESCE((SELECT SUM(%s) FROM purchase_items WHERE purchase_id = purchases.id), total_amount)
 				ELSE 0 END > 0
 		   AND LOWER(COALESCE(status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')`, itemTotalColumn, itemTotalColumn),
-		startDate, endDate); err != nil {
+		startDateKey, endDateKey); err != nil {
 		return nil, fmt.Errorf("failed to calculate taxed purchase cost: %w", err)
 	}
 	report.UntaxedPurchases = report.TotalPurchases - taxedPurchases
@@ -2207,7 +2371,7 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 
 	report.BySupplier = []SupplierPurchases{}
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT p.supplier_id, COALESCE(s.name, 'مورد غير معروف'),
+		`SELECT CAST(p.supplier_id AS TEXT), COALESCE(s.name, 'مورد غير معروف'),
 		        COALESCE(SUM(p.total_amount), 0), COALESCE(SUM(pi.item_count), 0)
 		 FROM purchases p
 		 LEFT JOIN suppliers s ON s.id = p.supplier_id
@@ -2217,19 +2381,26 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 		 WHERE date(p.purchase_date) >= date(substr($1, 1, 10)) AND date(p.purchase_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY p.supplier_id, s.name ORDER BY SUM(p.total_amount) DESC`,
-		startDate, endDate)
+		startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve purchases by supplier: %w", err)
 	}
 	for rows.Next() {
 		var item SupplierPurchases
-		if err := rows.Scan(&item.SupplierID, &item.SupplierName, &item.TotalCost, &item.ItemCount); err != nil {
+		var supplierID string
+		if err := rows.Scan(&supplierID, &item.SupplierName, &item.TotalCost, &item.ItemCount); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("failed to scan supplier purchases: %w", err)
 		}
+		if parsedID, parseErr := uuid.Parse(strings.TrimSpace(supplierID)); parseErr == nil {
+			item.SupplierID = parsedID
+		}
 		report.BySupplier = append(report.BySupplier, item)
 	}
-	_ = rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read supplier purchases: %w", err)
+	}
 	rows.Close()
 
 	report.ByCategory = make(map[string]int)
@@ -2242,18 +2413,24 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 		 WHERE date(p.purchase_date) >= date(substr($1, 1, 10)) AND date(p.purchase_date) < date(substr($2, 1, 10))
 		   AND LOWER(COALESCE(p.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
 		 GROUP BY c.name ORDER BY SUM(pi.quantity) DESC`,
-		startDate, endDate)
-	if err == nil {
-		for rows.Next() {
-			var category string
-			var count int
-			if err := rows.Scan(&category, &count); err == nil {
-				report.ByCategory[category] = count
-			}
-		}
-		_ = rows.Err()
-		rows.Close()
+		startDateKey, endDateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve purchases by category: %w", err)
 	}
+	for rows.Next() {
+		var category string
+		var count int
+		if err := rows.Scan(&category, &count); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan purchases by category: %w", err)
+		}
+		report.ByCategory[category] = count
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read purchases by category: %w", err)
+	}
+	rows.Close()
 	report.ByMonth = []MonthlyPurchases{}
 	monthlyPurchasesQuery := `SELECT DATE_TRUNC('month', purchase_date), COALESCE(SUM(total_amount), 0), COUNT(*)
 			 FROM purchases
@@ -2269,19 +2446,25 @@ func (r *Repository) GetPurchasesData(ctx context.Context, startDate, endDate ti
 		 GROUP BY strftime('%Y-%m', purchase_date)
 		 ORDER BY strftime('%Y-%m', purchase_date)`
 	}
-	rows, err = r.db.QueryContext(ctx, monthlyPurchasesQuery, startDate, endDate)
-	if err == nil {
-		for rows.Next() {
-			var month MonthlyPurchases
-			var monthDate reportTimestamp
-			if err := rows.Scan(&monthDate, &month.Cost, &month.Count); err == nil {
-				month.Month = monthDate.Time
-				report.ByMonth = append(report.ByMonth, month)
-			}
-		}
-		_ = rows.Err()
-		rows.Close()
+	rows, err = r.db.QueryContext(ctx, monthlyPurchasesQuery, startDateKey, endDateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve monthly purchases: %w", err)
 	}
+	for rows.Next() {
+		var month MonthlyPurchases
+		var monthDate reportDate
+		if err := rows.Scan(&monthDate, &month.Cost, &month.Count); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan monthly purchases: %w", err)
+		}
+		month.Month = monthDate.Time
+		report.ByMonth = append(report.ByMonth, month)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read monthly purchases: %w", err)
+	}
+	rows.Close()
 
 	return &report, nil
 }
@@ -2291,15 +2474,23 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 	var report ReturnsReport
 	report.StartDate = startDate
 	report.EndDate = endDate
+	startDateKey, err := accounting.StoreDate(startDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize returns report start date: %w", err)
+	}
+	endDateKey, err := accounting.StoreDate(endDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize returns report end date: %w", err)
+	}
 	returnDate := r.returnDateExpression("r")
 
 	// Only completed returns affect financial reports.
-	err := r.db.GetContext(ctx, &report.TotalReturns,
+	err = r.db.GetContext(ctx, &report.TotalReturns,
 		fmt.Sprintf(`SELECT COUNT(*) FROM accounting_returns r
 		 WHERE %s >= date(substr($1, 1, 10)) AND %s < date(substr($2, 1, 10))
 			   AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 			   AND COALESCE(r.reference_number, '') NOT LIKE 'REV-%%'`, returnDate, returnDate),
-		startDate, endDate)
+		startDateKey, endDateKey)
 	if err != nil {
 		if dbutil.IsSQLite(r.db) && !reportsSQLiteHasColumns(r.db, "accounting_returns", "id") {
 			report.ByReason = make(map[string]int)
@@ -2313,19 +2504,19 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 		 WHERE %s >= date(substr($1, 1, 10)) AND %s < date(substr($2, 1, 10))
 			   AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 			   AND COALESCE(r.reference_number, '') NOT LIKE 'REV-%%'`, returnDate, returnDate),
-		startDate, endDate)
+		startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve completed return amounts: %w", err)
 	}
 
 	report.ByReason = make(map[string]int)
 	rows, err := r.db.QueryContext(ctx,
-		fmt.Sprintf(`SELECT r.reason, COUNT(*) FROM accounting_returns r
+		fmt.Sprintf(`SELECT COALESCE(r.reason, ''), COUNT(*) FROM accounting_returns r
 		 WHERE %s >= date(substr($1, 1, 10)) AND %s < date(substr($2, 1, 10))
 			   AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 			   AND COALESCE(r.reference_number, '') NOT LIKE 'REV-%%'
 		 GROUP BY r.reason`, returnDate, returnDate),
-		startDate, endDate)
+		startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve return reasons: %w", err)
 	}
@@ -2356,7 +2547,7 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 			   AND COALESCE(r.reference_number, '') NOT LIKE 'REV-%%'
 			 GROUP BY ri.product_id, p.name
 			 ORDER BY SUM(ri.total_refund_amount) DESC`, returnDate, returnDate),
-		startDate, endDate)
+		startDateKey, endDateKey)
 	if err != nil {
 		if !dbutil.IsSQLite(r.db) || reportsSQLiteHasColumns(r.db, "accounting_return_items", "return_id") {
 			return nil, fmt.Errorf("failed to retrieve returned products: %w", err)
@@ -2388,13 +2579,13 @@ func (r *Repository) GetReturnsData(ctx context.Context, startDate, endDate time
 		   AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 		   AND COALESCE(r.reference_number, '') NOT LIKE 'REV-%%'
 		 GROUP BY %s ORDER BY %s`, monthBucket, returnDate, returnDate, monthBucket, monthBucket)
-	rows, err = r.db.QueryContext(ctx, monthlyReturnsQuery, startDate, endDate)
+	rows, err = r.db.QueryContext(ctx, monthlyReturnsQuery, startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve returns by month: %w", err)
 	}
 	for rows.Next() {
 		var monthly MonthlyReturns
-		var month reportTimestamp
+		var month reportDate
 		if err := rows.Scan(&month, &monthly.Count, &monthly.Amount); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("failed to scan returns by month: %w", err)
@@ -2416,32 +2607,43 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	var report NetSalesReport
 	report.StartDate = startDate
 	report.EndDate = endDate
+	startDateKey, err := accounting.StoreDate(startDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize net sales report start date: %w", err)
+	}
+	endDateKey, err := accounting.StoreDate(endDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize net sales report end date: %w", err)
+	}
 
 	// Get gross sales data
 	var grossSales, grossRevenue float64
-	err := r.db.GetContext(ctx, &grossSales,
-		`SELECT COUNT(*) FROM sales WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) < date(substr($2, 1, 10))
+	salesDate := r.salesDateExpression("")
+	err = r.db.GetContext(ctx, &grossSales,
+		fmt.Sprintf(`SELECT COUNT(*) FROM sales WHERE %s >= date(substr($1, 1, 10)) AND %s < date(substr($2, 1, 10))
 			AND LOWER(COALESCE(status, 'completed')) = 'completed'`,
-		startDate, endDate)
+			salesDate, salesDate),
+		startDateKey, endDateKey)
 	if err != nil {
-		// If sales table doesn't exist, return empty report
-		report.GrossSales = 0
-		report.GrossRevenue = 0
-		report.TotalReturns = 0
-		report.TotalRefunded = 0
-		report.NetSales = 0
-		report.NetRevenue = 0
-		report.ReturnRate = 0
-		return &report, nil
+		if dbutil.IsSQLite(r.db) {
+			exists, schemaErr := reportsSQLiteHasRelation(ctx, r.db, "sales")
+			if schemaErr != nil {
+				return nil, fmt.Errorf("failed to inspect sales schema for net sales report: %w", schemaErr)
+			}
+			if !exists {
+				return &report, nil
+			}
+		}
+		return nil, fmt.Errorf("failed to retrieve gross sale count: %w", err)
 	}
 	report.GrossSales = int(grossSales)
 
 	err = r.db.GetContext(ctx, &grossRevenue,
-		`SELECT COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) FROM sales WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) < date(substr($2, 1, 10))
-			AND LOWER(COALESCE(status, 'completed')) = 'completed'`,
-		startDate, endDate)
+		fmt.Sprintf(`SELECT COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) FROM sales WHERE %s >= date(substr($1, 1, 10)) AND %s < date(substr($2, 1, 10))
+			AND LOWER(COALESCE(status, 'completed')) = 'completed'`, salesDate, salesDate),
+		startDateKey, endDateKey)
 	if err != nil {
-		grossRevenue = 0
+		return nil, fmt.Errorf("failed to retrieve gross sales revenue: %w", err)
 	}
 	report.GrossRevenue = grossRevenue
 
@@ -2466,17 +2668,18 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 
 	// Daily series is an event ledger: sales use sale date, refunds use refund
 	// date. A refund on a day without sales must still appear as a negative day.
-	dailySalesQuery := `SELECT date(s.sale_date), COUNT(*), COALESCE(SUM(COALESCE(s.total_amount, 0) - COALESCE(s.tax_amount, 0)), 0)
-		FROM sales s WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
-		AND LOWER(COALESCE(s.status, 'completed')) = 'completed' GROUP BY date(s.sale_date)`
-	rows, err := r.db.QueryContext(ctx, dailySalesQuery, startDate, endDate)
+	dailySalesDate := r.salesDateExpression("s")
+	dailySalesQuery := fmt.Sprintf(`SELECT %s, COUNT(*), COALESCE(SUM(COALESCE(s.total_amount, 0) - COALESCE(s.tax_amount, 0)), 0)
+		FROM sales s WHERE %s >= date(substr($1, 1, 10)) AND %s < date(substr($2, 1, 10))
+		AND LOWER(COALESCE(s.status, 'completed')) = 'completed' GROUP BY %s`, dailySalesDate, dailySalesDate, dailySalesDate, dailySalesDate)
+	rows, err := r.db.QueryContext(ctx, dailySalesQuery, startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("retrieve daily net sales: %w", err)
 	}
 	dailyByDate := make(map[string]DailyNetSales)
 	for rows.Next() {
 		var daily DailyNetSales
-		var date reportTimestamp
+		var date reportDate
 		if err := rows.Scan(&date, &daily.GrossSales, &daily.GrossRevenue); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("scan daily net sales: %w", err)
@@ -2526,27 +2729,28 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 		 JOIN sales s ON s.id = si.sale_id
 		 JOIN products p ON p.id = si.product_id
 			 LEFT JOIN categories c ON c.id = p.category_id
-				 WHERE date(s.sale_date) >= date(substr($1, 1, 10)) AND date(s.sale_date) < date(substr($2, 1, 10))
+				 WHERE `+r.salesDateExpression("s")+` >= date(substr($1, 1, 10)) AND `+r.salesDateExpression("s")+` < date(substr($2, 1, 10))
 			   AND LOWER(COALESCE(s.status, 'completed')) = 'completed'
 				 GROUP BY c.name, p.name
 		 ORDER BY total DESC`,
-		startDate, endDate)
-	if err == nil {
-		defer rows.Close()
-
-		for rows.Next() {
-			var category string
-			var total float64
-			if err := rows.Scan(&category, &total); err != nil {
-				continue
-			}
-			report.ByCategory[category] += total
-		}
-		_ = rows.Err()
-	}
+		startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve net sales by category: %w", err)
 	}
+	for rows.Next() {
+		var category string
+		var total float64
+		if err := rows.Scan(&category, &total); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan net sales category: %w", err)
+		}
+		report.ByCategory[category] += total
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read net sales categories: %w", err)
+	}
+	rows.Close()
 	categoryReturns, err := r.returnCategoryAdjustments(ctx, startDate, endDate)
 	if err != nil {
 		return nil, err
@@ -2559,26 +2763,27 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT COALESCE(NULLIF(TRIM(payment_method), ''), 'غير محدد'), COALESCE(SUM(COALESCE(total_amount, 0) - COALESCE(tax_amount, 0)), 0) as total
 				 FROM sales
-				 WHERE date(sale_date) >= date(substr($1, 1, 10)) AND date(sale_date) < date(substr($2, 1, 10))
+				 WHERE `+r.salesDateExpression("")+` >= date(substr($1, 1, 10)) AND `+r.salesDateExpression("")+` < date(substr($2, 1, 10))
 			   AND LOWER(COALESCE(status, 'completed')) = 'completed'
 			 GROUP BY COALESCE(NULLIF(TRIM(payment_method), ''), 'غير محدد')`,
-		startDate, endDate)
-	if err == nil {
-		defer rows.Close()
-
-		for rows.Next() {
-			var method string
-			var total float64
-			if err := rows.Scan(&method, &total); err != nil {
-				continue
-			}
-			report.ByPaymentMethod[method] = total
-		}
-		_ = rows.Err()
-	}
+		startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve net sales by payment method: %w", err)
 	}
+	for rows.Next() {
+		var method string
+		var total float64
+		if err := rows.Scan(&method, &total); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan net sales payment method: %w", err)
+		}
+		report.ByPaymentMethod[method] = total
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read net sales by payment method: %w", err)
+	}
+	rows.Close()
 	refundsByPaymentMethod, err := r.returnFinancialAdjustments(ctx, startDate, endDate, "payment")
 	if err != nil {
 		return nil, err
@@ -2624,41 +2829,53 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 			COALESCE((%s), 0) AS refunded_amount
 		 FROM products p
 		 LEFT JOIN sale_items si ON p.id = si.product_id AND si.sale_id IN (
-			SELECT id FROM sales WHERE date(sale_date) >= date(substr($1, 1, 10))
-			AND date(sale_date) < date(substr($2, 1, 10))
+			SELECT id FROM sales WHERE %s >= date(substr($1, 1, 10))
+			AND %s < date(substr($2, 1, 10))
 			AND LOWER(COALESCE(status, 'completed')) = 'completed')
 		 WHERE p.is_active = true
 		 GROUP BY p.id, p.name
 		 HAVING COALESCE(SUM(si.quantity), 0) > 0 OR COALESCE((%s), 0) > 0
 		 ORDER BY returned_quantity DESC
-		 LIMIT 10`, returnedQuantityByProduct, returnedRevenueByProduct, returnedQuantityByProduct)
-	rows, err = r.db.QueryContext(ctx, topReturnedProductsQuery, startDate, endDate, startDate, endDate, startDate, endDate)
-	if err == nil {
-		defer rows.Close()
-
-		for rows.Next() {
-			var product ProductNetSales
-			if err := rows.Scan(&product.ProductID, &product.ProductName, &product.GrossQuantity, &product.GrossRevenue, &product.ReturnedQuantity, &product.RefundedAmount); err != nil {
-				continue
-			}
-			product.NetQuantity = product.GrossQuantity - product.ReturnedQuantity
-			product.NetRevenue = product.GrossRevenue - product.RefundedAmount
-			if product.GrossQuantity > 0 {
-				product.ReturnRate = (float64(product.ReturnedQuantity) / float64(product.GrossQuantity)) * 100
-			} else {
-				product.ReturnRate = 0
-			}
-			report.TopReturnedProducts = append(report.TopReturnedProducts, product)
-		}
-		_ = rows.Err()
+		 LIMIT 10`, returnedQuantityByProduct, returnedRevenueByProduct, r.salesDateExpression(""), r.salesDateExpression(""), returnedQuantityByProduct)
+	rows, err = r.db.QueryContext(ctx, topReturnedProductsQuery, startDateKey, endDateKey, startDateKey, endDateKey, startDateKey, endDateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve top returned products: %w", err)
 	}
+	for rows.Next() {
+		var product ProductNetSales
+		if err := rows.Scan(&product.ProductID, &product.ProductName, &product.GrossQuantity, &product.GrossRevenue, &product.ReturnedQuantity, &product.RefundedAmount); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan top returned product: %w", err)
+		}
+		product.NetQuantity = product.GrossQuantity - product.ReturnedQuantity
+		product.NetRevenue = product.GrossRevenue - product.RefundedAmount
+		if product.GrossQuantity > 0 {
+			product.ReturnRate = (float64(product.ReturnedQuantity) / float64(product.GrossQuantity)) * 100
+		} else {
+			product.ReturnRate = 0
+		}
+		report.TopReturnedProducts = append(report.TopReturnedProducts, product)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("failed to read top returned products: %w", err)
+	}
+	rows.Close()
 
 	return &report, nil
 }
 
 func (r *Repository) GetTaxData(ctx context.Context, startDate, endDate time.Time) (*TaxReport, error) {
 	report := &TaxReport{StartDate: startDate, EndDate: endDate, Period: startDate.Format("2006-01-02") + " to " + endDate.Format("2006-01-02")}
-	query := `
+	startDateKey, err := accounting.StoreDate(startDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize tax report start date: %w", err)
+	}
+	endDateKey, err := accounting.StoreDate(endDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize tax report end date: %w", err)
+	}
+	query := fmt.Sprintf(`
 		SELECT
 			COALESCE(SUM(CASE WHEN tax_amount > 0 THEN subtotal ELSE 0 END), 0),
 			COALESCE(SUM(CASE WHEN tax_amount > 0 THEN discount_amount ELSE 0 END), 0),
@@ -2666,10 +2883,10 @@ func (r *Repository) GetTaxData(ctx context.Context, startDate, endDate time.Tim
 			COALESCE(SUM(CASE WHEN tax_amount > 0 THEN tax_amount ELSE 0 END), 0),
 			COALESCE(SUM(total_amount), 0)
 		FROM sales
-		WHERE date(sale_date) >= date(substr($1, 1, 10))
-		  AND date(sale_date) < date(substr($2, 1, 10))
-		  AND LOWER(COALESCE(status, 'completed')) = 'completed'`
-	if err := r.db.QueryRowxContext(ctx, query, startDate, endDate).Scan(&report.GrossSales, &report.Discounts, &report.TaxableSales, &report.TaxCollected, &report.SalesTotal); err != nil {
+		WHERE %s >= date(substr($1, 1, 10))
+		  AND %s < date(substr($2, 1, 10))
+		  AND LOWER(COALESCE(status, 'completed')) = 'completed'`, r.salesDateExpression(""), r.salesDateExpression(""))
+	if err := r.db.QueryRowxContext(ctx, query, startDateKey, endDateKey).Scan(&report.GrossSales, &report.Discounts, &report.TaxableSales, &report.TaxCollected, &report.SalesTotal); err != nil {
 		return nil, err
 	}
 	report.ExemptSales = report.SalesTotal - report.TaxableSales - report.TaxCollected
@@ -2702,7 +2919,7 @@ func (r *Repository) GetTaxData(ctx context.Context, startDate, endDate time.Tim
 		LEFT JOIN sale_items si ON si.id = ri.sale_item_id
 		WHERE %s >= date(substr($1, 1, 10))
 		  AND %s < date(substr($2, 1, 10))
-		  AND UPPER(COALESCE(r.status, '')) = 'COMPLETED' %s`, returnDate, returnDate, returnReferenceFilter), startDate, endDate); err != nil {
+			AND UPPER(COALESCE(r.status, '')) = 'COMPLETED' %s`, returnDate, returnDate, returnReferenceFilter), startDateKey, endDateKey); err != nil {
 			return nil, fmt.Errorf("calculate returned taxable sales: %w", err)
 		}
 		returnedTaxable = returnedAmounts.Taxable

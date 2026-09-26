@@ -1,14 +1,23 @@
 import { DEFAULT_REGIONAL_PROFILE, RegionalProfile } from '../types/regional';
 
 const REGIONAL_PROFILE_KEY = 'partflow-regional-profile';
-export const STORE_TIMEZONE = 'Asia/Jerusalem';
+export const DEFAULT_STORE_TIMEZONE = DEFAULT_REGIONAL_PROFILE.timezone;
+
+function isValidTimezone(timezone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone });
+    return timezone !== 'Local';
+  } catch {
+    return false;
+  }
+}
 
 export function getRegionalProfile(): RegionalProfile {
   if (typeof window === 'undefined') return DEFAULT_REGIONAL_PROFILE;
   try {
     const parsed = JSON.parse(localStorage.getItem(REGIONAL_PROFILE_KEY) || 'null') as Partial<RegionalProfile> | null;
-    if (parsed?.timezone && parsed?.country_code) {
-      return { ...DEFAULT_REGIONAL_PROFILE, ...parsed, timezone: STORE_TIMEZONE };
+    if (parsed?.timezone && parsed?.country_code && isValidTimezone(parsed.timezone)) {
+      return { ...DEFAULT_REGIONAL_PROFILE, ...parsed };
     }
   } catch {
     // Fall back to the safe store default when legacy local storage is invalid.
@@ -18,14 +27,22 @@ export function getRegionalProfile(): RegionalProfile {
 
 export function setRegionalProfile(profile: RegionalProfile): void {
   if (typeof window !== 'undefined') {
-    const canonicalProfile = { ...profile, timezone: STORE_TIMEZONE };
+    const canonicalProfile = {
+      ...profile,
+      timezone: isValidTimezone(profile.timezone) ? profile.timezone : DEFAULT_STORE_TIMEZONE,
+    };
     localStorage.setItem(REGIONAL_PROFILE_KEY, JSON.stringify(canonicalProfile));
     window.dispatchEvent(new CustomEvent('partflow-regional-profile-changed', { detail: canonicalProfile }));
   }
 }
 
 export function getDeviceTimezone(): string {
-  return STORE_TIMEZONE;
+  const deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return deviceTimezone && isValidTimezone(deviceTimezone) ? deviceTimezone : DEFAULT_STORE_TIMEZONE;
+}
+
+export function getStoreTimezone(): string {
+  return getRegionalProfile().timezone || DEFAULT_STORE_TIMEZONE;
 }
 
 export function getStoreToday(value: Date = new Date()): string {
@@ -88,31 +105,44 @@ export function storeDateToUTCISOString(dateKey: string): string | null {
     return null;
   }
 
-  let utcTime = targetWallTime;
+  const timezone = getStoreTimezone();
   const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: STORE_TIMEZONE,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit', hourCycle: 'h23',
   });
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const parts = Object.fromEntries(formatter.formatToParts(new Date(utcTime)).map((part) => [part.type, part.value]));
-    const renderedWallTime = Date.UTC(
-      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
-      Number(parts.hour), Number(parts.minute), Number(parts.second),
-    );
-    utcTime += targetWallTime - renderedWallTime;
+
+  const localDateKeyAt = (timestamp: number) => {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  };
+  let low = targetWallTime - 36 * 60 * 60 * 1000;
+  let high = targetWallTime + 36 * 60 * 60 * 1000;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (localDateKeyAt(middle) >= dateKey) high = middle;
+    else low = middle + 1;
   }
-  return new Date(utcTime).toISOString();
+  if (localDateKeyAt(low) !== dateKey) return null;
+  return new Date(low).toISOString();
 }
 
 export function formatStoreDate(value: string | Date | null | undefined, locale = getRegionalProfile().locale): string {
+  const raw = String(value || '').trim();
+  const dateKeyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (dateKeyMatch) {
+    const [, year, month, day] = dateKeyMatch;
+    const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12));
+    return new Intl.DateTimeFormat(locale, {
+      year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'UTC',
+    }).format(date);
+  }
   const parsed = parseBackendTimestamp(value);
   if (!parsed) return 'غير محدد';
   return new Intl.DateTimeFormat(locale, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-    timeZone: STORE_TIMEZONE,
+    timeZone: getStoreTimezone(),
   }).format(parsed);
 }
 
@@ -127,7 +157,7 @@ export function formatStoreDateTime(value: string | Date | null | undefined, loc
     hour: '2-digit',
     minute: '2-digit',
     hour12: profile.time_format === '12h',
-    timeZone: STORE_TIMEZONE,
+    timeZone: getStoreTimezone(),
   }).format(parsed);
 }
 
@@ -139,7 +169,7 @@ export function formatStoreTime(value: string | Date | null | undefined, locale 
     hour: '2-digit',
     minute: '2-digit',
     hour12: profile.time_format === '12h',
-    timeZone: STORE_TIMEZONE,
+    timeZone: getStoreTimezone(),
   }).format(parsed);
 }
 
@@ -159,11 +189,21 @@ export function formatStoreActivityDateTime(
 }
 
 export function getStoreDateKey(value: string | Date | null | undefined): string | null {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  const dateKeyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (dateKeyMatch) {
+    const [, yearText, monthText, dayText] = dateKeyMatch;
+    const date = new Date(Date.UTC(Number(yearText), Number(monthText) - 1, Number(dayText)));
+    return date.getUTCFullYear() === Number(yearText)
+      && date.getUTCMonth() + 1 === Number(monthText)
+      && date.getUTCDate() === Number(dayText)
+      ? raw
+      : null;
+  }
   const parsed = parseBackendTimestamp(value);
   if (!parsed) return null;
-  const profile = getRegionalProfile();
   const parts = new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric', month: '2-digit', day: '2-digit', timeZone: STORE_TIMEZONE,
+    year: 'numeric', month: '2-digit', day: '2-digit', timeZone: getStoreTimezone(),
   }).formatToParts(parsed);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;

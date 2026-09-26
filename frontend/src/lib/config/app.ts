@@ -1,3 +1,5 @@
+import { getStoreTimezone } from '../../utils/store-time';
+
 const getEnvValue = (keys: string[], fallback = '') => {
   for (const key of keys) {
     const value = import.meta.env[key];
@@ -13,9 +15,25 @@ const localApiUrl = getEnvValue(
   'http://localhost:8080/api/v1',
 );
 
-// Business authorization and writes are pinned to the production Render API.
-// Database credentials remain in Render's server-side environment.
-const cloudApiUrl = 'https://partflow-api.onrender.com/api/v1';
+const productionApiUrl = 'https://partflow-api.onrender.com/api/v1';
+const defaultDeploymentMode = import.meta.env.MODE === 'production' ? 'production' : 'development';
+const deploymentMode = getEnvValue(
+  ['VITE_DEPLOYMENT_MODE'],
+  getEnvValue(['VITE_DEVELOPMENT_MODE'], '') === 'true' ? 'development' : defaultDeploymentMode,
+).toLowerCase();
+
+if (!['development', 'staging', 'production'].includes(deploymentMode)) {
+  throw new Error('VITE_DEPLOYMENT_MODE must be development, staging, or production');
+}
+
+// Authentication and subscription verification stay on the configured cloud
+// service. Development business requests can independently target a local API.
+const cloudApiUrl = deploymentMode === 'production'
+  ? productionApiUrl
+  : getEnvValue(['VITE_CLOUD_API_URL'], productionApiUrl);
+const developmentApiUrl = deploymentMode === 'production'
+  ? ''
+  : getEnvValue(['VITE_DEVELOPMENT_API_URL'], '');
 export const CLOUD_API_URL_OVERRIDE_KEY = 'partflow-cloud-api-url';
 
 export type ConnectionMode = 'local' | 'cloud';
@@ -65,7 +83,7 @@ export function getActiveApiUrl(): string {
 
 /** Business records and authorization always belong to the cloud API. */
 export function getBusinessApiUrl(): string {
-  return getCloudApiUrl();
+  return developmentApiUrl || getCloudApiUrl();
 }
 
 /**
@@ -97,11 +115,13 @@ export const appConfig = {
   name: 'PartFlow',
   version: '1.0.0',
   apiUrl: getBusinessApiUrl(),
+  developmentApiUrl,
   defaultLanguage: 'ar',
   supportedLanguages: ['ar', 'en'],
   currency: 'ILS',
-  timezone: 'Asia/Jerusalem',
-  developmentMode: getEnvValue(['VITE_DEVELOPMENT_MODE'], 'false') === 'true',
+  get timezone() { return getStoreTimezone(); },
+  developmentMode: deploymentMode !== 'production',
+  deploymentMode,
 } as const;
 
 export type AppConfig = typeof appConfig;

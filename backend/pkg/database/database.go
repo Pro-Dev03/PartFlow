@@ -27,6 +27,16 @@ func TenantIsolationEnabled() bool {
 	return value == "1" || value == "true" || value == "yes"
 }
 
+func readOnlyDiagnosticsEnabled() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_DB_READ_ONLY")))
+	return value == "1" || value == "true" || value == "yes"
+}
+
+func automaticSchemaEnsureDisabled() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("PARTFLOW_DISABLE_SCHEMA_AUTO_ENSURE")))
+	return value == "1" || value == "true" || value == "yes"
+}
+
 // Initialize initializes the database connection
 func Initialize() error {
 	cfg, err := config.Load()
@@ -71,6 +81,9 @@ func Initialize() error {
 			pgxConfig.RuntimeParams = make(map[string]string)
 		}
 		pgxConfig.RuntimeParams["timezone"] = "UTC"
+		if readOnlyDiagnosticsEnabled() {
+			pgxConfig.RuntimeParams["default_transaction_read_only"] = "on"
+		}
 		pgxConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 		if TenantIsolationEnabled() {
 			// Keep the database owner credentials server-side but execute all
@@ -126,6 +139,8 @@ func Initialize() error {
 		if err := validateTenantIsolationSchema(DB); err != nil {
 			return fmt.Errorf("tenant RLS is enabled but the database is not ready: %w", err)
 		}
+	} else if automaticSchemaEnsureDisabled() || (readOnlyDiagnosticsEnabled() && driver == "pgx") {
+		log.Println("Automatic database schema changes are disabled")
 	} else if err := ensureRequiredSchema(DB); err != nil {
 		return fmt.Errorf("failed to ensure required schema: %w", err)
 	}

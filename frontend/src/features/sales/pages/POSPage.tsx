@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useToast } from '../../../hooks/useToast';
-import { formatStoreDateTime } from '../../../utils/store-time';
+import { formatStoreDateTime, getStoreTimezone } from '../../../utils/store-time';
 import { useUIStore } from '../../../stores/uiStore';
 import { Modal } from '../../../design-system/components/modal';
 import { Button } from '../../../design-system/components/button';
@@ -1616,7 +1616,7 @@ export function POSPage() {
               {new Intl.DateTimeFormat('ar', {
                 hour: '2-digit',
                 minute: '2-digit',
-                timeZone: 'Asia/Jerusalem',
+                timeZone: getStoreTimezone(),
               }).format(new Date())}
             </span>
             <span className={`pos-api-status ${connectionStatus}`} role="status" aria-live="polite">

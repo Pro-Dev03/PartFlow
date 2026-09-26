@@ -248,6 +248,9 @@ export function ReportsPage() {
   const purchasesReport = selectedReport === 'purchases-suppliers' && reportPayload && typeof reportPayload === 'object'
     ? reportPayload as Record<string, unknown>
     : null;
+  const supplierReport = purchasesReport?.suppliers_report && typeof purchasesReport.suppliers_report === 'object'
+    ? purchasesReport.suppliers_report as Record<string, unknown>
+    : null;
   const untaxedPurchaseCount = purchasesReport && Number(purchasesReport.untaxed_purchases ?? 0) > 0 || purchasesReport && Number(purchasesReport.tax_amount ?? 0) > 0
     ? Number(purchasesReport?.untaxed_purchases ?? 0)
     : Number(purchasesReport?.total_purchases ?? 0);
@@ -308,7 +311,7 @@ export function ReportsPage() {
       case 'purchases-suppliers':
         return {
           title: 'ملخص المشتريات والتجار',
-          text: `إجمالي المشتريات: ${money(reportPayload?.total_cost)} • صافي المشتريات: ${money(reportPayload?.net_purchases)} • المدفوع: ${money(reportPayload?.total_paid)} • المستحق: ${money(reportPayload?.total_outstanding)}`,
+          text: `مشتريات الفترة المحددة: ${money(purchasesReport?.total_cost)} • صافيها بعد المرتجعات: ${money(purchasesReport?.net_purchases)} • الرصيد المستحق للموردين حاليًا: ${money(supplierReport?.total_outstanding)}`,
         };
       case 'expenses':
         return {
@@ -752,31 +755,67 @@ export function ReportsPage() {
               </table>
             </div>
           ) : selectedReport === 'purchases-suppliers' && reportPayload && typeof reportPayload === 'object' ? (
-            <div className="horizontal-scroll">
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>التاجر</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>إجمالي المشتريات</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المدفوع</th>
-                    <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المستحق</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Array.isArray((reportPayload as Record<string, unknown>).by_supplier) && ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).length > 0 ? (
-                    ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).map((supplier, index) => (
-                      <tr key={String(supplier.supplier_id ?? index)} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                        <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(supplier.supplier_name ?? 'تاجر غير معروف')}</td>
-                        <td style={{ padding: '12px', color: 'var(--color-primary)', fontSize: '13px', fontWeight: '600' }}>₪{Number(supplier.total_purchases ?? 0).toLocaleString()}</td>
-                        <td style={{ padding: '12px', color: 'var(--color-success)', fontSize: '13px' }}>₪{Number(supplier.total_paid ?? 0).toLocaleString()}</td>
-                        <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>₪{Number(supplier.outstanding ?? 0).toLocaleString()}</td>
+            <div className="space-y-5">
+              <section>
+                <h3 className="mb-3 text-sm font-semibold text-text-primary">مشتريات كل مورد خلال الفترة المحددة</h3>
+                <div className="horizontal-scroll">
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المورد</th>
+                        <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>قيمة المشتريات</th>
+                        <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>عدد الأصناف</th>
                       </tr>
-                    ))
-                  ) : (
-                    <tr><td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد مشتريات أو أرصدة تجار</td></tr>
-                  )}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {Array.isArray((reportPayload as Record<string, unknown>).by_supplier) && ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).length > 0 ? (
+                        ((reportPayload as Record<string, unknown[]>).by_supplier as Record<string, unknown>[]).map((supplier, index) => (
+                          <tr key={String(supplier.supplier_id ?? index)} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                            <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(supplier.supplier_name ?? 'مورد غير معروف')}</td>
+                            <td style={{ padding: '12px', color: 'var(--color-primary)', fontSize: '13px', fontWeight: '600' }}>₪{Number(supplier.total_cost ?? 0).toLocaleString()}</td>
+                            <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>{Number(supplier.item_count ?? 0).toLocaleString()}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr><td colSpan={3} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد مشتريات للموردين في الفترة المحددة</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section>
+                <h3 className="mb-1 text-sm font-semibold text-text-primary">الأرصدة الحالية للموردين</h3>
+                <p className="mb-3 text-xs text-text-secondary">هذه أرصدة تراكمية حالية وليست مقيدة بالفترة المحددة أعلاه.</p>
+                <div className="horizontal-scroll">
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المورد</th>
+                        <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>إجمالي مشترياته</th>
+                        <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المدفوع المسجل</th>
+                        <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>المستحق حاليًا</th>
+                        <th style={{ padding: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: '600' }}>الدائن حاليًا</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.isArray(supplierReport?.by_supplier) && (supplierReport.by_supplier as Record<string, unknown>[]).length > 0 ? (
+                        (supplierReport.by_supplier as Record<string, unknown>[]).map((supplier, index) => (
+                          <tr key={String(supplier.supplier_name ?? index)} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                            <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '600' }}>{String(supplier.supplier_name ?? 'مورد غير معروف')}</td>
+                            <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>₪{Number(supplier.total_purchases ?? 0).toLocaleString()}</td>
+                            <td style={{ padding: '12px', color: 'var(--color-success)', fontSize: '13px' }}>₪{Number(supplier.total_paid ?? 0).toLocaleString()}</td>
+                            <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>₪{Number(supplier.outstanding ?? 0).toLocaleString()}</td>
+                            <td style={{ padding: '12px', color: 'var(--text-primary)', fontSize: '13px' }}>₪{Number(supplier.credit_balance ?? 0).toLocaleString()}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr><td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-secondary)' }}>لا توجد أرصدة مسجلة للموردين</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             </div>
           ) : selectedReport === 'purchases' && reportPayload && typeof reportPayload === 'object' ? (
             <div className="space-y-5">

@@ -359,7 +359,9 @@ func getUserIDFromContext(c *gin.Context) uuid.UUID {
 			return parsed
 		}
 		if value, ok := userID.(string); ok {
-			return uuid.MustParse(value)
+			if parsed, err := uuid.Parse(value); err == nil {
+				return parsed
+			}
 		}
 	}
 	return uuid.Nil

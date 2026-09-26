@@ -46,7 +46,7 @@ var settingMetadata = map[string]struct {
 	"max_discount_rate":            {"15", "number", "financial", "الحد الأقصى للخصم المئوي", false},
 	"default_profit_margin":        {"30", "number", "financial", "نسبة الربح المقترحة عند إضافة منتج", false},
 	"country_code":                 {"IL", "string", "regional", "الدولة الافتراضية للمتجر", true},
-	"store_timezone":               {accounting.DefaultStoreTimezone, "string", "regional", "المنطقة الزمنية الثابتة للمتجر", true},
+	"store_timezone":               {accounting.DefaultStoreTimezone, "string", "regional", "المنطقة الزمنية للمتجر", true},
 	"pos_products_per_page":        {"12", "number", "appearance", "عدد منتجات نقطة البيع في الصفحة", false},
 	"pos_product_view_mode":        {"cards", "string", "appearance", "طريقة عرض منتجات نقطة البيع", false},
 	"electronic_payments_enabled":  {"false", "boolean", "payments", "تفعيل الدفع الإلكتروني", false},
@@ -191,16 +191,18 @@ func (h *Handler) GetRegionalSettings(c *gin.Context) {
 	profile := DefaultRegionalProfile()
 	storeTimezone := ""
 	timezonePersisted := false
-	if err := h.db.QueryRow(`SELECT value FROM settings WHERE key = 'store_timezone'`).Scan(&storeTimezone); err == nil {
-		timezonePersisted = strings.TrimSpace(storeTimezone) == accounting.DefaultStoreTimezone
-	}
 	var countryCode string
-	if !timezonePersisted && h.db.QueryRow(`SELECT value FROM settings WHERE key = 'country_code'`).Scan(&countryCode) == nil {
+	if h.db.QueryRow(`SELECT value FROM settings WHERE key = 'country_code'`).Scan(&countryCode) == nil {
 		if selected, profileErr := RegionalProfileForCountry(countryCode); profileErr == nil {
 			profile = selected
 		}
 	}
-	profile.Timezone = accounting.DefaultStoreTimezone
+	if err := h.db.QueryRow(`SELECT value FROM settings WHERE key = 'store_timezone'`).Scan(&storeTimezone); err == nil {
+		if validated, validateErr := accounting.ValidateStoreTimezone(storeTimezone); validateErr == nil {
+			profile.Timezone = validated
+			timezonePersisted = true
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
 		"profile":            profile,
 		"countries":          RegionalProfiles(),
@@ -219,10 +221,6 @@ func (h *Handler) UpdateRegionalSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "country_code is required"})
 		return
 	}
-	if timezone := strings.TrimSpace(request.Timezone); timezone != "" && timezone != accounting.DefaultStoreTimezone {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("PartFlow store timezone is fixed to %s", accounting.DefaultStoreTimezone)})
-		return
-	}
 	profile := DefaultRegionalProfile()
 	if strings.TrimSpace(request.CountryCode) != "" {
 		var err error
@@ -231,19 +229,46 @@ func (h *Handler) UpdateRegionalSettings(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+	} else {
+		var currentCountry string
+		if err := h.db.QueryRow(`SELECT value FROM settings WHERE key = 'country_code'`).Scan(&currentCountry); err == nil {
+			if current, profileErr := RegionalProfileForCountry(currentCountry); profileErr == nil {
+				profile = current
+			}
+		}
 	}
-	profile.Timezone = accounting.DefaultStoreTimezone
+	timezone := strings.TrimSpace(request.Timezone)
+	if timezone == "" {
+		timezone = profile.Timezone
+	}
+	validatedTimezone, err := accounting.ValidateStoreTimezone(timezone)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	profile.Timezone = validatedTimezone
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update regional settings"})
+		return
+	}
 	if profile.CountryCode != "" {
-		if _, err := h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ($1, $2, 'string', 'regional', $3, true) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`, "country_code", profile.CountryCode, "الدولة الافتراضية للمتجر"); err != nil {
+		if _, err := tx.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ($1, $2, 'string', 'regional', $3, true) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`, "country_code", profile.CountryCode, "الدولة الافتراضية للمتجر"); err != nil {
+			_ = tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update regional settings"})
 			return
 		}
 	}
-	if _, err := h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ($1, $2, 'string', 'regional', $3, true) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`, "store_timezone", profile.Timezone, "المنطقة الزمنية الثابتة للمتجر"); err != nil {
+	if _, err := tx.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public) VALUES ($1, $2, 'string', 'regional', $3, true) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`, "store_timezone", profile.Timezone, "المنطقة الزمنية للمتجر"); err != nil {
+		_ = tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update regional settings"})
 		return
 	}
-	if err := accounting.ConfigureStoreTimezone(profile.Timezone); err != nil {
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update regional settings"})
+		return
+	}
+	if err := accounting.ConfigureStoreTimezone(validatedTimezone); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to configure store timezone"})
 		return
 	}
@@ -261,14 +286,22 @@ func (h *Handler) InitializeRegionalSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "timezone is required"})
 		return
 	}
-	timezone := accounting.DefaultStoreTimezone
+	timezone, err := accounting.ValidateStoreTimezone(request.Timezone)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	var existing string
 	if err := h.db.QueryRow(`SELECT value FROM settings WHERE key = 'store_timezone'`).Scan(&existing); err == nil && strings.TrimSpace(existing) != "" {
+		if configureErr := accounting.ConfigureStoreTimezone(existing); configureErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Stored store timezone is invalid"})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"store_timezone": existing, "timezone_persisted": true}})
 		return
 	}
-	if _, err := h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public, created_at, updated_at) VALUES ($1, $2, 'string', 'regional', $3, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (key) DO NOTHING`, "store_timezone", timezone, "المنطقة الزمنية الثابتة للمتجر"); err != nil {
+	if _, err := h.db.Exec(`INSERT INTO settings (key, value, value_type, category, description, is_public, created_at, updated_at) VALUES ($1, $2, 'string', 'regional', $3, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT (key) DO NOTHING`, "store_timezone", timezone, "المنطقة الزمنية للمتجر"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize store timezone"})
 		return
 	}
@@ -342,26 +375,26 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 			return
 		}
 	}
+	var timezoneToConfigure string
 	if key == "country_code" {
 		profile, err := RegionalProfileForCountry(value)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if err := accounting.ConfigureStoreTimezone(profile.Timezone); err != nil {
+		if _, err := accounting.ValidateStoreTimezone(profile.Timezone); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		timezoneToConfigure = profile.Timezone
 	}
 	if key == "store_timezone" {
-		if strings.TrimSpace(value) != accounting.DefaultStoreTimezone {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("PartFlow store timezone is fixed to %s", accounting.DefaultStoreTimezone)})
-			return
-		}
-		if err := accounting.ConfigureStoreTimezone(accounting.DefaultStoreTimezone); err != nil {
+		validated, err := accounting.ValidateStoreTimezone(value)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		timezoneToConfigure = validated
 	}
 	storedValue := value
 	if preserveSensitive {
@@ -387,6 +420,21 @@ func (h *Handler) UpdateSetting(c *gin.Context) {
 		_, err = insertSetting(h.db, key, storedValue, metadata.valueType, metadata.category, metadata.description, metadata.isPublic, true)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create setting"})
+			return
+		}
+	}
+	if key == "country_code" {
+		if timezoneMetadata, exists := settingMetadata["store_timezone"]; exists {
+			_, err = insertSetting(h.db, "store_timezone", timezoneToConfigure, timezoneMetadata.valueType, timezoneMetadata.category, timezoneMetadata.description, timezoneMetadata.isPublic, true)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update store timezone"})
+				return
+			}
+		}
+	}
+	if timezoneToConfigure != "" {
+		if err := accounting.ConfigureStoreTimezone(timezoneToConfigure); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to configure store timezone"})
 			return
 		}
 	}

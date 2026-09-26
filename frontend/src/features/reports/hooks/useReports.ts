@@ -9,30 +9,36 @@ function getDateRangeParams(dateRange: string) {
 
   switch (dateRange) {
     case 'today':
-      return { start_date: today, end_date: shiftStoreDate(today, 1) };
+      return { start_date: today, end_date: today };
     case 'thisWeek': {
       const todayDate = new Date(`${today}T12:00:00Z`);
-      const weekStart = shiftStoreDate(today, -todayDate.getUTCDay());
-      return { start_date: weekStart, end_date: shiftStoreDate(today, 1) };
+      const daysSinceMonday = (todayDate.getUTCDay() + 6) % 7;
+      const weekStart = shiftStoreDate(today, -daysSinceMonday);
+      return { start_date: weekStart, end_date: today };
     }
     case 'thisMonth':
-      return { start_date: `${today.slice(0, 7)}-01`, end_date: shiftStoreDate(today, 1) };
+      return { start_date: `${today.slice(0, 7)}-01`, end_date: today };
     case 'thisYear':
-      return { start_date: `${today.slice(0, 4)}-01-01`, end_date: shiftStoreDate(today, 1) };
+      return { start_date: `${today.slice(0, 4)}-01-01`, end_date: today };
     default:
       return {};
   }
+}
+
+export function combinePurchasesAndSupplierReports(purchasesResponse: any, suppliersResponse: any) {
+  const purchases = purchasesResponse?.data ?? purchasesResponse ?? {};
+  const suppliers = suppliersResponse?.data ?? suppliersResponse ?? {};
+  return { ...purchases, suppliers_report: suppliers };
 }
 
 export function useReports(selectedReport: string, dateRange: string, customStartDate?: string, customEndDate?: string) {
   // Calculate date range based on selection
   const getSelectedDateRangeParams = () => {
     if (dateRange !== 'custom') return getDateRangeParams(dateRange);
-    const shiftStoreDate = (date: string, days: number) => addStoreDays(date, days);
     switch (dateRange) {
       case 'custom':
         return customStartDate && customEndDate
-          ? { start_date: customStartDate, end_date: shiftStoreDate(customEndDate, 1) }
+          ? { start_date: customStartDate, end_date: customEndDate }
           : {};
       default:
         return {};
@@ -92,9 +98,7 @@ export function useReports(selectedReport: string, dateRange: string, customStar
             reportsApi.purchases(dateParams),
             reportsApi.suppliers(),
           ]);
-          const purchases = purchasesResponse?.data ?? purchasesResponse ?? {};
-          const suppliers = suppliersResponse?.data ?? suppliersResponse ?? {};
-          return { ...purchases, ...suppliers, purchases_report: purchases, suppliers_report: suppliers };
+          return combinePurchasesAndSupplierReports(purchasesResponse, suppliersResponse);
         }
         case 'sales':
           return reportsApi.sales(dateParams);

@@ -93,6 +93,13 @@ func TestSupplierReturnCreditsLedgerAndRemovesInventorySQLite(t *testing.T) {
 	if refund != 100 {
 		t.Fatalf("refund amount = %v, want 100", refund)
 	}
+	listed, err := service.List(ctx, "")
+	if err != nil {
+		t.Fatalf("list supplier returns after completing one: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ProductName != "Return Product" || listed[0].Quantity != 1 || listed[0].Status != "COMPLETED" {
+		t.Fatalf("supplier return list did not preserve its item details: %#v", listed)
+	}
 	// A mismatch must roll back the whole cleanup without changing the live
 	// balance or deleting any part of the operation.
 	if _, err := db.Exec(`UPDATE supplier_ledger SET amount = 99 WHERE reference_id = ? AND transaction_type = 'SUPPLIER_RETURN'`, created.ID); err != nil {

@@ -94,8 +94,8 @@ type OverstockItem struct {
 	ProductID       uuid.UUID `json:"product_id"`
 	ProductName     string    `json:"product_name"`
 	CurrentStock    int       `json:"current_stock"`
-	AvgMonthlySales int       `json:"avg_monthly_sales"`
-	MonthsOfSupply  int       `json:"months_of_supply"`
+	AvgMonthlySales float64   `json:"avg_monthly_sales"`
+	MonthsOfSupply  *float64  `json:"months_of_supply"`
 }
 
 // StagnantItem represents stagnant item

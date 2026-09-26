@@ -21,11 +21,40 @@ type Repository struct {
 type returnTimestamp struct{ time.Time }
 
 func (t *returnTimestamp) Scan(value any) error {
-	parsed, err := dbutil.ParseTimestamp(value)
+	if value == nil {
+		t.Time = time.Time{}
+		return nil
+	}
+	var dateKey string
+	switch v := value.(type) {
+	case time.Time:
+		dateKey = v.Format("2006-01-02")
+	case string:
+		dateKey = strings.TrimSpace(v)
+	case []byte:
+		dateKey = strings.TrimSpace(string(v))
+	default:
+		parsed, err := dbutil.ParseTimestamp(value)
+		if err != nil {
+			return err
+		}
+		dateKey = parsed.Format("2006-01-02")
+	}
+	if len(dateKey) > len("2006-01-02") {
+		dateKey = dateKey[:len("2006-01-02")]
+	}
+	if _, err := time.Parse("2006-01-02", dateKey); err != nil {
+		return fmt.Errorf("parse return analysis store date %q: %w", dateKey, err)
+	}
+	start, _, err := accounting.StoreDateBounds(dateKey)
 	if err != nil {
 		return err
 	}
-	t.Time = parsed
+	location, err := accounting.StoreLocation()
+	if err != nil {
+		return err
+	}
+	t.Time = start.In(location)
 	return nil
 }
 
@@ -1757,8 +1786,16 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate return statistics period: %w", err)
 	}
+	returnDate := r.returnsDateExpression("")
 	if isSQLite && !sqliteHasColumns(r.db, "returns", "return_type") {
-		query := `
+		conditions := []string{fmt.Sprintf("%s >= date(?)", returnDate), fmt.Sprintf("%s < date(?)", returnDate)}
+		if sqliteHasColumns(r.db, "accounting_returns", "reference_number") {
+			conditions = append(conditions, "COALESCE(reference_number, '') NOT LIKE 'REV-%'")
+		}
+		if sqliteHasColumns(r.db, "accounting_returns", "status") {
+			conditions = append(conditions, "UPPER(COALESCE(status, '')) <> 'CANCELLED'")
+		}
+		query := fmt.Sprintf(`
 			SELECT
 				COUNT(*) AS total_returns,
 				COUNT(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' THEN 1 END) AS completed_returns,
@@ -1769,9 +1806,8 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) AS defective_returns,
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_returns
 			FROM accounting_returns
-			WHERE date(substr(COALESCE(return_date, created_at), 1, 10)) >= date(?)
-			  AND date(substr(COALESCE(return_date, created_at), 1, 10)) < date(?)
-		`
+				WHERE %s
+			`, strings.Join(conditions, " AND "))
 		err := r.db.GetContext(ctx, &row, query, periodStart, periodEnd)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get return statistics: %w", err)
@@ -1788,7 +1824,7 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 		}, nil
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			COUNT(*) as total_returns,
 			COUNT(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' THEN 1 END) as completed_returns,
@@ -1799,13 +1835,12 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 			COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) as defective_returns,
 			COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) as warranty_returns
 		FROM accounting_returns
-		WHERE date(substr(return_date, 1, 10)) >= date(?)
-		  AND date(substr(return_date, 1, 10)) < date(?)
-		  AND COALESCE(reference_number, '') NOT LIKE 'REV-%'
+		WHERE %s >= date(?) AND %s < date(?)
+		  AND COALESCE(reference_number, '') NOT LIKE 'REV-%%'
 		  AND UPPER(COALESCE(status, '')) <> 'CANCELLED'
-	`
+	`, returnDate, returnDate)
 	if !isSQLite {
-		query = `
+		query = fmt.Sprintf(`
 			SELECT
 				COUNT(*) AS total_returns,
 				COUNT(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' THEN 1 END) AS completed_returns,
@@ -1816,11 +1851,10 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) AS defective_returns,
 				COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_returns
 			FROM accounting_returns
-			WHERE return_date::date >= $1::date
-			  AND return_date::date < $2::date
-			  AND COALESCE(reference_number, '') NOT LIKE 'REV-%'
+			WHERE %s >= $1::date AND %s < $2::date
+			  AND COALESCE(reference_number, '') NOT LIKE 'REV-%%'
 			  AND UPPER(COALESCE(status, '')) <> 'CANCELLED'
-		`
+		`, returnDate, returnDate)
 	}
 
 	err = r.db.GetContext(ctx, &row, query, periodStart, periodEnd)
@@ -1839,187 +1873,156 @@ func (r *Repository) GetReturnStatistics(ctx context.Context) (map[string]interf
 	}, nil
 }
 
-// GetMonthlyReturnsAnalysis gets monthly returns analysis
-func (r *Repository) GetMonthlyReturnsAnalysis(ctx context.Context) ([]MonthlyReturnsAnalysis, error) {
-	var analysis []MonthlyReturnsAnalysis
-	if strings.EqualFold(r.db.DriverName(), "sqlite") {
-		var exists int
-		if err := r.db.GetContext(ctx, &exists, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'view' AND name = 'monthly_returns_analysis'`); err != nil || exists == 0 {
-			var rows []struct {
-				Month                  returnTimestamp `db:"month"`
-				TotalReturns           int             `db:"total_returns"`
-				UniqueCustomers        int             `db:"unique_customers"`
-				TotalRefundAmount      float64         `db:"total_refund_amount"`
-				AvgRefundAmount        float64         `db:"avg_refund_amount"`
-				FullReturns            int             `db:"full_returns"`
-				PartialReturns         int             `db:"partial_returns"`
-				QuantityPartialReturns int             `db:"quantity_partial_returns"`
-				DefectiveReturns       int             `db:"defective_returns"`
-				WarrantyReturns        int             `db:"warranty_returns"`
-				WarrantyClaims         int             `db:"warranty_claims"`
-				SellableItems          int             `db:"sellable_items"`
-				RepairNeeded           int             `db:"repair_needed"`
-				WrittenOff             int             `db:"written_off"`
-			}
-			query := `
-				SELECT strftime('%Y-%m-01', substr(return_date, 1, 10)) AS month,
-					COUNT(DISTINCT id) AS total_returns,
-					COUNT(DISTINCT customer_id) AS unique_customers,
-					COALESCE(SUM(total_refund_amount), 0) AS total_refund_amount,
-					COALESCE(AVG(total_refund_amount), 0) AS avg_refund_amount,
-					COUNT(CASE WHEN UPPER(COALESCE(return_type, '')) = 'FULL' THEN 1 END) AS full_returns,
-					COUNT(CASE WHEN UPPER(COALESCE(return_type, '')) IN ('PARTIAL', 'QUANTITY_PARTIAL') THEN 1 END) AS partial_returns,
-					COUNT(CASE WHEN UPPER(COALESCE(return_type, '')) = 'QUANTITY_PARTIAL' THEN 1 END) AS quantity_partial_returns,
-					COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'DEFECTIVE' THEN 1 END) AS defective_returns,
-					COUNT(CASE WHEN UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_returns,
-					COUNT(CASE WHEN UPPER(COALESCE(status, '')) = 'COMPLETED' AND UPPER(COALESCE(reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_claims,
-					SUM(CASE WHEN UPPER(COALESCE(item_condition_after_return, '')) = 'SELLABLE' THEN 1 ELSE 0 END) AS sellable_items,
-					SUM(CASE WHEN UPPER(COALESCE(item_condition_after_return, '')) = 'NEEDS_REPAIR' THEN 1 ELSE 0 END) AS repair_needed,
-					SUM(CASE WHEN UPPER(COALESCE(item_condition_after_return, '')) IN ('WRITE_OFF', 'DAMAGED') THEN 1 ELSE 0 END) AS written_off
-				FROM returns
-				WHERE UPPER(COALESCE(status, '')) = 'COMPLETED'
-				GROUP BY strftime('%Y-%m', substr(return_date, 1, 10))
-				ORDER BY month DESC
-				LIMIT 12`
-			if err := r.db.SelectContext(ctx, &rows, query); err != nil {
-				return nil, fmt.Errorf("failed to get monthly returns analysis: %w", err)
-			}
-			analysis = make([]MonthlyReturnsAnalysis, 0, len(rows))
-			for _, row := range rows {
-				analysis = append(analysis, MonthlyReturnsAnalysis{Month: row.Month.Time, TotalReturns: row.TotalReturns, UniqueCustomers: row.UniqueCustomers, TotalRefundAmount: row.TotalRefundAmount, AvgRefundAmount: row.AvgRefundAmount, FullReturns: row.FullReturns, PartialReturns: row.PartialReturns, QuantityPartialReturns: row.QuantityPartialReturns, DefectiveReturns: row.DefectiveReturns, WarrantyReturns: row.WarrantyReturns, WarrantyClaims: row.WarrantyClaims, SellableItems: row.SellableItems, RepairNeeded: row.RepairNeeded, WrittenOff: row.WrittenOff})
-			}
-			return analysis, nil
+func (r *Repository) returnsDateExpression(alias string) string {
+	qualified := func(column string) string {
+		if alias == "" {
+			return column
 		}
-		var rows []struct {
-			Month                  returnTimestamp `db:"month"`
-			TotalReturns           int             `db:"total_returns"`
-			UniqueCustomers        int             `db:"unique_customers"`
-			TotalRefundAmount      float64         `db:"total_refund_amount"`
-			AvgRefundAmount        float64         `db:"avg_refund_amount"`
-			FullReturns            int             `db:"full_returns"`
-			PartialReturns         int             `db:"partial_returns"`
-			QuantityPartialReturns int             `db:"quantity_partial_returns"`
-			DefectiveReturns       int             `db:"defective_returns"`
-			WarrantyReturns        int             `db:"warranty_returns"`
-			WarrantyClaims         int             `db:"warranty_claims"`
-			SellableItems          int             `db:"sellable_items"`
-			RepairNeeded           int             `db:"repair_needed"`
-			WrittenOff             int             `db:"written_off"`
-		}
-		if err := r.db.SelectContext(ctx, &rows, `SELECT month, total_returns, unique_customers, total_refund_amount, avg_refund_amount, full_returns, partial_returns, quantity_partial_returns, defective_returns, warranty_returns, warranty_claims, sellable_items, repair_needed, written_off FROM monthly_returns_analysis ORDER BY month DESC LIMIT 12`); err != nil {
-			return nil, fmt.Errorf("failed to get monthly returns analysis: %w", err)
-		}
-		analysis = make([]MonthlyReturnsAnalysis, 0, len(rows))
-		for _, row := range rows {
-			analysis = append(analysis, MonthlyReturnsAnalysis{Month: row.Month.Time, TotalReturns: row.TotalReturns, UniqueCustomers: row.UniqueCustomers, TotalRefundAmount: row.TotalRefundAmount, AvgRefundAmount: row.AvgRefundAmount, FullReturns: row.FullReturns, PartialReturns: row.PartialReturns, QuantityPartialReturns: row.QuantityPartialReturns, DefectiveReturns: row.DefectiveReturns, WarrantyReturns: row.WarrantyReturns, WarrantyClaims: row.WarrantyClaims, SellableItems: row.SellableItems, RepairNeeded: row.RepairNeeded, WrittenOff: row.WrittenOff})
-		}
-		return analysis, nil
+		return alias + "." + column
 	}
-	query := `
-		SELECT 
-			month,
-			total_returns,
-			unique_customers,
-			total_refund_amount,
-			avg_refund_amount,
-			full_returns,
-			partial_returns,
-			quantity_partial_returns,
-			defective_returns,
-			warranty_returns,
-			warranty_claims,
-			sellable_items,
-			repair_needed,
-			written_off
-		FROM monthly_returns_analysis
-		ORDER BY month DESC
-		LIMIT 12
-	`
+	if dbutil.IsSQLite(r.db) {
+		columns := make([]string, 0, 3)
+		for _, column := range []string{"refund_date", "return_date", "created_at"} {
+			if sqliteHasColumns(r.db, "accounting_returns", column) {
+				columns = append(columns, qualified(column))
+			}
+		}
+		if len(columns) == 0 {
+			for _, column := range []string{"refund_date", "return_date", "created_at"} {
+				if sqliteHasColumns(r.db, "returns", column) {
+					columns = append(columns, qualified(column))
+				}
+			}
+		}
+		if len(columns) == 0 {
+			return "store_date(" + qualified("return_date") + ")"
+		}
+		return "store_date(COALESCE(" + strings.Join(columns, ", ") + "))"
+	}
+	return "COALESCE(" + qualified("refund_date") + "::date, " + qualified("return_date") + "::date, " + accounting.PostgresStoreDateExpression(qualified("created_at")) + ")"
+}
 
-	err := r.db.SelectContext(ctx, &analysis, query)
-	if err != nil {
+func (r *Repository) salesDateExpression(alias string) string {
+	if dbutil.IsSQLite(r.db) {
+		columns := make([]string, 0, 2)
+		for _, column := range []string{"sale_date", "created_at"} {
+			if sqliteHasColumns(r.db, "sales", column) {
+				columns = append(columns, alias+"."+column)
+			}
+		}
+		if len(columns) == 0 {
+			return "store_date(" + alias + ".sale_date)"
+		}
+		return "store_date(COALESCE(" + strings.Join(columns, ", ") + "))"
+	}
+	return "COALESCE(" + alias + ".sale_date::date, " + accounting.PostgresStoreDateExpression(alias+".created_at") + ")"
+}
+
+func (r *Repository) monthExpression(dateExpression string) string {
+	if dbutil.IsSQLite(r.db) {
+		return "strftime('%Y-%m-01', " + dateExpression + ")"
+	}
+	return "DATE_TRUNC('month', " + dateExpression + ")"
+}
+
+// GetMonthlyReturnsAnalysis groups posted returns by their store-local refund
+// date so results follow the configured timezone even when a legacy view does not.
+func (r *Repository) GetMonthlyReturnsAnalysis(ctx context.Context) ([]MonthlyReturnsAnalysis, error) {
+	dateExpression := r.returnsDateExpression("r")
+	monthExpression := r.monthExpression(dateExpression)
+	returnTable := "accounting_returns"
+	if dbutil.IsSQLite(r.db) && !sqliteHasColumns(r.db, returnTable, "id") {
+		returnTable = "returns"
+	}
+	query := fmt.Sprintf(`SELECT %s AS month,
+		COUNT(DISTINCT r.id) AS total_returns,
+		COUNT(DISTINCT r.customer_id) AS unique_customers,
+		COALESCE(SUM(r.total_refund_amount), 0) AS total_refund_amount,
+		COALESCE(AVG(r.total_refund_amount), 0) AS avg_refund_amount,
+		COUNT(CASE WHEN UPPER(COALESCE(r.return_type, '')) = 'FULL' THEN 1 END) AS full_returns,
+		COUNT(CASE WHEN UPPER(COALESCE(r.return_type, '')) IN ('PARTIAL', 'QUANTITY_PARTIAL') THEN 1 END) AS partial_returns,
+		COUNT(CASE WHEN UPPER(COALESCE(r.return_type, '')) = 'QUANTITY_PARTIAL' THEN 1 END) AS quantity_partial_returns,
+		COUNT(CASE WHEN UPPER(COALESCE(r.reason, '')) = 'DEFECTIVE' THEN 1 END) AS defective_returns,
+		COUNT(CASE WHEN UPPER(COALESCE(r.reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_returns,
+		COUNT(CASE WHEN UPPER(COALESCE(r.status, '')) = 'COMPLETED' AND UPPER(COALESCE(r.reason, '')) = 'WARRANTY' THEN 1 END) AS warranty_claims,
+		SUM(CASE WHEN UPPER(COALESCE(r.item_condition_after_return, '')) = 'SELLABLE' THEN 1 ELSE 0 END) AS sellable_items,
+		SUM(CASE WHEN UPPER(COALESCE(r.item_condition_after_return, '')) = 'NEEDS_REPAIR' THEN 1 ELSE 0 END) AS repair_needed,
+		SUM(CASE WHEN UPPER(COALESCE(r.item_condition_after_return, '')) IN ('WRITE_OFF', 'DAMAGED') THEN 1 ELSE 0 END) AS written_off
+		FROM %s r WHERE UPPER(COALESCE(r.status, '')) = 'COMPLETED'
+		GROUP BY %s ORDER BY month DESC LIMIT 12`, monthExpression, returnTable, monthExpression)
+	var rows []struct {
+		Month                  returnTimestamp `db:"month"`
+		TotalReturns           int             `db:"total_returns"`
+		UniqueCustomers        int             `db:"unique_customers"`
+		TotalRefundAmount      float64         `db:"total_refund_amount"`
+		AvgRefundAmount        float64         `db:"avg_refund_amount"`
+		FullReturns            int             `db:"full_returns"`
+		PartialReturns         int             `db:"partial_returns"`
+		QuantityPartialReturns int             `db:"quantity_partial_returns"`
+		DefectiveReturns       int             `db:"defective_returns"`
+		WarrantyReturns        int             `db:"warranty_returns"`
+		WarrantyClaims         int             `db:"warranty_claims"`
+		SellableItems          int             `db:"sellable_items"`
+		RepairNeeded           int             `db:"repair_needed"`
+		WrittenOff             int             `db:"written_off"`
+	}
+	if err := r.db.SelectContext(ctx, &rows, query); err != nil {
 		return nil, fmt.Errorf("failed to get monthly returns analysis: %w", err)
+	}
+	analysis := make([]MonthlyReturnsAnalysis, 0, len(rows))
+	for _, row := range rows {
+		analysis = append(analysis, MonthlyReturnsAnalysis{Month: row.Month.Time, TotalReturns: row.TotalReturns, UniqueCustomers: row.UniqueCustomers, TotalRefundAmount: row.TotalRefundAmount, AvgRefundAmount: row.AvgRefundAmount, FullReturns: row.FullReturns, PartialReturns: row.PartialReturns, QuantityPartialReturns: row.QuantityPartialReturns, DefectiveReturns: row.DefectiveReturns, WarrantyReturns: row.WarrantyReturns, WarrantyClaims: row.WarrantyClaims, SellableItems: row.SellableItems, RepairNeeded: row.RepairNeeded, WrittenOff: row.WrittenOff})
 	}
 	return analysis, nil
 }
 
 // GetSalesReturnsAnalysis gets sales vs returns analysis
 func (r *Repository) GetSalesReturnsAnalysis(ctx context.Context) ([]SalesReturnsAnalysis, error) {
-	var analysis []SalesReturnsAnalysis
-	if strings.EqualFold(r.db.DriverName(), "sqlite") {
-		var exists int
-		if err := r.db.GetContext(ctx, &exists, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'view' AND name = 'sales_returns_analysis'`); err != nil || exists == 0 {
-			var rows []struct {
-				Month         returnTimestamp `db:"month"`
-				TotalSales    int             `db:"total_sales"`
-				GrossSales    float64         `db:"gross_sales"`
-				TotalCost     float64         `db:"total_cost"`
-				GrossProfit   float64         `db:"gross_profit"`
-				ReturnsAmount float64         `db:"returns_amount"`
-				ReturnCount   int             `db:"return_count"`
-				NetSales      float64         `db:"net_sales"`
-			}
-			query := `
-				SELECT date(s.sale_date, 'start of month') AS month,
-					COUNT(DISTINCT s.id) AS total_sales,
-					COALESCE(SUM(s.total_amount), 0) AS gross_sales,
-					COALESCE(SUM(COALESCE(s.cost_amount, 0)), 0) AS total_cost,
-					COALESCE(SUM(COALESCE(s.gross_profit, 0)), 0) AS gross_profit,
-					COALESCE(SUM(CASE WHEN UPPER(COALESCE(r.status, '')) = 'COMPLETED' THEN r.total_refund_amount ELSE 0 END), 0) AS returns_amount,
-					COUNT(CASE WHEN UPPER(COALESCE(r.status, '')) = 'COMPLETED' THEN r.id END) AS return_count,
-					COALESCE(SUM(s.total_amount), 0) - COALESCE(SUM(CASE WHEN UPPER(COALESCE(r.status, '')) = 'COMPLETED' THEN r.total_refund_amount ELSE 0 END), 0) AS net_sales
-				FROM sales s
-				LEFT JOIN returns r ON r.sale_id = s.id
-				WHERE UPPER(COALESCE(s.status, '')) = 'COMPLETED'
-				GROUP BY date(s.sale_date, 'start of month')
-				ORDER BY month DESC
-				LIMIT 12`
-			if err := r.db.SelectContext(ctx, &rows, query); err != nil {
-				return nil, fmt.Errorf("failed to get sales returns analysis: %w", err)
-			}
-			analysis = make([]SalesReturnsAnalysis, 0, len(rows))
-			for _, row := range rows {
-				analysis = append(analysis, SalesReturnsAnalysis{Month: row.Month.Time, TotalSales: row.TotalSales, GrossSales: row.GrossSales, TotalCost: row.TotalCost, GrossProfit: row.GrossProfit, ReturnsAmount: row.ReturnsAmount, ReturnCount: row.ReturnCount, NetSales: row.NetSales})
-			}
-			return analysis, nil
-		}
-		var rows []struct {
-			Month         returnTimestamp `db:"month"`
-			TotalSales    int             `db:"total_sales"`
-			GrossSales    float64         `db:"gross_sales"`
-			TotalCost     float64         `db:"total_cost"`
-			GrossProfit   float64         `db:"gross_profit"`
-			ReturnsAmount float64         `db:"returns_amount"`
-			ReturnCount   int             `db:"return_count"`
-			NetSales      float64         `db:"net_sales"`
-		}
-		if err := r.db.SelectContext(ctx, &rows, `SELECT month, total_sales, gross_sales, total_cost, gross_profit, returns_amount, return_count, net_sales FROM sales_returns_analysis ORDER BY month DESC LIMIT 12`); err != nil {
-			return nil, fmt.Errorf("failed to get sales returns analysis: %w", err)
-		}
-		analysis = make([]SalesReturnsAnalysis, 0, len(rows))
-		for _, row := range rows {
-			analysis = append(analysis, SalesReturnsAnalysis{Month: row.Month.Time, TotalSales: row.TotalSales, GrossSales: row.GrossSales, TotalCost: row.TotalCost, GrossProfit: row.GrossProfit, ReturnsAmount: row.ReturnsAmount, ReturnCount: row.ReturnCount, NetSales: row.NetSales})
-		}
-		return analysis, nil
+	salesMonth := r.monthExpression(r.salesDateExpression("s"))
+	returnMonth := r.monthExpression(r.returnsDateExpression("r"))
+	returnTable := "accounting_returns"
+	if dbutil.IsSQLite(r.db) && !sqliteHasColumns(r.db, returnTable, "id") {
+		returnTable = "returns"
 	}
-	query := `
-		SELECT 
-			month,
-			total_sales,
-			gross_sales,
-			total_cost,
-			gross_profit,
-			returns_amount,
-			return_count,
-			net_sales
-		FROM sales_returns_analysis
-		ORDER BY month DESC
-		LIMIT 12
-	`
-
-	err := r.db.SelectContext(ctx, &analysis, query)
-	if err != nil {
+	returnFilter := "UPPER(COALESCE(r.status, '')) = 'COMPLETED' AND r.sale_id IS NOT NULL"
+	if !dbutil.IsSQLite(r.db) || sqliteHasColumns(r.db, returnTable, "reference_number") {
+		returnFilter += " AND COALESCE(r.reference_number, '') NOT LIKE 'REV-%'"
+	}
+	query := fmt.Sprintf(`WITH sales_by_month AS (
+		SELECT %s AS month, COUNT(*) AS total_sales,
+			COALESCE(SUM(s.total_amount), 0) AS gross_sales,
+			COALESCE(SUM(COALESCE(s.cost_amount, 0)), 0) AS total_cost,
+			COALESCE(SUM(COALESCE(s.gross_profit, s.total_amount - COALESCE(s.tax_amount, 0) - COALESCE(s.cost_amount, 0), 0)), 0) AS gross_profit
+		FROM sales s WHERE UPPER(COALESCE(s.status, '')) = 'COMPLETED'
+		GROUP BY %s
+	), returns_by_month AS (
+		SELECT %s AS month, COALESCE(SUM(r.total_refund_amount), 0) AS returns_amount,
+			COUNT(*) AS return_count FROM %s r WHERE %s GROUP BY %s
+	), months AS (
+		SELECT month FROM sales_by_month UNION SELECT month FROM returns_by_month
+	)
+	SELECT months.month, COALESCE(s.total_sales, 0) AS total_sales, COALESCE(s.gross_sales, 0) AS gross_sales,
+		COALESCE(s.total_cost, 0) AS total_cost, COALESCE(s.gross_profit, 0) AS gross_profit, COALESCE(r.returns_amount, 0) AS returns_amount,
+		COALESCE(r.return_count, 0) AS return_count, COALESCE(s.gross_sales, 0) - COALESCE(r.returns_amount, 0) AS net_sales
+	FROM months LEFT JOIN sales_by_month s ON s.month = months.month
+	LEFT JOIN returns_by_month r ON r.month = months.month
+	ORDER BY months.month DESC LIMIT 12`, salesMonth, salesMonth, returnMonth, returnTable, returnFilter, returnMonth)
+	var rows []struct {
+		Month         returnTimestamp `db:"month"`
+		TotalSales    int             `db:"total_sales"`
+		GrossSales    float64         `db:"gross_sales"`
+		TotalCost     float64         `db:"total_cost"`
+		GrossProfit   float64         `db:"gross_profit"`
+		ReturnsAmount float64         `db:"returns_amount"`
+		ReturnCount   int             `db:"return_count"`
+		NetSales      float64         `db:"net_sales"`
+	}
+	if err := r.db.SelectContext(ctx, &rows, query); err != nil {
 		return nil, fmt.Errorf("failed to get sales returns analysis: %w", err)
+	}
+	analysis := make([]SalesReturnsAnalysis, 0, len(rows))
+	for _, row := range rows {
+		analysis = append(analysis, SalesReturnsAnalysis{Month: row.Month.Time, TotalSales: row.TotalSales, GrossSales: row.GrossSales, TotalCost: row.TotalCost, GrossProfit: row.GrossProfit, ReturnsAmount: row.ReturnsAmount, ReturnCount: row.ReturnCount, NetSales: row.NetSales})
 	}
 	return analysis, nil
 }
