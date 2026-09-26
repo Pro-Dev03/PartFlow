@@ -147,13 +147,17 @@ func (r *Repository) Create(ctx context.Context, payment *Payment) error {
 		}
 		return nil
 	}
+	// Keep the legacy columns populated as well as the normalized Cloud API
+	// columns. Existing PostgreSQL installations still have NOT NULL constraints
+	// on reference_number and payment_method from the original schema.
+	legacyReferenceNumber := "PAY-" + payment.ID.String()[:8]
 	query := `
-		INSERT INTO payments (id, type, reference_id, amount, payment_date, method, reference, notes, status, created_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO payments (id, reference_number, type, reference_id, amount, payment_date, method, payment_method, reference, notes, status, created_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		payment.ID, payment.Type, payment.ReferenceID, payment.Amount, payment.PaymentDate,
-		payment.Method, payment.Reference, payment.Notes, payment.Status, payment.CreatedBy,
+		payment.ID, legacyReferenceNumber, payment.Type, payment.ReferenceID, payment.Amount, payment.PaymentDate,
+		payment.Method, payment.Method, payment.Reference, payment.Notes, payment.Status, payment.CreatedBy,
 		payment.CreatedAt, payment.UpdatedAt,
 	)
 	if err != nil {
