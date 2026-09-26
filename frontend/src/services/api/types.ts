@@ -110,6 +110,7 @@ export interface Customer {
 }
 
 export interface CustomerCreateRequest {
+  code?: string;
   name: string;
   phone?: string;
   email?: string;
@@ -117,9 +118,11 @@ export interface CustomerCreateRequest {
   notes?: string;
   debt_reason?: string;
   credit_limit?: number;
+  opening_debt?: number;
+  is_active?: boolean;
 }
 
-export interface CustomerUpdateRequest extends Partial<CustomerCreateRequest> {}
+export interface CustomerUpdateRequest extends Partial<Omit<CustomerCreateRequest, 'code' | 'opening_debt'>> {}
 
 export interface CustomerListParams extends PaginationParams {
   search?: string;

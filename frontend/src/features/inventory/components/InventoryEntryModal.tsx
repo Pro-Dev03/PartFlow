@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, PackagePlus, Plus, ShoppingCart, Tag, Truck } from 'lucide-react';
+import { ArrowLeft, PackagePlus, Plus, ShoppingCart, Tag, Truck, Warehouse } from 'lucide-react';
 import { Modal } from '../../../design-system/components/modal';
 import { Button } from '../../../design-system/components/button';
 import { InventoryQuickCreateModal } from './InventoryQuickCreateModal';
@@ -10,6 +10,8 @@ interface InventoryEntryModalProps {
   onAddProduct: () => void;
   onCreatePurchase: () => void;
   onBulkImport?: () => void;
+  onAddCurrentStock: () => void;
+  onAddUsedStock: () => void;
 }
 
 export function InventoryEntryModal({
@@ -18,6 +20,8 @@ export function InventoryEntryModal({
   onAddProduct,
   onCreatePurchase,
   onBulkImport,
+  onAddCurrentStock,
+  onAddUsedStock,
 }: InventoryEntryModalProps) {
   const [screen, setScreen] = useState<'main' | 'category' | 'supplier'>('main');
 
@@ -109,6 +113,26 @@ export function InventoryEntryModal({
             </span>
             <ArrowLeft className="h-4 w-4 shrink-0 text-text-secondary transition-transform group-hover:-translate-x-0.5 group-hover:text-primary" />
           </button>
+
+          <section className="rounded-2xl border border-border bg-surface p-4 sm:col-span-2">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-primary-10)] text-[var(--primary)]">
+                <Warehouse className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-text-primary">إضافة مخزون موجود دون فاتورة</h3>
+                <p className="mt-0.5 text-xs text-text-secondary">سجّل رصيدًا حاليًا أو قطعًا مستعملة مع الباركود والتكلفة</p>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button type="button" variant="secondary" onClick={() => choose(onAddCurrentStock)}>
+                مخزون منتج موجود
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => choose(onAddUsedStock)}>
+                مخزون مستعمل
+              </Button>
+            </div>
+          </section>
 
           <div className="sm:col-span-2">
             <p className="mb-2 text-xs font-semibold text-text-secondary">إعدادات سريعة</p>

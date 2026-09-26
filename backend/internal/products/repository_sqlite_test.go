@@ -12,6 +12,73 @@ import (
 
 func boolPtr(v bool) *bool { return &v }
 
+func TestValidateProductRequestRejectsNegativeValues(t *testing.T) {
+	tests := []struct {
+		name string
+		req  ProductRequest
+	}{
+		{name: "negative cost", req: ProductRequest{Name: "Part", CostPrice: -1}},
+		{name: "negative selling price", req: ProductRequest{Name: "Part", SellingPrice: -1}},
+		{name: "negative stock threshold", req: ProductRequest{Name: "Part", MinStockLevel: -1}},
+		{name: "negative warranty", req: ProductRequest{Name: "Part", WarrantyDays: -1}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateProductRequest(&test.req); err == nil {
+				t.Fatal("expected negative product value to be rejected")
+			}
+		})
+	}
+}
+
+func TestListProductsRejectsUntrustedSortExpressions(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE products (
+			id TEXT PRIMARY KEY, category_id TEXT, brand_id TEXT, preferred_supplier_id TEXT,
+			name TEXT NOT NULL, description TEXT, model TEXT, sku TEXT, barcode TEXT,
+			cost_price REAL NOT NULL DEFAULT 0, selling_price REAL NOT NULL DEFAULT 0,
+			track_serial INTEGER NOT NULL DEFAULT 0, track_individual INTEGER NOT NULL DEFAULT 0,
+			min_stock_level INTEGER NOT NULL DEFAULT 0, warranty_days INTEGER NOT NULL DEFAULT 0,
+			is_active INTEGER NOT NULL DEFAULT 1, deleted_at TEXT,
+			created_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z',
+			updated_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00Z'
+		);
+		INSERT INTO products (id, name, sku, is_active) VALUES
+			('00000000-0000-4000-8000-000000000001', 'Zulu', 'Z-1', 1),
+			('00000000-0000-4000-8000-000000000002', 'Alpha', 'A-1', 1);
+	`)
+	if err != nil {
+		t.Fatalf("create product sort fixture: %v", err)
+	}
+
+	repo := NewRepository(db)
+	products, total, err := repo.ListProducts(context.Background(), &ProductListRequest{
+		Page: 1, PerPage: 1_000_000, SortBy: "name DESC, id",
+	})
+	if err != nil {
+		t.Fatalf("list with untrusted sort expression: %v", err)
+	}
+	if total != 2 || len(products) != 2 || products[0].Name != "Alpha" || products[1].Name != "Zulu" {
+		t.Fatalf("untrusted sort was not ignored: total=%d products=%#v", total, products)
+	}
+	var productTableCount int
+	if err := db.Get(&productTableCount, `SELECT COUNT(*) FROM products`); err != nil || productTableCount != 2 {
+		t.Fatalf("product table changed after invalid sort input: count=%d err=%v", productTableCount, err)
+	}
+	products, total, err = repo.ListProducts(context.Background(), &ProductListRequest{
+		Page: int(^uint(0) >> 1), PerPage: 1_000_000,
+	})
+	if err != nil || total != 2 || len(products) != 0 {
+		t.Fatalf("out-of-range page should return no rows safely: total=%d products=%#v err=%v", total, products, err)
+	}
+}
+
 func TestListProducts_LowStockFilterUsesInventoryItems(t *testing.T) {
 	db, err := sqlx.Open("sqlite", ":memory:")
 	if err != nil {

@@ -63,6 +63,13 @@ func (r *Repository) CreateWithOpeningDebt(ctx context.Context, customer *Custom
 			if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_debts (id, customer_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at) VALUES (?, ?, ?, NULL, 'opening_debt', ?, FALSE, 0, ?)`), debtID, customer.ID, openingDebt, now, now); err != nil {
 				return fmt.Errorf("create opening debt entry: %w", err)
 			}
+			// The debts table is the source used by the debts screen, customer
+			// payment allocation, and customer outstanding summaries. Keep the
+			// cloud customer_debts history row in sync under the same ID so both
+			// representations refer to one opening balance.
+			if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO debts (id, customer_id, sale_id, amount, paid_amount, remaining_amount, due_date, status, notes, created_at, updated_at) VALUES (?, ?, NULL, ?, 0, ?, ?, 'pending', 'opening_debt', ?, ?)`), debtID, customer.ID, openingDebt, openingDebt, now, now, now); err != nil {
+				return fmt.Errorf("create cloud opening debt entry: %w", err)
+			}
 			if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_ledger (id, customer_id, type, amount, balance, description, reference_id, created_at) SELECT ?, ?, 'debit', ?, COALESCE((SELECT SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END) FROM customer_ledger WHERE customer_id = ?), 0) + ?, ?, NULL, ?`), uuid.New(), customer.ID, openingDebt, customer.ID, openingDebt, "\u062F\u064A\u0646 \u0633\u0627\u0628\u0642 \u0642\u0628\u0644 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0627\u0644\u0646\u0638\u0627\u0645", now); err != nil {
 				return fmt.Errorf("create opening debt ledger entry: %w", err)
 			}
@@ -886,6 +893,11 @@ func (r *Repository) RecordPaymentTransaction(ctx context.Context, payment *Paym
 		}
 		if affected, _ := result.RowsAffected(); affected != 1 {
 			return fmt.Errorf("customer debt changed during payment allocation")
+		}
+		// Cloud debt history mirrors some rows from debts. Update the matching
+		// projection too, while allowing legacy sale debts that have no mirror.
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE customer_debts SET paid_amount = ?, is_paid = ? WHERE id = ? AND customer_id = ?`), paid, remaining <= 0.000001, debt.ID, payment.CustomerID.String()); err != nil {
+			return fmt.Errorf("synchronize customer debt history payment: %w", err)
 		}
 		remainingPayment -= applied
 	}

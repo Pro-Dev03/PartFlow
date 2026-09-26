@@ -6,7 +6,7 @@ import { Modal } from '../../../design-system/components/modal';
 import { Input } from '../../../design-system/components/input';
 import { Select } from '../../../design-system/components/select';
 import { Button } from '../../../design-system/components/button';
-import { barcodeApi, customersApi, inventoryApi, partTypesApi, productsApi, suppliersApi } from '../../../services/api/endpoints';
+import { barcodeApi, customersApi, inventoryApi, listAllProducts, partTypesApi, productsApi, suppliersApi } from '../../../services/api/endpoints';
 import { getStoreToday } from '../../../utils/store-time';
 
 interface OpeningStockModalProps {
@@ -50,7 +50,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
 
   const { data: productsData, isLoading: productsLoading } = useQuery({
     queryKey: ['products', 'opening-stock-picker'],
-    queryFn: () => productsApi.list({ page: 1, per_page: 1000 }),
+    queryFn: () => listAllProducts(),
     enabled: isOpen,
   });
   const { data: suppliersData, isLoading: suppliersLoading } = useQuery({

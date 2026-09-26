@@ -2,12 +2,17 @@ package customers
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	debtshandler "github.com/partflow/smart-store/internal/debts"
 	"github.com/partflow/smart-store/internal/localdb"
 	customerreturns "github.com/partflow/smart-store/internal/returns"
 )
@@ -59,6 +64,173 @@ func TestAddOpeningDebtSQLite(t *testing.T) {
 	}
 	if balance != 1500 {
 		t.Fatalf("customer balance = %v, want 1500", balance)
+	}
+}
+
+func TestCloudCustomerOpeningDebtAppearsAndCanBePaid(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/cloud-opening-debt.db")
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+
+	localDB := sqlx.NewDb(database.DB, "sqlite")
+	// Use PostgreSQL rebinding and the cloud repository branch over the isolated
+	// SQLite test database. PostgreSQL-compatible placeholders are supported by
+	// SQLite, which lets this test exercise the exact cloud creation path safely.
+	cloudDB := sqlx.NewDb(database.DB, "postgres")
+	ctx := context.Background()
+	code := "C-CLOUD-OPENING-" + strings.ToUpper(uuid.NewString()[:8])
+	service := NewService(NewRepository(cloudDB))
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	customerHandler := NewHandler(service)
+	router.POST("/customers", customerHandler.CreateCustomer)
+	debtHandler := debtshandler.NewHandler(localDB)
+	router.GET("/debts", debtHandler.ListDebts)
+	router.GET("/debts/customer/:customer_id", debtHandler.GetCustomerDebts)
+	requestBody, err := json.Marshal(map[string]interface{}{
+		"code": code, "name": "Cloud opening debt test", "credit_limit": 1000,
+		"opening_debt": 250, "is_active": true,
+	})
+	if err != nil {
+		t.Fatalf("encode customer creation request: %v", err)
+	}
+	createResponse := httptest.NewRecorder()
+	router.ServeHTTP(createResponse, httptest.NewRequest(http.MethodPost, "/customers", strings.NewReader(string(requestBody))))
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("create customer status=%d body=%s", createResponse.Code, createResponse.Body.String())
+	}
+	var createPayload struct {
+		Data Customer `json:"data"`
+	}
+	if err := json.Unmarshal(createResponse.Body.Bytes(), &createPayload); err != nil {
+		t.Fatalf("decode customer creation response: %v", err)
+	}
+	customer := &createPayload.Data
+	if customer.ID == uuid.Nil || customer.CurrentBalance != 250 {
+		t.Fatalf("created customer = %+v; want id and opening balance 250", customer)
+	}
+
+	var legacyCount, cloudHistoryCount int
+	if err := localDB.Get(&legacyCount, `SELECT COUNT(*) FROM debts WHERE customer_id = ?`, customer.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if err := localDB.Get(&cloudHistoryCount, `SELECT COUNT(*) FROM customer_debts WHERE customer_id = ?`, customer.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if legacyCount != 1 || cloudHistoryCount != 1 {
+		t.Fatalf("opening debt rows: debts=%d customer_debts=%d, want one matching row in each", legacyCount, cloudHistoryCount)
+	}
+	var legacyID, historyID string
+	if err := localDB.Get(&legacyID, `SELECT id FROM debts WHERE customer_id = ?`, customer.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if err := localDB.Get(&historyID, `SELECT id FROM customer_debts WHERE customer_id = ?`, customer.ID.String()); err != nil {
+		t.Fatal(err)
+	}
+	if legacyID != historyID {
+		t.Fatalf("opening debt IDs differ: debts=%s customer_debts=%s", legacyID, historyID)
+	}
+
+	readDebtList := func() struct {
+		Data []struct {
+			CustomerID      string  `json:"customer_id"`
+			Amount          float64 `json:"amount"`
+			RemainingAmount float64 `json:"remaining_amount"`
+		} `json:"data"`
+		Meta struct {
+			Total   int `json:"total"`
+			Summary struct {
+				TotalDebt       float64 `json:"total_debt"`
+				RemainingAmount float64 `json:"remaining_amount"`
+			} `json:"summary"`
+		} `json:"meta"`
+	} {
+		t.Helper()
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/debts?tab=open", nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("list debts status=%d body=%s", response.Code, response.Body.String())
+		}
+		var payload struct {
+			Data []struct {
+				CustomerID      string  `json:"customer_id"`
+				Amount          float64 `json:"amount"`
+				RemainingAmount float64 `json:"remaining_amount"`
+			} `json:"data"`
+			Meta struct {
+				Total   int `json:"total"`
+				Summary struct {
+					TotalDebt       float64 `json:"total_debt"`
+					RemainingAmount float64 `json:"remaining_amount"`
+				} `json:"summary"`
+			} `json:"meta"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+			t.Fatal(err)
+		}
+		return payload
+	}
+
+	payload := readDebtList()
+	var found bool
+	for _, entry := range payload.Data {
+		if entry.CustomerID == customer.ID.String() {
+			found = true
+			if entry.Amount != 250 || entry.RemainingAmount != 250 {
+				t.Fatalf("listed opening debt = amount %.2f remaining %.2f, want 250/250", entry.Amount, entry.RemainingAmount)
+			}
+		}
+	}
+	if !found || payload.Meta.Total == 0 || payload.Meta.Summary.TotalDebt < 250 || payload.Meta.Summary.RemainingAmount < 250 {
+		t.Fatalf("opening debt missing from debt list/summary: found=%v meta=%+v", found, payload.Meta)
+	}
+
+	payment := &PaymentResponse{
+		ID: uuid.New(), CustomerID: customer.ID, Amount: 50,
+		PaymentDate: time.Now().UTC(), Method: "cash", CreatedAt: time.Now().UTC(),
+	}
+	if err := NewRepository(localDB).RecordPaymentTransaction(ctx, payment, true); err != nil {
+		t.Fatalf("record opening-debt payment: %v", err)
+	}
+	var legacyPaid, legacyRemaining, historyPaid float64
+	var historyIsPaid bool
+	if err := localDB.QueryRow(`SELECT paid_amount, remaining_amount FROM debts WHERE id = ?`, legacyID).Scan(&legacyPaid, &legacyRemaining); err != nil {
+		t.Fatal(err)
+	}
+	if err := localDB.QueryRow(`SELECT paid_amount, is_paid FROM customer_debts WHERE id = ?`, historyID).Scan(&historyPaid, &historyIsPaid); err != nil {
+		t.Fatal(err)
+	}
+	if legacyPaid != 50 || legacyRemaining != 200 || historyPaid != 50 || historyIsPaid {
+		t.Fatalf("opening debt payment not synchronized: debts=%v/%v customer_debts=%v/%v", legacyPaid, legacyRemaining, historyPaid, historyIsPaid)
+	}
+	payload = readDebtList()
+	for _, entry := range payload.Data {
+		if entry.CustomerID == customer.ID.String() && (entry.Amount != 250 || entry.RemainingAmount != 200) {
+			t.Fatalf("listed debt after partial payment = %.2f/%.2f, want 250/200", entry.Amount, entry.RemainingAmount)
+		}
+	}
+
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/debts/customer/"+customer.ID.String(), nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("customer debt history status=%d body=%s", response.Code, response.Body.String())
+	}
+	var historyPayload struct {
+		Data []struct {
+			ID            string  `json:"id"`
+			ReferenceType string  `json:"reference_type"`
+			Amount        float64 `json:"amount"`
+			PaidAmount    float64 `json:"paid_amount"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &historyPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(historyPayload.Data) != 1 || historyPayload.Data[0].ID != legacyID || historyPayload.Data[0].ReferenceType != "opening_debt" || historyPayload.Data[0].Amount != 250 || historyPayload.Data[0].PaidAmount != 50 {
+		t.Fatalf("opening-debt history should show one synchronized record, got %+v", historyPayload.Data)
 	}
 }
 

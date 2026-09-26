@@ -23,6 +23,7 @@ type Handler struct {
 type productsCache struct {
 	data       interface{}
 	expiration time.Time
+	revision   uint64
 	mu         sync.RWMutex
 }
 
@@ -46,11 +47,44 @@ func (c *productsCache) set(data interface{}, ttl time.Duration) {
 	c.expiration = time.Now().Add(ttl)
 }
 
+func (c *productsCache) currentRevision() uint64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.revision
+}
+
+func (c *productsCache) setAtRevision(data interface{}, ttl time.Duration, revision uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.revision != revision {
+		return
+	}
+	c.data = data
+	c.expiration = time.Now().Add(ttl)
+}
+
 func (c *productsCache) clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.revision++
 	c.data = nil
 	c.expiration = time.Time{}
+}
+
+func shouldCacheDefaultProductList(request *http.Request, page, perPage int) bool {
+	if request == nil || page != 1 || perPage != 20 {
+		return false
+	}
+	query := request.URL.Query()
+	for _, key := range []string{
+		"search", "category_id", "brand_id", "track_serial", "track_individual",
+		"low_stock_only", "in_stock_only", "manual_only", "sort_by", "sort_order",
+	} {
+		if query.Get(key) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // NewHandler creates a new products handler
@@ -376,6 +410,7 @@ func (h *Handler) CreateProduct(c *gin.Context) {
 		return
 	}
 
+	h.cache.clear()
 	response.OK(c, product, "Operation successful")
 }
 
@@ -407,6 +442,9 @@ func (h *Handler) CreateProductsBulk(c *gin.Context) {
 	if err != nil {
 		errors.HandleError(c, errors.WrapError(err, "Failed to create products bulk"))
 		return
+	}
+	if len(created) > 0 {
+		h.cache.clear()
 	}
 
 	response.OK(c, gin.H{
@@ -491,8 +529,11 @@ func (h *Handler) ListProducts(c *gin.Context) {
 	categoryID := c.Query("category_id")
 	brandID := c.Query("brand_id")
 
-	// Only cache default first page without filters
-	if page == 1 && perPage == 20 && search == "" && categoryID == "" && brandID == "" && c.Query("in_stock_only") == "" {
+	// Only cache the unfiltered default first page. Every filter and sort option
+	// must bypass this cache so the response cannot leak into another query.
+	cacheDefaultList := shouldCacheDefaultProductList(c.Request, page, perPage)
+	cacheRevision := h.cache.currentRevision()
+	if cacheDefaultList {
 		if cached, found := h.cache.get(); found {
 			c.JSON(http.StatusOK, cached)
 			return
@@ -565,8 +606,8 @@ func (h *Handler) ListProducts(c *gin.Context) {
 	}
 
 	// Cache the response for default first page without filters
-	if page == 1 && perPage == 20 && search == "" && categoryID == "" && brandID == "" {
-		h.cache.set(responseData, 3*time.Minute)
+	if cacheDefaultList {
+		h.cache.setAtRevision(responseData, 3*time.Minute, cacheRevision)
 	}
 
 	c.JSON(http.StatusOK, responseData)
@@ -604,6 +645,7 @@ func (h *Handler) UpdateProduct(c *gin.Context) {
 		return
 	}
 
+	h.cache.clear()
 	response.OK(c, product, "Operation successful")
 }
 
@@ -625,6 +667,7 @@ func (h *Handler) UpdateProductName(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
+	h.cache.clear()
 	response.OK(c, product, "Operation successful")
 }
 
@@ -645,6 +688,7 @@ func (h *Handler) UpdateMinimumStock(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
+	h.cache.clear()
 	response.OK(c, gin.H{"min_stock_level": req.MinStockLevel}, "Minimum stock updated successfully")
 }
 
@@ -678,6 +722,7 @@ func (h *Handler) DeleteProduct(c *gin.Context) {
 		return
 	}
 
+	h.cache.clear()
 	response.OK(c, gin.H{"message": "product deleted successfully"}, "Operation successful")
 }
 
@@ -709,6 +754,7 @@ func (h *Handler) GenerateBarcode(c *gin.Context) {
 		return
 	}
 
+	h.cache.clear()
 	response.OK(c, gin.H{"barcode": barcode}, "Barcode generated successfully")
 }
 

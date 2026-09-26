@@ -1,6 +1,6 @@
 import { StatCard } from '../../../design-system/components/stat-card';
 import { useQuery } from '@tanstack/react-query';
-import { inventoryApi, productsApi, settingsApi } from '../../../services/api/endpoints';
+import { inventoryApi, listAllProducts, settingsApi } from '../../../services/api/endpoints';
 import { normalizeCurrencyValue } from '../../../utils';
 import { 
   Package, 
@@ -36,7 +36,7 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, manualO
   });
   const { data: allProductsData } = useQuery({
     queryKey: ['products', 'inventory-stats'],
-    queryFn: () => productsApi.list({ page: 1, per_page: 1000 }),
+    queryFn: () => listAllProducts(),
     staleTime: 60000,
   });
 

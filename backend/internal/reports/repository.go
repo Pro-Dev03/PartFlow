@@ -36,6 +36,9 @@ func (r *Repository) returnDateExpression(alias string) string {
 		if len(available) == 0 {
 			return fmt.Sprintf("store_date(%s.return_date)", alias)
 		}
+		if len(available) == 1 {
+			return "store_date(" + available[0] + ")"
+		}
 		return "store_date(COALESCE(" + strings.Join(available, ", ") + "))"
 	}
 	return fmt.Sprintf("date(COALESCE(%s.refund_date::date, %s.return_date::date, %s))", alias, alias, postgresStoreTimestampDateExpression(alias+".created_at"))
@@ -92,7 +95,12 @@ func reportsSQLiteHasColumns(db *sqlx.DB, table string, required ...string) bool
 
 func reportsSQLiteHasRelation(ctx context.Context, db *sqlx.DB, name string) (bool, error) {
 	var count int
-	if err := db.GetContext(ctx, &count, `SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?`, name); err != nil {
+	if err := db.GetContext(ctx, &count, `
+		SELECT COUNT(*) FROM (
+			SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?
+			UNION ALL
+			SELECT name FROM sqlite_temp_master WHERE type IN ('table', 'view') AND name = ?
+		)`, name, name); err != nil {
 		return false, err
 	}
 	return count > 0, nil
@@ -265,6 +273,108 @@ type returnFinancialAdjustment struct {
 	Count            int
 }
 
+// DailySalesProfit is the tax-exclusive sales revenue and historical COGS for
+// one store-calendar day, after completed customer returns are applied.
+type DailySalesProfit struct {
+	Date    string
+	Revenue float64
+	COGS    float64
+}
+
+// GetDailySalesProfit returns the same daily revenue and COGS basis used by
+// profit reports. Keeping the dashboard chart on this calculation prevents it
+// from silently falling back to incomplete sale-level costs or ignoring
+// completed returns.
+func (r *Repository) GetDailySalesProfit(ctx context.Context, startDate, endDate time.Time) ([]DailySalesProfit, error) {
+	if dbutil.IsSQLite(r.db) && !reportsSQLiteHasColumns(r.db, "sales", "id") {
+		return []DailySalesProfit{}, nil
+	}
+	startDateKey, err := accounting.StoreDate(startDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize daily profit start date: %w", err)
+	}
+	endDateKey, err := accounting.StoreDate(endDate)
+	if err != nil {
+		return nil, fmt.Errorf("normalize daily profit end date: %w", err)
+	}
+
+	salesDate := r.salesDateExpression("s")
+	taxExpr := "COALESCE(s.tax_amount, 0)"
+	if dbutil.IsSQLite(r.db) && !reportsSQLiteHasColumns(r.db, "sales", "tax_amount") {
+		taxExpr = "0"
+	}
+	lineCostExpr, costJoins := r.historicalSaleItemCostParts()
+	saleItemsJoin := " LEFT JOIN sale_items si ON si.sale_id = s.id"
+	if dbutil.IsSQLite(r.db) && !reportsSQLiteHasColumns(r.db, "sale_items", "sale_id", "quantity") {
+		saleItemsJoin, costJoins, lineCostExpr = "", "", "0"
+	}
+	saleCostExpr := "0"
+	if saleItemsJoin != "" {
+		saleCostExpr = fmt.Sprintf("COALESCE(SUM(COALESCE(si.quantity, 0) * %s), 0)", lineCostExpr)
+	}
+	groupCost := ""
+	if !dbutil.IsSQLite(r.db) || reportsSQLiteHasColumns(r.db, "sales", "cost_amount") {
+		saleCostExpr = fmt.Sprintf("CASE WHEN NULLIF(s.cost_amount, 0) IS NOT NULL THEN s.cost_amount ELSE %s END", saleCostExpr)
+		groupCost = ", s.cost_amount"
+	}
+	groupTax := ", s.tax_amount"
+	if dbutil.IsSQLite(r.db) && !reportsSQLiteHasColumns(r.db, "sales", "tax_amount") {
+		groupTax = ""
+	}
+	query := fmt.Sprintf(`WITH per_sale AS (
+		SELECT %s AS day, s.id,
+		       COALESCE(s.total_amount, 0) - %s AS revenue,
+		       %s AS cogs
+		FROM sales s
+		%s%s
+		WHERE %s >= date(?) AND %s < date(?)
+		  AND LOWER(COALESCE(s.status, 'completed')) NOT IN ('cancelled', 'canceled', 'reversed')
+		GROUP BY %s, s.id, s.total_amount%s%s
+	)
+	SELECT day, COALESCE(SUM(revenue), 0), COALESCE(SUM(cogs), 0)
+	FROM per_sale GROUP BY day ORDER BY day`, salesDate, taxExpr, saleCostExpr, saleItemsJoin, costJoins, salesDate, salesDate, salesDate, groupTax, groupCost)
+	rows, err := r.db.QueryContext(ctx, r.db.Rebind(query), startDateKey, endDateKey)
+	if err != nil {
+		return nil, fmt.Errorf("retrieve daily sales profit: %w", err)
+	}
+	defer rows.Close()
+
+	byDay := make(map[string]*DailySalesProfit)
+	for rows.Next() {
+		var date reportDate
+		var point DailySalesProfit
+		if err := rows.Scan(&date, &point.Revenue, &point.COGS); err != nil {
+			return nil, fmt.Errorf("scan daily sales profit: %w", err)
+		}
+		point.Date = date.Format("2006-01-02")
+		byDay[point.Date] = &point
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read daily sales profit: %w", err)
+	}
+
+	returnsByDay, err := r.returnFinancialAdjustments(ctx, startDate, endDate, "day")
+	if err != nil {
+		return nil, err
+	}
+	for day, adjustment := range returnsByDay {
+		point := byDay[day]
+		if point == nil {
+			point = &DailySalesProfit{Date: day}
+			byDay[day] = point
+		}
+		point.Revenue -= adjustment.RevenueReduction
+		point.COGS -= adjustment.ReturnedCost
+	}
+
+	result := make([]DailySalesProfit, 0, len(byDay))
+	for _, point := range byDay {
+		result = append(result, *point)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Date < result[j].Date })
+	return result, nil
+}
+
 // returnFinancialAdjustments calculates completed customer returns once per
 // return, while deriving the tax-exclusive revenue and returned cost from its
 // individual lines. Joining a return header directly to its lines duplicates
@@ -272,8 +382,8 @@ type returnFinancialAdjustment struct {
 func (r *Repository) returnFinancialAdjustments(ctx context.Context, startDate, endDate time.Time, bucket string) (map[string]returnFinancialAdjustment, error) {
 	result := make(map[string]returnFinancialAdjustment)
 	if dbutil.IsSQLite(r.db) {
-		var relationCount int
-		if err := r.db.GetContext(ctx, &relationCount, `SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','view') AND name = 'accounting_returns'`); err != nil || relationCount == 0 {
+		hasReturns, relationErr := reportsSQLiteHasRelation(ctx, r.db, "accounting_returns")
+		if relationErr != nil || !hasReturns {
 			return result, nil
 		}
 		if !reportsSQLiteHasColumns(r.db, "accounting_returns", "status", "total_refund_amount") {

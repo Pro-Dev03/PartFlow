@@ -83,10 +83,10 @@ func TestGetTaxDataExcludesTaxExemptSales(t *testing.T) {
 	if got, want := report.SalesTotal, report.TaxableSales+report.TaxCollected+report.ExemptSales; got != want {
 		t.Fatalf("SalesTotal = %v, want taxable + tax + exempt sales %v", got, want)
 	}
-	if got, want := report.ReturnsTotal, 0.0; got != want {
+	if got, want := report.ReturnsTotal, 10.0; got != want {
 		t.Fatalf("ReturnsTotal = %v, want %v", got, want)
 	}
-	if got, want := report.NetSalesTotal, 341.0; got != want {
+	if got, want := report.NetSalesTotal, 331.0; got != want {
 		t.Fatalf("NetSalesTotal = %v, want %v", got, want)
 	}
 }

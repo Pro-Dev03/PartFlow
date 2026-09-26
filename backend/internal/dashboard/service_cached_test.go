@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/accounting"
 	_ "modernc.org/sqlite"
 )
 
@@ -263,6 +265,63 @@ func TestSQLiteSalesChartFallsBackToProductCostWhenStoredCostIsZero(t *testing.T
 	chart := (&CachedService{db: sqlx.NewDb(db, "sqlite")}).fetchSQLiteSalesChart(context.Background(), "2026-09-26")
 	if len(chart) != 1 || chart[0].Sales != 25 || chart[0].Profit != 5 {
 		t.Fatalf("gross profit chart = %#v, want sales 25 and gross profit 5 using product cost 20", chart)
+	}
+}
+
+func TestSalesChartReconcilesProductCostFallbackAndCompletedReturns(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+
+	_, err = db.Exec(`
+		CREATE TABLE sales (
+			id TEXT PRIMARY KEY, total_amount REAL, tax_amount REAL, cost_amount REAL,
+			status TEXT, sale_date TEXT, created_at TEXT
+		);
+		CREATE TABLE products (id TEXT PRIMARY KEY, cost_price REAL);
+		CREATE TABLE sale_items (
+			id TEXT PRIMARY KEY, sale_id TEXT, product_id TEXT, inventory_item_id TEXT,
+			quantity REAL, unit_cost REAL, total_amount REAL, tax_amount REAL
+		);
+		CREATE TABLE returns (
+			id TEXT PRIMARY KEY, reference_number TEXT, sale_id TEXT,
+			total_refund_amount REAL, status TEXT, return_date TEXT, refund_date TEXT, created_at TEXT
+		);
+		CREATE TABLE return_items (
+			id TEXT PRIMARY KEY, return_id TEXT, sale_item_id TEXT, product_id TEXT,
+			quantity_returned REAL, total_refund_amount REAL, original_cost REAL
+		);
+		INSERT INTO products (id, cost_price) VALUES ('product', 20);
+		INSERT INTO sales (id, total_amount, tax_amount, cost_amount, status, sale_date, created_at)
+		VALUES ('sale', 54, 4, 0, 'completed', '2026-09-26', '2026-09-26T10:00:00Z');
+		INSERT INTO sale_items (id, sale_id, product_id, quantity, unit_cost, total_amount, tax_amount)
+		VALUES ('line', 'sale', 'product', 2, 0, 54, 4);
+		INSERT INTO returns (id, reference_number, sale_id, total_refund_amount, status, return_date, refund_date, created_at)
+		VALUES ('return', 'RET-1', 'sale', 27, 'COMPLETED', '2026-09-27', '2026-09-27', '2026-09-27T08:00:00Z');
+		INSERT INTO return_items (id, return_id, sale_item_id, product_id, quantity_returned, total_refund_amount, original_cost)
+		VALUES ('return-line', 'return', 'line', 'product', 1, 27, 20);
+	`)
+	if err != nil {
+		t.Fatalf("seed sales chart reconciliation rows: %v", err)
+	}
+
+	location, err := accounting.StoreLocation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 27, 12, 0, 0, 0, location)
+	chart := (&CachedService{db: db}).fetchSalesChartForRange(context.Background(), now, 2)
+	if len(chart) != 2 {
+		t.Fatalf("chart = %#v, want sale day and return day", chart)
+	}
+	if chart[0].Name != "2026-09-26" || chart[0].Sales != 50 || chart[0].Profit != 10 {
+		t.Fatalf("sale-day chart = %#v, want net sales 50 and gross profit 10 using product cost fallback", chart[0])
+	}
+	if chart[1].Name != "2026-09-27" || chart[1].Sales != -25 || chart[1].Profit != -5 {
+		t.Fatalf("return-day chart = %#v, want net sales -25 and gross profit -5 after partial return", chart[1])
 	}
 }
 

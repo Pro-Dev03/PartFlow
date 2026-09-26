@@ -23,6 +23,7 @@ import { InventoryList } from '../components/InventoryList';
 import { StockAlertCards } from '../components/StockAlertCards';
 import { InventoryModals } from '../components/InventoryModals';
 import { InventoryEntryModal } from '../components/InventoryEntryModal';
+import { OpeningStockModal } from '../components/OpeningStockModal';
 import { InventoryLedger } from '../../../design-system/components/inventory-ledger';
 import type { InventoryMovement } from '../../../design-system/components/inventory-ledger';
 import { ConfirmDialog } from '../../../design-system/components/confirm-dialog';
@@ -30,7 +31,7 @@ import { ReportActions } from '../../../design-system/components/report-actions'
 
 // Types
 import { ViewMode, Product, InventoryItem } from '../types/inventory.types';
-import { inventoryApi, productsApi } from '../../../services/api/endpoints';
+import { inventoryApi, listAllProducts, productsApi } from '../../../services/api/endpoints';
 import { toast } from 'sonner';
 import { getLocalProductImage } from '../../../services/localProductImages';
 import { getCategoryImage } from '../../../services/localCategoryImages';
@@ -70,6 +71,8 @@ export function InventoryPage() {
   const [returnToSalesAfterSave, setReturnToSalesAfterSave] = useState(false);
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
   const [isInventoryEntryModalOpen, setIsInventoryEntryModalOpen] = useState(false);
+  const [isOpeningStockModalOpen, setIsOpeningStockModalOpen] = useState(false);
+  const [openingStockType, setOpeningStockType] = useState<'general' | 'used'>('general');
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isPurchaseWorkflowOpen, setIsPurchaseWorkflowOpen] = useState(false);
   const [completedPurchase, setCompletedPurchase] = useState<any | null>(null);
@@ -233,7 +236,7 @@ export function InventoryPage() {
 
     if (supplierOnly || manualOnly || supplierFilter || purchaseDateFrom || purchaseDateTo || minPurchaseCost || maxPurchaseCost) {
       const [productsResponse, inventoryResponse] = await Promise.all([
-        productsApi.list({ page: 1, per_page: 1000, ...(searchQuery ? { search: searchQuery } : {}), ...(categoryFilter?.value ? { category_id: categoryFilter.value } : {}) }),
+        listAllProducts({ ...(searchQuery ? { search: searchQuery } : {}), ...(categoryFilter?.value ? { category_id: categoryFilter.value } : {}) }),
         inventoryApi.listWithSupplier(inventoryFilters),
       ]);
       const productsById = new Map(
@@ -265,9 +268,7 @@ export function InventoryPage() {
       return Array.from(grouped.values());
     }
 
-    const response = await productsApi.list({
-      page: 1,
-      per_page: 1000,
+    const response = await listAllProducts({
       ...(searchQuery ? { search: searchQuery } : {}),
       ...(categoryFilter?.value ? { category_id: categoryFilter.value } : {}),
     });
@@ -751,6 +752,28 @@ export function InventoryPage() {
         onAddProduct={handleManualAdd}
         onCreatePurchase={handleCreatePurchase}
         onBulkImport={() => setIsBulkImportOpen(true)}
+        onAddCurrentStock={() => {
+          setOpeningStockType('general');
+          setIsOpeningStockModalOpen(true);
+        }}
+        onAddUsedStock={() => {
+          setOpeningStockType('used');
+          setIsOpeningStockModalOpen(true);
+        }}
+      />
+
+      <OpeningStockModal
+        isOpen={isOpeningStockModalOpen}
+        stockType={openingStockType}
+        onClose={() => setIsOpeningStockModalOpen(false)}
+        onCreated={() => {
+          void Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['inventory'] }),
+            queryClient.invalidateQueries({ queryKey: ['inventory', 'stats'] }),
+            queryClient.invalidateQueries({ queryKey: ['products'] }),
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+          ]);
+        }}
       />
 
       <BulkProductImportModal

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '../../../hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
 import { useIsMobile } from '../../../hooks/useIsMobile';
-import { dashboardApi, debtsApi, inventoryApi, productsApi } from '../../../services/api/endpoints';
+import { dashboardApi, debtsApi, inventoryApi, listAllProducts } from '../../../services/api/endpoints';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../design-system/components/card';
 import { Button } from '../../../design-system/components/button';
 import { PageHeader } from '../../../design-system/components/page-header';
@@ -72,7 +72,7 @@ export function DashboardPage() {
   });
   const { data: productsData } = useQuery({
     queryKey: ['dashboard-inventory-products'],
-    queryFn: () => productsApi.list({ page: 1, per_page: 1000 }),
+    queryFn: () => listAllProducts(),
     staleTime: 60000,
   });
 

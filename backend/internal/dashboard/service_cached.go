@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/business"
 	dbutil "github.com/partflow/smart-store/internal/database"
+	profitreports "github.com/partflow/smart-store/internal/reports"
 )
 
 type CachedService struct {
@@ -278,120 +280,36 @@ func (s *CachedService) fetchFromDatabaseAt(ctx context.Context, now time.Time) 
 }
 
 func (s *CachedService) fetchSalesChart(ctx context.Context) []SalesChartData {
-	chartStart, _, err := accounting.StoreDateRange(time.Now(), 90)
+	return s.fetchSalesChartForRange(ctx, accounting.StoreNow(), 90)
+}
+
+func (s *CachedService) fetchSalesChartForRange(ctx context.Context, now time.Time, days int) []SalesChartData {
+	chartStart, chartEnd, err := accounting.StoreDateRange(now, days)
 	if err != nil {
 		return []SalesChartData{}
 	}
-	if isSQLiteDriver(s.db.DriverName()) {
-		return s.fetchSQLiteSalesChart(ctx, chartStart)
+	location, err := accounting.StoreLocation()
+	if err != nil {
+		return []SalesChartData{}
 	}
-	// Zero-valued persisted costs are legacy "unknown" values in sales created
-	// while aggregate inventory had no individual purchase rows. Fall back to
-	// the captured inventory/product cost so gross profit is not overstated.
-	productCostExpr := "COALESCE(NULLIF(si.unit_cost, 0), NULLIF(ii.purchase_cost, 0), p.cost_price, 0)"
-	taxExpr := "COALESCE(s.tax_amount, 0)"
-	if s.db.DriverName() == "sqlite" {
-		unitCostExpr := "0"
-		if sqliteHasColumns(s.db, "sale_items", "unit_cost") {
-			unitCostExpr = "si.unit_cost"
-		}
-		inventoryCostExpr := "0"
-		if sqliteHasColumns(s.db, "inventory_items", "purchase_cost") {
-			inventoryCostExpr = "ii.purchase_cost"
-		}
-		productCostColumn := "purchase_price"
-		if sqliteHasColumns(s.db, "products", "cost_price") {
-			productCostColumn = "cost_price"
-		}
-		productCostExpr = fmt.Sprintf("COALESCE(NULLIF(%s, 0), NULLIF(%s, 0), p.%s, 0)", unitCostExpr, inventoryCostExpr, productCostColumn)
-		if !sqliteHasColumns(s.db, "sales", "tax_amount") {
-			taxExpr = "0"
-		}
+	startDate, err := time.ParseInLocation("2006-01-02", chartStart, location)
+	if err != nil {
+		return []SalesChartData{}
 	}
-	saleCostExpression := fmt.Sprintf("COALESCE(SUM(%s * COALESCE(si.quantity, 0)), 0)", productCostExpr)
-	saleCostGroup := ""
-	if s.db.DriverName() != "sqlite" || sqliteHasColumns(s.db, "sales", "cost_amount") {
-		saleCostExpression = fmt.Sprintf("CASE WHEN NULLIF(s.cost_amount, 0) IS NOT NULL THEN s.cost_amount ELSE %s END", saleCostExpression)
-		saleCostGroup = ", s.cost_amount"
+	endDate, err := time.ParseInLocation("2006-01-02", chartEnd, location)
+	if err != nil {
+		return []SalesChartData{}
 	}
-	query := fmt.Sprintf(`
-		WITH sale_costs AS (
-			SELECT s.id, s.sale_date, s.total_amount, %s AS tax_amount,
-				%s AS cost
-			FROM sales s
-			LEFT JOIN sale_items si ON si.sale_id = s.id
-			LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
-			LEFT JOIN products p ON p.id = si.product_id
-			WHERE LOWER(COALESCE(s.status, '')) = 'completed'
-			  AND s.sale_date IS NOT NULL
-			  AND date(s.sale_date) >= date('%s')
-			GROUP BY s.id, s.sale_date, s.total_amount, s.tax_amount%s
-		)
-		SELECT strftime('%%Y-%%m-%%d', sale_date) AS name,
-		       COALESCE(SUM(total_amount), 0) AS sales,
-		       COALESCE(SUM(total_amount - tax_amount - cost), 0) AS profit
-		FROM sale_costs
-		GROUP BY strftime('%%Y-%%m-%%d', sale_date)
-		ORDER BY name
-	`, taxExpr, saleCostExpression, chartStart, saleCostGroup)
-	if !isSQLiteDriver(s.db.DriverName()) {
-		query = fmt.Sprintf(`
-			WITH sale_costs AS (
-				SELECT s.id, s.sale_date, s.total_amount, COALESCE(s.tax_amount, 0) AS tax_amount,
-				       %s AS cost
-				FROM sales s
-				LEFT JOIN sale_items si ON si.sale_id = s.id
-				LEFT JOIN inventory_items ii ON ii.id = si.inventory_item_id
-				LEFT JOIN products p ON p.id = si.product_id
-				WHERE LOWER(COALESCE(s.status, '')) = 'completed'
-				  AND s.sale_date IS NOT NULL
-				  AND s.sale_date::date >= DATE '%s'
-				GROUP BY s.id, s.sale_date, s.total_amount, s.tax_amount%s
-			)
-			SELECT TO_CHAR(DATE(sale_date), 'YYYY-MM-DD') AS name,
-			       COALESCE(SUM(total_amount - tax_amount), 0) AS sales,
-			       COALESCE(SUM(total_amount - tax_amount - cost), 0) AS profit
-			FROM sale_costs
-			GROUP BY DATE(sale_date)
-			ORDER BY DATE(sale_date)
-		`, saleCostExpression, saleCostGroup, chartStart)
+	series, err := profitreports.NewRepository(s.db).GetDailySalesProfit(ctx, startDate, endDate)
+	if err != nil {
+		// An incomplete fallback produces confidently wrong profit totals, so
+		// surface the query failure in logs and leave the chart empty.
+		log.Printf("dashboard sales chart could not load reconciled sales/profit data: %v", err)
+		return []SalesChartData{}
 	}
-	if isSQLiteDriver(s.db.DriverName()) && !sqliteHasColumns(s.db, "sales", "tax_amount") {
-		query = strings.ReplaceAll(query, "COALESCE(s.tax_amount, 0)", "0")
-		query = strings.ReplaceAll(query, "s.tax_amount", "0")
-		query = strings.ReplaceAll(query, "GROUP BY s.id, s.created_at, s.total_amount, 0", "GROUP BY s.id, s.created_at, s.total_amount")
-	}
-
-	var rows []SalesChartData
-	queryErr := s.db.SelectContext(ctx, &rows, query)
-	if queryErr != nil || len(rows) == 0 {
-		// Keep the chart useful on legacy local schemas where optional item-cost
-		// columns or joins are incomplete. Sales totals remain authoritative.
-		dateExpr := "COALESCE(s.sale_date, s.created_at)"
-		if isSQLiteDriver(s.db.DriverName()) && !sqliteHasColumns(s.db, "sales", "sale_date") {
-			dateExpr = "s.created_at"
-		}
-		taxColumn := "0"
-		costColumn := "0"
-		if !isSQLiteDriver(s.db.DriverName()) || sqliteHasColumns(s.db, "sales", "tax_amount") {
-			taxColumn = "COALESCE(s.tax_amount, 0)"
-		}
-		if !isSQLiteDriver(s.db.DriverName()) || sqliteHasColumns(s.db, "sales", "cost_amount") {
-			costColumn = "COALESCE(s.cost_amount, 0)"
-		}
-		fallbackQuery := fmt.Sprintf(`
-			SELECT substr(CAST(%s AS TEXT), 1, 10) AS name,
-			       COALESCE(SUM(s.total_amount - %s), 0) AS sales,
-			       COALESCE(SUM(s.total_amount - %s - %s), 0) AS profit
-			FROM sales s
-			WHERE LOWER(COALESCE(s.status, '')) = 'completed'
-			  AND %s IS NOT NULL
-			GROUP BY substr(CAST(%s AS TEXT), 1, 10)
-			ORDER BY name`, dateExpr, taxColumn, taxColumn, costColumn, dateExpr, dateExpr)
-		rows = nil
-		if err := s.db.SelectContext(ctx, &rows, fallbackQuery); err != nil {
-			return []SalesChartData{}
-		}
+	rows := make([]SalesChartData, 0, len(series))
+	for _, day := range series {
+		rows = append(rows, SalesChartData{Name: day.Date, Sales: day.Revenue, Profit: day.Revenue - day.COGS})
 	}
 	return rows
 }

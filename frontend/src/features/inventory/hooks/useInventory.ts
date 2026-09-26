@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { productsApi, inventoryApi, barcodeApi, categoriesApi, suppliersApi } from '../../../services/api/endpoints';
+import { productsApi, inventoryApi, barcodeApi, categoriesApi, listAllProducts, suppliersApi } from '../../../services/api/endpoints';
 import { Product, InventoryItem, FilterConfig, SortConfig } from '../types/inventory.types';
 import { useDebounce } from '../../../hooks/useDebounce';
 import { Category } from '../../../types/models';
@@ -26,17 +26,21 @@ export function useInventory() {
     queryKey: ['products', lowStockOnly ? 'low-stock' : productPage, lowStockOnly ? 1000 : pageSize, debouncedSearchQuery],
     queryFn: () => {
       if (debouncedSearchQuery) {
+        if (lowStockOnly) {
+          return listAllProducts({ search: debouncedSearchQuery });
+        }
         // Search mode - use API search when query exists
         return productsApi.list({
-          page: lowStockOnly ? 1 : productPage,
-          per_page: lowStockOnly ? 1000 : pageSize,
+          page: productPage,
+          per_page: pageSize,
           search: debouncedSearchQuery
         });
       } else {
+        if (lowStockOnly) return listAllProducts();
         // Initial load - fetch limited results for performance
         return productsApi.list({
-          page: lowStockOnly ? 1 : productPage,
-          per_page: lowStockOnly ? 1000 : pageSize,
+          page: productPage,
+          per_page: pageSize,
         });
       }
     },

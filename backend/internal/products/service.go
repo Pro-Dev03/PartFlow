@@ -21,6 +21,31 @@ func generateSKUFromName(name string) string {
 	return fmt.Sprintf("%s-%s", base, strings.ToUpper(uuid.NewString()[:6]))
 }
 
+func validateProductRequest(req *ProductRequest) error {
+	if req == nil {
+		return fmt.Errorf("product request is required")
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.SKU = strings.TrimSpace(req.SKU)
+	req.Barcode = strings.TrimSpace(req.Barcode)
+	if req.Name == "" {
+		return fmt.Errorf("product name is required")
+	}
+	if req.CostPrice < 0 {
+		return fmt.Errorf("product cost price cannot be negative")
+	}
+	if req.SellingPrice < 0 {
+		return fmt.Errorf("product selling price cannot be negative")
+	}
+	if req.MinStockLevel < 0 {
+		return fmt.Errorf("minimum stock level cannot be negative")
+	}
+	if req.WarrantyDays < 0 {
+		return fmt.Errorf("warranty days cannot be negative")
+	}
+	return nil
+}
+
 // Service handles products business logic
 type Service struct {
 	repo *Repository
@@ -143,11 +168,8 @@ func (s *Service) DeleteBrand(ctx context.Context, id uuid.UUID) error {
 
 // CreateProduct creates a new product
 func (s *Service) CreateProduct(ctx context.Context, req *ProductRequest) (*Product, error) {
-	if req == nil {
-		return nil, fmt.Errorf("product request is required")
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		return nil, fmt.Errorf("product name is required")
+	if err := validateProductRequest(req); err != nil {
+		return nil, err
 	}
 	if req.SKU == "" {
 		req.SKU = generateSKUFromName(req.Name)
@@ -275,13 +297,7 @@ func (s *Service) GetProductByBarcode(ctx context.Context, barcode string) (*Pro
 
 // ListProducts retrieves products with pagination and filters
 func (s *Service) ListProducts(ctx context.Context, req *ProductListRequest) ([]Product, int, error) {
-	// Set default pagination values
-	if req.Page <= 0 {
-		req.Page = 1
-	}
-	if req.PerPage <= 0 {
-		req.PerPage = 20
-	}
+	req = normalizeProductListRequest(req)
 
 	products, total, err := s.repo.ListProducts(ctx, req)
 	if err != nil {
@@ -301,6 +317,9 @@ func (s *Service) ListProducts(ctx context.Context, req *ProductListRequest) ([]
 
 // UpdateProduct updates a product
 func (s *Service) UpdateProduct(ctx context.Context, id uuid.UUID, req *ProductRequest) (*Product, error) {
+	if err := validateProductRequest(req); err != nil {
+		return nil, err
+	}
 	product, err := s.repo.GetProductByID(ctx, id)
 	if err != nil {
 		return nil, err

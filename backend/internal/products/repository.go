@@ -17,6 +17,23 @@ type Repository struct {
 	db *sqlx.DB
 }
 
+const maxProductListPageSize = 100
+
+func normalizeProductListRequest(req *ProductListRequest) *ProductListRequest {
+	if req == nil {
+		req = &ProductListRequest{}
+	}
+	if req.Page < 1 {
+		req.Page = 1
+	}
+	if req.PerPage < 1 {
+		req.PerPage = 20
+	} else if req.PerPage > maxProductListPageSize {
+		req.PerPage = maxProductListPageSize
+	}
+	return req
+}
+
 // scanBrandRow keeps SQLite TEXT timestamps compatible with the time.Time
 // fields exposed by the API. PostgreSQL and SQLite both safely scan their
 // UUID/timestamp values into strings here, after which they are parsed once.
@@ -661,6 +678,7 @@ func (r *Repository) GetProductByBarcode(ctx context.Context, barcode string) (*
 
 // ListProducts retrieves products with pagination and filters
 func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) ([]Product, int, error) {
+	req = normalizeProductListRequest(req)
 	// Build base query with current quantity from inventory
 	baseQuery := `
 		SELECT p.id, p.category_id, p.brand_id, p.preferred_supplier_id, p.name, p.description, p.model, p.sku, p.barcode, p.cost_price, p.selling_price, p.track_serial, p.track_individual, p.min_stock_level, p.warranty_days, p.is_active, p.deleted_at, p.created_at, p.updated_at
@@ -759,19 +777,37 @@ func (r *Repository) ListProducts(ctx context.Context, req *ProductListRequest) 
 	if err != nil {
 		return nil, 0, err
 	}
+	if total == 0 || req.Page-1 > (total-1)/req.PerPage {
+		return []Product{}, total, nil
+	}
 
-	// Add sorting
-	sortBy := "name"
-	if req.SortBy != "" {
-		sortBy = req.SortBy
+	// SQL identifiers cannot be passed as bind parameters. Accept only known
+	// product columns instead of concatenating caller-controlled sort_by text.
+	sortColumns := map[string]string{
+		"name":            "p.name",
+		"sku":             "p.sku",
+		"model":           "p.model",
+		"barcode":         "p.barcode",
+		"cost_price":      "p.cost_price",
+		"selling_price":   "p.selling_price",
+		"min_stock_level": "p.min_stock_level",
+		"warranty_days":   "p.warranty_days",
+		"created_at":      "p.created_at",
+		"updated_at":      "p.updated_at",
+	}
+	sortBy := "p.name"
+	if column, ok := sortColumns[strings.ToLower(strings.TrimSpace(req.SortBy))]; ok {
+		sortBy = column
 	}
 
 	sortOrder := "ASC"
-	if req.SortOrder == "DESC" {
+	if strings.EqualFold(strings.TrimSpace(req.SortOrder), "DESC") {
 		sortOrder = "DESC"
 	}
 
 	// Add pagination
+	// The bounds check above guarantees this multiplication cannot overflow and
+	// avoids asking the database to walk an arbitrarily large empty offset.
 	offset := (req.Page - 1) * req.PerPage
 	paramNum := argCount + 1
 	baseQuery += ` ORDER BY ` + sortBy + ` ` + sortOrder + ` LIMIT $` + fmt.Sprint(paramNum) + ` OFFSET $` + fmt.Sprint(paramNum+1)

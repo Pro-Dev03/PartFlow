@@ -43,14 +43,11 @@ test('cloud product create, search, edit, cancel, and delete persist correctly',
     await page.goto('/#/app/inventory', { waitUntil: 'domcontentloaded' });
 
     await page.getByRole('button', { name: 'إضافة', exact: true }).first().click();
-    await page.locator('.pf-entry-option').filter({ hasText: 'إنشاء صنف جديد' }).click();
-    const categoryDialog = page.getByRole('dialog', { name: 'اختر تصنيف المنتج' });
-    await expect(categoryDialog).toBeVisible();
-    await expect.poll(() => categoryDialog.locator('select option').count()).toBeGreaterThan(1);
-    await categoryDialog.locator('select').selectOption({ index: 1 });
-    await categoryDialog.getByRole('button', { name: 'متابعة للمنتج' }).click();
-
+    await page.getByRole('button', { name: 'صنف واحد', exact: true }).click();
     const createDialog = page.getByRole('dialog', { name: 'إضافة منتج جديد' });
+    await expect(createDialog).toBeVisible();
+    await expect.poll(() => createDialog.locator('select option').count()).toBeGreaterThan(1);
+    await createDialog.locator('select').first().selectOption({ index: 1 });
     await expect(createDialog).toBeVisible();
     await createDialog.getByRole('button', { name: 'التالي', exact: true }).click();
     await createDialog.locator('.product-create-stage input[type="number"]').first().fill('11.5');
@@ -151,13 +148,11 @@ test('typing a barcode after a manual product name preserves the name', async ({
   await page.goto('/#/app/inventory', { waitUntil: 'domcontentloaded' });
 
   await page.getByRole('button', { name: 'إضافة', exact: true }).first().click();
-  await page.locator('.pf-entry-option').filter({ hasText: 'إنشاء صنف جديد' }).click();
-  const categoryDialog = page.getByRole('dialog', { name: 'اختر تصنيف المنتج' });
-  await expect.poll(() => categoryDialog.locator('select option').count()).toBeGreaterThan(1);
-  await categoryDialog.locator('select').selectOption({ index: 1 });
-  await categoryDialog.getByRole('button', { name: 'متابعة للمنتج' }).click();
-
+  await page.getByRole('button', { name: 'صنف واحد', exact: true }).click();
   const createDialog = page.getByRole('dialog', { name: 'إضافة منتج جديد' });
+  await expect(createDialog).toBeVisible();
+  await expect.poll(() => createDialog.locator('select option').count()).toBeGreaterThan(1);
+  await createDialog.locator('select').first().selectOption({ index: 1 });
   await createDialog.getByRole('button', { name: 'التالي', exact: true }).click();
   const nameInput = createDialog.getByPlaceholder('أدخل اسم المنتج');
   await nameInput.fill('QA-MANUAL-NAME-UNSAVED');

@@ -162,7 +162,7 @@ export const assistantApi = {
 
 // Products endpoints
 export const productsApi = {
-  list: (params?: ProductListParams) => 
+  list: (params?: ProductListParams) =>
     apiClient.get('/products', params),
   get: (id: string) => apiClient.get(`/products/${id}`),
   getByBarcode: (barcode: string) => apiClient.get(`/products/barcode/${encodeURIComponent(barcode.trim())}`),
@@ -174,6 +174,40 @@ export const productsApi = {
   updateMinimumStock: (id: string, minStockLevel: number) => apiClient.patch(`/products/${id}/min-stock`, { min_stock_level: minStockLevel }),
   delete: (id: string) => apiClient.delete(`/products/${id}`),
 };
+
+// Product pages are deliberately capped by the API. Callers that need the
+// complete catalog (stats, selectors, and exports) must walk every page.
+export async function listAllProducts(params: Omit<ProductListParams, 'page' | 'per_page'> = {}) {
+  const perPage = 100;
+  const firstResponse = await productsApi.list({ ...params, page: 1, per_page: perPage });
+  const firstData = (firstResponse.data ?? {}) as { products?: unknown[]; total?: number };
+  const allProducts = Array.isArray(firstData.products) ? [...firstData.products] : [];
+  const reportedTotal = Number(firstData.total);
+  const total = Number.isFinite(reportedTotal) && reportedTotal >= 0 ? reportedTotal : allProducts.length;
+  const pageCount = Math.ceil(total / perPage);
+
+  for (let firstPage = 2; firstPage <= pageCount; firstPage += 5) {
+    const pageNumbers = Array.from({ length: Math.min(5, pageCount - firstPage + 1) }, (_, index) => firstPage + index);
+    const responses = await Promise.all(pageNumbers.map((page) =>
+      productsApi.list({ ...params, page, per_page: perPage }),
+    ));
+    for (const response of responses) {
+      const products = (response.data as { products?: unknown[] } | undefined)?.products;
+      if (Array.isArray(products)) allProducts.push(...products);
+    }
+  }
+
+  return {
+    ...firstResponse,
+    data: {
+      ...firstData,
+      products: allProducts,
+      total,
+      page: 1,
+      per_page: allProducts.length,
+    },
+  };
+}
 
 // Categories endpoints
 export const categoriesApi = {

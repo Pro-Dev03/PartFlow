@@ -536,6 +536,7 @@ func (h *Handler) GetCustomerDebts(c *gin.Context) {
 				CAST(d.customer_id AS TEXT) AS customer_id,
 				CAST(d.sale_id AS TEXT) AS sale_id,
 				CASE WHEN d.sale_id IS NOT NULL THEN 'sale'
+					WHEN UPPER(TRIM(COALESCE(d.notes, ''))) = 'OPENING_DEBT' THEN 'opening_debt'
 					WHEN UPPER(TRIM(COALESCE(d.notes, ''))) = 'MANUAL_ADJUSTMENT' THEN 'manual_adjustment'
 					ELSE 'manual' END AS reference_type,
 				COALESCE(s.invoice_number, '') AS invoice_number,
@@ -572,6 +573,7 @@ func (h *Handler) GetCustomerDebts(c *gin.Context) {
 			LEFT JOIN sales s ON s.id = cd.reference_id
 				AND LOWER(TRIM(COALESCE(cd.reference_type, ''))) = 'sale'
 			WHERE cd.customer_id = ?
+				AND NOT EXISTS (SELECT 1 FROM debts d WHERE d.customer_id = cd.customer_id AND d.id = cd.id)
 				AND (LOWER(TRIM(COALESCE(cd.reference_type, ''))) <> 'sale'
 					OR NOT EXISTS (SELECT 1 FROM debts d WHERE d.customer_id = cd.customer_id AND d.sale_id = cd.reference_id))
 		) AS customer_debt_history
