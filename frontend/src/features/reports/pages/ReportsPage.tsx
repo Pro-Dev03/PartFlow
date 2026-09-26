@@ -511,8 +511,8 @@ export function ReportsPage() {
               </div>
               <div className="tax-report-flow" aria-label="تسلسل حساب تقرير الضرائب">
                 {[
-                  ['إجمالي المبيعات قبل الضريبة', taxGrossSales, 'base'],
-                  ['الخصومات', taxDiscounts, 'deduction'],
+                  ['المبيعات الخاضعة قبل الخصم والضريبة', taxGrossSales, 'base'],
+                  ['خصومات المبيعات الخاضعة', taxDiscounts, 'deduction'],
                   ['المبيعات الخاضعة', taxTaxableSales, 'taxable'],
                   ['الضريبة المسجلة', taxCollected, 'tax'],
                   ['المبيعات المعفاة', taxExemptSales, 'exempt'],

@@ -38,13 +38,13 @@ func TestGetTaxDataExcludesTaxExemptSales(t *testing.T) {
 	}
 
 	start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
-	end := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC)
 
 	_, err = db.Exec(`
 		INSERT INTO sales (id, sale_date, subtotal, discount_amount, tax_amount, total_amount, status)
 		VALUES
 			('taxed-1', '2026-09-01T10:00:00Z', 100, 0, 15, 115, 'completed'),
-			('tax-free-1', '2026-09-01T12:00:00Z', 200, 0, 0, 200, 'completed'),
+			('tax-free-1', '2026-09-01T12:00:00Z', 200, 20, 0, 180, 'completed'),
 			('taxed-2', '2026-09-02T09:00:00Z', 50, 10, 6, 46, 'completed');
 		INSERT INTO returns (id, return_date, total_refund_amount, status)
 		VALUES ('r1', '2026-09-02T11:00:00Z', 10, 'COMPLETED');
@@ -59,28 +59,34 @@ func TestGetTaxDataExcludesTaxExemptSales(t *testing.T) {
 		t.Fatalf("GetTaxData failed: %v", err)
 	}
 
-	if got, want := report.GrossSales, 100.0; got != want {
+	if got, want := report.GrossSales, 150.0; got != want {
 		t.Fatalf("GrossSales = %v, want %v", got, want)
 	}
-	if got, want := report.Discounts, 0.0; got != want {
-		t.Fatalf("Discounts = %v, want %v", got, want)
+	if got, want := report.Discounts, 10.0; got != want {
+		t.Fatalf("taxable-sale Discounts = %v, want %v", got, want)
 	}
-	if got, want := report.TaxableSales, 100.0; got != want {
+	if got, want := report.TaxableSales, report.GrossSales-report.Discounts; got != want {
+		t.Fatalf("TaxableSales = %v, want gross taxable sales minus taxable discounts %v", got, want)
+	}
+	if got, want := report.TaxableSales, 140.0; got != want {
 		t.Fatalf("TaxableSales = %v, want %v", got, want)
 	}
-	if got, want := report.TaxCollected, 15.0; got != want {
+	if got, want := report.TaxCollected, 21.0; got != want {
 		t.Fatalf("TaxCollected = %v, want %v", got, want)
 	}
-	if got, want := report.ExemptSales, 200.0; got != want {
+	if got, want := report.ExemptSales, 180.0; got != want {
 		t.Fatalf("ExemptSales = %v, want %v", got, want)
 	}
-	if got, want := report.SalesTotal, 315.0; got != want {
+	if got, want := report.SalesTotal, 341.0; got != want {
 		t.Fatalf("SalesTotal = %v, want %v", got, want)
+	}
+	if got, want := report.SalesTotal, report.TaxableSales+report.TaxCollected+report.ExemptSales; got != want {
+		t.Fatalf("SalesTotal = %v, want taxable + tax + exempt sales %v", got, want)
 	}
 	if got, want := report.ReturnsTotal, 0.0; got != want {
 		t.Fatalf("ReturnsTotal = %v, want %v", got, want)
 	}
-	if got, want := report.NetSalesTotal, 315.0; got != want {
+	if got, want := report.NetSalesTotal, 341.0; got != want {
 		t.Fatalf("NetSalesTotal = %v, want %v", got, want)
 	}
 }
