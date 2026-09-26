@@ -412,17 +412,20 @@ export function InventoryPage() {
 
   const handleConfirmDelete = () => {
     if (productToDelete) {
-      deleteProductMutation.mutate(productToDelete);
-      setDeleteDialogOpen(false);
-      setProductToDelete(null);
+      deleteProductMutation.mutate(productToDelete, {
+        onSuccess: () => {
+          setDeleteDialogOpen(false);
+          setProductToDelete(null);
+        },
+      });
     }
   };
 
   const handleConfirmInventoryItemDelete = () => {
     if (inventoryItemToDelete) {
-      deleteInventoryItemMutation.mutate(inventoryItemToDelete);
-      setDeleteDialogOpen(false);
-      setInventoryItemToDelete(null);
+      deleteInventoryItemMutation.mutate(inventoryItemToDelete, {
+        onSuccess: () => setInventoryItemToDelete(null),
+      });
     }
   };
 

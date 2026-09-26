@@ -116,7 +116,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
     setBarcode('');
     setBatchRows([{ id: `${Date.now()}`, barcode: '' }]);
     setBatchBarcodeText('');
-    setCondition('NEW');
+    setCondition(isUsedStock ? 'USED' : 'NEW');
     setPartTypeId('');
     setSupplierId('');
     setCustomerId('');
@@ -124,7 +124,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
     setSellingPrice('0');
     setNotes('');
     setCurrentStep(1);
-  }, [isOpen]);
+  }, [isOpen, isUsedStock]);
 
   const advanceStep = () => {
     if (currentStep === 1) {

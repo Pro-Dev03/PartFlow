@@ -314,6 +314,7 @@ export function useInventory() {
   const deleteProductMutation = useMutation({
     mutationFn: (productId: string) => productsApi.delete(productId),
     onSuccess: () => {
+      setProductPage(1);
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -330,6 +331,7 @@ export function useInventory() {
   const deleteInventoryItemMutation = useMutation({
     mutationFn: (itemId: string) => inventoryApi.delete(itemId),
     onSuccess: () => {
+      setInventoryPage(1);
       queryClient.invalidateQueries({ queryKey: ['inventory'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['reports'] });
@@ -496,6 +498,20 @@ export function useInventory() {
     });
   }, [safeInventoryItems, filters]);
 
+  const reportedProductTotal = productsData?.data?.total ?? productsData?.data?.meta?.total
+    ?? productsData?.meta?.total ?? productsData?.total;
+  const parsedProductTotal = Number(reportedProductTotal);
+  const productTotal = reportedProductTotal !== undefined && Number.isFinite(parsedProductTotal) && parsedProductTotal >= 0
+    ? parsedProductTotal
+    : Math.max(completeInventoryProductCount, productsWithInventoryFallback.length);
+
+  const reportedInventoryTotal = inventoryData?.data?.total ?? inventoryData?.data?.meta?.total
+    ?? inventoryData?.meta?.total ?? inventoryData?.total;
+  const parsedInventoryTotal = Number(reportedInventoryTotal);
+  const inventoryTotal = reportedInventoryTotal !== undefined && Number.isFinite(parsedInventoryTotal) && parsedInventoryTotal >= 0
+    ? parsedInventoryTotal
+    : safeInventoryItems.length;
+
   // Barcode lookup
   const lookupProduct = async (barcode: string): Promise<Product | null> => {
     try {
@@ -549,8 +565,8 @@ export function useInventory() {
     productPage,
     inventoryPage,
     pageSize,
-    productTotal: Math.max(Number(productsData?.meta?.total || 0), completeInventoryProductCount, productsWithInventoryFallback.length),
-    inventoryTotal: Number(inventoryData?.meta?.total || safeInventoryItems.length),
+    productTotal,
+    inventoryTotal,
     setProductPage,
     setInventoryPage,
   };
