@@ -88,7 +88,7 @@ export function GlobalSearch() {
       case 'product':
         return 'منتج';
       case 'item':
-        return 'قطعة';
+        return 'منتج';
       case 'sale':
         return 'بيع';
       case 'invoice':

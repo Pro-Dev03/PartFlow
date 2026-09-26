@@ -141,6 +141,21 @@ func TestCloudBusinessAccessUsesAuthenticatedSingleStoreModeWithoutTenantIsolati
 	if deleteDatabaseResponse.Code != http.StatusForbidden || !strings.Contains(deleteDatabaseResponse.Body.String(), "ADMIN_REQUIRED") {
 		t.Fatalf("subscriber database deletion status=%d body=%s; want destructive database settings to remain administrator-only", deleteDatabaseResponse.Code, deleteDatabaseResponse.Body.String())
 	}
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/api/v1/settings/database/backup"},
+		{method: http.MethodPost, path: "/api/v1/settings/database/sync"},
+	} {
+		request := httptest.NewRequest(route.method, route.path, strings.NewReader(`{}`))
+		request.Header.Set("Authorization", "Bearer "+tokenString)
+		backupOrSyncResponse := httptest.NewRecorder()
+		router.ServeHTTP(backupOrSyncResponse, request)
+		if backupOrSyncResponse.Code != http.StatusForbidden || !strings.Contains(backupOrSyncResponse.Body.String(), "OWNER_REQUIRED") {
+			t.Fatalf("subscriber %s %s status=%d body=%s; want owner-only restriction", route.method, route.path, backupOrSyncResponse.Code, backupOrSyncResponse.Body.String())
+		}
+	}
 
 	logoutRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
 	logoutRequest.Header.Set("Authorization", "Bearer "+tokenString)

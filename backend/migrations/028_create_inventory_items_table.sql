@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS inventory_items (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 003 may have created inventory_items before the part-types feature existed.
+ALTER TABLE inventory_items
+    ADD COLUMN IF NOT EXISTS part_type_id UUID REFERENCES part_types(id) ON DELETE SET NULL;
+
 CREATE INDEX IF NOT EXISTS idx_inventory_items_product ON inventory_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_items_part_type ON inventory_items(part_type_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_items_barcode ON inventory_items(barcode);

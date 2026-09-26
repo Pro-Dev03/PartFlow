@@ -45,12 +45,12 @@ CREATE TABLE IF NOT EXISTS return_items (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_return_items_return ON return_items(return_id);
-CREATE INDEX idx_return_items_sale_item ON return_items(sale_item_id);
-CREATE INDEX idx_return_items_product ON return_items(product_id);
-CREATE INDEX idx_return_items_inventory ON return_items(inventory_item_id);
-CREATE INDEX idx_return_items_inspection ON return_items(inspection_status);
-CREATE INDEX idx_return_items_decision ON return_items(inventory_decision);
+CREATE INDEX IF NOT EXISTS idx_return_items_return ON return_items(return_id);
+CREATE INDEX IF NOT EXISTS idx_return_items_sale_item ON return_items(sale_item_id);
+CREATE INDEX IF NOT EXISTS idx_return_items_product ON return_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_return_items_inventory ON return_items(inventory_item_id);
+-- 034's return_items schema uses inspection_result/resolution rather than
+-- the incompatible names from this older draft. Do not index absent columns.
 
 -- ============================================
 -- 2. Enhance returns table with additional fields
@@ -72,10 +72,10 @@ ADD COLUMN IF NOT EXISTS rejected_reason TEXT,
 ADD COLUMN IF NOT EXISTS reversal_of UUID REFERENCES returns(id), -- لفحص العكس
 ADD COLUMN IF NOT EXISTS audit_log JSONB DEFAULT '{}';
 
-CREATE INDEX idx_returns_return_type ON returns(return_type);
-CREATE INDEX idx_returns_debt ON returns(debt_id);
-CREATE INDEX idx_returns_approved_by ON returns(approved_by);
-CREATE INDEX idx_returns_reversal ON returns(reversal_of);
+CREATE INDEX IF NOT EXISTS idx_returns_return_type ON returns(return_type);
+CREATE INDEX IF NOT EXISTS idx_returns_debt ON returns(debt_id);
+CREATE INDEX IF NOT EXISTS idx_returns_approved_by ON returns(approved_by);
+CREATE INDEX IF NOT EXISTS idx_returns_reversal ON returns(reversal_of);
 
 -- ============================================
 -- 3. Create return_refunds table (جدول رد الأموال)
@@ -108,9 +108,9 @@ CREATE TABLE IF NOT EXISTS return_refunds (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_return_refunds_return ON return_refunds(return_id);
-CREATE INDEX idx_return_refunds_debt ON return_refunds(debt_id);
-CREATE INDEX idx_return_refunds_date ON return_refunds(refund_date);
+CREATE INDEX IF NOT EXISTS idx_return_refunds_return ON return_refunds(return_id);
+CREATE INDEX IF NOT EXISTS idx_return_refunds_debt ON return_refunds(debt_id);
+CREATE INDEX IF NOT EXISTS idx_return_refunds_date ON return_refunds(refund_date);
 
 -- ============================================
 -- 4. Create return_inspection table (جدول فحص المرتجعات)
@@ -148,9 +148,9 @@ CREATE TABLE IF NOT EXISTS return_inspection (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE INDEX idx_return_inspection_return_item ON return_inspection(return_item_id);
-CREATE INDEX idx_return_inspection_inspector ON return_inspection(inspector_id);
-CREATE INDEX idx_return_inspection_result ON return_inspection(inspection_result);
+CREATE INDEX IF NOT EXISTS idx_return_inspection_return_item ON return_inspection(return_item_id);
+CREATE INDEX IF NOT EXISTS idx_return_inspection_inspector ON return_inspection(inspector_id);
+CREATE INDEX IF NOT EXISTS idx_return_inspection_result ON return_inspection(inspection_result);
 
 -- ============================================
 -- 5. Create return_audit_log table (سجل تتبع المرتجعات)
@@ -175,15 +175,16 @@ CREATE TABLE IF NOT EXISTS return_audit_log (
     metadata JSONB DEFAULT '{}'
 );
 
-CREATE INDEX idx_return_audit_log_return ON return_audit_log(return_id);
-CREATE INDEX idx_return_audit_log_action_by ON return_audit_log(action_by);
-CREATE INDEX idx_return_audit_log_action_at ON return_audit_log(action_at);
+CREATE INDEX IF NOT EXISTS idx_return_audit_log_return ON return_audit_log(return_id);
+CREATE INDEX IF NOT EXISTS idx_return_audit_log_action_by ON return_audit_log(action_by);
+CREATE INDEX IF NOT EXISTS idx_return_audit_log_action_at ON return_audit_log(action_at);
 
 -- ============================================
 -- 6. Triggers and Functions
 -- ============================================
 
 -- Trigger for return_items updated_at
+DROP TRIGGER IF EXISTS update_return_items_updated_at ON return_items;
 CREATE TRIGGER update_return_items_updated_at BEFORE UPDATE ON return_items
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -198,15 +199,21 @@ CREATE TRIGGER update_return_inspection_updated_at BEFORE UPDATE ON return_inspe
 -- Function to calculate return total amount from items
 CREATE OR REPLACE FUNCTION calculate_return_total()
 RETURNS TRIGGER AS $$
+DECLARE
+    changed_return_id UUID;
 BEGIN
-    UPDATE returns 
-    SET refund_amount = (
-        SELECT COALESCE(SUM(total_price), 0) 
+    changed_return_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.return_id ELSE NEW.return_id END;
+    UPDATE returns
+    SET total_refund_amount = (
+        SELECT COALESCE(SUM(total_refund_amount), 0)
         FROM return_items 
-        WHERE return_id = NEW.return_id
+        WHERE return_id = changed_return_id
     ),
     updated_at = NOW()
-    WHERE id = NEW.return_id;
+    WHERE id = changed_return_id;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
     RETURN NEW;
 END;
 $$ language 'plpgsql';
@@ -229,7 +236,7 @@ BEGIN
         NEW.status,
         'Return created',
         jsonb_build_object(
-            'refund_amount', NEW.refund_amount,
+            'refund_amount', NEW.total_refund_amount,
             'refund_method', NEW.refund_method,
             'return_type', NEW.return_type
         )
@@ -247,36 +254,10 @@ CREATE TRIGGER create_return_audit_log_trigger AFTER INSERT ON returns
 -- 7. Views for Reporting
 -- ============================================
 
--- View for returns summary
-CREATE OR REPLACE VIEW returns_summary AS
-SELECT 
-    r.id,
-    r.return_number,
-    r.sale_id,
-    s.invoice_number,
-    r.customer_id,
-    c.name as customer_name,
-    r.return_date,
-    r.return_type,
-    r.status,
-    r.refund_amount,
-    r.refund_method,
-    r.original_total_amount,
-    r.net_amount,
-    r.customer_credit,
-    r.debt_adjustment,
-    COUNT(ri.id) as total_items,
-    SUM(ri.quantity) as total_quantity,
-    COUNT(CASE WHEN ri.inspection_required = true THEN 1 END) as items_needing_inspection,
-    COUNT(CASE WHEN ri.inspection_status = 'passed' THEN 1 END) as items_passed,
-    COUNT(CASE WHEN ri.inspection_status = 'failed' THEN 1 END) as items_failed,
-    COUNT(CASE WHEN ri.inventory_decision = 'restock' THEN 1 END) as items_restocked,
-    COUNT(CASE WHEN ri.inventory_decision = 'supplier_return' THEN 1 END) as items_returned_to_supplier
-FROM returns r
-LEFT JOIN sales s ON r.sale_id = s.id
-LEFT JOIN customers c ON r.customer_id = c.id
-LEFT JOIN return_items ri ON r.id = ri.return_id
-GROUP BY r.id, s.invoice_number, c.name;
+-- Keep the returns_summary view created by 034. That view matches the active
+-- return_items schema (quantity_returned/total_refund_amount) and is consumed
+-- by current report queries; this older alternate schema used incompatible
+-- column names and cannot replace it safely.
 
 -- View for returns impact on sales (gross vs net)
 CREATE OR REPLACE VIEW returns_sales_impact AS
@@ -285,28 +266,28 @@ SELECT
     s.invoice_number,
     s.sale_date,
     s.total_amount as gross_sale_amount,
-    COALESCE(SUM(r.refund_amount), 0) as total_returns_amount,
-    s.total_amount - COALESCE(SUM(r.refund_amount), 0) as net_sale_amount,
+    COALESCE(SUM(r.total_refund_amount), 0) as total_returns_amount,
+    s.total_amount - COALESCE(SUM(r.total_refund_amount), 0) as net_sale_amount,
     COUNT(r.id) as return_count,
     COUNT(DISTINCT r.customer_id) as customers_who_returned
 FROM sales s
-LEFT JOIN returns r ON s.id = r.sale_id AND r.status = 'completed'
+LEFT JOIN returns r ON s.id = r.sale_id AND UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 GROUP BY s.id, s.invoice_number, s.sale_date, s.total_amount;
 
 -- View for return reasons analysis
 CREATE OR REPLACE VIEW return_reasons_analysis AS
 SELECT 
     r.reason,
-    r.condition,
+    r.item_condition_after_return AS condition,
     COUNT(r.id) as return_count,
-    SUM(r.refund_amount) as total_refund_amount,
-    AVG(r.refund_amount) as avg_refund_amount,
+    SUM(r.total_refund_amount) as total_refund_amount,
+    AVG(r.total_refund_amount) as avg_refund_amount,
     COUNT(DISTINCT r.customer_id) as unique_customers,
     COUNT(DISTINCT r.sale_id) as unique_sales,
-    EXTRACT(DAY FROM (MAX(r.return_date) - MIN(r.return_date))) as days_span
+    (MAX(r.return_date) - MIN(r.return_date))::INTEGER as days_span
 FROM returns r
-WHERE r.status = 'completed'
-GROUP BY r.reason, r.condition
+WHERE UPPER(COALESCE(r.status, '')) = 'COMPLETED'
+GROUP BY r.reason, r.item_condition_after_return
 ORDER BY return_count DESC;
 
 -- View for monthly returns summary
@@ -314,15 +295,15 @@ CREATE OR REPLACE VIEW monthly_returns_summary AS
 SELECT 
     DATE_TRUNC('month', r.return_date) as month,
     COUNT(r.id) as total_returns,
-    SUM(r.refund_amount) as total_refund_amount,
-    AVG(r.refund_amount) as avg_refund_amount,
+    SUM(r.total_refund_amount) as total_refund_amount,
+    AVG(r.total_refund_amount) as avg_refund_amount,
     COUNT(DISTINCT r.customer_id) as unique_customers,
-    COUNT(CASE WHEN r.return_type = 'full' THEN 1 END) as full_returns,
-    COUNT(CASE WHEN r.return_type = 'partial' THEN 1 END) as partial_returns,
-    COUNT(CASE WHEN r.refund_method = 'store_credit' THEN 1 END) as store_credit_returns,
-    COUNT(CASE WHEN r.refund_method = 'debt_reduction' THEN 1 END) as debt_reduction_returns
+    COUNT(CASE WHEN UPPER(COALESCE(r.return_type, '')) = 'FULL' THEN 1 END) as full_returns,
+    COUNT(CASE WHEN UPPER(COALESCE(r.return_type, '')) IN ('PARTIAL', 'QUANTITY_PARTIAL') THEN 1 END) as partial_returns,
+    COUNT(CASE WHEN UPPER(COALESCE(r.refund_method, '')) = 'STORE_CREDIT' THEN 1 END) as store_credit_returns,
+    COUNT(CASE WHEN UPPER(COALESCE(r.refund_method, '')) = 'DEBT_REDUCTION' THEN 1 END) as debt_reduction_returns
 FROM returns r
-WHERE r.status = 'completed'
+WHERE UPPER(COALESCE(r.status, '')) = 'COMPLETED'
 GROUP BY DATE_TRUNC('month', r.return_date)
 ORDER BY month DESC;
 
@@ -330,57 +311,12 @@ ORDER BY month DESC;
 -- 8. Functions for Debt Integration
 -- ============================================
 
--- Function to adjust debt when return is processed with debt reduction
-CREATE OR REPLACE FUNCTION adjust_debt_for_return()
-RETURNS TRIGGER AS $$
-DECLARE
-    current_debt DECIMAL(10,2);
-    new_debt DECIMAL(10,2);
-BEGIN
-    -- Only process if refund method is debt_reduction and debt_id is set
-    IF NEW.refund_method = 'debt_reduction' AND NEW.debt_id IS NOT NULL THEN
-        -- Get current debt
-        SELECT remaining_amount INTO current_debt 
-        FROM debts 
-        WHERE id = NEW.debt_id;
-        
-        -- Calculate new debt
-        new_debt := current_debt - NEW.debt_adjustment;
-        
-        -- Ensure debt doesn't go negative
-        IF new_debt < 0 THEN
-            -- Create customer credit for excess
-            UPDATE returns 
-            SET customer_credit = ABS(new_debt),
-                debt_adjustment = current_debt,
-                updated_at = NOW()
-            WHERE id = NEW.id;
-            
-            new_debt := 0;
-        END IF;
-        
-        -- Update debt
-        UPDATE debts 
-        SET remaining_amount = new_debt,
-            updated_at = NOW()
-        WHERE id = NEW.debt_id;
-        
-        -- Update debt status if fully paid
-        IF new_debt = 0 THEN
-            UPDATE debts 
-            SET status = 'paid',
-                updated_at = NOW()
-            WHERE id = NEW.debt_id;
-        END IF;
-    END IF;
-    
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Trigger to adjust debt when return is updated
-CREATE TRIGGER adjust_debt_trigger AFTER UPDATE OF refund_method, debt_adjustment, debt_id ON returns
-    FOR EACH ROW WHEN (OLD.status != 'completed' AND NEW.status = 'completed')
-    EXECUTE FUNCTION adjust_debt_for_return();
+-- The application service posts return debt, payment, ledger and stock effects
+-- transactionally. The historic 034/035 row triggers duplicated those writes;
+-- remove them so each business effect is applied exactly once.
+DROP TRIGGER IF EXISTS handle_return_debt_trigger ON returns;
+DROP FUNCTION IF EXISTS handle_return_debt_adjustment();
+DROP TRIGGER IF EXISTS adjust_debt_trigger ON returns;
+DROP FUNCTION IF EXISTS adjust_debt_for_return();
 
 SELECT 'Enhanced returns system created successfully' as status;

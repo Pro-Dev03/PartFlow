@@ -530,13 +530,13 @@ func buildAdviceReply(message string, stats *dashboard.DashboardStats, summary s
 		return fmt.Sprintf("للتخطيط: استخدم مبيعات الشهر %s كمؤشر أساس، وحدد هدفًا قابلًا للقياس للشهر القادم. ابدأ بتحسين المنتجات الأسرع حركة، ثم راقب الربح %s قبل زيادة المصروفات أو التوسع.", money(summary.MonthlySales), money(stats.TodayProfit))
 	}
 	if regexp.MustCompile(`عرض|عروض|خصم|تسويق|حملة|زبائن|عملاء`).MatchString(text) {
-		return "للعروض: لا تبدأ بخصم عام. اختر منتجًا سريع الحركة أو اربط منتجًا بطيء الحركة بمنتج مطلوب، وحدد مدة وكمية واضحة. احسب تكلفة القطعة وهامش الربح أولًا حتى لا يتحول العرض إلى خسارة."
+		return "للعروض: لا تبدأ بخصم عام. اختر منتجًا سريع الحركة أو اربط منتجًا بطيء الحركة بمنتج مطلوب، وحدد مدة وكمية واضحة. احسب تكلفة الوحدة وهامش الربح أولًا حتى لا يتحول العرض إلى خسارة."
 	}
 	if stats.LowStockCount > 0 && stats.OutstandingDebts > 0 {
 		return fmt.Sprintf("ابدأ اليوم بخطوتين: اطلب %d منتجات منخفضة المخزون، ثم تابع تحصيل الديون المستحقة %s. بعد ذلك راقب المبيعات قبل نهاية اليوم.", stats.LowStockCount, money(stats.OutstandingDebts))
 	}
 	if stats.LowStockCount > 0 {
-		return fmt.Sprintf("اقتراحي الأول اليوم: راجع %d منتجات منخفضة المخزون وابدأ طلب القطع الأسرع حركة، حتى لا تخسر عملية بيع بسبب نفادها.", stats.LowStockCount)
+		return fmt.Sprintf("اقتراحي الأول اليوم: راجع %d منتجات منخفضة المخزون وابدأ طلب المنتجات الأسرع حركة، حتى لا تخسر عملية بيع بسبب نفادها.", stats.LowStockCount)
 	}
 	if stats.OutstandingDebts > 0 {
 		return fmt.Sprintf("الوضع يحتاج متابعة مالية: تواصل مع العملاء أصحاب الديون المستحقة %s، ثم راجع المبيعات والتحصيل في نهاية اليوم.", money(stats.OutstandingDebts))

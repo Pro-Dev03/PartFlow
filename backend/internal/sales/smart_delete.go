@@ -12,6 +12,9 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/partflow/smart-store/internal/dashboard"
 	dbutil "github.com/partflow/smart-store/internal/database"
+	"github.com/partflow/smart-store/internal/payments"
+	"github.com/partflow/smart-store/internal/paymenttransactions"
+	returnrepo "github.com/partflow/smart-store/internal/returns"
 )
 
 // SmartDeleteService performs a physical, transactional sale deletion after
@@ -71,12 +74,334 @@ func (s *SmartDeleteService) columnExists(ctx context.Context, tx *sqlx.Tx, tabl
 }
 
 func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, userID uuid.UUID) (*DeleteResult, error) {
+	deletionOrder, err := s.PrepareCascade(ctx, saleID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("prepare sale cascade: %w", err)
+	}
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin sale deletion: %w", err)
 	}
 	defer tx.Rollback()
+	for _, dependentSaleID := range deletionOrder[:len(deletionOrder)-1] {
+		if err := s.deleteCascadeEntryTx(ctx, tx, dependentSaleID, userID); err != nil {
+			return nil, fmt.Errorf("delete dependent sale %s before %s: %w", dependentSaleID, saleID, err)
+		}
+	}
+	result, err := s.smartDeleteTx(ctx, tx, saleID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if result.Action != "deleted" {
+		_ = tx.Rollback()
+		return result, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit sale deletion: %w", err)
+	}
+	dashboard.InvalidateDashboardCacheWithReason("sale_deleted")
+	return result, nil
+}
 
+// SmartDeleteTx performs a sale deletion in a caller-owned transaction after
+// its caller has reconciled any external payment provider effects.
+func (s *SmartDeleteService) SmartDeleteTx(ctx context.Context, tx *sqlx.Tx, saleID, userID uuid.UUID) (*DeleteResult, error) {
+	return s.smartDeleteTx(ctx, tx, saleID, userID)
+}
+
+// DeleteInTransaction adapts transactional sale deletion for higher-level
+// cascades such as removing a return whose restored item was sold later.
+func (s *SmartDeleteService) DeleteInTransaction(ctx context.Context, tx *sqlx.Tx, saleID, userID uuid.UUID) error {
+	return s.DeleteCascadeInTransaction(ctx, tx, saleID, userID)
+}
+
+func (s *SmartDeleteService) PrepareDelete(ctx context.Context, saleID, userID uuid.UUID) error {
+	_, err := s.PrepareCascade(ctx, saleID, userID)
+	return err
+}
+
+// PrepareCascade resolves downstream sales restored by returns and prepares
+// every sale's external payment effects before a caller starts its transaction.
+// The returned order is deepest dependent first and always ends with saleID.
+func (s *SmartDeleteService) PrepareCascade(ctx context.Context, saleID, userID uuid.UUID) ([]uuid.UUID, error) {
+	order, err := s.planDependentSalesForSale(ctx, saleID)
+	if err != nil {
+		return nil, err
+	}
+	order = append(order, saleID)
+	for _, id := range order {
+		if err := s.prepareLinkedPayments(ctx, id, userID); err != nil {
+			return nil, fmt.Errorf("prepare payment reversal for sale %s: %w", id, err)
+		}
+	}
+	return order, nil
+}
+
+// DeleteCascadeInTransaction reverses all downstream sales and the root sale
+// atomically. Call PrepareCascade before opening the transaction.
+func (s *SmartDeleteService) DeleteCascadeInTransaction(ctx context.Context, tx *sqlx.Tx, saleID, userID uuid.UUID) error {
+	order, err := s.planDependentSalesForSaleTx(ctx, tx, saleID)
+	if err != nil {
+		return err
+	}
+	for _, dependentID := range order {
+		if err := s.deleteCascadeEntryTx(ctx, tx, dependentID, userID); err != nil {
+			return fmt.Errorf("delete dependent sale %s: %w", dependentID, err)
+		}
+	}
+	return s.deleteCascadeEntryTx(ctx, tx, saleID, userID)
+}
+
+func (s *SmartDeleteService) planDependentSalesForSaleTx(ctx context.Context, tx *sqlx.Tx, saleID uuid.UUID) ([]uuid.UUID, error) {
+	rootReturns, err := s.saleReturnIDsTx(ctx, tx, saleID)
+	if err != nil {
+		return nil, err
+	}
+	visited := make(map[uuid.UUID]bool)
+	visiting := make(map[uuid.UUID]bool)
+	ordered := make([]uuid.UUID, 0)
+	var visitSale func(uuid.UUID) error
+	visitSale = func(currentSaleID uuid.UUID) error {
+		if visited[currentSaleID] {
+			return nil
+		}
+		if visiting[currentSaleID] {
+			return fmt.Errorf("cyclic sale/return inventory dependency at sale %s", currentSaleID)
+		}
+		visiting[currentSaleID] = true
+		returnIDs, err := s.saleReturnIDsTx(ctx, tx, currentSaleID)
+		if err != nil {
+			return err
+		}
+		for _, returnID := range returnIDs {
+			children, err := s.dependentSalesForReturnTx(ctx, tx, returnID)
+			if err != nil {
+				return err
+			}
+			for _, childID := range children {
+				if err := visitSale(childID); err != nil {
+					return err
+				}
+			}
+		}
+		delete(visiting, currentSaleID)
+		visited[currentSaleID] = true
+		if currentSaleID != saleID {
+			ordered = append(ordered, currentSaleID)
+		}
+		return nil
+	}
+	for _, returnID := range rootReturns {
+		children, err := s.dependentSalesForReturnTx(ctx, tx, returnID)
+		if err != nil {
+			return nil, err
+		}
+		for _, childID := range children {
+			if err := visitSale(childID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return ordered, nil
+}
+
+func (s *SmartDeleteService) saleReturnIDsTx(ctx context.Context, tx *sqlx.Tx, saleID uuid.UUID) ([]uuid.UUID, error) {
+	exists, err := s.tableExists(ctx, tx, "returns")
+	if err != nil || !exists {
+		return nil, err
+	}
+	var rawIDs []string
+	if err := tx.SelectContext(ctx, &rawIDs, tx.Rebind(`SELECT CAST(id AS TEXT) FROM returns WHERE sale_id=? ORDER BY id`), saleID.String()); err != nil {
+		return nil, err
+	}
+	ids := make([]uuid.UUID, 0, len(rawIDs))
+	for _, rawID := range rawIDs {
+		id, err := uuid.Parse(rawID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid linked return id %q", rawID)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (s *SmartDeleteService) dependentSalesForReturnTx(ctx context.Context, tx *sqlx.Tx, returnID uuid.UUID) ([]uuid.UUID, error) {
+	for _, table := range []string{"return_items", "inventory_movements"} {
+		exists, err := s.tableExists(ctx, tx, table)
+		if err != nil || !exists {
+			return nil, err
+		}
+	}
+	hasItemLink, err := s.columnExists(ctx, tx, "return_items", "inventory_item_id")
+	if err != nil || !hasItemLink {
+		return nil, err
+	}
+	query := `SELECT DISTINCT CAST(m.reference_id AS TEXT) FROM returns r JOIN return_items ri ON ri.return_id=r.id JOIN inventory_movements m ON m.item_id=ri.inventory_item_id WHERE r.id=? AND UPPER(COALESCE(m.movement_type,''))='SALE' AND LOWER(COALESCE(m.reference_type,''))='sale' AND CAST(m.reference_id AS TEXT)<>CAST(r.sale_id AS TEXT) ORDER BY CAST(m.reference_id AS TEXT)`
+	var rawIDs []string
+	if err := tx.SelectContext(ctx, &rawIDs, tx.Rebind(query), returnID.String()); err != nil {
+		return nil, err
+	}
+	ids := make([]uuid.UUID, 0, len(rawIDs))
+	for _, rawID := range rawIDs {
+		id, err := uuid.Parse(rawID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid dependent sale id %q", rawID)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (s *SmartDeleteService) deleteCascadeEntryTx(ctx context.Context, tx *sqlx.Tx, saleID, userID uuid.UUID) error {
+	var exists bool
+	if err := tx.GetContext(ctx, &exists, tx.Rebind(`SELECT EXISTS(SELECT 1 FROM sales WHERE id=?)`), saleID.String()); err != nil {
+		return fmt.Errorf("check sale %s before cascade deletion: %w", saleID, err)
+	}
+	if !exists {
+		// A prior root in the same parent cascade may already have removed this
+		// shared descendant. Hard-delete cascades are idempotent for that case.
+		return nil
+	}
+	result, err := s.smartDeleteTx(ctx, tx, saleID, userID)
+	if err != nil {
+		return err
+	}
+	if result == nil || result.Action != "deleted" || !result.CanProceed {
+		if result == nil {
+			return fmt.Errorf("sale %s did not return a deletion result", saleID)
+		}
+		return fmt.Errorf("sale %s could not be deleted: %s", saleID, result.Message)
+	}
+	return nil
+}
+
+func (s *SmartDeleteService) planDependentSalesForSale(ctx context.Context, saleID uuid.UUID) ([]uuid.UUID, error) {
+	rootReturns, err := s.saleReturnIDs(ctx, saleID)
+	if err != nil {
+		return nil, err
+	}
+	visited := make(map[uuid.UUID]bool)
+	visiting := make(map[uuid.UUID]bool)
+	ordered := make([]uuid.UUID, 0)
+	var visitSale func(uuid.UUID) error
+	visitSale = func(currentSaleID uuid.UUID) error {
+		if visited[currentSaleID] {
+			return nil
+		}
+		if visiting[currentSaleID] {
+			return fmt.Errorf("cyclic sale/return inventory dependency at sale %s", currentSaleID)
+		}
+		visiting[currentSaleID] = true
+		returnIDs, err := s.saleReturnIDs(ctx, currentSaleID)
+		if err != nil {
+			return err
+		}
+		for _, returnID := range returnIDs {
+			children, err := s.dependentSalesForReturn(ctx, returnID)
+			if err != nil {
+				return err
+			}
+			for _, childID := range children {
+				if err := visitSale(childID); err != nil {
+					return err
+				}
+			}
+		}
+		delete(visiting, currentSaleID)
+		visited[currentSaleID] = true
+		if currentSaleID != saleID {
+			ordered = append(ordered, currentSaleID)
+		}
+		return nil
+	}
+	for _, returnID := range rootReturns {
+		children, err := s.dependentSalesForReturn(ctx, returnID)
+		if err != nil {
+			return nil, err
+		}
+		for _, childID := range children {
+			if err := visitSale(childID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return ordered, nil
+}
+
+func (s *SmartDeleteService) saleReturnIDs(ctx context.Context, saleID uuid.UUID) ([]uuid.UUID, error) {
+	exists, err := s.dbTableExists(ctx, "returns")
+	if err != nil || !exists {
+		return nil, err
+	}
+	var rawIDs []string
+	if err := s.db.SelectContext(ctx, &rawIDs, s.db.Rebind(`SELECT CAST(id AS TEXT) FROM returns WHERE sale_id=? ORDER BY id`), saleID.String()); err != nil {
+		return nil, err
+	}
+	ids := make([]uuid.UUID, 0, len(rawIDs))
+	for _, rawID := range rawIDs {
+		id, err := uuid.Parse(rawID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid linked return id %q", rawID)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (s *SmartDeleteService) dependentSalesForReturn(ctx context.Context, returnID uuid.UUID) ([]uuid.UUID, error) {
+	for _, table := range []string{"return_items", "inventory_movements"} {
+		exists, err := s.dbTableExists(ctx, table)
+		if err != nil || !exists {
+			return nil, err
+		}
+	}
+	hasItemLink, err := s.dbColumnExists(ctx, "return_items", "inventory_item_id")
+	if err != nil || !hasItemLink {
+		return nil, err
+	}
+	query := `SELECT DISTINCT CAST(m.reference_id AS TEXT) FROM returns r JOIN return_items ri ON ri.return_id=r.id JOIN inventory_movements m ON m.item_id=ri.inventory_item_id WHERE r.id=? AND UPPER(COALESCE(m.movement_type,''))='SALE' AND LOWER(COALESCE(m.reference_type,''))='sale' AND CAST(m.reference_id AS TEXT)<>CAST(r.sale_id AS TEXT) ORDER BY CAST(m.reference_id AS TEXT)`
+	var rawIDs []string
+	if err := s.db.SelectContext(ctx, &rawIDs, s.db.Rebind(query), returnID.String()); err != nil {
+		return nil, err
+	}
+	ids := make([]uuid.UUID, 0, len(rawIDs))
+	for _, rawID := range rawIDs {
+		id, err := uuid.Parse(rawID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid dependent sale id %q", rawID)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func (s *SmartDeleteService) dbTableExists(ctx context.Context, table string) (bool, error) {
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=$1)`
+	if dbutil.IsSQLite(s.db) {
+		query = `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name=$1)`
+	}
+	if err := s.db.GetContext(ctx, &exists, query, table); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func (s *SmartDeleteService) dbColumnExists(ctx context.Context, table, column string) (bool, error) {
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1 AND column_name=$2)`
+	args := []any{table, column}
+	if dbutil.IsSQLite(s.db) {
+		query = `SELECT EXISTS(SELECT 1 FROM pragma_table_info('` + table + `') WHERE name=$1)`
+		args = []any{column}
+	}
+	if err := s.db.GetContext(ctx, &exists, query, args...); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func (s *SmartDeleteService) smartDeleteTx(ctx context.Context, tx *sqlx.Tx, saleID, userID uuid.UUID) (*DeleteResult, error) {
 	var sale struct {
 		InvoiceNumber string         `db:"invoice_number"`
 		CustomerID    sql.NullString `db:"customer_id"`
@@ -94,7 +419,7 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 			return nil, fmt.Errorf("lock sale before deletion: %w", err)
 		}
 		if affected, _ := result.RowsAffected(); affected == 0 {
-			return &DeleteResult{Action: "not_found", Message: "عملية البيع غير موجودة", CanProceed: false}, nil
+			return &DeleteResult{Action: "not_found", Message: "Ø¹Ù…Ù„ÙŠØ© Ø§Ù„Ø¨ÙŠØ¹ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©", CanProceed: false}, nil
 		}
 	}
 	paidColumnExists, err := s.columnExists(ctx, tx, "sales", "paid_amount")
@@ -111,70 +436,122 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 	} else if paymentStatusColumnExists {
 		paymentStatusExpr = `COALESCE(payment_status,'') AS payment_status`
 	}
-	if err := tx.GetContext(ctx, &sale, tx.Rebind(`SELECT invoice_number, customer_id, status, `+paymentStatusExpr+`, total_amount, `+paidAmountExpr+` FROM sales WHERE id = ?`)+lock, saleID.String()); err != nil {
+	if err := tx.GetContext(ctx, &sale, tx.Rebind(`SELECT COALESCE(invoice_number,'') AS invoice_number, customer_id, status, `+paymentStatusExpr+`, total_amount, `+paidAmountExpr+` FROM sales WHERE id = ?`)+lock, saleID.String()); err != nil {
 		if err == sql.ErrNoRows {
-			return &DeleteResult{Action: "not_found", Message: "عملية البيع غير موجودة", CanProceed: false}, nil
+			return &DeleteResult{Action: "not_found", Message: "Ø¹Ù…Ù„ÙŠØ© Ø§Ù„Ø¨ÙŠØ¹ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©", CanProceed: false}, nil
 		}
 		return nil, fmt.Errorf("load sale for deletion: %w", err)
 	}
-	paymentStatus := strings.ToLower(strings.TrimSpace(sale.PaymentStatus))
-	if sale.PaidAmount > 0 || paymentStatus == "paid" || paymentStatus == "partial" || paymentStatus == "refunded" {
-		return &DeleteResult{Action: "blocked", Message: "لا يمكن حذف بيع سُجل عليه تحصيل", CanProceed: false,
-			Details: &DeleteDetails{Reason: "يوجد مبلغ مدفوع مسجل على الفاتورة", SuggestedAction: "استخدم مسار عكس التحصيلات قبل حذف البيع"}}, nil
-	}
-
-	for _, table := range []string{"returns", "accounting_returns", "payment_transactions"} {
-		exists, tableErr := s.tableExists(ctx, tx, table)
-		if tableErr != nil {
-			return nil, fmt.Errorf("inspect %s dependencies: %w", table, tableErr)
-		}
-		if !exists {
-			continue
-		}
-		var dependencyCount int
-		if err := tx.GetContext(ctx, &dependencyCount, tx.Rebind(`SELECT COUNT(*) FROM `+table+` WHERE sale_id = ?`), saleID.String()); err != nil {
-			return nil, fmt.Errorf("check %s dependencies: %w", table, err)
-		}
-		if dependencyCount > 0 {
-			return &DeleteResult{
-				Action: "blocked", Message: "لا يمكن حذف البيع قبل معالجة المرتجعات أو رد المدفوعات المرتبطة به", CanProceed: false,
-				Details: &DeleteDetails{Reason: "توجد عمليات لاحقة مرتبطة بالبيع", SuggestedAction: "احذف أو اعكس العمليات المرتبطة أولاً"},
-			}, nil
-		}
-	}
-
-	debtsExist, err := s.tableExists(ctx, tx, "debts")
+	// Reverse and remove returns before the parent sale. The return repository
+	// owns the stock/debt/ledger logic; running it on this transaction keeps the
+	// whole sale cascade atomic. accounting_returns is a reporting view in
+	// current schemas and is rebuilt from these source rows.
+	returnsExist, err := s.tableExists(ctx, tx, "returns")
 	if err != nil {
-		return nil, fmt.Errorf("inspect debt dependencies: %w", err)
+		return nil, fmt.Errorf("inspect sale returns: %w", err)
 	}
-	if debtsExist {
-		var collectedDebtPayments int
-		if err := tx.GetContext(ctx, &collectedDebtPayments, tx.Rebind(`SELECT COUNT(*) FROM debts WHERE sale_id = ? AND COALESCE(paid_amount, 0) > 0`), saleID.String()); err != nil {
-			return nil, fmt.Errorf("check collected sale debt: %w", err)
+	if returnsExist {
+		var linkedReturns []string
+		if err := tx.SelectContext(ctx, &linkedReturns, tx.Rebind(`SELECT id FROM returns WHERE sale_id=? ORDER BY id`), saleID.String()); err != nil {
+			return nil, fmt.Errorf("load sale returns for reversal: %w", err)
 		}
-		if collectedDebtPayments > 0 {
-			return &DeleteResult{
-				Action: "blocked", Message: "لا يمكن حذف بيع سُدد جزء من دينه", CanProceed: false,
-				Details: &DeleteDetails{Reason: "تم تسجيل تحصيلات على دين البيع", SuggestedAction: "اعكس التحصيلات المرتبطة أولاً"},
-			}, nil
+		returnRepository := returnrepo.NewRepository(s.db)
+		for _, rawID := range linkedReturns {
+			returnID, err := uuid.Parse(rawID)
+			if err != nil {
+				return nil, fmt.Errorf("parse linked return id %q: %w", rawID, err)
+			}
+			if err := returnRepository.DeleteReturnTx(ctx, tx, returnID); err != nil {
+				return nil, fmt.Errorf("reverse linked return %s before deleting sale: %w", returnID, err)
+			}
 		}
 	}
 
-	salePaymentsExist, err := s.tableExists(ctx, tx, "payments")
+	if debtsExist, err := s.tableExists(ctx, tx, "debts"); err != nil {
+		return nil, err
+	} else if debtsExist {
+		if hasCustomerID, err := s.columnExists(ctx, tx, "debts", "customer_id"); err != nil {
+			return nil, err
+		} else if hasCustomerID {
+			var customerIDs []string
+			if err := tx.SelectContext(ctx, &customerIDs, tx.Rebind(`SELECT DISTINCT CAST(customer_id AS TEXT) FROM debts WHERE sale_id=? AND customer_id IS NOT NULL AND COALESCE(paid_amount,0)>0.000001`), saleID.String()); err != nil {
+				return nil, fmt.Errorf("load customers with payments on this sale: %w", err)
+			}
+			paymentRepo := payments.NewRepository(s.db)
+			for _, rawCustomerID := range customerIDs {
+				customerID, err := uuid.Parse(rawCustomerID)
+				if err != nil {
+					return nil, ErrSaleDebtAllocationHistoryInconsistent
+				}
+				if err := paymentRepo.ReconstructLegacyCustomerAllocationsTx(ctx, tx, customerID); err != nil {
+					return nil, fmt.Errorf("reconstruct debt payment allocations for customer %s: %w", customerID, err)
+				}
+			}
+		}
+	}
+	paymentIDs, err := linkedSalePayments(ctx, tx, s, saleID)
 	if err != nil {
-		return nil, fmt.Errorf("inspect sale payments: %w", err)
+		return nil, fmt.Errorf("load sale payment reversals: %w", err)
 	}
-	if salePaymentsExist {
-		var paymentCount int
-		if err := tx.GetContext(ctx, &paymentCount, tx.Rebind(`SELECT COUNT(*) FROM payments WHERE sale_id=?`), saleID.String()); err != nil {
-			return nil, fmt.Errorf("check sale payments: %w", err)
+	paymentRepo := payments.NewRepository(s.db)
+	for _, paymentID := range paymentIDs {
+		if err := paymentRepo.DeleteInTx(ctx, tx, paymentID); err != nil {
+			return nil, fmt.Errorf("reverse payment %s before deleting sale: %w", paymentID, err)
 		}
-		if paymentCount > 0 {
-			return &DeleteResult{Action: "blocked", Message: "لا يمكن حذف بيع له دفعات مسجلة", CanProceed: false,
-				Details: &DeleteDetails{Reason: "توجد دفعات مرتبطة بالفاتورة", SuggestedAction: "عالج الدفعات أو اعكسها قبل حذف البيع"}}, nil
+		if auditExists, err := s.tableExists(ctx, tx, "audit_logs"); err != nil {
+			return nil, err
+		} else if auditExists {
+			if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM audit_logs WHERE entity_id=?`), paymentID.String()); err != nil {
+				return nil, fmt.Errorf("remove deleted payment audit rows: %w", err)
+			}
 		}
 	}
-
+	var remainingPaid float64
+	if paidColumnExists {
+		if err := tx.GetContext(ctx, &remainingPaid, tx.Rebind(`SELECT COALESCE(paid_amount,0) FROM sales WHERE id=?`), saleID.String()); err != nil {
+			return nil, fmt.Errorf("verify sale payments were reversed: %w", err)
+		}
+	}
+	if remainingPaid > 0.000001 && len(paymentIDs) == 0 {
+		// Legacy invoices can have a paid_amount summary without a corresponding
+		// payment row. There is no remaining payment transaction to reverse; the
+		// sale itself is the sole source of that reported amount and will be hard
+		// deleted below. Clear the denormalized summary inside this transaction
+		// so it cannot be mistaken for an unreversed payment effect.
+		updates := []string{"paid_amount=0"}
+		if exists, err := s.columnExists(ctx, tx, "sales", "payment_status"); err != nil {
+			return nil, fmt.Errorf("inspect legacy sale payment status: %w", err)
+		} else if exists {
+			updates = append(updates, "payment_status='unpaid'")
+		}
+		if exists, err := s.columnExists(ctx, tx, "sales", "remaining_amount"); err != nil {
+			return nil, fmt.Errorf("inspect legacy sale remaining amount: %w", err)
+		} else if exists {
+			updates = append(updates, "remaining_amount=0")
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE sales SET `+strings.Join(updates, ",")+` WHERE id=?`), saleID.String()); err != nil {
+			return nil, fmt.Errorf("clear legacy sale payment summary before deletion: %w", err)
+		}
+		remainingPaid = 0
+	}
+	if remainingPaid > 0.000001 {
+		return nil, ErrSalePaymentHistoryInconsistent
+	}
+	if debtsExist, err := s.tableExists(ctx, tx, "debts"); err != nil {
+		return nil, err
+	} else if debtsExist {
+		if hasPaidAmount, err := s.columnExists(ctx, tx, "debts", "paid_amount"); err != nil {
+			return nil, err
+		} else if hasPaidAmount {
+			var unresolvedAllocations int
+			if err := tx.GetContext(ctx, &unresolvedAllocations, tx.Rebind(`SELECT COUNT(*) FROM debts WHERE sale_id=? AND COALESCE(paid_amount,0)>0.000001`), saleID.String()); err != nil {
+				return nil, fmt.Errorf("verify sale debt payment reversals: %w", err)
+			}
+			if unresolvedAllocations > 0 {
+				return nil, ErrSaleDebtAllocationHistoryInconsistent
+			}
+		}
+	}
 	itemsTable, err := s.tableExists(ctx, tx, "sale_items")
 	if err != nil || !itemsTable {
 		if err == nil {
@@ -186,11 +563,6 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 	if err := tx.GetContext(ctx, &itemCount, tx.Rebind(`SELECT COUNT(*) FROM sale_items WHERE sale_id = ?`), saleID.String()); err != nil {
 		return nil, fmt.Errorf("count sale items: %w", err)
 	}
-	var expectedStockUnits int
-	if err := tx.GetContext(ctx, &expectedStockUnits, tx.Rebind(`SELECT COALESCE(SUM(quantity),0) FROM sale_items WHERE sale_id = ?`), saleID.String()); err != nil {
-		return nil, fmt.Errorf("sum sale item quantities: %w", err)
-	}
-
 	stockDeltas := make(map[string]int)
 	movementExists, err := s.tableExists(ctx, tx, "inventory_movements")
 	if err != nil {
@@ -208,22 +580,29 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 		if err := tx.SelectContext(ctx, &movements, query, saleID.String()); err != nil {
 			return nil, fmt.Errorf("load sale inventory movements: %w", err)
 		}
-		if itemCount > 0 && len(movements) == 0 {
-			return &DeleteResult{
-				Action: "blocked", Message: "تعذر عكس المخزون لأن سجل حركة البيع غير موجود", CanProceed: false,
-				Details: &DeleteDetails{Reason: "لا توجد حركة مخزون موثوقة مرتبطة بالبيع", SuggestedAction: "راجع المخزون قبل حذف الفاتورة"},
-			}, nil
+		// No movement means no stock delta was committed for an unfinished sale.
+		if itemCount > 0 && len(movements) == 0 && strings.EqualFold(strings.TrimSpace(sale.Status), "completed") {
+			legacyDeltas, err := restoreLegacySaleInventoryTx(ctx, tx, s, saleID)
+			if err != nil {
+				return nil, fmt.Errorf("reconstruct legacy sale inventory reversal: %w", err)
+			}
+			for productID, delta := range legacyDeltas {
+				stockDeltas[productID] += delta
+			}
 		}
-		actualStockUnits := 0
+		restoredItems := make(map[string]bool)
 		for _, movement := range movements {
 			if movement.Quantity >= 0 {
 				return nil, fmt.Errorf("invalid sale movement quantity %d", movement.Quantity)
 			}
-			actualStockUnits += -movement.Quantity
-			if movement.ProductID.Valid {
-				stockDeltas[movement.ProductID.String] += -movement.Quantity
+			if !movement.ProductID.Valid || strings.TrimSpace(movement.ProductID.String) == "" {
+				return nil, fmt.Errorf("sale movement has no product link; cannot reverse its stock delta")
 			}
+			stockDeltas[movement.ProductID.String] += -movement.Quantity
 			if movement.ItemID.Valid {
+				if restoredItems[movement.ItemID.String] {
+					continue
+				}
 				result, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE inventory_items SET status='AVAILABLE', sold_at=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=? AND UPPER(TRIM(COALESCE(status,'')))='SOLD'`), movement.ItemID.String)
 				if err != nil {
 					return nil, fmt.Errorf("restore sold inventory item: %w", err)
@@ -236,16 +615,20 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 						return nil, fmt.Errorf("restore acquired item state: %w", err)
 					}
 				}
+				restoredItems[movement.ItemID.String] = true
 			}
 		}
-		if actualStockUnits != expectedStockUnits {
-			return &DeleteResult{
-				Action: "blocked", Message: "لا يمكن حذف البيع لأن كميات حركات المخزون لا تطابق سطور الفاتورة", CanProceed: false,
-				Details: &DeleteDetails{Reason: "يوجد نقص أو زيادة في حركات المخزون المرتبطة", SuggestedAction: "طابق حركات المخزون مع كميات الفاتورة قبل الحذف"},
-			}, nil
+		// Inventory movements record the committed stock effect, including legacy invoice mismatches.
+		// Reverse those deltas atomically instead of making the transaction undeletable.
+	}
+	if !movementExists && itemCount > 0 && strings.EqualFold(strings.TrimSpace(sale.Status), "completed") {
+		legacyDeltas, err := restoreLegacySaleInventoryTx(ctx, tx, s, saleID)
+		if err != nil {
+			return nil, fmt.Errorf("reconstruct legacy sale inventory reversal: %w", err)
 		}
-	} else if itemCount > 0 {
-		return &DeleteResult{Action: "blocked", Message: "تعذر حذف البيع لعدم توفر سجل حركات المخزون", CanProceed: false}, nil
+		for productID, delta := range legacyDeltas {
+			stockDeltas[productID] += delta
+		}
 	}
 
 	inventoryExists, err := s.tableExists(ctx, tx, "inventory")
@@ -270,7 +653,14 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 	if err != nil {
 		return nil, fmt.Errorf("inspect sale payments: %w", err)
 	}
+	paymentsHaveSaleID := false
 	if paymentsExist {
+		paymentsHaveSaleID, err = s.columnExists(ctx, tx, "payments", "sale_id")
+		if err != nil {
+			return nil, fmt.Errorf("inspect sale payment links: %w", err)
+		}
+	}
+	if paymentsExist && paymentsHaveSaleID {
 		if auditExists, err := s.tableExists(ctx, tx, "audit_logs"); err != nil {
 			return nil, err
 		} else if auditExists {
@@ -295,8 +685,17 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 			return nil, fmt.Errorf("remove sale customer ledger rows: %w", err)
 		}
 	}
+	if exists, err := s.tableExists(ctx, tx, "payment_transactions"); err != nil {
+		return nil, err
+	} else if exists {
+		if err := paymenttransactions.NewService(paymenttransactions.NewRepository(s.db)).DeleteSaleHistoryTx(ctx, tx, saleID); err != nil {
+			return nil, fmt.Errorf("delete sale provider transaction history: %w", err)
+		}
+	}
 
 	for _, dependency := range []struct{ table, query string }{
+		{"financial_transactions", `DELETE FROM financial_transactions WHERE sale_id=?`},
+		{"profit_entries", `DELETE FROM profit_entries WHERE sale_id=?`},
 		{"debts", `DELETE FROM debts WHERE sale_id=?`},
 		{"customer_debts", `DELETE FROM customer_debts WHERE reference_id=? AND LOWER(COALESCE(reference_type,''))='sale'`},
 		{"sale_payment_allocations", `DELETE FROM sale_payment_allocations WHERE sale_id=?`},
@@ -400,11 +799,157 @@ func (s *SmartDeleteService) SmartDelete(ctx context.Context, saleID uuid.UUID, 
 			return nil, fmt.Errorf("write sale deletion audit: %w", err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit sale deletion: %w", err)
+	return &DeleteResult{Action: "deleted", Message: "Sale deleted and effects reversed", CanProceed: true}, nil
+}
+
+func (s *SmartDeleteService) prepareLinkedPayments(ctx context.Context, saleID, userID uuid.UUID) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin sale payment preflight: %w", err)
 	}
-	dashboard.InvalidateDashboardCacheWithReason("sale_deleted")
-	return &DeleteResult{Action: "deleted", Message: "تم حذف عملية البيع وعكس آثار المخزون والرصيد", CanProceed: true}, nil
+	defer tx.Rollback()
+	ids, err := linkedSalePayments(ctx, tx, s, saleID)
+	if err != nil {
+		return err
+	}
+	if err := tx.Rollback(); err != nil {
+		return fmt.Errorf("release sale payment preflight: %w", err)
+	}
+	var providerTransactionsExist bool
+	providerQuery := `SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='payment_transactions')`
+	if dbutil.IsSQLite(s.db) {
+		providerQuery = `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='payment_transactions')`
+	}
+	if err := s.db.GetContext(ctx, &providerTransactionsExist, providerQuery); err != nil {
+		return fmt.Errorf("inspect sale provider payments: %w", err)
+	}
+	if providerTransactionsExist {
+		if err := paymenttransactions.NewConfiguredService(s.db).PrepareSaleDeletion(ctx, saleID, userID); err != nil {
+			return fmt.Errorf("reconcile sale provider payments: %w", err)
+		}
+	}
+	service := payments.NewService(payments.NewRepository(s.db))
+	for _, id := range ids {
+		if err := service.PrepareDelete(ctx, id, userID); err != nil {
+			return fmt.Errorf("reconcile external payment %s: %w", id, err)
+		}
+	}
+	return nil
+}
+
+func restoreLegacySaleInventoryTx(ctx context.Context, tx *sqlx.Tx, s *SmartDeleteService, saleID uuid.UUID) (map[string]int, error) {
+	var lines []struct {
+		ProductID       sql.NullString `db:"product_id"`
+		InventoryItemID sql.NullString `db:"inventory_item_id"`
+		Quantity        int            `db:"quantity"`
+	}
+	query := `SELECT CAST(product_id AS TEXT) AS product_id, CAST(inventory_item_id AS TEXT) AS inventory_item_id, quantity FROM sale_items WHERE sale_id=? ORDER BY id`
+	if err := tx.SelectContext(ctx, &lines, tx.Rebind(query), saleID.String()); err != nil {
+		return nil, fmt.Errorf("load legacy sale lines: %w", err)
+	}
+	itemTable, err := s.tableExists(ctx, tx, "inventory_items")
+	if err != nil {
+		return nil, err
+	}
+	deltas := make(map[string]int)
+	for _, line := range lines {
+		if line.Quantity <= 0 {
+			return nil, fmt.Errorf("legacy sale contains nonpositive line quantity %d", line.Quantity)
+		}
+		productID := ""
+		if line.ProductID.Valid {
+			productID = strings.TrimSpace(line.ProductID.String)
+		}
+		if line.InventoryItemID.Valid && strings.TrimSpace(line.InventoryItemID.String) != "" {
+			itemID := strings.TrimSpace(line.InventoryItemID.String)
+			if !itemTable {
+				return nil, fmt.Errorf("legacy sale line links inventory item %s but inventory_items is missing", itemID)
+			}
+			var itemProductID string
+			if err := tx.GetContext(ctx, &itemProductID, tx.Rebind(`SELECT CAST(product_id AS TEXT) FROM inventory_items WHERE id=?`), itemID); err != nil {
+				return nil, fmt.Errorf("load product for legacy inventory item %s: %w", itemID, err)
+			}
+			if productID == "" {
+				productID = itemProductID
+			} else if productID != itemProductID {
+				return nil, fmt.Errorf("legacy sale item %s product does not match its sale line", itemID)
+			}
+			result, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE inventory_items SET status='AVAILABLE', sold_at=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=? AND UPPER(TRIM(COALESCE(status,'')))='SOLD'`), itemID)
+			if err != nil {
+				return nil, fmt.Errorf("restore legacy sold inventory item %s: %w", itemID, err)
+			}
+			if affected, _ := result.RowsAffected(); affected != 1 {
+				return nil, fmt.Errorf("legacy inventory item %s is not SOLD; refusing an ambiguous stock reversal", itemID)
+			}
+			acquisitionTable, err := s.tableExists(ctx, tx, "acquisition_items")
+			if err != nil {
+				return nil, err
+			}
+			if acquisitionTable {
+				if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE acquisition_items SET item_status='available', updated_at=CURRENT_TIMESTAMP WHERE inventory_item_id=? AND LOWER(item_status)='sold'`), itemID); err != nil {
+					return nil, fmt.Errorf("restore legacy acquired item state: %w", err)
+				}
+			}
+		}
+		if productID == "" {
+			return nil, fmt.Errorf("legacy sale line has no product or inventory-item link")
+		}
+		deltas[productID] += line.Quantity
+	}
+	return deltas, nil
+}
+
+func linkedSalePayments(ctx context.Context, tx *sqlx.Tx, s *SmartDeleteService, saleID uuid.UUID) ([]uuid.UUID, error) {
+	exists, err := s.tableExists(ctx, tx, "payments")
+	if err != nil || !exists {
+		return nil, err
+	}
+	hasSaleID, err := s.columnExists(ctx, tx, "payments", "sale_id")
+	if err != nil || !hasSaleID {
+		return nil, err
+	}
+	hasID, err := s.columnExists(ctx, tx, "payments", "id")
+	if err != nil || !hasID {
+		return nil, ErrSalePaymentHistoryInconsistent
+	}
+	query := `SELECT CAST(id AS TEXT) FROM payments WHERE sale_id=?`
+	allocationTable, err := s.tableExists(ctx, tx, "payment_debt_allocations")
+	if err != nil {
+		return nil, err
+	}
+	debtTable, err := s.tableExists(ctx, tx, "debts")
+	if err != nil {
+		return nil, err
+	}
+	if allocationTable && debtTable {
+		query = `SELECT CAST(payment.id AS TEXT) FROM payments payment WHERE payment.sale_id=?
+			UNION SELECT CAST(payment.id AS TEXT) FROM payments payment
+			JOIN payment_debt_allocations allocation ON allocation.payment_id=payment.id
+			JOIN debts debt ON debt.id=allocation.debt_id
+			WHERE debt.sale_id=?`
+		var rawIDs []string
+		if err := tx.SelectContext(ctx, &rawIDs, tx.Rebind(query), saleID.String(), saleID.String()); err != nil {
+			return nil, fmt.Errorf("list sale and debt payments: %w", err)
+		}
+		return parseLinkedSalePaymentIDs(rawIDs)
+	}
+	var rawIDs []string
+	if err := tx.SelectContext(ctx, &rawIDs, tx.Rebind(query), saleID.String()); err != nil {
+		return nil, fmt.Errorf("list sale payments: %w", err)
+	}
+	return parseLinkedSalePaymentIDs(rawIDs)
+}
+
+func parseLinkedSalePaymentIDs(rawIDs []string) ([]uuid.UUID, error) {
+	ids := make([]uuid.UUID, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return nil, fmt.Errorf("parse linked sale payment id %q: %w", raw, ErrSalePaymentHistoryInconsistent)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func (s *Service) DeleteSale(ctx context.Context, saleID, userID uuid.UUID) (*DeleteResult, error) {

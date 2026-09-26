@@ -35,6 +35,50 @@ func Admin() gin.HandlerFunc {
 	}
 }
 
+// OwnerOnly protects operations reserved for the single store owner. Unlike
+// Admin, configured administrator addresses do not grant access here.
+func OwnerOnly() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := GetUserID(c)
+		if userID == uuid.Nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+			return
+		}
+
+		if email := strings.TrimSpace(c.GetString("cloud_user_email")); email != "" {
+			if strings.EqualFold(email, "owner@partflow.com") {
+				c.Next()
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "store owner privileges required", "code": "OWNER_REQUIRED"})
+			return
+		}
+
+		if db != nil {
+			var email string
+			if err := db.QueryRowContext(c.Request.Context(), "SELECT email FROM users WHERE id = $1", userID.String()).Scan(&email); err == nil && strings.EqualFold(strings.TrimSpace(email), "owner@partflow.com") {
+				c.Next()
+				return
+			}
+		}
+
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "store owner privileges required", "code": "OWNER_REQUIRED"})
+	}
+}
+
+// LocalDatabaseOnly prevents device SQLite synchronization routes from being
+// used on the cloud PostgreSQL service, where they would address the server's
+// own ephemeral filesystem instead of the caller's device.
+func LocalDatabaseOnly() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if db == nil || (!strings.EqualFold(db.DriverName(), "sqlite") && !strings.EqualFold(db.DriverName(), "sqlite3")) {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "this operation is available only on a device with local SQLite", "code": "LOCAL_DATABASE_REQUIRED"})
+			return
+		}
+		c.Next()
+	}
+}
+
 func IsConfiguredAdmin(c *gin.Context, userID uuid.UUID) bool {
 	// Keep the type assertion in one place while avoiding a second user lookup
 	// for development requests where authentication is intentionally disabled.

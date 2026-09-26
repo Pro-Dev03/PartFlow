@@ -117,9 +117,9 @@ export function SupplierReturnsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['supplier-returns'] });
       setConfirmAction(null);
-      toast.success('تم حذف طلب الإرجاع غير المعالج');
+      toast.success('تم عكس أثر طلب إرجاع المورد وحذفه');
     },
-    onError: () => toast.error('لا يمكن حذف هذا الطلب؛ قد يكون بدأ معالجته أو يحتوي أصنافاً'),
+    onError: (error: any) => toast.error(error?.response?.data?.error || error?.response?.data?.message || error?.message || 'تعذر عكس أثر طلب إرجاع المورد وحذفه'),
   });
   const rejectMutation = useMutation({
     mutationFn: (id: string) => supplierReturnsApi.reject(id),
@@ -223,7 +223,7 @@ export function SupplierReturnsPage() {
               <label className="text-sm font-medium">1. فاتورة الشراء</label>
               <Select value={purchaseId} onChange={(e) => { setPurchaseId(e.target.value); setPurchaseItemId(''); }} options={[
                 { value: '', label: 'اختر فاتورة تحتوي على مخزون متاح' },
-                ...purchases.map((p: any) => ({ value: p.id, label: `${p.invoice_number} | ${p.supplier_name || 'مورد غير محدد'} | ${p.available_for_return || 0} قطعة متاحة` })),
+                ...purchases.map((p: any) => ({ value: p.id, label: `${p.invoice_number} | ${p.supplier_name || 'مورد غير محدد'} | ${p.available_for_return || 0} وحدة متاحة` })),
               ]} />
               <p className="text-xs text-text-muted">تظهر هنا الفواتير التي يمكن إرجاع صنف منها فقط.</p>
             </div>
@@ -249,7 +249,7 @@ export function SupplierReturnsPage() {
               <div><span className="text-text-muted">تكلفة الوحدة</span><p>₪{Number(selectedItem.unit_cost || 0).toLocaleString('en-US')}</p></div>
               <div className="sm:col-span-2 lg:col-span-4">
                 <span className="text-text-muted">المتاح للإرجاع</span>
-                <p className={availableQuantity > 0 ? 'font-semibold text-success' : 'font-semibold text-danger'}>{availableQuantity} قطعة</p>
+                <p className={availableQuantity > 0 ? 'font-semibold text-success' : 'font-semibold text-danger'}>{availableQuantity} وحدة</p>
               </div>
             </div>
           )}
@@ -295,19 +295,19 @@ export function SupplierReturnsPage() {
             <div className="space-y-2">{visibleReturns.map((item: any) => (
               <div key={item.id} className="supplier-return-list-row rounded-xl border border-border bg-surface-muted/30 p-3">
                 <span className="supplier-return-number text-sm font-semibold text-text">رقم الطلب: {item.return_number}</span>
-                <span className="supplier-return-product text-sm font-semibold text-text">اسم القطعة: {item.product_name || item.product?.name || '-'}</span>
+                <span className="supplier-return-product text-sm font-semibold text-text">اسم المنتج: {item.product_name || item.product?.name || '-'}</span>
                 <span className="supplier-return-reason text-xs text-text-muted">السبب: {readableReturnReason(item.reason)}</span>
                 <span className="supplier-return-status text-xs text-text-muted">الحالة: {item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'يحتاج بيانات المصدر' : readableStatus(item.status)}</span>
                 <span className="supplier-return-amount text-sm font-semibold text-info">₪{Number(item.refund_amount || 0).toLocaleString('en-US')}</span>
                 {item.customer_return_id && item.customer_return_id !== '00000000-0000-0000-0000-000000000000' && (
                   <div className={`supplier-return-source-grid rounded-lg border p-3 text-xs ${item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'border-warning/40 bg-warning/10' : 'border-border bg-surface-muted'}`}>
                     <strong className="supplier-return-source-title">{item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA' ? 'مرتجع عميل يحتاج بيانات الشراء أو المورد' : 'مصدر الطلب: مرتجع عميل'}</strong>
-                    <span>اسم القطعة: {item.product_name || item.product?.name || '-'}</span>
+                    <span>اسم المنتج: {item.product_name || item.product?.name || '-'}</span>
                     <span data-testid="unresolved-customer-return-id">معرّف مرتجع العميل: {item.customer_return_id}</span>
                     <span>معرّف البيع: {item.sale_id || '-'}</span>
                     <span>المورد: {item.supplier_name || item.supplier_id || '-'}</span>
                     <span>معرّف الشراء: {item.purchase_id || '-'}</span>
-                    <span>معرّف قطعة المخزون: {item.inventory_item_id || '-'}</span>
+                    <span>معرّف وحدة المخزون: {item.inventory_item_id || '-'}</span>
                     <span>الباركود: {item.barcode || '-'}</span>
                     <span>الرقم التسلسلي: {item.serial_number || '-'}</span>
                     <span>الكمية: {item.quantity || 0}</span>
@@ -346,7 +346,7 @@ export function SupplierReturnsPage() {
                       size="sm"
                       variant="success"
                       title={item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA'
-                        ? 'لا يمكن الإكمال قبل تحديد فاتورة الشراء والمورد وقطعة المخزون'
+                        ? 'لا يمكن الإكمال قبل تحديد فاتورة الشراء والمورد ووحدة المخزون'
                         : 'يكمل الإرجاع ويخصم الكمية من المخزون ويسجل قيمته'}
                       onClick={() => completeMutation.mutate(item.id)}
                       disabled={completeMutation.isPending || item.needs_source_resolution || item.status === 'NEEDS_SOURCE_DATA'}

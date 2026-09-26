@@ -128,7 +128,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
       setBarcodeInput('');
     } catch (error) {
       console.error('Error scanning barcode:', error);
-      toast.error('لم يتم العثور على منتج بهذا الباركود. يمكنك إنشاء قطعة جديدة.');
+      toast.error('لم يتم العثور على منتج بهذا الباركود. يمكنك إنشاء منتج جديد.');
     }
   }, [barcodeInput]);
 
@@ -317,10 +317,10 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <ShoppingCart className="w-5 h-5 text-cyan" />
-                <h3 className="font-semibold">إضافة القطع</h3>
+                <h3 className="font-semibold">إضافة المنتجات</h3>
               </div>
               <Badge variant="secondary">
-                {items.length} عنصر • {totalQuantity} قطعة
+                {items.length} منتج • {totalQuantity} وحدة
               </Badge>
             </div>
 
@@ -546,7 +546,7 @@ export function PurchaseModal({ isOpen, onClose }: PurchaseModalProps) {
               <div className="text-2xl font-bold text-cyan">{taxRate > 0 ? 'الإجمالي شامل الضريبة' : 'الإجمالي'}: ₪{totalWithTax.toFixed(2)}</div>
             </div>
             <div className="text-xs text-text-muted mt-1">
-              {items.length} عنصر • {totalQuantity} قطعة
+              {items.length} منتج • {totalQuantity} وحدة
             </div>
           </div>
           <div className="flex gap-3 w-full md:w-auto">

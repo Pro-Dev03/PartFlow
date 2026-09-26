@@ -517,9 +517,40 @@ func (r *Repository) UpdateExpense(ctx context.Context, expense *Expense) error 
 
 // DeleteExpense deletes an expense
 func (r *Repository) DeleteExpense(ctx context.Context, id uuid.UUID) error {
-	query := `DELETE FROM expenses WHERE id = $1`
-
-	result, err := r.db.ExecContext(ctx, query, id)
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin expense deletion: %w", err)
+	}
+	defer tx.Rollback()
+	if exists, err := expenseTableExistsTx(ctx, tx, r.db, "audit_logs"); err != nil {
+		return err
+	} else if exists {
+		if hasColumn, err := expenseColumnExistsTx(ctx, tx, r.db, "audit_logs", "entity_id"); err != nil {
+			return err
+		} else if hasColumn {
+			query := `DELETE FROM audit_logs WHERE entity_id=?`
+			if hasType, err := expenseColumnExistsTx(ctx, tx, r.db, "audit_logs", "entity_type"); err != nil {
+				return err
+			} else if hasType {
+				query += ` AND LOWER(COALESCE(entity_type,'')) IN ('expense','expenses')`
+			}
+			if _, err := tx.ExecContext(ctx, tx.Rebind(query), id.String()); err != nil {
+				return fmt.Errorf("delete expense audit history: %w", err)
+			}
+		}
+	}
+	if exists, err := expenseTableExistsTx(ctx, tx, r.db, "financial_transactions"); err != nil {
+		return err
+	} else if exists {
+		if hasColumn, err := expenseColumnExistsTx(ctx, tx, r.db, "financial_transactions", "expense_id"); err != nil {
+			return err
+		} else if hasColumn {
+			if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM financial_transactions WHERE expense_id=?`), id.String()); err != nil {
+				return fmt.Errorf("delete linked expense financial transaction: %w", err)
+			}
+		}
+	}
+	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM expenses WHERE id=?`), id.String())
 	if err != nil {
 		return fmt.Errorf("failed to delete expense: %w", err)
 	}
@@ -528,7 +559,9 @@ func (r *Repository) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 	if rowsAffected == 0 {
 		return ErrExpenseNotFound
 	}
-
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit expense deletion: %w", err)
+	}
 	return nil
 }
 
@@ -734,22 +767,67 @@ func (r *Repository) UpdateExpenseCategory(ctx context.Context, category *Expens
 	return nil
 }
 
-// DeleteExpenseCategory archives a category so historical expenses keep their
-// category relationship and remain reportable.
+// DeleteExpenseCategory hard-deletes the selected category and its expense
+// rows atomically, so report totals reflect removal immediately.
 func (r *Repository) DeleteExpenseCategory(ctx context.Context, id uuid.UUID) error {
-	query := fmt.Sprintf(`UPDATE expense_categories SET is_active = FALSE, updated_at = %s WHERE id = $1`, dbutil.NowSQL(r.db))
-
-	result, err := r.db.ExecContext(ctx, query, id)
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to archive expense category: %w", err)
+		return fmt.Errorf("begin expense category deletion: %w", err)
+	}
+	defer tx.Rollback()
+	lockQuery := `SELECT CAST(id AS TEXT) FROM expense_categories WHERE id=?`
+	if !dbutil.IsSQLite(r.db) {
+		lockQuery += ` FOR UPDATE`
+	}
+	var locked string
+	if err := tx.GetContext(ctx, &locked, tx.Rebind(lockQuery), id.String()); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrExpenseCategoryNotFound
+		}
+		return fmt.Errorf("lock expense category: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM expenses WHERE category_id=?`), id.String()); err != nil {
+		return fmt.Errorf("delete category expenses: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM expense_categories WHERE id=?`), id.String())
+	if err != nil {
+		return fmt.Errorf("delete expense category: %w", err)
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		return ErrExpenseCategoryNotFound
 	}
+	return tx.Commit()
+}
 
-	return nil
+func expenseTableExistsTx(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, table string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=$1)`
+	if dbutil.IsSQLite(db) {
+		query = `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=$1)`
+	}
+	var exists bool
+	if err := tx.GetContext(ctx, &exists, query, table); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func expenseColumnExistsTx(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, table, column string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1 AND column_name=$2)`
+	if dbutil.IsSQLite(db) {
+		query = `SELECT EXISTS(SELECT 1 FROM pragma_table_info('` + table + `') WHERE name=$1)`
+		var exists bool
+		if err := tx.GetContext(ctx, &exists, query, column); err != nil {
+			return false, err
+		}
+		return exists, nil
+	}
+	var exists bool
+	if err := tx.GetContext(ctx, &exists, query, table, column); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 // GetExpenseCategoryByName retrieves an expense category by name

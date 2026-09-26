@@ -206,6 +206,14 @@ func TestCloudCustomerOpeningDebtAppearsAndCanBePaid(t *testing.T) {
 	if legacyPaid != 50 || legacyRemaining != 200 || historyPaid != 50 || historyIsPaid {
 		t.Fatalf("opening debt payment not synchronized: debts=%v/%v customer_debts=%v/%v", legacyPaid, legacyRemaining, historyPaid, historyIsPaid)
 	}
+	var allocationCount int
+	var allocatedAmount float64
+	if err := localDB.QueryRow(`SELECT COUNT(*), COALESCE(SUM(amount), 0) FROM payment_debt_allocations WHERE payment_id = ?`, payment.ID).Scan(&allocationCount, &allocatedAmount); err != nil {
+		t.Fatal(err)
+	}
+	if allocationCount != 1 || allocatedAmount != payment.Amount {
+		t.Fatalf("customer payment allocations = %d rows / %.2f, want one row totaling %.2f", allocationCount, allocatedAmount, payment.Amount)
+	}
 	payload = readDebtList()
 	for _, entry := range payload.Data {
 		if entry.CustomerID == customer.ID.String() && (entry.Amount != 250 || entry.RemainingAmount != 200) {
@@ -412,6 +420,16 @@ func TestCustomerManualDebtAdjustmentReconcilesBalanceSQLite(t *testing.T) {
 	if linkedProductID != productID.String() || !strings.Contains(adjustmentDescription, "سبب توضيحي للتصحيح") || !strings.Contains(adjustmentDescription, linkedAdjustmentProductMarker) || !strings.Contains(adjustmentDescription, "اسم المنتج المرتبط") || !strings.Contains(adjustmentDescription, `"quantity":2`) {
 		t.Fatalf("linked adjustment details = %q / %q, want reason, product, quantity, and product reference", adjustmentDescription, linkedProductID)
 	}
+	var adjustmentDebtID, ledgerDebtID string
+	if err := db.Get(&adjustmentDebtID, `SELECT id FROM debts WHERE customer_id = ? AND notes = 'MANUAL_ADJUSTMENT'`, customerID); err != nil {
+		t.Fatalf("read linked manual debt id: %v", err)
+	}
+	if err := db.Get(&ledgerDebtID, `SELECT debt_id FROM customer_ledger WHERE customer_id = ? AND reference_id = ? AND type = 'debit'`, customerID, productID); err != nil {
+		t.Fatalf("read product-linked ledger debt id: %v", err)
+	}
+	if ledgerDebtID != adjustmentDebtID {
+		t.Fatalf("product ledger debt id = %s, debt row id = %s", ledgerDebtID, adjustmentDebtID)
+	}
 
 	if err := service.AdjustCustomerDebtWithProduct(ctx, customerID, 30, "credit", "manual reduction", &productID, 1.5); err != nil {
 		t.Fatalf("credit adjustment: %v", err)
@@ -429,6 +447,16 @@ func TestCustomerManualDebtAdjustmentReconcilesBalanceSQLite(t *testing.T) {
 	if creditProductID != productID.String() || !strings.Contains(creditDescription, "manual reduction") || !strings.Contains(creditDescription, `"quantity":1.5`) {
 		t.Fatalf("manual-credit linked details = %q / %q, want reason, product reference, and quantity", creditDescription, creditProductID)
 	}
+
+	debtHandler := debtshandler.NewHandler(db)
+	deleteRouter := gin.New()
+	deleteRouter.DELETE("/debts/:id", debtHandler.DeleteDebt)
+	deleteResponse := httptest.NewRecorder()
+	deleteRouter.ServeHTTP(deleteResponse, httptest.NewRequest(http.MethodDelete, "/debts/"+adjustmentDebtID, nil))
+	if deleteResponse.Code != http.StatusOK {
+		t.Fatalf("delete product-linked manual debt status=%d body=%s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+	assertCustomerDebtBalance(t, db, customerID, -30)
 }
 
 func TestCustomerDebtPaymentCanTargetOneSaleSQLite(t *testing.T) {
@@ -500,7 +528,7 @@ func TestCustomerDebtPaymentCanTargetOneSaleSQLite(t *testing.T) {
 	}
 }
 
-func TestDeleteCustomerArchivesAndPreservesFinancialRowsSQLite(t *testing.T) {
+func TestDeleteCustomerReversesAndHardDeletesFinancialCascadeSQLite(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/delete-customer-cascade.db")
 	database, err := localdb.Open()
 	if err != nil {
@@ -542,12 +570,12 @@ func TestDeleteCustomerArchivesAndPreservesFinancialRowsSQLite(t *testing.T) {
 		t.Fatalf("delete customer: %v", err)
 	}
 
-	var isActive bool
-	if err := db.Get(&isActive, `SELECT is_active FROM customers WHERE id = ?`, customerID); err != nil {
+	var customerCount int
+	if err := db.Get(&customerCount, `SELECT COUNT(*) FROM customers WHERE id = ?`, customerID); err != nil {
 		t.Fatal(err)
 	}
-	if isActive {
-		t.Fatal("customer remains active after archive")
+	if customerCount != 0 {
+		t.Fatalf("customer count after hard delete = %d, want 0", customerCount)
 	}
 
 	for _, query := range []string{
@@ -561,13 +589,13 @@ func TestDeleteCustomerArchivesAndPreservesFinancialRowsSQLite(t *testing.T) {
 		if err := db.Get(&count, query, customerID); err != nil {
 			t.Fatal(err)
 		}
-		if count != 1 {
-			t.Fatalf("query %s has %d rows after archive, want 1", query, count)
+		if count != 0 {
+			t.Fatalf("query %s has %d rows after cascade delete, want 0", query, count)
 		}
 	}
 }
 
-func TestDeleteCustomerPreservesSupplierReturnReferencesSQLite(t *testing.T) {
+func TestDeleteCustomerReversesSupplierReturnReferencesSQLite(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/delete-customer-supplier-returns.db")
 	database, err := localdb.Open()
 	if err != nil {
@@ -612,15 +640,68 @@ func TestDeleteCustomerPreservesSupplierReturnReferencesSQLite(t *testing.T) {
 	if err := db.Get(&returnCount, `SELECT COUNT(*) FROM returns WHERE id = ?`, returnID); err != nil {
 		t.Fatal(err)
 	}
-	if returnCount != 1 {
-		t.Fatalf("customer return count after archive = %d, want 1", returnCount)
+	if returnCount != 0 {
+		t.Fatalf("customer return count after cascade delete = %d, want 0", returnCount)
 	}
 	var supplierReturnCount int
 	if err := db.Get(&supplierReturnCount, `SELECT COUNT(*) FROM supplier_returns WHERE customer_return_id = ?`, returnID); err != nil {
 		t.Fatal(err)
 	}
-	if supplierReturnCount != 1 {
-		t.Fatalf("supplier return count after archive = %d, want 1", supplierReturnCount)
+	if supplierReturnCount != 0 {
+		t.Fatalf("supplier return count after cascade delete = %d, want 0", supplierReturnCount)
+	}
+}
+
+func TestDeleteCustomerReversesAcquisitionStockAndHardDeletesSQLite(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/delete-customer-acquisition.sqlite")
+	database, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.DB.Close()
+	db := sqlx.NewDb(database.DB, "sqlite")
+	ctx := context.Background()
+	customerID, productID, acquisitionID, acquisitionItemID, inventoryItemID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := db.Exec(`INSERT INTO customers (id,code,name,credit_limit,current_balance,created_at,updated_at) VALUES (?,?,?,0,0,?,?)`, customerID, "C-ACQ-DELETE", "Acquisition seller", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO products (id,sku,name,cost_price,selling_price,is_active,created_at,updated_at) VALUES (?,?,?,5,10,1,?,?)`, productID, "P-ACQ-DELETE", "Acquired product", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory (id,product_id,quantity,created_at,updated_at) VALUES (?,?,1,?,?)`, uuid.New(), productID, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_items (id,product_id,item_code,status,purchase_cost,selling_price,created_at,updated_at) VALUES (?,?,?,'AVAILABLE',5,10,?,?)`, inventoryItemID, productID, "ACQ-CUSTOMER-001", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO acquisitions (id,type,acquisition_date,customer_id,total_cost,paid_amount,payment_status,status,created_at,updated_at) VALUES (?,'CUSTOMER',?,?,5,0,'payable','acquired',?,?)`, acquisitionID, now, customerID, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO acquisition_items (id,acquisition_id,product_id,inventory_item_id,unit_cost,total_cost,item_status,created_at,updated_at) VALUES (?,?,?,?,5,5,'available',?,?)`, acquisitionItemID, acquisitionID, productID, inventoryItemID, now, now); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(NewRepository(db))
+	if err := service.DeleteCustomer(ctx, customerID); err != nil {
+		t.Fatalf("delete customer with acquisition history: %v", err)
+	}
+	var customerCount, acquisitionCount, inventoryItemCount, stock int
+	for _, check := range []struct {
+		query string
+		args  []any
+		into  *int
+	}{
+		{`SELECT COUNT(*) FROM customers WHERE id=?`, []any{customerID}, &customerCount},
+		{`SELECT COUNT(*) FROM acquisitions WHERE id=?`, []any{acquisitionID}, &acquisitionCount},
+		{`SELECT COUNT(*) FROM inventory_items WHERE id=?`, []any{inventoryItemID}, &inventoryItemCount},
+		{`SELECT quantity FROM inventory WHERE product_id=?`, []any{productID}, &stock},
+	} {
+		if err := db.Get(check.into, check.query, check.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if customerCount != 0 || acquisitionCount != 0 || inventoryItemCount != 0 || stock != 0 {
+		t.Fatalf("customer acquisition delete left customer/acquisition/item/stock=%d/%d/%d/%d; want all zero", customerCount, acquisitionCount, inventoryItemCount, stock)
 	}
 }
 

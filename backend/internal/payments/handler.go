@@ -151,12 +151,22 @@ func (h *Handler) DeletePayment(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeletePayment(c.Request.Context(), id); err != nil {
+	userValue, exists := c.Get("user_id")
+	if !exists {
+		response.Unauthorized(c, "user not authenticated")
+		return
+	}
+	userID, ok := userValue.(uuid.UUID)
+	if !ok {
+		response.Unauthorized(c, "user not authenticated")
+		return
+	}
+	if err := h.service.DeletePayment(c.Request.Context(), id, userID); err != nil {
 		switch err {
 		case ErrPaymentNotFound:
 			response.NotFound(c, "payment not found")
-		case ErrPaymentCannotBeCancelled:
-			response.BadRequest(c, "payment cannot be cancelled")
+		case ErrPaymentCannotBeCancelled, ErrPaymentAllocationHistoryMissing, ErrPaymentAllocationTrackingUnavailable, ErrPaymentHistoryInconsistent, ErrPaymentRequiresProviderRefund:
+			response.Conflict(c, err.Error())
 		default:
 			response.InternalError(c, err.Error())
 		}

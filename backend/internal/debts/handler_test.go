@@ -1,16 +1,20 @@
 package debts
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/partflow/smart-store/internal/localdb"
 	_ "modernc.org/sqlite"
 )
 
@@ -182,15 +186,23 @@ func TestAddDebtPaymentSynchronizesBalanceAndRejectsOverpaymentSQLite(t *testing
 	db.SetMaxOpenConns(1)
 	xdb := sqlx.NewDb(db, "sqlite")
 	for _, statement := range []string{
+		`CREATE TABLE customers (id TEXT PRIMARY KEY, current_balance REAL NOT NULL DEFAULT 0, updated_at TEXT)`,
 		`CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, amount REAL NOT NULL, paid_amount REAL NOT NULL DEFAULT 0, remaining_amount REAL NOT NULL, status TEXT NOT NULL, updated_at TEXT)`,
 		`CREATE TABLE payments (id TEXT PRIMARY KEY, transaction_number TEXT NOT NULL, customer_id TEXT, amount REAL NOT NULL, payment_method TEXT, reference TEXT, notes TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE payment_allocation_batches (payment_id TEXT PRIMARY KEY, owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, sale_id TEXT, tracked_at TEXT NOT NULL)`,
+		`CREATE TABLE payment_debt_allocations (id TEXT PRIMARY KEY, payment_id TEXT NOT NULL, debt_id TEXT NOT NULL, amount REAL NOT NULL, created_at TEXT NOT NULL)`,
+		`CREATE TABLE customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, debt_id TEXT, type TEXT, transaction_type TEXT, amount REAL NOT NULL, balance REAL NOT NULL, description TEXT, reference_id TEXT, created_at TEXT NOT NULL)`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatal(err)
 		}
 	}
 	debtID := uuid.New()
-	if _, err := db.Exec(`INSERT INTO debts (id, customer_id, amount, paid_amount, remaining_amount, status) VALUES (?, ?, 100, 0, 100, 'pending')`, debtID, uuid.New()); err != nil {
+	customerID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO customers (id,current_balance) VALUES (?,100)`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO debts (id, customer_id, amount, paid_amount, remaining_amount, status) VALUES (?, ?, 100, 0, 100, 'pending')`, debtID, customerID); err != nil {
 		t.Fatal(err)
 	}
 	router := gin.New()
@@ -300,5 +312,255 @@ func TestUpdateDebtOnlyChangesMetadataAndRejectsFinancialFieldsSQLite(t *testing
 		return response.Code
 	}(); status != http.StatusNotFound {
 		t.Fatalf("missing debt update status = %d, want 404", status)
+	}
+}
+
+func TestManualDebtCreateAndDeleteReconcileCustomerLedgerSQLite(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	xdb := sqlx.NewDb(db, "sqlite")
+	for _, statement := range []string{
+		`CREATE TABLE customers (id TEXT PRIMARY KEY, current_balance REAL NOT NULL DEFAULT 0, updated_at TEXT)`,
+		`CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, sale_id TEXT, amount REAL NOT NULL, paid_amount REAL NOT NULL DEFAULT 0, remaining_amount REAL NOT NULL, due_date TEXT, status TEXT, notes TEXT, created_at TEXT, updated_at TEXT)`,
+		`CREATE TABLE customer_debts (id TEXT PRIMARY KEY, customer_id TEXT, amount REAL, reference_id TEXT, reference_type TEXT, due_date TEXT, is_paid INTEGER, paid_amount REAL, created_at TEXT)`,
+		`CREATE TABLE customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT, debt_id TEXT, type TEXT, amount REAL, balance REAL, description TEXT, reference_id TEXT, created_at TEXT)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	customerID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO customers (id, current_balance) VALUES (?, 0)`, customerID); err != nil {
+		t.Fatal(err)
+	}
+
+	router := gin.New()
+	handler := NewHandler(xdb)
+	router.POST("/debts", handler.CreateDebt)
+	router.DELETE("/debts/:id", handler.DeleteDebt)
+	created := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/debts", strings.NewReader(`{"customer_id":"`+customerID+`","amount":125.5,"due_date":"2026-10-26","notes":"manual test debt"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(created, request)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", created.Code, created.Body.String())
+	}
+	var createPayload struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &createPayload); err != nil {
+		t.Fatal(err)
+	}
+	debtID := createPayload.Data.ID
+	if debtID == "" {
+		t.Fatalf("create response omitted debt id: %s", created.Body.String())
+	}
+	var balance, ledgerBalance float64
+	if err := db.QueryRow(`SELECT current_balance FROM customers WHERE id = ?`, customerID).Scan(&balance); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT balance FROM customer_ledger WHERE reference_id = ?`, debtID).Scan(&ledgerBalance); err != nil {
+		t.Fatal(err)
+	}
+	if balance != 125.5 || ledgerBalance != 125.5 {
+		t.Fatalf("created customer balance %.2f, ledger balance %.2f; want 125.50 each", balance, ledgerBalance)
+	}
+
+	deleted := httptest.NewRecorder()
+	router.ServeHTTP(deleted, httptest.NewRequest(http.MethodDelete, "/debts/"+debtID, nil))
+	if deleted.Code != http.StatusOK {
+		t.Fatalf("delete status = %d, body = %s", deleted.Code, deleted.Body.String())
+	}
+	var debtCount, historyCount, ledgerCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM debts WHERE id = ?`, debtID).Scan(&debtCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customer_debts WHERE id = ?`, debtID).Scan(&historyCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customer_ledger WHERE reference_id = ?`, debtID).Scan(&ledgerCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT current_balance FROM customers WHERE id = ?`, customerID).Scan(&balance); err != nil {
+		t.Fatal(err)
+	}
+	if debtCount != 0 || historyCount != 0 || ledgerCount != 0 || balance != 0 {
+		t.Fatalf("after delete debt/history/ledger=%d/%d/%d balance=%.2f; want 0/0/0/0", debtCount, historyCount, ledgerCount, balance)
+	}
+}
+
+func TestDeleteInvoiceDebtReversesAndHardDeletesSaleSQLite(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "invoice-debt-delete.sqlite"))
+	local, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.DB.Close()
+	db := sqlx.NewDb(local.DB, "sqlite")
+	customerID, saleID, debtID := uuid.New(), uuid.New(), uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO customers (id,code,name,current_balance,created_at,updated_at) VALUES (?,?,?,50,?,?)`, []any{customerID, "DEBT-CASCADE-CUSTOMER", "Debt cascade customer", now, now}},
+		{`INSERT INTO sales (id,sale_number,customer_id,total_amount,paid_amount,remaining_amount,payment_method,status,created_at,updated_at) VALUES (?,?,?,?,0,50,'credit','completed',?,?)`, []any{saleID, "DEBT-CASCADE-SALE", customerID, 50, now, now}},
+		{`INSERT INTO debts (id,customer_id,sale_id,amount,paid_amount,remaining_amount,due_date,status,notes,created_at,updated_at) VALUES (?,?,?,50,0,50,?,'pending','invoice debt',?,?)`, []any{debtID, customerID, saleID, now, now, now}},
+		{`INSERT INTO customer_ledger (id,customer_id,debt_id,type,amount,balance,description,reference_id,created_at) VALUES (?,?,?,'debit',50,50,'sale debt',?,?)`, []any{uuid.New(), customerID, debtID, saleID, now}},
+	} {
+		if _, err := db.ExecContext(context.Background(), statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	router := gin.New()
+	router.DELETE("/debts/:id", NewHandler(db).DeleteDebt)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodDelete, "/debts/"+debtID.String(), nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("delete invoice debt status = %d, body=%s", response.Code, response.Body.String())
+	}
+	var saleCount, debtCount, ledgerCount int
+	if err := db.Get(&saleCount, `SELECT COUNT(*) FROM sales WHERE id=?`, saleID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&debtCount, `SELECT COUNT(*) FROM debts WHERE id=?`, debtID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&ledgerCount, `SELECT COUNT(*) FROM customer_ledger WHERE customer_id=?`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	var balance float64
+	if err := db.Get(&balance, `SELECT current_balance FROM customers WHERE id=?`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if saleCount != 0 || debtCount != 0 || ledgerCount != 0 || balance != 0 {
+		t.Fatalf("invoice debt cascade left sale/debt/ledger/balance=%d/%d/%d/%.2f; want all zero", saleCount, debtCount, ledgerCount, balance)
+	}
+}
+
+func TestDeletePartiallyPaidManualDebtReversesPaymentLedgerAndBalanceSQLite(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "paid-manual-debt-delete.sqlite"))
+	local, err := localdb.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer local.DB.Close()
+	db := sqlx.NewDb(local.DB, "sqlite")
+	customerID := uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := db.Exec(`INSERT INTO customers (id,code,name,current_balance,created_at,updated_at) VALUES (?,?,?,0,?,?)`, customerID, "DEBT-PAY-CUSTOMER", "Debt payment customer", now, now); err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	handler := NewHandler(db)
+	router.POST("/debts", handler.CreateDebt)
+	router.POST("/debts/:id/payment", handler.AddPayment)
+	router.DELETE("/debts/:id", handler.DeleteDebt)
+	created := httptest.NewRecorder()
+	router.ServeHTTP(created, httptest.NewRequest(http.MethodPost, "/debts", strings.NewReader(`{"customer_id":"`+customerID.String()+`","amount":100,"due_date":"2026-10-26","notes":"manual debt"}`)))
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create debt status=%d body=%s", created.Code, created.Body.String())
+	}
+	var payload struct {
+		Data struct {
+			ID uuid.UUID `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(created.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Data.ID == uuid.Nil {
+		t.Fatalf("create debt returned no id: %s", created.Body.String())
+	}
+	paid := httptest.NewRecorder()
+	router.ServeHTTP(paid, httptest.NewRequest(http.MethodPost, "/debts/"+payload.Data.ID.String()+"/payment", strings.NewReader(`{"amount":25,"notes":"partial payment"}`)))
+	if paid.Code != http.StatusOK {
+		t.Fatalf("add partial payment status=%d body=%s", paid.Code, paid.Body.String())
+	}
+	deleted := httptest.NewRecorder()
+	router.ServeHTTP(deleted, httptest.NewRequest(http.MethodDelete, "/debts/"+payload.Data.ID.String(), nil))
+	if deleted.Code != http.StatusOK {
+		t.Fatalf("delete paid debt status=%d body=%s", deleted.Code, deleted.Body.String())
+	}
+	var debtCount, paymentCount, allocationCount, ledgerCount int
+	for _, check := range []struct {
+		query string
+		args  []any
+		into  *int
+	}{
+		{`SELECT COUNT(*) FROM debts WHERE id=?`, []any{payload.Data.ID}, &debtCount},
+		{`SELECT COUNT(*) FROM payments WHERE customer_id=?`, []any{customerID}, &paymentCount},
+		{`SELECT COUNT(*) FROM payment_debt_allocations WHERE debt_id=?`, []any{payload.Data.ID}, &allocationCount},
+		{`SELECT COUNT(*) FROM customer_ledger WHERE customer_id=?`, []any{customerID}, &ledgerCount},
+	} {
+		if err := db.Get(check.into, check.query, check.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var balance float64
+	if err := db.Get(&balance, `SELECT current_balance FROM customers WHERE id=?`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if debtCount != 0 || paymentCount != 0 || allocationCount != 0 || ledgerCount != 0 || balance != 0 {
+		t.Fatalf("after cascade debt/payment/allocation/ledger=%d/%d/%d/%d balance=%.2f; want all zero", debtCount, paymentCount, allocationCount, ledgerCount, balance)
+	}
+}
+
+func TestDeleteDebtUsesDebtLinkAndKeepsProductReferenceSQLite(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	for _, statement := range []string{
+		`CREATE TABLE customers (id TEXT PRIMARY KEY, current_balance REAL NOT NULL DEFAULT 0, updated_at TEXT)`,
+		`CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, sale_id TEXT, amount REAL NOT NULL, paid_amount REAL NOT NULL DEFAULT 0, remaining_amount REAL NOT NULL, due_date TEXT, status TEXT, notes TEXT, created_at TEXT, updated_at TEXT)`,
+		`CREATE TABLE customer_debts (id TEXT PRIMARY KEY, customer_id TEXT, amount REAL, reference_id TEXT, reference_type TEXT, due_date TEXT, is_paid INTEGER, paid_amount REAL, created_at TEXT)`,
+		`CREATE TABLE customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT, debt_id TEXT, type TEXT, amount REAL, balance REAL, description TEXT, reference_id TEXT, created_at TEXT)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	customerID, debtID, productID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO customers (id, current_balance) VALUES (?, 42)`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO debts (id, customer_id, amount, paid_amount, remaining_amount, status, notes) VALUES (?, ?, 42, 0, 42, 'pending', 'MANUAL_ADJUSTMENT')`, debtID, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO customer_debts (id, customer_id, amount, reference_type, is_paid, paid_amount) VALUES (?, ?, 42, 'MANUAL_ADJUSTMENT', 0, 0)`, debtID, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO customer_ledger (id, customer_id, debt_id, type, amount, balance, description, reference_id, created_at) VALUES (?, ?, ?, 'debit', 42, 42, 'manual debt with product', ?, CURRENT_TIMESTAMP)`, uuid.NewString(), customerID, debtID, productID); err != nil {
+		t.Fatal(err)
+	}
+	router := gin.New()
+	router.DELETE("/debts/:id", NewHandler(sqlx.NewDb(db, "sqlite")).DeleteDebt)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodDelete, "/debts/"+debtID, nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("delete linked debt status = %d, body=%s", response.Code, response.Body.String())
+	}
+	var customerBalance float64
+	var ledgerCount, debtCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM customer_ledger WHERE reference_id = ? OR debt_id = ?`, productID, debtID).Scan(&ledgerCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT current_balance FROM customers WHERE id = ?`, customerID).Scan(&customerBalance); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM debts WHERE id = ?`, debtID).Scan(&debtCount); err != nil {
+		t.Fatal(err)
+	}
+	if ledgerCount != 0 || debtCount != 0 || customerBalance != 0 {
+		t.Fatalf("debt/ledger rows=%d/%d balance=%.2f; want 0/0/0", debtCount, ledgerCount, customerBalance)
 	}
 }

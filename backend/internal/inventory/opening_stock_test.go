@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -99,7 +98,7 @@ func TestHandleError_RecognizesWrappedDuplicateBarcode(t *testing.T) {
 	}
 }
 
-func TestDeleteInventoryItemPermanentBlocksAcquiredItemWithoutChangingHistory(t *testing.T) {
+func TestDeleteInventoryItemReversesAcquisitionAndHardDeletesItemSQLite(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/permanent-delete-linked-item.db")
 	local, err := localdb.Open()
 	if err != nil {
@@ -114,28 +113,27 @@ func TestDeleteInventoryItemPermanentBlocksAcquiredItemWithoutChangingHistory(t 
 	if _, err := db.Exec(`INSERT INTO products (id, sku, name, cost_price, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, productID, "PERM-DEL-001", "Permanent Delete Product", 30, 80); err != nil {
 		t.Fatal(err)
 	}
-	// Sold items are already excluded from the aggregate available quantity.
-	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))`, uuid.New(), productID, 0); err != nil {
+	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))`, uuid.New(), productID, 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, item_code, barcode, condition, status, purchase_cost, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, itemID, productID, "IT-DEL-001", "BAR-DEL-001", "USED", "SOLD", 30, 80); err != nil {
+	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, item_code, barcode, condition, status, purchase_cost, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, itemID, productID, "IT-DEL-001", "BAR-DEL-001", "USED", "AVAILABLE", 30, 80); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO acquisition_items (id, acquisition_id, product_id, inventory_item_id, item_code, condition, grade, unit_cost, total_cost, item_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, uuid.New(), uuid.New(), productID, itemID, "IT-DEL-001", "USED", "GOOD", 30, 30, "sold"); err != nil {
+	if _, err := db.Exec(`INSERT INTO acquisition_items (id, acquisition_id, product_id, inventory_item_id, item_code, condition, grade, unit_cost, total_cost, item_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, uuid.New(), uuid.New(), productID, itemID, "IT-DEL-001", "USED", "GOOD", 30, 30, "available"); err != nil {
 		t.Fatal(err)
 	}
 
 	service := NewService(NewRepository(db), db)
-	if err := service.DeleteInventoryItem(context.Background(), itemID, userID); !errors.Is(err, ErrCannotDeleteItemWithHistory) {
-		t.Fatalf("DeleteInventoryItem error = %v, want protected-history error", err)
+	if err := service.DeleteInventoryItem(context.Background(), itemID, userID); err != nil {
+		t.Fatalf("DeleteInventoryItem error = %v, want acquisition reversal and hard delete", err)
 	}
 
 	var itemCount int
 	if err := db.Get(&itemCount, `SELECT COUNT(*) FROM inventory_items WHERE id = ?`, itemID); err != nil {
 		t.Fatal(err)
 	}
-	if itemCount != 1 {
-		t.Fatalf("inventory item count after blocked delete = %d, want 1", itemCount)
+	if itemCount != 0 {
+		t.Fatalf("inventory item count after cascade delete = %d, want 0", itemCount)
 	}
 
 	var qty int
@@ -143,19 +141,19 @@ func TestDeleteInventoryItemPermanentBlocksAcquiredItemWithoutChangingHistory(t 
 		t.Fatal(err)
 	}
 	if qty != 0 {
-		t.Fatalf("inventory quantity still present after permanent delete: qty=%d", qty)
+		t.Fatalf("inventory quantity after acquisition reversal = %d, want 0", qty)
 	}
 
 	var acquisitionCount int
 	if err := db.Get(&acquisitionCount, `SELECT COUNT(*) FROM acquisition_items WHERE inventory_item_id = ?`, itemID); err != nil {
 		t.Fatal(err)
 	}
-	if acquisitionCount != 1 {
-		t.Fatalf("acquisition link count after blocked delete = %d, want 1", acquisitionCount)
+	if acquisitionCount != 0 {
+		t.Fatalf("acquisition link count after cascade delete = %d, want 0", acquisitionCount)
 	}
 }
 
-func TestDeleteInventoryItemPermanentBlocksSaleAndAcquisitionLinksAtomically(t *testing.T) {
+func TestDeleteInventoryItemReversesSaleAndAcquisitionCascadeAtomically(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", t.TempDir()+"/permanent-delete-all-links.db")
 	local, err := localdb.Open()
 	if err != nil {
@@ -170,10 +168,10 @@ func TestDeleteInventoryItemPermanentBlocksSaleAndAcquisitionLinksAtomically(t *
 	if _, err := db.Exec(`INSERT INTO products (id, sku, name, cost_price, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, productID, "PERM-DEL-ALL", "Permanent Delete All Links", 20, 60); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))`, uuid.New(), productID, 1); err != nil {
+	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity, created_at, updated_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))`, uuid.New(), productID, 0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, item_code, barcode, condition, status, purchase_cost, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, itemID, productID, "IT-DEL-ALL", "BAR-DEL-ALL", "USED", "AVAILABLE", 20, 60); err != nil {
+	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, item_code, barcode, condition, status, purchase_cost, selling_price, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`, itemID, productID, "IT-DEL-ALL", "BAR-DEL-ALL", "USED", "SOLD", 20, 60); err != nil {
 		t.Fatal(err)
 	}
 
@@ -204,6 +202,9 @@ func TestDeleteInventoryItemPermanentBlocksSaleAndAcquisitionLinksAtomically(t *
 	}
 	if _, err := db.Exec(`INSERT INTO acquisitions (id, type, acquisition_date, total_cost, status, created_at, updated_at) VALUES (?, ?, datetime('now'), ?, ?, datetime('now'), datetime('now'))`, acquisitionID, "purchase", 0, "draft"); err != nil {
 		t.Fatalf("create acquisition parent row: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_movements (id,product_id,item_id,movement_type,quantity,before_quantity,after_quantity,reference_type,reference_id,reason,created_at) VALUES (?,?,?,'SALE',-1,1,0,'sale',?,'test sale',datetime('now'))`, uuid.New(), productID, itemID, saleID); err != nil {
+		t.Fatalf("create sale stock movement: %v", err)
 	}
 
 	linkRows := []struct {
@@ -246,8 +247,8 @@ func TestDeleteInventoryItemPermanentBlocksSaleAndAcquisitionLinksAtomically(t *
 	}
 
 	service := NewService(NewRepository(db), db)
-	if err := service.DeleteInventoryItem(context.Background(), itemID, userID); !errors.Is(err, ErrCannotDeleteItemWithHistory) {
-		t.Fatalf("DeleteInventoryItem error = %v, want protected-history error", err)
+	if err := service.DeleteInventoryItem(context.Background(), itemID, userID); err != nil {
+		t.Fatalf("DeleteInventoryItem error = %v, want cascade reversal", err)
 	}
 
 	for _, row := range linkRows {
@@ -256,8 +257,8 @@ func TestDeleteInventoryItemPermanentBlocksSaleAndAcquisitionLinksAtomically(t *
 		if err := db.Get(&count, query, itemID); err != nil {
 			t.Fatalf("count linked rows in %s: %v", row.tableName, err)
 		}
-		if count != 1 {
-			t.Fatalf("linked rows in %s changed after blocked delete: count=%d, want 1", row.tableName, count)
+		if count != 0 {
+			t.Fatalf("linked rows in %s remain after cascade delete: count=%d, want 0", row.tableName, count)
 		}
 	}
 }

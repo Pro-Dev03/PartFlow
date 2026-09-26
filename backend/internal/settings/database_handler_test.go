@@ -1,23 +1,28 @@
 package settings
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
 
-func TestResolveResetTarget(t *testing.T) {
-	t.Run("uses current mode when target is empty", func(t *testing.T) {
-		if got, want := resolveResetTarget("", "offline"), "offline"; got != want {
-			t.Fatalf("resolveResetTarget() = %q, want %q", got, want)
-		}
-		if got, want := resolveResetTarget("", "online"), "online"; got != want {
-			t.Fatalf("resolveResetTarget() = %q, want %q", got, want)
-		}
-	})
+	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
+	_ "modernc.org/sqlite"
+)
 
-	t.Run("accepts explicit target override", func(t *testing.T) {
-		if got, want := resolveResetTarget("online", "offline"), "online"; got != want {
-			t.Fatalf("resolveResetTarget() = %q, want %q", got, want)
-		}
-		if got, want := resolveResetTarget("offline", "online"), "offline"; got != want {
-			t.Fatalf("resolveResetTarget() = %q, want %q", got, want)
-		}
-	})
+func TestSQLiteResetRejectsCloudTarget(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodDelete, "/settings/database?target=online&confirmation_token=DELETE%20ALL%20DATA", nil)
+	NewDatabaseHandler(db).DeleteAllData(ctx)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("SQLite reset with online target status=%d body=%s; want 400", recorder.Code, recorder.Body.String())
+	}
 }

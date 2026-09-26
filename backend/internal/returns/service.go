@@ -17,12 +17,20 @@ import (
 
 // Service handles return business logic
 type Service struct {
-	repo            *Repository
-	refundProcessor ElectronicRefundProcessor
+	repo                 *Repository
+	refundProcessor      ElectronicRefundProcessor
+	dependentSaleDeleter DependentSaleDeleteCoordinator
 }
 
 type ElectronicRefundProcessor interface {
 	RefundForReturn(ctx context.Context, saleID, returnID uuid.UUID, amountMinor int64, createdBy *uuid.UUID) (paymenttransactions.ReturnRefundResult, error)
+}
+
+// DependentSaleDeleteCoordinator reverses later sales that consumed inventory
+// restored by a return, without introducing a package cycle.
+type DependentSaleDeleteCoordinator interface {
+	PrepareDelete(ctx context.Context, saleID, userID uuid.UUID) error
+	DeleteInTransaction(ctx context.Context, tx *sqlx.Tx, saleID, userID uuid.UUID) error
 }
 
 // NewService creates a new return service
@@ -32,6 +40,10 @@ func NewService(repo *Repository) *Service {
 
 func (s *Service) SetElectronicRefundProcessor(processor ElectronicRefundProcessor) {
 	s.refundProcessor = processor
+}
+
+func (s *Service) SetDependentSaleDeleteCoordinator(coordinator DependentSaleDeleteCoordinator) {
+	s.dependentSaleDeleter = coordinator
 }
 
 func (s *Service) loadRefundState(ctx context.Context, returnRecord *Return) error {
@@ -373,11 +385,118 @@ func (s *Service) UpdateReturn(ctx context.Context, id uuid.UUID, req *ReturnUpd
 
 // DeleteReturn deletes a return
 func (s *Service) DeleteReturn(ctx context.Context, id uuid.UUID) error {
-	if err := s.repo.DeleteReturn(ctx, id); err != nil {
+	dependentSales, err := s.planDependentSalesForReturn(ctx, id)
+	if err != nil {
+		return fmt.Errorf("plan return inventory reversal: %w", err)
+	}
+	if len(dependentSales) > 0 && s.dependentSaleDeleter == nil {
+		return ErrReturnHasDependentSale
+	}
+	for _, saleID := range dependentSales {
+		if err := s.dependentSaleDeleter.PrepareDelete(ctx, saleID, uuid.Nil); err != nil {
+			return fmt.Errorf("prepare dependent sale %s for return deletion: %w", saleID, err)
+		}
+	}
+	tx, err := s.repo.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin return cascade deletion: %w", err)
+	}
+	defer tx.Rollback()
+	for _, saleID := range dependentSales {
+		if err := s.dependentSaleDeleter.DeleteInTransaction(ctx, tx, saleID, uuid.Nil); err != nil {
+			return fmt.Errorf("reverse sale %s before deleting return: %w", saleID, err)
+		}
+	}
+	if err := s.repo.DeleteReturnTx(ctx, tx, id); err != nil {
 		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit return cascade deletion: %w", err)
 	}
 	dashboard.InvalidateDashboardCacheWithReason("return_deleted")
 	return nil
+}
+
+// planDependentSalesForReturn returns dependent sale IDs in deletion order:
+// downstream sales first, then parent sales whose own returns feed them.
+func (s *Service) planDependentSalesForReturn(ctx context.Context, returnID uuid.UUID) ([]uuid.UUID, error) {
+	roots, err := s.dependentSalesForReturn(ctx, returnID)
+	if err != nil {
+		return nil, err
+	}
+	visited := make(map[uuid.UUID]bool)
+	visiting := make(map[uuid.UUID]bool)
+	ordered := make([]uuid.UUID, 0, len(roots))
+	var visitSale func(uuid.UUID) error
+	visitSale = func(saleID uuid.UUID) error {
+		if visited[saleID] {
+			return nil
+		}
+		if visiting[saleID] {
+			return fmt.Errorf("cyclic return/sale inventory dependency at sale %s", saleID)
+		}
+		visiting[saleID] = true
+		var linkedReturns []string
+		if err := s.repo.db.SelectContext(ctx, &linkedReturns, s.repo.db.Rebind(`SELECT id FROM returns WHERE sale_id=? ORDER BY id`), saleID.String()); err != nil {
+			return fmt.Errorf("load returns for dependent sale %s: %w", saleID, err)
+		}
+		for _, rawReturnID := range linkedReturns {
+			childReturnID, err := uuid.Parse(rawReturnID)
+			if err != nil {
+				return fmt.Errorf("parse linked return id %q: %w", rawReturnID, err)
+			}
+			children, err := s.dependentSalesForReturn(ctx, childReturnID)
+			if err != nil {
+				return err
+			}
+			for _, childSaleID := range children {
+				if err := visitSale(childSaleID); err != nil {
+					return err
+				}
+			}
+		}
+		delete(visiting, saleID)
+		visited[saleID] = true
+		ordered = append(ordered, saleID)
+		return nil
+	}
+	for _, saleID := range roots {
+		if err := visitSale(saleID); err != nil {
+			return nil, err
+		}
+	}
+	return ordered, nil
+}
+
+func (s *Service) dependentSalesForReturn(ctx context.Context, returnID uuid.UUID) ([]uuid.UUID, error) {
+	var hasInventoryLink bool
+	if dbutil.IsSQLite(s.repo.db) {
+		if err := s.repo.db.GetContext(ctx, &hasInventoryLink, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('return_items') WHERE name='inventory_item_id')`); err != nil {
+			return nil, fmt.Errorf("inspect return inventory link: %w", err)
+		}
+	} else if err := s.repo.db.GetContext(ctx, &hasInventoryLink, `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='return_items' AND column_name='inventory_item_id')`); err != nil {
+		return nil, fmt.Errorf("inspect return inventory link: %w", err)
+	}
+	if !hasInventoryLink {
+		return nil, nil
+	}
+	query := `SELECT DISTINCT CAST(m.reference_id AS TEXT) FROM inventory_movements m JOIN return_items ri ON ri.inventory_item_id=m.item_id JOIN returns r ON r.id=ri.return_id WHERE ri.return_id=? AND UPPER(COALESCE(m.movement_type,''))='SALE' AND LOWER(COALESCE(m.reference_type,''))='sale' AND CAST(m.reference_id AS TEXT)<>CAST(r.sale_id AS TEXT) ORDER BY CAST(m.reference_id AS TEXT)`
+	var rawIDs []string
+	if err := s.repo.db.SelectContext(ctx, &rawIDs, s.repo.db.Rebind(query), returnID.String()); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "no such table") || strings.Contains(strings.ToLower(err.Error()), "does not exist") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load later sales using returned items: %w", err)
+	}
+	ids := make([]uuid.UUID, 0, len(rawIDs))
+	for _, rawID := range rawIDs {
+		id, err := uuid.Parse(rawID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid dependent sale id %q", rawID)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 // ApproveReturn approves a return
@@ -623,7 +742,10 @@ func (s *Service) DeleteReturnItem(ctx context.Context, itemID uuid.UUID) error 
 		return err
 	}
 	if strings.EqualFold(parentReturn.Status, "COMPLETED") {
-		return ErrReturnAlreadyCompleted
+		// A completed return's items share one posted refund and stock/ledger
+		// effect. Deleting one line therefore reverses and deletes the complete
+		// return document through the same atomic path.
+		return s.DeleteReturn(ctx, parentReturn.ID)
 	}
 	if !returnCanEditItems(parentReturn.Status) {
 		return ErrInvalidReturnStatus
@@ -645,7 +767,14 @@ func (s *Service) DeleteReturnItem(ctx context.Context, itemID uuid.UUID) error 
 		return fmt.Errorf("failed to count return items: %w", err)
 	}
 	if itemCount <= 1 {
-		return ErrNoItems
+		if err := s.repo.DeleteReturnTx(ctx, tx, parentReturn.ID); err != nil {
+			return fmt.Errorf("delete return after removing its final item: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit empty return deletion: %w", err)
+		}
+		dashboard.InvalidateDashboardCacheWithReason("return_item_deleted")
+		return nil
 	}
 	if err := s.repo.DeleteReturnItemTx(ctx, tx, itemID); err != nil {
 		return err

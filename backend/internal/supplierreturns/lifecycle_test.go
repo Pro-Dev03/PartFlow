@@ -164,11 +164,11 @@ func TestSupplierReturnCreditsLedgerAndRemovesInventorySQLite(t *testing.T) {
 	if err := db.Get(&inventoryAfterCleanup, `SELECT COALESCE(SUM(quantity), 0) FROM inventory WHERE product_id = ?`, productID); err != nil {
 		t.Fatal(err)
 	}
-	if deletedReturnCount != 0 || deletedItemCount != 0 || keptCreditCount != 1 || keptMovementCount != 1 || keptSnapshotCount != 1 || auditCount != 1 {
+	if deletedReturnCount != 0 || deletedItemCount != 0 || keptCreditCount != 0 || keptMovementCount != 0 || keptSnapshotCount != 0 || auditCount != 1 {
 		t.Fatalf("cleanup retained wrong operational/history rows: returns=%d items=%d credits=%d movements=%d snapshots=%d audit=%d", deletedReturnCount, deletedItemCount, keptCreditCount, keptMovementCount, keptSnapshotCount, auditCount)
 	}
-	if balanceAfterCleanup != 0 || inventoryAfterCleanup != 0 {
-		t.Fatalf("cleanup changed settled balances: supplier=%v inventory=%d, want 0/0", balanceAfterCleanup, inventoryAfterCleanup)
+	if balanceAfterCleanup != 100 || inventoryAfterCleanup != 1 {
+		t.Fatalf("cleanup did not reverse supplier return effects: supplier=%v inventory=%d, want 100/1", balanceAfterCleanup, inventoryAfterCleanup)
 	}
 }
 

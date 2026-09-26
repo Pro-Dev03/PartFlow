@@ -3,12 +3,15 @@ package sales
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	dbutil "github.com/partflow/smart-store/internal/database"
 )
+
+var ErrHeldSaleNotFound = errors.New("held sale not found")
 
 type HeldSale struct {
 	ID        uuid.UUID       `json:"id" db:"id"`
@@ -90,7 +93,7 @@ func (s *Service) DeleteHeldSale(ctx context.Context, userID, id uuid.UUID) erro
 		return fmt.Errorf("failed to verify held sale deletion: %w", err)
 	}
 	if count == 0 {
-		return fmt.Errorf("held sale not found")
+		return ErrHeldSaleNotFound
 	}
 	return nil
 }

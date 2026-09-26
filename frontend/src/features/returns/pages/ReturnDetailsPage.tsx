@@ -177,7 +177,7 @@ export function ReturnDetailsPage({ returnId, embedded = false }: ReturnDetailsP
       REFURBISHED: 'مجدّد',
       SUPPLIER_RETURN: 'إرجاع للمورد',
       WRITE_OFF: 'شطب',
-      PARTS: 'قطع غيار',
+      PARTS: 'غير صالح للبيع',
     };
     return labels[condition] || condition;
   };
@@ -201,7 +201,7 @@ export function ReturnDetailsPage({ returnId, embedded = false }: ReturnDetailsP
       REPAIR: 'إصلاح',
       SUPPLIER_RETURN: 'إرجاع للمورد',
       WRITE_OFF: 'شطب',
-      PARTS: 'قطع غيار',
+      PARTS: 'غير صالح للبيع',
       REPLACEMENT: 'استبدال',
     };
     return labels[resolution] || resolution;
@@ -379,7 +379,7 @@ export function ReturnDetailsPage({ returnId, embedded = false }: ReturnDetailsP
               <p className="font-semibold">{returnRecord.customer_name || '-'}</p>
             </div>
             <div className="space-y-2">
-              <p className="text-sm text-gray-400">اسم القطعة</p>
+              <p className="text-sm text-gray-400">اسم المنتج</p>
               <p className="font-semibold">{items.map((item) => item.product_name).filter(Boolean).join('، ') || '-'}</p>
             </div>
             <div className="space-y-2">
@@ -399,7 +399,7 @@ export function ReturnDetailsPage({ returnId, embedded = false }: ReturnDetailsP
               <p className="font-semibold">{getRefundMethodLabel(returnRecord.refund_method)}</p>
             </div>
             <div className="space-y-2">
-              <p className="text-sm text-gray-400">حالة القطعة</p>
+              <p className="text-sm text-gray-400">حالة المنتج</p>
               <p className="font-semibold">{getConditionLabel(returnRecord.item_condition_after_return)}</p>
             </div>
             <div className="space-y-2">

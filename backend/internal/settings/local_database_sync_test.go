@@ -116,3 +116,109 @@ func TestSyncCloudDataMergesCloudSnapshotIntoSQLite(t *testing.T) {
 		t.Fatalf("last cloud sync metadata missing: value=%q err=%v", lastSync, err)
 	}
 }
+
+func TestOwnerDatabaseSyncPushesNewerLocalRowsAndPullsCloudRows(t *testing.T) {
+	localPath := filepath.Join(t.TempDir(), "owner-sync.db")
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", localPath)
+	localDB, err := localdb.Open()
+	if err != nil {
+		t.Fatalf("open local database: %v", err)
+	}
+	localTime := "2026-09-27T10:00:00Z"
+	if _, err := localDB.DB.Exec(`
+		INSERT INTO customers (id, code, name, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, "local-customer", "C-LOCAL", "Local Customer", localTime, localTime); err != nil {
+		localDB.DB.Close()
+		t.Fatalf("insert local customer: %v", err)
+	}
+	if err := localDB.DB.Close(); err != nil {
+		t.Fatalf("close local database: %v", err)
+	}
+
+	localCustomer := map[string]any(nil)
+	initialDataRequests := 0
+	pushRequests := 0
+	cloudServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer cloud-token" {
+			http.Error(w, "missing cloud authorization", http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/sync/initial-data":
+			initialDataRequests++
+			customers := []map[string]any{{
+				"id": "cloud-customer", "code": "C-CLOUD", "name": "Cloud Customer",
+				"is_active": true, "created_at": "2026-09-27T09:00:00Z", "updated_at": "2026-09-27T09:00:00Z",
+			}}
+			if localCustomer != nil {
+				customers = append(customers, localCustomer)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": true,
+				"data":    map[string]any{"customers": customers},
+			})
+		case "/sync/push":
+			pushRequests++
+			var payload struct {
+				Operations []struct {
+					ID      string `json:"id"`
+					Payload string `json:"payload"`
+				} `json:"operations"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || len(payload.Operations) != 1 {
+				http.Error(w, "expected one local operation", http.StatusBadRequest)
+				return
+			}
+			if err := json.Unmarshal([]byte(payload.Operations[0].Payload), &localCustomer); err != nil {
+				http.Error(w, "invalid operation payload", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": true,
+				"data": map[string]any{
+					"accepted_ids": []string{payload.Operations[0].ID},
+					"processed":    1,
+					"failed":       0,
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer cloudServer.Close()
+	t.Setenv("PARTFLOW_CLOUD_API_URL", cloudServer.URL)
+
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/settings/database/sync", nil)
+	ctx.Request.Header.Set("Authorization", "Bearer local-token")
+	ctx.Request.Header.Set("X-PartFlow-Cloud-Token", "cloud-token")
+	NewLocalDatabaseHandler().SyncLocalDataToCloud(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("sync status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if pushRequests != 1 || initialDataRequests != 2 {
+		t.Fatalf("cloud requests: pushes=%d snapshots=%d; want one push and two snapshots", pushRequests, initialDataRequests)
+	}
+
+	resultDB, err := localdb.Open()
+	if err != nil {
+		t.Fatalf("reopen local database: %v", err)
+	}
+	defer resultDB.DB.Close()
+	var localCount, cloudCount int
+	if err := resultDB.DB.QueryRow(`SELECT COUNT(*) FROM customers WHERE id='local-customer'`).Scan(&localCount); err != nil {
+		t.Fatalf("read synchronized local customer: %v", err)
+	}
+	if err := resultDB.DB.QueryRow(`SELECT COUNT(*) FROM customers WHERE id='cloud-customer'`).Scan(&cloudCount); err != nil {
+		t.Fatalf("read synchronized cloud customer: %v", err)
+	}
+	if localCount != 1 || cloudCount != 1 {
+		t.Fatalf("synchronized customer counts local=%d cloud=%d; want both rows present", localCount, cloudCount)
+	}
+}

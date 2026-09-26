@@ -19,11 +19,15 @@ ALTER TABLE sales DROP COLUMN IF EXISTS warranty_period;
 ALTER TABLE sales DROP COLUMN IF EXISTS expires_at;
 
 -- Remove warranty-related permissions from permissions table
-DELETE FROM permissions WHERE resource = 'warranties';
+DO $$
+BEGIN
+    IF to_regclass('permissions') IS NOT NULL THEN
+        DELETE FROM permissions WHERE resource = 'warranties';
+    END IF;
+END $$;
 
 -- Remove warranty-related notification preferences columns
-ALTER TABLE notification_preferences DROP COLUMN IF EXISTS warranty_expiring;
+ALTER TABLE IF EXISTS notification_preferences DROP COLUMN IF EXISTS warranty_expiring;
 
 -- Update audit log to remove warranty entity types
-DELETE FROM audit_log WHERE entity_type = 'warranty';
-DELETE FROM audit_log WHERE entity_type = 'warranty_claim';
+DELETE FROM audit_logs WHERE entity_type IN ('warranty', 'warranty_claim');

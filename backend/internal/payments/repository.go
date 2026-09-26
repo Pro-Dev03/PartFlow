@@ -15,9 +15,53 @@ type Repository struct {
 	db *sqlx.DB
 }
 
+type providerPaymentLink struct {
+	ID          uuid.UUID `db:"id"`
+	Status      string    `db:"status"`
+	AmountMinor int64     `db:"amount_minor"`
+	Currency    string    `db:"currency"`
+}
+
 // NewRepository creates a new payment repository
 func NewRepository(db *sqlx.DB) *Repository {
 	return &Repository{db: db}
+}
+
+func (r *Repository) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
+	var exists bool
+	if err := r.db.GetContext(ctx, &exists, r.db.Rebind(`SELECT EXISTS (SELECT 1 FROM payments WHERE id = ?)`), id.String()); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func (r *Repository) linkedProviderPayments(ctx context.Context, paymentID uuid.UUID) ([]providerPaymentLink, error) {
+	var exists bool
+	if dbutil.IsSQLite(r.db) {
+		if err := r.db.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='payment_transactions')`); err != nil {
+			return nil, fmt.Errorf("check external payment table: %w", err)
+		}
+	} else if err := r.db.GetContext(ctx, &exists, `SELECT to_regclass('payment_transactions') IS NOT NULL`); err != nil {
+		return nil, fmt.Errorf("check external payment table: %w", err)
+	}
+	if !exists {
+		return nil, nil
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin external payment schema check: %w", err)
+	}
+	defer tx.Rollback()
+	if hasPaymentID, err := paymentColumnExistsTx(ctx, tx, r.db, "payment_transactions", "payment_id"); err != nil {
+		return nil, fmt.Errorf("inspect external payment link: %w", err)
+	} else if !hasPaymentID {
+		return nil, nil
+	}
+	var links []providerPaymentLink
+	if err := tx.SelectContext(ctx, &links, tx.Rebind(`SELECT id, LOWER(status) AS status, amount_minor, currency FROM payment_transactions WHERE payment_id = ? ORDER BY created_at, id`), paymentID.String()); err != nil {
+		return nil, fmt.Errorf("load external payment links: %w", err)
+	}
+	return links, nil
 }
 
 // parsePaymentMap converts a map result from SQLite into a Payment struct
@@ -397,32 +441,11 @@ func (r *Repository) Update(ctx context.Context, payment *Payment) error {
 	return nil
 }
 
-// Delete removes only an unprocessed payment. The status predicate is part of
-// the DELETE itself so a payment cannot become completed between the service
-// check and this write and then be deleted as if it were still pending.
+// Delete performs a smart, transactional deletion. Pending payments without
+// posted effects are removed directly; completed customer/supplier payments
+// first reverse their recorded debt, balance, sale and ledger effects.
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
-	query := `DELETE FROM payments WHERE id = $1 AND LOWER(COALESCE(status, 'completed')) = 'pending'`
-	if dbutil.IsSQLite(r.db) {
-		query = `DELETE FROM payments WHERE id = $1 AND LOWER(COALESCE(payment_status, 'completed')) = 'pending'`
-	}
-	result, err := r.db.ExecContext(ctx, query, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete payment: %w", err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		var exists bool
-		if err := r.db.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM payments WHERE id = $1)`, id); err != nil {
-			return fmt.Errorf("check payment after delete conflict: %w", err)
-		}
-		if !exists {
-			return ErrPaymentNotFound
-		}
-		return ErrPaymentCannotBeCancelled
-	}
-
-	return nil
+	return r.smartDelete(ctx, id)
 }
 
 // GetPaymentSummary retrieves payment summary statistics

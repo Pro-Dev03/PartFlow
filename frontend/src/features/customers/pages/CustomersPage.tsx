@@ -279,9 +279,9 @@ export function CustomersPage() {
           setCustomerToDelete(null);
         }}
         onConfirm={handleConfirmDelete}
-        title="أرشفة العميل"
-        message="سيتم إخفاء العميل من القوائم النشطة مع الاحتفاظ بجميع المبيعات والدفعات والديون والمرتجعات والسجلات المالية المرتبطة به."
-        confirmText="أرشفة العميل"
+        title="حذف العميل وسجلاته"
+        message="سيعكس PartFlow أثر مبيعات العميل ودفعاته وديونه ومرتجعاته وسجلاته المالية ثم يحذفها نهائيًا. إذا تعذر عكس سجل قديم بسبب نقص بياناته، سيظهر السبب ولن تُحذف البيانات."
+        confirmText="حذف العميل وسجلاته"
         cancelText="إلغاء"
         variant="danger"
         isLoading={deleteMutation.isPending}

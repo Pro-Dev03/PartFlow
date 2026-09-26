@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -19,37 +17,10 @@ import (
 type Handler struct {
 	service *Service
 	db      *sqlx.DB
-	cache   *inventoryCache
-}
-
-type inventoryCache struct {
-	data       interface{}
-	expiration time.Time
-	mu         sync.RWMutex
-}
-
-func newInventoryCache() *inventoryCache {
-	return &inventoryCache{}
-}
-
-func (c *inventoryCache) get() (interface{}, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if time.Now().Before(c.expiration) {
-		return c.data, true
-	}
-	return nil, false
-}
-
-func (c *inventoryCache) set(data interface{}, ttl time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.data = data
-	c.expiration = time.Now().Add(ttl)
 }
 
 func NewHandler(service *Service, db *sqlx.DB) *Handler {
-	return &Handler{service, db, newInventoryCache()}
+	return &Handler{service: service, db: db}
 }
 
 // RegisterRoutes registers inventory routes
@@ -257,14 +228,6 @@ func (h *Handler) ListInventoryItems(c *gin.Context) {
 	productID := c.Query("product_id")
 	partTypeID := c.Query("part_type_id")
 
-	// Try cache first for default first page request without filters
-	if page == 1 && perPage == 10 && status == "" && condition == "" && locationID == "" && productID == "" && partTypeID == "" {
-		if cached, found := h.cache.get(); found {
-			c.JSON(http.StatusOK, cached)
-			return
-		}
-	}
-
 	filters := make(map[string]interface{})
 	if status != "" {
 		filters["status"] = status
@@ -312,11 +275,6 @@ func (h *Handler) ListInventoryItems(c *gin.Context) {
 			"page":     page,
 			"per_page": perPage,
 		},
-	}
-
-	// Cache the response for default first page without filters
-	if page == 1 && perPage == 10 && status == "" && condition == "" && locationID == "" && productID == "" && partTypeID == "" {
-		h.cache.set(responseData, 2*time.Minute)
 	}
 
 	c.JSON(http.StatusOK, responseData)
@@ -732,7 +690,7 @@ func (h *Handler) CreateTradeIn(c *gin.Context) {
 			if req.Notes != nil {
 				existingNotes = *req.Notes
 			}
-			partNote := fmt.Sprintf("قطعة بدون منتج - %s", existingNotes)
+			partNote := fmt.Sprintf("وحدة بدون منتج - %s", existingNotes)
 			req.Notes = &partNote
 		}
 	}

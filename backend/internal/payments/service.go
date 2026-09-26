@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/partflow/smart-store/internal/paymentproviders"
+	"github.com/partflow/smart-store/internal/paymenttransactions"
 )
 
 // Service handles payment business logic
@@ -130,19 +132,73 @@ func (s *Service) UpdatePayment(ctx context.Context, id uuid.UUID, req *UpdatePa
 	return s.toPaymentResponse(payment, referenceName), nil
 }
 
-// DeletePayment deletes a payment
-func (s *Service) DeletePayment(ctx context.Context, id uuid.UUID) error {
-	payment, err := s.repo.GetByID(ctx, id)
-	if err != nil {
+// DeletePayment reverses external settlement first, then runs the atomic local
+// reversal and hard delete.
+func (s *Service) DeletePayment(ctx context.Context, id, userID uuid.UUID) error {
+	if err := s.PrepareDelete(ctx, id, userID); err != nil {
 		return err
 	}
-
-	// Check if payment can be deleted
-	if payment.Status == "completed" {
-		return ErrPaymentCannotBeCancelled
-	}
-
 	return s.repo.Delete(ctx, id)
+}
+
+// PrepareDelete reconciles any external payment settlement before a caller
+// starts an atomic transaction that deletes this payment together with a
+// parent sale or purchase. Repeating it is safe because provider refunds use
+// a stable idempotency key and the remaining refundable amount is recalculated.
+func (s *Service) PrepareDelete(ctx context.Context, id, userID uuid.UUID) error {
+	exists, err := s.repo.Exists(ctx, id)
+	if err != nil {
+		return fmt.Errorf("check payment before deletion: %w", err)
+	}
+	if !exists {
+		return ErrPaymentNotFound
+	}
+	if err := s.reverseProviderEffects(ctx, id, userID); err != nil {
+		return fmt.Errorf("%w: %v", ErrPaymentRequiresProviderRefund, err)
+	}
+	return nil
+}
+
+func (s *Service) reverseProviderEffects(ctx context.Context, paymentID, userID uuid.UUID) error {
+	links, err := s.repo.linkedProviderPayments(ctx, paymentID)
+	if err != nil || len(links) == 0 {
+		return err
+	}
+	service := paymenttransactions.NewConfiguredService(s.repo.db)
+	var createdBy *uuid.UUID
+	if userID != uuid.Nil {
+		createdBy = &userID
+	}
+	for _, link := range links {
+		switch link.Status {
+		case paymentproviders.StatusPending, paymentproviders.StatusProcessing:
+			if _, err := service.CancelPayment(ctx, link.ID); err != nil {
+				return fmt.Errorf("cancel provider payment %s: %w", link.ID, err)
+			}
+		case paymentproviders.StatusPaid, paymentproviders.StatusPartiallyRefunded:
+			var refunded int64
+			if err := s.repo.db.GetContext(ctx, &refunded, `SELECT COALESCE(SUM(amount_minor),0) FROM payment_refunds WHERE payment_transaction_id = $1 AND status IN ('refunded','partially_refunded')`, link.ID); err != nil {
+				return fmt.Errorf("read provider refunds for %s: %w", link.ID, err)
+			}
+			remaining := link.AmountMinor - refunded
+			if remaining <= 0 {
+				continue
+			}
+			request := paymentproviders.RefundRequest{
+				PaymentID: link.ID, Amount: remaining, Currency: link.Currency,
+				Reason:         "Payment record deletion requested",
+				IdempotencyKey: "payment-delete-" + paymentID.String() + "-" + link.ID.String(),
+			}
+			if _, _, err := service.RefundPayment(ctx, link.ID, request, createdBy); err != nil {
+				return fmt.Errorf("refund provider payment %s: %w", link.ID, err)
+			}
+		case paymentproviders.StatusRefunded, paymentproviders.StatusFailed, paymentproviders.StatusCancelled:
+			// No outstanding provider balance remains.
+		default:
+			return fmt.Errorf("provider transaction %s has unsupported status %q", link.ID, link.Status)
+		}
+	}
+	return nil
 }
 
 // CompletePayment marks a payment as completed

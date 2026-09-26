@@ -159,7 +159,7 @@ export function InventoryDistribution({
                           fontSize: '11px', 
                           color: 'var(--text-secondary)' 
                         }}>
-                          {item.count} قطعة
+                          {item.count} وحدة
                         </span>
                         <span style={{ 
                           fontSize: '11px', 
@@ -242,7 +242,7 @@ export function InventoryDistribution({
                 fontSize: '12px', 
                 color: 'var(--text-secondary)' 
               }}>
-                {availableItems} قطعة
+                {availableItems} وحدة
               </span>
               <span style={{ 
                 fontSize: '13px', 

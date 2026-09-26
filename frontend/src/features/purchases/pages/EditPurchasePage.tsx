@@ -510,7 +510,7 @@ export function EditPurchasePage() {
               <ShoppingCart className="h-4 w-4 text-cyan" />
               إدخال المنتجات
             </CardTitle>
-            <Badge variant="secondary">{items.length} صنف · {totalQuantity} قطعة</Badge>
+            <Badge variant="secondary">{items.length} منتج · {totalQuantity} وحدة</Badge>
           </div>
         </CardHeader>
         <CardContent className="space-y-3 pt-0">
@@ -766,7 +766,7 @@ export function EditPurchasePage() {
               <p className="font-semibold">{items.length}</p>
             </div>
             <div>
-              <p className="text-xs text-text-muted">القطع</p>
+              <p className="text-xs text-text-muted">المنتجات</p>
               <p className="font-semibold">{totalQuantity}</p>
             </div>
             <div>
@@ -874,7 +874,7 @@ export function EditPurchasePage() {
       <Modal
         isOpen={isManualProductModalOpen}
         onClose={() => setIsManualProductModalOpen(false)}
-        title="إضافة قطعة جديدة"
+        title="إضافة منتج جديد"
         variant="modern"
         size="lg"
         className="purchase-manual-product-modal"

@@ -286,45 +286,20 @@ func (s *Service) UpdateExpense(ctx context.Context, id uuid.UUID, req *ExpenseU
 
 // DeleteExpense deletes an expense
 func (s *Service) DeleteExpense(ctx context.Context, id uuid.UUID) error {
-	expense, err := s.repo.GetExpenseByID(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	status := strings.ToLower(strings.TrimSpace(expense.Status))
-	if status == "archived" {
-		return ErrExpenseAlreadyArchived
-	}
-	if accounting.IsAccountingExpenseStatus(status) {
-		expense.Status = "archived"
-		expense.UpdatedAt = time.Now()
-		if err := s.repo.UpdateExpense(ctx, expense); err != nil {
-			return err
-		}
-		dashboard.InvalidateDashboardCacheWithReason("expense_archived")
-		return nil
-	}
-	if !canDeleteExpenseStatus(status) {
-		return ErrInvalidExpenseStatus
-	}
-
-	if err := s.repo.DeleteExpense(ctx, id); err != nil {
-		return err
-	}
-	dashboard.InvalidateDashboardCacheWithReason("expense_deleted")
-	return nil
+	return s.PermanentlyDeleteExpense(ctx, id)
 }
 
-// PermanentlyDeleteExpense removes an explicitly selected expense from the
-// financial history. Reports aggregate from expenses, so deleting this row
-// removes its amount from those totals; dashboard/report caches are invalidated.
+// PermanentlyDeleteExpense physically removes an explicitly selected expense.
+// The ordinary DeleteExpense path remains the archive operation for approved
+// expenses; permanent deletion removes the row so reports reflect the
+// remaining financial history.
 func (s *Service) PermanentlyDeleteExpense(ctx context.Context, id uuid.UUID) error {
 	expense, err := s.repo.GetExpenseByID(ctx, id)
 	if err != nil {
 		return err
 	}
 	status := strings.ToLower(strings.TrimSpace(expense.Status))
-	if status != "pending" && status != "rejected" && !accounting.IsAccountingExpenseStatus(status) {
+	if status != "pending" && status != "rejected" && status != "archived" && !accounting.IsAccountingExpenseStatus(status) {
 		return ErrInvalidExpenseStatus
 	}
 	if err := s.repo.DeleteExpense(ctx, id); err != nil {
@@ -491,7 +466,11 @@ func (s *Service) UpdateExpenseCategory(ctx context.Context, id uuid.UUID, req *
 
 // DeleteExpenseCategory archives an expense category while preserving history.
 func (s *Service) DeleteExpenseCategory(ctx context.Context, id uuid.UUID) error {
-	return s.repo.DeleteExpenseCategory(ctx, id)
+	if err := s.repo.DeleteExpenseCategory(ctx, id); err != nil {
+		return err
+	}
+	dashboard.InvalidateDashboardCacheWithReason("expense_category_deleted")
+	return nil
 }
 
 // GetExpenseSummary retrieves expense summary statistics

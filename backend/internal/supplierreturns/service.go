@@ -62,6 +62,19 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID, force bool, actorIDs
 		return fmt.Errorf("begin delete supplier return: %w", err)
 	}
 	defer tx.Rollback()
+	if err := s.DeleteTx(ctx, tx, id, force, actorIDs...); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete supplier return: %w", err)
+	}
+	return nil
+}
+
+// DeleteTx reverses posted stock and supplier-balance effects before hard
+// deleting a supplier return in the caller's transaction.
+func (s *Service) DeleteTx(ctx context.Context, tx *sqlx.Tx, id uuid.UUID, force bool, actorIDs ...uuid.UUID) error {
+	var err error
 
 	lockQuery := `SELECT id::text FROM supplier_returns WHERE id = $1 FOR UPDATE`
 	if dbutil.IsSQLite(s.db) {
@@ -91,62 +104,41 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID, force bool, actorIDs
 	if len(actorIDs) > 0 && actorIDs[0] != uuid.Nil {
 		actor = actorIDs[0]
 	}
-	var snapshotJSON string
 	switch status {
-	case "DRAFT", "PENDING", "REJECTED":
+	case "DRAFT", "PENDING", "REJECTED", "SHIPPED", "RECEIVED", "NEEDS_SOURCE_DATA":
 		// These states have not posted financial or stock effects. A linked
 		// customer return does not prevent cleanup; its own record remains.
 	case "COMPLETED":
-		snapshotJSON, err = s.snapshotCompletedSupplierReturn(ctx, tx, id)
-		if err != nil {
+		if _, err := s.snapshotCompletedSupplierReturn(ctx, tx, id); err != nil {
 			return err
 		}
-		if dbutil.IsSQLite(s.db) {
-			_, err = tx.ExecContext(ctx, `INSERT INTO deleted_operation_snapshots (entity_type, operation_id, business_number, status, snapshot, deleted_by) VALUES ('supplier_return', ?, (SELECT return_number FROM supplier_returns WHERE id = ?), ?, ?, ?)`, id.String(), id.String(), status, snapshotJSON, actor)
-		} else {
-			_, err = tx.ExecContext(ctx, `INSERT INTO deleted_operation_snapshots (entity_type, operation_id, business_number, status, snapshot, deleted_by) SELECT 'supplier_return', $1, return_number, $2, $3::jsonb, $4 FROM supplier_returns WHERE id = $1`, id.String(), status, snapshotJSON, actor)
-		}
-		if err != nil {
-			return fmt.Errorf("preserve completed supplier return history: %w", err)
-		}
-		// The posted ledger and stock rows remain intact. Their reference now
-		// resolves to the durable cleanup snapshot instead of the removed row.
-		for _, table := range []string{"inventory_movements", "supplier_ledger"} {
-			if !dbutil.IsSQLite(s.db) && table == "supplier_ledger" {
-				_, err = tx.ExecContext(ctx, `UPDATE supplier_ledger SET reference_type = 'supplier_return_effect' WHERE reference_id = $1 AND UPPER(COALESCE(transaction_type,'')) = 'SUPPLIER_RETURN'`, id)
-			} else if !dbutil.IsSQLite(s.db) {
-				_, err = tx.ExecContext(ctx, `UPDATE inventory_movements SET reference_type = 'supplier_return_effect' WHERE reference_id = $1 AND UPPER(COALESCE(movement_type,'')) = 'SUPPLIER_RETURN'`, id)
-			} else if table == "supplier_ledger" {
-				_, err = tx.ExecContext(ctx, `UPDATE supplier_ledger SET reference_type = 'supplier_return_effect' WHERE reference_id = ? AND UPPER(COALESCE(transaction_type,'')) = 'SUPPLIER_RETURN'`, id.String())
-			} else {
-				_, err = tx.ExecContext(ctx, `UPDATE inventory_movements SET reference_type = 'supplier_return_effect' WHERE reference_id = ? AND UPPER(COALESCE(movement_type,'')) = 'SUPPLIER_RETURN'`, id.String())
-			}
-			if err != nil {
-				return fmt.Errorf("detach supplier return %s history: %w", table, err)
-			}
+		if err := s.reverseCompletedSupplierReturnTx(ctx, tx, id); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("supplier return is still in %s processing; complete or reject it before cleanup", status)
 	}
 
-	// force remains accepted for API compatibility; linked historical records
-	// are now handled by explicit state-aware cleanup instead of a bypass flag.
+	// force remains accepted for API compatibility; it never bypasses reversal
+	// validation or the transaction boundary.
 	_ = force
-	if status == "COMPLETED" {
-		auditJSON, _ := json.Marshal(map[string]any{"financial_effect_preserved": true, "snapshot_entity": "supplier_return", "status": status})
-		if dbutil.IsSQLite(s.db) {
-			_, err = tx.ExecContext(ctx, `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at) VALUES (?, ?, 'DELETE', 'supplier_return', ?, ?, CURRENT_TIMESTAMP)`, uuid.NewString(), actor, id.String(), string(auditJSON))
-		} else {
-			_, err = tx.ExecContext(ctx, `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at) VALUES ($1, $2, 'DELETE', 'supplier_return', $3, $4::jsonb, NOW())`, uuid.New(), actor, id, string(auditJSON))
-		}
-		if err != nil {
-			return fmt.Errorf("write supplier return deletion audit: %w", err)
-		}
+	var businessNumber string
+	if err := tx.GetContext(ctx, &businessNumber, tx.Rebind(`SELECT COALESCE(return_number,'') FROM supplier_returns WHERE id=?`), id); err != nil {
+		return fmt.Errorf("load supplier return number for audit: %w", err)
+	}
+	auditJSON, _ := json.Marshal(map[string]any{"status": status, "effects_reversed": status == "COMPLETED"})
+	if dbutil.IsSQLite(s.db) {
+		_, err = tx.ExecContext(ctx, `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at) VALUES (?, ?, 'DELETE', 'supplier_return', ?, ?, CURRENT_TIMESTAMP)`, uuid.NewString(), actor, id.String(), string(auditJSON))
+	} else {
+		_, err = tx.ExecContext(ctx, `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, new_values, created_at) VALUES ($1, $2, 'DELETE', 'supplier_return', $3, $4::jsonb, NOW())`, uuid.New(), actor, id, string(auditJSON))
+	}
+	if err != nil {
+		return fmt.Errorf("write supplier return deletion audit: %w", err)
 	}
 	if _, err = tx.ExecContext(ctx, tx.Rebind(`DELETE FROM supplier_return_items WHERE supplier_return_id = ?`), id); err != nil {
 		return fmt.Errorf("delete supplier return items: %w", err)
 	}
-	deleteQuery := `DELETE FROM supplier_returns WHERE id = ? AND UPPER(status) IN ('DRAFT', 'PENDING', 'REJECTED', 'COMPLETED')`
+	deleteQuery := `DELETE FROM supplier_returns WHERE id = ? AND UPPER(status) IN ('DRAFT', 'PENDING', 'REJECTED', 'SHIPPED', 'RECEIVED', 'NEEDS_SOURCE_DATA', 'COMPLETED')`
 	result, err := tx.ExecContext(ctx, tx.Rebind(deleteQuery), id)
 	if err != nil {
 		return fmt.Errorf("delete supplier return: %w", err)
@@ -154,10 +146,85 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID, force bool, actorIDs
 	if count, err := result.RowsAffected(); err != nil || count != 1 {
 		return fmt.Errorf("supplier return could not be cleaned up in its current state")
 	}
-	if err = tx.Commit(); err != nil {
-		return fmt.Errorf("commit delete supplier return: %w", err)
+	return nil
+}
+
+func (s *Service) reverseCompletedSupplierReturnTx(ctx context.Context, tx *sqlx.Tx, id uuid.UUID) error {
+	type movement struct {
+		ItemID    string    `db:"item_id"`
+		ProductID uuid.UUID `db:"product_id"`
+		Quantity  int       `db:"quantity"`
+	}
+	var movements []movement
+	if err := tx.SelectContext(ctx, &movements, tx.Rebind(`SELECT COALESCE(CAST(item_id AS TEXT), '') AS item_id, product_id, quantity FROM inventory_movements WHERE reference_id=? AND UPPER(COALESCE(movement_type,''))='SUPPLIER_RETURN'`), id); err != nil {
+		return fmt.Errorf("load supplier return stock movements: %w", err)
+	}
+	if len(movements) == 0 {
+		return fmt.Errorf("completed supplier return has no stock movements; reconcile it before deletion")
+	}
+	productQuantity := map[uuid.UUID]int{}
+	for _, movement := range movements {
+		if movement.ItemID == "" || movement.ProductID == uuid.Nil || movement.Quantity != -1 {
+			return fmt.Errorf("supplier return stock movement is incomplete or inconsistent")
+		}
+		var status string
+		if err := tx.GetContext(ctx, &status, tx.Rebind(`SELECT UPPER(TRIM(COALESCE(status,''))) FROM inventory_items WHERE id=?`), movement.ItemID); err != nil {
+			return fmt.Errorf("load supplier return inventory item: %w", err)
+		}
+		if status != "RETURNED" {
+			return fmt.Errorf("supplier return inventory item %s has later activity; reverse that activity first", movement.ItemID)
+		}
+		result, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE inventory_items SET status='AVAILABLE', updated_at=CURRENT_TIMESTAMP WHERE id=? AND UPPER(TRIM(COALESCE(status,'')))='RETURNED'`), movement.ItemID)
+		if err != nil {
+			return fmt.Errorf("restore supplier return inventory item: %w", err)
+		}
+		if affected, _ := result.RowsAffected(); affected != 1 {
+			return fmt.Errorf("supplier return inventory item changed during deletion")
+		}
+		productQuantity[movement.ProductID]++
+	}
+	for productID, quantity := range productQuantity {
+		result, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE inventory SET quantity=COALESCE(quantity,0)+?, updated_at=CURRENT_TIMESTAMP WHERE product_id=?`), quantity, productID)
+		if err != nil {
+			return fmt.Errorf("restore aggregate supplier return inventory: %w", err)
+		}
+		if affected, _ := result.RowsAffected(); affected == 0 {
+			return fmt.Errorf("aggregate inventory row is missing for supplier-returned product %s", productID)
+		}
+	}
+	var supplierID uuid.UUID
+	if err := tx.GetContext(ctx, &supplierID, tx.Rebind(`SELECT supplier_id FROM supplier_returns WHERE id=?`), id); err != nil {
+		return fmt.Errorf("load supplier for return reversal: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM supplier_ledger WHERE reference_id=?`), id); err != nil {
+		return fmt.Errorf("reverse supplier return ledger: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM inventory_movements WHERE reference_id=? AND UPPER(COALESCE(movement_type,''))='SUPPLIER_RETURN'`), id); err != nil {
+		return fmt.Errorf("remove reversed supplier return movements: %w", err)
+	}
+	if exists, err := supplierTableExistsTx(ctx, tx, dbutil.IsSQLite(s.db), "item_history"); err != nil {
+		return err
+	} else if exists {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM item_history WHERE reference_id=?`), id); err != nil {
+			return fmt.Errorf("remove supplier return item history: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE suppliers SET current_balance=COALESCE((SELECT SUM(CASE WHEN LOWER(COALESCE(type,''))='debit' THEN amount ELSE -amount END) FROM supplier_ledger WHERE supplier_id=?),0), updated_at=CURRENT_TIMESTAMP WHERE id=?`), supplierID, supplierID); err != nil {
+		return fmt.Errorf("recalculate supplier balance after return deletion: %w", err)
 	}
 	return nil
+}
+
+func supplierTableExistsTx(ctx context.Context, tx *sqlx.Tx, isSQLite bool, table string) (bool, error) {
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=$1)`
+	if isSQLite {
+		query = `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=$1)`
+	}
+	if err := tx.GetContext(ctx, &exists, query, table); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func (s *Service) snapshotCompletedSupplierReturn(ctx context.Context, tx *sqlx.Tx, id uuid.UUID) (string, error) {

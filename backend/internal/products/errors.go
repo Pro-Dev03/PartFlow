@@ -12,9 +12,9 @@ var (
 	// ErrProductNotFound is returned when product is not found
 	ErrProductNotFound = errors.New("product not found")
 
-	// ErrProductHasHistory prevents deleting a product from silently deleting
-	// complete sales, purchases, returns, or their accounting effects.
-	ErrProductHasHistory = errors.New("لا يمكن حذف المنتج ما دام له مخزون قائم أو سجلات معاملات وحركات. صفّر المخزون وعالج السجلات المرتبطة أولاً، أو عطّل المنتج للاحتفاظ بتاريخه.")
+	// ErrProductHasHistory is returned by the low-level repository operation
+	// when it is called without the service cascade that reverses linked history.
+	ErrProductHasHistory = errors.New("product deletion requires the dependency reversal service")
 
 	// ErrCategoryExists is returned when category already exists
 	ErrCategoryExists = errors.New("category already exists")

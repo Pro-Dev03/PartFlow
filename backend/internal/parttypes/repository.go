@@ -317,24 +317,58 @@ func (r *Repository) UpdatePartType(ctx context.Context, partType *PartType) err
 }
 
 func (r *Repository) DeletePartType(ctx context.Context, id uuid.UUID) error {
-	query := `DELETE FROM part_types WHERE id = $1`
-	arg := interface{}(id)
-	if dbutil.IsSQLite(r.db) {
-		query = `DELETE FROM part_types WHERE id = ?`
-		arg = id.String()
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin part type deletion: %w", err)
 	}
-
-	result, err := r.db.ExecContext(ctx, query, arg)
+	defer tx.Rollback()
+	for _, table := range []string{"products", "inventory_items"} {
+		exists, err := partTypeColumnExists(ctx, tx, r.db, table, "part_type_id")
+		if err != nil {
+			return fmt.Errorf("inspect %s part type reference: %w", table, err)
+		}
+		if exists {
+			if _, err := tx.ExecContext(ctx, tx.Rebind(fmt.Sprintf(`UPDATE %s SET part_type_id=NULL WHERE part_type_id=?`, table)), id.String()); err != nil {
+				return fmt.Errorf("detach part type from %s: %w", table, err)
+			}
+		}
+	}
+	if exists, err := partTypeColumnExists(ctx, tx, r.db, "type_specifications", "part_type_id"); err != nil {
+		return fmt.Errorf("inspect part type specification links: %w", err)
+	} else if exists {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM type_specifications WHERE part_type_id=?`), id.String()); err != nil {
+			return fmt.Errorf("delete part type specification links: %w", err)
+		}
+	}
+	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM part_types WHERE id=?`), id.String())
 	if err != nil {
 		return fmt.Errorf("failed to delete part type: %w", err)
 	}
-
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect deleted part type count: %w", err)
+	}
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
 	}
-
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit part type deletion: %w", err)
+	}
 	return nil
+}
+
+func partTypeColumnExists(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, table, column string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=? AND column_name=?)`
+	args := []any{table, column}
+	if dbutil.IsSQLite(db) {
+		query = `SELECT EXISTS(SELECT 1 FROM pragma_table_info('` + table + `') WHERE name=?)`
+		args = []any{column}
+	}
+	var exists bool
+	if err := tx.GetContext(ctx, &exists, tx.Rebind(query), args...); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 // Specifications CRUD

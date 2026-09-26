@@ -954,7 +954,7 @@ export function POSPage() {
         queryClient.invalidateQueries({ queryKey: ['inventory'] });
         toast.error(
           exhaustedProductName
-            ? `تمت إزالة القطعة النافدة من السلة: ${exhaustedProductName}`
+            ? `تمت إزالة المنتج النافد من السلة: ${exhaustedProductName}`
             : 'هذا النوع قد نفد من المخزون',
           'مخزون غير كافٍ',
           4000,

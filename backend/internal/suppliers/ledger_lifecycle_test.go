@@ -32,6 +32,8 @@ func TestSupplierLedgerPaymentLifecycleSQLite(t *testing.T) {
 		`CREATE TABLE supplier_return_items (id TEXT PRIMARY KEY, supplier_return_id TEXT, purchase_item_id TEXT, product_id TEXT, inventory_item_id TEXT, quantity INTEGER, unit_cost REAL, created_at TEXT)`,
 		`CREATE TABLE supplier_ledger (id TEXT PRIMARY KEY, supplier_id TEXT, type TEXT, transaction_type TEXT, amount REAL, balance REAL, description TEXT, reference_id TEXT, created_at TEXT)`,
 		`CREATE TABLE payments (id TEXT PRIMARY KEY, transaction_number TEXT, supplier_id TEXT, amount REAL, payment_method TEXT, reference TEXT, notes TEXT, payment_date TEXT, payment_status TEXT, created_at TEXT, updated_at TEXT)`,
+		`CREATE TABLE payment_allocation_batches (payment_id TEXT PRIMARY KEY, owner_type TEXT NOT NULL, owner_id TEXT NOT NULL, sale_id TEXT, tracked_at TEXT NOT NULL)`,
+		`CREATE TABLE payment_debt_allocations (id TEXT PRIMARY KEY, payment_id TEXT NOT NULL, debt_id TEXT NOT NULL, amount REAL NOT NULL, created_at TEXT NOT NULL, UNIQUE (payment_id, debt_id))`,
 	} {
 		if _, err := xdb.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -76,6 +78,16 @@ func TestSupplierLedgerPaymentLifecycleSQLite(t *testing.T) {
 	}
 	if partial.Amount != 40 {
 		t.Fatalf("partial payment amount = %v", partial.Amount)
+	}
+	var allocationBatchCount, debtAllocationCount int
+	if err := xdb.Get(&allocationBatchCount, `SELECT COUNT(*) FROM payment_allocation_batches WHERE payment_id = ? AND owner_type = 'supplier' AND owner_id = ?`, partial.ID, supplierID); err != nil {
+		t.Fatal(err)
+	}
+	if err := xdb.Get(&debtAllocationCount, `SELECT COUNT(*) FROM payment_debt_allocations WHERE payment_id = ?`, partial.ID); err != nil {
+		t.Fatal(err)
+	}
+	if allocationBatchCount != 1 || debtAllocationCount != 0 {
+		t.Fatalf("supplier payment allocation marker=%d debt allocations=%d; want marker and no debt rows", allocationBatchCount, debtAllocationCount)
 	}
 	assertSupplierBalance(t, xdb, supplierID, 60)
 

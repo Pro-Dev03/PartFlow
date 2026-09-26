@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS customer_ledger (
 );
 
 CREATE INDEX IF NOT EXISTS idx_customer_ledger_customer ON customer_ledger(customer_id);
-CREATE INDEX IF NOT EXISTS idx_customer_ledger_type ON customer_ledger(type);
+-- The table was already created in 003 with transaction_type (not type).
+CREATE INDEX IF NOT EXISTS idx_customer_ledger_transaction_type ON customer_ledger(transaction_type);
 CREATE INDEX IF NOT EXISTS idx_customer_ledger_created_at ON customer_ledger(created_at);
 
 -- Create supplier_ledger table if it doesn't exist
@@ -29,5 +30,6 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
 );
 
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier ON supplier_ledger(supplier_id);
-CREATE INDEX IF NOT EXISTS idx_supplier_ledger_type ON supplier_ledger(type);
+-- Keep the 003 transaction_type schema when the tables already exist.
+CREATE INDEX IF NOT EXISTS idx_supplier_ledger_transaction_type ON supplier_ledger(transaction_type);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_created_at ON supplier_ledger(created_at);

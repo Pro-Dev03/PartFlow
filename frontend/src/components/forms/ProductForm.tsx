@@ -151,7 +151,7 @@ export function ProductForm({ onSubmit, onCancel, initialData }: ProductFormProp
               { value: 'new', label: 'جديد' },
               { value: 'used', label: 'مستعمل' },
               { value: 'refurbished', label: 'مجدد' },
-              { value: 'parts_only', label: 'قطع غيار فقط' },
+              { value: 'parts_only', label: 'غير صالح للبيع' },
             ]}
             required
           />

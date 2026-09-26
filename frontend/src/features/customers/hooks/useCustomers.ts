@@ -128,7 +128,7 @@ export function useCustomers() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      toast.success('تمت أرشفة العميل بنجاح');
+      toast.success('تم حذف العميل وسجلاته المرتبطة');
     },
     onError: (error: any) => {
       console.error('Delete customer failed:', error);
@@ -141,7 +141,7 @@ export function useCustomers() {
       } else if (error.message) {
         toast.error(error.message);
       } else {
-        toast.error('فشلت أرشفة العميل');
+        toast.error('تعذر حذف العميل وسجلاته المرتبطة');
       }
     },
   });

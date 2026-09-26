@@ -249,7 +249,7 @@ func (r *Repository) ListSales(ctx context.Context, page, perPage int, filters m
 			(SELECT c.name FROM customers c WHERE c.id = sales.customer_id) AS customer_name,
 			invoice_number,
 			subtotal, tax_amount, discount_amount, total_amount, cost_amount, gross_profit, net_profit,
-			paid_amount, payment_method, payment_status, status, notes, created_at, updated_at
+			paid_amount, payment_method, COALESCE(payment_status, '') AS payment_status, COALESCE(status, '') AS status, notes, created_at, updated_at
 		FROM sales WHERE 1=1
 	`
 
@@ -753,6 +753,69 @@ func (r *Repository) GetTransactionByID(ctx context.Context, id uuid.UUID) (*Tra
 		return nil, err
 	}
 	return &tx, nil
+}
+
+// DeleteStandaloneTransaction physically removes an unlinked financial record
+// and its audit rows atomically. Sale-linked transactions must go through the
+// sale cascade so invoice, inventory, debt, and report effects stay aligned.
+func (r *Repository) DeleteStandaloneTransaction(ctx context.Context, id uuid.UUID) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin financial transaction deletion: %w", err)
+	}
+	defer tx.Rollback()
+	var amount float64
+	var transactionType string
+	if err := tx.GetContext(ctx, &transactionType, tx.Rebind(`SELECT type FROM financial_transactions WHERE id=?`), id.String()); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrFinancialTransactionNotFound
+		}
+		return fmt.Errorf("load financial transaction before deletion: %w", err)
+	}
+	if err := tx.GetContext(ctx, &amount, tx.Rebind(`SELECT amount FROM financial_transactions WHERE id=?`), id.String()); err != nil {
+		return fmt.Errorf("load financial transaction amount: %w", err)
+	}
+	if exists, err := salesAuditTableExists(ctx, tx, r.db); err != nil {
+		return fmt.Errorf("inspect financial transaction audit table: %w", err)
+	} else if exists {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM audit_logs WHERE entity_id=?`), id.String()); err != nil {
+			return fmt.Errorf("remove financial transaction audit rows: %w", err)
+		}
+	}
+	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM financial_transactions WHERE id=? AND sale_id IS NULL`), id.String())
+	if err != nil {
+		return fmt.Errorf("hard delete financial transaction: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		return ErrSalePaymentHistoryInconsistent
+	}
+	if exists, err := salesAuditTableExists(ctx, tx, r.db); err != nil {
+		return fmt.Errorf("inspect audit log columns: %w", err)
+	} else if exists {
+		auditQuery := `INSERT INTO audit_logs (id,user_id,action,entity_type,entity_id,new_values,created_at) VALUES (?,NULL,'DELETE','financial_transaction',?,?,CURRENT_TIMESTAMP)`
+		if !dbutil.IsSQLite(r.db) {
+			auditQuery = `INSERT INTO audit_logs (id,user_id,action,entity_type,entity_id,new_values,created_at) VALUES (?,NULL,'DELETE','financial_transaction',?,?::jsonb,NOW())`
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(auditQuery), uuid.New().String(), id.String(), fmt.Sprintf(`{"type":%q,"amount":%.2f}`, transactionType, amount)); err != nil {
+			return fmt.Errorf("write financial transaction deletion audit: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit financial transaction deletion: %w", err)
+	}
+	return nil
+}
+
+func salesAuditTableExists(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='audit_logs')`
+	if dbutil.IsSQLite(db) {
+		query = `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='audit_logs')`
+	}
+	var exists bool
+	if err := tx.GetContext(ctx, &exists, query); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 // ListTransactions retrieves transactions with pagination and filters

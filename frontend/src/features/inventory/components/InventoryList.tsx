@@ -464,7 +464,7 @@ export function InventoryList({
             <EmptyState
               icon={<Inbox className="h-5 w-5" />}
               title="لا توجد قطع فردية مسجلة"
-              description="الكميات الإجمالية تظهر في تبويب المنتجات. استخدم طريقة القطعة المحددة بالباركود لإظهار كل قطعة هنا."
+              description="الكميات الإجمالية تظهر في تبويب المنتجات. استخدم طريقة تسجيل كل وحدة برقم تسلسلي وباركود لإظهارها هنا."
             />
           ) : (
             <div className={layoutMode === 'table' ? 'block' : 'hidden'}>
@@ -477,7 +477,7 @@ export function InventoryList({
                     <TableHead className="w-[14%]">تاريخ الشراء</TableHead>
                     <TableHead className="w-[10%] text-center">شراء</TableHead>
                     <TableHead className="w-[10%] text-center">بيع</TableHead>
-                    <TableHead className="w-[8%]">القطعة</TableHead>
+                    <TableHead className="w-[8%]">الوحدة</TableHead>
                     <TableHead className="w-[8%] text-end">الإجراءات</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -569,7 +569,7 @@ export function InventoryList({
               <EmptyState
                 icon={<Inbox className="h-5 w-5" />}
                 title="لا توجد قطع فردية مسجلة"
-                description="الكميات الإجمالية تظهر في تبويب المنتجات. استخدم طريقة القطعة المحددة بالباركود لإظهار كل قطعة هنا."
+                description="الكميات الإجمالية تظهر في تبويب المنتجات. استخدم طريقة تسجيل كل وحدة برقم تسلسلي وباركود لإظهارها هنا."
               />
             ) : (
               <div className="product-cards-grid gap-4 p-4">

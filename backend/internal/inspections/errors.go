@@ -29,4 +29,10 @@ var (
 
 	// ErrCannotUpdateCompletedInspection is returned when trying to update completed inspection
 	ErrCannotUpdateCompletedInspection = errors.New("cannot update completed inspection")
+
+	// ErrCannotDeleteCompletedInspection is returned when trying to delete completed inspection
+	ErrCannotDeleteCompletedInspection = errors.New("cannot delete completed inspection")
+
+	// ErrCannotDeleteLinkedInspection is returned when deleting an inspection would orphan a workflow link.
+	ErrCannotDeleteLinkedInspection = errors.New("cannot delete an inspection linked to inventory or an acquisition")
 )

@@ -129,7 +129,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
   const advanceStep = () => {
     if (currentStep === 1) {
       if ((!isUsedStock && !productId) || (isUsedStock && usedProductMode === 'new' && !productName.trim()) || (isUsedStock && usedProductMode === 'existing' && !productId)) {
-        toast.error(isUsedStock && usedProductMode === 'new' ? 'أدخل اسم القطعة واختر نوعها.' : 'اختر القطعة أولًا.');
+        toast.error(isUsedStock && usedProductMode === 'new' ? 'أدخل اسم المنتج واختر تصنيفه.' : 'اختر المنتج أولًا.');
         return;
       }
       setCurrentStep(2);
@@ -138,7 +138,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
     if (currentStep === 2) {
       const parsedQuantity = Math.floor(Number(quantity));
       if ((mode !== 'batch' && (!parsedQuantity || parsedQuantity < 1)) || (mode === 'batch' && batchRows.length < 1) || (mode === 'individual' && !barcode.trim()) || (isUsedStock && !partTypeId)) {
-        toast.error('أكمل بيانات الكمية أو تعريف القطعة قبل المتابعة.');
+        toast.error('أكمل بيانات الكمية والمنتج قبل المتابعة.');
         return;
       }
       setCurrentStep(3);
@@ -167,7 +167,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
       const response = await barcodeApi.resolve(value);
       const resolution: any = response.data ?? response;
       if (resolution.inventory_item?.id) {
-        toast.error('هذا الباركود مرتبط بقطعة موجودة بالفعل. استخدم باركودًا جديدًا.');
+        toast.error('هذا الباركود مرتبط بوحدة مخزون موجودة بالفعل. استخدم باركودًا آخر.');
         return;
       }
       if (resolution.product?.id) {
@@ -188,21 +188,21 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
     const parsedQuantity = Math.floor(Number(quantity));
     const batchQuantity = batchRows.length;
     if ((isUsedStock && usedProductMode === 'new' && !productName.trim()) || (!isUsedStock && !productId) || (isUsedStock && usedProductMode === 'existing' && !productId) || (mode !== 'batch' && (!parsedQuantity || parsedQuantity < 1)) || (mode === 'batch' && batchQuantity < 1)) {
-      toast.error(isUsedStock && usedProductMode === 'new' ? 'أدخل اسم القطعة واختر نوعها.' : 'اختر القطعة وأدخل كمية صحيحة.');
+      toast.error(isUsedStock && usedProductMode === 'new' ? 'أدخل اسم المنتج واختر تصنيفه.' : 'اختر المنتج وأدخل كمية صحيحة.');
       return;
     }
     if (mode === 'individual' && !barcode.trim()) {
-      toast.error('الباركود مطلوب للقطعة الفردية.');
+      toast.error('الباركود مطلوب عند تسجيل وحدة بشكل مستقل.');
       return;
     }
     if (isUsedStock && !partTypeId) {
-      toast.error('نوع القطعة مطلوب للقطع المستعملة.');
+      toast.error('تصنيف المنتج مطلوب للمنتجات المستعملة.');
       return;
     }
     if (mode === 'batch') {
       const barcodes = batchRows.map((row) => row.barcode.trim());
       if (barcodes.some((value) => !value)) {
-        toast.error('أدخل باركودًا لكل قطعة في الدفعة.');
+        toast.error('أدخل باركودًا لكل وحدة في الدفعة.');
         return;
       }
       if (new Set(barcodes).size !== barcodes.length) {
@@ -243,7 +243,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
           condition: 'used',
         });
         const createdProduct = (productResponse.data as any)?.product ?? productResponse.data;
-        if (!createdProduct?.id) throw new Error('تعذر إنشاء القطعة الجديدة.');
+        if (!createdProduct?.id) throw new Error('تعذر إنشاء المنتج الجديد.');
         resolvedProductId = String(createdProduct.id);
         resolvedProductPrice = Number(createdProduct.selling_price ?? createdProduct.sellingPrice ?? 0);
       }
@@ -297,11 +297,11 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
       const normalizedMessage = `${message} ${arabicMessage}`.toLowerCase();
       let reason = arabicMessage || message || 'تعذر إضافة المخزون الحالي.';
       if (normalizedMessage.includes('serial number already exists') || normalizedMessage.includes('الرقم التسلسلي')) {
-        reason = 'الرقم التسلسلي موجود مسبقًا. استخدم رقمًا مختلفًا أو استخدم مسار المرتجع للقطعة نفسها.';
+        reason = 'الرقم التسلسلي مستخدم بالفعل. تحقق من الرقم أو عالج المرتجع من شاشة المرتجعات.';
       } else if (normalizedMessage.includes('barcode already exists') || normalizedMessage.includes('الباركود')) {
         reason = 'الباركود موجود مسبقًا. استخدم باركودًا مختلفًا.';
       } else if (Number(error?.status) >= 500) {
-        reason = `تعذر الحفظ بسبب خطأ في الخادم (HTTP ${error.status}). تحقق من بيانات القطعة وحاول مرة أخرى.`;
+        reason = `تعذر الحفظ بسبب خطأ في الخادم (HTTP ${error.status}). تحقق من بيانات المنتج وحاول مرة أخرى.`;
       }
       toast.error(reason);
     } finally {
@@ -362,7 +362,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
         {currentStep === 1 && <div className="opening-stock-stage space-y-5 rounded-2xl border border-border bg-surface p-5">
         <div className="rounded-xl border border-cyan/20 bg-cyan/5 p-4 text-sm text-text-secondary">
           {isUsedStock
-            ? 'سجّل القطع المستعملة الموجودة لديك الآن دون إنشاء عملية شراء. يمكنك ربط القطعة بالعميل الذي جاءت منه بشكل اختياري.'
+            ? 'سجّل المنتجات المستعملة الموجودة لديك الآن دون إنشاء عملية شراء. يمكنك ربط المنتج بالعميل الذي اشتريته منه بشكل اختياري.'
             : 'استخدم هذه النافذة لتسجيل البضاعة الموجودة لديك الآن، مثل المخزون عند بدء استخدام النظام. لن يتم إنشاء فاتورة شراء أو مديونية للتاجر.'}
         </div>
 
@@ -372,22 +372,22 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
             value={mode}
             onChange={(event) => setMode(event.target.value as OpeningMode)}
             options={isUsedStock ? [
-              { value: 'individual', label: 'قطعة محددة برقم وباركود' },
+              { value: 'individual', label: 'وحدة برقم تسلسلي وباركود' },
               { value: 'batch', label: 'دفعة متعددة بباركودات مختلفة' },
             ] : [
               { value: 'quantity', label: 'كمية إجمالية من المنتج' },
-              { value: 'individual', label: 'قطعة محددة برقم وباركود' },
+              { value: 'individual', label: 'وحدة برقم تسلسلي وباركود' },
               { value: 'batch', label: 'دفعة متعددة بباركودات مختلفة' },
             ]}
           />
           {isUsedStock ? (
             <Select
-              label="طريقة إضافة القطعة"
+              label="طريقة إضافة المنتج"
               value={usedProductMode}
               onChange={(event) => setUsedProductMode(event.target.value as 'new' | 'existing')}
               options={[
-                { value: 'new', label: 'إضافة قطعة جديدة' },
-                { value: 'existing', label: 'إضافة قطعة موجودة' },
+                { value: 'new', label: 'إضافة منتج جديد' },
+                { value: 'existing', label: 'اختيار منتج موجود' },
               ]}
             />
           ) : (
@@ -406,20 +406,20 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
           <div className="rounded-xl border border-border-subtle bg-surface-elevated p-4">
             {usedProductMode === 'new' ? (
               <Input
-                label="اسم القطعة أو الموديل"
+                label="اسم المنتج"
                 value={productName}
                 onChange={(event) => setProductName(event.target.value)}
-                placeholder="مثال: GTX 1660 مستعمل"
+                placeholder="مثال: منتج مستعمل"
                 required
               />
             ) : (
               <Select
-                label="القطعة الموجودة"
+                label="المنتج الموجود"
                 value={productId}
                 onChange={(event) => setProductId(event.target.value)}
-                options={[{ value: '', label: 'اختر القطعة الموجودة...' }, ...productOptions]}
+                options={[{ value: '', label: 'اختر المنتج الموجود...' }, ...productOptions]}
                 loading={productsLoading}
-                emptyMessage="لا توجد قطع مستعملة مسجلة"
+                emptyMessage="لا توجد منتجات مستعملة مسجلة"
                 required
               />
             )}
@@ -428,7 +428,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
         </div>}
 
         {currentStep === 2 && <div className="opening-stock-stage space-y-5 rounded-2xl border border-border bg-surface p-5">
-        <h3 className="text-lg font-bold text-text-primary">الكمية وتعريف القطعة</h3>
+        <h3 className="text-lg font-bold text-text-primary">الكمية وبيانات المنتج</h3>
         <div className="grid gap-3 md:grid-cols-4">
           {mode !== 'batch' && (
             <Input
@@ -451,20 +451,20 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
               { value: 'USED', label: 'مستعمل' },
               { value: 'REFURBISHED', label: 'مجدد' },
               { value: 'DAMAGED', label: 'تالف' },
-              { value: 'FOR_PARTS', label: 'للقطع' },
+              { value: 'FOR_PARTS', label: 'غير صالح للبيع' },
             ]}
           />
           {isUsedStock && (
             <Select
-              label="نوع القطعة"
+              label="تصنيف المنتج"
               value={partTypeId}
               onChange={(event) => setPartTypeId(event.target.value)}
               options={[
-                { value: '', label: 'اختر نوع القطعة...' },
+                { value: '', label: 'اختر تصنيف المنتج...' },
                 ...partTypes.map((partType) => ({ value: String(partType.id), label: partType.name_ar })),
               ]}
               loading={partTypesLoading}
-              emptyMessage="لا توجد أنواع قطع"
+              emptyMessage="لا توجد تصنيفات منتجات"
               required
             />
           )}
@@ -472,7 +472,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
 
         {mode === 'individual' && (
           <div className="rounded-xl border border-border-subtle bg-surface-elevated p-4 space-y-4">
-            <div className="flex items-center gap-2 text-sm font-semibold text-text-primary"><ScanLine className="h-4 w-4" /> بيانات القطعة المحددة</div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-text-primary"><ScanLine className="h-4 w-4" /> بيانات الوحدة</div>
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
               <Input label="الباركود" data-opening-barcode="true" value={barcode} onChange={(event) => setBarcode(event.target.value)} placeholder="امسح أو أدخل الباركود" required />
               <Button type="button" variant="secondary" className="self-end" onClick={() => void resolveBarcode()} disabled={isResolvingBarcode || !barcode.trim()}>
@@ -486,11 +486,11 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
           <div className="space-y-3 rounded-xl border border-border-subtle bg-surface-elevated p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-text-primary">بيانات القطع</div>
-                <p className="mt-1 text-xs text-text-secondary">أدخل باركودًا مختلفًا لكل قطعة، والرقم التسلسلي اختياري.</p>
+                <div className="text-sm font-semibold text-text-primary">بيانات الوحدات</div>
+                <p className="mt-1 text-xs text-text-secondary">أدخل باركودًا مختلفًا لكل وحدة، والرقم التسلسلي اختياري.</p>
               </div>
               <Button type="button" variant="secondary" size="sm" onClick={() => setBatchRows((rows) => [...rows, { id: `${Date.now()}-${rows.length}`, barcode: '' }])}>
-                <Plus className="h-4 w-4" /> إضافة قطعة
+                <Plus className="h-4 w-4" /> إضافة وحدة
               </Button>
             </div>
             {isUsedStock && (
@@ -519,8 +519,8 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
             {batchRows.map((row, index) => (
               <div key={row.id} className="grid gap-2 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-end">
                 <span className="pb-3 text-xs font-semibold text-text-muted">#{index + 1}</span>
-                <Input label="الباركود" data-opening-barcode="true" value={row.barcode} onChange={(event) => setBatchRows((rows) => rows.map((current) => current.id === row.id ? { ...current, barcode: event.target.value } : current))} placeholder="باركود القطعة" required />
-                <Button type="button" variant="ghost" size="icon" aria-label="حذف القطعة" disabled={batchRows.length === 1} onClick={() => setBatchRows((rows) => rows.filter((current) => current.id !== row.id))}>
+                <Input label="الباركود" data-opening-barcode="true" value={row.barcode} onChange={(event) => setBatchRows((rows) => rows.map((current) => current.id === row.id ? { ...current, barcode: event.target.value } : current))} placeholder="باركود الوحدة" required />
+                <Button type="button" variant="ghost" size="icon" aria-label="حذف الوحدة" disabled={batchRows.length === 1} onClick={() => setBatchRows((rows) => rows.filter((current) => current.id !== row.id))}>
                   <Trash2 className="h-4 w-4 text-danger" />
                 </Button>
               </div>
@@ -552,7 +552,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
             />
           )}
           <p className="-mt-2 text-xs text-text-secondary md:col-span-3">
-            {isUsedStock ? 'اختر عميلًا إذا أردت تسجيل مصدر هذه القطعة.' : 'اختر تاجرًا إذا أردت تسجيل اسم التاجر المرتبط بهذه البضاعة.'}
+            {isUsedStock ? 'اختر عميلًا إذا أردت تسجيل مصدر هذا المنتج.' : 'اختر تاجرًا إذا أردت تسجيل اسم التاجر المرتبط بهذه البضاعة.'}
           </p>
           <Input label="سعر التكلفة" type="number" min="0" step="0.01" value={purchaseCost} onChange={(event) => setPurchaseCost(event.target.value)} />
           <Input label="سعر البيع" type="number" min="0" step="0.01" value={sellingPrice} onChange={(event) => setSellingPrice(event.target.value)} />
@@ -564,7 +564,7 @@ export function OpeningStockModal({ isOpen, onClose, onCreated, stockType = 'gen
         {currentStep === 4 && <div className="opening-stock-stage space-y-5 rounded-2xl border border-border bg-surface p-5">
         <h3 className="text-lg font-bold text-text-primary">مراجعة المخزون الحالي</h3>
         <div className="grid gap-3 rounded-xl border border-border-subtle bg-surface-elevated p-4 text-sm text-text-secondary">
-          <div className="flex justify-between"><span>الطريقة</span><strong className="text-text-primary">{mode === 'quantity' ? 'كمية إجمالية' : mode === 'individual' ? 'قطعة فردية' : 'دفعة'}</strong></div>
+          <div className="flex justify-between"><span>الطريقة</span><strong className="text-text-primary">{mode === 'quantity' ? 'كمية إجمالية' : mode === 'individual' ? 'وحدة محددة' : 'دفعة'}</strong></div>
           <div className="flex justify-between"><span>الكمية</span><strong className="text-text-primary">{mode === 'batch' ? batchRows.length : mode === 'individual' ? 1 : quantity}</strong></div>
           <div className="flex justify-between"><span>سعر التكلفة</span><strong className="text-text-primary">₪{Number(purchaseCost || 0).toFixed(2)}</strong></div>
           <div className="flex justify-between"><span>سعر البيع</span><strong className="text-text-primary">₪{Number(sellingPrice || 0).toFixed(2)}</strong></div>

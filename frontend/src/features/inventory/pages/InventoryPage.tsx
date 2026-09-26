@@ -685,7 +685,7 @@ export function InventoryPage() {
       {/* Page Header */}
       <PageHeader
         title={t('inventory.title')}
-        description="إدارة المخزون والقطع مع تحليلات فورية"
+        description="إدارة المخزون والمنتجات مع تحليلات فورية"
         actions={
           <div className={cn(
             "flex gap-2",
@@ -989,7 +989,7 @@ export function InventoryPage() {
         }}
         onConfirm={handleConfirmDelete}
         title="حذف المنتج"
-        message="لا يمكن حذف المنتج ما دام له مخزون قائم أو معاملات أو حركات تاريخية. صفّر المخزون وعالج السجلات المرتبطة أولاً، أو عطّل المنتج للاحتفاظ بتاريخه."
+        message="سيعكس PartFlow أثر معاملات المنتج ومخزونه وسجلاته المرتبطة ثم يحذفها نهائيًا. قد يشمل ذلك فواتير كاملة مرتبطة بالمنتج. إذا تعذر عكس سجل بسبب بيانات متعارضة، سيظهر السبب ولن تُحذف بياناته."
         confirmText="حذف المنتج"
         cancelText="إلغاء"
         variant="danger"
@@ -1000,7 +1000,7 @@ export function InventoryPage() {
         onClose={() => setInventoryItemToDelete(null)}
         onConfirm={handleConfirmInventoryItemDelete}
         title="حذف عنصر المخزون"
-        message="سيُحذف العنصر ومخزونه فقط إذا لم يرتبط ببيع أو شراء أو مرتجع أو حركة مخزون. إذا كان مرتبطًا، يمنع PartFlow حذفه حتى لا تتغير الفواتير والتقارير؛ احذف العملية الأصلية من سجلها أولًا."
+        message="سيعكس PartFlow أثر المبيعات والمرتجعات وحركات المخزون المرتبطة بهذا العنصر ثم يحذف العنصر نهائيًا. قد تُحذف الفاتورة المرتبطة كاملةً مع عكس أثر بقية أصنافها. إذا تعذر العكس، سيظهر السبب ولن تُحذف البيانات."
         confirmText="تأكيد الحذف"
         isLoading={deleteInventoryItemMutation.isPending}
       />

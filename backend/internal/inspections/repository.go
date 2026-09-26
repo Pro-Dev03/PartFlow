@@ -206,15 +206,77 @@ func (r *Repository) CreateInspectionWithWorkflow(ctx context.Context, inspectio
 		return fmt.Errorf("failed to create inspection: %w", err)
 	}
 	if inspection.AcquisitionItemID != nil {
+		if err := captureInspectionWorkflowSnapshotTx(ctx, tx, inspection.ID, *inspection.AcquisitionItemID, inspection.InventoryItemID); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("capture inspection workflow before-state: %w", err)
+		}
 		if err := updateAcquisitionItemInspectionStatusTx(ctx, tx, r.db, *inspection.AcquisitionItemID, inspection.ID, inspection.InventoryItemID, inspection.Status); err != nil {
 			_ = tx.Rollback()
 			return err
+		}
+	} else if inspection.InventoryItemID != nil {
+		if err := captureStandaloneInventoryInspectionSnapshotTx(ctx, tx, inspection.ID, *inspection.InventoryItemID); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("capture standalone inventory inspection before-state: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit inspection creation transaction: %w", err)
 	}
 	return nil
+}
+
+// captureInspectionWorkflowSnapshotTx records the state that the inspection
+// workflow is about to replace. Keeping this at the first write makes a later
+// hard delete able to reverse the inspection without guessing what inventory
+// and acquisition state existed before it.
+func captureInspectionWorkflowSnapshotTx(ctx context.Context, tx *sqlx.Tx, inspectionID, acquisitionItemID uuid.UUID, inspectionInventoryItemID *uuid.UUID) error {
+	var inventoryItemID, inventoryStatus sql.NullString
+	var priorInventoryItemID, priorInspectionID, priorInspectionStatus, priorItemStatus sql.NullString
+	var acquisitionID, acquisitionStatus sql.NullString
+	query := `SELECT ai.inventory_item_id, ii.status, ai.inventory_item_id, ai.inspection_id,
+		ai.inspection_status, ai.item_status, ai.acquisition_id, a.status
+		FROM acquisition_items ai
+		LEFT JOIN acquisitions a ON a.id = ai.acquisition_id
+		LEFT JOIN inventory_items ii ON ii.id = COALESCE($1, ai.inventory_item_id)
+		WHERE ai.id = $2`
+	if err := tx.QueryRowxContext(ctx, query, inspectionInventoryItemID, acquisitionItemID).Scan(
+		&inventoryItemID, &inventoryStatus, &priorInventoryItemID, &priorInspectionID,
+		&priorInspectionStatus, &priorItemStatus, &acquisitionID, &acquisitionStatus,
+	); err != nil {
+		return fmt.Errorf("read acquisition workflow before-state: %w", err)
+	}
+	if inspectionInventoryItemID != nil {
+		inventoryItemID = sql.NullString{String: inspectionInventoryItemID.String(), Valid: true}
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO inspection_workflow_snapshots
+		(inspection_id, inventory_item_id, inventory_status_before, acquisition_item_id,
+		 acquisition_inventory_item_id_before, acquisition_inspection_id_before,
+		 acquisition_inspection_status_before, acquisition_item_status_before,
+		 acquisition_id, acquisition_status_before)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		ON CONFLICT (inspection_id) DO NOTHING`, inspectionID, nullStringValue(inventoryItemID), nullStringValue(inventoryStatus), acquisitionItemID,
+		nullStringValue(priorInventoryItemID), nullStringValue(priorInspectionID), nullStringValue(priorInspectionStatus), nullStringValue(priorItemStatus),
+		nullStringValue(acquisitionID), nullStringValue(acquisitionStatus))
+	return err
+}
+
+func captureStandaloneInventoryInspectionSnapshotTx(ctx context.Context, tx *sqlx.Tx, inspectionID, inventoryItemID uuid.UUID) error {
+	var status string
+	if err := tx.GetContext(ctx, &status, `SELECT status FROM inventory_items WHERE id = $1`, inventoryItemID); err != nil {
+		return fmt.Errorf("read standalone inventory item before-state: %w", err)
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO inspection_workflow_snapshots
+		(inspection_id, inventory_item_id, inventory_status_before)
+		VALUES ($1, $2, $3) ON CONFLICT (inspection_id) DO NOTHING`, inspectionID, inventoryItemID, status)
+	return err
+}
+
+func nullStringValue(value sql.NullString) any {
+	if !value.Valid {
+		return nil
+	}
+	return value.String
 }
 
 // GetInspectionByID retrieves an inspection by ID
@@ -470,6 +532,17 @@ func (r *Repository) UpdateInspectionWithWorkflow(ctx context.Context, inspectio
 	if err != nil {
 		return fmt.Errorf("begin inspection update transaction: %w", err)
 	}
+	if inspection.AcquisitionItemID != nil {
+		if err := captureInspectionWorkflowSnapshotTx(ctx, tx, inspection.ID, *inspection.AcquisitionItemID, inspection.InventoryItemID); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("capture inspection workflow before-state: %w", err)
+		}
+	} else if inspection.InventoryItemID != nil {
+		if err := captureStandaloneInventoryInspectionSnapshotTx(ctx, tx, inspection.ID, *inspection.InventoryItemID); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("capture standalone inventory inspection before-state: %w", err)
+		}
+	}
 	if err := r.updateInspection(ctx, tx, inspection); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -515,18 +588,187 @@ func (r *Repository) updateInspection(ctx context.Context, exec sqlx.ExtContext,
 
 // DeleteInspection deletes an inspection
 func (r *Repository) DeleteInspection(ctx context.Context, id uuid.UUID) error {
-	query := `DELETE FROM inspections WHERE id = $1`
+	return r.DeleteInspectionWithWorkflow(ctx, id)
+}
 
-	result, err := r.db.ExecContext(ctx, query, id)
+type inspectionWorkflowSnapshot struct {
+	InventoryItemID                   sql.NullString `db:"inventory_item_id"`
+	InventoryStatusBefore             sql.NullString `db:"inventory_status_before"`
+	AcquisitionItemID                 sql.NullString `db:"acquisition_item_id"`
+	AcquisitionInventoryItemIDBefore  sql.NullString `db:"acquisition_inventory_item_id_before"`
+	AcquisitionInspectionIDBefore     sql.NullString `db:"acquisition_inspection_id_before"`
+	AcquisitionInspectionStatusBefore sql.NullString `db:"acquisition_inspection_status_before"`
+	AcquisitionItemStatusBefore       sql.NullString `db:"acquisition_item_status_before"`
+	AcquisitionID                     sql.NullString `db:"acquisition_id"`
+	AcquisitionStatusBefore           sql.NullString `db:"acquisition_status_before"`
+}
+
+// DeleteInspectionWithWorkflow reverses the state written by an inspection
+// and removes it in one transaction. Legacy rows without snapshots use the
+// acquisition workflow's known pre-inspection defaults, and only restore an
+// item while its current state still matches the state produced by this
+// inspection; later sales or manual status changes are preserved.
+func (r *Repository) DeleteInspectionWithWorkflow(ctx context.Context, id uuid.UUID) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to delete inspection: %w", err)
+		return fmt.Errorf("begin inspection deletion transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	var result string
+	var inspectionInventoryItemID, acquisitionItemID sql.NullString
+	if err := tx.QueryRowxContext(ctx, `SELECT result, inventory_item_id, acquisition_item_id FROM inspections WHERE id = $1`, id).Scan(&result, &inspectionInventoryItemID, &acquisitionItemID); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrInspectionNotFound
+		}
+		return fmt.Errorf("load inspection for deletion: %w", err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	snapshot := inspectionWorkflowSnapshot{}
+	hasSnapshot := true
+	if err := tx.GetContext(ctx, &snapshot, `SELECT inventory_item_id, inventory_status_before, acquisition_item_id,
+		acquisition_inventory_item_id_before, acquisition_inspection_id_before,
+		acquisition_inspection_status_before, acquisition_item_status_before, acquisition_id, acquisition_status_before
+		FROM inspection_workflow_snapshots WHERE inspection_id = $1`, id); err != nil {
+		if err == sql.ErrNoRows {
+			hasSnapshot = false
+		} else {
+			return fmt.Errorf("load inspection workflow snapshot: %w", err)
+		}
+	}
+
+	if !hasSnapshot && acquisitionItemID.Valid {
+		// Prior to snapshots, acquisition items were materialized as available
+		// and acquisitions started in draft. Recover that documented baseline.
+		snapshot.AcquisitionItemID = acquisitionItemID
+		snapshot.AcquisitionInspectionIDBefore = sql.NullString{}
+		snapshot.AcquisitionInspectionStatusBefore = sql.NullString{}
+		snapshot.AcquisitionItemStatusBefore = sql.NullString{Valid: true, String: "available"}
+		if err := tx.QueryRowxContext(ctx, `SELECT inventory_item_id, acquisition_id FROM acquisition_items WHERE id = $1`, acquisitionItemID.String).Scan(&snapshot.AcquisitionInventoryItemIDBefore, &snapshot.AcquisitionID); err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("read legacy acquisition link before inspection deletion: %w", err)
+		}
+		if snapshot.AcquisitionID.Valid {
+			snapshot.AcquisitionStatusBefore = sql.NullString{Valid: true, String: "draft"}
+		}
+		if inspectionInventoryItemID.Valid {
+			snapshot.InventoryItemID = inspectionInventoryItemID
+			snapshot.InventoryStatusBefore = sql.NullString{Valid: true, String: "AVAILABLE"}
+		} else if snapshot.AcquisitionInventoryItemIDBefore.Valid {
+			snapshot.InventoryItemID = snapshot.AcquisitionInventoryItemIDBefore
+			snapshot.InventoryStatusBefore = sql.NullString{Valid: true, String: "AVAILABLE"}
+		}
+	}
+	if !hasSnapshot && !acquisitionItemID.Valid && inspectionInventoryItemID.Valid {
+		// Older standalone inspections did not capture snapshots. Their workflow
+		// starts from AVAILABLE; restoration is still guarded below by the
+		// inspection-produced status so later item changes are preserved.
+		snapshot.InventoryItemID = inspectionInventoryItemID
+		snapshot.InventoryStatusBefore = sql.NullString{Valid: true, String: "AVAILABLE"}
+	}
+
+	if snapshot.AcquisitionItemID.Valid {
+		var currentInspectionID, currentStatus, currentInspectionStatus, currentInventoryItemID sql.NullString
+		if err := tx.QueryRowxContext(ctx, `SELECT inspection_id, item_status, inspection_status, inventory_item_id FROM acquisition_items WHERE id = $1`, snapshot.AcquisitionItemID.String).Scan(&currentInspectionID, &currentStatus, &currentInspectionStatus, &currentInventoryItemID); err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("read acquisition item during inspection deletion: %w", err)
+		} else if err == nil && currentInspectionID.Valid && currentInspectionID.String == id.String() {
+			previousInventoryID := nullStringValue(snapshot.AcquisitionInventoryItemIDBefore)
+			if snapshot.AcquisitionInventoryItemIDBefore.Valid && currentInventoryItemID.Valid && snapshot.AcquisitionInventoryItemIDBefore.String != currentInventoryItemID.String {
+				previousInventoryID = currentInventoryItemID.String
+			}
+			previousInspectionStatus := nullStringValue(snapshot.AcquisitionInspectionStatusBefore)
+			if currentInspectionStatus.Valid && !strings.EqualFold(currentInspectionStatus.String, result) {
+				previousInspectionStatus = currentInspectionStatus.String
+			}
+			previousItemStatus := nullStringValue(snapshot.AcquisitionItemStatusBefore)
+			if currentStatus.Valid && !strings.EqualFold(currentStatus.String, inspectionResultAcquisitionStatus(result)) {
+				previousItemStatus = currentStatus.String
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE acquisition_items SET inventory_item_id = $1, inspection_id = $2,
+				inspection_status = $3, item_status = $4, updated_at = $5 WHERE id = $6`,
+				previousInventoryID, nullStringValue(snapshot.AcquisitionInspectionIDBefore), previousInspectionStatus,
+				previousItemStatus, time.Now().UTC(), snapshot.AcquisitionItemID.String); err != nil {
+				return fmt.Errorf("restore acquisition item before inspection: %w", err)
+			}
+			if snapshot.AcquisitionID.Valid {
+				var otherInspectionCount int
+				if err := tx.GetContext(ctx, &otherInspectionCount, `SELECT COUNT(*) FROM acquisition_items WHERE acquisition_id = $1 AND inspection_id IS NOT NULL`, snapshot.AcquisitionID.String); err != nil {
+					return fmt.Errorf("check related acquisition inspections: %w", err)
+				}
+				if otherInspectionCount == 0 && snapshot.AcquisitionStatusBefore.Valid {
+					if _, err := tx.ExecContext(ctx, `UPDATE acquisitions SET status = $1, updated_at = $2 WHERE id = $3`, snapshot.AcquisitionStatusBefore.String, time.Now().UTC(), snapshot.AcquisitionID.String); err != nil {
+						return fmt.Errorf("restore acquisition status before inspection: %w", err)
+					}
+				} else if err := recomputeAcquisitionInspectionStatusTx(ctx, tx, snapshot.AcquisitionID.String); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	if snapshot.InventoryItemID.Valid && snapshot.InventoryStatusBefore.Valid {
+		expectedCurrent := inspectionResultInventoryStatuses(result)
+		if len(expectedCurrent) != 0 {
+			placeholders := make([]string, 0, len(expectedCurrent))
+			args := []any{snapshot.InventoryStatusBefore.String, time.Now().UTC(), snapshot.InventoryItemID.String}
+			for index, status := range expectedCurrent {
+				placeholders = append(placeholders, fmt.Sprintf("$%d", index+4))
+				args = append(args, status)
+			}
+			query := fmt.Sprintf(`UPDATE inventory_items SET status = $1, updated_at = $2 WHERE id = $3 AND UPPER(TRIM(COALESCE(status,''))) IN (%s)`, strings.Join(placeholders, ","))
+			if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+				return fmt.Errorf("restore inventory status before inspection: %w", err)
+			}
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM inspection_items WHERE inspection_id = $1`, id); err != nil {
+		return fmt.Errorf("delete inspection checklist rows: %w", err)
+	}
+	resultDelete, err := tx.ExecContext(ctx, `DELETE FROM inspections WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete inspection: %w", err)
+	}
+	if affected, _ := resultDelete.RowsAffected(); affected == 0 {
 		return ErrInspectionNotFound
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit inspection deletion transaction: %w", err)
+	}
+	return nil
+}
 
+func inspectionResultInventoryStatuses(result string) []string {
+	switch strings.ToLower(strings.TrimSpace(result)) {
+	case "pending", "needs_repair":
+		return []string{"INSPECTION", "DAMAGED"}
+	case "passed":
+		return []string{"AVAILABLE"}
+	case "failed":
+		return []string{"DAMAGED"}
+	default:
+		return nil
+	}
+}
+
+func inspectionResultAcquisitionStatus(result string) string {
+	switch strings.ToLower(strings.TrimSpace(result)) {
+	case "passed":
+		return "available"
+	case "failed":
+		return "rejected"
+	default:
+		return "inspection"
+	}
+}
+
+func recomputeAcquisitionInspectionStatusTx(ctx context.Context, tx *sqlx.Tx, acquisitionID string) error {
+	_, err := tx.ExecContext(ctx, `UPDATE acquisitions SET status = CASE
+		WHEN EXISTS (SELECT 1 FROM acquisition_items WHERE acquisition_id = $1 AND inspection_status = 'failed') THEN 'rejected'
+		WHEN NOT EXISTS (SELECT 1 FROM acquisition_items WHERE acquisition_id = $1 AND inspection_status IN ('pending','needs_repair')) THEN 'approved'
+		ELSE 'inspection' END, updated_at = $2 WHERE id = $1`, acquisitionID, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("recompute acquisition status after inspection deletion: %w", err)
+	}
 	return nil
 }
 

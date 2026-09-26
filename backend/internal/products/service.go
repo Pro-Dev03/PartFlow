@@ -370,15 +370,10 @@ func (s *Service) UpdateMinimumStock(ctx context.Context, id uuid.UUID, minStock
 	return nil
 }
 
-// DeleteProduct permanently deletes an unused product. Products referenced by
-// financial, inventory, or service history must be detached through their own
-// operation workflows before they can be removed.
+// DeleteProduct reverses linked transactions and dependent stock/service
+// records, then hard-deletes the product in the same database transaction.
 func (s *Service) DeleteProduct(ctx context.Context, id uuid.UUID) error {
-	if err := s.repo.DeleteProduct(ctx, id); err != nil {
-		return err
-	}
-	dashboard.InvalidateDashboardCacheWithReason("product_deleted")
-	return nil
+	return s.deleteProductCascade(ctx, id)
 }
 
 // GenerateBarcode generates a new barcode for a product

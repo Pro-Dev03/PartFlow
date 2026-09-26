@@ -21,8 +21,13 @@ ALTER TABLE brands
 ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 
 -- Add is_active to part_types if it doesn't exist
-ALTER TABLE part_types
-ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+DO $$
+BEGIN
+    IF to_regclass('part_types') IS NOT NULL THEN
+        ALTER TABLE part_types ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+        CREATE INDEX IF NOT EXISTS idx_part_types_is_active ON part_types(is_active);
+    END IF;
+END $$;
 
 -- Add is_active to locations if it doesn't exist
 ALTER TABLE locations
@@ -33,7 +38,6 @@ CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
 CREATE INDEX IF NOT EXISTS idx_customers_is_active ON customers(is_active);
 CREATE INDEX IF NOT EXISTS idx_suppliers_is_active ON suppliers(is_active);
 CREATE INDEX IF NOT EXISTS idx_brands_is_active ON brands(is_active);
-CREATE INDEX IF NOT EXISTS idx_part_types_is_active ON part_types(is_active);
 CREATE INDEX IF NOT EXISTS idx_locations_is_active ON locations(is_active);
 
 SELECT 'is_active columns ensured in all required tables' as status;

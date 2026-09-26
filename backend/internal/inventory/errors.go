@@ -40,8 +40,10 @@ var (
 	ErrDuplicateSerialNumber = errors.New("serial number already exists")
 
 	// ErrCannotDeleteSoldItem is returned when trying to delete a sold item
-	ErrCannotDeleteSoldItem        = errors.New("cannot delete sold item")
-	ErrCannotDeleteItemWithHistory = errors.New("cannot permanently delete an inventory item linked to purchase, sales, returns, or stock history")
+	ErrCannotDeleteSoldItem            = errors.New("cannot delete sold item")
+	ErrCannotDeleteItemWithHistory     = errors.New("cannot permanently delete an inventory item linked to purchase, sales, returns, or stock history")
+	ErrInventoryAdjustmentNotFound     = errors.New("inventory adjustment not found")
+	ErrCannotDeleteInventoryAdjustment = errors.New("inventory adjustment cannot be safely reversed after later stock changes")
 
 	// ErrTransferFailed is returned when transfer fails
 	ErrTransferFailed = errors.New("inventory transfer failed")

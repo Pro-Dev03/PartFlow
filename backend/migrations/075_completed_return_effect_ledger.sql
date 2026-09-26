@@ -131,7 +131,7 @@ SELECT DATE_TRUNC('month', s.sale_date) AS month,
        COALESCE(SUM(s.cost_amount), 0) AS total_cost,
        COALESCE(SUM(s.gross_profit), 0) AS gross_profit,
        COALESCE(SUM(r.returns_amount), 0) AS returns_amount,
-       COALESCE(SUM(r.return_count), 0) AS return_count,
+       COALESCE(SUM(r.return_count), 0)::BIGINT AS return_count,
        COALESCE(SUM(s.total_amount), 0) - COALESCE(SUM(r.returns_amount), 0) AS net_sales
 FROM sales s
 LEFT JOIN returns_by_sale_month r ON r.sale_id = s.id AND r.month = DATE_TRUNC('month', s.sale_date)

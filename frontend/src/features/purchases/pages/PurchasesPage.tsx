@@ -120,9 +120,9 @@ export function PurchasesPage() {
         queryClient.invalidateQueries({ queryKey: ['purchase', purchaseToView] });
       }
       setItemToDelete(null);
-      toast.success('تم حذف قطعة الشراء');
+      toast.success('تم حذف المنتج من الشراء');
     },
-    onError: () => toast.error('تعذر حذف قطعة الشراء'),
+    onError: () => toast.error('تعذر حذف المنتج من الشراء'),
   });
 
   // Handle receive purchase
@@ -299,7 +299,7 @@ export function PurchasesPage() {
                 <TableRow>
                   <TableHead className="w-[12%]">فاتورة التاجر</TableHead>
                   <TableHead className="w-[18%]">التاجر</TableHead>
-                  <TableHead className="w-[9%]">القطع</TableHead>
+                  <TableHead className="w-[9%]">الوحدات</TableHead>
                   <TableHead className="w-[11%] text-center">الضريبة</TableHead>
                   <TableHead className="w-[12%] text-center">التكلفة</TableHead>
                   <TableHead className="w-[10%] text-center">المدفوع</TableHead>
@@ -402,7 +402,7 @@ export function PurchasesPage() {
                     </div>
 
                     <div className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">القطع</span><span className="font-medium text-text-secondary">{purchase.total_items || purchase.items?.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0) || 0}</span></div>
+                      <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">الوحدات</span><span className="font-medium text-text-secondary">{purchase.total_items || purchase.items?.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0) || 0}</span></div>
                       <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">التكلفة</span><span className="font-semibold text-text-primary">₪{purchase.total_amount?.toLocaleString()}</span></div>
                       <div className="flex items-center justify-between gap-2"><span className="text-text-tertiary">المتبقي</span><span className="font-semibold text-text-secondary">₪{purchase.remaining?.toLocaleString()}</span></div>
                     </div>
@@ -489,12 +489,12 @@ export function PurchasesPage() {
               <div><span className="text-sm text-text-muted">حالة الدفع</span><p><Badge variant={Number(purchaseDetailsRemaining) <= 0 ? 'success' : Number(purchaseDetails.paid_amount || 0) > 0 ? 'warning' : 'danger'}>{Number(purchaseDetailsRemaining) <= 0 ? 'مدفوعة' : Number(purchaseDetails.paid_amount || 0) > 0 ? 'مدفوعة جزئيًا' : 'غير مدفوعة'}</Badge></p></div>
             </div>
             <div>
-              <h2 className="font-semibold mb-3">القطع</h2>
+              <h2 className="font-semibold mb-3">المنتجات</h2>
               <div className="space-y-2">
                 {purchaseItems.map((item: any) => (
                   <div key={item.id} className="flex justify-between border-b border-border py-2">
                     <div>
-                      <div>{item.product_name || item.product?.name || 'قطعة'}</div>
+                      <div>{item.product_name || item.product?.name || 'منتج'}</div>
                       <div className="text-xs text-text-muted">
                         التصنيف: {categories.find((category) => category.id === item.category_id)?.name || 'بدون تصنيف'}
                       </div>
@@ -507,8 +507,8 @@ export function PurchasesPage() {
                           size="icon"
                           onClick={() => setItemToDelete(item)}
                           className="text-danger hover:text-danger"
-                          title="حذف القطعة"
-                          aria-label={`حذف ${item.product_name || item.product?.name || 'القطعة'}`}
+                          title="حذف المنتج"
+                          aria-label={`حذف ${item.product_name || item.product?.name || 'المنتج'}`}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -538,9 +538,9 @@ export function PurchasesPage() {
             deleteItemMutation.mutate(itemToDelete.id);
           }
         }}
-        title="حذف قطعة الشراء"
-        message={`هل أنت متأكد من حذف ${itemToDelete?.product_name || itemToDelete?.product?.name || 'هذه القطعة'} من محتويات الشراء؟`}
-        confirmText="حذف القطعة"
+        title="حذف منتج من الشراء"
+        message={`هل أنت متأكد من حذف ${itemToDelete?.product_name || itemToDelete?.product?.name || 'هذا المنتج'} من محتويات الشراء؟`}
+        confirmText="حذف المنتج"
         isLoading={deleteItemMutation.isPending}
         variant="danger"
       />

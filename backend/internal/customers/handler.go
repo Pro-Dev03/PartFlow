@@ -218,27 +218,12 @@ func (h *Handler) DeleteCustomer(c *gin.Context) {
 			errors.HandleError(c, errors.NewNotFoundError("Customer", err))
 			return
 		}
-		if err == ErrCustomerHasOutstandingDebt {
-			errors.HandleError(c, errors.NewConflictError("Cannot delete customer with outstanding debt", err))
-			return
-		}
-		if err == ErrCustomerHasActiveTransactions {
-			errors.HandleError(c, errors.NewConflictError("Cannot delete customer with active transactions", err))
-			return
-		}
-		if err == ErrCustomerHasActiveWarranties {
-			errors.HandleError(c, errors.NewConflictError("Cannot delete customer with active warranties", err))
-			return
-		}
 		errors.HandleError(c, errors.WrapError(err, "Failed to delete customer"))
 		return
 	}
 	h.cache.clear()
 
-	if actor := middleware.GetUserID(c); actor != uuid.Nil {
-		_ = audit.RecordDirect(c.Request.Context(), h.service.repo.db, actor, "DELETE", "customer", id, "أرشفة عميل")
-	}
-	response.Success(c, http.StatusOK, nil, "Customer archived successfully")
+	response.Success(c, http.StatusOK, nil, "Customer deleted successfully")
 }
 
 // GetCustomerLedger handles customer ledger retrieval

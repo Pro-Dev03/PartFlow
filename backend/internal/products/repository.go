@@ -383,18 +383,21 @@ func (r *Repository) UpdateCategory(ctx context.Context, category *Category) err
 
 // DeleteCategory deletes a category
 func (r *Repository) DeleteCategory(ctx context.Context, id uuid.UUID) error {
-	// First, set category_id to NULL for all products in this category
-	updateQuery := `UPDATE products SET category_id = NULL WHERE category_id = $1`
-	_, err := r.db.ExecContext(ctx, updateQuery, id)
+	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin category deletion: %w", err)
 	}
+	defer tx.Rollback()
 
-	// Now delete the category
-	query := `DELETE FROM categories WHERE id = $1`
-	result, err := r.db.ExecContext(ctx, query, id)
+	// Detach products and remove their category in one transaction. If the
+	// category delete fails (for example, a concurrent reference or trigger),
+	// products must retain their original category assignment.
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE products SET category_id = NULL WHERE category_id = ?`), id); err != nil {
+		return fmt.Errorf("detach products before category deletion: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM categories WHERE id = ?`), id)
 	if err != nil {
-		return err
+		return fmt.Errorf("delete category: %w", err)
 	}
 
 	rows, err := result.RowsAffected()
@@ -405,7 +408,9 @@ func (r *Repository) DeleteCategory(ctx context.Context, id uuid.UUID) error {
 	if rows == 0 {
 		return ErrCategoryNotFound
 	}
-
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit category deletion: %w", err)
+	}
 	return nil
 }
 
@@ -521,22 +526,32 @@ func (r *Repository) UpdateBrand(ctx context.Context, brand *Brand) error {
 
 // DeleteBrand deletes a brand
 func (r *Repository) DeleteBrand(ctx context.Context, id uuid.UUID) error {
-	// Check if brand has products
-	var count int
-	checkQuery := `SELECT COUNT(*) FROM products WHERE brand_id = $1`
-	err := r.db.GetContext(ctx, &count, checkQuery, id)
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin brand deletion: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Acquire a write lock before checking links so a product cannot be added
+	// between the reference check and deleting the brand.
+	lockResult, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE brands SET id = id WHERE id = ?`), id)
+	if err != nil {
+		return fmt.Errorf("lock brand before deletion: %w", err)
+	}
+	lockedRows, err := lockResult.RowsAffected()
 	if err != nil {
 		return err
 	}
-
-	if count > 0 {
-		return ErrBrandHasProducts
+	if lockedRows == 0 {
+		return ErrBrandNotFound
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE products SET brand_id=NULL WHERE brand_id=?`), id); err != nil {
+		return fmt.Errorf("detach products before brand deletion: %w", err)
 	}
 
-	query := `DELETE FROM brands WHERE id = $1`
-	result, err := r.db.ExecContext(ctx, query, id)
+	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM brands WHERE id = ?`), id)
 	if err != nil {
-		return err
+		return fmt.Errorf("delete brand: %w", err)
 	}
 
 	rows, err := result.RowsAffected()
@@ -547,7 +562,9 @@ func (r *Repository) DeleteBrand(ctx context.Context, id uuid.UUID) error {
 	if rows == 0 {
 		return ErrBrandNotFound
 	}
-
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit brand deletion: %w", err)
+	}
 	return nil
 }
 
@@ -906,16 +923,29 @@ func (r *Repository) UpdateMinimumStock(ctx context.Context, id uuid.UUID, minSt
 	return nil
 }
 
-// DeleteProduct permanently deletes a product and all transaction history that
-// is linked to it. The cleanup is intentionally done in one
-// transaction: dashboard/report totals read the parent transaction tables, so
-// deleting only sale_items or purchase_items would leave stale totals behind.
+// DeleteProduct hard-deletes only an unused product. Any stock or linked
+// transaction/service history blocks deletion so it can be resolved through
+// its own reversal workflow without erasing other invoice lines or reports.
 func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := r.deleteProductTx(ctx, tx, id, false); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DeleteProductCascadeTx deletes an already-reversed product inside the
+// caller-owned transaction. All sale, purchase, return, and acquisition
+// effects must be reversed before this is called.
+func (r *Repository) DeleteProductCascadeTx(ctx context.Context, tx *sqlx.Tx, id uuid.UUID) error {
+	return r.deleteProductTx(ctx, tx, id, true)
+}
+
+func (r *Repository) deleteProductTx(ctx context.Context, tx *sqlx.Tx, id uuid.UUID, cascaded bool) error {
 
 	var productID string
 	productQuery := `SELECT CAST(id AS TEXT) FROM products WHERE id = ?`
@@ -954,7 +984,7 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	// A product can have sellable aggregate stock without individual item rows.
 	// Keep the product until both forms of stock are cleared; otherwise deleting
 	// its catalog row would silently discard quantity-based inventory.
-	if len(inventoryItemIDs) > 0 {
+	if len(inventoryItemIDs) > 0 && !cascaded {
 		return ErrProductHasHistory
 	}
 	if hasInventoryQuantity, err := productColumnExists(ctx, tx, dbutil.IsSQLite(r.db), "inventory", "quantity"); err != nil {
@@ -964,7 +994,7 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 		if err := tx.GetContext(ctx, &hasQuantity, tx.Rebind(`SELECT EXISTS (SELECT 1 FROM inventory WHERE product_id = ? AND COALESCE(quantity, 0) <> 0)`), id); err != nil {
 			return fmt.Errorf("check aggregate product stock: %w", err)
 		}
-		if hasQuantity {
+		if hasQuantity && !cascaded {
 			return ErrProductHasHistory
 		}
 	}
@@ -975,7 +1005,7 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 		if err := tx.GetContext(ctx, &hasReserved, tx.Rebind(`SELECT EXISTS (SELECT 1 FROM inventory WHERE product_id = ? AND COALESCE(reserved_quantity, 0) <> 0)`), id); err != nil {
 			return fmt.Errorf("check reserved product stock: %w", err)
 		}
-		if hasReserved {
+		if hasReserved && !cascaded {
 			return ErrProductHasHistory
 		}
 	}
@@ -1017,7 +1047,7 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 		if err != nil {
 			return fmt.Errorf("check product history before deletion: %w", err)
 		}
-		if len(rows) > 0 {
+		if len(rows) > 0 && !cascaded {
 			return ErrProductHasHistory
 		}
 	}
@@ -1126,6 +1156,7 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 		args  []any
 	}{
 		{`DELETE FROM inventory_movements WHERE product_id = ?`, []any{id}},
+		{`DELETE FROM financial_transactions WHERE product_id = ?`, []any{id}},
 		{`DELETE FROM inventory_movements WHERE item_id IN (?)`, []any{inventoryItemIDs}},
 		{`DELETE FROM reservations WHERE item_id IN (?)`, []any{inventoryItemIDs}},
 		{`DELETE FROM item_specification_values WHERE inventory_item_id IN (?)`, []any{inventoryItemIDs}},
@@ -1154,7 +1185,7 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 		return ErrProductNotFound
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 func productColumnExists(ctx context.Context, tx *sqlx.Tx, isSQLite bool, table, column string) (bool, error) {

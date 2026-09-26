@@ -2,6 +2,23 @@
 -- Individual Items, Conditions, Grades, Movements, Reservations
 
 -- ============================================
+-- Locations must exist before inventory_items adds its foreign key.
+-- ============================================
+CREATE TABLE IF NOT EXISTS locations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL,
+    type VARCHAR(50) NOT NULL CHECK (type IN ('warehouse', 'shelf', 'box', 'display')),
+    parent_id UUID REFERENCES locations(id),
+    warehouse_id UUID REFERENCES locations(id),
+    description TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id);
+CREATE INDEX IF NOT EXISTS idx_locations_warehouse ON locations(warehouse_id);
+
+-- ============================================
 -- Inventory Items (Individual items tracking)
 -- ============================================
 CREATE TABLE IF NOT EXISTS inventory_items (
@@ -31,25 +48,6 @@ CREATE INDEX IF NOT EXISTS idx_inventory_items_serial ON inventory_items(serial_
 CREATE INDEX IF NOT EXISTS idx_inventory_items_status ON inventory_items(status);
 CREATE INDEX IF NOT EXISTS idx_inventory_items_condition ON inventory_items(condition);
 CREATE INDEX IF NOT EXISTS idx_inventory_items_location ON inventory_items(location_id);
-
--- ============================================
--- Locations (Enhanced with hierarchy)
--- ============================================
-CREATE TABLE IF NOT EXISTS locations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    
-    name VARCHAR(255) NOT NULL,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('warehouse', 'shelf', 'box', 'display')),
-    parent_id UUID REFERENCES locations(id),
-    warehouse_id UUID REFERENCES locations(id),
-    description TEXT,
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id);
-CREATE INDEX IF NOT EXISTS idx_locations_warehouse ON locations(warehouse_id);
 
 -- ============================================
 -- Inventory Movements (Track all inventory changes)

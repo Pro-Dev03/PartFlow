@@ -11,6 +11,10 @@ CREATE TABLE IF NOT EXISTS supplier_ledger (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 003 created supplier_ledger with transaction_type instead of type. Keep the
+-- legacy schema compatible while later runtime reconciliation backfills both.
+ALTER TABLE supplier_ledger ADD COLUMN IF NOT EXISTS type VARCHAR(20);
+
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_supplier ON supplier_ledger(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_type ON supplier_ledger(type);
 CREATE INDEX IF NOT EXISTS idx_supplier_ledger_created_at ON supplier_ledger(created_at);

@@ -491,6 +491,31 @@ func (h *Handler) GetTransaction(c *gin.Context) {
 	response.OK(c, tx, "Transaction retrieved successfully")
 }
 
+// DeleteTransaction removes an independent financial row, or cascades through
+// its source sale when it is linked to an invoice.
+func (h *Handler) DeleteTransaction(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "invalid transaction id")
+		return
+	}
+	var userID uuid.UUID
+	if value, exists := c.Get("user_id"); exists {
+		if parsed, ok := value.(uuid.UUID); ok {
+			userID = parsed
+		}
+	}
+	if err := h.service.DeleteTransaction(c.Request.Context(), id, userID); err != nil {
+		if stderrors.Is(err, ErrFinancialTransactionNotFound) {
+			response.NotFound(c, "financial transaction not found")
+			return
+		}
+		response.InternalError(c, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"deleted": true}, "Financial transaction deleted successfully")
+}
+
 // ListTransactions retrieves transactions with pagination and filters
 // @Summary List Transactions
 // @Description Get transactions with pagination and filters

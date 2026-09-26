@@ -21,6 +21,31 @@ CREATE INDEX IF NOT EXISTS idx_inventory_last_movement ON inventory(last_movemen
 -- 2. Enhanced Ledger Entries for Immutable History
 -- ============================================================
 
+-- This migration runs before 031_create_unified_ledger.sql on a fresh
+-- installation, but the migration already alters and attaches triggers to the
+-- ledger table. Create the base shape here so the ordered chain is valid; 031
+-- remains idempotent and adds the ledger views and indexes afterwards.
+CREATE TABLE IF NOT EXISTS ledger_entries (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    ledger_type VARCHAR(20) NOT NULL CHECK (ledger_type IN ('CUSTOMER', 'SUPPLIER', 'INVENTORY')),
+    entity_id UUID NOT NULL,
+    transaction_type VARCHAR(50) NOT NULL CHECK (transaction_type IN (
+        'SALE', 'PAYMENT', 'RETURN', 'REFUND', 'ADJUSTMENT',
+        'PURCHASE', 'PURCHASE_PAYMENT',
+        'STOCK_IN', 'STOCK_OUT', 'STOCK_ADJUSTMENT', 'TRANSFER', 'DAMAGED', 'REPAIR'
+    )),
+    reference_id UUID,
+    reference_type VARCHAR(50),
+    amount DECIMAL(15,2) NOT NULL,
+    balance DECIMAL(15,2) NOT NULL,
+    previous_balance DECIMAL(15,2) DEFAULT 0,
+    description TEXT,
+    metadata JSONB DEFAULT '{}',
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT unique_reference UNIQUE (reference_type, reference_id)
+);
+
 -- Add fields to ledger_entries for better history tracking (ARCHITECTURE-PRINCIPLES.md)
 ALTER TABLE ledger_entries
 ADD COLUMN IF NOT EXISTS cost_before DECIMAL(15,2) DEFAULT 0.00,

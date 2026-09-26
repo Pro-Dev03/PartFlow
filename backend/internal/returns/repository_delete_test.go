@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/partflow/smart-store/internal/reports"
-	salesrepo "github.com/partflow/smart-store/internal/sales"
 	_ "modernc.org/sqlite"
 )
 
@@ -46,7 +45,67 @@ func TestDeleteReturnRemovesUnprocessedReturnAndWritesDeletionAudit(t *testing.T
 	}
 }
 
-func TestDeleteCompletedReturnPreservesPostedEffectsAndReports(t *testing.T) {
+func TestDeleteCustomerReturnReversesLinkedSupplierReturn(t *testing.T) {
+	db := openReturnDeleteDB(t)
+	ctx := context.Background()
+	returnID, supplierReturnID := uuid.New(), uuid.New()
+	supplierID, productID, inventoryItemID := uuid.New(), uuid.New(), uuid.New()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	insert := func(query string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(query, args...); err != nil {
+			t.Fatalf("insert linked return fixture: %v", err)
+		}
+	}
+	insert(`INSERT INTO returns (id,return_number,status,return_date,created_at,updated_at) VALUES (?, 'RET-CASCADE', 'PENDING', ?, ?, ?)`, returnID, now, now, now)
+	insert(`INSERT INTO suppliers (id,name,current_balance,updated_at) VALUES (?, 'Supplier', -50, ?)`, supplierID, now)
+	insert(`INSERT INTO products (id,name,cost_price) VALUES (?, 'Product', 50)`, productID)
+	insert(`INSERT INTO inventory_items (id,product_id,status,purchase_cost,supplier_id,created_at,updated_at) VALUES (?, ?, 'RETURNED', 50, ?, ?, ?)`, inventoryItemID, productID, supplierID, now, now)
+	insert(`INSERT INTO inventory (id,product_id,quantity,updated_at) VALUES (?, ?, 0, ?)`, uuid.New(), productID, now)
+	insert(`INSERT INTO supplier_returns (id,customer_return_id,purchase_id,supplier_id,return_number,status,reason,refund_amount,created_at,updated_at) VALUES (?, ?, ?, ?, 'SRET-CASCADE', 'COMPLETED', 'customer return', 50, ?, ?)`, supplierReturnID, returnID, uuid.New(), supplierID, now, now)
+	insert(`INSERT INTO supplier_return_items (id,supplier_return_id,inventory_item_id,purchase_item_id,product_id,quantity,unit_cost,created_at) VALUES (?, ?, ?, ?, ?, 1, 50, ?)`, uuid.New(), supplierReturnID, inventoryItemID, uuid.New(), productID, now)
+	insert(`INSERT INTO inventory_movements (id,item_id,product_id,movement_type,quantity,reference_type,reference_id,created_at) VALUES (?, ?, ?, 'SUPPLIER_RETURN', -1, 'supplier_return', ?, ?)`, uuid.New(), inventoryItemID, productID, supplierReturnID, now)
+	insert(`INSERT INTO supplier_ledger (id,supplier_id,type,transaction_type,amount,reference_id) VALUES (?, ?, 'credit', 'SUPPLIER_RETURN', 50, ?)`, uuid.New(), supplierID, supplierReturnID)
+
+	if err := NewRepository(db).DeleteReturn(ctx, returnID); err != nil {
+		t.Fatalf("delete customer return with supplier bridge: %v", err)
+	}
+	var returnCount, supplierReturnCount, supplierItemCount, movementCount, ledgerCount, stock int
+	var inventoryStatus string
+	var supplierBalance float64
+	for query, destination := range map[string]any{
+		`SELECT COUNT(*) FROM returns WHERE id=?`:                               &returnCount,
+		`SELECT COUNT(*) FROM supplier_returns WHERE id=?`:                      &supplierReturnCount,
+		`SELECT COUNT(*) FROM supplier_return_items WHERE supplier_return_id=?`: &supplierItemCount,
+		`SELECT COUNT(*) FROM inventory_movements WHERE reference_id=?`:         &movementCount,
+		`SELECT COUNT(*) FROM supplier_ledger WHERE reference_id=?`:             &ledgerCount,
+		`SELECT quantity FROM inventory WHERE product_id=?`:                     &stock,
+		`SELECT status FROM inventory_items WHERE id=?`:                         &inventoryStatus,
+		`SELECT current_balance FROM suppliers WHERE id=?`:                      &supplierBalance,
+	} {
+		var arg uuid.UUID
+		switch destination {
+		case &returnCount:
+			arg = returnID
+		case &supplierReturnCount, &supplierItemCount, &movementCount, &ledgerCount:
+			arg = supplierReturnID
+		case &stock:
+			arg = productID
+		case &inventoryStatus:
+			arg = inventoryItemID
+		case &supplierBalance:
+			arg = supplierID
+		}
+		if err := db.Get(destination, query, arg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if returnCount != 0 || supplierReturnCount != 0 || supplierItemCount != 0 || movementCount != 0 || ledgerCount != 0 || stock != 1 || inventoryStatus != "AVAILABLE" || supplierBalance != 0 {
+		t.Fatalf("customer/supplier return cascade left inconsistent data: returns=%d supplier_returns=%d items=%d movements=%d ledger=%d stock=%d item_status=%s supplier_balance=%v", returnCount, supplierReturnCount, supplierItemCount, movementCount, ledgerCount, stock, inventoryStatus, supplierBalance)
+	}
+}
+
+func TestDeleteCompletedReturnReversesEffectsAndHardDeletes(t *testing.T) {
 	db := openReturnDeleteDB(t)
 	ctx := context.Background()
 	returnID := uuid.New().String()
@@ -74,6 +133,7 @@ func TestDeleteCompletedReturnPreservesPostedEffectsAndReports(t *testing.T) {
 	insert(`INSERT INTO return_items (id, return_id, sale_item_id, product_id, inventory_item_id, quantity_returned, original_quantity, unit_price, total_refund_amount, original_cost, created_at) VALUES ('return-item-1', ?, ?, ?, ?, 2, 10, 100, 200, 50, ?)`, returnID, saleItemID, productID, inventoryItemID, storeDate)
 	insert(`INSERT INTO inventory (id, product_id, quantity) VALUES ('inventory-1', ?, 5)`, productID)
 	insert(`INSERT INTO inventory_movements (id, item_id, product_id, movement_type, quantity, reference_type, reference_id, created_at) VALUES ('movement-1', ?, ?, 'RETURN', 2, 'return', ?, ?)`, inventoryItemID, productID, returnID, storeDate)
+	insert(`INSERT INTO customer_ledger (id, customer_id, type, amount, balance, reference_type, reference_id, created_at) VALUES ('customer-ledger-sale', ?, 'debit', 1000, 1000, 'sale', ?, ?)`, customerID, saleID, storeDate)
 	insert(`INSERT INTO customer_ledger (id, customer_id, type, amount, balance, reference_type, reference_id, created_at) VALUES ('customer-ledger-1', ?, 'credit', 200, 800, 'return', ?, ?)`, customerID, returnID, storeDate)
 	insert(`INSERT INTO customers (id, current_balance, updated_at) VALUES (?, 800, ?)`, customerID, storeDate)
 	insert(`INSERT INTO debts (id, amount, paid_amount, remaining_amount, status, updated_at) VALUES (?, 1000, 200, 800, 'partial', ?)`, debtID, storeDate)
@@ -155,30 +215,37 @@ func TestDeleteCompletedReturnPreservesPostedEffectsAndReports(t *testing.T) {
 	if beforeReturns.TotalRefunded != 200 || beforeReturns.TotalReturns != 1 {
 		t.Fatalf("pre-delete return totals = amount %v, count %d; want 200, 1", beforeReturns.TotalRefunded, beforeReturns.TotalReturns)
 	}
-	if afterSales.TotalRevenue != beforeSales.TotalRevenue || afterSales.TotalCOGS != beforeSales.TotalCOGS || afterSales.TotalItemsSold != beforeSales.TotalItemsSold {
-		t.Fatalf("sales report changed after deleting admin record: before=%+v after=%+v", beforeSales, afterSales)
+	if afterSales.TotalRevenue != 1000 || afterSales.TotalCOGS != 500 || afterSales.TotalItemsSold != 10 {
+		t.Fatalf("sales totals after reversing return = revenue %v, cogs %v, items %v; want 1000, 500, 10", afterSales.TotalRevenue, afterSales.TotalCOGS, afterSales.TotalItemsSold)
 	}
-	if afterProfit.TotalRevenue != beforeProfit.TotalRevenue || afterProfit.TotalCOGS != beforeProfit.TotalCOGS || afterProfit.NetProfit != beforeProfit.NetProfit {
-		t.Fatalf("profit report changed after deleting admin record: before=%+v after=%+v", beforeProfit, afterProfit)
+	if afterProfit.TotalRevenue != 1000 || afterProfit.TotalCOGS != 500 || afterProfit.NetProfit != 500 {
+		t.Fatalf("profit totals after reversing return = revenue %v, cogs %v, net %v; want 1000, 500, 500", afterProfit.TotalRevenue, afterProfit.TotalCOGS, afterProfit.NetProfit)
 	}
-	if afterReturns.TotalRefunded != beforeReturns.TotalRefunded || afterReturns.TotalReturns != beforeReturns.TotalReturns {
+	if afterReturns.TotalRefunded != 0 || afterReturns.TotalReturns != 0 {
 		t.Fatalf("financial returns report changed after deleting admin record: before=%+v after=%+v", beforeReturns, afterReturns)
 	}
-	if beforeStats["total_refunded"] != float64(200) || beforeStats["total_returns"] != 1 || afterStats["total_refunded"] != beforeStats["total_refunded"] || afterStats["total_returns"] != beforeStats["total_returns"] {
+	if beforeStats["total_refunded"] != float64(200) || beforeStats["total_returns"] != 1 || afterStats["total_refunded"] != float64(0) || afterStats["total_returns"] != 0 {
 		t.Fatalf("return page statistics changed after deletion: before=%+v after=%+v", beforeStats, afterStats)
 	}
-	if len(beforeMonthly) != 1 || len(afterMonthly) != 1 || beforeMonthly[0].TotalRefundAmount != 200 || afterMonthly[0].TotalRefundAmount != beforeMonthly[0].TotalRefundAmount {
+	if len(beforeMonthly) != 1 || len(afterMonthly) != 0 || beforeMonthly[0].TotalRefundAmount != 200 {
 		t.Fatalf("monthly return report changed after deletion: before=%+v after=%+v", beforeMonthly, afterMonthly)
 	}
-	if len(beforeSalesReturns) != 1 || len(afterSalesReturns) != 1 || beforeSalesReturns[0].NetSales != 800 || afterSalesReturns[0].NetSales != beforeSalesReturns[0].NetSales || afterSalesReturns[0].ReturnsAmount != beforeSalesReturns[0].ReturnsAmount {
+	if len(beforeSalesReturns) != 1 || len(afterSalesReturns) != 1 || beforeSalesReturns[0].NetSales != 800 || afterSalesReturns[0].NetSales != 1000 || afterSalesReturns[0].ReturnsAmount != 0 {
 		t.Fatalf("sales/returns analysis changed after deletion: before=%+v after=%+v", beforeSalesReturns, afterSalesReturns)
 	}
-	saleDetails, err := salesrepo.NewRepository(db).GetSaleItems(ctx, uuid.MustParse(saleID))
-	if err != nil {
-		t.Fatalf("sale invoice details after return deletion: %v", err)
+	var actualSaleItemID string
+	if err := db.Get(&actualSaleItemID, `SELECT id FROM sale_items WHERE sale_id=?`, saleID); err != nil {
+		t.Fatalf("load sale item after return deletion: %v", err)
 	}
-	if len(saleDetails) != 1 || saleDetails[0].ReturnedQuantity != 2 || saleDetails[0].RemainingQuantity != 8 {
-		t.Fatalf("sale history lost returned quantities: %+v", saleDetails)
+	var returnedQuantity, remainingQuantity int
+	if err := db.Get(&returnedQuantity, `SELECT COALESCE(SUM(quantity_returned),0) FROM accounting_return_items WHERE sale_item_id=?`, actualSaleItemID); err != nil {
+		t.Fatalf("load returned quantity after return deletion: %v", err)
+	}
+	if err := db.Get(&remainingQuantity, `SELECT quantity-? FROM sale_items WHERE id=?`, returnedQuantity, actualSaleItemID); err != nil {
+		t.Fatalf("load remaining sale quantity after return deletion: %v", err)
+	}
+	if returnedQuantity != 0 || remainingQuantity != 10 {
+		t.Fatalf("sale invoice quantities after return reversal = returned %d, remaining %d; want 0, 10", returnedQuantity, remainingQuantity)
 	}
 
 	var adminReturns, adminItems, inspectionCount, returnRefundCount, effectRefundCount, deleteAuditCount int
@@ -214,13 +281,13 @@ func TestDeleteCompletedReturnPreservesPostedEffectsAndReports(t *testing.T) {
 			t.Fatalf("check %q: %v", check.query, err)
 		}
 	}
-	if adminReturns != 0 || adminItems != 0 || inspectionCount != 0 || returnRefundCount != 0 || effectRefundCount != 1 || deleteAuditCount != 1 {
+	if adminReturns != 0 || adminItems != 0 || inspectionCount != 0 || returnRefundCount != 0 || effectRefundCount != 0 || deleteAuditCount != 1 {
 		t.Fatalf("admin/effect cleanup results return=%d items=%d inspections=%d refunds=%d effect_refunds=%d deletion_audit=%d", adminReturns, adminItems, inspectionCount, returnRefundCount, effectRefundCount, deleteAuditCount)
 	}
-	if stock != 5 || returnedUnitStatus != "AVAILABLE" || debtRemaining != 800 || customerBalance != 800 || refundCount != 1 || paymentStatus != "partially_refunded" || movementCount != 1 || customerLedgerCount != 1 {
+	if stock != 3 || returnedUnitStatus != "SOLD" || debtRemaining != 1000 || customerBalance != 1000 || refundCount != 1 || paymentStatus != "partially_refunded" || movementCount != 0 || customerLedgerCount != 0 {
 		t.Fatalf("posted effects changed: stock=%d unit-status=%s debt=%d balance=%d refund=%d payment=%s movements=%d customer-ledger=%d", stock, returnedUnitStatus, debtRemaining, customerBalance, refundCount, paymentStatus, movementCount, customerLedgerCount)
 	}
-	if effectCount != 1 || effectItemCount != 1 || saleCount != 1 || saleItemCount != 1 {
+	if effectCount != 0 || effectItemCount != 0 || saleCount != 1 || saleItemCount != 1 {
 		t.Fatalf("ledger/sales detail result effects=%d effect_items=%d sales=%d sale_items=%d", effectCount, effectItemCount, saleCount, saleItemCount)
 	}
 }
@@ -278,8 +345,8 @@ func openReturnDeleteDB(t *testing.T) *sqlx.DB {
 		CREATE TABLE return_refunds (id TEXT PRIMARY KEY, return_id TEXT, refund_type TEXT, amount REAL, refund_date TEXT, payment_method TEXT, transaction_reference TEXT, debt_id TEXT, debt_reduction_amount REAL, created_at TEXT);
 		CREATE TABLE return_inspection (id TEXT PRIMARY KEY, return_item_id TEXT);
 		CREATE TABLE return_audit_log (id TEXT PRIMARY KEY, return_id TEXT);
-		CREATE TABLE supplier_returns (id TEXT PRIMARY KEY, supplier_id TEXT, customer_return_id TEXT);
-		CREATE TABLE supplier_return_items (id TEXT PRIMARY KEY, supplier_return_id TEXT, customer_return_id TEXT, purchase_item_id TEXT);
+		CREATE TABLE supplier_returns (id TEXT PRIMARY KEY, customer_return_id TEXT, sale_id TEXT, purchase_id TEXT, supplier_id TEXT, return_number TEXT, status TEXT, source_status TEXT, reason TEXT, notes TEXT, created_by TEXT, return_reason TEXT, return_date TEXT, refund_amount REAL, created_at TEXT, updated_at TEXT);
+		CREATE TABLE supplier_return_items (id TEXT PRIMARY KEY, supplier_return_id TEXT, customer_return_id TEXT, sale_id TEXT, sale_item_id TEXT, inventory_item_id TEXT, purchase_item_id TEXT, product_id TEXT, barcode TEXT, serial_number TEXT, return_reason TEXT, return_date TEXT, created_at TEXT, quantity INTEGER, unit_cost REAL, purchase_cost REAL);
 		CREATE TABLE supplier_ledger (id TEXT PRIMARY KEY, supplier_id TEXT, type TEXT, transaction_type TEXT, amount REAL, reference_id TEXT);
 		CREATE TABLE suppliers (id TEXT PRIMARY KEY, name TEXT, current_balance REAL, updated_at TEXT);
 		CREATE TABLE audit_logs (id TEXT PRIMARY KEY, user_id TEXT, action TEXT, entity_type TEXT, entity_id TEXT, new_values TEXT, created_at TEXT, updated_at TEXT);

@@ -31,6 +31,7 @@ func RegisterRoutes(router *gin.RouterGroup, db *sqlx.DB) {
 	{
 		transactions.POST("", handler.CreateTransaction)
 		transactions.GET("/:id", handler.GetTransaction)
+		transactions.DELETE("/:id", handler.DeleteTransaction)
 		transactions.GET("", handler.ListTransactions)
 		transactions.GET("/accounts/:account/balance", handler.GetAccountBalance)
 	}

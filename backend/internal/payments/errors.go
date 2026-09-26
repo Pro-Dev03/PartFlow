@@ -20,4 +20,20 @@ var (
 
 	// ErrPaymentCannotBeCancelled is returned when payment cannot be cancelled
 	ErrPaymentCannotBeCancelled = errors.New("payment cannot be cancelled")
+
+	// ErrPaymentAllocationHistoryMissing means a legacy account payment has no
+	// recorded debt allocation map, so reversing it by guessing is unsafe.
+	ErrPaymentAllocationHistoryMissing = errors.New("payment debt allocation history is missing")
+
+	// ErrPaymentAllocationTrackingUnavailable means the schema needed to record
+	// or reverse allocation history has not been migrated yet.
+	ErrPaymentAllocationTrackingUnavailable = errors.New("payment allocation tracking schema is unavailable; apply the payment allocation migration")
+
+	// ErrPaymentHistoryInconsistent means linked financial rows do not agree
+	// with the payment and the transaction was left unchanged.
+	ErrPaymentHistoryInconsistent = errors.New("payment financial history is inconsistent")
+
+	// ErrPaymentRequiresProviderRefund means an external provider still reports
+	// money as captured or pending and must be refunded/cancelled first.
+	ErrPaymentRequiresProviderRefund = errors.New("payment requires provider refund or cancellation")
 )

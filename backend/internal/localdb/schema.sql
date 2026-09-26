@@ -165,6 +165,26 @@ CREATE TABLE IF NOT EXISTS payments (
     FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
 );
 
+CREATE TABLE IF NOT EXISTS payment_allocation_batches (
+    payment_id TEXT PRIMARY KEY REFERENCES payments(id) ON DELETE CASCADE,
+    owner_type TEXT NOT NULL CHECK (owner_type IN ('customer', 'supplier')),
+    owner_id TEXT NOT NULL,
+    sale_id TEXT,
+    tracked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS payment_debt_allocations (
+    id TEXT PRIMARY KEY,
+    payment_id TEXT NOT NULL REFERENCES payment_allocation_batches(payment_id) ON DELETE CASCADE,
+    debt_id TEXT NOT NULL,
+    amount REAL NOT NULL CHECK (amount > 0),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (payment_id, debt_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_debt_allocations_payment
+    ON payment_debt_allocations(payment_id);
+
 CREATE TABLE IF NOT EXISTS debts (
     id TEXT PRIMARY KEY,
     customer_id TEXT NOT NULL,

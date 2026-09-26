@@ -629,6 +629,9 @@ func (r *Repository) RecordPaymentTransaction(ctx context.Context, payment *Paym
 	if err := r.insertPaymentAndLedgerTx(ctx, tx, payment); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO payment_allocation_batches (payment_id, owner_type, owner_id, sale_id, tracked_at) VALUES (?, 'supplier', ?, NULL, ?)`), payment.ID.String(), payment.SupplierID.String(), payment.CreatedAt); err != nil {
+		return fmt.Errorf("record supplier payment allocation batch: %w", err)
+	}
 	remainingPayment := payment.Amount
 	if strictDebtCoverage {
 		for _, debt := range debts {
@@ -651,6 +654,9 @@ func (r *Repository) RecordPaymentTransaction(ctx context.Context, payment *Paym
 			}
 			if affected, _ := result.RowsAffected(); affected != 1 {
 				return fmt.Errorf("supplier debt changed during payment allocation")
+			}
+			if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO payment_debt_allocations (id, payment_id, debt_id, amount, created_at) VALUES (?, ?, ?, ?, ?)`), uuid.New().String(), payment.ID.String(), debt.ID, applied, payment.CreatedAt); err != nil {
+				return fmt.Errorf("record supplier payment debt allocation: %w", err)
 			}
 			remainingPayment -= applied
 		}

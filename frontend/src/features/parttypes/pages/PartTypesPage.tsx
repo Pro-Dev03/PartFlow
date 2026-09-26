@@ -66,10 +66,10 @@ function PartTypeImageField({ value, onChange }: { value?: string; onChange: (va
 
   return (
     <div>
-      <label className="block text-sm font-medium text-text mb-2">صورة نوع القطعة</label>
+      <label className="block text-sm font-medium text-text mb-2">صورة تصنيف المنتج</label>
       <div className="flex items-center gap-3 rounded-xl border border-dashed border-[var(--border-default)] bg-[var(--bg-surface-elevated)] p-3">
         <label className="group relative flex h-[88px] w-[104px] shrink-0 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-[var(--color-primary-30)] bg-[var(--color-primary-08)] transition-all hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-10)]">
-          {value ? <img src={value} alt="معاينة نوع القطعة" className="h-full w-full object-cover" /> : <><span className="mb-1 flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-primary-15)] text-[var(--color-primary)]"><ImagePlus className="h-5 w-5" /></span><span className="text-[11px] font-semibold text-[var(--text-primary)]">رفع صورة</span></>}
+          {value ? <img src={value} alt="معاينة تصنيف المنتج" className="h-full w-full object-cover" /> : <><span className="mb-1 flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-primary-15)] text-[var(--color-primary)]"><ImagePlus className="h-5 w-5" /></span><span className="text-[11px] font-semibold text-[var(--text-primary)]">رفع صورة</span></>}
           {value && <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-xs font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100"><Upload className="me-1.5 h-3.5 w-3.5" />استبدال</span>}
           <input type="file" accept="image/*" onChange={handleChange} hidden />
         </label>
@@ -122,10 +122,10 @@ export function PartTypesPage() {
       setIsCreateModalOpen(false);
       setNewPartType({ name_ar: '', name_en: '', icon: 'box', color: '#14b8a6', sort_order: 0 });
       setNewPartTypeImage(undefined);
-      toast.success('تم إضافة نوع القطعة بنجاح');
+      toast.success('تم إضافة تصنيف المنتج بنجاح');
     },
     onError: () => {
-      toast.error('فشل إضافة نوع القطعة');
+      toast.error('تعذر إضافة تصنيف المنتج');
     },
   });
 
@@ -135,10 +135,10 @@ export function PartTypesPage() {
       queryClient.invalidateQueries({ queryKey: ['part-types'] });
       setIsEditModalOpen(false);
       setSelectedPartType(null);
-      toast.success('تم تحديث نوع القطعة بنجاح');
+      toast.success('تم تحديث تصنيف المنتج بنجاح');
     },
     onError: () => {
-      toast.error('فشل تحديث نوع القطعة');
+      toast.error('تعذر تحديث تصنيف المنتج');
     },
   });
 
@@ -146,10 +146,10 @@ export function PartTypesPage() {
     mutationFn: (id: string) => partTypesApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['part-types'] });
-      toast.success('تم حذف نوع القطعة بنجاح');
+      toast.success('تم حذف تصنيف المنتج بنجاح');
     },
     onError: () => {
-      toast.error('فشل حذف نوع القطعة');
+      toast.error('تعذر حذف تصنيف المنتج');
     },
   });
 
@@ -157,9 +157,9 @@ export function PartTypesPage() {
     mutationFn: ({ id, data }: { id: string; data: any }) => partTypesApi.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['part-types'] });
-      toast.success('تم تحديث حالة نوع القطعة');
+      toast.success('تم تحديث حالة تصنيف المنتج');
     },
-    onError: () => toast.error('فشل تحديث حالة نوع القطعة'),
+    onError: () => toast.error('تعذر تحديث حالة تصنيف المنتج'),
   });
 
   const handleCreate = () => {
@@ -234,8 +234,8 @@ export function PartTypesPage() {
   return (
     <div>
       <PageHeader
-        title="إدارة أنواع القطع"
-        description="إدارة أنواع القطع المستعملة ومواصفاتها"
+        title="تصنيفات المنتجات"
+        description="أضف تصنيفات لتنظيم المنتجات وبياناتها"
         actions={
           <Button
             variant="primary"
@@ -299,7 +299,7 @@ export function PartTypesPage() {
                         </div>
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <button type="button" onClick={() => handleToggleActive(partType)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors" style={{ background: partType.is_active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)', border: partType.is_active ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(107, 114, 128, 0.2)', color: partType.is_active ? 'var(--color-success)' : 'var(--text-secondary)' }} title={partType.is_active ? 'تعطيل نوع القطعة' : 'تفعيل نوع القطعة'}>
+                        <button type="button" onClick={() => handleToggleActive(partType)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors" style={{ background: partType.is_active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)', border: partType.is_active ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(107, 114, 128, 0.2)', color: partType.is_active ? 'var(--color-success)' : 'var(--text-secondary)' }} title={partType.is_active ? 'تعطيل التصنيف' : 'تفعيل التصنيف'}>
                           {partType.is_active ? <PowerOff className="w-3.5 h-3.5" /> : <Power className="w-3.5 h-3.5" />}
                           {partType.is_active ? 'نشط' : 'غير نشط'}
                         </button>
@@ -336,13 +336,13 @@ export function PartTypesPage() {
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        title="إضافة نوع قطعة جديد"
+        title="إضافة تصنيف منتج جديد"
         variant="modern"
         size="sm"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label className="block text-sm font-medium text-text-primary mb-2">اسم نوع القطعة *</label>
+            <label className="block text-sm font-medium text-text-primary mb-2">اسم التصنيف *</label>
             <Input
               value={newPartType.name_ar}
               onChange={(e) => setNewPartType({ ...newPartType, name_ar: e.target.value, name_en: e.target.value })}
@@ -414,14 +414,14 @@ export function PartTypesPage() {
       <Modal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
-        title="تعديل نوع القطعة"
+        title="تعديل تصنيف المنتج"
         variant="modern"
         size="sm"
       >
         {selectedPartType && (
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-text mb-2">اسم نوع القطعة *</label>
+              <label className="block text-sm font-medium text-text mb-2">اسم التصنيف *</label>
               <Input
                 value={selectedPartType.name_ar || ''}
                 onChange={(e) => setSelectedPartType({ ...selectedPartType, name_ar: e.target.value, name_en: e.target.value })}
@@ -439,7 +439,7 @@ export function PartTypesPage() {
                   { value: 'hard-drive', label: 'قرص صلب' },
                   { value: 'zap', label: 'طاقة' },
                   { value: 'thermometer', label: 'تبريد' },
-                  { value: 'package', label: 'قطعة' },
+                  { value: 'package', label: 'عبوة' },
                 ]}
               />
             </div>
@@ -490,7 +490,7 @@ export function PartTypesPage() {
           setPartTypeToDelete(null);
         }}
         onConfirm={handleConfirmDelete}
-        title="حذف نوع القطعة"
+        title="حذف تصنيف المنتج"
         message="هل أنت متأكد من حذف هذا النوع؟ هذا الإجراء لا يمكن التراجع عنه."
         confirmText="حذف النوع"
         cancelText="إلغاء"

@@ -24,6 +24,9 @@ var (
 	// ErrInvalidReturnStatus is returned when return status is invalid
 	ErrInvalidReturnStatus = errors.New("invalid return status")
 
+	ErrReturnHasDependentSale  = errors.New("returned inventory has a later sale; that sale must be reversed first")
+	ErrReturnStockInconsistent = errors.New("return inventory history cannot be reversed safely")
+
 	// ErrInvalidRefundMethod is returned when refund method is invalid
 	ErrInvalidRefundMethod = errors.New("invalid refund method")
 

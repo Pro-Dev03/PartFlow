@@ -2,6 +2,7 @@ package purchases
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -230,6 +231,16 @@ func TestCancelPurchaseReversesSupplierBalanceAndBlocksPaidOrReceivedPurchases(t
 	if _, err := service.AddPayment(ctx, paid.Purchase.ID, uuid.Nil, 40, "cash"); err != nil {
 		t.Fatalf("add partial purchase payment: %v", err)
 	}
+	if err := service.DeletePurchase(ctx, paid.Purchase.ID); err == nil {
+		t.Fatal("legacy DeletePurchase path must not remove a purchase with recorded payment history")
+	}
+	paidUnchanged, err := service.GetPurchase(ctx, paid.Purchase.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paidUnchanged.Purchase.PaidAmount != 40 || paidUnchanged.Purchase.Status != StatusPending {
+		t.Fatalf("blocked legacy delete changed paid purchase: paid=%v status=%s", paidUnchanged.Purchase.PaidAmount, paidUnchanged.Purchase.Status)
+	}
 	if _, err := service.CancelPurchase(ctx, uuid.Nil, paid.Purchase.ID); err != ErrInvalidPurchaseStatus {
 		t.Fatalf("cancel paid purchase error = %v, want ErrInvalidPurchaseStatus", err)
 	}
@@ -256,4 +267,140 @@ func TestCancelPurchaseReversesSupplierBalanceAndBlocksPaidOrReceivedPurchases(t
 	if partialAfter.Purchase.Status != StatusPartiallyReceived {
 		t.Fatalf("blocked partial receipt changed status to %s", partialAfter.Purchase.Status)
 	}
+}
+
+func TestDeletePurchaseItemReconcilesReceivedStockAndSupplierBalanceSQLite(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "purchase-delete-item.sqlite"))
+	local, err := localdb.Open()
+	if err != nil {
+		t.Fatalf("open local database: %v", err)
+	}
+	defer local.DB.Close()
+	db := sqlx.NewDb(local.DB, "sqlite")
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	supplierID := uuid.New()
+	products := []uuid.UUID{uuid.New(), uuid.New()}
+	if _, err := db.Exec(`INSERT INTO suppliers (id,code,name,current_balance,is_active,created_at,updated_at) VALUES (?,?,?,0,1,?,?)`, supplierID, "SUP-DELETE-ITEM", "Supplier Delete Item", now, now); err != nil {
+		t.Fatal(err)
+	}
+	for index, productID := range products {
+		if _, err := db.Exec(`INSERT INTO products (id,sku,name,cost_price,selling_price,is_active,created_at,updated_at) VALUES (?,?,?,0,200,1,?,?)`, productID, fmt.Sprintf("PUR-DELETE-%d", index), fmt.Sprintf("Product %d", index), now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service := NewService(NewRepository(db), db)
+	created, err := service.CreatePurchase(ctx, uuid.Nil, &PurchaseRequest{
+		SupplierID: supplierID, InvoiceNumber: "DELETE-ITEM-001", PurchaseDate: time.Now().UTC(),
+		Items: []PurchaseItemRequest{
+			{ProductID: products[0], Quantity: 2, UnitCost: 100, Condition: "new"},
+			{ProductID: products[1], Quantity: 1, UnitCost: 50, Condition: "new"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create purchase: %v", err)
+	}
+	if _, err := service.AddPayment(ctx, created.Purchase.ID, uuid.Nil, 25, "cash"); err != nil {
+		t.Fatalf("record partial purchase payment: %v", err)
+	}
+	if _, err := service.ReceivePurchase(ctx, created.Purchase.ID, uuid.Nil); err != nil {
+		t.Fatalf("receive purchase: %v", err)
+	}
+	if err := service.DeletePurchaseItem(ctx, created.Items[0].ID); err != nil {
+		t.Fatalf("delete received purchase item: %v", err)
+	}
+
+	after, err := service.GetPurchase(ctx, created.Purchase.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Items) != 1 || after.Items[0].ProductID != products[1] || after.Purchase.TotalAmount != 50 {
+		t.Fatalf("purchase after item deletion: items=%d total=%.2f", len(after.Items), after.Purchase.TotalAmount)
+	}
+	for index, productID := range products {
+		var itemCount int
+		if err := db.Get(&itemCount, `SELECT COUNT(*) FROM inventory_items WHERE product_id = ?`, productID); err != nil {
+			t.Fatal(err)
+		}
+		want := 1
+		if index == 0 {
+			want = 0
+		}
+		if itemCount != want {
+			t.Fatalf("inventory item count for product %s = %d, want %d", productID, itemCount, want)
+		}
+		var aggregate int
+		if err := db.Get(&aggregate, `SELECT COALESCE(quantity,0) FROM inventory WHERE product_id = ?`, productID); err != nil {
+			t.Fatal(err)
+		}
+		if aggregate != want {
+			t.Fatalf("inventory aggregate for product %s = %d, want %d", productID, aggregate, want)
+		}
+	}
+	assertSupplierBalance(t, db, supplierID, 25)
+}
+
+func TestDeleteLastPurchaseItemReversesAndDeletesPurchaseSQLite(t *testing.T) {
+	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "purchase-delete-last-item.sqlite"))
+	local, err := localdb.Open()
+	if err != nil {
+		t.Fatalf("open local database: %v", err)
+	}
+	defer local.DB.Close()
+	db := sqlx.NewDb(local.DB, "sqlite")
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	supplierID, productID := uuid.New(), uuid.New()
+	if _, err := db.Exec(`INSERT INTO suppliers (id,code,name,current_balance,is_active,created_at,updated_at) VALUES (?,?,?,0,1,?,?)`, supplierID, "SUP-DELETE-LAST", "Supplier Delete Last", now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO products (id,sku,name,cost_price,selling_price,is_active,created_at,updated_at) VALUES (?,?,?,0,100,1,?,?)`, productID, "PUR-DELETE-LAST", "Delete Last Product", now, now); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(NewRepository(db), db)
+	created, err := service.CreatePurchase(ctx, uuid.Nil, &PurchaseRequest{
+		SupplierID: supplierID, InvoiceNumber: "DELETE-LAST-001", PurchaseDate: time.Now().UTC(),
+		Items: []PurchaseItemRequest{{ProductID: productID, Quantity: 1, UnitCost: 40, Condition: "new"}},
+	})
+	if err != nil {
+		t.Fatalf("create purchase: %v", err)
+	}
+	if _, err := service.AddPayment(ctx, created.Purchase.ID, uuid.Nil, 10, "cash"); err != nil {
+		t.Fatalf("record purchase payment: %v", err)
+	}
+	if _, err := service.ReceivePurchase(ctx, created.Purchase.ID, uuid.Nil); err != nil {
+		t.Fatalf("receive purchase: %v", err)
+	}
+	if err := service.DeletePurchaseItem(ctx, created.Items[0].ID); err != nil {
+		t.Fatalf("delete last purchase item: %v", err)
+	}
+	var count int
+	for _, table := range []string{"purchases", "purchase_items", "inventory_items", "payments", "supplier_ledger"} {
+		query := "SELECT COUNT(*) FROM " + table
+		switch table {
+		case "purchases":
+			query += " WHERE id = ?"
+		case "purchase_items":
+			query += " WHERE purchase_id = ?"
+		case "payments", "supplier_ledger":
+			if table == "supplier_ledger" {
+				query += " WHERE reference_id = ?"
+			} else {
+				query += " WHERE purchase_id = ?"
+			}
+		case "inventory_items":
+			query += " WHERE product_id = ?"
+		}
+		arg := created.Purchase.ID
+		if table == "inventory_items" {
+			arg = productID
+		}
+		if err := db.Get(&count, query, arg); err != nil {
+			t.Fatalf("count %s after delete: %v", table, err)
+		}
+		if count != 0 {
+			t.Errorf("%s retains %d rows after last-line deletion", table, count)
+		}
+	}
+	assertSupplierBalance(t, db, supplierID, 0)
 }

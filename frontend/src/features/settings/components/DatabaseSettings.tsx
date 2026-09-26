@@ -40,6 +40,7 @@ export function DatabaseSettings() {
   const [cloudUrl, setCloudUrl] = useState(getCloudApiUrl());
   const [isSavingCloudUrl, setIsSavingCloudUrl] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isDownloadingCloudBackup, setIsDownloadingCloudBackup] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const isDesktop = typeof window !== 'undefined' && Boolean(window.partflowDesktop);
   const [cleanupTarget, setCleanupTarget] = useState<'cloud' | 'local'>(isDesktop ? 'local' : 'cloud');
@@ -83,6 +84,26 @@ export function DatabaseSettings() {
       toast.error(`تعذرت استعادة قاعدة البيانات: ${error?.message || 'حدث خطأ غير متوقع'}`);
     } finally {
       setIsRestoring(false);
+    }
+  };
+
+  const downloadCloudBackup = async () => {
+    setIsDownloadingCloudBackup(true);
+    try {
+      const blob = await settingsApi.downloadCloudDatabaseBackup();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `partflow-cloud-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json.gz`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      toast.success('بدأ تنزيل النسخة الاحتياطية المضغوطة من قاعدة السحابة. احفظ الملف في مكان آمن.');
+    } catch (error: any) {
+      toast.error(error?.message || 'تعذر تنزيل النسخة الاحتياطية السحابية.');
+    } finally {
+      setIsDownloadingCloudBackup(false);
     }
   };
 
@@ -149,38 +170,13 @@ export function DatabaseSettings() {
     },
   });
 
-  const syncMutation = useMutation({
-    mutationFn: () => settingsApi.syncCloudData(),
-    onSuccess: () => {
-      void queryClient.invalidateQueries();
-      toast.success('تم تنزيل أحدث نسخة من السحابة إلى SQLite المحلية.');
-    },
-    onError: (error: any) => {
-      toast.error('فشل المزامنة السحابية: ' + (error?.message || 'تحقق من اتصال الإنترنت'));
-    },
-  });
-
-  const pushSyncMutation = useMutation({
-    mutationFn: () => settingsApi.syncLocalDataToCloud(),
-    onSuccess: (result: any) => {
-      void queryClient.invalidateQueries();
-      const summary = result?.data ?? result;
-      const processed = Number(summary?.processed || 0);
-      const failed = Number(summary?.failed || 0);
-      toast.success(`تمت مزامنة ${processed} عملية محلية إلى السحابة${failed ? `، وفشلت ${failed}` : ''}.`);
-    },
-    onError: (error: any) => {
-      toast.error('فشل رفع التغييرات المحلية: ' + (error?.message || 'تحقق من اتصال الإنترنت وصلاحية الحساب'));
-    },
-  });
-
   const deleteCloudDataMutation = useMutation({
     mutationFn: () => settingsApi.deleteCloudData(confirmationText),
     onSuccess: () => {
       setConfirmationText('');
       setShowConfirmation(false);
       void queryClient.invalidateQueries();
-      toast.success('تم حذف البيانات التشغيلية والسجلات التاريخية السحابية نهائيًا. بقي حساب المالك والإعدادات محفوظين.');
+      toast.success('تم حذف بيانات المتجر السحابية وجلسات الدخول. بقيت حسابات المالك والمشتركين محفوظة.');
     },
     onError: (error: any) => {
       toast.error(error?.message || 'فشل حذف بيانات السحابة');
@@ -193,10 +189,24 @@ export function DatabaseSettings() {
       setConfirmationText('');
       setShowConfirmation(false);
       void queryClient.invalidateQueries();
-      toast.success('تم حذف البيانات التشغيلية والسجلات التاريخية المحلية نهائيًا. بقيت بنية SQLite وإعدادات الحساب محفوظة.');
+      toast.success('تم حذف بيانات المتجر المحلية وجلسات الدخول. بقيت حسابات المالك والمشتركين محفوظة.');
     },
     onError: (error: any) => {
       toast.error(error?.message || 'فشل حذف البيانات المحلية');
+    },
+  });
+
+  const ownerSyncMutation = useMutation({
+    mutationFn: () => settingsApi.syncLocalCloudDatabase(),
+    onSuccess: (response: any) => {
+      void queryClient.invalidateQueries();
+      const summary = response?.data?.data ?? response?.data ?? response;
+      const processed = Number(summary?.processed || 0);
+      const failed = Number(summary?.failed || 0);
+      toast.success(`اكتملت المزامنة بين الجهاز والسحابة: ${processed} عملية${failed ? `، وتعذر تنفيذ ${failed}` : ''}.`);
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || 'تعذرت المزامنة بين الجهاز والسحابة.');
     },
   });
 
@@ -294,23 +304,25 @@ export function DatabaseSettings() {
               <Button variant="secondary" className="min-h-10" onClick={() => void testCloudConnection()} disabled={isTestingCloudConnection}>
                 {isTestingCloudConnection ? 'جارِ فحص Render...' : 'فحص اتصال Render'}
               </Button>
+              <Button
+                variant="secondary"
+                className="min-h-10"
+                onClick={() => void downloadCloudBackup()}
+                disabled={isDownloadingCloudBackup || typeof navigator !== 'undefined' && !navigator.onLine}
+              >
+                <Download className="ml-2 h-4 w-4" />
+                {isDownloadingCloudBackup ? 'جارِ تجهيز النسخة السحابية...' : 'تنزيل نسخة احتياطية سحابية'}
+              </Button>
               {isDesktop && (
                 <>
                   <Button
                     variant="secondary"
                     className="min-h-10"
-                    onClick={() => syncMutation.mutate()}
-                    disabled={syncMutation.isPending || typeof navigator !== 'undefined' && !navigator.onLine}
+                    onClick={() => ownerSyncMutation.mutate()}
+                    disabled={ownerSyncMutation.isPending || typeof navigator !== 'undefined' && !navigator.onLine}
                   >
-                    {syncMutation.isPending ? 'جارِ التنزيل...' : 'تنزيل نسخة SQLite'}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    className="min-h-10"
-                    onClick={() => pushSyncMutation.mutate()}
-                    disabled={pushSyncMutation.isPending || typeof navigator !== 'undefined' && !navigator.onLine}
-                  >
-                    {pushSyncMutation.isPending ? 'جارِ رفع الاستيراد...' : 'استيراد سجلات قديمة (مسؤول فقط)'}
+                    <RefreshCw className={`ml-2 h-4 w-4 ${ownerSyncMutation.isPending ? 'animate-spin' : ''}`} />
+                    {ownerSyncMutation.isPending ? 'جارِ المزامنة...' : 'مزامنة المحلي والسحابي'}
                   </Button>
                 </>
               )}
@@ -526,9 +538,9 @@ export function DatabaseSettings() {
                 <Trash2 className="h-5 w-5" />
                 <h3 className="font-semibold">تنظيف البيانات والسجلات التاريخية</h3>
               </div>
-              <p className="text-sm text-red-800">
-                اختر النطاق بعناية. سيحذف الخيار المحدد جميع البيانات التشغيلية والسجلات التاريخية مثل المبيعات والمشتريات والمخزون والعملاء والديون والمصروفات، مع إبقاء حساب المالك والإعدادات وبنية قاعدة البيانات محفوظة.
-              </p>
+                <p className="text-sm text-red-800">
+                  اختر النطاق بعناية. سيحذف الخيار المحدد بيانات المتجر وإعداداته وجلسات الدخول نهائيًا. ستبقى حسابات المالك والمشتركين وبنية قاعدة البيانات محفوظة. لا يمكن التراجع عن هذا الإجراء.
+                </p>
               {!showConfirmation ? (
                 <Button
                   variant="destructive"

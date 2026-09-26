@@ -318,6 +318,17 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
     },
   });
 
+  const deleteDebtMutation = useMutation({
+    mutationFn: (debtId: string) => debtsApi.deleteDebt(debtId),
+    onSuccess: async () => {
+      await invalidateBusinessData();
+      toast.success('تم حذف الدين وتحديث رصيد العميل');
+    },
+    onError: (error: any) => {
+      toast.error(String(error?.arabicMessage ?? error?.message ?? 'تعذر حذف الدين'));
+    },
+  });
+
   const addProduct = (product: DebtProduct) => {
     if (!product.id || !Number.isFinite(Number(product.selling_price)) || Number(product.selling_price) < 0) {
       toast.error('لا يوجد سعر بيع صالح لهذا المنتج');
@@ -707,6 +718,22 @@ export function DebtManagementModal({ debt, isOpen, initialAction = null, onClos
                           <div className="mt-3 flex justify-end">
                             <Button type="button" size="sm" variant="secondary" onClick={() => startPaymentForInvoice(entry, remaining)}>
                               <CreditCard className="h-4 w-4" /> تسجيل دفعة لهذه الفاتورة
+                            </Button>
+                          </div>
+                        ) : null}
+                        {!hasSale && Number(entry.paid_amount ?? 0) <= 0.000001 ? (
+                          <div className="mt-3 flex justify-end">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="danger"
+                              disabled={deleteDebtMutation.isPending}
+                              onClick={() => {
+                                if (!window.confirm('سيُحذف هذا الدين نهائيًا ويُعاد احتساب رصيد العميل. هل تريد المتابعة؟')) return;
+                                deleteDebtMutation.mutate(entry.id);
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" /> حذف الدين
                             </Button>
                           </div>
                         ) : null}

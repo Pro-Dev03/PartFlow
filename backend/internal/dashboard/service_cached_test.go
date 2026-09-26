@@ -108,7 +108,7 @@ func TestFetchInventoryDistributionExcludesArchivedItems(t *testing.T) {
 		if item.Name == "مؤرشف" {
 			t.Fatal("archived items must not appear in inventory distribution")
 		}
-		if item.Name == "قطع مستعملة متاحة" {
+		if item.Name == "وحدات مستعملة متاحة" {
 			foundUsedAvailable = true
 		}
 	}
@@ -327,15 +327,15 @@ func TestSalesChartReconcilesProductCostFallbackAndCompletedReturns(t *testing.T
 
 func TestInventoryStatusPresentationSeparatesUsedSold(t *testing.T) {
 	name, _, health := inventoryStatusPresentation("SOLD", "USED")
-	if name != "قطع مستعملة مباعة" || health != "neutral" {
-		t.Fatalf("used sold presentation = (%q, %q), want (قطع مستعملة مباعة, neutral)", name, health)
+	if name != "وحدات مستعملة مباعة" || health != "neutral" {
+		t.Fatalf("used sold presentation = (%q, %q), want (وحدات مستعملة مباعة, neutral)", name, health)
 	}
 }
 
 func TestInventoryStatusPresentationSeparatesUsedAvailable(t *testing.T) {
 	name, _, health := inventoryStatusPresentation("AVAILABLE", "USED")
-	if name != "قطع مستعملة متاحة" || health != "good" {
-		t.Fatalf("used available presentation = (%q, %q), want (قطع مستعملة متاحة, good)", name, health)
+	if name != "وحدات مستعملة متاحة" || health != "good" {
+		t.Fatalf("used available presentation = (%q, %q), want (وحدات مستعملة متاحة, good)", name, health)
 	}
 }
 

@@ -1310,6 +1310,43 @@ func (s *Service) GetTransaction(ctx context.Context, id uuid.UUID) (*Transactio
 	return s.repo.GetTransactionByID(ctx, id)
 }
 
+// DeleteTransaction deletes an independent financial record. When the record
+// belongs to a sale, the complete sale cascade is used so invoice, inventory,
+// customer balance and all financial projections remain consistent.
+func (s *Service) DeleteTransaction(ctx context.Context, id, userID uuid.UUID) error {
+	var rawSaleID sql.NullString
+	if err := s.db.GetContext(ctx, &rawSaleID, s.db.Rebind(`SELECT CAST(sale_id AS TEXT) FROM financial_transactions WHERE id=?`), id.String()); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrFinancialTransactionNotFound
+		}
+		return err
+	}
+	if rawSaleID.Valid && strings.TrimSpace(rawSaleID.String) != "" {
+		saleID, err := uuid.Parse(rawSaleID.String)
+		if err != nil {
+			return fmt.Errorf("invalid sale link on financial transaction: %w", err)
+		}
+		service := NewSmartDeleteService(s.db)
+		if err := service.PrepareDelete(ctx, saleID, userID); err != nil {
+			return fmt.Errorf("prepare linked sale reversal: %w", err)
+		}
+		result, err := service.SmartDelete(ctx, saleID, userID)
+		if err != nil {
+			return err
+		}
+		if result == nil || result.Action != "deleted" {
+			if result != nil && result.Message != "" {
+				return fmt.Errorf("linked sale could not be deleted: %s", result.Message)
+			}
+			return fmt.Errorf("linked sale could not be deleted")
+		}
+	} else if err := s.repo.DeleteStandaloneTransaction(ctx, id); err != nil {
+		return err
+	}
+	dashboard.InvalidateDashboardCacheWithReason("financial_transaction_deleted")
+	return nil
+}
+
 // ListTransactions retrieves transactions with pagination and filters
 func (s *Service) ListTransactions(ctx context.Context, page, perPage int, filters map[string]interface{}) ([]Transaction, int, error) {
 	return s.repo.ListTransactions(ctx, page, perPage, filters)

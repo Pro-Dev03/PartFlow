@@ -19,7 +19,7 @@ const errorMessages: Record<string, string> = {
   INVALID_PHONE: 'رقم الهاتف غير صحيح',
 
   // Business logic errors
-  ITEM_ALREADY_SOLD: 'هذه القطعة تم بيعها بالفعل',
+  ITEM_ALREADY_SOLD: 'هذا المنتج تم بيعه بالفعل',
   LOW_STOCK: 'المخزون منخفض جداً',
   OUT_OF_STOCK: 'المنتج غير متوفر',
   INSUFFICIENT_STOCK: 'الكمية المطلوبة غير متوفرة',

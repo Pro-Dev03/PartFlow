@@ -498,10 +498,10 @@ func (s *CachedService) fetchInventoryDistribution(ctx context.Context) *Invento
 func inventoryStatusPresentation(status, condition string) (name, color, health string) {
 	if strings.EqualFold(strings.TrimSpace(condition), "USED") {
 		if strings.EqualFold(strings.TrimSpace(status), "SOLD") {
-			return "قطع مستعملة مباعة", "#8b5cf6", "neutral"
+			return "وحدات مستعملة مباعة", "#8b5cf6", "neutral"
 		}
 		if strings.EqualFold(strings.TrimSpace(status), "AVAILABLE") {
-			return "قطع مستعملة متاحة", "#06b6d4", "good"
+			return "وحدات مستعملة متاحة", "#06b6d4", "good"
 		}
 	}
 	switch strings.ToUpper(strings.TrimSpace(status)) {

@@ -3,6 +3,7 @@ package inventory
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -37,7 +38,7 @@ func inventoryHasColumn(db *sqlx.DB, tableName string, columnName string) bool {
 	if dbutil.IsSQLite(db) {
 		err = db.Get(&count, `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, tableName, columnName)
 	} else {
-		err = db.Get(&count, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`, tableName, columnName)
+		err = db.Get(&count, `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2`, tableName, columnName)
 	}
 	return err == nil && count > 0
 }
@@ -347,7 +348,7 @@ func (r *Repository) DeleteInventoryItem(ctx context.Context, itemID uuid.UUID) 
 
 func (r *Repository) deleteInventoryItemRelatedRows(ctx context.Context, tx *sqlx.Tx, tableName, columnName string, itemID uuid.UUID) error {
 	query := fmt.Sprintf(`DELETE FROM %s WHERE %s = ?`, tableName, columnName)
-	if _, err := tx.ExecContext(ctx, query, itemID); err != nil {
+	if _, err := tx.ExecContext(ctx, tx.Rebind(query), itemID); err != nil {
 		errText := strings.ToLower(err.Error())
 		if dbutil.IsSQLite(r.db) && (strings.Contains(errText, "no such table:") || strings.Contains(errText, "no such column:") || strings.Contains(errText, "duplicate column") || strings.Contains(errText, "undefined column")) {
 			return nil
@@ -437,6 +438,90 @@ func (r *Repository) DeleteUsedInventoryItem(ctx context.Context, itemID, userID
 		return fmt.Errorf("failed to commit permanent inventory deletion: %w", err)
 	}
 	return nil
+}
+
+// DeleteInventoryItemAfterReversalTx hard-deletes one item after the service
+// has reversed or removed its source transactions in this same transaction.
+func (r *Repository) DeleteInventoryItemAfterReversalTx(ctx context.Context, tx *sqlx.Tx, itemID, userID uuid.UUID) error {
+	var row struct {
+		ProductID string `db:"product_id"`
+		Status    string `db:"status"`
+	}
+	if err := tx.GetContext(ctx, &row, tx.Rebind(`SELECT CAST(product_id AS TEXT) AS product_id, status FROM inventory_items WHERE id=?`), itemID.String()); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrItemNotFound
+		}
+		return fmt.Errorf("load inventory item before cascade delete: %w", err)
+	}
+	for _, dependency := range []struct{ table, query string }{
+		{"inventory_movements", `DELETE FROM inventory_movements WHERE item_id=?`},
+		{"reservations", `DELETE FROM reservations WHERE item_id=?`},
+	} {
+		if exists, err := inventoryTableExistsTx(ctx, tx, r.db, dependency.table); err != nil {
+			return err
+		} else if exists {
+			if _, err := tx.ExecContext(ctx, tx.Rebind(dependency.query), itemID.String()); err != nil {
+				return fmt.Errorf("remove %s for inventory item: %w", dependency.table, err)
+			}
+		}
+	}
+	for _, dependency := range []struct{ table, column string }{
+		{"item_history", "inventory_item_id"}, {"item_repair_costs", "inventory_item_id"},
+		{"acquisition_items", "inventory_item_id"}, {"trade_ins", "inventory_item_id"},
+		{"barcodes", "inventory_item_id"}, {"inspections", "inventory_item_id"},
+		{"sale_items", "inventory_item_id"}, {"return_items", "inventory_item_id"},
+		{"supplier_return_items", "inventory_item_id"}, {"item_specification_values", "inventory_item_id"},
+		{"warranty_claims", "inventory_item_id"}, {"item_warranties", "inventory_item_id"},
+	} {
+		if !inventoryHasColumn(r.db, dependency.table, dependency.column) {
+			continue
+		}
+		if err := r.deleteInventoryItemRelatedRows(ctx, tx, dependency.table, dependency.column, itemID); err != nil {
+			return err
+		}
+	}
+	status := strings.ToUpper(strings.TrimSpace(row.Status))
+	if status == "AVAILABLE" || status == "RETURNED" {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE inventory SET quantity=CASE WHEN COALESCE(quantity,0)>0 THEN quantity-1 ELSE 0 END, updated_at=CURRENT_TIMESTAMP WHERE product_id=?`), row.ProductID); err != nil {
+			return fmt.Errorf("reverse aggregate quantity for deleted inventory item: %w", err)
+		}
+	}
+	if status == "RESERVED" {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE inventory SET reserved_quantity=CASE WHEN COALESCE(reserved_quantity,0)>0 THEN reserved_quantity-1 ELSE 0 END, updated_at=CURRENT_TIMESTAMP WHERE product_id=?`), row.ProductID); err != nil {
+			return fmt.Errorf("reverse reserved quantity for deleted inventory item: %w", err)
+		}
+	}
+	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM inventory_items WHERE id=?`), itemID.String())
+	if err != nil {
+		return fmt.Errorf("hard delete inventory item: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		return ErrItemNotFound
+	}
+	var actor any
+	if userID != uuid.Nil {
+		actor = userID.String()
+	}
+	if exists, err := inventoryTableExistsTx(ctx, tx, r.db, "audit_logs"); err != nil {
+		return err
+	} else if exists {
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO audit_logs (id,user_id,action,entity_type,entity_id,new_values,created_at) VALUES (?,?,'DELETE','inventory_item',?,?,CURRENT_TIMESTAMP)`), uuid.New().String(), actor, itemID.String(), fmt.Sprintf(`{"product_id":%q,"status":%q,"effects_reversed":true}`, row.ProductID, status)); err != nil {
+			return fmt.Errorf("write inventory item deletion audit: %w", err)
+		}
+	}
+	return nil
+}
+
+func inventoryTableExistsTx(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, table string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=?)`
+	if dbutil.IsSQLite(db) {
+		query = `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?)`
+	}
+	var exists bool
+	if err := tx.GetContext(ctx, &exists, tx.Rebind(query), table); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 // GetInventoryItemByID retrieves an inventory item by ID

@@ -37,7 +37,7 @@ export function PurchaseDetailsPage() {
     <div>
       <PageHeader
         title="تفاصيل عملية الشراء"
-        description={purchase?.invoice_number || 'معلومات العملية والقطع المرتبطة بها'}
+        description={purchase?.invoice_number || 'معلومات عملية الشراء والمنتجات المرتبطة بها'}
         actions={
           <div className="flex gap-2">
             <Button variant="primary" onClick={() => setSupplierInvoiceOpen(true)} disabled={!purchase}>عرض فاتورة التاجر</Button>
@@ -89,7 +89,7 @@ export function PurchaseDetailsPage() {
 
                     return (
                       <div key={item.id} className="grid grid-cols-4 gap-4 border-b border-border px-4 py-3 last:border-b-0">
-                        <span>{item.product_name || item.product?.name || 'قطعة'}</span>
+                        <span>{item.product_name || item.product?.name || 'منتج'}</span>
                         <span>{quantity.toLocaleString('en-US')}</span>
                         <span>₪{unitCost.toLocaleString('en-US')}</span>
                         <span className="font-semibold">₪{itemTotal.toLocaleString('en-US')}</span>

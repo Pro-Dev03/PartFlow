@@ -351,6 +351,7 @@ export const debtsApi = {
     due_date_to?: string;
   }) =>
     apiClient.get('/debts', params, false),
+  deleteDebt: (debtId: string) => apiClient.delete(`/debts/${debtId}`),
   get: (customerId: string, debtId: string) => apiClient.get(`/customers/${customerId}/debts/${debtId}`),
   getCustomerHistory: (customerId: string) => apiClient.get(`/debts/customer/${customerId}`),
   recordPayment: (customerId: string, data: CustomerDebtPaymentRequest) => apiClient.post(`/customers/${customerId}/debt-payments`, data),
@@ -466,6 +467,27 @@ const cloudSettingsRequest = async (endpoint: string, options: RequestInit = {})
   };
 };
 
+const cloudBackupRequest = async () => {
+  const cloudToken = TokenManager.getCloudToken();
+  if (!cloudToken) throw new Error('لا توجد جلسة مالك سحابية نشطة.');
+
+  const response = await fetch(`${getCloudApiUrl()}/settings/database/backup`, {
+    method: 'GET',
+    credentials: 'include',
+    cache: 'no-store',
+    headers: {
+      Authorization: `Bearer ${cloudToken}`,
+      'X-PartFlow-Cloud-Token': cloudToken,
+      Accept: 'application/gzip',
+    },
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload?.error?.message || payload?.error || 'تعذر تنزيل نسخة قاعدة البيانات السحابية.');
+  }
+  return response.blob();
+};
+
 // Device synchronization must run through the local API even when the UI is
 // connected to the cloud. The local API owns the device SQLite database and
 // forwards only authenticated sync operations to the cloud authority.
@@ -501,6 +523,40 @@ const localSyncRequest = async <T>(endpoint: string, options: RequestInit = {}) 
   return payload as T;
 };
 
+// Local database administration must always reach the device SQLite service,
+// even while the desktop UI is using Render for business requests.
+const localDeviceRequest = async <T>(endpoint: string, options: RequestInit = {}) => {
+  const cloudToken = TokenManager.getCloudToken();
+  let localToken = TokenManager.getToken();
+  const connectedToCloud = getConnectionMode() === 'cloud';
+  if (connectedToCloud) {
+    if (!cloudToken) throw new Error('تحتاج جلسة سحابية نشطة للوصول إلى قاعدة الجهاز.');
+    const session = await authApi.createLocalSession(cloudToken);
+    const sessionData = (session as any)?.data ?? session;
+    localToken = sessionData?.access_token || sessionData?.token || null;
+    if (localToken) {
+      TokenManager.setToken(localToken);
+      apiClient.setToken(localToken);
+    }
+  }
+  if (!localToken) throw new Error('لا توجد جلسة صالحة لقاعدة البيانات المحلية.');
+
+  const response = await fetch(`${getLocalApiUrl()}${endpoint}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${localToken}`,
+      ...(cloudToken ? { 'X-PartFlow-Cloud-Token': cloudToken } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || payload?.error || 'تعذر تنظيف قاعدة البيانات المحلية.');
+  }
+  return payload as T;
+};
+
 export const settingsApi = {
   getRegionalSettings: () => apiClient.get('/settings/regional'),
   initializeRegionalSettings: (timezone: string) => apiClient.post('/settings/regional/initialize', { timezone }),
@@ -510,6 +566,9 @@ export const settingsApi = {
     localSyncRequest('/settings/sync', { method: 'POST', body: '{}' }),
   syncLocalDataToCloud: () =>
     localSyncRequest('/settings/sync/push', { method: 'POST', body: '{}' }),
+  syncLocalCloudDatabase: () =>
+    localSyncRequest('/settings/database/sync', { method: 'POST', body: '{}' }),
+  downloadCloudDatabaseBackup: () => cloudBackupRequest(),
   getUsers: (params?: { page?: number; per_page?: number }) =>
     apiClient.get('/users', params),
   getSubscribers: (params?: { page?: number; per_page?: number; search?: string; is_active?: boolean }) => {
@@ -544,6 +603,10 @@ export const settingsApi = {
     target === 'local' ? '/settings/database/cleanup' : '/settings/cleanup',
     {},
   ),
+  previewHistoricalCleanup: (type: 'sales' | 'purchases' | 'expenses' | 'returns' | 'supplier_returns' | 'debts' | 'payments' | 'products' | 'customers' | 'suppliers', startDate: string, endDate: string, target: 'cloud' | 'local' = 'cloud') =>
+    apiClient.get(target === 'local' ? '/settings/database/history-cleanup/preview' : '/settings/history-cleanup/preview', { type, start_date: startDate, end_date: endDate }),
+  runHistoricalCleanup: (payload: { type: 'sales' | 'purchases' | 'expenses' | 'returns' | 'supplier_returns' | 'debts' | 'payments' | 'products' | 'customers' | 'suppliers'; start_date: string; end_date: string; candidate_ids: string[] }, target: 'cloud' | 'local' = 'cloud') =>
+    apiClient.post(target === 'local' ? '/settings/database/history-cleanup' : '/settings/history-cleanup', payload),
   getPublicSettings: () => apiClient.get('/settings/public'),
   getSetting: (key: string) => apiClient.get(`/settings/${key}`),
   updateSetting: (key: string, value: string) => apiClient.put(`/settings/${key}`, { value }),
@@ -555,7 +618,8 @@ export const settingsApi = {
     if (typeof window === 'undefined' || !window.partflowDesktop) {
       throw new Error('Local SQLite cleanup is available only in the desktop application.');
     }
-    return apiClient.delete('/settings/database', { confirmation_token: confirmation, target: 'offline' });
+    const query = new URLSearchParams({ confirmation_token: confirmation, target: 'offline' });
+    return localDeviceRequest(`/settings/database?${query.toString()}`, { method: 'DELETE' });
   },
   deleteCloudData: async (confirmation: string) => {
     const cloudToken = TokenManager.getCloudToken();

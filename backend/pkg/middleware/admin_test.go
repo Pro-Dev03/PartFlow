@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -126,5 +127,63 @@ func TestAdminAllowsConfiguredEmail(t *testing.T) {
 	router.ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Fatalf("expected configured admin to be allowed, status=%d", w.Code)
+	}
+}
+
+func TestOwnerOnlyRequiresExactOwnerEmail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("PARTFLOW_ADMIN_EMAILS", "admin@example.test")
+	testDB, err := sqlx.Connect("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testDB.Close()
+	if _, err := testDB.Exec(`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	ownerID, adminID := uuid.New(), uuid.New()
+	if _, err := testDB.Exec(`INSERT INTO users (id,email) VALUES (?,?),(?,?)`, ownerID.String(), "owner@partflow.com", adminID.String(), "admin@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	previousDB := db
+	SetDatabase(testDB)
+	t.Cleanup(func() { SetDatabase(previousDB) })
+
+	for _, tc := range []struct {
+		name   string
+		id     uuid.UUID
+		status int
+	}{
+		{name: "owner", id: ownerID, status: http.StatusOK},
+		{name: "configured admin is not owner", id: adminID, status: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(response)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/owner", nil)
+			ctx.Set("user_id", tc.id)
+			ctx.Set("cloud_user_email", "")
+			OwnerOnly()(ctx)
+			if response.Code != tc.status {
+				t.Fatalf("OwnerOnly status=%d body=%s; want %d", response.Code, response.Body.String(), tc.status)
+			}
+			if tc.status == http.StatusForbidden && !strings.Contains(response.Body.String(), "OWNER_REQUIRED") {
+				t.Fatalf("configured admin denial lacks OWNER_REQUIRED: %s", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestLocalDatabaseOnlyRejectsCloudDatabase(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previousDB := db
+	SetDatabase(sqlx.NewDb(nil, "pgx"))
+	t.Cleanup(func() { SetDatabase(previousDB) })
+	response := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(response)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/settings/database/sync", nil)
+	LocalDatabaseOnly()(ctx)
+	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "LOCAL_DATABASE_REQUIRED") {
+		t.Fatalf("cloud database sync guard status=%d body=%s; want LOCAL_DATABASE_REQUIRED", response.Code, response.Body.String())
 	}
 }

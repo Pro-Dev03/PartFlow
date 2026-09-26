@@ -157,21 +157,6 @@ func (s *Service) UpdateCustomer(ctx context.Context, id uuid.UUID, req *UpdateC
 	return customer, nil
 }
 
-// DeleteCustomer archives a customer without deleting financial history.
-func (s *Service) DeleteCustomer(ctx context.Context, id uuid.UUID) error {
-	if _, err := s.repo.GetByID(ctx, id); err != nil {
-		return err
-	}
-
-	if err := s.repo.Delete(ctx, id); err != nil {
-		return err
-	}
-
-	dashboard.InvalidateDashboardCacheWithReason("customer_archived")
-
-	return nil
-}
-
 // AddPayment adds a payment to customer
 func (s *Service) AddPayment(ctx context.Context, customerID uuid.UUID, req *PaymentRequest) (*PaymentResponse, error) {
 	customer, err := s.repo.GetByID(ctx, customerID)

@@ -136,9 +136,24 @@ func NewHandler(db *sql.DB) *Handler {
 }
 
 func ensureDefaultSettings(db *sql.DB) {
+	_ = ensureDefaultSettingsWith(db)
+}
+
+type settingsExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func ensureDefaultSettingsWith(exec settingsExecer) error {
 	for key, metadata := range settingMetadata {
-		_, _ = insertSetting(db, key, metadata.defaultValue, metadata.valueType, metadata.category, metadata.description, metadata.isPublic, false)
+		if _, err := exec.Exec(`
+			INSERT INTO settings (id, key, value, value_type, category, description, is_public, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			ON CONFLICT (key) DO NOTHING`,
+			uuid.NewString(), key, metadata.defaultValue, metadata.valueType, metadata.category, metadata.description, metadata.isPublic); err != nil {
+			return fmt.Errorf("restore default setting %q: %w", key, err)
+		}
 	}
+	return nil
 }
 
 func insertSetting(db *sql.DB, key, value, valueType, category, description string, isPublic, updateExisting bool) (sql.Result, error) {

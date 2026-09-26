@@ -119,10 +119,10 @@ export function InventoryStats({ products, inventoryItems, supplierOnly, manualO
           compact
         />
         <StatCard
-          title="القطع المتاحة"
+          title="الوحدات المتاحة"
           value={<span className="numeric-quantity">{availablePieceCount}</span>}
           icon={PackageOpen}
-          subtitle="القطع العامة الجاهزة للبيع"
+          subtitle="الوحدات الجاهزة للبيع"
           variant="success"
           compact
         />

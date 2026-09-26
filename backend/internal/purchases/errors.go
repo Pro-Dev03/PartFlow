@@ -4,7 +4,8 @@ import "errors"
 
 var (
 	// ErrPurchaseNotFound is returned when purchase is not found
-	ErrPurchaseNotFound = errors.New("purchase not found")
+	ErrPurchaseNotFound                   = errors.New("purchase not found")
+	ErrPurchasePaymentHistoryInconsistent = errors.New("purchase payment history cannot be reversed safely")
 
 	// ErrPurchaseItemNotFound is returned when purchase item is not found
 	ErrPurchaseItemNotFound = errors.New("purchase item not found")

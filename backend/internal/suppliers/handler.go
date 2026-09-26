@@ -135,10 +135,7 @@ func (h *Handler) DeleteSupplier(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, http.StatusOK, nil, "Supplier deactivated successfully")
-	if actor := middleware.GetUserID(c); actor != uuid.Nil {
-		_ = audit.RecordDirect(c.Request.Context(), h.service.repo.db, actor, "DELETE", "supplier", id, "أرشفة تاجر")
-	}
+	response.Success(c, http.StatusOK, nil, "Supplier deleted successfully")
 }
 
 // GetSupplierLedger handles supplier ledger retrieval

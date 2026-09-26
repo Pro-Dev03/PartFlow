@@ -163,12 +163,12 @@ export function SuppliersPage() {
     if (supplierToDelete) {
       try {
         await suppliersApi.delete(supplierToDelete.id);
-        showSuccess('تم إيقاف التاجر وإخفاؤه من التعاملات اليومية');
+        showSuccess('تم حذف التاجر وسجلاته المرتبطة');
         setDeleteDialogOpen(false);
         setSupplierToDelete(null);
         refetch();
       } catch  {
-        showError('تعذر إيقاف التاجر');
+        showError('تعذر حذف التاجر؛ راجع تفاصيل الخطأ ثم أعد المحاولة');
       }
     }
   };
@@ -433,9 +433,9 @@ export function SuppliersPage() {
           setSupplierToDelete(null);
         }}
         onConfirm={handleConfirmDelete}
-        title="إيقاف التاجر"
-        message="سيتم إيقاف التاجر وإخفاؤه من القوائم اليومية مع الاحتفاظ بسجلاته المالية."
-        confirmText="إيقاف التاجر"
+        title="حذف التاجر وسجلاته"
+        message="سيعكس PartFlow أثر مشتريات التاجر ودفعاته ومرتجعاته وسجلاته المالية ثم يحذفها نهائيًا. إذا تعذر عكس سجل قديم بسبب نقص بياناته، سيظهر السبب ولن تُحذف البيانات."
+        confirmText="حذف التاجر وسجلاته"
         cancelText="إلغاء"
         variant="danger"
       />

@@ -26,7 +26,7 @@ export function InventoryScanner({
             </div>
             <div>
               <CardTitle className="pf-scanner-title">إضافة مخزون</CardTitle>
-              <p className="pf-scanner-description">سجّل بضاعة جديدة أو ابحث عن قطعة بالباركود</p>
+              <p className="pf-scanner-description">سجّل بضاعة جديدة أو ابحث عن منتج بالباركود</p>
             </div>
           </div>
         </CardHeader>

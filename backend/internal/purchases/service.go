@@ -871,64 +871,19 @@ func isValidStatusTransition(currentStatus, newStatus string) bool {
 	return false
 }
 
-// DeletePurchase deletes a purchase and its dependent rows when the caller is authorized.
+// DeletePurchase uses the same state-aware deletion path as the public API so
+// legacy callers cannot bypass payment, stock, or history protections.
 func (s *Service) DeletePurchase(ctx context.Context, id uuid.UUID) error {
-	if _, err := s.repo.GetByID(ctx, id); err != nil {
+	result, err := NewSmartDeleteService(s.db).SmartDelete(ctx, id, uuid.Nil)
+	if err != nil {
 		return err
 	}
-	return s.deleteDraftPurchase(ctx, id)
-}
-
-// deleteDraftPurchase performs full deletion for draft/pending purchases
-func (s *Service) deleteDraftPurchase(ctx context.Context, id uuid.UUID) error {
-	// Start transaction for atomic operation
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			tx.Rollback()
+	if result == nil || !result.CanProceed {
+		if result == nil || strings.TrimSpace(result.Message) == "" {
+			return fmt.Errorf("purchase deletion was blocked")
 		}
-	}()
-	for _, query := range []string{
-		`DELETE FROM payments WHERE purchase_id = $1`,
-		`DELETE FROM supplier_ledger WHERE reference_id = $1`,
-		`DELETE FROM supplier_return_items WHERE supplier_return_id IN (SELECT id FROM supplier_returns WHERE purchase_id = $1)`,
-		`DELETE FROM supplier_returns WHERE purchase_id = $1`,
-		`DELETE FROM inventory_movements WHERE reference_type = 'purchase' AND reference_id = $1`,
-		`DELETE FROM item_history WHERE reference_type = 'purchase' AND reference_id = $1`,
-	} {
-		if _, err = tx.ExecContext(ctx, query, id); err != nil {
-			return fmt.Errorf("failed to delete purchase dependent rows: %w", err)
-		}
+		return fmt.Errorf("purchase deletion was blocked: %s", result.Message)
 	}
-
-	// Delete purchase items
-	deleteItemsQuery := `DELETE FROM purchase_items WHERE purchase_id = $1`
-	_, err = tx.ExecContext(ctx, deleteItemsQuery, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete purchase items: %w", err)
-	}
-
-	// Delete purchase
-	deletePurchaseQuery := `DELETE FROM purchases WHERE id = $1`
-	result, err := tx.ExecContext(ctx, deletePurchaseQuery, id)
-	if err != nil {
-		return fmt.Errorf("failed to delete purchase: %w", err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		return ErrPurchaseNotFound
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-	dashboard.InvalidateDashboardCacheWithReason("purchase_deleted")
-
 	return nil
 }
 
@@ -1757,7 +1712,11 @@ func (s *Service) UpdatePurchaseItem(ctx context.Context, itemID uuid.UUID, req 
 // DeletePurchaseItem deletes a purchase item
 func (s *Service) DeletePurchaseItem(ctx context.Context, itemID uuid.UUID) error {
 	var purchaseID uuid.UUID
-	if err := s.db.GetContext(ctx, &purchaseID, `SELECT purchase_id FROM purchase_items WHERE id = $1`, itemID); err != nil {
+	itemIDArg := interface{}(itemID)
+	if dbutil.IsSQLite(s.db) {
+		itemIDArg = itemID.String()
+	}
+	if err := s.db.GetContext(ctx, &purchaseID, s.db.Rebind(`SELECT purchase_id FROM purchase_items WHERE id = ?`), itemIDArg); err != nil {
 		if err == sql.ErrNoRows {
 			return ErrPurchaseItemNotFound
 		}
@@ -1768,7 +1727,10 @@ func (s *Service) DeletePurchaseItem(ctx context.Context, itemID uuid.UUID) erro
 		return err
 	}
 	if len(items) <= 1 {
-		return ErrNoItems
+		// Removing the final line means removing the entire purchase document;
+		// the state-aware cascade reverses stock, payment, and supplier ledger
+		// effects before hard-deleting the parent and its dependencies.
+		return s.DeletePurchase(ctx, purchaseID)
 	}
 	requests := make([]PurchaseItemRequest, 0, len(items)-1)
 	for _, item := range items {

@@ -147,7 +147,7 @@ export function ReturnDetailsPage() {
       REFURBISHED: 'مجدّد',
       SUPPLIER_RETURN: 'إرجاع للمورد',
       WRITE_OFF: 'شطب',
-      PARTS: 'قطع غيار',
+      PARTS: 'غير صالح للبيع',
     };
     return labels[condition] || condition;
   };
@@ -158,7 +158,7 @@ export function ReturnDetailsPage() {
       REPAIR: 'إصلاح',
       SUPPLIER_RETURN: 'إرجاع للمورد',
       WRITE_OFF: 'شطب',
-      PARTS: 'تفكيك لقطع غيار',
+      PARTS: 'إعادة استخدامه كأجزاء',
       REPLACEMENT: 'استبدال',
     };
     return resolution ? labels[resolution] || resolution : 'قيد الانتظار';
@@ -276,7 +276,7 @@ export function ReturnDetailsPage() {
                 )}
               </div>
               <div>
-                <p className="text-sm text-gray-400">حالة القطعة بعد المرتجع</p>
+                <p className="text-sm text-gray-400">حالة المنتج بعد المرتجع</p>
                 <p className="font-semibold">{getConditionLabel(returnItem.item_condition_after_return)}</p>
               </div>
             </div>

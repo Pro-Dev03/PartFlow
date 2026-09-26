@@ -732,9 +732,12 @@ CREATE INDEX IF NOT EXISTS idx_warranty_claims_status ON warranty_claims(status)
 		// ledger endpoints. They are kept in SQLite as well so a local build does
 		// not lose history just because it cannot reach PostgreSQL.
 		`CREATE TABLE IF NOT EXISTS locations (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, parent_id TEXT, warehouse_id TEXT, description TEXT, is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS inventory_movements (id TEXT PRIMARY KEY, item_id TEXT, product_id TEXT, movement_type TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0, before_quantity INTEGER NOT NULL DEFAULT 0, after_quantity INTEGER NOT NULL DEFAULT 0, reference_type TEXT, reference_id TEXT, reason TEXT, created_by TEXT, created_at TEXT NOT NULL, is_reversed INTEGER NOT NULL DEFAULT 0, reversed_by TEXT, reversed_at TEXT, reversal_reason TEXT)`,
+		`CREATE TABLE IF NOT EXISTS inventory_movements (id TEXT PRIMARY KEY, item_id TEXT, product_id TEXT, movement_type TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0, before_quantity INTEGER NOT NULL DEFAULT 0, after_quantity INTEGER NOT NULL DEFAULT 0, before_status TEXT, after_status TEXT, reference_type TEXT, reference_id TEXT, reason TEXT, created_by TEXT, created_at TEXT NOT NULL, is_reversed INTEGER NOT NULL DEFAULT 0, reversed_by TEXT, reversed_at TEXT, reversal_reason TEXT)`,
 		`CREATE TABLE IF NOT EXISTS reservations (id TEXT PRIMARY KEY, item_id TEXT NOT NULL, customer_id TEXT, user_id TEXT NOT NULL, reserved_at TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, type TEXT, transaction_type TEXT, amount REAL NOT NULL DEFAULT 0, balance REAL NOT NULL DEFAULT 0, description TEXT, reference_id TEXT, reference_type TEXT, created_by TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, debt_id TEXT, type TEXT, transaction_type TEXT, amount REAL NOT NULL DEFAULT 0, balance REAL NOT NULL DEFAULT 0, description TEXT, reference_id TEXT, reference_type TEXT, created_by TEXT, created_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS payment_allocation_batches (payment_id TEXT PRIMARY KEY REFERENCES payments(id) ON DELETE CASCADE, owner_type TEXT NOT NULL CHECK (owner_type IN ('customer', 'supplier')), owner_id TEXT NOT NULL, sale_id TEXT, tracked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+		`CREATE TABLE IF NOT EXISTS payment_debt_allocations (id TEXT PRIMARY KEY, payment_id TEXT NOT NULL REFERENCES payment_allocation_batches(payment_id) ON DELETE CASCADE, debt_id TEXT NOT NULL, amount REAL NOT NULL CHECK (amount > 0), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE (payment_id, debt_id))`,
+		`CREATE INDEX IF NOT EXISTS idx_payment_debt_allocations_payment ON payment_debt_allocations(payment_id)`,
 		`CREATE TABLE IF NOT EXISTS customer_payments (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, amount REAL NOT NULL DEFAULT 0, payment_date TEXT NOT NULL, method TEXT NOT NULL, reference TEXT, notes TEXT, created_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS customer_debts (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, amount REAL NOT NULL DEFAULT 0, reference_id TEXT, reference_type TEXT, due_date TEXT, is_paid INTEGER NOT NULL DEFAULT 0, paid_amount REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS debt_collections (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', notes TEXT, scheduled_date TEXT NOT NULL, completed_date TEXT, created_at TEXT NOT NULL)`,
@@ -1096,6 +1099,47 @@ func ensureColumnExists(db *sql.DB, tableName, columnName, columnDefinition stri
 	return nil
 }
 
+// backfillCustomerDebtLedgerLinks associates old manual debts with their exact
+// ledger debit only where customer, amount and timestamp yield one unique pair.
+// Ambiguous historical rows remain untouched instead of guessing at a match.
+func backfillCustomerDebtLedgerLinks(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.Exec(`
+		UPDATE customer_ledger
+		SET debt_id = (
+			SELECT debt.id
+			FROM debts AS debt
+			WHERE debt.customer_id = customer_ledger.customer_id
+			  AND debt.sale_id IS NULL
+			  AND ABS(debt.amount - customer_ledger.amount) < 0.000001
+			  AND debt.created_at = customer_ledger.created_at
+		)
+		WHERE debt_id IS NULL
+		  AND LOWER(COALESCE(type, '')) = 'debit'
+		  AND (
+			SELECT COUNT(*) FROM debts AS candidate
+			WHERE candidate.customer_id = customer_ledger.customer_id
+			  AND candidate.sale_id IS NULL
+			  AND ABS(candidate.amount - customer_ledger.amount) < 0.000001
+			  AND candidate.created_at = customer_ledger.created_at
+		  ) = 1
+		  AND (
+			SELECT COUNT(*) FROM customer_ledger AS candidate
+			WHERE candidate.customer_id = customer_ledger.customer_id
+			  AND LOWER(COALESCE(candidate.type, '')) = 'debit'
+			  AND ABS(candidate.amount - customer_ledger.amount) < 0.000001
+			  AND candidate.created_at = customer_ledger.created_at
+		  ) = 1`)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func ensureIndexExists(db *sql.DB, indexName, tableName, columnName string) error {
 	var count int
 	query := fmt.Sprintf("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = '%s'", indexName)
@@ -1181,6 +1225,7 @@ func migrateLegacySchema(db *sql.DB) error {
 		{tableName: "products", columnName: "track_individual", columnDef: "track_individual INTEGER NOT NULL DEFAULT 0"},
 		{tableName: "products", columnName: "deleted_at", columnDef: "deleted_at TEXT"},
 		{tableName: "customers", columnName: "tax_id", columnDef: "tax_id TEXT"},
+		{tableName: "customer_ledger", columnName: "debt_id", columnDef: "debt_id TEXT"},
 		{tableName: "suppliers", columnName: "tax_id", columnDef: "tax_id TEXT"},
 		{tableName: "suppliers", columnName: "payment_terms", columnDef: "payment_terms TEXT"},
 		{tableName: "inventory_items", columnName: "location_id", columnDef: "location_id TEXT"},
@@ -1211,6 +1256,8 @@ func migrateLegacySchema(db *sql.DB) error {
 		{tableName: "inventory_movements", columnName: "quantity", columnDef: "quantity INTEGER NOT NULL DEFAULT 0"},
 		{tableName: "inventory_movements", columnName: "before_quantity", columnDef: "before_quantity INTEGER NOT NULL DEFAULT 0"},
 		{tableName: "inventory_movements", columnName: "after_quantity", columnDef: "after_quantity INTEGER NOT NULL DEFAULT 0"},
+		{tableName: "inventory_movements", columnName: "before_status", columnDef: "before_status TEXT"},
+		{tableName: "inventory_movements", columnName: "after_status", columnDef: "after_status TEXT"},
 		{tableName: "inventory_movements", columnName: "reference_type", columnDef: "reference_type TEXT"},
 		{tableName: "inventory_movements", columnName: "reference_id", columnDef: "reference_id TEXT"},
 		{tableName: "inventory_movements", columnName: "reason", columnDef: "reason TEXT"},
@@ -1322,6 +1369,9 @@ func migrateLegacySchema(db *sql.DB) error {
 		if err := ensureColumnExists(db, migration.tableName, migration.columnName, migration.columnDef); err != nil {
 			return err
 		}
+	}
+	if err := backfillCustomerDebtLedgerLinks(db); err != nil {
+		return fmt.Errorf("link customer ledger debt entries: %w", err)
 	}
 	if err := reconcileOrphanedPurchaseLedger(db); err != nil {
 		return err

@@ -276,7 +276,7 @@ var InspectionTemplates = map[string]InspectionTemplate{
 				ID:          "ram_physical",
 				Name:        "الحالة الخارجية",
 				NameEn:      "Physical Condition",
-				Description: "فحص حالة القطع المعدنية",
+				Description: "فحص حالة المكونات المعدنية",
 				Required:    false,
 				Category:    "physical",
 			},
@@ -322,7 +322,7 @@ var InspectionTemplates = map[string]InspectionTemplate{
 			},
 			{
 				ID:          "storage_bad_sectors",
-				Name:        "القطع التالفة",
+				Name:        "القطاعات التالفة",
 				NameEn:      "Bad Sectors",
 				Description: "فحص وجود قطع تالفة",
 				Required:    true,

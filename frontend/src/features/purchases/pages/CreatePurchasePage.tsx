@@ -217,9 +217,9 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
         productSearchInputRef.current?.focus();
         productSearchInputRef.current?.select();
       });
-      toast.success('تم تحديث بيانات القطعة');
+      toast.success('تم تحديث بيانات المنتج');
     },
-    onError: () => toast.error('تعذر تحديث بيانات القطعة'),
+    onError: () => toast.error('تعذر تحديث بيانات المنتج'),
   });
 
   const deleteProductMutation = useMutation({
@@ -727,11 +727,11 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
             <div className="flex items-center justify-between border-b border-border pb-4">
               <CardTitle className="flex items-center gap-2">
                 <ShoppingCart className="w-5 h-5 text-cyan" />
-                إضافة القطع
+                إضافة المنتجات
               </CardTitle>
               <div className="text-left">
                 <Badge variant="secondary">{items.length} منتج</Badge>
-                <div className="mt-1 text-xs text-text-muted">{totalQuantity} قطعة إجمالاً</div>
+                <div className="mt-1 text-xs text-text-muted">{totalQuantity} وحدة إجمالاً</div>
               </div>
             </div>
 
@@ -1008,7 +1008,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
                 <span className="font-semibold">{items.length}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-text-muted">إجمالي القطع</span>
+                <span className="text-text-muted">إجمالي الوحدات</span>
                 <span className="font-semibold">{totalQuantity}</span>
               </div>
                 <div className="border-t border-border pt-4">
@@ -1142,7 +1142,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
       <Modal
         isOpen={isManualProductModalOpen}
         onClose={() => { setIsManualProductModalOpen(false); setEditingProductId(null); setShowManualProductDetails(false); }}
-        title={editingProductId ? 'تعديل بيانات القطعة' : 'إضافة قطعة جديدة'}
+        title={editingProductId ? 'تعديل بيانات المنتج' : 'إضافة منتج جديد'}
         variant="modern"
         size="lg"
       >
@@ -1459,7 +1459,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
           setProductToDelete(null);
         }}
         title="حذف المنتج"
-        message="لا يمكن حذف المنتج ما دام له مخزون قائم أو معاملات أو حركات تاريخية. صفّر المخزون وعالج السجلات المرتبطة أولاً، أو عطّل المنتج للاحتفاظ بتاريخه."
+        message="سيعكس PartFlow أثر معاملات المنتج ومخزونه وسجلاته المرتبطة ثم يحذفها نهائيًا. قد يشمل ذلك فواتير كاملة مرتبطة بالمنتج. إذا تعذر عكس سجل بسبب بيانات متعارضة، سيظهر السبب ولن تُحذف بياناته."
         confirmText="حذف المنتج"
         isLoading={deleteProductMutation.isPending}
         variant="danger"

@@ -105,7 +105,7 @@ func (s *Service) ListInspections(ctx context.Context, req InspectionListRequest
 		}
 
 		inspectorName := inspector.FirstName + " " + inspector.LastName
-		productName := "قطعة مستعملة"
+		productName := "منتج مستعمل"
 		if product != nil {
 			productName = product.Name
 		}
@@ -164,17 +164,7 @@ func (s *Service) UpdateInspection(ctx context.Context, id uuid.UUID, req *Inspe
 
 // DeleteInspection deletes an inspection
 func (s *Service) DeleteInspection(ctx context.Context, id uuid.UUID) error {
-	inspection, err := s.repo.GetInspectionByID(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	// Check if inspection can be deleted
-	if inspection.IsCompleted() {
-		return ErrCannotUpdateCompletedInspection
-	}
-
-	return s.repo.DeleteInspection(ctx, id)
+	return s.repo.DeleteInspectionWithWorkflow(ctx, id)
 }
 
 // PassInspection marks an inspection as passed

@@ -1,7 +1,6 @@
 package settings
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -23,35 +22,6 @@ func NewDatabaseHandler(db *sqlx.DB) *DatabaseHandler {
 	return &DatabaseHandler{db: db}
 }
 
-func resolveResetTarget(target, currentMode string) string {
-	target = strings.TrimSpace(strings.ToLower(target))
-	if target == "online" || target == "offline" {
-		return target
-	}
-	if currentMode == "online" || currentMode == "offline" {
-		return currentMode
-	}
-	return "online"
-}
-
-func getOperatingModeFromLocalDB() (string, error) {
-	db, err := localdb.Open()
-	if err != nil {
-		return "online", err
-	}
-	defer db.DB.Close()
-
-	var mode string
-	err = db.DB.QueryRow("SELECT value FROM local_metadata WHERE key = 'operating_mode' LIMIT 1").Scan(&mode)
-	if err == sql.ErrNoRows {
-		return "online", nil
-	}
-	if err != nil {
-		return "online", err
-	}
-	return strings.TrimSpace(strings.ToLower(mode)), nil
-}
-
 func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
 	if c.Query("confirmation_token") != destructiveResetConfirmation {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "تأكيد التصفير غير صحيح"})
@@ -71,11 +41,10 @@ func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
 	if err := tx.Select(&tables, `
 		SELECT table_name
 		FROM information_schema.tables
-		WHERE table_schema = 'public'
+		WHERE table_schema = current_schema()
 		  AND table_type = 'BASE TABLE'
 		  AND table_name <> 'schema_migrations'
 		  AND table_name <> 'users'
-		  AND table_name <> 'settings'
 		ORDER BY table_name
 	`); err != nil {
 		_ = tx.Rollback()
@@ -93,21 +62,19 @@ func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
 	for i, table := range tables {
 		quotedTables[i] = `"` + strings.ReplaceAll(table, `"`, `""`) + `"`
 	}
-	query := "TRUNCATE TABLE " + strings.Join(quotedTables, ", ") + " CASCADE"
+	// Without CASCADE, an unexpected dependency from a protected table makes
+	// this transaction fail safely instead of deleting that protected table.
+	query := "TRUNCATE TABLE " + strings.Join(quotedTables, ", ") + " RESTART IDENTITY"
 	if _, err := tx.Exec(query); err != nil {
 		_ = tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تصفير بيانات قاعدة البيانات", "details": err.Error()})
 		return
 	}
-
-	var deletedUsers int64
-	result, err := tx.Exec(`DELETE FROM users WHERE email IS DISTINCT FROM 'owner@partflow.com'`)
-	if err != nil {
+	if err := ensureDefaultSettingsWith(tx); err != nil {
 		_ = tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تنظيف حسابات المستخدمين", "details": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل إعادة الإعدادات الافتراضية", "details": err.Error()})
 		return
 	}
-	deletedUsers, _ = result.RowsAffected()
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("Failed to commit transaction: %v", err)
@@ -116,10 +83,9 @@ func (h *DatabaseHandler) resetPostgreSQL(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":          "تم تصفير بيانات النظام مع الحفاظ على حساب المالك والإعدادات",
+		"message":          "تم حذف بيانات المتجر مع الحفاظ على حسابات المالك والمشتركين",
 		"deleted_tables":   len(tables),
-		"deleted_users":    deletedUsers,
-		"preserved_tables": []string{"owner user", "settings", "schema_migrations"},
+		"preserved_tables": []string{"users", "schema_migrations"},
 		"target":           "online",
 	})
 }
@@ -184,11 +150,26 @@ func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
 
 	for _, table := range tables {
 		// Keep table definitions intact; reset only business rows.
-		if table == "users" || table == "local_sessions" || table == "refresh_tokens" || table == "settings" || table == "schema_migrations" {
+		if table == "users" || table == "local_metadata" || table == "schema_migrations" {
 			continue
 		}
 		if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %q", table)); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "فشل تصفير بيانات قاعدة البيانات المحلية", "details": err.Error()})
+			return
+		}
+	}
+	if err := ensureDefaultSettingsWith(tx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to restore default SQLite settings", "details": err.Error()})
+		return
+	}
+	var hasSequenceTable int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sqlite_sequence'").Scan(&hasSequenceTable); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to inspect SQLite sequences", "details": err.Error()})
+		return
+	}
+	if hasSequenceTable > 0 {
+		if _, err := tx.Exec("DELETE FROM sqlite_sequence"); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset SQLite sequences", "details": err.Error()})
 			return
 		}
 	}
@@ -209,31 +190,32 @@ func (h *DatabaseHandler) resetSQLite(c *gin.Context) {
 		"message":        "تم تصفير بيانات التشغيل المحلي مع الاحتفاظ بوضع التشغيل الحالي",
 		"deleted_tables": len(tables),
 		"target":         "offline",
-		"preserved":      []string{"local_metadata", "operating_mode"},
+		"preserved":      []string{"users", "local_metadata", "schema_migrations", "operating_mode"},
 	})
 }
 
 // DeleteAllData deletes all application data from the database.
 func (h *DatabaseHandler) DeleteAllData(c *gin.Context) {
-	// The embedded desktop backend owns SQLite. A client must never be able to
-	// select an "online" target and accidentally clear cloud data (or use the
-	// old operating-mode switch as a destructive escape hatch).
-	if h.db != nil && (strings.EqualFold(h.db.DriverName(), "sqlite") || strings.EqualFold(h.db.DriverName(), "sqlite3")) {
+	if h.db == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "database is unavailable"})
+		return
+	}
+	target := strings.ToLower(strings.TrimSpace(c.Query("target")))
+	driver := strings.ToLower(h.db.DriverName())
+	if driver == "sqlite" || driver == "sqlite3" {
+		if target != "offline" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "local database reset requires target=offline", "code": "LOCAL_DATABASE_TARGET_REQUIRED"})
+			return
+		}
 		h.resetSQLite(c)
 		return
 	}
-
-	currentMode, err := getOperatingModeFromLocalDB()
-	if err != nil {
-		log.Printf("Unable to read current operating mode: %v", err)
-	}
-
-	target := resolveResetTarget(c.Query("target"), c.Query("mode"))
-	if target == "" {
-		target = resolveResetTarget("", currentMode)
+	if driver != "pgx" && driver != "postgres" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "unsupported database driver"})
+		return
 	}
 	if target == "offline" {
-		h.resetSQLite(c)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cloud service cannot reset a device SQLite database", "code": "LOCAL_DATABASE_NOT_HERE"})
 		return
 	}
 	h.resetPostgreSQL(c)

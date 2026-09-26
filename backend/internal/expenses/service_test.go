@@ -126,39 +126,32 @@ func TestAccountingExpensesCannotBeEdited(t *testing.T) {
 	}
 }
 
-func TestAccountingExpensesCanBeArchivedWithoutChangingFinancialTotals(t *testing.T) {
-	service, db, _, expenseID := newExpenseServiceTestDB(t)
-	dbHandle := sqlx.NewDb(db, "sqlite")
-	start := time.Date(2026, time.September, 25, 0, 0, 0, 0, time.UTC)
-	end := start.AddDate(0, 0, 1)
+func TestAccountingExpensesCanBeHardDeletedAndRemovedFromFinancialTotals(t *testing.T) {
 	for _, status := range []string{"approved", "paid", "completed"} {
-		if _, err := db.Exec(`UPDATE expenses SET status = ? WHERE id = ?`, status, expenseID.String()); err != nil {
-			t.Fatal(err)
-		}
-		before, err := accounting.TotalExpensesForPeriod(context.Background(), dbHandle, start, end)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := service.DeleteExpense(context.Background(), expenseID); err != nil {
-			t.Fatalf("archive %q expense: %v", status, err)
-		}
-		var storedStatus string
-		if err := db.QueryRow(`SELECT status FROM expenses WHERE id = ?`, expenseID.String()).Scan(&storedStatus); err != nil {
-			t.Fatal(err)
-		}
-		if storedStatus != "archived" {
-			t.Fatalf("expense status after cleanup = %q, want archived", storedStatus)
-		}
-		after, err := accounting.TotalExpensesForPeriod(context.Background(), dbHandle, start, end)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if before != 25 || after != before {
-			t.Fatalf("financial total before/after archive = %v/%v, want 25/25", before, after)
-		}
-		if err := service.DeleteExpense(context.Background(), expenseID); !errors.Is(err, ErrExpenseAlreadyArchived) {
-			t.Fatalf("repeat archive error = %v, want ErrExpenseAlreadyArchived", err)
-		}
+		t.Run(status, func(t *testing.T) {
+			service, db, _, expenseID := newExpenseServiceTestDB(t)
+			if _, err := db.Exec(`UPDATE expenses SET status = ? WHERE id = ?`, status, expenseID.String()); err != nil {
+				t.Fatal(err)
+			}
+			dbHandle := sqlx.NewDb(db, "sqlite")
+			start := time.Date(2026, time.September, 25, 0, 0, 0, 0, time.UTC)
+			end := start.AddDate(0, 0, 1)
+			before, err := accounting.TotalExpensesForPeriod(context.Background(), dbHandle, start, end)
+			if err != nil || before != 25 {
+				t.Fatalf("expense total before deletion = %v, err=%v; want 25", before, err)
+			}
+			if err := service.DeleteExpense(context.Background(), expenseID); err != nil {
+				t.Fatalf("hard delete %q expense: %v", status, err)
+			}
+			var remaining int
+			if err := db.QueryRow(`SELECT COUNT(*) FROM expenses WHERE id = ?`, expenseID.String()).Scan(&remaining); err != nil {
+				t.Fatal(err)
+			}
+			after, err := accounting.TotalExpensesForPeriod(context.Background(), dbHandle, start, end)
+			if err != nil || remaining != 0 || after != 0 {
+				t.Fatalf("after delete rows=%d expense_total=%v err=%v; want 0/0", remaining, after, err)
+			}
+		})
 	}
 }
 
@@ -200,7 +193,7 @@ func TestUnknownExpenseStatusesCannotBeDeleted(t *testing.T) {
 	}
 }
 
-func TestPermanentlyDeleteApprovedExpenseRemovesItFromFinancialTotalsSQLite(t *testing.T) {
+func TestPermanentlyDeleteApprovedExpenseRemovesFinancialTotalsSQLite(t *testing.T) {
 	service, db, _, expenseID := newExpenseServiceTestDB(t)
 	if _, err := db.Exec(`UPDATE expenses SET status = 'approved' WHERE id = ?`, expenseID.String()); err != nil {
 		t.Fatal(err)
@@ -209,11 +202,8 @@ func TestPermanentlyDeleteApprovedExpenseRemovesItFromFinancialTotalsSQLite(t *t
 	start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	before, err := accounting.TotalExpensesForPeriod(context.Background(), dbHandle, start, end)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before != 25 {
-		t.Fatalf("expense total before delete = %v, want 25", before)
+	if err != nil || before != 25 {
+		t.Fatalf("expense total before delete = %v, err=%v; want 25", before, err)
 	}
 	if err := service.PermanentlyDeleteExpense(context.Background(), expenseID); err != nil {
 		t.Fatalf("permanently delete approved expense: %v", err)
@@ -222,15 +212,26 @@ func TestPermanentlyDeleteApprovedExpenseRemovesItFromFinancialTotalsSQLite(t *t
 	if err := db.QueryRow(`SELECT COUNT(*) FROM expenses WHERE id = ?`, expenseID.String()).Scan(&remaining); err != nil {
 		t.Fatal(err)
 	}
-	if remaining != 0 {
-		t.Fatalf("expense rows remaining = %d, want 0", remaining)
-	}
 	after, err := accounting.TotalExpensesForPeriod(context.Background(), dbHandle, start, end)
-	if err != nil {
+	if err != nil || remaining != 0 || after != 0 {
+		t.Fatalf("after permanent deletion: rows=%d expense_total=%v err=%v; want 0/0", remaining, after, err)
+	}
+}
+
+func TestPermanentlyDeleteArchivedExpenseRemovesFinancialTotalsSQLite(t *testing.T) {
+	service, db, _, expenseID := newExpenseServiceTestDB(t)
+	if _, err := db.Exec(`UPDATE expenses SET status = 'archived' WHERE id = ?`, expenseID.String()); err != nil {
 		t.Fatal(err)
 	}
-	if after != 0 {
-		t.Fatalf("expense total after delete = %v, want 0", after)
+	if err := service.PermanentlyDeleteExpense(context.Background(), expenseID); err != nil {
+		t.Fatalf("permanently delete archived expense: %v", err)
+	}
+	var remaining int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM expenses WHERE id = ?`, expenseID.String()).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("archived expense rows remaining = %d, want 0", remaining)
 	}
 }
 

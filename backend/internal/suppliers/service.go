@@ -132,7 +132,7 @@ func generateSupplierCode() string {
 }
 
 func (s *Service) DeleteSupplier(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Delete(ctx, id)
+	return s.deleteSupplierCascade(ctx, id)
 }
 
 // AddPayment adds a payment to supplier

@@ -116,7 +116,7 @@ export function ReportStats({ data, loading, reportType = 'sales' }: ReportStats
           ['صافي المبيعات', value(report.total_revenue), DollarSign, 'بعد خصم المرتجعات وقبل الضريبة', 'featured'],
           ['إجمالي الربح', value(report.gross_profit), TrendingUp, 'قبل المصروفات وقبل الضريبة', 'success'],
           ['عدد المبيعات', count(report.total_sales), Database, 'عمليات البيع المكتملة', 'default'],
-          ['الوحدات المباعة', count(report.total_items_sold), Package, 'إجمالي القطع المباعة', 'info'],
+          ['الوحدات المباعة', count(report.total_items_sold), Package, 'إجمالي الوحدات المباعة', 'info'],
         ];
     }
   })();

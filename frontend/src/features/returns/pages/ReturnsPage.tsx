@@ -170,7 +170,7 @@ export function ReturnsPage() {
       REFURBISHED: 'مجدّد',
       SUPPLIER_RETURN: 'إرجاع للمورد',
       WRITE_OFF: 'شطب',
-      PARTS: 'قطع غيار',
+      PARTS: 'غير صالح للبيع',
     };
     return labels[condition] || condition;
   };
@@ -436,7 +436,7 @@ export function ReturnsPage() {
                       <span>{getReasonLabel(returnItem.reason)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-400">حالة القطعة:</span>
+                      <span className="text-gray-400">حالة المنتج:</span>
                       <span>{getConditionLabel(returnItem.item_condition_after_return)}</span>
                     </div>
                     <div className="flex justify-between text-sm">

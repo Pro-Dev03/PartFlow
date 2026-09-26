@@ -9,7 +9,7 @@ export const errorMessages = {
   
   // API Errors
   ITEM_NOT_FOUND: 'المنتج غير موجود',
-  ITEM_ALREADY_SOLD: 'هذه القطعة تم بيعها بالفعل',
+  ITEM_ALREADY_SOLD: 'هذا المنتج تم بيعه بالفعل',
   INSUFFICIENT_STOCK: 'المخزون غير كافٍ',
   DUPLICATE_SERIAL: 'الرقم التسلسلي مستخدم بالفعل',
   DUPLICATE_BARCODE: 'الباركود مستخدم بالفعل',
@@ -39,7 +39,7 @@ export const errorMessages = {
   CUSTOMER_NOT_FOUND: 'العميل غير موجود',
   SUPPLIER_NOT_FOUND: 'المورد غير موجود',
   PRODUCT_NOT_FOUND: 'المنتج غير موجود',
-  INVENTORY_ITEM_NOT_FOUND: 'القطعة غير موجودة',
+  INVENTORY_ITEM_NOT_FOUND: 'وحدة المخزون غير موجودة',
   SALE_NOT_FOUND: 'عملية البيع غير موجودة',
   DEBT_NOT_FOUND: 'الدين غير موجود',
   PAYMENT_NOT_FOUND: 'الدفعة غير موجودة',
@@ -49,11 +49,11 @@ export const errorMessages = {
   PAYMENT_FAILED: 'فشل عملية الدفع',
   DEBT_CREATION_FAILED: 'فشل إنشاء الدين',
   
-  ALREADY_RESERVED: 'هذه القطعة محجوزة بالفعل',
-  CANNOT_RESERVE_SOLD_ITEM: 'لا يمكن حجز قطعة تم بيعها',
-  CANNOT_SOLD_RESERVED_ITEM: 'لا يمكن بيع قطعة محجوزة',
+  ALREADY_RESERVED: 'هذا المنتج محجوز بالفعل',
+  CANNOT_RESERVE_SOLD_ITEM: 'لا يمكن حجز منتج تم بيعه',
+  CANNOT_SOLD_RESERVED_ITEM: 'لا يمكن بيع منتج محجوز',
   
-  RETURN_NOT_ALLOWED: 'لا يسمح بإرجاع هذه القطعة',
+  RETURN_NOT_ALLOWED: 'لا يسمح بإرجاع هذا المنتج',
   WARRANTY_EXPIRED: 'الضمان منتهي',
   WARRANTY_NOT_FOUND: 'الضمان غير موجود',
   

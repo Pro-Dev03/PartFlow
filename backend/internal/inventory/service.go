@@ -588,6 +588,8 @@ func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, u
 		return fmt.Errorf("failed to read current inventory quantity: %w", err)
 	}
 	quantityDiff := req.NewQuantity - currentQuantity
+	beforeStatus := strings.ToUpper(strings.TrimSpace(item.Status))
+	afterStatus := beforeStatus
 
 	// Update item status if needed
 	if req.NewStatus != nil && *req.NewStatus != "" {
@@ -595,6 +597,7 @@ func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, u
 			return ErrInvalidStatus
 		}
 		newStatus := strings.ToUpper(strings.TrimSpace(*req.NewStatus))
+		afterStatus = newStatus
 		updateStatusQuery := fmt.Sprintf(`UPDATE inventory_items SET status = $1, updated_at = %s WHERE id = $2`, dbutil.NowSQL(s.db))
 		_, err = tx.ExecContext(ctx, updateStatusQuery, newStatus, req.ItemID)
 		if err != nil {
@@ -632,13 +635,13 @@ func (s *Service) AdjustInventory(ctx context.Context, req *AdjustmentRequest, u
 	}
 	movementQuery := `
 		INSERT INTO inventory_movements (id, item_id, movement_type,
-			quantity, before_quantity, after_quantity, reference_type, reference_id,
+			quantity, before_quantity, after_quantity, before_status, after_status, reference_type, reference_id,
 			reason, created_by, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 	_, err = tx.ExecContext(ctx, movementQuery,
 		uuid.New(), req.ItemID, "ADJUSTMENT",
-		quantityDiff, currentQuantity, req.NewQuantity, "adjustment", req.ItemID, adjustmentReason, userID, time.Now())
+		quantityDiff, currentQuantity, req.NewQuantity, beforeStatus, afterStatus, "adjustment", req.ItemID, adjustmentReason, userID, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to create movement: %w", err)
 	}
@@ -716,6 +719,180 @@ func (s *Service) AdjustProductQuantity(ctx context.Context, productID uuid.UUID
 		return fmt.Errorf("failed to commit product quantity adjustment: %w", err)
 	}
 	committed = true
+	return nil
+}
+
+// DeleteProductQuantityAdjustment removes a product or item-level adjustment,
+// reverses its stock/status effect, and rebases later product movement
+// snapshots in one transaction. It fails only when the resulting stock would
+// be invalid or the required before-state cannot be established.
+func (s *Service) DeleteProductQuantityAdjustment(ctx context.Context, movementID uuid.UUID) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin inventory adjustment deletion: %w", err)
+	}
+	defer tx.Rollback()
+
+	isSQLite := dbutil.IsSQLite(s.db)
+	movementIDArg := interface{}(movementID)
+	if isSQLite {
+		movementIDArg = movementID.String()
+		result, lockErr := tx.ExecContext(ctx, `UPDATE inventory_movements SET id=id WHERE id=?`, movementIDArg)
+		if lockErr != nil {
+			return fmt.Errorf("lock inventory adjustment: %w", lockErr)
+		}
+		if affected, rowsErr := result.RowsAffected(); rowsErr != nil || affected != 1 {
+			return ErrInventoryAdjustmentNotFound
+		}
+	}
+	query := `SELECT CAST(product_id AS TEXT) AS product_id, CAST(item_id AS TEXT) AS item_id, UPPER(COALESCE(movement_type,'')) AS movement_type, COALESCE(quantity,0) AS quantity, COALESCE(before_quantity,0) AS before_quantity, COALESCE(after_quantity,0) AS after_quantity, COALESCE(before_status,'') AS before_status, COALESCE(after_status,'') AS after_status, LOWER(COALESCE(reference_type,'')) AS reference_type, created_at FROM inventory_movements WHERE id=?`
+	if !isSQLite {
+		query += ` FOR UPDATE`
+	}
+	var movement struct {
+		ProductID      sql.NullString `db:"product_id"`
+		ItemID         sql.NullString `db:"item_id"`
+		MovementType   string         `db:"movement_type"`
+		Quantity       int            `db:"quantity"`
+		BeforeQuantity int            `db:"before_quantity"`
+		AfterQuantity  int            `db:"after_quantity"`
+		BeforeStatus   string         `db:"before_status"`
+		AfterStatus    string         `db:"after_status"`
+		ReferenceType  string         `db:"reference_type"`
+		CreatedAt      time.Time      `db:"created_at"`
+	}
+	if isSQLite {
+		query = `SELECT CAST(product_id AS TEXT) AS product_id, CAST(item_id AS TEXT) AS item_id, UPPER(COALESCE(movement_type,'')) AS movement_type, COALESCE(quantity,0) AS quantity, COALESCE(before_quantity,0) AS before_quantity, COALESCE(after_quantity,0) AS after_quantity, COALESCE(before_status,'') AS before_status, COALESCE(after_status,'') AS after_status, LOWER(COALESCE(reference_type,'')) AS reference_type, CAST(created_at AS TEXT) AS created_at FROM inventory_movements WHERE id=?`
+		var sqliteMovement struct {
+			ProductID      sql.NullString `db:"product_id"`
+			ItemID         sql.NullString `db:"item_id"`
+			MovementType   string         `db:"movement_type"`
+			Quantity       int            `db:"quantity"`
+			BeforeQuantity int            `db:"before_quantity"`
+			AfterQuantity  int            `db:"after_quantity"`
+			BeforeStatus   string         `db:"before_status"`
+			AfterStatus    string         `db:"after_status"`
+			ReferenceType  string         `db:"reference_type"`
+			CreatedAt      string         `db:"created_at"`
+		}
+		if err := tx.GetContext(ctx, &sqliteMovement, tx.Rebind(query), movementIDArg); err != nil {
+			if err == sql.ErrNoRows {
+				return ErrInventoryAdjustmentNotFound
+			}
+			return fmt.Errorf("load inventory adjustment: %w", err)
+		}
+		movement.ProductID = sqliteMovement.ProductID
+		movement.ItemID = sqliteMovement.ItemID
+		movement.MovementType = sqliteMovement.MovementType
+		movement.Quantity = sqliteMovement.Quantity
+		movement.BeforeQuantity = sqliteMovement.BeforeQuantity
+		movement.AfterQuantity = sqliteMovement.AfterQuantity
+		movement.BeforeStatus = sqliteMovement.BeforeStatus
+		movement.AfterStatus = sqliteMovement.AfterStatus
+		movement.ReferenceType = sqliteMovement.ReferenceType
+	} else if err := tx.GetContext(ctx, &movement, tx.Rebind(query), movementIDArg); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrInventoryAdjustmentNotFound
+		}
+		return fmt.Errorf("load inventory adjustment: %w", err)
+	}
+
+	if movement.MovementType != string(MovementAdjustment) ||
+		!((movement.ReferenceType == "product_quantity_adjustment" && !movement.ItemID.Valid && movement.ProductID.Valid) || (movement.ReferenceType == "adjustment" && movement.ItemID.Valid)) {
+		return ErrCannotDeleteInventoryAdjustment
+	}
+	if movement.BeforeQuantity < 0 || movement.AfterQuantity < 0 || movement.Quantity != movement.AfterQuantity-movement.BeforeQuantity {
+		return ErrCannotDeleteInventoryAdjustment
+	}
+	var productID uuid.UUID
+	if movement.ProductID.Valid {
+		productID, err = uuid.Parse(movement.ProductID.String)
+		if err != nil {
+			return fmt.Errorf("parse inventory adjustment product: %w", err)
+		}
+	} else {
+		if err := tx.GetContext(ctx, &productID, tx.Rebind(`SELECT product_id FROM inventory_items WHERE id=?`), movement.ItemID.String); err != nil {
+			return fmt.Errorf("load adjusted inventory item product: %w", err)
+		}
+	}
+	productArg := interface{}(productID)
+	if isSQLite {
+		productArg = productID.String()
+		if _, err := tx.ExecContext(ctx, `UPDATE inventory SET quantity=quantity WHERE product_id=?`, productArg); err != nil {
+			return fmt.Errorf("lock adjusted product inventory: %w", err)
+		}
+	}
+	var currentQuantity int
+	if !isSQLite {
+		if err := tx.GetContext(ctx, &currentQuantity, tx.Rebind(`SELECT COALESCE(quantity,0) FROM inventory WHERE product_id=? FOR UPDATE`), productArg); err != nil {
+			return fmt.Errorf("lock adjusted product inventory: %w", err)
+		}
+	} else if err := tx.GetContext(ctx, &currentQuantity, tx.Rebind(`SELECT COALESCE(quantity,0) FROM inventory WHERE product_id=?`), productArg); err != nil {
+		return fmt.Errorf("load adjusted product inventory: %w", err)
+	}
+	newQuantity := currentQuantity - movement.Quantity
+	if newQuantity < 0 {
+		return fmt.Errorf("cannot reverse this stock adjustment: later stock use would make available quantity negative")
+	}
+	if movement.ItemID.Valid && movement.BeforeStatus != "" && movement.AfterStatus != "" {
+		var currentStatus string
+		if err := tx.GetContext(ctx, &currentStatus, tx.Rebind(`SELECT UPPER(TRIM(COALESCE(status,''))) FROM inventory_items WHERE id=?`), movement.ItemID.String); err != nil {
+			return fmt.Errorf("load adjusted item status: %w", err)
+		}
+		if currentStatus == strings.ToUpper(strings.TrimSpace(movement.AfterStatus)) {
+			before := strings.ToUpper(strings.TrimSpace(movement.BeforeStatus))
+			if _, err := tx.ExecContext(ctx, tx.Rebind(fmt.Sprintf(`UPDATE inventory_items SET status=?, sold_at=CASE WHEN ?='AVAILABLE' THEN NULL ELSE sold_at END, updated_at=%s WHERE id=?`, dbutil.NowSQL(s.db))), before, before, movement.ItemID.String); err != nil {
+				return fmt.Errorf("reverse adjusted inventory item status: %w", err)
+			}
+		}
+	}
+	if !movement.ItemID.Valid {
+		// Removing an earlier quantity adjustment changes the running quantity
+		// shown by every later movement. Rebase those snapshots in this same
+		// transaction so movement history still reconciles to the live balance.
+		var history []struct {
+			ID             string `db:"id"`
+			BeforeQuantity int    `db:"before_quantity"`
+			AfterQuantity  int    `db:"after_quantity"`
+		}
+		if err := tx.SelectContext(ctx, &history, tx.Rebind(`SELECT CAST(id AS TEXT) AS id, COALESCE(before_quantity,0) AS before_quantity, COALESCE(after_quantity,0) AS after_quantity FROM inventory_movements WHERE product_id=? ORDER BY created_at,id`), productArg); err != nil {
+			return fmt.Errorf("load later inventory movement snapshots: %w", err)
+		}
+		foundAdjustment := false
+		for _, row := range history {
+			if row.ID == movementID.String() {
+				foundAdjustment = true
+				continue
+			}
+			if !foundAdjustment {
+				continue
+			}
+			before, after := row.BeforeQuantity-movement.Quantity, row.AfterQuantity-movement.Quantity
+			if before < 0 || after < 0 {
+				return fmt.Errorf("cannot reverse this stock adjustment while later movements rely on its quantity; reverse the dependent stock operations first")
+			}
+			if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE inventory_movements SET before_quantity=?, after_quantity=? WHERE id=?`), before, after, row.ID); err != nil {
+				return fmt.Errorf("rebase later inventory movement %s: %w", row.ID, err)
+			}
+		}
+		if !foundAdjustment {
+			return ErrInventoryAdjustmentNotFound
+		}
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(fmt.Sprintf(`UPDATE inventory SET quantity=?, updated_at=%s WHERE product_id=?`, dbutil.NowSQL(s.db))), newQuantity, productArg); err != nil {
+		return fmt.Errorf("reverse product quantity adjustment: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM inventory_movements WHERE id=? AND movement_type='ADJUSTMENT'`), movementIDArg)
+	if err != nil {
+		return fmt.Errorf("delete product quantity adjustment: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		return ErrInventoryAdjustmentNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit product quantity adjustment deletion: %w", err)
+	}
+	dashboard.InvalidateDashboardCacheWithReason("inventory_adjustment_deleted")
 	return nil
 }
 
@@ -828,11 +1005,7 @@ func (s *Service) ListInventoryItems(ctx context.Context, page, perPage int, fil
 }
 
 func (s *Service) DeleteInventoryItem(ctx context.Context, itemID, userID uuid.UUID) error {
-	if err := s.repo.DeleteUsedInventoryItem(ctx, itemID, userID); err != nil {
-		return err
-	}
-	dashboard.InvalidateDashboardCacheWithReason("inventory_item_deleted")
-	return nil
+	return s.deleteInventoryItemCascade(ctx, itemID, userID)
 }
 
 // ListInventoryItemsWithSupplierInfo lists inventory items with supplier information

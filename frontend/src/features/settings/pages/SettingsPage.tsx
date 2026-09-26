@@ -27,6 +27,7 @@ import { DatabaseSettings } from '../components/DatabaseSettings';
 import { SubscriptionManagement } from '../components/SubscriptionManagement';
 import { RegionalSettings } from '../components/RegionalSettings';
 import { SubscriberSyncSettings } from '../components/SubscriberSyncSettings';
+import { HistoricalCleanupSettings } from '../components/HistoricalCleanupSettings';
 
 interface SettingsSection {
   id: string;
@@ -235,6 +236,7 @@ export function SettingsPage() {
                 <StoreSettings />
                 <RegionalSettings canManageRegionalSettings={isActiveSubscription} />
                 {isActiveSubscription && <SubscriberSyncSettings canUpload={isAdmin} />}
+                {isActiveSubscription && <HistoricalCleanupSettings />}
               </div>
             )}
             {activeTab === 'financial' && <FinancialSettings />}

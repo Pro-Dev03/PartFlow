@@ -156,7 +156,7 @@ export function usePurchases() {
     onError: (error) => {
       console.error('Error reversing purchase:', error);
       if (error.message?.includes('some items have been sold')) {
-        toast.error('لا يمكن إلغاء عملية الشراء لأن بعض القطع تم بيعها بالفعل.');
+        toast.error('لا يمكن إلغاء عملية الشراء لأن بعض وحدات المخزون بيعت بالفعل.');
       } else {
         toast.error(`خطأ في إلغاء عملية الشراء: ${error.message || 'حدث خطأ غير معروف'}`);
       }

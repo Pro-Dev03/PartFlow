@@ -1,8 +1,10 @@
 package debts
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -18,6 +20,8 @@ import (
 	"github.com/partflow/smart-store/internal/accounting"
 	"github.com/partflow/smart-store/internal/dashboard"
 	dbutil "github.com/partflow/smart-store/internal/database"
+	"github.com/partflow/smart-store/internal/payments"
+	"github.com/partflow/smart-store/internal/sales"
 )
 
 type Handler struct {
@@ -37,6 +41,11 @@ type debtsCache struct {
 	expiration time.Time
 	mu         sync.RWMutex
 }
+
+var (
+	ErrDebtNotFound        = errors.New("debt not found")
+	ErrDebtDeletionBlocked = errors.New("debt deletion is blocked")
+)
 
 func newDebtsCache() *debtsCache {
 	return &debtsCache{}
@@ -381,15 +390,53 @@ func (h *Handler) CreateDebt(c *gin.Context) {
 		}
 	}
 
-	id := uuid.New()
-	query := fmt.Sprintf(`
-		INSERT INTO debts (id, customer_id, amount, remaining_amount, due_date, status, notes, created_at, updated_at)
-		VALUES ($1, $2, $3, $3, $4, 'pending', $5, %s, %s)
-	`, dbutil.NowSQL(h.db), dbutil.NowSQL(h.db))
-
-	_, err := h.db.Exec(query, id, req.CustomerID, req.Amount, req.DueDate, req.Notes)
+	ctx := c.Request.Context()
+	tx, err := h.db.BeginTxx(ctx, nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start debt transaction"})
+		return
+	}
+	defer tx.Rollback()
+	lock := ""
+	if !dbutil.IsSQLite(h.db) {
+		lock = " FOR UPDATE"
+	}
+	var currentBalance float64
+	if err := tx.GetContext(ctx, &currentBalance, tx.Rebind(`SELECT COALESCE(current_balance, 0) FROM customers WHERE id = ?`)+lock, req.CustomerID.String()); err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "customer not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load customer balance"})
+		return
+	}
+
+	id := uuid.New()
+	createdAt := time.Now().UTC()
+	query := fmt.Sprintf(`
+		INSERT INTO debts (id, customer_id, amount, paid_amount, remaining_amount, due_date, status, notes, created_at, updated_at)
+		VALUES (?, ?, ?, 0, ?, ?, 'pending', ?, %s, %s)
+	`, dbutil.NowSQL(h.db), dbutil.NowSQL(h.db))
+	if _, err := tx.ExecContext(ctx, tx.Rebind(query), id.String(), req.CustomerID.String(), req.Amount, req.Amount, req.DueDate, req.Notes); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create debt"})
+		return
+	}
+	newBalance := currentBalance + req.Amount
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO customer_debts (id, customer_id, amount, reference_id, reference_type, due_date, is_paid, paid_amount, created_at) VALUES (?, ?, ?, NULL, 'manual', ?, FALSE, 0, ?)`), id.String(), req.CustomerID.String(), req.Amount, req.DueDate, createdAt); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create customer debt history"})
+		return
+	}
+	ledgerQuery := `INSERT INTO customer_ledger (id, customer_id, debt_id, type, amount, balance, description, reference_id, created_at) VALUES (?, ?, ?, 'debit', ?, ?, ?, ?, ?)`
+	if _, err := tx.ExecContext(ctx, tx.Rebind(ledgerQuery), uuid.New().String(), req.CustomerID.String(), id.String(), req.Amount, newBalance, strings.TrimSpace(req.Notes), id.String(), createdAt); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record debt in customer ledger"})
+		return
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(fmt.Sprintf(`UPDATE customers SET current_balance = ?, updated_at = %s WHERE id = ?`, dbutil.NowSQL(h.db))), newBalance, req.CustomerID.String()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update customer balance"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit debt transaction"})
 		return
 	}
 	h.cache.set(nil, 0)
@@ -485,19 +532,271 @@ func (h *Handler) DeleteDebt(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid debt ID"})
 		return
 	}
-
-	_, err = h.db.Exec("DELETE FROM debts WHERE id = $1", id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.DeleteDebtByID(c.Request.Context(), id); err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, ErrDebtNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, ErrDebtDeletionBlocked) {
+			status = http.StatusConflict
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	h.cache.set(nil, 0)
-	dashboard.InvalidateDashboardCache()
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "debt deleted successfully"})
+}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "debt deleted successfully",
-	})
+// DeleteDebtByID removes only an unpaid, non-invoice debt whose ledger entry
+// can be uniquely identified. It is shared by the individual delete route and
+// historical cleanup so both paths apply identical balance checks.
+func (h *Handler) DeleteDebtByID(ctx context.Context, id uuid.UUID) error {
+	// Invoice debts are owned by their sale. Route deletion through the sale's
+	// canonical reversal path so stock, payments, ledger, and reports all change
+	// together instead of deleting a debt row out from under the invoice.
+	var saleID sql.NullString
+	if err := h.db.GetContext(ctx, &saleID, h.db.Rebind(`SELECT sale_id FROM debts WHERE id = ?`), id.String()); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrDebtNotFound
+		}
+		return fmt.Errorf("load debt source before deletion: %w", err)
+	}
+	if saleID.Valid && strings.TrimSpace(saleID.String) != "" {
+		saleUUID, err := uuid.Parse(saleID.String)
+		if err != nil {
+			return fmt.Errorf("invalid source sale id on debt: %w", err)
+		}
+		service := sales.NewSmartDeleteService(h.db)
+		if err := service.PrepareDelete(ctx, saleUUID, uuid.Nil); err != nil {
+			return fmt.Errorf("prepare linked sale deletion: %w", err)
+		}
+		result, err := service.SmartDelete(ctx, saleUUID, uuid.Nil)
+		if err != nil {
+			return fmt.Errorf("reverse linked sale before deleting debt: %w", err)
+		}
+		if result == nil || result.Action != "deleted" {
+			message := "linked sale could not be safely deleted"
+			if result != nil && result.Message != "" {
+				message = result.Message
+			}
+			return fmt.Errorf("%w: %s", ErrDebtDeletionBlocked, message)
+		}
+		h.cache.set(nil, 0)
+		dashboard.InvalidateDashboardCacheWithReason("invoice_debt_deleted")
+		return nil
+	}
+
+	// A manual debt may have one or more posted payments. Reconcile provider
+	// settlements before opening the local transaction; then reverse every
+	// payment that was allocated to this debt inside the same transaction that
+	// removes the debt and its ledger entry.
+	paymentRepo := payments.NewRepository(h.db)
+	paymentIDs, err := h.paymentIDsAllocatedToDebt(ctx, paymentRepo, id)
+	if err != nil {
+		return fmt.Errorf("load payments allocated to debt: %w", err)
+	}
+	paymentService := payments.NewService(paymentRepo)
+	for _, paymentID := range paymentIDs {
+		if err := paymentService.PrepareDelete(ctx, paymentID, uuid.Nil); err != nil {
+			return fmt.Errorf("prepare payment %s reversal: %w", paymentID, err)
+		}
+	}
+
+	tx, err := h.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start debt deletion: %w", err)
+	}
+	defer tx.Rollback()
+	for _, paymentID := range paymentIDs {
+		if err := paymentRepo.DeleteInTx(ctx, tx, paymentID); err != nil {
+			return fmt.Errorf("reverse payment %s allocated to debt: %w", paymentID, err)
+		}
+	}
+
+	lock := ""
+	if !dbutil.IsSQLite(h.db) {
+		lock = " FOR UPDATE"
+	}
+	var debt struct {
+		CustomerID      string         `db:"customer_id"`
+		SaleID          sql.NullString `db:"sale_id"`
+		Amount          float64        `db:"amount"`
+		PaidAmount      float64        `db:"paid_amount"`
+		RemainingAmount float64        `db:"remaining_amount"`
+	}
+	query := `SELECT customer_id, sale_id, amount, COALESCE(paid_amount, 0) AS paid_amount, COALESCE(remaining_amount, 0) AS remaining_amount FROM debts WHERE id = ?`
+	if err := tx.GetContext(ctx, &debt, tx.Rebind(query)+lock, id.String()); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrDebtNotFound
+		}
+		return fmt.Errorf("failed to load debt: %w", err)
+	}
+	var customerBalance, ledgerBalance float64
+	if err := tx.GetContext(ctx, &customerBalance, tx.Rebind(`SELECT COALESCE(current_balance, 0) FROM customers WHERE id = ?`)+lock, debt.CustomerID); err != nil {
+		return fmt.Errorf("%w: customer balance is unavailable; reconcile the customer account before deleting this debt", ErrDebtDeletionBlocked)
+	}
+	if err := tx.GetContext(ctx, &ledgerBalance, tx.Rebind(`SELECT COALESCE(SUM(CASE WHEN LOWER(COALESCE(type, '')) = 'debit' THEN amount WHEN LOWER(COALESCE(type, '')) = 'credit' THEN -amount ELSE 0 END), 0) FROM customer_ledger WHERE customer_id = ?`), debt.CustomerID); err != nil {
+		return fmt.Errorf("%w: customer ledger is unavailable; reconcile the customer account before deleting this debt", ErrDebtDeletionBlocked)
+	}
+	if math.Abs(customerBalance-ledgerBalance) > 0.01 {
+		return fmt.Errorf("%w: customer balance does not match the ledger; reconcile the customer account before deleting this debt", ErrDebtDeletionBlocked)
+	}
+
+	debtIDColumnExists, err := customerLedgerDebtIDColumnExists(ctx, tx, h.db)
+	if err != nil {
+		return fmt.Errorf("failed to inspect customer ledger schema: %w", err)
+	}
+	ledgerLink := `reference_id = ?`
+	ledgerArgs := []any{debt.CustomerID, id.String(), debt.Amount}
+	if debtIDColumnExists {
+		ledgerLink = `(debt_id = ? OR (debt_id IS NULL AND reference_id = ?))`
+		ledgerArgs = []any{debt.CustomerID, id.String(), id.String(), debt.Amount}
+	}
+	ledgerMatch := `customer_id = ? AND ` + ledgerLink + ` AND LOWER(COALESCE(type, '')) = 'debit' AND ABS(amount - ?) < 0.000001`
+	var linkedLedgerCount int
+	if err := tx.GetContext(ctx, &linkedLedgerCount, tx.Rebind(`SELECT COUNT(*) FROM customer_ledger WHERE `+ledgerMatch), ledgerArgs...); err != nil {
+		return fmt.Errorf("failed to inspect debt ledger entry: %w", err)
+	}
+	if linkedLedgerCount > 1 {
+		return fmt.Errorf("%w: multiple ledger entries match this debt; reconcile the customer account before deleting it", ErrDebtDeletionBlocked)
+	}
+	if linkedLedgerCount != 1 {
+		return fmt.Errorf("%w: this debt has no uniquely linked ledger entry; reconcile the customer account before deleting it", ErrDebtDeletionBlocked)
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM customer_ledger WHERE `+ledgerMatch), ledgerArgs...); err != nil {
+		return fmt.Errorf("failed to remove debt ledger entry: %w", err)
+	}
+	if err := deleteDebtMirror(ctx, tx, h.db, id.String()); err != nil {
+		return fmt.Errorf("failed to remove debt history entry: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM debts WHERE id = ?`), id.String())
+	if err != nil {
+		return fmt.Errorf("failed to delete debt: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect deleted debt count: %w", err)
+	}
+	if affected != 1 {
+		return ErrDebtNotFound
+	}
+	newBalance, err := recalculateCustomerLedger(ctx, tx, debt.CustomerID)
+	if err != nil {
+		return fmt.Errorf("failed to recalculate customer ledger: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(fmt.Sprintf(`UPDATE customers SET current_balance = ?, updated_at = %s WHERE id = ?`, dbutil.NowSQL(h.db))), newBalance, debt.CustomerID); err != nil {
+		return fmt.Errorf("failed to reconcile customer balance: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit debt deletion: %w", err)
+	}
+	h.cache.set(nil, 0)
+	dashboard.InvalidateDashboardCacheWithReason("debt_deleted")
+	return nil
+}
+
+func (h *Handler) paymentIDsAllocatedToDebt(ctx context.Context, repo *payments.Repository, debtID uuid.UUID) ([]uuid.UUID, error) {
+	tx, err := h.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin debt allocation inspection: %w", err)
+	}
+	defer tx.Rollback()
+	var customerID string
+	if err := tx.GetContext(ctx, &customerID, tx.Rebind(`SELECT CAST(customer_id AS TEXT) FROM debts WHERE id = ?`), debtID.String()); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrDebtNotFound
+		}
+		return nil, fmt.Errorf("load debt customer: %w", err)
+	}
+	paymentsTableExists, err := debtTableExists(ctx, tx, h.db, "payments")
+	if err != nil {
+		return nil, fmt.Errorf("inspect payments table: %w", err)
+	}
+	if !paymentsTableExists {
+		return nil, nil
+	}
+	ownerID, err := uuid.Parse(customerID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid debt customer id: %w", err)
+	}
+	if err := repo.ReconstructLegacyCustomerAllocationsTx(ctx, tx, ownerID); err != nil {
+		return nil, fmt.Errorf("reconstruct payment allocations: %w", err)
+	}
+	var rawIDs []string
+	if err := tx.SelectContext(ctx, &rawIDs, tx.Rebind(`SELECT DISTINCT payment_id FROM payment_debt_allocations WHERE debt_id = ? ORDER BY payment_id`), debtID.String()); err != nil {
+		return nil, fmt.Errorf("select debt payment allocations: %w", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		return nil, fmt.Errorf("release debt allocation inspection: %w", err)
+	}
+	ids := make([]uuid.UUID, 0, len(rawIDs))
+	for _, rawID := range rawIDs {
+		parsed, err := uuid.Parse(rawID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid allocated payment id %q: %w", rawID, err)
+		}
+		ids = append(ids, parsed)
+	}
+	return ids, nil
+}
+
+func debtTableExists(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, table string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() AND table_name=?)`
+	if dbutil.IsSQLite(db) {
+		query = `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?)`
+	}
+	var exists bool
+	if err := tx.GetContext(ctx, &exists, tx.Rebind(query), table); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func customerLedgerDebtIDColumnExists(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB) (bool, error) {
+	var exists bool
+	query := `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'customer_ledger' AND column_name = 'debt_id')`
+	if dbutil.IsSQLite(db) {
+		query = `SELECT EXISTS (SELECT 1 FROM pragma_table_info('customer_ledger') WHERE name = 'debt_id')`
+	}
+	if err := tx.GetContext(ctx, &exists, query); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func deleteDebtMirror(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, debtID string) error {
+	var exists bool
+	query := `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'customer_debts')`
+	if dbutil.IsSQLite(db) {
+		query = `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'customer_debts')`
+	}
+	if err := tx.GetContext(ctx, &exists, query); err != nil || !exists {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM customer_debts WHERE id = ?`), debtID)
+	return err
+}
+
+func recalculateCustomerLedger(ctx context.Context, tx *sqlx.Tx, customerID string) (float64, error) {
+	var entries []struct {
+		ID     string  `db:"id"`
+		Type   string  `db:"type"`
+		Amount float64 `db:"amount"`
+	}
+	if err := tx.SelectContext(ctx, &entries, tx.Rebind(`SELECT id, LOWER(COALESCE(type, '')) AS type, amount FROM customer_ledger WHERE customer_id = ? ORDER BY created_at, id`), customerID); err != nil {
+		return 0, err
+	}
+	var balance float64
+	for _, entry := range entries {
+		switch entry.Type {
+		case "debit":
+			balance += entry.Amount
+		case "credit":
+			balance -= entry.Amount
+		}
+		if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE customer_ledger SET balance = ? WHERE id = ?`), balance, entry.ID); err != nil {
+			return 0, err
+		}
+	}
+	return balance, nil
 }
 
 // GetCustomerDebts retrieves debts for a specific customer
@@ -886,6 +1185,7 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		newPaidAmount = debt.Amount
 	}
 	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	var paymentID string
 	updateQuery := `UPDATE debts SET paid_amount = ?, remaining_amount = ?, status = CASE WHEN ? THEN 'paid' ELSE status END, updated_at = ? WHERE id = ? AND COALESCE(remaining_amount, 0) >= ?`
 	result, err := tx.ExecContext(c.Request.Context(), tx.Rebind(updateQuery), newPaidAmount, newRemainingAmount, newRemainingAmount == 0, updatedAt, id.String(), req.Amount)
 	if err != nil {
@@ -897,7 +1197,7 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		return
 	}
 	if dbutil.IsSQLite(h.db) {
-		paymentID := uuid.New().String()
+		paymentID = uuid.New().String()
 		if _, err := tx.ExecContext(c.Request.Context(), `INSERT INTO payments (id, transaction_number, customer_id, amount, payment_method, reference, notes, created_at) VALUES (?, ?, ?, ?, 'cash', ?, ?, ?)`, paymentID, "PAY-"+paymentID[:8], customerID, req.Amount, id.String(), req.Notes, updatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -908,15 +1208,20 @@ func (h *Handler) AddPayment(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		paymentID := uuid.New()
+		paymentUUID := uuid.New()
+		paymentID = paymentUUID.String()
 		paymentQuery := `
 			INSERT INTO payments (id, reference_number, customer_id, amount, payment_method, payment_date, notes, created_at, updated_at)
 			VALUES ($1, $2, $3, $4, 'cash', $5, $6, NOW(), NOW())
 		`
-		if _, err = tx.ExecContext(c.Request.Context(), paymentQuery, paymentID, "PAY-"+paymentID.String()[:8], customerID, req.Amount, storeDate, req.Notes); err != nil {
+		if _, err = tx.ExecContext(c.Request.Context(), paymentQuery, paymentUUID, "PAY-"+paymentID[:8], customerID, req.Amount, storeDate, req.Notes); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+	}
+	if err := recordDebtPaymentEffectsTx(c.Request.Context(), tx, h.db, id, customerID, paymentID, req.Amount, req.Notes, updatedAt); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to record debt payment effects"})
+		return
 	}
 
 	// Commit transaction
@@ -931,4 +1236,36 @@ func (h *Handler) AddPayment(c *gin.Context) {
 		"success": true,
 		"message": "payment added successfully",
 	})
+}
+
+func recordDebtPaymentEffectsTx(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, debtID uuid.UUID, customerID, paymentID string, amount float64, notes, createdAt string) error {
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO payment_allocation_batches (payment_id,owner_type,owner_id,sale_id,tracked_at) VALUES (?,'customer',?,NULL,?)`), paymentID, customerID, createdAt); err != nil {
+		return fmt.Errorf("record debt payment allocation batch: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`INSERT INTO payment_debt_allocations (id,payment_id,debt_id,amount,created_at) VALUES (?,?,?,?,?)`), uuid.New().String(), paymentID, debtID.String(), amount, createdAt); err != nil {
+		return fmt.Errorf("record debt payment allocation: %w", err)
+	}
+	var ledgerBalance float64
+	ledgerQuery := `SELECT COALESCE(SUM(CASE WHEN LOWER(COALESCE(type,''))='debit' THEN amount WHEN LOWER(COALESCE(type,''))='credit' THEN -amount ELSE 0 END),0) FROM customer_ledger WHERE customer_id = ?`
+	if err := tx.GetContext(ctx, &ledgerBalance, tx.Rebind(ledgerQuery), customerID); err != nil {
+		return fmt.Errorf("calculate customer balance before debt payment: %w", err)
+	}
+	ledgerBalance -= amount
+	description := strings.TrimSpace(notes)
+	if description == "" {
+		description = "Debt payment"
+	}
+	ledgerInsert := `INSERT INTO customer_ledger (id,customer_id,debt_id,type,transaction_type,amount,balance,description,reference_id,created_at) VALUES (?,?,?,'credit','PAYMENT',?,?,?,?,?)`
+	if _, err := tx.ExecContext(ctx, tx.Rebind(ledgerInsert), uuid.New().String(), customerID, debtID.String(), amount, ledgerBalance, description, paymentID, createdAt); err != nil {
+		return fmt.Errorf("record customer ledger for debt payment: %w", err)
+	}
+	updated := fmt.Sprintf(`UPDATE customers SET current_balance = ?, updated_at = %s WHERE id = ?`, dbutil.NowSQL(db))
+	result, err := tx.ExecContext(ctx, tx.Rebind(updated), ledgerBalance, customerID)
+	if err != nil {
+		return fmt.Errorf("update customer balance after debt payment: %w", err)
+	}
+	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
+		return fmt.Errorf("customer balance row was not updated")
+	}
+	return nil
 }

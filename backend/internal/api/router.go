@@ -66,6 +66,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 	expenseService := expenses.NewService(expenseRepo)
 	returnService := returns.NewService(returnRepo)
 	returnService.SetElectronicRefundProcessor(paymenttransactions.NewConfiguredService(db))
+	returnService.SetDependentSaleDeleteCoordinator(sales.NewSmartDeleteService(db))
 	notificationService := notifications.NewService(notificationRepo)
 	partTypesService := parttypes.NewService(partTypesRepo)
 	ledgerService := ledgers.NewService(db)
@@ -279,6 +280,7 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 			{
 				transactions.POST("", salesHandler.CreateTransaction)
 				transactions.GET("/:id", salesHandler.GetTransaction)
+				transactions.DELETE("/:id", salesHandler.DeleteTransaction)
 				transactions.GET("", salesHandler.ListTransactions)
 				transactions.GET("/accounts/:account/balance", salesHandler.GetAccountBalance)
 			}
@@ -448,6 +450,10 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				settings.PUT("/:key", settingsHandler.UpdateSetting)
 				settings.GET("/tax-rate", settingsHandler.GetTaxRate)
 				settings.PUT("/tax-rate", settingsHandler.UpdateTaxRate)
+				settings.GET("/history-cleanup/preview", databaseHandler.PreviewHistoricalCleanup)
+				settings.POST("/history-cleanup", databaseHandler.RunHistoricalCleanup)
+				settings.GET("/database/history-cleanup/preview", databaseHandler.PreviewHistoricalCleanup)
+				settings.POST("/database/history-cleanup", databaseHandler.RunHistoricalCleanup)
 				// Database reset and runtime migrations are destructive/operational
 				// actions. Keep ordinary subscribers out even when authenticated.
 				adminSettings := settings.Group("")
@@ -456,8 +462,13 @@ func SetupRoutes(router *gin.Engine, db *sqlx.DB, authService *auth.Service) {
 				adminSettings.POST("/cleanup", databaseHandler.RunCleanup)
 				adminSettings.GET("/database/cleanup/preview", databaseHandler.PreviewLocalCleanup)
 				adminSettings.POST("/database/cleanup", databaseHandler.RunLocalCleanup)
-				adminSettings.DELETE("/database", databaseHandler.DeleteAllData)
+				adminSettings.DELETE("/database", middleware.OwnerOnly(), databaseHandler.DeleteAllData)
 				adminSettings.POST("/migrate", databaseHandler.ApplyMigration)
+
+				ownerDatabase := settings.Group("/database")
+				ownerDatabase.Use(middleware.OwnerOnly())
+				ownerDatabase.POST("/sync", middleware.LocalDatabaseOnly(), localDatabaseHandler.SyncLocalDataToCloud)
+				ownerDatabase.GET("/backup", databaseHandler.DownloadCloudBackup)
 			}
 		}
 	}
