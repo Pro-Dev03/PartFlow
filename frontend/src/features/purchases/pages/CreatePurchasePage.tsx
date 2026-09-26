@@ -1459,7 +1459,7 @@ export function CreatePurchasePage({ isOpen = true, onClose, onComplete }: Creat
           setProductToDelete(null);
         }}
         title="حذف المنتج"
-        message="سيُحذف المنتج نهائيًا مع تنظيف المبيعات والمشتريات والمرتجعات المرتبطة به من البطاقات والتقارير. هل تريد المتابعة؟"
+        message="لا يمكن حذف المنتج ما دام له مخزون قائم أو معاملات أو حركات تاريخية. صفّر المخزون وعالج السجلات المرتبطة أولاً، أو عطّل المنتج للاحتفاظ بتاريخه."
         confirmText="حذف المنتج"
         isLoading={deleteProductMutation.isPending}
         variant="danger"

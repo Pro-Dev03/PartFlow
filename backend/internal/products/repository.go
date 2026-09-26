@@ -881,12 +881,16 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	}
 	defer tx.Rollback()
 
-	var productExists bool
-	if err := tx.GetContext(ctx, &productExists, tx.Rebind(`SELECT EXISTS (SELECT 1 FROM products WHERE id = ?)`), id); err != nil {
-		return err
+	var productID string
+	productQuery := `SELECT CAST(id AS TEXT) FROM products WHERE id = ?`
+	if !dbutil.IsSQLite(r.db) {
+		productQuery += ` FOR UPDATE`
 	}
-	if !productExists {
-		return ErrProductNotFound
+	if err := tx.GetContext(ctx, &productID, tx.Rebind(productQuery), id); err != nil {
+		if err == sql.ErrNoRows {
+			return ErrProductNotFound
+		}
+		return fmt.Errorf("lock product before deletion: %w", err)
 	}
 
 	// Capture parent and child IDs before deleting any rows. This lets us remove
@@ -910,6 +914,34 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	inventoryItemIDs, err := collectProductDeleteIDs(ctx, tx, `SELECT id FROM inventory_items WHERE product_id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("find product inventory items: %w", err)
+	}
+	// A product can have sellable aggregate stock without individual item rows.
+	// Keep the product until both forms of stock are cleared; otherwise deleting
+	// its catalog row would silently discard quantity-based inventory.
+	if len(inventoryItemIDs) > 0 {
+		return ErrProductHasHistory
+	}
+	if hasInventoryQuantity, err := productColumnExists(ctx, tx, dbutil.IsSQLite(r.db), "inventory", "quantity"); err != nil {
+		return fmt.Errorf("inspect aggregate inventory schema: %w", err)
+	} else if hasInventoryQuantity {
+		var hasQuantity bool
+		if err := tx.GetContext(ctx, &hasQuantity, tx.Rebind(`SELECT EXISTS (SELECT 1 FROM inventory WHERE product_id = ? AND COALESCE(quantity, 0) <> 0)`), id); err != nil {
+			return fmt.Errorf("check aggregate product stock: %w", err)
+		}
+		if hasQuantity {
+			return ErrProductHasHistory
+		}
+	}
+	if hasReservedQuantity, err := productColumnExists(ctx, tx, dbutil.IsSQLite(r.db), "inventory", "reserved_quantity"); err != nil {
+		return fmt.Errorf("inspect reserved inventory schema: %w", err)
+	} else if hasReservedQuantity {
+		var hasReserved bool
+		if err := tx.GetContext(ctx, &hasReserved, tx.Rebind(`SELECT EXISTS (SELECT 1 FROM inventory WHERE product_id = ? AND COALESCE(reserved_quantity, 0) <> 0)`), id); err != nil {
+			return fmt.Errorf("check reserved product stock: %w", err)
+		}
+		if hasReserved {
+			return ErrProductHasHistory
+		}
 	}
 	returnIDs, err := collectProductDeleteIDs(ctx, tx, `SELECT DISTINCT return_id FROM return_items WHERE product_id = ? AND return_id IS NOT NULL`, id)
 	if err != nil {
@@ -1087,6 +1119,22 @@ func (r *Repository) DeleteProduct(ctx context.Context, id uuid.UUID) error {
 	}
 
 	return tx.Commit()
+}
+
+func productColumnExists(ctx context.Context, tx *sqlx.Tx, isSQLite bool, table, column string) (bool, error) {
+	var exists bool
+	query := `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2)`
+	if isSQLite {
+		query = `SELECT EXISTS (SELECT 1 FROM pragma_table_info('` + table + `') WHERE name = $1)`
+		if err := tx.GetContext(ctx, &exists, query, column); err != nil {
+			return false, err
+		}
+		return exists, nil
+	}
+	if err := tx.GetContext(ctx, &exists, query, table, column); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func collectProductDeleteIDs(ctx context.Context, tx *sqlx.Tx, query string, args ...any) ([]string, error) {

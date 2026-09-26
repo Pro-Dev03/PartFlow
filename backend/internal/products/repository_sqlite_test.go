@@ -313,17 +313,14 @@ func TestDeleteUnusedProductAndInventorySQLite(t *testing.T) {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	defer db.Close()
-	if _, err := db.Exec(`CREATE TABLE products (id TEXT PRIMARY KEY); CREATE TABLE inventory (id TEXT PRIMARY KEY, product_id TEXT); CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT);`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE products (id TEXT PRIMARY KEY); CREATE TABLE inventory (id TEXT PRIMARY KEY, product_id TEXT, quantity INTEGER DEFAULT 0, reserved_quantity INTEGER DEFAULT 0); CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT);`); err != nil {
 		t.Fatalf("create test schema: %v", err)
 	}
 	productID := uuid.NewString()
 	if _, err := db.Exec(`INSERT INTO products (id) VALUES (?)`, productID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO inventory (id, product_id) VALUES (?, ?)`, uuid.NewString(), productID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id) VALUES (?, ?)`, uuid.NewString(), productID); err != nil {
+	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity, reserved_quantity) VALUES (?, ?, 0, 0)`, uuid.NewString(), productID); err != nil {
 		t.Fatal(err)
 	}
 	if err := NewRepository(db).DeleteProduct(context.Background(), uuid.MustParse(productID)); err != nil {
@@ -337,6 +334,68 @@ func TestDeleteUnusedProductAndInventorySQLite(t *testing.T) {
 		if remaining != 0 {
 			t.Fatalf("%s rows remaining after unused product deletion = %d", table, remaining)
 		}
+	}
+}
+
+func TestDeleteProductWithAggregateStockIsBlockedAndPreservedSQLite(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE products (id TEXT PRIMARY KEY); CREATE TABLE inventory (id TEXT PRIMARY KEY, product_id TEXT, quantity INTEGER DEFAULT 0, reserved_quantity INTEGER DEFAULT 0); CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT);`); err != nil {
+		t.Fatalf("create test schema: %v", err)
+	}
+	productID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO products (id) VALUES (?)`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity, reserved_quantity) VALUES (?, ?, 7, 2)`, uuid.NewString(), productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewRepository(db).DeleteProduct(context.Background(), uuid.MustParse(productID)); err != ErrProductHasHistory {
+		t.Fatalf("DeleteProduct error = %v, want ErrProductHasHistory", err)
+	}
+	var productCount, quantity, reserved int
+	if err := db.Get(&productCount, `SELECT COUNT(*) FROM products WHERE id=?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT quantity, reserved_quantity FROM inventory WHERE product_id=?`, productID).Scan(&quantity, &reserved); err != nil {
+		t.Fatal(err)
+	}
+	if productCount != 1 || quantity != 7 || reserved != 2 {
+		t.Fatalf("blocked delete changed stock: products=%d quantity=%d reserved=%d", productCount, quantity, reserved)
+	}
+}
+
+func TestDeleteProductWithIndividualInventoryItemIsBlockedSQLite(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE products (id TEXT PRIMARY KEY); CREATE TABLE inventory_items (id TEXT PRIMARY KEY, product_id TEXT, status TEXT);`); err != nil {
+		t.Fatalf("create test schema: %v", err)
+	}
+	productID := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO products (id) VALUES (?)`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_items (id, product_id, status) VALUES (?, ?, 'AVAILABLE')`, uuid.NewString(), productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewRepository(db).DeleteProduct(context.Background(), uuid.MustParse(productID)); err != ErrProductHasHistory {
+		t.Fatalf("DeleteProduct error = %v, want ErrProductHasHistory", err)
+	}
+	var productCount, itemCount int
+	if err := db.Get(&productCount, `SELECT COUNT(*) FROM products WHERE id=?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&itemCount, `SELECT COUNT(*) FROM inventory_items WHERE product_id=?`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if productCount != 1 || itemCount != 1 {
+		t.Fatalf("blocked delete changed product/item rows: products=%d items=%d", productCount, itemCount)
 	}
 }
 

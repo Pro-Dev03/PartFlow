@@ -14,7 +14,7 @@ var (
 
 	// ErrProductHasHistory prevents deleting a product from silently deleting
 	// complete sales, purchases, returns, or their accounting effects.
-	ErrProductHasHistory = errors.New("لا يمكن حذف المنتج لأنه مرتبط بمعاملات أو حركات تاريخية. احذف المعاملات المرتبطة أولاً أو عطّل المنتج للاحتفاظ بتاريخها.")
+	ErrProductHasHistory = errors.New("لا يمكن حذف المنتج ما دام له مخزون قائم أو سجلات معاملات وحركات. صفّر المخزون وعالج السجلات المرتبطة أولاً، أو عطّل المنتج للاحتفاظ بتاريخه.")
 
 	// ErrCategoryExists is returned when category already exists
 	ErrCategoryExists = errors.New("category already exists")

@@ -393,9 +393,14 @@ func (r *Repository) Update(ctx context.Context, payment *Payment) error {
 	return nil
 }
 
-// Delete deletes a payment
+// Delete removes only an unprocessed payment. The status predicate is part of
+// the DELETE itself so a payment cannot become completed between the service
+// check and this write and then be deleted as if it were still pending.
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
-	query := `DELETE FROM payments WHERE id = $1`
+	query := `DELETE FROM payments WHERE id = $1 AND LOWER(COALESCE(status, 'completed')) = 'pending'`
+	if dbutil.IsSQLite(r.db) {
+		query = `DELETE FROM payments WHERE id = $1 AND LOWER(COALESCE(payment_status, 'completed')) = 'pending'`
+	}
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete payment: %w", err)
@@ -403,7 +408,14 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		return ErrPaymentNotFound
+		var exists bool
+		if err := r.db.GetContext(ctx, &exists, `SELECT EXISTS (SELECT 1 FROM payments WHERE id = $1)`, id); err != nil {
+			return fmt.Errorf("check payment after delete conflict: %w", err)
+		}
+		if !exists {
+			return ErrPaymentNotFound
+		}
+		return ErrPaymentCannotBeCancelled
 	}
 
 	return nil
