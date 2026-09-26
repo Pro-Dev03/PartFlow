@@ -236,13 +236,13 @@ type PurchasesReport struct {
 
 // UsedPartPurchases summarizes customer acquisitions of used parts.
 type UsedPartPurchases struct {
-	AcquisitionCount int     `json:"acquisition_count"`
-	ItemCount        int     `json:"item_count"`
-	TotalCost        float64 `json:"total_cost"`
-	TotalPaid        float64 `json:"total_paid"`
-	Outstanding      float64 `json:"outstanding"`
-	AvailableItems   int     `json:"available_items"`
-	SoldItems        int     `json:"sold_items"`
+	AcquisitionCount int     `json:"acquisition_count" db:"acquisition_count"`
+	ItemCount        int     `json:"item_count" db:"item_count"`
+	TotalCost        float64 `json:"total_cost" db:"total_cost"`
+	TotalPaid        float64 `json:"total_paid" db:"total_paid"`
+	Outstanding      float64 `json:"outstanding" db:"outstanding"`
+	AvailableItems   int     `json:"available_items" db:"available_items"`
+	SoldItems        int     `json:"sold_items" db:"sold_items"`
 }
 
 // SupplierPurchases represents supplier purchases data

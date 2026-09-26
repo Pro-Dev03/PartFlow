@@ -149,6 +149,49 @@ func TestFinancialReportsReconcileMultiLineTaxedReturn(t *testing.T) {
 	}
 }
 
+func TestUsedPartPurchasesMapsSnakeCaseSQLColumns(t *testing.T) {
+	db, err := sqlx.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	var got UsedPartPurchases
+	err = db.Get(&got, `SELECT
+		5 AS acquisition_count,
+		8 AS item_count,
+		125.50 AS total_cost,
+		20.25 AS total_paid,
+		105.25 AS outstanding,
+		6 AS available_items,
+		2 AS sold_items`)
+	if err != nil {
+		t.Fatalf("scan used-part acquisition summary: %v", err)
+	}
+	if got != (UsedPartPurchases{
+		AcquisitionCount: 5,
+		ItemCount:        8,
+		TotalCost:        125.50,
+		TotalPaid:        20.25,
+		Outstanding:      105.25,
+		AvailableItems:   6,
+		SoldItems:        2,
+	}) {
+		t.Fatalf("mapped used-part acquisition summary = %#v", got)
+	}
+}
+
+func TestReportDateScannerNormalizesPostgresDateValue(t *testing.T) {
+	var got reportDate
+	postgresDate := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+	if err := got.Scan(postgresDate); err != nil {
+		t.Fatalf("scan PostgreSQL DATE value: %v", err)
+	}
+	if key := got.Format("2006-01-02"); key != "2026-09-20" {
+		t.Fatalf("normalized PostgreSQL date key = %s, want 2026-09-20", key)
+	}
+}
+
 func closeReportAmount(actual, expected float64) bool {
 	return math.Abs(actual-expected) < 0.001
 }

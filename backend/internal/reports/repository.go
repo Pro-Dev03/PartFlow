@@ -364,9 +364,20 @@ func (r *Repository) returnFinancialAdjustments(ctx context.Context, startDate, 
 	defer rows.Close()
 	for rows.Next() {
 		var key string
+		var bucketDate reportDate
 		var adjustment returnFinancialAdjustment
-		if err := rows.Scan(&key, &adjustment.GrossRefund, &adjustment.RevenueReduction, &adjustment.TaxReduction, &adjustment.ReturnedCost, &adjustment.Quantity, &adjustment.Count); err != nil {
+		keyTarget := any(&key)
+		if bucket == "day" {
+			// PostgreSQL returns DATE as time.Time through database/sql, while
+			// SQLite returns a string. Normalize both to the store date key so
+			// daily return credits line up with the daily report buckets.
+			keyTarget = &bucketDate
+		}
+		if err := rows.Scan(keyTarget, &adjustment.GrossRefund, &adjustment.RevenueReduction, &adjustment.TaxReduction, &adjustment.ReturnedCost, &adjustment.Quantity, &adjustment.Count); err != nil {
 			return nil, fmt.Errorf("scan completed return adjustments: %w", err)
+		}
+		if bucket == "day" {
+			key = bucketDate.Format("2006-01-02")
 		}
 		result[key] = adjustment
 	}
@@ -2837,7 +2848,7 @@ func (r *Repository) GetNetSalesData(ctx context.Context, startDate, endDate tim
 		 HAVING COALESCE(SUM(si.quantity), 0) > 0 OR COALESCE((%s), 0) > 0
 		 ORDER BY returned_quantity DESC
 		 LIMIT 10`, returnedQuantityByProduct, returnedRevenueByProduct, r.salesDateExpression(""), r.salesDateExpression(""), returnedQuantityByProduct)
-	rows, err = r.db.QueryContext(ctx, topReturnedProductsQuery, startDateKey, endDateKey, startDateKey, endDateKey, startDateKey, endDateKey)
+	rows, err = r.db.QueryContext(ctx, topReturnedProductsQuery, startDateKey, endDateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve top returned products: %w", err)
 	}
