@@ -176,20 +176,20 @@ func TestArchivedExpensesAreHiddenFromOperationalListButCanBeIncluded(t *testing
 	}
 }
 
-func TestUnknownExpenseStatusesCannotBeDeleted(t *testing.T) {
+func TestUnknownExpenseStatusesCanBePermanentlyDeleted(t *testing.T) {
 	service, db, _, expenseID := newExpenseServiceTestDB(t)
 	if _, err := db.Exec(`UPDATE expenses SET status = '' WHERE id = ?`, expenseID.String()); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.DeleteExpense(context.Background(), expenseID); !errors.Is(err, ErrInvalidExpenseStatus) {
-		t.Fatalf("delete expense with unknown status error = %v, want ErrInvalidExpenseStatus", err)
+	if err := service.DeleteExpense(context.Background(), expenseID); err != nil {
+		t.Fatalf("delete expense with unknown legacy status: %v", err)
 	}
 	var remaining int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM expenses WHERE id = ?`, expenseID.String()).Scan(&remaining); err != nil {
 		t.Fatal(err)
 	}
-	if remaining != 1 {
-		t.Fatalf("unknown-status expense rows remaining = %d, want 1", remaining)
+	if remaining != 0 {
+		t.Fatalf("unknown-status expense rows remaining = %d, want 0", remaining)
 	}
 }
 

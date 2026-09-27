@@ -955,7 +955,7 @@ func (h *DatabaseHandler) RunHistoricalCleanup(c *gin.Context) {
 		case "expenses":
 			service := expenses.NewService(expenses.NewRepository(h.db))
 			if err := service.PermanentlyDeleteExpense(c.Request.Context(), id); err != nil {
-				if errors.Is(err, expenses.ErrInvalidExpenseStatus) || errors.Is(err, expenses.ErrExpenseAlreadyArchived) {
+				if errors.Is(err, expenses.ErrExpenseAlreadyArchived) {
 					recordHistoricalCleanupIssue(&result, canonicalID, "blocked", err)
 				} else {
 					recordHistoricalCleanupIssue(&result, canonicalID, "failed", err)

@@ -294,14 +294,6 @@ func (s *Service) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 // expenses; permanent deletion removes the row so reports reflect the
 // remaining financial history.
 func (s *Service) PermanentlyDeleteExpense(ctx context.Context, id uuid.UUID) error {
-	expense, err := s.repo.GetExpenseByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	status := strings.ToLower(strings.TrimSpace(expense.Status))
-	if status != "pending" && status != "rejected" && status != "archived" && !accounting.IsAccountingExpenseStatus(status) {
-		return ErrInvalidExpenseStatus
-	}
 	if err := s.repo.DeleteExpense(ctx, id); err != nil {
 		return err
 	}

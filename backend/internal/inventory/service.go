@@ -724,8 +724,9 @@ func (s *Service) AdjustProductQuantity(ctx context.Context, productID uuid.UUID
 
 // DeleteProductQuantityAdjustment removes a product or item-level adjustment,
 // reverses its stock/status effect, and rebases later product movement
-// snapshots in one transaction. It fails only when the resulting stock would
-// be invalid or the required before-state cannot be established.
+// snapshots in one transaction. If later activity consumed the adjusted stock,
+// the reversed balance and snapshots can be negative; that historical deficit
+// is preserved rather than blocking deletion or deleting unrelated sales.
 func (s *Service) DeleteProductQuantityAdjustment(ctx context.Context, movementID uuid.UUID) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -797,11 +798,7 @@ func (s *Service) DeleteProductQuantityAdjustment(ctx context.Context, movementI
 		return fmt.Errorf("load inventory adjustment: %w", err)
 	}
 
-	if movement.MovementType != string(MovementAdjustment) ||
-		!((movement.ReferenceType == "product_quantity_adjustment" && !movement.ItemID.Valid && movement.ProductID.Valid) || (movement.ReferenceType == "adjustment" && movement.ItemID.Valid)) {
-		return ErrCannotDeleteInventoryAdjustment
-	}
-	if movement.BeforeQuantity < 0 || movement.AfterQuantity < 0 || movement.Quantity != movement.AfterQuantity-movement.BeforeQuantity {
+	if movement.MovementType != string(MovementAdjustment) || (!movement.ItemID.Valid && !movement.ProductID.Valid) {
 		return ErrCannotDeleteInventoryAdjustment
 	}
 	var productID uuid.UUID
@@ -831,9 +828,6 @@ func (s *Service) DeleteProductQuantityAdjustment(ctx context.Context, movementI
 		return fmt.Errorf("load adjusted product inventory: %w", err)
 	}
 	newQuantity := currentQuantity - movement.Quantity
-	if newQuantity < 0 {
-		return fmt.Errorf("cannot reverse this stock adjustment: later stock use would make available quantity negative")
-	}
 	if movement.ItemID.Valid && movement.BeforeStatus != "" && movement.AfterStatus != "" {
 		var currentStatus string
 		if err := tx.GetContext(ctx, &currentStatus, tx.Rebind(`SELECT UPPER(TRIM(COALESCE(status,''))) FROM inventory_items WHERE id=?`), movement.ItemID.String); err != nil {
@@ -868,9 +862,6 @@ func (s *Service) DeleteProductQuantityAdjustment(ctx context.Context, movementI
 				continue
 			}
 			before, after := row.BeforeQuantity-movement.Quantity, row.AfterQuantity-movement.Quantity
-			if before < 0 || after < 0 {
-				return fmt.Errorf("cannot reverse this stock adjustment while later movements rely on its quantity; reverse the dependent stock operations first")
-			}
 			if _, err := tx.ExecContext(ctx, tx.Rebind(`UPDATE inventory_movements SET before_quantity=?, after_quantity=? WHERE id=?`), before, after, row.ID); err != nil {
 				return fmt.Errorf("rebase later inventory movement %s: %w", row.ID, err)
 			}

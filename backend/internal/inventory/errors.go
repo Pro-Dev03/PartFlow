@@ -43,7 +43,7 @@ var (
 	ErrCannotDeleteSoldItem            = errors.New("cannot delete sold item")
 	ErrCannotDeleteItemWithHistory     = errors.New("cannot permanently delete an inventory item linked to purchase, sales, returns, or stock history")
 	ErrInventoryAdjustmentNotFound     = errors.New("inventory adjustment not found")
-	ErrCannotDeleteInventoryAdjustment = errors.New("inventory adjustment cannot be safely reversed after later stock changes")
+	ErrCannotDeleteInventoryAdjustment = errors.New("inventory adjustment has no usable product or item link")
 
 	// ErrTransferFailed is returned when transfer fails
 	ErrTransferFailed = errors.New("inventory transfer failed")

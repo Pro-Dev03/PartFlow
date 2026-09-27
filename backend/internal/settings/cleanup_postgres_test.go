@@ -654,38 +654,54 @@ func TestPostgresDeleteManualDebtReconcilesCustomerLedger(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("create PostgreSQL debt deletion schema: %v", err)
 	}
-	debtID, customerID := uuid.New(), uuid.New()
-	if _, err := db.Exec(`INSERT INTO customers (id,current_balance) VALUES ($1,40)`, customerID); err != nil {
+	debtID, missingLedgerDebtID, customerID := uuid.New(), uuid.New(), uuid.New()
+	if _, err := db.Exec(`INSERT INTO customers (id,current_balance) VALUES ($1,999)`, customerID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO debts (id,customer_id,amount,paid_amount,remaining_amount,status) VALUES ($1,$2,40,0,40,'pending')`, debtID, customerID); err != nil {
-		t.Fatal(err)
+	for _, id := range []uuid.UUID{debtID, missingLedgerDebtID} {
+		if _, err := db.Exec(`INSERT INTO debts (id,customer_id,amount,paid_amount,remaining_amount,status) VALUES ($1,$2,40,0,40,'pending')`, id, customerID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO customer_debts (id,customer_id,amount) VALUES ($1,$2,40)`, id, customerID); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := db.Exec(`INSERT INTO customer_ledger (id,customer_id,debt_id,reference_id,reference_type,type,amount,balance,created_at) VALUES ($1,$2,$3,$3,'debt','debit',40,40,NOW())`, uuid.New(), customerID, debtID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO customer_debts (id,customer_id,amount) VALUES ($1,$2,40)`, debtID, customerID); err != nil {
+	if _, err := db.Exec(`
+		INSERT INTO customer_ledger (id,customer_id,debt_id,reference_id,reference_type,type,amount,balance,created_at)
+		VALUES ($1,$2,$3,$4,'debt','debit',40,40,NOW()),
+		       ($5,$2,NULL,$3,'legacy debt','debit',40,80,NOW()),
+		       ($6,$2,NULL,$7,'other','debit',20,100,NOW())`, uuid.New(), customerID, debtID, uuid.New(), uuid.New(), uuid.New(), uuid.New()); err != nil {
 		t.Fatal(err)
 	}
 	if err := debts.NewHandler(db).DeleteDebtByID(context.Background(), debtID); err != nil {
-		t.Fatalf("delete PostgreSQL manual debt: %v", err)
+		t.Fatalf("delete PostgreSQL manual debt with duplicate ledger rows and balance drift: %v", err)
+	}
+	if err := debts.NewHandler(db).DeleteDebtByID(context.Background(), missingLedgerDebtID); err != nil {
+		t.Fatalf("delete PostgreSQL manual debt with missing ledger row: %v", err)
 	}
 	var debtCount, ledgerCount, mirrorCount int
 	var balance float64
 	for query, into := range map[string]*int{
-		`SELECT COUNT(*) FROM debts WHERE id=$1`:                &debtCount,
-		`SELECT COUNT(*) FROM customer_ledger WHERE debt_id=$1`: &ledgerCount,
-		`SELECT COUNT(*) FROM customer_debts WHERE id=$1`:       &mirrorCount,
+		`SELECT COUNT(*) FROM debts WHERE customer_id=$1`:           &debtCount,
+		`SELECT COUNT(*) FROM customer_ledger WHERE customer_id=$1`: &ledgerCount,
+		`SELECT COUNT(*) FROM customer_debts WHERE customer_id=$1`:  &mirrorCount,
 	} {
-		if err := db.Get(into, query, debtID); err != nil {
+		if err := db.Get(into, query, customerID); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if err := db.Get(&balance, `SELECT current_balance FROM customers WHERE id=$1`, customerID); err != nil {
 		t.Fatal(err)
 	}
-	if debtCount != 0 || ledgerCount != 0 || mirrorCount != 0 || balance != 0 {
-		t.Fatalf("PostgreSQL manual debt deletion: debt=%d ledger=%d mirror=%d customer_balance=%v; want all zero", debtCount, ledgerCount, mirrorCount, balance)
+	if debtCount != 0 || ledgerCount != 1 || mirrorCount != 0 || balance != 20 {
+		t.Fatalf("PostgreSQL manual debt deletion: debt=%d ledger=%d mirror=%d customer_balance=%v; want 0/1/0/20", debtCount, ledgerCount, mirrorCount, balance)
+	}
+	var survivingLedgerBalance float64
+	if err := db.Get(&survivingLedgerBalance, `SELECT balance FROM customer_ledger WHERE customer_id=$1`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if survivingLedgerBalance != 20 {
+		t.Fatalf("PostgreSQL rebuilt surviving ledger balance=%v; want 20", survivingLedgerBalance)
 	}
 }
 
@@ -985,7 +1001,7 @@ func TestPostgresDeleteCatalogPreservesProductRowsAndDetachesDeletedBrand(t *tes
 	}
 }
 
-func TestPostgresDeleteUnusedProductAndBlockProductWithStock(t *testing.T) {
+func TestPostgresDeleteProductReversesAggregateStockThroughService(t *testing.T) {
 	db := openIsolatedPostgresCleanupTestDB(t)
 	if _, err := db.Exec(`
 		CREATE TABLE products (id UUID PRIMARY KEY, deleted_at TIMESTAMPTZ);
@@ -1000,11 +1016,11 @@ func TestPostgresDeleteUnusedProductAndBlockProductWithStock(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO inventory (product_id, quantity, reserved_quantity) VALUES ($1,0,0),($2,3,0)`, unusedProductID, stockedProductID); err != nil {
 		t.Fatal(err)
 	}
-	repo := products.NewRepository(db)
-	if err := repo.DeleteProduct(context.Background(), stockedProductID); err != products.ErrProductHasHistory {
-		t.Fatalf("delete PostgreSQL product with stock=%v; want ErrProductHasHistory", err)
+	service := products.NewService(products.NewRepository(db))
+	if err := service.DeleteProduct(context.Background(), stockedProductID); err != nil {
+		t.Fatalf("delete PostgreSQL product with aggregate stock: %v", err)
 	}
-	if err := repo.DeleteProduct(context.Background(), unusedProductID); err != nil {
+	if err := service.DeleteProduct(context.Background(), unusedProductID); err != nil {
 		t.Fatalf("delete PostgreSQL unused product: %v", err)
 	}
 	var unusedCount, stockedCount, stockCount int
@@ -1021,8 +1037,8 @@ func TestPostgresDeleteUnusedProductAndBlockProductWithStock(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if unusedCount != 0 || stockedCount != 1 || stockCount != 1 {
-		t.Fatalf("PostgreSQL product deletion counts unused=%d stocked=%d stock=%d; want 0/1/1", unusedCount, stockedCount, stockCount)
+	if unusedCount != 0 || stockedCount != 0 || stockCount != 0 {
+		t.Fatalf("PostgreSQL product deletion counts unused=%d stocked=%d stock=%d; want 0/0/0", unusedCount, stockedCount, stockCount)
 	}
 }
 
@@ -1039,12 +1055,15 @@ func TestPostgresDeleteProductQuantityAdjustmentReversesAndRebasesLaterMovement(
 	`); err != nil {
 		t.Fatalf("create PostgreSQL adjustment cleanup schema: %v", err)
 	}
-	safeProduct, blockedProduct := uuid.New(), uuid.New()
+	safeProduct, blockedProduct, consumedProduct := uuid.New(), uuid.New(), uuid.New()
 	now := time.Now().UTC()
 	for _, productID := range []uuid.UUID{safeProduct, blockedProduct} {
 		if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity) VALUES ($1, $2, 5)`, uuid.New(), productID); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := db.Exec(`INSERT INTO inventory (id, product_id, quantity) VALUES ($1, $2, 1)`, uuid.New(), consumedProduct); err != nil {
+		t.Fatal(err)
 	}
 	safeID := uuid.New()
 	if _, err := db.Exec(`INSERT INTO inventory_movements (id,product_id,movement_type,quantity,before_quantity,after_quantity,reference_type,reference_id,created_at) VALUES ($1,$2,'ADJUSTMENT',3,2,5,'product_quantity_adjustment',$2,$3)`, safeID, safeProduct, now.Add(-2*time.Hour)); err != nil {
@@ -1057,6 +1076,13 @@ func TestPostgresDeleteProductQuantityAdjustmentReversesAndRebasesLaterMovement(
 	if _, err := db.Exec(`INSERT INTO inventory_movements (id,product_id,movement_type,quantity,before_quantity,after_quantity,reference_type,reference_id,created_at) VALUES ($1,$2,'SALE',-1,5,4,'sale',$2,$3)`, uuid.New(), blockedProduct, now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
+	consumedAdjustmentID, consumedSaleMovementID, consumedSaleID := uuid.New(), uuid.New(), uuid.New()
+	if _, err := db.Exec(`INSERT INTO inventory_movements (id,product_id,movement_type,quantity,before_quantity,after_quantity,reference_type,reference_id,created_at) VALUES ($1,$2,'ADJUSTMENT',3,2,5,'product_quantity_adjustment',$2,$3)`, consumedAdjustmentID, consumedProduct, now.Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_movements (id,product_id,movement_type,quantity,before_quantity,after_quantity,reference_type,reference_id,created_at) VALUES ($1,$2,'SALE',-4,5,1,'sale',$3,$4)`, consumedSaleMovementID, consumedProduct, consumedSaleID, now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 	service := inventory.NewService(inventory.NewRepository(db), db)
 	if err := service.DeleteProductQuantityAdjustment(context.Background(), safeID); err != nil {
 		t.Fatalf("delete PostgreSQL safe adjustment: %v", err)
@@ -1064,7 +1090,10 @@ func TestPostgresDeleteProductQuantityAdjustmentReversesAndRebasesLaterMovement(
 	if err := service.DeleteProductQuantityAdjustment(context.Background(), blockedID); err != nil {
 		t.Fatalf("delete PostgreSQL adjustment with later movement and rebase snapshots: %v", err)
 	}
-	var safeQuantity, safeMovementCount, blockedQuantity, blockedMovementCount int
+	if err := service.DeleteProductQuantityAdjustment(context.Background(), consumedAdjustmentID); err != nil {
+		t.Fatalf("delete PostgreSQL adjustment consumed by a later sale: %v", err)
+	}
+	var safeQuantity, safeMovementCount, blockedQuantity, blockedMovementCount, consumedQuantity, consumedMovementCount int
 	if err := db.Get(&safeQuantity, `SELECT quantity FROM inventory WHERE product_id=$1`, safeProduct); err != nil {
 		t.Fatal(err)
 	}
@@ -1077,12 +1106,44 @@ func TestPostgresDeleteProductQuantityAdjustmentReversesAndRebasesLaterMovement(
 	if err := db.Get(&blockedMovementCount, `SELECT COUNT(*) FROM inventory_movements WHERE product_id=$1`, blockedProduct); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Get(&consumedQuantity, `SELECT quantity FROM inventory WHERE product_id=$1`, consumedProduct); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&consumedMovementCount, `SELECT COUNT(*) FROM inventory_movements WHERE product_id=$1`, consumedProduct); err != nil {
+		t.Fatal(err)
+	}
 	var rebasedBefore, rebasedAfter int
 	if err := db.QueryRowx(`SELECT before_quantity,after_quantity FROM inventory_movements WHERE product_id=$1`, blockedProduct).Scan(&rebasedBefore, &rebasedAfter); err != nil {
 		t.Fatal(err)
 	}
+	var consumedBefore, consumedAfter int
+	if err := db.QueryRowx(`SELECT before_quantity,after_quantity FROM inventory_movements WHERE id=$1`, consumedSaleMovementID).Scan(&consumedBefore, &consumedAfter); err != nil {
+		t.Fatal(err)
+	}
 	if safeQuantity != 2 || safeMovementCount != 0 || blockedQuantity != 2 || blockedMovementCount != 1 || rebasedBefore != 2 || rebasedAfter != 1 {
 		t.Fatalf("PostgreSQL adjustment cleanup state: safe=%d/%d rebased=%d/%d snapshot=%d->%d", safeQuantity, safeMovementCount, blockedQuantity, blockedMovementCount, rebasedBefore, rebasedAfter)
+	}
+	if consumedQuantity != -2 || consumedMovementCount != 1 || consumedBefore != 2 || consumedAfter != -2 {
+		t.Fatalf("PostgreSQL consumed adjustment cleanup: quantity=%d movements=%d sale=%d->%d; want -2/1/2->-2", consumedQuantity, consumedMovementCount, consumedBefore, consumedAfter)
+	}
+	negativeSnapshotAdjustmentID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO inventory_movements (id,product_id,movement_type,quantity,before_quantity,after_quantity,reference_type,reference_id,created_at) VALUES ($1,$2,'ADJUSTMENT',1,-2,-1,'product_quantity_adjustment',$2,$3)`, negativeSnapshotAdjustmentID, consumedProduct, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE inventory SET quantity=-1 WHERE product_id=$1`, consumedProduct); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DeleteProductQuantityAdjustment(context.Background(), negativeSnapshotAdjustmentID); err != nil {
+		t.Fatalf("delete PostgreSQL adjustment with negative historical snapshots: %v", err)
+	}
+	if err := db.Get(&consumedQuantity, `SELECT quantity FROM inventory WHERE product_id=$1`, consumedProduct); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&consumedMovementCount, `SELECT COUNT(*) FROM inventory_movements WHERE product_id=$1`, consumedProduct); err != nil {
+		t.Fatal(err)
+	}
+	if consumedQuantity != -2 || consumedMovementCount != 1 {
+		t.Fatalf("PostgreSQL negative-snapshot adjustment deletion left quantity=%d movements=%d; want -2/1", consumedQuantity, consumedMovementCount)
 	}
 }
 

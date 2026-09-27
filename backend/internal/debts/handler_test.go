@@ -395,6 +395,72 @@ func TestManualDebtCreateAndDeleteReconcileCustomerLedgerSQLite(t *testing.T) {
 	}
 }
 
+func TestDeleteManualDebtRepairsDriftAndMissingLedgerRowsSQLite(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	xdb := sqlx.NewDb(db, "sqlite")
+	for _, statement := range []string{
+		`CREATE TABLE customers (id TEXT PRIMARY KEY, current_balance REAL NOT NULL DEFAULT 0, updated_at TEXT)`,
+		`CREATE TABLE debts (id TEXT PRIMARY KEY, customer_id TEXT NOT NULL, sale_id TEXT, amount REAL NOT NULL, paid_amount REAL NOT NULL DEFAULT 0, remaining_amount REAL NOT NULL, due_date TEXT, status TEXT, notes TEXT, created_at TEXT, updated_at TEXT)`,
+		`CREATE TABLE customer_debts (id TEXT PRIMARY KEY, customer_id TEXT, amount REAL, reference_id TEXT, reference_type TEXT, due_date TEXT, is_paid INTEGER, paid_amount REAL, created_at TEXT)`,
+		`CREATE TABLE customer_ledger (id TEXT PRIMARY KEY, customer_id TEXT, debt_id TEXT, type TEXT, amount REAL, balance REAL, description TEXT, reference_id TEXT, created_at TEXT)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	customerID, linkedDebtID, missingLedgerDebtID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO customers (id,current_balance) VALUES (?,999)`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	for _, debtID := range []string{linkedDebtID, missingLedgerDebtID} {
+		if _, err := db.Exec(`INSERT INTO debts (id,customer_id,amount,paid_amount,remaining_amount,status,notes) VALUES (?,?,100,0,100,'pending','manual')`, debtID, customerID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO customer_debts (id,customer_id,amount,reference_type,is_paid,paid_amount) VALUES (?,?,100,'manual',0,0)`, debtID, customerID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`
+		INSERT INTO customer_ledger (id,customer_id,debt_id,type,amount,balance,reference_id,created_at)
+		VALUES (?, ?, ?, 'debit', 100, 100, 'legacy-ref', '2026-09-25'),
+		       (?, ?, NULL, 'debit', 100, 200, ?, '2026-09-25'),
+		       (?, ?, NULL, 'debit', 20, 220, 'unrelated', '2026-09-26')`,
+		uuid.NewString(), customerID, linkedDebtID,
+		uuid.NewString(), customerID, linkedDebtID,
+		uuid.NewString(), customerID); err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(xdb)
+	if err := handler.DeleteDebtByID(context.Background(), uuid.MustParse(linkedDebtID)); err != nil {
+		t.Fatalf("delete debt with duplicate linked ledger rows and balance drift: %v", err)
+	}
+	if err := handler.DeleteDebtByID(context.Background(), uuid.MustParse(missingLedgerDebtID)); err != nil {
+		t.Fatalf("delete debt with missing ledger row: %v", err)
+	}
+	var remainingDebts, remainingLinkedLedger int
+	var balance, ledgerBalance float64
+	if err := xdb.Get(&remainingDebts, `SELECT COUNT(*) FROM debts WHERE customer_id=?`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := xdb.Get(&remainingLinkedLedger, `SELECT COUNT(*) FROM customer_ledger WHERE debt_id=? OR reference_id=?`, linkedDebtID, linkedDebtID); err != nil {
+		t.Fatal(err)
+	}
+	if err := xdb.Get(&balance, `SELECT current_balance FROM customers WHERE id=?`, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := xdb.Get(&ledgerBalance, `SELECT balance FROM customer_ledger WHERE reference_id='unrelated'`); err != nil {
+		t.Fatal(err)
+	}
+	if remainingDebts != 0 || remainingLinkedLedger != 0 || balance != 20 || ledgerBalance != 20 {
+		t.Fatalf("debt cleanup left debts=%d linked_ledger=%d customer_balance=%.2f ledger_balance=%.2f; want 0/0/20/20", remainingDebts, remainingLinkedLedger, balance, ledgerBalance)
+	}
+}
+
 func TestDeleteInvoiceDebtReversesAndHardDeletesSaleSQLite(t *testing.T) {
 	t.Setenv("PARTFLOW_LOCAL_DB_PATH", filepath.Join(t.TempDir(), "invoice-debt-delete.sqlite"))
 	local, err := localdb.Open()

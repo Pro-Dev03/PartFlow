@@ -545,9 +545,9 @@ func (h *Handler) DeleteDebt(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "debt deleted successfully"})
 }
 
-// DeleteDebtByID removes only an unpaid, non-invoice debt whose ledger entry
-// can be uniquely identified. It is shared by the individual delete route and
-// historical cleanup so both paths apply identical balance checks.
+// DeleteDebtByID reverses allocated payments, removes all ledger entries linked
+// to a manual debt, then recalculates the customer balance from the surviving
+// ledger. Invoice debts use the sale reversal path.
 func (h *Handler) DeleteDebtByID(ctx context.Context, id uuid.UUID) error {
 	// Invoice debts are owned by their sale. Route deletion through the sale's
 	// canonical reversal path so stock, payments, ledger, and reports all change
@@ -629,39 +629,17 @@ func (h *Handler) DeleteDebtByID(ctx context.Context, id uuid.UUID) error {
 		}
 		return fmt.Errorf("failed to load debt: %w", err)
 	}
-	var customerBalance, ledgerBalance float64
-	if err := tx.GetContext(ctx, &customerBalance, tx.Rebind(`SELECT COALESCE(current_balance, 0) FROM customers WHERE id = ?`)+lock, debt.CustomerID); err != nil {
-		return fmt.Errorf("%w: customer balance is unavailable; reconcile the customer account before deleting this debt", ErrDebtDeletionBlocked)
-	}
-	if err := tx.GetContext(ctx, &ledgerBalance, tx.Rebind(`SELECT COALESCE(SUM(CASE WHEN LOWER(COALESCE(type, '')) = 'debit' THEN amount WHEN LOWER(COALESCE(type, '')) = 'credit' THEN -amount ELSE 0 END), 0) FROM customer_ledger WHERE customer_id = ?`), debt.CustomerID); err != nil {
-		return fmt.Errorf("%w: customer ledger is unavailable; reconcile the customer account before deleting this debt", ErrDebtDeletionBlocked)
-	}
-	if math.Abs(customerBalance-ledgerBalance) > 0.01 {
-		return fmt.Errorf("%w: customer balance does not match the ledger; reconcile the customer account before deleting this debt", ErrDebtDeletionBlocked)
-	}
-
 	debtIDColumnExists, err := customerLedgerDebtIDColumnExists(ctx, tx, h.db)
 	if err != nil {
 		return fmt.Errorf("failed to inspect customer ledger schema: %w", err)
 	}
 	ledgerLink := `reference_id = ?`
-	ledgerArgs := []any{debt.CustomerID, id.String(), debt.Amount}
+	ledgerArgs := []any{debt.CustomerID, id.String()}
 	if debtIDColumnExists {
-		ledgerLink = `(debt_id = ? OR (debt_id IS NULL AND reference_id = ?))`
-		ledgerArgs = []any{debt.CustomerID, id.String(), id.String(), debt.Amount}
+		ledgerLink = `(debt_id = ? OR reference_id = ?)`
+		ledgerArgs = []any{debt.CustomerID, id.String(), id.String()}
 	}
-	ledgerMatch := `customer_id = ? AND ` + ledgerLink + ` AND LOWER(COALESCE(type, '')) = 'debit' AND ABS(amount - ?) < 0.000001`
-	var linkedLedgerCount int
-	if err := tx.GetContext(ctx, &linkedLedgerCount, tx.Rebind(`SELECT COUNT(*) FROM customer_ledger WHERE `+ledgerMatch), ledgerArgs...); err != nil {
-		return fmt.Errorf("failed to inspect debt ledger entry: %w", err)
-	}
-	if linkedLedgerCount > 1 {
-		return fmt.Errorf("%w: multiple ledger entries match this debt; reconcile the customer account before deleting it", ErrDebtDeletionBlocked)
-	}
-	if linkedLedgerCount != 1 {
-		return fmt.Errorf("%w: this debt has no uniquely linked ledger entry; reconcile the customer account before deleting it", ErrDebtDeletionBlocked)
-	}
-	if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM customer_ledger WHERE `+ledgerMatch), ledgerArgs...); err != nil {
+	if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM customer_ledger WHERE customer_id = ? AND `+ledgerLink), ledgerArgs...); err != nil {
 		return fmt.Errorf("failed to remove debt ledger entry: %w", err)
 	}
 	if err := deleteDebtMirror(ctx, tx, h.db, id.String()); err != nil {
