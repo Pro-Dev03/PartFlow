@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,6 +191,58 @@ func TestUnknownExpenseStatusesCanBePermanentlyDeleted(t *testing.T) {
 	}
 	if remaining != 0 {
 		t.Fatalf("unknown-status expense rows remaining = %d, want 0", remaining)
+	}
+}
+
+func TestDeleteExpenseCategoryRemovesLinkedFinancialAndAuditRowsSQLite(t *testing.T) {
+	service, db, categoryID, firstExpenseID := newExpenseServiceTestDB(t)
+	if _, err := db.Exec(`
+		CREATE TABLE financial_transactions (id TEXT PRIMARY KEY, expense_id TEXT, amount REAL);
+		CREATE TABLE audit_logs (id TEXT PRIMARY KEY, entity_id TEXT, entity_type TEXT);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	secondExpenseID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO expenses (id,title,category_id,amount,expense_date,status,created_at,updated_at) VALUES (?, 'Utilities', ?, 10, '2026-09-25', 'approved', '2026-09-25','2026-09-25')`, secondExpenseID.String(), categoryID.String()); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedID := uuid.NewString()
+	for _, expenseID := range []uuid.UUID{firstExpenseID, secondExpenseID} {
+		if _, err := db.Exec(`INSERT INTO financial_transactions (id,expense_id,amount) VALUES (?,?,10)`, uuid.NewString(), expenseID.String()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO audit_logs (id,entity_id,entity_type) VALUES (?,?, 'expense')`, uuid.NewString(), expenseID.String()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO audit_logs (id,entity_id,entity_type) VALUES (?,?,'customer')`, uuid.NewString(), unrelatedID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DeleteExpenseCategory(context.Background(), categoryID); err != nil {
+		t.Fatalf("delete expense category and linked rows: %v", err)
+	}
+	for query, want := range map[string]int{
+		`SELECT COUNT(*) FROM expense_categories WHERE id=?`:          0,
+		`SELECT COUNT(*) FROM expenses WHERE category_id=?`:           0,
+		`SELECT COUNT(*) FROM financial_transactions WHERE 1=1`:       0,
+		`SELECT COUNT(*) FROM audit_logs WHERE entity_type='expense'`: 0,
+		`SELECT COUNT(*) FROM audit_logs WHERE entity_id=?`:           1,
+	} {
+		var count int
+		var err error
+		if strings.Contains(query, "entity_id=?") {
+			err = db.QueryRow(query, unrelatedID).Scan(&count)
+		} else if strings.Contains(query, "id=?") || strings.Contains(query, "category_id=?") {
+			err = db.QueryRow(query, categoryID.String()).Scan(&count)
+		} else {
+			err = db.QueryRow(query).Scan(&count)
+		}
+		if err != nil {
+			t.Fatalf("query %q: %v", query, err)
+		}
+		if count != want {
+			t.Errorf("query %q count=%d, want %d", query, count, want)
+		}
 	}
 }
 

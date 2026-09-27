@@ -798,7 +798,9 @@ func (s *Service) DeleteProductQuantityAdjustment(ctx context.Context, movementI
 		return fmt.Errorf("load inventory adjustment: %w", err)
 	}
 
-	if movement.MovementType != string(MovementAdjustment) || (!movement.ItemID.Valid && !movement.ProductID.Valid) {
+	if movement.MovementType != string(MovementAdjustment) ||
+		(!movement.ItemID.Valid && !movement.ProductID.Valid) ||
+		movement.Quantity != movement.AfterQuantity-movement.BeforeQuantity {
 		return ErrCannotDeleteInventoryAdjustment
 	}
 	var productID uuid.UUID

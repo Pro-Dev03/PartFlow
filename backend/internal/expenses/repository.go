@@ -522,45 +522,55 @@ func (r *Repository) DeleteExpense(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("begin expense deletion: %w", err)
 	}
 	defer tx.Rollback()
-	if exists, err := expenseTableExistsTx(ctx, tx, r.db, "audit_logs"); err != nil {
+	if err := deleteExpenseTx(ctx, tx, r.db, id.String()); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit expense deletion: %w", err)
+	}
+	return nil
+}
+
+func deleteExpenseTx(ctx context.Context, tx *sqlx.Tx, db *sqlx.DB, id string) error {
+	if exists, err := expenseTableExistsTx(ctx, tx, db, "audit_logs"); err != nil {
 		return err
 	} else if exists {
-		if hasColumn, err := expenseColumnExistsTx(ctx, tx, r.db, "audit_logs", "entity_id"); err != nil {
+		if hasColumn, err := expenseColumnExistsTx(ctx, tx, db, "audit_logs", "entity_id"); err != nil {
 			return err
 		} else if hasColumn {
 			query := `DELETE FROM audit_logs WHERE entity_id=?`
-			if hasType, err := expenseColumnExistsTx(ctx, tx, r.db, "audit_logs", "entity_type"); err != nil {
+			if hasType, err := expenseColumnExistsTx(ctx, tx, db, "audit_logs", "entity_type"); err != nil {
 				return err
 			} else if hasType {
 				query += ` AND LOWER(COALESCE(entity_type,'')) IN ('expense','expenses')`
 			}
-			if _, err := tx.ExecContext(ctx, tx.Rebind(query), id.String()); err != nil {
+			if _, err := tx.ExecContext(ctx, tx.Rebind(query), id); err != nil {
 				return fmt.Errorf("delete expense audit history: %w", err)
 			}
 		}
 	}
-	if exists, err := expenseTableExistsTx(ctx, tx, r.db, "financial_transactions"); err != nil {
+	if exists, err := expenseTableExistsTx(ctx, tx, db, "financial_transactions"); err != nil {
 		return err
 	} else if exists {
-		if hasColumn, err := expenseColumnExistsTx(ctx, tx, r.db, "financial_transactions", "expense_id"); err != nil {
+		if hasColumn, err := expenseColumnExistsTx(ctx, tx, db, "financial_transactions", "expense_id"); err != nil {
 			return err
 		} else if hasColumn {
-			if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM financial_transactions WHERE expense_id=?`), id.String()); err != nil {
+			if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM financial_transactions WHERE expense_id=?`), id); err != nil {
 				return fmt.Errorf("delete linked expense financial transaction: %w", err)
 			}
 		}
 	}
-	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM expenses WHERE id=?`), id.String())
+	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM expenses WHERE id=?`), id)
 	if err != nil {
 		return fmt.Errorf("failed to delete expense: %w", err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("inspect deleted expense count: %w", err)
+	}
 	if rowsAffected == 0 {
 		return ErrExpenseNotFound
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit expense deletion: %w", err)
 	}
 	return nil
 }
@@ -786,8 +796,14 @@ func (r *Repository) DeleteExpenseCategory(ctx context.Context, id uuid.UUID) er
 		}
 		return fmt.Errorf("lock expense category: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM expenses WHERE category_id=?`), id.String()); err != nil {
-		return fmt.Errorf("delete category expenses: %w", err)
+	var expenseIDs []string
+	if err := tx.SelectContext(ctx, &expenseIDs, tx.Rebind(`SELECT CAST(id AS TEXT) FROM expenses WHERE category_id=? ORDER BY id`), id.String()); err != nil {
+		return fmt.Errorf("load category expenses: %w", err)
+	}
+	for _, expenseID := range expenseIDs {
+		if err := deleteExpenseTx(ctx, tx, r.db, expenseID); err != nil {
+			return fmt.Errorf("delete category expense %s: %w", expenseID, err)
+		}
 	}
 	result, err := tx.ExecContext(ctx, tx.Rebind(`DELETE FROM expense_categories WHERE id=?`), id.String())
 	if err != nil {

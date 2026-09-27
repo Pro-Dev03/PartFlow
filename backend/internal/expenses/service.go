@@ -456,7 +456,8 @@ func (s *Service) UpdateExpenseCategory(ctx context.Context, id uuid.UUID, req *
 	return category, nil
 }
 
-// DeleteExpenseCategory archives an expense category while preserving history.
+// DeleteExpenseCategory hard-deletes a category and its expenses together
+// with each linked financial transaction and audit row.
 func (s *Service) DeleteExpenseCategory(ctx context.Context, id uuid.UUID) error {
 	if err := s.repo.DeleteExpenseCategory(ctx, id); err != nil {
 		return err

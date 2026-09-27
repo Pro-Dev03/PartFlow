@@ -15,8 +15,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/partflow/smart-store/internal/accounting"
+	"github.com/partflow/smart-store/internal/customers"
 	"github.com/partflow/smart-store/internal/database"
 	"github.com/partflow/smart-store/internal/debts"
+	"github.com/partflow/smart-store/internal/expenses"
 	"github.com/partflow/smart-store/internal/inventory"
 	"github.com/partflow/smart-store/internal/payments"
 	"github.com/partflow/smart-store/internal/products"
@@ -25,6 +27,7 @@ import (
 	"github.com/partflow/smart-store/internal/returns"
 	"github.com/partflow/smart-store/internal/sales"
 	"github.com/partflow/smart-store/internal/supplierreturns"
+	"github.com/partflow/smart-store/internal/suppliers"
 )
 
 // These PostgreSQL integration tests are opt-in and refuse non-loopback or
@@ -644,6 +647,170 @@ func TestPostgresSmartDeletePurchaseReversesStockAndCompletedPayment(t *testing.
 	}
 }
 
+func TestPostgresDeleteCustomerReversesSaleDebtLedgerAndStock(t *testing.T) {
+	db := openIsolatedPostgresCleanupTestDB(t)
+	if _, err := db.Exec(`
+		CREATE TABLE customers (id UUID PRIMARY KEY, code TEXT, name TEXT, email TEXT, phone TEXT, address TEXT, city TEXT, country TEXT, tax_id TEXT, credit_limit NUMERIC(12,2) DEFAULT 0, current_balance NUMERIC(12,2) DEFAULT 0, notes TEXT, is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ);
+		CREATE TABLE sales (id UUID PRIMARY KEY, invoice_number TEXT, customer_id UUID, user_id UUID, created_at TIMESTAMPTZ, status TEXT, payment_status TEXT, total_amount NUMERIC(12,2), paid_amount NUMERIC(12,2) DEFAULT 0, remaining_amount NUMERIC(12,2), updated_at TIMESTAMPTZ);
+		CREATE TABLE sale_items (id UUID PRIMARY KEY, sale_id UUID, product_id UUID, quantity INTEGER);
+		CREATE TABLE inventory_items (id UUID PRIMARY KEY, product_id UUID, status TEXT, sold_at TIMESTAMPTZ, updated_at TIMESTAMPTZ);
+		CREATE TABLE inventory_movements (id UUID PRIMARY KEY, item_id UUID, product_id UUID, movement_type TEXT, quantity INTEGER, reference_type TEXT, reference_id UUID);
+		CREATE TABLE inventory (id UUID PRIMARY KEY, product_id UUID UNIQUE, quantity INTEGER, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ);
+		CREATE TABLE returns (id UUID PRIMARY KEY, sale_id UUID);
+		CREATE TABLE accounting_returns (id UUID PRIMARY KEY, sale_id UUID);
+		CREATE TABLE payment_transactions (id UUID PRIMARY KEY, sale_id UUID, created_at TIMESTAMPTZ DEFAULT NOW());
+		CREATE TABLE debts (id UUID PRIMARY KEY, customer_id UUID, sale_id UUID, amount NUMERIC(12,2), paid_amount NUMERIC(12,2), remaining_amount NUMERIC(12,2));
+		CREATE TABLE payments (id UUID PRIMARY KEY, sale_id UUID, customer_id UUID);
+		CREATE TABLE customer_ledger (id UUID PRIMARY KEY, customer_id UUID, type TEXT, amount NUMERIC(12,2), reference_id UUID, reference_type TEXT);
+		CREATE TABLE customer_payments (id UUID PRIMARY KEY, customer_id UUID, amount NUMERIC(12,2));
+		CREATE TABLE sale_payment_allocations (id UUID PRIMARY KEY, sale_id UUID);
+		CREATE TABLE item_history (id UUID PRIMARY KEY, reference_id UUID, reference_type TEXT);
+		CREATE TABLE ledger_entries (id UUID PRIMARY KEY, reference_id UUID, reference_type TEXT);
+		CREATE TABLE audit_logs (id UUID PRIMARY KEY, user_id UUID, action TEXT, entity_type TEXT, entity_id UUID, new_values JSONB, created_at TIMESTAMPTZ);
+	`); err != nil {
+		t.Fatalf("create PostgreSQL customer cascade schema: %v", err)
+	}
+	customerID, saleID, productID, itemID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	userID := uuid.New()
+	now := time.Now().UTC()
+	if _, err := db.Exec(`INSERT INTO customers(id,code,name,credit_limit,current_balance,is_active,created_at,updated_at) VALUES($1,'C-PG-DEL','PG customer',500,120,TRUE,$2,$2)`, customerID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO sales(id,invoice_number,customer_id,user_id,created_at,status,payment_status,total_amount,paid_amount,remaining_amount,updated_at) VALUES($1,'INV-PG-CUST-DEL',$2,$3,$4,'completed','unpaid',120,0,120,$4)`, saleID, customerID, userID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO sale_items(id,sale_id,product_id,quantity) VALUES($1,$2,$3,1)`, uuid.New(), saleID, productID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_items(id,product_id,status,sold_at,updated_at) VALUES($1,$2,'SOLD',$3,$3)`, itemID, productID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_movements(id,item_id,product_id,movement_type,quantity,reference_type,reference_id) VALUES($1,$2,$3,'SALE',-1,'sale',$4)`, uuid.New(), itemID, productID, saleID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory(id,product_id,quantity,created_at,updated_at) VALUES($1,$2,2,$3,$3)`, uuid.New(), productID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO debts(id,customer_id,sale_id,amount,paid_amount,remaining_amount) VALUES($1,$2,$3,120,0,120)`, uuid.New(), customerID, saleID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO customer_ledger(id,customer_id,type,amount,reference_id,reference_type) VALUES($1,$2,'debit',120,$3,'sale')`, uuid.New(), customerID, saleID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO customer_payments(id,customer_id,amount) VALUES($1,$2,0)`, uuid.New(), customerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := customers.NewService(customers.NewRepository(db)).DeleteCustomer(context.Background(), customerID); err != nil {
+		t.Fatalf("delete PostgreSQL customer cascade: %v", err)
+	}
+	var customerCount, saleCount, debtCount, paymentCount, ledgerCount, saleItemsCount, movementCount, deleteAuditCount, stock int
+	checks := []struct {
+		query string
+		args  []any
+		into  *int
+	}{
+		{`SELECT COUNT(*) FROM customers WHERE id=$1`, []any{customerID}, &customerCount},
+		{`SELECT COUNT(*) FROM sales WHERE id=$1`, []any{saleID}, &saleCount},
+		{`SELECT COUNT(*) FROM debts WHERE customer_id=$1`, []any{customerID}, &debtCount},
+		{`SELECT COUNT(*) FROM customer_payments WHERE customer_id=$1`, []any{customerID}, &paymentCount},
+		{`SELECT COUNT(*) FROM customer_ledger WHERE customer_id=$1`, []any{customerID}, &ledgerCount},
+		{`SELECT COUNT(*) FROM sale_items WHERE sale_id=$1`, []any{saleID}, &saleItemsCount},
+		{`SELECT COUNT(*) FROM inventory_movements WHERE reference_id=$1`, []any{saleID}, &movementCount},
+		{`SELECT COUNT(*) FROM audit_logs WHERE entity_id=$1 AND action='DELETE'`, []any{customerID}, &deleteAuditCount},
+		{`SELECT quantity FROM inventory WHERE product_id=$1`, []any{productID}, &stock},
+	}
+	for _, check := range checks {
+		if err := db.Get(check.into, check.query, check.args...); err != nil {
+			t.Fatalf("query %q: %v", check.query, err)
+		}
+	}
+	if customerCount != 0 || saleCount != 0 || debtCount != 0 || paymentCount != 0 || ledgerCount != 0 || saleItemsCount != 0 || movementCount != 0 || deleteAuditCount != 1 || stock != 3 {
+		t.Fatalf("PostgreSQL customer cascade: customer/sale/debt/payment/ledger/items/movements/audit/stock=%d/%d/%d/%d/%d/%d/%d/%d/%d; want 0/0/0/0/0/0/0/1/3", customerCount, saleCount, debtCount, paymentCount, ledgerCount, saleItemsCount, movementCount, deleteAuditCount, stock)
+	}
+}
+
+func TestPostgresDeleteSupplierReversesPurchaseAndStock(t *testing.T) {
+	db := openIsolatedPostgresCleanupTestDB(t)
+	if _, err := db.Exec(`
+		CREATE TABLE suppliers (id UUID PRIMARY KEY, code TEXT, name TEXT, email TEXT, phone TEXT, address TEXT, city TEXT, country TEXT, tax_id TEXT, payment_terms TEXT, credit_limit NUMERIC(12,2) DEFAULT 0, current_balance NUMERIC(12,2) DEFAULT 0, notes TEXT, is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ);
+		CREATE TABLE purchases (id UUID PRIMARY KEY, invoice_number TEXT, purchase_number TEXT, supplier_id UUID, purchase_date TIMESTAMPTZ, created_at TIMESTAMPTZ, status TEXT, total_amount NUMERIC(12,2), paid_amount NUMERIC(12,2) DEFAULT 0, remaining_amount NUMERIC(12,2), reversed_at TIMESTAMPTZ, updated_at TIMESTAMPTZ);
+		CREATE TABLE products (id UUID PRIMARY KEY, name TEXT);
+		CREATE TABLE payments (id UUID PRIMARY KEY, purchase_id UUID, customer_id UUID, supplier_id UUID, sale_id UUID, amount NUMERIC(12,2), status TEXT, payment_status TEXT, payment_date TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW());
+		CREATE TABLE payment_allocation_batches (payment_id UUID PRIMARY KEY, owner_type TEXT NOT NULL, owner_id UUID NOT NULL, sale_id UUID, tracked_at TIMESTAMPTZ DEFAULT NOW());
+		CREATE TABLE payment_debt_allocations (id UUID PRIMARY KEY, payment_id UUID NOT NULL, debt_id UUID NOT NULL, amount NUMERIC(12,2) NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW());
+		CREATE TABLE supplier_debts (id UUID PRIMARY KEY, supplier_id UUID, reference_id UUID, reference_type TEXT, amount NUMERIC(12,2), paid_amount NUMERIC(12,2), is_paid BOOLEAN, due_date DATE, created_at TIMESTAMPTZ);
+		CREATE TABLE supplier_ledger (id UUID PRIMARY KEY, supplier_id UUID, type TEXT, transaction_type TEXT, amount NUMERIC(12,2), balance NUMERIC(12,2), reference_id UUID, reference_type TEXT, created_at TIMESTAMPTZ DEFAULT NOW());
+		CREATE TABLE purchase_items (id UUID PRIMARY KEY, purchase_id UUID, product_id UUID, quantity INTEGER);
+		CREATE TABLE supplier_returns (id UUID PRIMARY KEY, purchase_id UUID, supplier_id UUID, status TEXT, refund_amount NUMERIC(12,2));
+		CREATE TABLE supplier_return_items (id UUID PRIMARY KEY, supplier_return_id UUID);
+		CREATE TABLE inventory_items (id UUID PRIMARY KEY, item_code TEXT, product_id UUID, supplier_id UUID, barcode TEXT, status TEXT, condition TEXT);
+		CREATE TABLE inventory (id UUID PRIMARY KEY, product_id UUID UNIQUE, quantity INTEGER, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ);
+		CREATE TABLE inventory_movements (id UUID PRIMARY KEY, item_id UUID, product_id UUID, movement_type TEXT, quantity INTEGER, before_quantity INTEGER, after_quantity INTEGER, reference_type TEXT, reference_id UUID, reason TEXT, created_by UUID, created_at TIMESTAMPTZ DEFAULT NOW());
+		CREATE TABLE item_history (id UUID PRIMARY KEY, inventory_item_id UUID, reference_type TEXT, reference_id UUID);
+		CREATE TABLE returns (id UUID PRIMARY KEY, purchase_id UUID);
+		CREATE TABLE barcodes (id UUID PRIMARY KEY, inventory_item_id UUID);
+		CREATE TABLE reservations (id UUID PRIMARY KEY, item_id UUID);
+		CREATE TABLE acquisition_items (id UUID PRIMARY KEY, inventory_item_id UUID, item_status TEXT, updated_at TIMESTAMPTZ);
+		CREATE TABLE inspection_items (id UUID PRIMARY KEY, item_id UUID);
+		CREATE TABLE item_repair_costs (id UUID PRIMARY KEY, inventory_item_id UUID);
+		CREATE TABLE audit_logs (id UUID PRIMARY KEY, user_id UUID, action TEXT, entity_type TEXT, entity_id UUID, new_values JSONB, created_at TIMESTAMPTZ);
+	`); err != nil {
+		t.Fatalf("create PostgreSQL supplier cascade schema: %v", err)
+	}
+	supplierID, productID, purchaseID, itemID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	now := time.Now().UTC()
+	itemCode := "ITM-" + purchaseID.String()[:8] + "-001"
+	if _, err := db.Exec(`INSERT INTO suppliers(id,code,name,credit_limit,current_balance,is_active,created_at,updated_at) VALUES($1,'SUP-PG-DEL','PG supplier',100,10,TRUE,$2,$2)`, supplierID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO products(id,name) VALUES($1,'Supplier cascade product')`, productID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO purchases(id,invoice_number,purchase_number,supplier_id,purchase_date,created_at,status,total_amount,paid_amount,remaining_amount,updated_at) VALUES($1,'PUR-PG-SUP-DEL','PUR-PG-SUP-DEL',$2,$3,$3,'received',10,0,10,$3)`, purchaseID, supplierID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO purchase_items(id,purchase_id,product_id,quantity) VALUES($1,$2,$3,1)`, uuid.New(), purchaseID, productID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_items(id,item_code,product_id,supplier_id,barcode,status,condition) VALUES($1,$2,$3,$4,'BC-PG-SUP-1','AVAILABLE','NEW')`, itemID, itemCode, productID, supplierID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory(id,product_id,quantity,created_at,updated_at) VALUES($1,$2,1,$3,$3)`, uuid.New(), productID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory_movements(id,item_id,product_id,movement_type,quantity,before_quantity,after_quantity,reference_type,reference_id,created_at) VALUES($1,$2,$3,'PURCHASE',1,0,1,'purchase',$4,$5)`, uuid.New(), itemID, productID, purchaseID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO supplier_ledger(id,supplier_id,type,transaction_type,amount,balance,reference_id,reference_type,created_at) VALUES($1,$2,'debit','PURCHASE',10,10,$3,'purchase',$4)`, uuid.New(), supplierID, purchaseID, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := suppliers.NewService(suppliers.NewRepository(db), db).DeleteSupplier(context.Background(), supplierID); err != nil {
+		t.Fatalf("delete PostgreSQL supplier cascade: %v", err)
+	}
+	var supplierCount, purchaseCount, itemCount, movementCount, ledgerCount, stock, productCount int
+	checks := []struct {
+		query string
+		args  []any
+		into  *int
+	}{
+		{`SELECT COUNT(*) FROM suppliers WHERE id=$1`, []any{supplierID}, &supplierCount},
+		{`SELECT COUNT(*) FROM purchases WHERE id=$1`, []any{purchaseID}, &purchaseCount},
+		{`SELECT COUNT(*) FROM inventory_items WHERE id=$1`, []any{itemID}, &itemCount},
+		{`SELECT COUNT(*) FROM inventory_movements WHERE reference_id=$1`, []any{purchaseID}, &movementCount},
+		{`SELECT COUNT(*) FROM supplier_ledger WHERE supplier_id=$1`, []any{supplierID}, &ledgerCount},
+		{`SELECT quantity FROM inventory WHERE product_id=$1`, []any{productID}, &stock},
+		{`SELECT COUNT(*) FROM products WHERE id=$1`, []any{productID}, &productCount},
+	}
+	for _, check := range checks {
+		if err := db.Get(check.into, check.query, check.args...); err != nil {
+			t.Fatalf("query %q: %v", check.query, err)
+		}
+	}
+	if supplierCount != 0 || purchaseCount != 0 || itemCount != 0 || movementCount != 0 || ledgerCount != 0 || stock != 0 || productCount != 1 {
+		t.Fatalf("PostgreSQL supplier cascade: supplier/purchase/item/movement/ledger/stock/product=%d/%d/%d/%d/%d/%d/%d; want 0/0/0/0/0/0/1", supplierCount, purchaseCount, itemCount, movementCount, ledgerCount, stock, productCount)
+	}
+}
+
 func TestPostgresDeleteManualDebtReconcilesCustomerLedger(t *testing.T) {
 	db := openIsolatedPostgresCleanupTestDB(t)
 	if _, err := db.Exec(`
@@ -916,6 +1083,60 @@ func TestPostgresHistoricalCleanupHardDeletesApprovedExpenseAndUpdatesReports(t 
 		t.Fatalf("PostgreSQL expense cleanup result=%+v rows=%d totals=%v/%v report=%+v; want deleted row and zeroed aggregates", envelope.Data, rowCount, before, after, afterReport)
 	}
 }
+func TestPostgresDeleteExpenseCategoryRemovesLinkedFinancialAndAuditRows(t *testing.T) {
+	db := openIsolatedPostgresCleanupTestDB(t)
+	if _, err := db.Exec(`
+		CREATE TABLE expense_categories (id UUID PRIMARY KEY);
+		CREATE TABLE expenses (id UUID PRIMARY KEY, category_id UUID NOT NULL REFERENCES expense_categories(id));
+		CREATE TABLE financial_transactions (id UUID PRIMARY KEY, expense_id UUID NOT NULL);
+		CREATE TABLE audit_logs (id UUID PRIMARY KEY, entity_id UUID NOT NULL, entity_type TEXT NOT NULL);
+	`); err != nil {
+		t.Fatalf("create PostgreSQL expense category deletion schema: %v", err)
+	}
+	categoryID, firstExpenseID, secondExpenseID := uuid.New(), uuid.New(), uuid.New()
+	if _, err := db.Exec(`INSERT INTO expense_categories(id) VALUES($1)`, categoryID); err != nil {
+		t.Fatal(err)
+	}
+	for _, expenseID := range []uuid.UUID{firstExpenseID, secondExpenseID} {
+		if _, err := db.Exec(`INSERT INTO expenses(id,category_id) VALUES($1,$2)`, expenseID, categoryID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO financial_transactions(id,expense_id) VALUES($1,$2)`, uuid.New(), expenseID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO audit_logs(id,entity_id,entity_type) VALUES($1,$2,'expense')`, uuid.New(), expenseID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unrelatedID := uuid.New()
+	if _, err := db.Exec(`INSERT INTO audit_logs(id,entity_id,entity_type) VALUES($1,$2,'customer')`, uuid.New(), unrelatedID); err != nil {
+		t.Fatal(err)
+	}
+	if err := expenses.NewService(expenses.NewRepository(db)).DeleteExpenseCategory(context.Background(), categoryID); err != nil {
+		t.Fatalf("delete PostgreSQL expense category and linked records: %v", err)
+	}
+	checks := []struct {
+		query string
+		args  []any
+		want  int
+	}{
+		{`SELECT COUNT(*) FROM expense_categories WHERE id=$1`, []any{categoryID}, 0},
+		{`SELECT COUNT(*) FROM expenses WHERE category_id=$1`, []any{categoryID}, 0},
+		{`SELECT COUNT(*) FROM financial_transactions WHERE expense_id IN ($1,$2)`, []any{firstExpenseID, secondExpenseID}, 0},
+		{`SELECT COUNT(*) FROM audit_logs WHERE entity_type='expense'`, nil, 0},
+		{`SELECT COUNT(*) FROM audit_logs WHERE entity_id=$1`, []any{unrelatedID}, 1},
+	}
+	for _, check := range checks {
+		var count int
+		if err := db.Get(&count, check.query, check.args...); err != nil {
+			t.Fatalf("query %q: %v", check.query, err)
+		}
+		if count != check.want {
+			t.Errorf("query %q count=%d, want %d", check.query, count, check.want)
+		}
+	}
+}
+
 func TestPostgresPaymentDeleteHardDeletesUnpostedPayments(t *testing.T) {
 	db := openIsolatedPostgresCleanupTestDB(t)
 	if _, err := db.Exec(`CREATE TABLE payments (id UUID PRIMARY KEY, status TEXT NOT NULL, payment_status TEXT, customer_id UUID, supplier_id UUID, sale_id UUID, amount NUMERIC DEFAULT 0, payment_date TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT NOW()); CREATE TABLE customer_ledger (id UUID PRIMARY KEY, reference_id UUID); CREATE TABLE supplier_ledger (id UUID PRIMARY KEY, reference_id UUID);`); err != nil {
@@ -941,6 +1162,145 @@ func TestPostgresPaymentDeleteHardDeletesUnpostedPayments(t *testing.T) {
 	}
 	if pendingCount != 0 || completedCount != 0 {
 		t.Fatalf("PostgreSQL payment deletion left pending=%d completed=%d; want 0/0", pendingCount, completedCount)
+	}
+}
+
+func TestPostgresPaymentDeleteReversesCustomerDebtLedgerSaleAndSummaries(t *testing.T) {
+	previousTimezone := accounting.CurrentStoreTimezone()
+	t.Cleanup(func() { _ = accounting.ConfigureStoreTimezone(previousTimezone) })
+	if err := accounting.ConfigureStoreTimezone("UTC"); err != nil {
+		t.Fatal(err)
+	}
+	db := openIsolatedPostgresCleanupTestDB(t)
+	if _, err := db.Exec(`
+		CREATE TABLE payments (id UUID PRIMARY KEY, amount NUMERIC(12,2), customer_id UUID, supplier_id UUID, sale_id UUID, purchase_id UUID, payment_date TIMESTAMPTZ, created_at TIMESTAMPTZ, status TEXT, payment_status TEXT);
+		CREATE TABLE payment_allocation_batches (payment_id UUID PRIMARY KEY, owner_type TEXT NOT NULL, owner_id UUID NOT NULL, sale_id UUID, tracked_at TIMESTAMPTZ DEFAULT NOW());
+		CREATE TABLE payment_debt_allocations (id UUID PRIMARY KEY, payment_id UUID NOT NULL, debt_id UUID NOT NULL, amount NUMERIC(12,2) NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW());
+		CREATE TABLE customers (id UUID PRIMARY KEY, current_balance NUMERIC(12,2), updated_at TIMESTAMPTZ);
+		CREATE TABLE debts (id UUID PRIMARY KEY, customer_id UUID, sale_id UUID, amount NUMERIC(12,2), paid_amount NUMERIC(12,2), remaining_amount NUMERIC(12,2), due_date DATE, status TEXT, created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ);
+		CREATE TABLE customer_debts (id UUID PRIMARY KEY, customer_id UUID, amount NUMERIC(12,2), paid_amount NUMERIC(12,2), is_paid BOOLEAN);
+		CREATE TABLE sales (id UUID PRIMARY KEY, customer_id UUID, total_amount NUMERIC(12,2), paid_amount NUMERIC(12,2), remaining_amount NUMERIC(12,2), payment_status TEXT, updated_at TIMESTAMPTZ);
+		CREATE TABLE customer_ledger (id UUID PRIMARY KEY, customer_id UUID, type TEXT, transaction_type TEXT, amount NUMERIC(12,2), balance NUMERIC(12,2), description TEXT, reference_id UUID, reference_type TEXT, created_at TIMESTAMPTZ);
+		CREATE TABLE suppliers (id UUID PRIMARY KEY, current_balance NUMERIC(12,2), updated_at TIMESTAMPTZ);
+		CREATE TABLE supplier_debts (id UUID PRIMARY KEY, supplier_id UUID, amount NUMERIC(12,2), paid_amount NUMERIC(12,2), is_paid BOOLEAN, due_date DATE, created_at TIMESTAMPTZ);
+		CREATE TABLE supplier_ledger (id UUID PRIMARY KEY, supplier_id UUID, type TEXT, transaction_type TEXT, amount NUMERIC(12,2), balance NUMERIC(12,2), description TEXT, reference_id UUID, reference_type TEXT, created_at TIMESTAMPTZ);
+		CREATE TABLE purchases (id UUID PRIMARY KEY, total_amount NUMERIC(12,2), paid_amount NUMERIC(12,2), remaining_amount NUMERIC(12,2), updated_at TIMESTAMPTZ);
+		CREATE TABLE daily_debt_summary (date DATE PRIMARY KEY, total_debt NUMERIC(12,2), new_debt NUMERIC(12,2), payments_received NUMERIC(12,2), overdue_debt NUMERIC(12,2), overdue_count INTEGER, paid_debt NUMERIC(12,2), updated_at TIMESTAMPTZ);
+		CREATE TABLE monthly_debt_summary (year INTEGER, month INTEGER, total_debt NUMERIC(12,2), new_debt NUMERIC(12,2), payments_received NUMERIC(12,2), overdue_debt NUMERIC(12,2), overdue_count INTEGER, paid_debt NUMERIC(12,2), updated_at TIMESTAMPTZ, PRIMARY KEY(year,month));
+	`); err != nil {
+		t.Fatalf("create PostgreSQL posted payment deletion schema: %v", err)
+	}
+	customerID, debtID, saleID, paymentID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	supplierID, supplierDebtID, purchaseID, supplierPaymentID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	created := time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)
+	if _, err := db.Exec(`INSERT INTO customers(id,current_balance,updated_at) VALUES($1,60,$2)`, customerID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO debts(id,customer_id,sale_id,amount,paid_amount,remaining_amount,due_date,status,created_at,updated_at) VALUES($1,$2,$3,100,40,60,DATE '2026-10-01','partial',$4,$4)`, debtID, customerID, saleID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO customer_debts(id,customer_id,amount,paid_amount,is_paid) VALUES($1,$2,100,40,FALSE)`, debtID, customerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO sales(id,customer_id,total_amount,paid_amount,remaining_amount,payment_status,updated_at) VALUES($1,$2,100,40,60,'partial',$3)`, saleID, customerID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO payments(id,amount,customer_id,sale_id,payment_date,created_at,status,payment_status) VALUES($1,40,$2,$3,$4,$4,'completed','completed')`, paymentID, customerID, saleID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO payment_allocation_batches(payment_id,owner_type,owner_id,sale_id,tracked_at) VALUES($1,'customer',$2,$3,$4)`, paymentID, customerID, saleID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO payment_debt_allocations(id,payment_id,debt_id,amount,created_at) VALUES($1,$2,$3,40,$4)`, uuid.New(), paymentID, debtID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO customer_ledger(id,customer_id,type,transaction_type,amount,balance,description,reference_id,reference_type,created_at) VALUES($1,$2,'debit','SALE',100,100,'sale',$3,'sale',$4),($5,$2,'credit','PAYMENT',40,60,'payment',$6,'payment',$7),($8,$2,'debit','ADJUSTMENT',5,65,'adjustment',$9,'adjustment',$10)`, uuid.New(), customerID, saleID, created.Add(-time.Hour), uuid.New(), paymentID, created, uuid.New(), uuid.New(), created.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO daily_debt_summary(date,payments_received) VALUES(DATE '2026-09-25',40)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO monthly_debt_summary(year,month,payments_received) VALUES(2026,9,40)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO suppliers(id,current_balance,updated_at) VALUES($1,60,$2)`, supplierID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO supplier_debts(id,supplier_id,amount,paid_amount,is_paid,due_date,created_at) VALUES($1,$2,100,40,FALSE,DATE '2026-10-01',$3)`, supplierDebtID, supplierID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO purchases(id,total_amount,paid_amount,remaining_amount,updated_at) VALUES($1,100,40,60,$2)`, purchaseID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO payments(id,amount,supplier_id,purchase_id,payment_date,created_at,status,payment_status) VALUES($1,40,$2,$3,$4,$4,'completed','completed')`, supplierPaymentID, supplierID, purchaseID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO payment_allocation_batches(payment_id,owner_type,owner_id,tracked_at) VALUES($1,'supplier',$2,$3)`, supplierPaymentID, supplierID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO payment_debt_allocations(id,payment_id,debt_id,amount,created_at) VALUES($1,$2,$3,40,$4)`, uuid.New(), supplierPaymentID, supplierDebtID, created); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO supplier_ledger(id,supplier_id,type,transaction_type,amount,balance,description,reference_id,reference_type,created_at) VALUES($1,$2,'debit','PURCHASE',100,100,'purchase',$3,'purchase',$4),($5,$2,'credit','PAYMENT',40,60,'payment',$6,'payment',$7)`, uuid.New(), supplierID, purchaseID, created.Add(-time.Hour), uuid.New(), supplierPaymentID, created); err != nil {
+		t.Fatal(err)
+	}
+	if err := payments.NewRepository(db).Delete(context.Background(), paymentID); err != nil {
+		t.Fatalf("delete PostgreSQL posted customer payment: %v", err)
+	}
+	if err := payments.NewRepository(db).Delete(context.Background(), supplierPaymentID); err != nil {
+		t.Fatalf("delete PostgreSQL posted supplier payment: %v", err)
+	}
+	var paymentCount, allocationCount, ledgerCount int
+	var customerBalance, debtPaid, debtRemaining, salePaid, saleRemaining, dailyPayments, monthlyPayments, finalLedgerBalance float64
+	checks := []struct {
+		query string
+		args  []any
+		dest  any
+	}{
+		{`SELECT COUNT(*) FROM payments WHERE id=$1`, []any{paymentID}, &paymentCount},
+		{`SELECT COUNT(*) FROM payment_debt_allocations WHERE payment_id=$1`, []any{paymentID}, &allocationCount},
+		{`SELECT COUNT(*) FROM customer_ledger WHERE customer_id=$1`, []any{customerID}, &ledgerCount},
+		{`SELECT current_balance FROM customers WHERE id=$1`, []any{customerID}, &customerBalance},
+		{`SELECT paid_amount FROM debts WHERE id=$1`, []any{debtID}, &debtPaid},
+		{`SELECT remaining_amount FROM debts WHERE id=$1`, []any{debtID}, &debtRemaining},
+		{`SELECT paid_amount FROM sales WHERE id=$1`, []any{saleID}, &salePaid},
+		{`SELECT remaining_amount FROM sales WHERE id=$1`, []any{saleID}, &saleRemaining},
+		{`SELECT payments_received FROM daily_debt_summary WHERE date=DATE '2026-09-25'`, nil, &dailyPayments},
+		{`SELECT payments_received FROM monthly_debt_summary WHERE year=2026 AND month=9`, nil, &monthlyPayments},
+		{`SELECT balance FROM customer_ledger WHERE customer_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1`, []any{customerID}, &finalLedgerBalance},
+	}
+	for _, check := range checks {
+		if err := db.Get(check.dest, check.query, check.args...); err != nil {
+			t.Fatalf("query %q: %v", check.query, err)
+		}
+	}
+	if paymentCount != 0 || allocationCount != 0 || ledgerCount != 2 || customerBalance != 100 || debtPaid != 0 || debtRemaining != 100 || salePaid != 0 || saleRemaining != 100 || dailyPayments != 0 || monthlyPayments != 0 || finalLedgerBalance != 105 {
+		t.Fatalf("PostgreSQL payment reversal: payment/allocations/ledger=%d/%d/%d customer=%v debt=%v/%v sale=%v/%v summary=%v/%v ledger_balance=%v; want 0/0/2 100 (0/100) (0/100) 0/0 105", paymentCount, allocationCount, ledgerCount, customerBalance, debtPaid, debtRemaining, salePaid, saleRemaining, dailyPayments, monthlyPayments, finalLedgerBalance)
+	}
+	var supplierPaymentCount, supplierAllocations, supplierLedgerCount int
+	var supplierBalance, supplierDebtPaid, supplierPurchasePaid, supplierPurchaseRemaining, supplierLedgerBalance float64
+	var supplierDebtIsPaid bool
+	for _, check := range []struct {
+		query string
+		args  []any
+		dest  any
+	}{
+		{`SELECT COUNT(*) FROM payments WHERE id=$1`, []any{supplierPaymentID}, &supplierPaymentCount},
+		{`SELECT COUNT(*) FROM payment_debt_allocations WHERE payment_id=$1`, []any{supplierPaymentID}, &supplierAllocations},
+		{`SELECT COUNT(*) FROM supplier_ledger WHERE supplier_id=$1`, []any{supplierID}, &supplierLedgerCount},
+		{`SELECT current_balance FROM suppliers WHERE id=$1`, []any{supplierID}, &supplierBalance},
+		{`SELECT paid_amount FROM supplier_debts WHERE id=$1`, []any{supplierDebtID}, &supplierDebtPaid},
+		{`SELECT is_paid FROM supplier_debts WHERE id=$1`, []any{supplierDebtID}, &supplierDebtIsPaid},
+		{`SELECT paid_amount FROM purchases WHERE id=$1`, []any{purchaseID}, &supplierPurchasePaid},
+		{`SELECT remaining_amount FROM purchases WHERE id=$1`, []any{purchaseID}, &supplierPurchaseRemaining},
+		{`SELECT balance FROM supplier_ledger WHERE supplier_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1`, []any{supplierID}, &supplierLedgerBalance},
+	} {
+		if err := db.Get(check.dest, check.query, check.args...); err != nil {
+			t.Fatalf("query %q: %v", check.query, err)
+		}
+	}
+	if supplierPaymentCount != 0 || supplierAllocations != 0 || supplierLedgerCount != 1 || supplierBalance != 100 || supplierDebtPaid != 0 || supplierDebtIsPaid || supplierPurchasePaid != 0 || supplierPurchaseRemaining != 100 || supplierLedgerBalance != 100 {
+		t.Fatalf("PostgreSQL supplier payment reversal: payment/allocations/ledger=%d/%d/%d balance=%v debt=%v/%v purchase=%v/%v ledger_balance=%v; want 0/0/1 100 (0/false) (0/100) 100", supplierPaymentCount, supplierAllocations, supplierLedgerCount, supplierBalance, supplierDebtPaid, supplierDebtIsPaid, supplierPurchasePaid, supplierPurchaseRemaining, supplierLedgerBalance)
 	}
 }
 
@@ -1039,6 +1399,44 @@ func TestPostgresDeleteProductReversesAggregateStockThroughService(t *testing.T)
 	}
 	if unusedCount != 0 || stockedCount != 0 || stockCount != 0 {
 		t.Fatalf("PostgreSQL product deletion counts unused=%d stocked=%d stock=%d; want 0/0/0", unusedCount, stockedCount, stockCount)
+	}
+}
+
+func TestPostgresDeleteAvailableInventoryItemReversesAggregateStock(t *testing.T) {
+	db := openIsolatedPostgresCleanupTestDB(t)
+	if _, err := db.Exec(`
+		CREATE TABLE inventory_items (id UUID PRIMARY KEY, product_id UUID NOT NULL, status TEXT NOT NULL, updated_at TIMESTAMPTZ);
+		CREATE TABLE inventory (id UUID PRIMARY KEY, product_id UUID UNIQUE NOT NULL, quantity INTEGER NOT NULL, updated_at TIMESTAMPTZ);
+		CREATE TABLE audit_logs (id UUID PRIMARY KEY, user_id UUID, action TEXT, entity_type TEXT, entity_id UUID, new_values JSONB, created_at TIMESTAMPTZ);
+	`); err != nil {
+		t.Fatalf("create PostgreSQL inventory item deletion schema: %v", err)
+	}
+	itemID, productID := uuid.New(), uuid.New()
+	if _, err := db.Exec(`INSERT INTO inventory_items(id,product_id,status,updated_at) VALUES($1,$2,'AVAILABLE',NOW())`, itemID, productID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO inventory(id,product_id,quantity,updated_at) VALUES($1,$2,3,NOW())`, uuid.New(), productID); err != nil {
+		t.Fatal(err)
+	}
+	if err := inventory.NewService(inventory.NewRepository(db), db).DeleteInventoryItem(context.Background(), itemID, uuid.Nil); err != nil {
+		t.Fatalf("delete PostgreSQL available inventory item: %v", err)
+	}
+	var itemCount, auditCount, remainingQuantity int
+	for _, check := range []struct {
+		query string
+		args  []any
+		dest  *int
+	}{
+		{`SELECT COUNT(*) FROM inventory_items WHERE id=$1`, []any{itemID}, &itemCount},
+		{`SELECT quantity FROM inventory WHERE product_id=$1`, []any{productID}, &remainingQuantity},
+		{`SELECT COUNT(*) FROM audit_logs WHERE entity_id=$1 AND action='DELETE'`, []any{itemID}, &auditCount},
+	} {
+		if err := db.Get(check.dest, check.query, check.args...); err != nil {
+			t.Fatalf("query %q: %v", check.query, err)
+		}
+	}
+	if itemCount != 0 || remainingQuantity != 2 || auditCount != 1 {
+		t.Fatalf("PostgreSQL inventory item delete left item=%d stock=%d audit=%d; want 0/2/1", itemCount, remainingQuantity, auditCount)
 	}
 }
 
